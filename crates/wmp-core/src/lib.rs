@@ -1,9 +1,17 @@
-//! WMP messages, session state, peer and flow contexts — the shared base of the native WMP clients. Planned; S0 builds the minimal subset.
+//! The Wallet Messaging Protocol in Rust: messages, session state, peer,
+//! flows, validators and error codes.
 //!
-//! Stub: the crate exists to hold the workspace layout. The contents arrive
-//! with the spike — see `docs/engine-spec.md` (the specification) and the
-//! implementation plan. The start condition is the PR 163 rework landing on
-//! go-wallet-backend `main`, with go-wmp v0.13.0 already shipped.
+//! This crate mirrors [go-wmp](https://github.com/sirosfoundation/go-wmp) at
+//! v0.13.0 against the [wmp specification](https://github.com/sirosfoundation/wmp)
+//! and its vectors. The vectors are the referee: `tests/conformance.rs` runs
+//! `wmp/vectors/*.json` against this crate, and the port is complete when it
+//! runs them all.
+//!
+//! The crate is sans-network: a [`transport::Transport`] trait is defined for
+//! adapters to implement, and no module here opens a socket, reads a clock or
+//! samples randomness itself — entropy and time are arguments. See
+//! `docs/wmp-core-port.md` in the repository for the module map and the
+//! staging plan.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -22,3 +30,12 @@
         clippy::disallowed_methods
     )
 )]
+
+pub mod error;
+pub mod jsonrpc;
+pub mod methods;
+pub mod principal;
+pub mod session;
+pub mod token;
+pub mod types;
+pub mod version;

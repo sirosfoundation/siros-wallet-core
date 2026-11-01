@@ -7,6 +7,12 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "WMP messages, session state, peer and flow contexts — the shared base of the native WMP clients. Planned; S0 builds the minimal subset."
+description = "The Wallet Messaging Protocol in Rust: messages, session state, peer, flows, validators and error codes — mirroring go-wmp, refereed by the wmp vectors"
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
