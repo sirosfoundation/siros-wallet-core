@@ -18,8 +18,9 @@ response. Its contract is
 issuance and OpenID4VP presentation behind the Wallet Messaging Protocol, in one
 core with two adapters: in-process in the native SDKs (UniFFI) and as a
 standalone container suitable for a TEE. Its specification is
-[`docs/engine-spec.md`](docs/engine-spec.md); the spike (S0) starts when the
-PR 163 rework lands on go-wallet-backend `main`.
+[`docs/engine-spec.md`](docs/engine-spec.md), with the phase and spike plan in
+[`docs/implementation-plan.md`](docs/implementation-plan.md); the spike (S0)
+starts when the PR 163 rework lands on go-wallet-backend `main`.
 
 The Android credential picker (`matcher.wasm`, `siros-registration`,
 `android-credman`) and the Kotlin/Swift bindings of the matcher stay in
