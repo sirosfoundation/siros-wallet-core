@@ -9,9 +9,11 @@ both sides of the WMP engine seam.
 built in the wrong repository and closed unmerged — answers OpenID4VP 1.0
 presentation requests and the W3C Digital Credentials API, from request intake
 to the response: DCQL, SD-JWT VC and ISO mdoc, issuer trust, display,
-transaction data on the PaSO model, `zkp_req` proofs, and the presentation
-component that plans a consent view and turns the user's selection into the
-response. Its contract is
+transaction data on the PaSO model, `zkp_req` — extensions to DCQL that let a
+verifier state a zero-knowledge request and a wallet answer it — with
+catalogues of proof systems on top (nym_auth is the first of many), and the
+presentation component that plans a consent view and turns the user's
+selection into the response. Its contract is
 [`docs/wallet-core-architecture.md`](docs/wallet-core-architecture.md).
 
 **The WMP engine core** — planned, stubs only for now — implements OpenID4VCI
@@ -41,8 +43,8 @@ consume this core from there.
 | `siros-credential` | The format-independent credential with typed claims and validity |
 | `siros-display` | Display metadata, locale resolution, cards, claim rows, purpose lines |
 | `siros-transaction-data` | `transaction_data` on the PaSO model, definitions, projection, rendering, bindings |
-| `siros-zkp-req` | The `zkp_req` protocol layer |
-| `siros-zkp-req-nym-auth` | The nym_auth catalogue: systems, session binding, credential tests, the prover interface, the verifier |
+| `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
+| `siros-zkp-req-nym-auth` | The first `zkp_req` catalogue: nym_auth (`pseudonym`, `age_check`) on the Longfellow and Vega systems — session binding, credential tests, the prover interface, the verifier. Further ZKP systems arrive as new catalogues, not as protocol changes |
 | `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
 | `wmp-core`, `engine-ports`, `engine-core`, `engine-adapter-sdk`, `engine-adapter-server`, `engine-conformance` | The WMP engine core (stubs; see the specification) |
 

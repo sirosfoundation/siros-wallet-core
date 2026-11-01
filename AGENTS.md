@@ -20,6 +20,12 @@ small and protocol-specific.
 - **Construction guards validity.** Data enters through a parser whose output
   type can only hold valid states; no separate `validate()` beside a parser.
   Witness types carry runtime checks (trust, time, selection) between steps.
+- **`zkp_req` is protocol; proof systems are catalogues.** `siros-zkp-req`
+  extends DCQL so a verifier can state a zero-knowledge request and a wallet
+  can answer it; it holds no prover and no system. nym_auth is the first of
+  many catalogues (`siros-zkp-req-nym-auth`); a new ZKP system adds a
+  catalogue on top of the protocol layer — never a change to `zkp_req`
+  itself, and never a second copy of the protocol.
 - **Nothing panics outside the tests.** No `unwrap`, `expect`, indexing or
   `panic!` in library code; CI enforces it with clippy and
   `scripts/check_panic_sites.py`.
