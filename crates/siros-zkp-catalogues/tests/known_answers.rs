@@ -13,9 +13,9 @@ use siros_dcql::DocType;
 use siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript};
 use siros_oid4vp::ClientId;
 use siros_oid4vp::{Handover, JwkThumbprint};
-use siros_zkp_req_nym_auth::age::{AgeRange, Bound, Bounds};
-use siros_zkp_req_nym_auth::catalogue::Config;
-use siros_zkp_req_nym_auth::verifier_id::{
+use siros_zkp_catalogues::age::{AgeRange, Bound, Bounds};
+use siros_zkp_catalogues::catalogue::Config;
+use siros_zkp_catalogues::verifier_id::{
     pseudonym_sha256, verifier_input, Intermediary, ProverInput, VerifierId,
 };
 

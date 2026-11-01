@@ -5,11 +5,11 @@ use itertools::Itertools;
 use siros_codec::date::DateTime;
 use siros_credential::{Parsed, UsableCredential};
 use siros_trust::AdmittedIssuer;
-use siros_zkp_req_nym_auth::attestation::{
+use siros_zkp_catalogues::attestation::{
     OtherIssuer, SecretSeed, TestedAttestation, Unreadable, Unusable, UsableAttestation,
 };
-use siros_zkp_req_nym_auth::outcome::CredentialCode;
-use siros_zkp_req_nym_auth::presenter::{Answer as NymAnswer, Unanswerable};
+use siros_zkp_catalogues::outcome::CredentialCode;
+use siros_zkp_catalogues::presenter::{Answer as NymAnswer, Unanswerable};
 
 use super::seed::{self, NoSeed};
 use crate::error::PresentationError;

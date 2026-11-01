@@ -6,7 +6,7 @@ use siros_codec::base64url;
 use siros_codec::json::{JsonFault, ReadFault};
 use siros_dcql::QueryId;
 use siros_presentation::{Exclusion, Failure, NoSeed, PresentationError, Unproven};
-use siros_zkp_req_nym_auth::testing::{query, Spec};
+use siros_zkp_catalogues::testing::{query, Spec};
 
 use crate::verifier::{b64, client_metadata, redirect_signed, NONCE};
 use crate::wallet::{nym_auth, ready, Held, Wallet};

@@ -18,9 +18,9 @@ use siros_dcql::{
 };
 use siros_trust::QueryAuthorities;
 use siros_wallet_state::PresentationRecord;
-use siros_zkp_req_nym_auth::catalogue::ATTESTATION_TYPES;
-use siros_zkp_req_nym_auth::policy::RequestRefusal;
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
+use siros_zkp_catalogues::catalogue::ATTESTATION_TYPES;
+use siros_zkp_catalogues::policy::RequestRefusal;
+use siros_zkp_catalogues::system::NymAuthSystem;
 
 use crate::credential::{KeyHolding, MatchCredential};
 use crate::ids::{CandidateIndex, QueryIndex};

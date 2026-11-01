@@ -24,12 +24,12 @@
 
 use siros_codec::date::Date;
 use siros_zkp_req::ZkProof;
-use siros_zkp_req_nym_auth::prover::{
+use siros_zkp_catalogues::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,
     Statement,
 };
-use siros_zkp_req_nym_auth::system::{ArtifactPin, NymAuthSystem};
-use siros_zkp_req_nym_auth::verifier_id::PseudonymValue;
+use siros_zkp_catalogues::system::{ArtifactPin, NymAuthSystem};
+use siros_zkp_catalogues::verifier_id::PseudonymValue;
 use zk_cred_vega::nymauth_vega::engine::statement::{
     self as vega, Error, Holder, Keys, Statement as VegaStatement,
 };

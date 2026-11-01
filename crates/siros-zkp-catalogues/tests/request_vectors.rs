@@ -13,8 +13,8 @@ use std::path::PathBuf;
 
 use serde_json::{json, Value};
 use siros_dcql::CredentialQuery;
+use siros_zkp_catalogues::catalogue::{CatalogueRule, Catalogued, NymAuthQuery};
 use siros_zkp_req::{ZkpFormats, ZkpReqQuery};
-use siros_zkp_req_nym_auth::catalogue::{CatalogueRule, Catalogued, NymAuthQuery};
 
 fn member(vector: &Value, value_key: &str, text_key: &str) -> Value {
     match (vector.get(value_key), vector.get(text_key)) {

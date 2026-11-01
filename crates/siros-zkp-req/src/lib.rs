@@ -16,7 +16,7 @@
 //! | `vp_token` (feature `vp-token`) | The presentations of a query in a JSON `vp_token` | Section 6.1 |
 //! | [`outcome`] | The error codes and the request rules | Section 5 |
 //!
-//! A function catalogue, such as `siros-zkp-req-nym-auth`, adds its functions and systems.
+//! A function catalogue, such as `siros-zkp-catalogues`, adds its functions and systems.
 //! Proving stays outside: a host implements it behind the catalogue's prover interface.
 //!
 //! Nothing here panics on any input: the matcher runs this code inside the credential picker,

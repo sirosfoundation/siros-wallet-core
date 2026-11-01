@@ -1,9 +1,9 @@
 # `zkp_req` requests
 
 The request side of the `zkp_req` draft 0.1 and the nym_auth catalogue 0.5 (rulebook repository,
-commit `e65861c`). Code: `crates/siros-zkp-req` (the protocol) and `crates/siros-zkp-req-nym-auth`
+commit `e65861c`). Code: `crates/siros-zkp-req` (the protocol) and `crates/siros-zkp-catalogues`
 (the catalogue). Vectors: `crates/siros-zkp-req/tests/vectors/request/` and
-`crates/siros-zkp-req-nym-auth/tests/vectors/request/`.
+`crates/siros-zkp-catalogues/tests/vectors/request/`.
 
 ```json
 { "id": "nym_attestation", "format": "zkp_req",

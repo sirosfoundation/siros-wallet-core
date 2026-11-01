@@ -10,7 +10,7 @@ use siros_sdjwt::KeyBindingError;
 use siros_transaction_data::TransactionDataError;
 use siros_trust::{ChainRefusal, Unadmitted};
 use siros_wallet_state::KeyId;
-use siros_zkp_req_nym_auth::presenter::{ProveError, Unanswerable};
+use siros_zkp_catalogues::presenter::{ProveError, Unanswerable};
 
 use crate::ids::{AdditionIndex, OfferIndex, SetIndex};
 use crate::inconsistency::Inconsistency;

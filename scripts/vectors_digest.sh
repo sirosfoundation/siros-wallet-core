@@ -7,7 +7,7 @@
 #   scripts/vectors_digest.sh --digest   # only the hex digest
 set -eu
 cd "$(dirname "$0")/../crates"
-dirs="siros-zkp-req/tests/vectors/request siros-zkp-req-nym-auth/tests/vectors"
+dirs="siros-zkp-req/tests/vectors/request siros-zkp-catalogues/tests/vectors"
 for dir in $dirs; do
     [ -d "$dir" ] || { echo "vectors_digest: required vector directory missing: $dir" >&2; exit 1; }
 done

@@ -11,7 +11,7 @@ use siros_presentation::{
     AdditionIndex, DigestError, Fulfilment, OfferIndex, PlanDigest, PresentationError, Selection,
     Sign, SignId, SignatureError,
 };
-use siros_zkp_req_nym_auth::testing::{self, TestProver};
+use siros_zkp_catalogues::testing::{self, TestProver};
 
 use crate::verifier::{b64, redirect_unsigned, Rng, NONCE, STATE};
 use crate::wallet::{mdoc, ready, sd_jwt, sign_all, Held, Wallet, MDL, MDL_NS, VCT};

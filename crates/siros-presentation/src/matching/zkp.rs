@@ -5,13 +5,13 @@ use itertools::Itertools;
 use serde_json::Value;
 use siros_codec::date::Date;
 use siros_dcql::CredentialQuery;
+use siros_zkp_catalogues::catalogue::{CatalogueRule, NymAuthQuery};
+use siros_zkp_catalogues::pair::{NymAuthOption, UsablePair};
+use siros_zkp_catalogues::policy::RequestRefusal;
+use siros_zkp_catalogues::system::{pair_code, NymAuthSystem, Unsupported};
 use siros_zkp_req::{
     ErrorCode, PairRefusal, ProofBackend, QueryOption, RequestRule, ZkpFormats, ZkpReqQuery,
 };
-use siros_zkp_req_nym_auth::catalogue::{CatalogueRule, NymAuthQuery};
-use siros_zkp_req_nym_auth::pair::{NymAuthOption, UsablePair};
-use siros_zkp_req_nym_auth::policy::RequestRefusal;
-use siros_zkp_req_nym_auth::system::{pair_code, NymAuthSystem, Unsupported};
 
 use crate::credential::{KeyHolding, MatchCredential};
 use crate::ids::OptionIndex;

@@ -17,10 +17,10 @@ use serde_json::{json, Value};
 use siros_codec::cbor::Value as Cbor;
 use siros_codec::date::DateTime;
 use siros_trust::Certificate;
+use siros_zkp_catalogues::prover::ProofFailure;
+use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_catalogues::verify::{verify, Rejection, Tolerance, VerifyInput};
 use siros_zkp_req::{ProofEnvelope, ReqSetIndex, ZkpPresentation};
-use siros_zkp_req_nym_auth::prover::ProofFailure;
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
-use siros_zkp_req_nym_auth::verify::{verify, Rejection, Tolerance, VerifyInput};
 use support::*;
 
 fn tolerance() -> Tolerance {
@@ -53,7 +53,7 @@ fn verify_with(
     nonce: &str,
     bytes: &[u8],
     trust_anchors: &[Certificate],
-) -> Result<siros_zkp_req_nym_auth::verify::Verified, Rejection> {
+) -> Result<siros_zkp_catalogues::verify::Verified, Rejection> {
     verify(
         &VerifyInput {
             query,

@@ -13,9 +13,9 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use siros_dcql::CredentialQuery;
+use siros_zkp_catalogues::prover::ProofFailure;
+use siros_zkp_catalogues::verify::{check_presentation, Rejection};
 use siros_zkp_req::{presentations_of, EncodingError, StructureRejection, ZkpReqQuery};
-use siros_zkp_req_nym_auth::prover::ProofFailure;
-use siros_zkp_req_nym_auth::verify::{check_presentation, Rejection};
 
 fn structure_code(s: &StructureRejection) -> &'static str {
     match s {

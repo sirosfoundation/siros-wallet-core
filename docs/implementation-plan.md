@@ -69,7 +69,7 @@ siros-wallet-engine/
     ├── siros-display/
     ├── siros-transaction-data/
     ├── siros-zkp-req/
-    ├── siros-zkp-req-nym-auth/
+    ├── siros-zkp-catalogues/
     ├── siros-presentation/
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance

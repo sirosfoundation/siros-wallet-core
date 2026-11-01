@@ -11,7 +11,7 @@ use siros_presentation::{
     WalletDisplay, MAX_ADDITIONS, MAX_EXAMINED, MAX_OFFERS,
 };
 use siros_wallet_state::CredentialId;
-use siros_zkp_req_nym_auth::testing::Spec;
+use siros_zkp_catalogues::testing::Spec;
 
 use crate::verifier::{dc_api_unsigned, redirect_unsigned, NONCE, STATE};
 use crate::wallet::{mdoc, nym_auth, ready, respond_to, sd_jwt, Held, Wallet, MDL, MDL_NS, VCT};

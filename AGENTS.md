@@ -23,24 +23,27 @@ small and protocol-specific.
 - **`zkp_req` is protocol; nym_auth is a credential capability.**
   `siros-zkp-req` extends DCQL so a verifier can state a zero-knowledge
   request and a wallet can answer it; it holds no prover and no system.
-  nym_auth (`siros-zkp-req-nym-auth`) is a normal credential — an mdoc,
+  nym_auth (`siros-zkp-catalogues`) is a normal credential — an mdoc,
   stored in the wallet state, matched, displayed and consented like any
   other — that happens to carry the capability of doing pseudonyms; its
   rulebook defines the functions (`pseudonym`, `age_check`) and the
   Longfellow and Vega systems that prove them. New capabilities and systems
   add crates on top of the protocol layer — never a change to `zkp_req`
   itself, and never a second copy of the protocol.
-- **Crate axis vs feature axis in the ZK stack.** One crate per
-  *rulebook* — an independently specified capability — and never one per
-  credential type. A new credential form for an existing rulebook (the
-  nym_auth form of an mdoc today, of an SD-JWT VC tomorrow) is a module and
-  feature *inside* the rulebook's crate; a new system (Longfellow, Vega,
-  BBS-CD) likewise. A new crate appears only for a new rulebook. The
-  `siros-zkp-req-nym-auth` crate exists because the rulebook crosses the
-  layers (it depends on the protocol, the credential form, the request policy
-  and the trust rules at once) and because its consumers cut along its
-  features: the picker links it without `credential`, the wallet with it,
-  and the 1.95 provers sit behind its prover interface in `proving/`.
+- **The ZK stack is two crates, permanently.** `siros-zkp-req` is the
+  protocol: DCQL extensions, no prover, no system, format-neutral.
+  `siros-zkp-catalogues` holds every rulebook — an independently specified
+  capability — as modules and features. nym_auth is the first; a new
+  credential form (the nym_auth form of an mdoc today, of an SD-JWT VC
+  tomorrow) and a new system (Longfellow, Vega, BBS-CD) land inside the
+  existing crates. A new rulebook lands in `siros-zkp-catalogues` too.
+  Capability growth never adds a crate. The catalogue crate exists because
+  the rulebooks cross the layers (protocol, credential form, request
+  policy, trust at once) and its consumers cut along its features: the
+  picker links it without `credential`, the wallet with it, and the 1.95
+  provers sit behind its prover interface in `proving/`. When a second
+  rulebook arrives, namespace its internals (`src/nym_auth/`,
+  `src/<rulebook>/`) in the same change.
 - **Nothing panics outside the tests.** No `unwrap`, `expect`, indexing or
   `panic!` in library code; CI enforces it with clippy and
   `scripts/check_panic_sites.py`.

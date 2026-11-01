@@ -5,7 +5,7 @@
 
 use siros_zkp_backend_longfellow::{self as longfellow, LongfellowProver, LongfellowVerifier};
 use siros_zkp_backend_vega::{self as vega, VegaNymAuth};
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
+use siros_zkp_catalogues::system::NymAuthSystem;
 
 #[test]
 fn an_unpinned_artifact_is_refused() {

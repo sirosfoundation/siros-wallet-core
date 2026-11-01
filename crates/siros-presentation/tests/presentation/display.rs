@@ -8,7 +8,7 @@ use siros_oid4vp::{Outcome, PostParameters, Submission, VerifiedRequest};
 use siros_presentation::{
     Fulfilment, HostDisplay, OfferIndex, PresentationError, Selection, WalletDisplay,
 };
-use siros_zkp_req_nym_auth::testing::{query, Spec};
+use siros_zkp_catalogues::testing::{query, Spec};
 
 use crate::sd_jwt::{payment, type_metadata};
 use crate::verifier::{

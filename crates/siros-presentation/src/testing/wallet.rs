@@ -20,9 +20,9 @@ use siros_oid4vp::VerifiedRequest;
 use siros_transaction_data::{Amr, Configuration, Factor, HeldMetadata, Inherence, Possession};
 use siros_trust::TrustStore;
 use siros_wallet_state::{CredentialId, WalletState};
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
-use siros_zkp_req_nym_auth::testing::{self, Issuer, Spec, TestProver, SEED};
-use siros_zkp_req_nym_auth::verifier_id::VerifierIdForm;
+use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_catalogues::testing::{self, Issuer, Spec, TestProver, SEED};
+use siros_zkp_catalogues::verifier_id::VerifierIdForm;
 
 use super::host::{holding_absent, issuer_display, label_text};
 use super::verifier::{b64, Rng, NOW};

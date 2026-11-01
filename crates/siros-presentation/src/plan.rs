@@ -15,10 +15,10 @@ use siros_oid4vp::{ErrorCode, Submission, VerifiedRequest};
 use siros_transaction_data::{Amr, Configuration, HeldMetadata, TransactionDataError};
 use siros_trust::TrustStore;
 use siros_wallet_state::{CredentialId, KeyId, PresentationRecord};
-use siros_zkp_req_nym_auth::policy::RequestRefusal;
-use siros_zkp_req_nym_auth::request::NymAuthRequest;
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
-use siros_zkp_req_nym_auth::verifier_id::VerifierIdForm;
+use siros_zkp_catalogues::policy::RequestRefusal;
+use siros_zkp_catalogues::request::NymAuthRequest;
+use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_catalogues::verifier_id::VerifierIdForm;
 
 use crate::display_rule::TransactionData;
 use crate::error::PresentationError;

@@ -7,7 +7,7 @@ use siros_codec::cbor::Value as Cbor;
 use siros_presentation::{Failure, PresentationError, QueryRefusal};
 use siros_trust::{AkiError, AuthorityError, Certificate, TrustStore};
 use siros_wallet_state::CredentialId;
-use siros_zkp_req_nym_auth::testing::Issuer;
+use siros_zkp_catalogues::testing::Issuer;
 
 use crate::verifier::{redirect_unsigned, NONCE, STATE};
 use crate::wallet::{base64, mdoc_by, ready, sd_jwt, sd_jwt_x5c, Held, Wallet, MDL, MDL_NS, VCT};

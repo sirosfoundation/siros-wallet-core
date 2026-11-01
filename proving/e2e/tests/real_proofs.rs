@@ -22,16 +22,16 @@ use siros_trust::Certificate;
 use siros_zkp_backend_longfellow::{LongfellowProver, LongfellowVerifier};
 use siros_zkp_backend_vega::VegaNymAuth;
 use siros_zkp_req::ZkProof;
-use siros_zkp_req_nym_auth::prover::{
+use siros_zkp_catalogues::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, Statement,
 };
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
-use siros_zkp_req_nym_auth::testing::{
+use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_catalogues::testing::{
     client_metadata, device_signature, expected_pseudonym, issue, prepared, query, session,
     verified_request, Issuer, Spec, CLIENT_ID, NONCE, NOW, SEED,
 };
-use siros_zkp_req_nym_auth::verifier_id::PseudonymValue;
-use siros_zkp_req_nym_auth::verify::{verify, Rejection, Tolerance, Verified, VerifyInput};
+use siros_zkp_catalogues::verifier_id::PseudonymValue;
+use siros_zkp_catalogues::verify::{verify, Rejection, Tolerance, Verified, VerifyInput};
 
 fn tolerance() -> Tolerance {
     Tolerance::seconds(60, 600)

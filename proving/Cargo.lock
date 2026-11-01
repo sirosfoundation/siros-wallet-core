@@ -1324,8 +1324,8 @@ version = "0.11.0"
 dependencies = [
  "sha2",
  "siros-codec",
+ "siros-zkp-catalogues",
  "siros-zkp-req",
- "siros-zkp-req-nym-auth",
  "thiserror 2.0.21",
  "zk-cred-longfellow",
  "zstd",
@@ -1336,38 +1336,15 @@ name = "siros-zkp-backend-vega"
 version = "0.11.0"
 dependencies = [
  "siros-codec",
+ "siros-zkp-catalogues",
  "siros-zkp-req",
- "siros-zkp-req-nym-auth",
  "thiserror 2.0.21",
  "zk-cred-vega",
  "zstd",
 ]
 
 [[package]]
-name = "siros-zkp-proving-e2e"
-version = "0.0.0"
-dependencies = [
- "serde_json",
- "siros-codec",
- "siros-trust",
- "siros-zkp-backend-longfellow",
- "siros-zkp-backend-vega",
- "siros-zkp-req",
- "siros-zkp-req-nym-auth",
-]
-
-[[package]]
-name = "siros-zkp-req"
-version = "0.11.0"
-dependencies = [
- "serde_json",
- "siros-codec",
- "siros-dcql",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "siros-zkp-req-nym-auth"
+name = "siros-zkp-catalogues"
 version = "0.11.0"
 dependencies = [
  "der",
@@ -1387,6 +1364,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "siros-zkp-proving-e2e"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "siros-codec",
+ "siros-trust",
+ "siros-zkp-backend-longfellow",
+ "siros-zkp-backend-vega",
+ "siros-zkp-catalogues",
+ "siros-zkp-req",
+]
+
+[[package]]
+name = "siros-zkp-req"
+version = "0.11.0"
+dependencies = [
+ "serde_json",
+ "siros-codec",
+ "siros-dcql",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "siros-zkp-req-wasm"
 version = "0.11.0"
 dependencies = [
@@ -1396,8 +1396,8 @@ dependencies = [
  "siros-dcql",
  "siros-zkp-backend-longfellow",
  "siros-zkp-backend-vega",
+ "siros-zkp-catalogues",
  "siros-zkp-req",
- "siros-zkp-req-nym-auth",
  "wasm-bindgen",
 ]
 

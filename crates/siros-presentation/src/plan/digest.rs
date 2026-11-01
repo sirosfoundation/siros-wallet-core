@@ -8,7 +8,7 @@ use siros_codec::cbor::Value;
 use siros_codec::{base64url, Base64Error};
 use siros_dcql::PathComponent;
 use siros_oid4vp::VerifiedRequest;
-use siros_zkp_req_nym_auth::verifier_id::VerifierId;
+use siros_zkp_catalogues::verifier_id::VerifierId;
 
 use super::view::{AdditionView, BoundTransaction, CredentialView, MemberView, OfferView};
 use crate::display_rule::WalletDisplay;

@@ -7,8 +7,8 @@ use siros_codec::base64url;
 use siros_codec::json::{Json, JsonFault};
 use siros_codec::Base64Error;
 use siros_credential::Credential;
-use siros_zkp_req_nym_auth::attestation::SecretSeed;
-use siros_zkp_req_nym_auth::catalogue::MDOC_DOCTYPE;
+use siros_zkp_catalogues::attestation::SecretSeed;
+use siros_zkp_catalogues::catalogue::MDOC_DOCTYPE;
 use zeroize::Zeroizing;
 
 /// The claim the seed commits to.

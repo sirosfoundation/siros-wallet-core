@@ -1,6 +1,6 @@
 # The `zkp_req` core
 
-`siros-zkp-req` and `siros-zkp-req-nym-auth` are one implementation of the `zkp_req` protocol
+`siros-zkp-req` and `siros-zkp-catalogues` are one implementation of the `zkp_req` protocol
 layer and of the nym_auth function catalogue, for the matcher, the wallet hosts and the verifier.
 They implement the draft of the nym_auth rulebook repository at commit `e65861c`:
 `zkp_req.md` (0.1), `nym_auth_rulebook.md` (0.5), `systems/longfellow-nym_auth-v1.md` and
@@ -15,7 +15,7 @@ behind the nym_auth prover interface and the rulebooks' artifact pins.
 | Crate | Holds | Rust |
 | :-- | :-- | :-- |
 | `siros-zkp-req` | The protocol: the Credential Query with `_req` and `_req_sets`, `vp_formats_supported.zkp_req`, the usable pair of Section 1.3, `ZkpPresentation`, the backends' `Proof`, the `vp_token`, the Verifier's steps 1 to 5 of Section 4.1. Depends on `serde_json`, `siros-codec` and `siros-dcql`, which parses the Credential Query: `ZkpReqQuery::parse` reads the `CredentialQuery` it gives. | 1.82 |
-| `siros-zkp-req-nym-auth` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc` with `crypto`, `siros-trust` with `chain`, `zeroize`). With `request`: the nym_auth request of `siros-oid4vp`'s verified request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests and a test host. | 1.82 |
+| `siros-zkp-catalogues` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc` with `crypto`, `siros-trust` with `chain`, `zeroize`). With `request`: the nym_auth request of `siros-oid4vp`'s verified request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests and a test host. | 1.82 |
 | `siros-dc-matcher-core` | The matcher. It plans `zkp_req` with the two crates above, without `credential`. | 1.82 |
 | `siros-dc-matcher-ffi` | Module `zkp_req`: the session, the `vp_token` and the verifier for Kotlin and Swift (UniFFI), around a host's proof verifier. | 1.88 |
 | `siros-zkp-backend-longfellow` | `urn:circuits:longfellow:nym_auth:v1` on `longfellow-libzk-v1`: `LongfellowProver` and `LongfellowVerifier` over zk-cred-longfellow. | 1.95 |
@@ -63,7 +63,7 @@ length.
 
 ## The prover interface
 
-`siros_zkp_req_nym_auth::prover` defines a system's prover and verifier. The two backend crates
+`siros_zkp_catalogues::prover` defines a system's prover and verifier. The two backend crates
 implement it; a host with its own zk-cred binding, such as the Kotlin SDK, implements it through
 the FFI.
 
@@ -205,7 +205,7 @@ exports the provers and `vpTokenJson`.
 
 ## Acceptance gates
 
-* **G1, honest path** (`crates/siros-zkp-req-nym-auth/tests/flow.rs`,
+* **G1, honest path** (`crates/siros-zkp-catalogues/tests/flow.rs`,
   `crates/siros-dc-matcher-ffi/tests/zkp_req_api.rs`). For each system
   (`urn:circuits:longfellow:nym_auth:v1` on `longfellow-libzk-v1`,
   `urn:circuits:vega:nym_auth:v1` on `vega-v1`): a signed request passes intake, the credential
@@ -218,22 +218,22 @@ exports the provers and `vpTokenJson`.
   after `proving/scripts/fetch-artifacts.sh`). For each system the backend builds the witness
   and proves, and the Verifier with the same backend accepts; once with `age_check` `18+`, once
   with `0-2025`, whose E lies in year 0000.
-* **G2, differential** (`crates/siros-zkp-req-nym-auth/tests/readdit.rs`). readdit 1cf3f26, the reference code of the system
+* **G2, differential** (`crates/siros-zkp-catalogues/tests/readdit.rs`). readdit 1cf3f26, the reference code of the system
   rulebooks' Section 10, reads a credential of the test issuer in a redirect session. For both
   systems, this crate reaches readdit's mdoc fields, issuer key, `SessionTranscript`, data to
   sign, e2, `verifier_input` and pseudonym. readdit's v0.4 presentation maps onto the draft's:
   `issuer_key_set` and `proof_time` move into `Proof.inputs`, `proof` becomes
   `Proof.zk_proof`, and `proof_backend` is new.
-* **G3, refusals** (`crates/siros-zkp-req-nym-auth/tests/refusals.rs`). One table holds one fixture per refusal rule: the
+* **G3, refusals** (`crates/siros-zkp-catalogues/tests/refusals.rs`). One table holds one fixture per refusal rule: the
   request rules (`invalid_request`), `vp_formats_not_supported`, the Wallet codes of the system
   rulebooks' Section 9, and the Verifier's codes. Each row asserts the exact typed error. An
   issuer the query's `trusted_authorities` do not admit matches nothing; `siros-trust` tests
-  that rule, and `crates/siros-zkp-req-nym-auth/tests/usable.rs` the binding of the admission to the Document Signer and the
+  that rule, and `crates/siros-zkp-catalogues/tests/usable.rs` the binding of the admission to the Document Signer and the
   query.
-* **G4, known answers** (`crates/siros-zkp-req-nym-auth/tests/known_answers.rs`). The `age_check` examples of the specs, the
+* **G4, known answers** (`crates/siros-zkp-catalogues/tests/known_answers.rs`). The `age_check` examples of the specs, the
   29 February cases worked by hand from the catalogue's rule, and the pseudonym and session
   vectors the provers ship.
-* **G5, tamper** (`crates/siros-zkp-req-nym-auth/tests/flow.rs`). A changed public input, a changed result and a presentation
+* **G5, tamper** (`crates/siros-zkp-catalogues/tests/flow.rs`). A changed public input, a changed result and a presentation
   for another request each reach the proof check and are refused there. With real proofs: a
   presentation for another session is `proof_invalid` with Longfellow and `public_input` with
   Vega, and a `zk_proof` one byte short is `proof_encoding` with both.

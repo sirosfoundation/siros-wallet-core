@@ -10,7 +10,7 @@
 
 use serde_json::Value;
 use siros_codec::date::DateTime;
-use siros_zkp_req_nym_auth::verify::Tolerance;
+use siros_zkp_catalogues::verify::Tolerance;
 
 #[test]
 fn proof_time_vectors() {

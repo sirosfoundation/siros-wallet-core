@@ -5,8 +5,8 @@ use siros_codec::base64url;
 use siros_mdoc::Disclosure;
 use siros_oid4vp::Presentation;
 use siros_sdjwt::KeyBinding;
-use siros_zkp_req_nym_auth::presenter::Prepared as NymPrepared;
-use siros_zkp_req_nym_auth::prover::NymAuthProver;
+use siros_zkp_catalogues::presenter::Prepared as NymPrepared;
+use siros_zkp_catalogues::prover::NymAuthProver;
 
 use super::sign::{SignId, SigningInput, VerifiedSignature};
 use crate::error::PresentationError;

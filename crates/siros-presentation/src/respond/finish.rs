@@ -7,7 +7,7 @@ use siros_codec::signature::Es256Signature;
 use siros_dcql::QueryId;
 use siros_oid4vp::{Presentation, Submission};
 use siros_wallet_state::{CredentialId, PresentationId, PresentationRecord, TransactionId};
-use siros_zkp_req_nym_auth::prover::NymAuthProver;
+use siros_zkp_catalogues::prover::NymAuthProver;
 
 use super::prepare::{audience, PendingMember, Prepared};
 use super::sign::{verified, Sign, SignId, VerifiedSignature};

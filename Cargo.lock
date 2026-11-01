@@ -1220,8 +1220,8 @@ dependencies = [
  "siros-transaction-data",
  "siros-trust",
  "siros-wallet-state",
+ "siros-zkp-catalogues",
  "siros-zkp-req",
- "siros-zkp-req-nym-auth",
  "thiserror",
  "x509-cert",
  "zeroize",
@@ -1290,17 +1290,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "siros-zkp-req"
-version = "0.11.0"
-dependencies = [
- "serde_json",
- "siros-codec",
- "siros-dcql",
- "thiserror",
-]
-
-[[package]]
-name = "siros-zkp-req-nym-auth"
+name = "siros-zkp-catalogues"
 version = "0.11.0"
 dependencies = [
  "ciborium",
@@ -1314,11 +1304,21 @@ dependencies = [
  "siros-mdoc",
  "siros-oid4vp",
  "siros-trust",
+ "siros-zkp-catalogues",
  "siros-zkp-req",
- "siros-zkp-req-nym-auth",
  "thiserror",
  "x509-cert",
  "zeroize",
+]
+
+[[package]]
+name = "siros-zkp-req"
+version = "0.11.0"
+dependencies = [
+ "serde_json",
+ "siros-codec",
+ "siros-dcql",
+ "thiserror",
 ]
 
 [[package]]

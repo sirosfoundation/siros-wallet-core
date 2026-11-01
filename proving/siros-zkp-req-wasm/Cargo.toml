@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 siros-dcql = { workspace = true }
 siros-zkp-req = { workspace = true }
-siros-zkp-req-nym-auth = { workspace = true }
+siros-zkp-catalogues = { workspace = true }
 siros-zkp-backend-longfellow = { workspace = true }
 siros-zkp-backend-vega = { workspace = true }
 serde = { workspace = true }

@@ -23,7 +23,7 @@ siros-dcql = { path = "../crates/siros-dcql" }
 siros-oid4vp = { path = "../crates/siros-oid4vp" }
 siros-trust = { path = "../crates/siros-trust", features = ["chain"] }
 siros-zkp-req = { path = "../crates/siros-zkp-req" }
-siros-zkp-req-nym-auth = { path = "../crates/siros-zkp-req-nym-auth", default-features = false, features = ["credential"] }
+siros-zkp-catalogues = { path = "../crates/siros-zkp-catalogues", default-features = false, features = ["credential"] }
 siros-zkp-backend-longfellow = { path = "siros-zkp-backend-longfellow" }
 siros-zkp-backend-vega = { path = "siros-zkp-backend-vega" }
 # Without the js feature: its wasm-bindgen API stays out of siros-zkp-req-wasm.

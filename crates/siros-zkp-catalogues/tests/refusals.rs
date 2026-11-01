@@ -17,26 +17,24 @@ use siros_codec::member::{ArrayIndex, MemberFault};
 use siros_dcql::{CredentialQuery, QueryError};
 use siros_oid4vp::{ClientId, ClientIdError, Origin};
 use siros_trust::Certificate;
+use siros_zkp_catalogues::attestation::{SecretSeed, Unusable};
+use siros_zkp_catalogues::catalogue::{CatalogueRule, ContextFault, NymAuthQuery, ParamFault, Prf};
+use siros_zkp_catalogues::outcome::{CredentialCode, InvalidRequest, ItemCode, ZkpError};
+use siros_zkp_catalogues::policy::PolicyRule;
+use siros_zkp_catalogues::presenter::{Answer, ProveError, Unanswerable};
+use siros_zkp_catalogues::prover::{ProofFailure, ProverFailure};
+use siros_zkp_catalogues::request_object::{check_request, Channel, Signing};
+use siros_zkp_catalogues::system::{NymAuthSystem, Unsupported};
+use siros_zkp_catalogues::verifier_id::{Intermediary, LengthError, VerifierId, VerifierIdRule};
+use siros_zkp_catalogues::verify::{
+    verify, IssuerKeySetError, OwnQueryFault, ProofEncodingFault, ProofTimeError, Rejection,
+    ResultsFault, Tolerance, VerifyInput,
+};
 use siros_zkp_req::{
     EncodingError, IdentifierFault, InputName, ItemIndex, OptionFault, PairRefusal, ProofBackend,
     ProofContent, ProofEnvelope, ReqSetIndex, RequestRule, ResultKey, ReturnFault,
     ReturnHandleError, StructureRejection, TypeValueFault, ZkProof, ZkpFormats, ZkpPresentation,
     ZkpReqQuery,
-};
-use siros_zkp_req_nym_auth::attestation::{SecretSeed, Unusable};
-use siros_zkp_req_nym_auth::catalogue::{
-    CatalogueRule, ContextFault, NymAuthQuery, ParamFault, Prf,
-};
-use siros_zkp_req_nym_auth::outcome::{CredentialCode, InvalidRequest, ItemCode, ZkpError};
-use siros_zkp_req_nym_auth::policy::PolicyRule;
-use siros_zkp_req_nym_auth::presenter::{Answer, ProveError, Unanswerable};
-use siros_zkp_req_nym_auth::prover::{ProofFailure, ProverFailure};
-use siros_zkp_req_nym_auth::request_object::{check_request, Channel, Signing};
-use siros_zkp_req_nym_auth::system::{NymAuthSystem, Unsupported};
-use siros_zkp_req_nym_auth::verifier_id::{Intermediary, LengthError, VerifierId, VerifierIdRule};
-use siros_zkp_req_nym_auth::verify::{
-    verify, IssuerKeySetError, OwnQueryFault, ProofEncodingFault, ProofTimeError, Rejection,
-    ResultsFault, Tolerance, VerifyInput,
 };
 use support::*;
 use zeroize::Zeroizing;

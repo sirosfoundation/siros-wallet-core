@@ -19,13 +19,13 @@ use serde_json::{json, Value};
 use siros_codec::date::DateTime;
 use siros_mdoc::{Mdoc, P256Key};
 use siros_oid4vp::ec_jwk_thumbprint;
+use siros_zkp_catalogues::attestation::TestedAttestation;
+use siros_zkp_catalogues::catalogue::MDOC_DOCTYPE;
+use siros_zkp_catalogues::presenter::Prepared;
+use siros_zkp_catalogues::prover::ProofOutput;
+use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_catalogues::verifier_id::PseudonymValue;
 use siros_zkp_req::ZkProof;
-use siros_zkp_req_nym_auth::attestation::TestedAttestation;
-use siros_zkp_req_nym_auth::catalogue::MDOC_DOCTYPE;
-use siros_zkp_req_nym_auth::presenter::Prepared;
-use siros_zkp_req_nym_auth::prover::ProofOutput;
-use siros_zkp_req_nym_auth::system::NymAuthSystem;
-use siros_zkp_req_nym_auth::verifier_id::PseudonymValue;
 use support::*;
 
 fn facts() -> Value {

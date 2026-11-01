@@ -13,7 +13,7 @@ use siros_mdoc::Mdoc;
 use siros_trust::{
     AdmittedIssuer, ChainRefusal, IssuerChain, QueryAuthorities, TrustStore, Unadmitted,
 };
-use siros_zkp_req_nym_auth::attestation::{OtherIssuer, TestedAttestation, UsableAttestation};
+use siros_zkp_catalogues::attestation::{OtherIssuer, TestedAttestation, UsableAttestation};
 use support::*;
 
 /// The admission, for the Credential Query `query`, of the issuer whose chain is `der`.

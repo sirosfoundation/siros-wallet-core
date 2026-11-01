@@ -14,7 +14,7 @@ members = [
     "crates/siros-trust",
     "crates/siros-wallet-state",
     "crates/siros-zkp-req",
-    "crates/siros-zkp-req-nym-auth",
+    "crates/siros-zkp-catalogues",
     # The WMP engine core — planned; stubs until the spike (S0) opens.
     "crates/wmp-core",
     "crates/engine-ports",
@@ -47,7 +47,7 @@ siros-transaction-data = { path = "crates/siros-transaction-data", default-featu
 siros-trust = { path = "crates/siros-trust", default-features = false }
 siros-wallet-state = { path = "crates/siros-wallet-state" }
 siros-zkp-req = { path = "crates/siros-zkp-req" }
-siros-zkp-req-nym-auth = { path = "crates/siros-zkp-req-nym-auth", default-features = false }
+siros-zkp-catalogues = { path = "crates/siros-zkp-catalogues", default-features = false }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

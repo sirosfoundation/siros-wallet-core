@@ -16,7 +16,7 @@
 //! | A9: the wallet's display, and its refusal in a background fulfilment | [`WalletDisplay::of`], [`Fulfilment`] |
 //! | T4: each transaction entry bound to one credential, named by `credentialId` and instance in the view and the digest, with the source and rulebook of its definition; phase 2 binds by it; a selection that leaves it out refused | [`CredentialView::entry`], [`CredentialView::transaction`], [`PresentationError::BoundCredentialOmitted`] |
 //! | K3: the selection from the credential picker's picked entries, checked against the plan | [`Pick`], [`Planned::picked`] |
-//! | N2: the nym_auth request of a verified request, its `verifier_id` from the request's certificate | [`siros_zkp_req_nym_auth::request::NymAuthRequest`], built by [`plan`] from [`PlanInput::verifier_id`] |
+//! | N2: the nym_auth request of a verified request, its `verifier_id` from the request's certificate | [`siros_zkp_catalogues::request::NymAuthRequest`], built by [`plan`] from [`PlanInput::verifier_id`] |
 //!
 //! Without the default feature `wallet` the crate holds the matching ([`Matching`], [`Offers`],
 //! [`WalletDisplay`]), for the credential picker to run over its registration projection (K2).

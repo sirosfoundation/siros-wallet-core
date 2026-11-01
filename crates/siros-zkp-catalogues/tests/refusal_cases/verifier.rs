@@ -1,7 +1,7 @@
 //! The Verifier's refusals.
 
 use siros_trust::{CertificateError, ChainIndex, PathRefusal};
-use siros_zkp_req_nym_auth::attestation::DocumentSignerError;
+use siros_zkp_catalogues::attestation::DocumentSignerError;
 use x509_cert::der::Decode;
 
 use super::Case;

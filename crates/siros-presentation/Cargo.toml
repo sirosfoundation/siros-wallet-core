@@ -29,7 +29,7 @@ wallet = [
     "siros-oid4vp/crypto",
     "siros-transaction-data/wallet",
     "siros-trust/chain",
-    "siros-zkp-req-nym-auth/request",
+    "siros-zkp-catalogues/request",
 ]
 # The wallet, its host and the verifier of the tests: credentials issued, requests signed and
 # taken through intake, responses decrypted with code of their own.
@@ -40,7 +40,7 @@ test-fixtures = [
     "dep:p256",
     "dep:x509-cert",
     "sha2/oid",
-    "siros-zkp-req-nym-auth/test-fixtures",
+    "siros-zkp-catalogues/test-fixtures",
 ]
 
 [dependencies]
@@ -55,7 +55,7 @@ siros-transaction-data = { workspace = true }
 siros-trust = { workspace = true }
 siros-wallet-state = { workspace = true }
 siros-zkp-req = { workspace = true }
-siros-zkp-req-nym-auth = { workspace = true }
+siros-zkp-catalogues = { workspace = true }
 rand_core = { version = "0.6.4", optional = true }
 sha2 = { version = "0.10.9", optional = true }
 siros-display = { workspace = true }
@@ -83,7 +83,7 @@ siros-credential = { workspace = true }
 siros-display = { workspace = true, features = ["credential"] }
 siros-oid4vp = { workspace = true, features = ["crypto"] }
 siros-wallet-state = { workspace = true }
-siros-zkp-req-nym-auth = { workspace = true, features = ["test-fixtures", "request"] }
+siros-zkp-catalogues = { workspace = true, features = ["test-fixtures", "request"] }
 x509-cert = { version = "0.2.5", default-features = false, features = ["std", "builder"] }
 
 [lints]

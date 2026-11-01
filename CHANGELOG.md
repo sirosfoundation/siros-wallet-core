@@ -15,13 +15,21 @@ released version yet.
   2026-11-01 for placement, not content): `siros-codec`, `siros-credential`,
   `siros-dcql`, `siros-display`, `siros-mdoc`, `siros-oid4vp`,
   `siros-presentation`, `siros-sdjwt`, `siros-transaction-data`, `siros-trust`,
-  `siros-wallet-state`, `siros-zkp-req`, `siros-zkp-req-nym-auth`, with the
+  `siros-wallet-state`, `siros-zkp-req`, `siros-zkp-catalogues`, with the
   architecture contract and the `zkp_req` specifications under `docs/`.
 - Stub crates for the planned WMP engine core (`wmp-core`, `engine-ports`,
   `engine-core`, `engine-adapter-sdk`, `engine-adapter-server`,
   `engine-conformance`) and the engine specification under
   `docs/engine-spec.md`. The spike is gated on the PR 163 rework landing on
   go-wallet-backend `main`.
+
+### Changed
+
+- `siros-zkp-req-nym-auth` is renamed to `siros-zkp-catalogues` on import. The
+  ZK stack is two crates permanently: `siros-zkp-req` (protocol) and
+  `siros-zkp-catalogues` (every rulebook as modules and features). nym_auth is
+  the first rulebook in the catalogue crate; further rulebooks, credential
+  forms and systems land in it rather than in new crates.
 
 ### Not ported
 

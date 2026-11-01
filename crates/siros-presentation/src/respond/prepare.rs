@@ -11,7 +11,7 @@ use siros_oid4vp::{Presentation, VerifiedRequest};
 use siros_sdjwt::{Audience, BeforeEpoch, KbNonce, NumericDate, SdJwt};
 use siros_transaction_data::{Amr, Binding, Jti, KbJwtInputs};
 use siros_wallet_state::{CredentialId, KeyId};
-use siros_zkp_req_nym_auth::presenter::Prepared as NymPrepared;
+use siros_zkp_catalogues::presenter::Prepared as NymPrepared;
 
 use super::forms::{DeviceResponse, Form};
 use super::selection::Chosen;

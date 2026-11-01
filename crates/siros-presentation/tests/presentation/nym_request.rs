@@ -8,10 +8,10 @@
 use serde_json::{json, Value};
 use siros_codec::date::DateTime;
 use siros_oid4vp::{IntakeError, IntakeState, Origin, SemanticIdError, Verdict};
-use siros_zkp_req_nym_auth::policy::{PolicyRule, RequestRefusal};
-use siros_zkp_req_nym_auth::request::NymAuthRequest;
-use siros_zkp_req_nym_auth::testing::query;
-use siros_zkp_req_nym_auth::verifier_id::{VerifierIdForm, VerifierIdRule};
+use siros_zkp_catalogues::policy::{PolicyRule, RequestRefusal};
+use siros_zkp_catalogues::request::NymAuthRequest;
+use siros_zkp_catalogues::testing::query;
+use siros_zkp_catalogues::verifier_id::{VerifierIdForm, VerifierIdRule};
 
 use crate::verifier::{
     client_metadata, dc_api_signed_state, intake_with, redirect_signed_state, SignedForm,

@@ -1,7 +1,7 @@
 [package]
-name = "siros-zkp-req-nym-auth"
+name = "siros-zkp-catalogues"
 version = "0.11.0"
-description = "The nym_auth function catalogue for zkp_req: requests, systems, session binding, credential checks and the presenter phases around a host's prover"
+description = "The zkp_req catalogue crate: every rulebook lands here as modules and features. nym_auth today — requests, systems, session binding, credential checks and the presenter phases around a host's prover"
 publish = false
 edition.workspace = true
 license.workspace = true
@@ -55,7 +55,7 @@ rand_core = { version = "0.6.4", optional = true }
 # This crate, on itself, to switch on `test-fixtures` for its own tests; ciborium reads
 # presentations independently of this workspace's CBOR code.
 [dev-dependencies]
-siros-zkp-req-nym-auth = { path = ".", features = ["test-fixtures"] }
+siros-zkp-catalogues = { path = ".", features = ["test-fixtures"] }
 siros-zkp-req = { workspace = true, features = ["vp-token"] }
 ciborium = { workspace = true }
 serde_json = { workspace = true }

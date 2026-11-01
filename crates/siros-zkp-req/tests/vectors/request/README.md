@@ -2,7 +2,7 @@
 
 One JSON file per case: a rule of `zkp_req`, Sections 1.1, 1.2, 2 and 2.1 (draft 0.1, rulebook
 repository commit `e65861c`), or a query that follows them all. The nym_auth catalogue's rules
-have their own set in `crates/siros-zkp-req-nym-auth/tests/vectors/request/`. Spec summary:
+have their own set in `crates/siros-zkp-catalogues/tests/vectors/request/`. Spec summary:
 `docs/zkp_req_request.md`.
 
 ```json

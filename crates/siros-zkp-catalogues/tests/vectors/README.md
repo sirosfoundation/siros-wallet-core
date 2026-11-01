@@ -17,7 +17,7 @@ prints the digest of the whole set, with the protocol's request vectors.
 The format of `crates/siros-zkp-req/tests/vectors/request/README.md`, with
 `"expect": {"valid": {"catalogue": true}}` when the catalogue applies to the query and `false` when
 the query asks for another credential type. Error codes are those of
-`siros_zkp_req::RequestRule::code` and `siros_zkp_req_nym_auth::catalogue::CatalogueRule::code`.
+`siros_zkp_req::RequestRule::code` and `siros_zkp_catalogues::catalogue::CatalogueRule::code`.
 The set ports the matcher's v0.4 unsatisfiable-request vectors and the planner vectors whose rule
 the catalogue now owns; `v0_4` says what changed. The v0.4 rules on `ge`, `le` and the 365-day
 span are gone with those parameters.

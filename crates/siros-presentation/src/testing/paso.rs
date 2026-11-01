@@ -8,7 +8,7 @@ use siros_oid4vp::HttpsUrl;
 use siros_transaction_data::{HeldDocument, HeldJwt, HeldMetadata};
 use siros_trust::TrustStore;
 use siros_wallet_state::{ConfigurationId, IssuerIdentifier};
-use siros_zkp_req_nym_auth::testing::Issuer;
+use siros_zkp_catalogues::testing::Issuer;
 
 use super::verifier::{b64, NOW};
 use super::wallet::{base64, sd_jwt_x5c, Held, Wallet, VCT};

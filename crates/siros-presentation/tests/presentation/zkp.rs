@@ -12,11 +12,11 @@ use siros_oid4vp::ClientId;
 use siros_oid4vp::Handover;
 use siros_presentation::WalletDisplay;
 use siros_trust::Certificate;
+use siros_zkp_catalogues::presenter::Session;
+use siros_zkp_catalogues::testing::{query, Spec, TestVerifier};
+use siros_zkp_catalogues::verifier_id::{Intermediary, VerifierId};
+use siros_zkp_catalogues::verify::{verify, Tolerance, VerifyInput};
 use siros_zkp_req::{ReqSetIndex, ZkpPresentation};
-use siros_zkp_req_nym_auth::presenter::Session;
-use siros_zkp_req_nym_auth::testing::{query, Spec, TestVerifier};
-use siros_zkp_req_nym_auth::verifier_id::{Intermediary, VerifierId};
-use siros_zkp_req_nym_auth::verify::{verify, Tolerance, VerifyInput};
 
 use crate::verifier::{
     client_metadata, dc_api_handover, dc_api_signed, decrypt_cwt, decrypt_jwe, get,

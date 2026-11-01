@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates crates/siros-zkp-req-nym-auth/tests/vectors/presentation/.
+"""Regenerates crates/siros-zkp-catalogues/tests/vectors/presentation/.
 
 The vectors of a ZkpPresentation in a JSON vp_token, at the nym_auth rulebook draft (commit
 e65861c): zkp_req, Sections 4, 4.1 and 6.1, the backends' `Proof`, and the Section 3 `inputs`
@@ -17,7 +17,7 @@ import os
 
 OUT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "..", "crates", "siros-zkp-req-nym-auth", "tests", "vectors", "presentation",
+    "..", "crates", "siros-zkp-catalogues", "tests", "vectors", "presentation",
 )
 
 # ---- CBOR (RFC 8949), minimal encoder ------------------------------------
