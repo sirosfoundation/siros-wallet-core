@@ -30,6 +30,17 @@ small and protocol-specific.
   Longfellow and Vega systems that prove them. New capabilities and systems
   add crates on top of the protocol layer — never a change to `zkp_req`
   itself, and never a second copy of the protocol.
+- **Crate axis vs feature axis in the ZK stack.** One crate per
+  *rulebook* — an independently specified capability — and never one per
+  credential type. A new credential form for an existing rulebook (the
+  nym_auth form of an mdoc today, of an SD-JWT VC tomorrow) is a module and
+  feature *inside* the rulebook's crate; a new system (Longfellow, Vega,
+  BBS-CD) likewise. A new crate appears only for a new rulebook. The
+  `siros-zkp-req-nym-auth` crate exists because the rulebook crosses the
+  layers (it depends on the protocol, the credential form, the request policy
+  and the trust rules at once) and because its consumers cut along its
+  features: the picker links it without `credential`, the wallet with it,
+  and the 1.95 provers sit behind its prover interface in `proving/`.
 - **Nothing panics outside the tests.** No `unwrap`, `expect`, indexing or
   `panic!` in library code; CI enforces it with clippy and
   `scripts/check_panic_sites.py`.
