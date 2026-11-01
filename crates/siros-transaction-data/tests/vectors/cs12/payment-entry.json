@@ -1,0 +1,14 @@
+{
+  "type": "urn:eudi:sca:payment:1",
+  "credential_ids": ["sca_iban"],
+  "transaction_data_hashes_alg": "sha-256",
+  "payload": {
+    "transaction_id": "9c3b1e2a-6f21-4e2a-9a71-2b7e6a5d1234",
+    "payee": {
+      "name": "Example Merchant B.V.",
+      "id": "NL-KVK-12345678"
+    },
+    "currency": "EUR",
+    "amount": 129.95
+  }
+}

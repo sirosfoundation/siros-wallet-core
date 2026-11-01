@@ -1,0 +1,58 @@
+[package]
+name = "siros-oid4vp"
+version = "0.11.0"
+description = "OpenID4VP 1.0 for the SIROS wallet core: the picker's request reading, request intake, handovers and responses"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# Without `crypto`: what the credential picker links, checked on 1.82 in CI. `crypto` builds
+# with the toolchain of rust-toolchain.toml.
+rust-version.workspace = true
+
+[features]
+# Request intake (JWS, X.509, trust effects) and the response (JWE).
+crypto = [
+    "dep:aes-gcm",
+    "dep:der",
+    "dep:hkdf",
+    "dep:p256",
+    "dep:rand_core",
+    "dep:rustc-hash",
+    "dep:x509-cert",
+]
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-dcql = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The Handover digest and the JWK thumbprint, which the picker build of nym_auth links.
+sha2 = "0.10.9"
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"], optional = true }
+der = { version = "0.7.10", optional = true }
+hkdf = { version = "0.12.4", optional = true }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "ecdh", "alloc"], optional = true }
+rand_core = { version = "0.6.4", optional = true }
+rustc-hash = { workspace = true, optional = true }
+thiserror = { workspace = true }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"], optional = true }
+
+# This crate, on itself, to switch on `crypto` for its own tests. The tests sign requests and
+# issue certificates as a verifier would, and decrypt responses with their own JWE and COSE
+# code.
+[dev-dependencies]
+siros-oid4vp = { path = ".", features = ["crypto"] }
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc"] }
+ciborium = { workspace = true }
+hmac = "0.12.1"
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "ecdh", "alloc", "pem"] }
+rand_core = "0.6.4"
+serde_json = { workspace = true }
+sha2 = { version = "0.10.9", features = ["oid"] }
+siros-codec = { workspace = true }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std", "builder"] }
+
+[lints]
+workspace = true

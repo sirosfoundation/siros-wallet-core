@@ -1,0 +1,20 @@
+{
+  "type": "urn:paso:sca:global:mandate:agentic:1",
+  "credential_ids": ["bank_payment_card"],
+  "payload": {
+    "transaction_id": "agent_task_2026-06-02_7c2a",
+    "mandate_id": "MND-AGT-2026-0019",
+    "mandatee": {
+      "name": "ShopBot by ExampleAI",
+      "id": "did:web:agents.exampleai.com:shopbot",
+      "logo": "https://cdn.exampleai.com/shopbot-logo.png",
+      "logo#integrity": "sha256-9zXk0Lq2nE7uH8sW4tY1pR3vQ6cB5aD8fG2hJ4kL6mN="
+    },
+    "action": "Purchase noise-cancelling over-ear headphones",
+    "conditions": "- Only from retailers listed at trusted-retailers.example/v1\n- Total price (incl. tax & shipping) **must** be ≤ the maximum amount\n- Single purchase only; agent **must not** retry after a failed attempt",
+    "max_amount": "200.00 EUR",
+    "max_count": "1",
+    "period": "over the validity of this mandate",
+    "valid_until": "2026-06-09"
+  }
+}

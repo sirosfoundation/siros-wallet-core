@@ -1,0 +1,39 @@
+[package]
+name = "siros-display"
+version = "0.11.0"
+description = "Display for the SIROS wallet core: display metadata and its locale, credential cards, claim rows, purpose lines and proof statement rows"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["credential"]
+# Display metadata, credential cards and the claim labels of a stored credential. The credential
+# picker builds without it: it links the claim rows over a registration's labels, the purpose
+# lines and the proof statement rows.
+credential = ["dep:siros-wallet-state"]
+
+[dependencies]
+rustc-hash = { workspace = true }
+serde_json = { workspace = true }
+siros-codec = { workspace = true }
+siros-credential = { workspace = true }
+siros-dcql = { workspace = true }
+siros-wallet-state = { workspace = true, optional = true }
+siros-zkp-req = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The oracle of the characters display text refuses.
+unicode-general-category = "1.1.0"
+serde_json = { workspace = true }
+siros-codec = { workspace = true }
+siros-credential = { workspace = true }
+siros-dcql = { workspace = true }
+siros-wallet-state = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+{
+  "type": "urn:eudi:sca:login_risk_transaction:1",
+  "credential_ids": ["sca_iban"],
+  "transaction_data_hashes_alg": "sha-256",
+  "payload": {
+    "transaction_id": "5e9d4b82-1a7c-4f6e-9b3a-8c2d1e0f6a7b",
+    "service": "Example Bank Online Banking",
+    "action": "Change daily transaction limit from 1,000 EUR to 10,000 EUR"
+  }
+}

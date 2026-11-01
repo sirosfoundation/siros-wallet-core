@@ -1,0 +1,11 @@
+{
+  "credentials": [
+    {
+      "id": "sca_iban",
+      "format": "dc+sd-jwt",
+      "meta": {
+        "vct_values": ["https://webuildconsortium.eu/sca/sca-iban/1.0"]
+      }
+    }
+  ]
+}

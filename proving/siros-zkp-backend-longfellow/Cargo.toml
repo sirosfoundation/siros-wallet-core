@@ -1,0 +1,22 @@
+[package]
+name = "siros-zkp-backend-longfellow"
+version = "0.11.0"
+description = "urn:circuits:longfellow:nym_auth:v1 on longfellow-libzk-v1: zk-cred-longfellow behind the system rulebook's artifact pins"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-zkp-req = { workspace = true }
+siros-zkp-req-nym-auth = { workspace = true }
+thiserror = { workspace = true }
+zk-cred-longfellow = { workspace = true }
+sha2 = { workspace = true }
+zstd = { workspace = true }
+
+[lints]
+workspace = true

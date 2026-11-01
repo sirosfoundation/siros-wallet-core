@@ -1,0 +1,13 @@
+{
+  "type": "urn:paso:sca:global:payment:1",
+  "credential_ids": ["bank_card"],
+  "payload": {
+    "transaction_id": "89d0a218-7f52-4dd0-b503-9b0146bfb0ef",
+    "amount": "EUR 45.00",
+    "payee": {
+      "name": "Merchant Ltd",
+      "id": "DE89370400440532013000"
+    }
+  },
+  "metadata": "eyJ4NWMiOlsiTUlJQi4uLiJdLCJ0eXAiOiJhZGhvYy10cmFuc2FjdGlvbi1tZXRhZGF0YStqd3QiLCJhbGciOiJFUzI1NiJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5iYW5rLmV4YW1wbGUiLC4uLn0.MEUCIQ..."
+}

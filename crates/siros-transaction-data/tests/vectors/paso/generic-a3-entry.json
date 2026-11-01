@@ -1,0 +1,17 @@
+{
+  "type": "urn:paso:sca:global:generic:emandate:1",
+  "credential_ids": ["bank_payment_card"],
+  "payload": {
+    "transaction_id": "mandate_7c2a9e",
+    "mandate_id": "MND-2026-0042",
+    "frequency": "Monthly, up to 24 months",
+    "payment_payload": {
+      "transaction_id": "first_collection_001",
+      "amount": "19.99 EUR",
+      "payee": {
+        "name": "Streaming Co.",
+        "id": "DE123456789"
+      }
+    }
+  }
+}

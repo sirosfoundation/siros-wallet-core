@@ -1,0 +1,44 @@
+{
+  "description": "Two age_check items.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "a",
+        "params": {
+          "range": "13-17"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "b",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "age_check_repeated",
+    "option": null
+  },
+  "v0_4": "Same rule, now invalid_request; the code follows the draft's wording."
+}

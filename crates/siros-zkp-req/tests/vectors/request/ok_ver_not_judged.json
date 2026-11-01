@@ -1,0 +1,48 @@
+{
+  "description": "ver 2 and a huge integer are integers: the planner only judges the type; ver != 1 is unsatisfiable, not malformed.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "pseudonym",
+        "return": "h",
+        "params": {
+          "ver": 2
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "a"
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "valid": {
+      "options": [
+        [
+          0,
+          1
+        ]
+      ],
+      "req_sets": false
+    }
+  },
+  "v0_4": "The protocol passes params through; the catalogue refuses a ver other than 1."
+}

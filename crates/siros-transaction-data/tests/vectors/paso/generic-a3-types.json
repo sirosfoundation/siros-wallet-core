@@ -1,0 +1,51 @@
+{
+  "urn:paso:sca:global:generic:emandate:1": {
+    "claims": [
+      { "path": ["transaction_id"], "mandatory": true },
+      {
+        "path": ["mandate_id"],
+        "display": [
+          { "locale": "en", "name": "Mandate reference" },
+          { "locale": "de", "name": "Mandatsreferenz" }
+        ]
+      },
+      {
+        "path": ["frequency"],
+        "display": [
+          { "locale": "en", "name": "Frequency" },
+          { "locale": "de", "name": "Häufigkeit" }
+        ]
+      },
+      { "path": ["payment_payload", "transaction_id"] },
+      {
+        "path": ["payment_payload", "amount"],
+        "value_type": "iso_currency_amount",
+        "display": [
+          { "locale": "en", "name": "Amount per collection" },
+          { "locale": "de", "name": "Betrag pro Einzug" }
+        ]
+      },
+      {
+        "path": ["payment_payload", "payee", "name"],
+        "display": [
+          { "locale": "en", "name": "Payee" },
+          { "locale": "de", "name": "Empfänger" }
+        ]
+      },
+      { "path": ["payment_payload", "payee", "id"] }
+    ],
+    "ui_labels": {
+      "transaction_title": [
+        { "locale": "en", "value": "Set Up Recurring Payment" },
+        { "locale": "de", "value": "Daueraufträge einrichten" }
+      ],
+      "affirmative_action_label": [
+        { "locale": "en", "value": "Authorize Mandate" },
+        { "locale": "de", "value": "Mandat erteilen" }
+      ],
+      "security_hint": [
+        { "locale": "en", "value": "Streaming Co. will be able to collect up to the amount shown each month for up to 24 months." }
+      ]
+    }
+  }
+}

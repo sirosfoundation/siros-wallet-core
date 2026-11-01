@@ -1,0 +1,17 @@
+The JSON examples of PaSO draft 2, copied unchanged from the repository
+payments-and-sca-for-openid (APTITUDE-Consortium), branch draft-2, commit
+1004b26 (2026-10-15):
+
+- core-a1-request.json, core-a1-entry.json: docs/specifications/paso-core.md,
+  Annex A.1.
+- core-a5-request.json, core-a5-entries.json: Annex A.5.
+- core-a7-entries.json: Annex A.7.
+- metadata-a2-payload.json: docs/specifications/proof/paso-proof-metadata.md,
+  Annex A.2.
+- metadata-a4-entry.json, metadata-a4-payload.json: Annex A.4.
+- metadata-a5-payload.json: Annex A.5.
+- payment-a1-*.json: docs/rulebooks/transaction_data/Payment.md, Annex A.1.
+- generic-a1-*.json to generic-a4-*.json:
+  docs/rulebooks/transaction_data/Generic.md, Annex A.1 to A.4.
+- mandate-a1-entry.json to mandate-a3-entry.json:
+  docs/rulebooks/transaction_data/Mandate.md, Annex A.1 to A.3.

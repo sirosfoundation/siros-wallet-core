@@ -1,0 +1,50 @@
+{
+  "description": "proof is a zero-length byte string: no `Proof`.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "pseudonym",
+        "return": "nym",
+        "params": {
+          "config": "known-offender-matching-ssc",
+          "ver": 1,
+          "prf": "sha-256"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "age-range-123",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "vp_token": {
+    "nym_attestation": [
+      "pGlzeXN0ZW1faWR4I3VybjpjaXJjdWl0czpsb25nZmVsbG93Om55bV9hdXRoOnYxbXByb29mX2JhY2tlbmRzbG9uZ2ZlbGxvdy1saWJ6ay12MWVwcm9vZkBncmVzdWx0c6JjbnltWCAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH21hZ2UtcmFuZ2UtMTIz9Q"
+    ]
+  },
+  "expect": {
+    "error": "proof_encoding"
+  },
+  "v0_4": "`proof` is `bstr .cbor Proof`; a broken `Proof` or `inputs` is proof_encoding (Section 9). (v0.4: proof_empty)"
+}

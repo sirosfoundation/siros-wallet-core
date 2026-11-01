@@ -1,0 +1,21 @@
+[package]
+name = "siros-zkp-backend-vega"
+version = "0.11.0"
+description = "urn:circuits:vega:nym_auth:v1 on vega-v1: zk-cred-vega behind the system rulebook's artifact pins"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-zkp-req = { workspace = true }
+siros-zkp-req-nym-auth = { workspace = true }
+thiserror = { workspace = true }
+zk-cred-vega = { workspace = true }
+zstd = { workspace = true }
+
+[lints]
+workspace = true

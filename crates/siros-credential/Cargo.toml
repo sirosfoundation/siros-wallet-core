@@ -1,0 +1,33 @@
+[package]
+name = "siros-credential"
+version = "0.11.0"
+description = "The format-independent credential of the SIROS wallet core: typed claims, claims path pointers, validity and instance choice"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[features]
+# The issuer chain (TR2): its certificates parse with the credential, through siros-trust's
+# X.509 code. The credential picker builds without it.
+chain = ["dep:siros-trust", "siros-trust/chain"]
+
+[dependencies]
+rustc-hash = { workspace = true }
+serde_json = { workspace = true }
+siros-codec = { workspace = true }
+siros-dcql = { workspace = true }
+siros-mdoc = { workspace = true }
+siros-sdjwt = { workspace = true }
+siros-trust = { workspace = true, optional = true }
+siros-wallet-state = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+siros-credential = { path = ".", features = ["chain"] }
+sha2 = "0.10.9"
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+{
+  "type": "urn:paso:sca:global:payment:1",
+  "credential_ids": ["bank_payment_card"],
+  "payload": {
+    "transaction_id": "chk_2026-06-02_3f9b",
+    "amount": "49.99 EUR",
+    "payee": {
+      "name": "Acme Store",
+      "id": "DE987654321",
+      "logo": "https://cdn.acme.example/logo.png",
+      "logo#integrity": "sha256-abc123def456ghi789jkl012mno345pqr678stu901vwx234yz="
+    }
+  }
+}

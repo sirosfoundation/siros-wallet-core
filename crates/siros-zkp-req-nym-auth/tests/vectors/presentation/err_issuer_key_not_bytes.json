@@ -1,0 +1,50 @@
+{
+  "description": "An element is a text string (a base64 certificate, as in the pre-v0.4 x5chain).",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "pseudonym",
+        "return": "nym",
+        "params": {
+          "config": "known-offender-matching-ssc",
+          "ver": 1,
+          "prf": "sha-256"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "age-range-123",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "vp_token": {
+    "nym_attestation": [
+      "pGlzeXN0ZW1faWR4I3VybjpjaXJjdWl0czpsb25nZmVsbG93Om55bV9hdXRoOnYxbXByb29mX2JhY2tlbmRzbG9uZ2ZlbGxvdy1saWJ6ay12MWVwcm9vZliKomZpbnB1dHOibmlzc3Vlcl9rZXlfc2V0gWRNSUlCanByb29mX3RpbWXAdDIwMjYtMTAtMjBUMTI6MDA6MDBaaHprX3Byb29mWEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_Z3Jlc3VsdHOiY255bVggAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh9tYWdlLXJhbmdlLTEyM_U"
+    ]
+  },
+  "expect": {
+    "error": "proof_encoding"
+  },
+  "v0_4": "issuer_key_set and proof_time are inputs of `Proof`, inside `proof` (the backends' `Proof`). `[ bstr ]` (v0.4: issuer_key_not_bytes)."
+}

@@ -1,0 +1,11 @@
+{
+  "type": "urn:paso:sca:global:generic:aisp:1",
+  "credential_ids": ["bank_account_credential"],
+  "payload": {
+    "transaction_id": "aisp_2025-06-02_a91c",
+    "service": "Budget Tracker by ExampleFin",
+    "scope": "Account balances and transaction history (last 90 days)",
+    "valid_until": "2026-09-02",
+    "data_recipients_disclosed": null
+  }
+}

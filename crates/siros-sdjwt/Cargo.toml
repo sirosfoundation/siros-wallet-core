@@ -1,0 +1,21 @@
+[package]
+name = "siros-sdjwt"
+version = "0.11.0"
+description = "SD-JWT VC for the SIROS wallet core: the stored credential, disclosure selection, and the presentation with its KB-JWT signing input"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rustc-hash = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10.9"
+siros-codec = { workspace = true, features = ["json"] }
+siros-dcql = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

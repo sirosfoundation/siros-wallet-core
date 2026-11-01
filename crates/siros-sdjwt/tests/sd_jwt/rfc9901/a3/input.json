@@ -1,0 +1,36 @@
+{
+  "vct": "urn:eudi:pid:de:1",
+  "iss": "https://pid-issuer.bund.de.example",
+  "given_name": "Erika",
+  "family_name": "Mustermann",
+  "birthdate": "1963-08-12",
+  "address": {
+    "street_address": "Heidestraße 17",
+    "locality": "Köln",
+    "postal_code": "51147",
+    "country": "DE"
+  },
+  "nationalities": [
+    "DE"
+  ],
+  "sex": 2,
+  "birth_family_name": "Gabler",
+  "place_of_birth": {
+    "locality": "Berlin",
+    "country": "DE"
+  },
+  "age_equal_or_over": {
+    "12": true,
+    "14": true,
+    "16": true,
+    "18": true,
+    "21": true,
+    "65": false
+  },
+  "age_in_years": 62,
+  "age_birth_year": 1963,
+  "issuance_date": "2020-03-11",
+  "expiry_date": "2030-03-12",
+  "issuing_authority": "DE",
+  "issuing_country": "DE"
+}

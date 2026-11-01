@@ -1,0 +1,36 @@
+{
+  "description": "bbs_cd needs schema_id_value.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "bbs_cd",
+      "doctype_value": "d"
+    },
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "age",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "schema_id_invalid"
+  },
+  "v0_4": "Same rule, now invalid_request; the code follows the draft's wording."
+}

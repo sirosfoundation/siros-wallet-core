@@ -1,0 +1,27 @@
+{
+  "description": "No req and no claims._req.",
+  "query": {
+    "id": "q",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    }
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "req_invalid"
+  },
+  "v0_4": "Same rule; the code follows the draft's wording."
+}

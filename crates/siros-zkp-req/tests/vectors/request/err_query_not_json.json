@@ -1,0 +1,20 @@
+{
+  "description": "Not JSON.",
+  "query_text": "{not json",
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "dcql_malformed"
+  },
+  "v0_4": "Text that is not JSON is no object, which DCQL refuses (v0.4: query_not_parseable)."
+}

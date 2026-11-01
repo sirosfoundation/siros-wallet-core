@@ -1,0 +1,39 @@
+{
+  "description": "Both doctype_value and schema_id_value.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "d",
+      "schema_id_value": "s"
+    },
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "age",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "valid": {
+      "catalogue": false
+    }
+  },
+  "v0_4": "Section 1.1 reads the members DCQL defines for the format; schema_id_value means nothing for mso_mdoc and is ignored. doctype_value d is no nym_auth type, so the catalogue does not apply (v0.4: meta_type_value_invalid)."
+}

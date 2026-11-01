@@ -1,0 +1,98 @@
+[workspace]
+resolver = "2"
+members = [
+    # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
+    "crates/siros-codec",
+    "crates/siros-credential",
+    "crates/siros-dcql",
+    "crates/siros-display",
+    "crates/siros-mdoc",
+    "crates/siros-oid4vp",
+    "crates/siros-presentation",
+    "crates/siros-sdjwt",
+    "crates/siros-transaction-data",
+    "crates/siros-trust",
+    "crates/siros-wallet-state",
+    "crates/siros-zkp-req",
+    "crates/siros-zkp-req-nym-auth",
+    # The WMP engine core — planned; stubs until the spike (S0) opens.
+    "crates/wmp-core",
+    "crates/engine-ports",
+    "crates/engine-core",
+    "crates/engine-adapter-sdk",
+    "crates/engine-adapter-server",
+    "crates/engine-conformance",
+]
+
+[workspace.package]
+edition = "2021"
+license = "BSD-2-Clause"
+repository = "https://github.com/sirosfoundation/siros-wallet-core"
+authors = ["SIROS Foundation"]
+# The floor of every library crate: the published siros-dcql and the crates
+# that build into wallet-embedded artifacts promise it. Checked by the msrv
+# CI job. If you raise a floor, raise it here and say why.
+rust-version = "1.82"
+
+[workspace.dependencies]
+siros-codec = { path = "crates/siros-codec" }
+siros-credential = { path = "crates/siros-credential" }
+siros-dcql = { version = "0.12.0", path = "crates/siros-dcql" }
+siros-display = { path = "crates/siros-display", default-features = false }
+siros-mdoc = { path = "crates/siros-mdoc" }
+siros-oid4vp = { path = "crates/siros-oid4vp" }
+siros-presentation = { path = "crates/siros-presentation", default-features = false }
+siros-sdjwt = { path = "crates/siros-sdjwt" }
+siros-transaction-data = { path = "crates/siros-transaction-data", default-features = false }
+siros-trust = { path = "crates/siros-trust", default-features = false }
+siros-wallet-state = { path = "crates/siros-wallet-state" }
+siros-zkp-req = { path = "crates/siros-zkp-req" }
+siros-zkp-req-nym-auth = { path = "crates/siros-zkp-req-nym-auth", default-features = false }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+# Hash sets and maps for every crate that links into an embedded or wasm
+# artifact. std's default hasher seeds itself from a platform `random_get`,
+# which embedded hosts may not provide; FxHash needs no seed.
+rustc-hash = "2.1.3"
+# Iterator adapters. Only those without a hash map: std's hasher seeds itself
+# from a `random_get` the embedded hosts lack.
+itertools = "0.12.1"
+# Every error type derives `Display` and `Error` with it.
+thiserror = "2"
+
+# clippy.toml names the std methods that panic on an argument. The tests may
+# call them; each crate root denies them outside its tests.
+[workspace.lints.clippy]
+disallowed_methods = "allow"
+
+# Host and mobile builds. Unwinding, deliberately: UniFFI turns panics into
+# errors with `catch_unwind`, which cannot work without it — an aborting build
+# silently removes the error handling the generated bindings appear to provide,
+# and makes the blast radius of any bug the whole application rather than one
+# failed call. That matters most for a library fed DCQL written by a verifier,
+# which is untrusted input arriving over the network.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "unwind"
+strip = "debuginfo"
+
+# The zkp_req tests sign and verify ES256 and X.509 by the hundred. Without
+# optimisation, these crates take most of the suite's time: the refusal table
+# runs in 1.00 s as built by default and in 0.21 s with this, measured back to
+# back on the same machine load.
+[profile.dev.package.p256]
+opt-level = 3
+[profile.dev.package.primeorder]
+opt-level = 3
+[profile.dev.package.elliptic-curve]
+opt-level = 3
+[profile.dev.package.crypto-bigint]
+opt-level = 3
+[profile.dev.package.ecdsa]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3

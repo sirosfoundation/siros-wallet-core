@@ -1,0 +1,7 @@
+The JSON examples of WE BUILD CS-12 v1.2 (1 October 2026), copied unchanged
+from webuild-consortium/wp4-architecture, commit b63c25a,
+conformance-specs/cs-12-sca-payments.md:
+
+- sca-iban-type-metadata.json, sca-user-type-metadata.json: Section 7.2.
+- sca-iban-dcql.json, payment-entry.json, sca-user-dcql.json,
+  login-entry-user.json, login-entry-iban.json: Section 8.1.

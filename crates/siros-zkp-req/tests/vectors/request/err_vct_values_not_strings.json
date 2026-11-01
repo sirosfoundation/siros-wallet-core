@@ -1,0 +1,38 @@
+{
+  "description": "meta.vct_values is not an array of strings.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "dc+sd-jwt",
+      "vct_values": [
+        1
+      ]
+    },
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "age-range-123",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "type_value_invalid"
+  },
+  "v0_4": "vct_values is the type member of dc+sd-jwt (Section 1.1); the input now names that format."
+}

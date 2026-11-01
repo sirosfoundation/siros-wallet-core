@@ -1,0 +1,11 @@
+{
+  "credentials": [
+    {
+      "id": "sca_user",
+      "format": "dc+sd-jwt",
+      "meta": {
+        "vct_values": ["https://webuildconsortium.eu/sca/sca-user/1.0"]
+      }
+    }
+  ]
+}

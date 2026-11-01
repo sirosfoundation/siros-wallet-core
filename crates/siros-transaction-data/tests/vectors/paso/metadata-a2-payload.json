@@ -1,0 +1,59 @@
+{
+  "iss": "https://issuer.bank.example",
+  "sub": "https://bank.example/sca/card",
+  "format": "dc+sd-jwt",
+  "iat": 1710000000,
+  "exp": 1710086400,
+  "credential_metadata_uri": "https://issuer.bank.example/credential-metadata/BankPaymentCard",
+  "credential_metadata": {
+    "display": [
+      {
+        "name": "Bank Payment Card",
+        "locale": "en",
+        "logo": {
+          "uri": "https://issuer.bank.example/logo.png",
+          "alt_text": "Bank logo"
+        }
+      },
+      {
+        "name": "Bank Zahlungskarte",
+        "locale": "de",
+        "logo": {
+          "uri": "https://issuer.bank.example/logo.png",
+          "alt_text": "Bank-Logo"
+        }
+      }
+    ],
+    "transaction_data_types": {
+      "urn:paso:sca:global:payment:1": {
+        "claims": [
+          {
+            "path": ["transaction_id"],
+            "mandatory": true
+          },
+          {
+            "path": ["amount"],
+            "mandatory": true,
+            "value_type": "iso_currency_amount",
+            "display": [
+              { "locale": "en", "name": "Amount" },
+              { "locale": "de", "name": "Betrag" }
+            ]
+          },
+          {
+            "path": ["payee", "name"],
+            "mandatory": true,
+            "display": [
+              { "locale": "en", "name": "Payee" },
+              { "locale": "de", "name": "Empfänger" }
+            ]
+          },
+          {
+            "path": ["payee", "id"],
+            "mandatory": true
+          }
+        ]
+      }
+    }
+  }
+}

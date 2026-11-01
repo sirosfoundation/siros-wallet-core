@@ -1,0 +1,15 @@
+{
+  "dcql_query": {
+    "credentials": [
+      {
+        "id": "sca_card",
+        "format": "dc+sd-jwt",
+        "meta": { "vct_values": ["https://bank.example/sca/card"] },
+        "claims": [
+          { "path": ["pan_last_four"] },
+          { "path": ["scheme"] }
+        ]
+      }
+    ]
+  }
+}

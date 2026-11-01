@@ -1,0 +1,38 @@
+{
+  "urn:paso:sca:global:generic:login:1": {
+    "claims": [
+      { "path": ["transaction_id"], "mandatory": true },
+      {
+        "path": ["relying_party"],
+        "display": [
+          { "locale": "en", "name": "Relying Party" },
+          { "locale": "de", "name": "Dienstanbieter" }
+        ]
+      },
+      {
+        "path": ["device"],
+        "display": [
+          { "locale": "en", "name": "Device" },
+          { "locale": "de", "name": "Gerät" }
+        ]
+      },
+      {
+        "path": ["purpose"],
+        "display": [
+          { "locale": "en", "name": "Purpose" },
+          { "locale": "de", "name": "Zweck" }
+        ]
+      }
+    ],
+    "ui_labels": {
+      "transaction_title": [
+        { "locale": "en", "value": "Confirm Sign-In" },
+        { "locale": "de", "value": "Anmeldung bestätigen" }
+      ],
+      "affirmative_action_label": [
+        { "locale": "en", "value": "Sign In" },
+        { "locale": "de", "value": "Anmelden" }
+      ]
+    }
+  }
+}

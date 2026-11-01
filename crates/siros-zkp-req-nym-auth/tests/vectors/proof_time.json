@@ -1,0 +1,326 @@
+{
+  "description": "proof_time (system rulebooks, Section 3: tdate, exactly YYYY-MM-DDThh:mm:ssZ): the rendering of epoch seconds, the texts refused, and the Verifier's tolerance (Section 9: `proof_time`). Expected texts were computed with an independent implementation (Python datetime) for the v0.4 set; the port keeps them.",
+  "v0_4": "Section 9 has one `proof_time` code: malformed texts and times beyond the tolerance each give it (v0.4: proof_time_form, proof_time_not_an_instant, proof_time_in_future, proof_time_too_old). The 20-character form spans 0000-01-01T00:00:00Z to 9999-12-31T23:59:59Z, so times before 1970 render (v0.4 refused negative seconds).",
+  "render": [
+    {
+      "secs": 0,
+      "text": "1970-01-01T00:00:00Z"
+    },
+    {
+      "secs": 1,
+      "text": "1970-01-01T00:00:01Z"
+    },
+    {
+      "secs": 59,
+      "text": "1970-01-01T00:00:59Z"
+    },
+    {
+      "secs": 60,
+      "text": "1970-01-01T00:01:00Z"
+    },
+    {
+      "secs": 3599,
+      "text": "1970-01-01T00:59:59Z"
+    },
+    {
+      "secs": 3600,
+      "text": "1970-01-01T01:00:00Z"
+    },
+    {
+      "secs": 86399,
+      "text": "1970-01-01T23:59:59Z"
+    },
+    {
+      "secs": 86400,
+      "text": "1970-01-02T00:00:00Z"
+    },
+    {
+      "secs": 951782399,
+      "text": "2000-02-28T23:59:59Z"
+    },
+    {
+      "secs": 951782400,
+      "text": "2000-02-29T00:00:00Z"
+    },
+    {
+      "secs": 951868799,
+      "text": "2000-02-29T23:59:59Z"
+    },
+    {
+      "secs": 951868800,
+      "text": "2000-03-01T00:00:00Z"
+    },
+    {
+      "secs": 1709164799,
+      "text": "2024-02-28T23:59:59Z"
+    },
+    {
+      "secs": 1709164800,
+      "text": "2024-02-29T00:00:00Z"
+    },
+    {
+      "secs": 1709251199,
+      "text": "2024-02-29T23:59:59Z"
+    },
+    {
+      "secs": 1709251200,
+      "text": "2024-03-01T00:00:00Z"
+    },
+    {
+      "secs": 1760961600,
+      "text": "2025-10-20T12:00:00Z"
+    },
+    {
+      "secs": 1767225599,
+      "text": "2025-12-31T23:59:59Z"
+    },
+    {
+      "secs": 1767225600,
+      "text": "2026-01-01T00:00:00Z"
+    },
+    {
+      "secs": 1798761599,
+      "text": "2026-12-31T23:59:59Z"
+    },
+    {
+      "secs": 1798761600,
+      "text": "2027-01-01T00:00:00Z"
+    },
+    {
+      "secs": 2147483647,
+      "text": "2038-01-19T03:14:07Z"
+    },
+    {
+      "secs": 2147483648,
+      "text": "2038-01-19T03:14:08Z"
+    },
+    {
+      "secs": 4107542399,
+      "text": "2100-02-28T23:59:59Z"
+    },
+    {
+      "secs": 4107628799,
+      "text": "2100-03-01T23:59:59Z"
+    },
+    {
+      "secs": 4294967295,
+      "text": "2106-02-07T06:28:15Z"
+    },
+    {
+      "secs": 4294967296,
+      "text": "2106-02-07T06:28:16Z"
+    },
+    {
+      "secs": 253402214400,
+      "text": "9999-12-31T00:00:00Z"
+    },
+    {
+      "secs": 253402300799,
+      "text": "9999-12-31T23:59:59Z"
+    },
+    {
+      "secs": -1,
+      "text": "1969-12-31T23:59:59Z"
+    },
+    {
+      "secs": -86400,
+      "text": "1969-12-31T00:00:00Z"
+    },
+    {
+      "secs": -62167219200,
+      "text": "0000-01-01T00:00:00Z"
+    }
+  ],
+  "render_errors": [
+    {
+      "secs": 253402300800
+    },
+    {
+      "secs": -62167219201
+    }
+  ],
+  "parse_ok": [
+    {
+      "text": "2000-02-29T00:00:00Z",
+      "secs": 951782400
+    },
+    {
+      "text": "2024-02-29T23:59:59Z",
+      "secs": 1709251199
+    },
+    {
+      "text": "1970-01-01T00:00:00Z",
+      "secs": 0
+    },
+    {
+      "text": "9999-12-31T23:59:59Z",
+      "secs": 253402300799
+    }
+  ],
+  "parse_errors": [
+    {
+      "text": "2026-10-20T12:00:00.000Z"
+    },
+    {
+      "text": "2026-10-20T12:00:00+00:00"
+    },
+    {
+      "text": "2026-10-20T12:00:00z"
+    },
+    {
+      "text": "2026-10-20t12:00:00Z"
+    },
+    {
+      "text": "2026-10-20 12:00:00Z"
+    },
+    {
+      "text": "2026-10-20T12:00Z"
+    },
+    {
+      "text": "2026-10-20"
+    },
+    {
+      "text": ""
+    },
+    {
+      "text": "2026-10-20T12:00:00Z "
+    },
+    {
+      "text": " 2026-10-20T12:00:00Z"
+    },
+    {
+      "text": "2026-10-20T12:00:0٠Z"
+    },
+    {
+      "text": "+026-10-20T12:00:00Z"
+    },
+    {
+      "text": "2026-13-20T12:00:00Z"
+    },
+    {
+      "text": "2026-00-20T12:00:00Z"
+    },
+    {
+      "text": "2026-10-00T12:00:00Z"
+    },
+    {
+      "text": "2026-10-32T12:00:00Z"
+    },
+    {
+      "text": "2026-04-31T12:00:00Z"
+    },
+    {
+      "text": "2026-02-29T12:00:00Z"
+    },
+    {
+      "text": "2100-02-29T00:00:00Z"
+    },
+    {
+      "text": "2026-10-20T24:00:00Z"
+    },
+    {
+      "text": "2026-10-20T12:60:00Z"
+    },
+    {
+      "text": "2026-10-20T23:59:60Z"
+    }
+  ],
+  "tolerance": [
+    {
+      "name": "equal_now",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T12:00:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "skew_edge_inclusive",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T12:01:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "one_past_skew",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T12:01:01Z",
+      "expect": "proof_time"
+    },
+    {
+      "name": "age_edge_inclusive",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T11:50:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "one_past_age",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T11:49:59Z",
+      "expect": "proof_time"
+    },
+    {
+      "name": "custom_zero_skew_edge",
+      "now_secs": 1760961600,
+      "future_secs": 0,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T12:00:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "custom_zero_skew_one_ahead",
+      "now_secs": 1760961600,
+      "future_secs": 0,
+      "past_secs": 600,
+      "proof_time": "2025-10-20T12:00:01Z",
+      "expect": "proof_time"
+    },
+    {
+      "name": "custom_wide_age",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 86400,
+      "proof_time": "2025-10-19T12:00:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "custom_wide_age_past",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 86400,
+      "proof_time": "2025-10-19T11:59:59Z",
+      "expect": "proof_time"
+    },
+    {
+      "name": "not_the_exact_form",
+      "now_secs": 1760961600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2026-10-20T12:00:00.5Z",
+      "expect": "proof_time"
+    },
+    {
+      "name": "across_year_boundary",
+      "now_secs": 1767225600,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2025-12-31T23:55:00Z",
+      "expect": "ok"
+    },
+    {
+      "name": "across_leap_day",
+      "now_secs": 1709251260,
+      "future_secs": 60,
+      "past_secs": 600,
+      "proof_time": "2024-02-29T23:59:59Z",
+      "expect": "ok"
+    }
+  ]
+}

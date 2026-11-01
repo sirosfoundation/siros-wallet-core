@@ -1,0 +1,73 @@
+{
+  "description": "Requests that are well-formed but unsatisfiable per the rulebook are NOT rejected by the planner (see ../zkp_req_unsat for the unsatisfiability rules): le before ge, a one-day span, no age bound, two age_check items, two pseudonym items, a pseudonym without params (no ver, prf or config), require_cryptographic_holder_binding false, and no doctype_value (vct_values only).",
+  "query": {
+    "id": "q",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "vct_values": [
+        "urn:example"
+      ],
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "require_cryptographic_holder_binding": false,
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "a1",
+        "params": {
+          "range": "13-17"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "a2",
+        "params": {
+          "range": "13-17"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "a3"
+      },
+      {
+        "fn_id": "pseudonym",
+        "return": "p1"
+      },
+      {
+        "fn_id": "pseudonym",
+        "return": "p2",
+        "params": {
+          "config": "known-offender-matching-ssc"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "valid": {
+      "options": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      ],
+      "req_sets": false
+    }
+  },
+  "v0_4": "mso_mdoc needs doctype_value (Section 1.1), so the input gains one; the catalogue's rules are judged by the catalogue set."
+}

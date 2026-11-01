@@ -1,0 +1,27 @@
+[package]
+name = "siros-zkp-req"
+version = "0.11.0"
+description = "The zkp_req protocol layer: queries, options, system selection and the presentation encoding"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[features]
+# Reading the presentations of a query from a JSON `vp_token`, with siros-codec's strict JSON
+# reader.
+vp-token = ["siros-codec/json"]
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-dcql = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

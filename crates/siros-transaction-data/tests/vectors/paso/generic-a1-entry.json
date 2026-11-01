@@ -1,0 +1,10 @@
+{
+  "type": "urn:paso:sca:global:generic:login:1",
+  "credential_ids": ["login_credential"],
+  "payload": {
+    "transaction_id": "sess_8f3c1b2e-4a6f-4e0a-9c1a-2d4b6f8a1c3e",
+    "relying_party": "Acme Cloud",
+    "device": "Chrome on macOS · Berlin, DE",
+    "purpose": "Sign in to your account"
+  }
+}

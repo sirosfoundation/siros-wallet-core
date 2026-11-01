@@ -1,0 +1,48 @@
+# The proof backends and what links them. zk-cred-longfellow and zk-cred-vega are edition 2024,
+# which Cargo 1.82 cannot read, so they stay out of the root workspace and its 1.82 floor; the
+# matcher never resolves them.
+[workspace]
+resolver = "2"
+members = [
+    "siros-zkp-backend-longfellow",
+    "siros-zkp-backend-vega",
+    "siros-zkp-req-wasm",
+    "e2e",
+]
+
+[workspace.package]
+edition = "2021"
+license = "BSD-2-Clause"
+repository = "https://github.com/sirosfoundation/siros-wallet-core"
+authors = ["SIROS Foundation"]
+rust-version = "1.95"
+
+[workspace.dependencies]
+siros-codec = { path = "../crates/siros-codec" }
+siros-dcql = { path = "../crates/siros-dcql" }
+siros-oid4vp = { path = "../crates/siros-oid4vp" }
+siros-trust = { path = "../crates/siros-trust", features = ["chain"] }
+siros-zkp-req = { path = "../crates/siros-zkp-req" }
+siros-zkp-req-nym-auth = { path = "../crates/siros-zkp-req-nym-auth", default-features = false, features = ["credential"] }
+siros-zkp-backend-longfellow = { path = "siros-zkp-backend-longfellow" }
+siros-zkp-backend-vega = { path = "siros-zkp-backend-vega" }
+# Without the js feature: its wasm-bindgen API stays out of siros-zkp-req-wasm.
+zk-cred-longfellow = { git = "https://github.com/sirosfoundation/zk-cred-longfellow", rev = "9756a0d39310aede1a48bfdeb16fcfceee932921", default-features = false }
+zk-cred-vega = { git = "https://github.com/sirosfoundation/zk-cred-vega", rev = "da7ec89cdd919b7ca5440382bc0e8e11211880a8" }
+sha2 = "0.10.9"
+thiserror = "2"
+zstd = { version = "0.13.3", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"
+
+# clippy.toml names the std methods that panic on an argument. The tests may
+# call them; each crate root denies them outside its tests.
+[workspace.lints.clippy]
+disallowed_methods = "allow"
+
+# Proving speed matters in the browser. The real-proof tests run with --release.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1

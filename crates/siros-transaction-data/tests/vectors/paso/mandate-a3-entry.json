@@ -1,0 +1,14 @@
+{
+  "type": "urn:paso:sca:global:mandate:1",
+  "credential_ids": ["account_admin_credential"],
+  "payload": {
+    "mandate_id": "MND-DEL-2026-0007",
+    "mandatee": {
+      "name": "Alex Schmidt"
+    },
+    "action": "Manage account on my behalf",
+    "conditions": "- View statements and download documents\n- **Must not** initiate transfers or change account-holder details\n- **Must not** add or remove other delegates",
+    "valid_from": "2026-06-10",
+    "valid_until": "2026-09-10"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "description": "A source_format this version does not define (dc+sd-jwt is reserved) still plans; it is unsatisfiable (see ../zkp_req_unsat), not malformed.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "dc+sd-jwt",
+      "vct_values": [
+        "urn:example"
+      ]
+    },
+    "_req": [
+      {
+        "fn_id": "age_check",
+        "return": "h",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "valid": {
+      "options": [
+        [
+          0
+        ]
+      ],
+      "req_sets": false
+    }
+  }
+}

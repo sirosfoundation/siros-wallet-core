@@ -1,0 +1,11 @@
+{
+  "type": "urn:paso:sca:global:generic:limit-change:1",
+  "credential_ids": ["bank_payment_card"],
+  "payload": {
+    "transaction_id": "limit_chg_2026-06-02_4f7a",
+    "scope": "Daily transaction limit",
+    "current_limit": "1000.00 EUR",
+    "new_limit": "2500.00 EUR",
+    "effective_from": "2026-06-03"
+  }
+}

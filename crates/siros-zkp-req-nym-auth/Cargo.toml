@@ -1,0 +1,64 @@
+[package]
+name = "siros-zkp-req-nym-auth"
+version = "0.11.0"
+description = "The nym_auth function catalogue for zkp_req: requests, systems, session binding, credential checks and the presenter phases around a host's prover"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["credential"]
+# The ISO/IEC 18013-5 credential, the checks that need it, the answer and the verifier. The
+# matcher needs only the catalogue and the systems, and builds without it.
+credential = [
+    "dep:siros-mdoc",
+    "siros-mdoc/crypto",
+    "siros-oid4vp/crypto",
+    "dep:siros-trust",
+    "siros-trust/chain",
+    "dep:zeroize",
+]
+# The nym_auth request of a verified request (N2), and the presentation of a usable answer.
+request = ["credential", "siros-oid4vp/crypto"]
+# A test issuer, signed requests and host, for this crate's tests and those of the bindings.
+test-fixtures = [
+    "request",
+    "dep:p256",
+    "dep:rand_core",
+    "dep:x509-cert",
+    "dep:der",
+    "p256/pkcs8",
+    "p256/pem",
+    "x509-cert/builder",
+    "sha2/oid",
+]
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-dcql = { workspace = true }
+siros-oid4vp = { workspace = true }
+siros-zkp-req = { workspace = true }
+siros-mdoc = { workspace = true, optional = true }
+siros-trust = { workspace = true, optional = true }
+serde_json = { workspace = true }
+sha2 = { version = "0.10.9", features = ["oid"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc", "pkcs8"], optional = true }
+thiserror = { workspace = true }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"], optional = true }
+der = { version = "0.7.10", optional = true }
+zeroize = { version = "1.8.1", optional = true }
+rand_core = { version = "0.6.4", optional = true }
+
+# This crate, on itself, to switch on `test-fixtures` for its own tests; ciborium reads
+# presentations independently of this workspace's CBOR code.
+[dev-dependencies]
+siros-zkp-req-nym-auth = { path = ".", features = ["test-fixtures"] }
+siros-zkp-req = { workspace = true, features = ["vp-token"] }
+ciborium = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

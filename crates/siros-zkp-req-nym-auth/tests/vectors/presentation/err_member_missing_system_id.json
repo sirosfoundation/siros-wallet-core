@@ -1,0 +1,49 @@
+{
+  "description": "`system_id` absent.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "pseudonym",
+        "return": "nym",
+        "params": {
+          "config": "known-offender-matching-ssc",
+          "ver": 1,
+          "prf": "sha-256"
+        }
+      },
+      {
+        "fn_id": "age_check",
+        "return": "age-range-123",
+        "params": {
+          "range": "13-17"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "vp_token": {
+    "nym_attestation": [
+      "o21wcm9vZl9iYWNrZW5kc2xvbmdmZWxsb3ctbGliemstdjFlcHJvb2ZZAfKiZmlucHV0c6JuaXNzdWVyX2tleV9zZXSBWQFqMIIBZjCCAQ2gAwIBAgIBATAKBggqhkjOPQQDAjAzMRIwEAYDVQQKDAlUZXN0IG9ubHkxHTAbBgNVBAMMFG55bV9hdXRoIHRlc3QgaXNzdWVyMB4XDTI2MDEwMTAwMDAwMFoXDTI4MDEwMTAwMDAwMFowMzESMBAGA1UECgwJVGVzdCBvbmx5MR0wGwYDVQQDDBRueW1fYXV0aCB0ZXN0IGlzc3VlcjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLYmqpM7IVvCjztJJL9nVFTSEh8ou7FGQVwYEJL3_ZCAv3eTV2UtaL5athxme95Ov_Z7nvolNcEThQj61laiq2OjEjAQMA4GA1UdDwEB_wQEAwIHgDAKBggqhkjOPQQDAgNHADBEAiBHQ82rXvGviAUrTV7Rfln1N_apmr-XECfJPKiF2RJtggIgap2a1Vf8kb5yqxXNMReYCOwFcj--CfdD1r-AVbI-H_VqcHJvb2ZfdGltZcB0MjAyNi0xMC0yMFQxMjowMDowMFpoemtfcHJvb2ZYQAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9ncmVzdWx0c6JjbnltWCAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH21hZ2UtcmFuZ2UtMTIz9Q"
+    ]
+  },
+  "expect": {
+    "error": "presentation_member_missing"
+  }
+}

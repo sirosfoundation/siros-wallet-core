@@ -1,0 +1,17 @@
+{
+  "provenance": "zk-cred-vega 6bc2622 test-vectors/nymauth/pseudonym.json (BSD-2-Clause), the nym-auth-circuits archive's reference values.",
+  "config": "known-offender-matching-ssc",
+  "secret_seed": "4a8f9c1d2e3f4a5b6c7d8e9f0a1b2c3d",
+  "verifiers": [
+    {
+      "client_id": "x509_san_dns:verifier.example",
+      "verifier_input": "6eae85a0b2dfcd7d8b716291e54a004da798f93a26a248c265becd33a04a6bab",
+      "pseudonym": "155f433796d1f282268a87100cd08510893f97f6e5607bc5e4c66afadb71aad1"
+    },
+    {
+      "client_id": "x509_san_dns:other-verifier.example",
+      "verifier_input": "5ff3c35cfed806981de9ad610c4a7fe100867aee4530485aed3a0cc6e71f22b1",
+      "pseudonym": "eefc129a09b735ea4ea6a5bc8278dc664c9849499f354d80aa37614fe8caec6b"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+[package]
+name = "siros-wallet-state"
+version = "0.11.0"
+description = "The decrypted wallet state S of the SIROS private data container, as the wallet core reads it"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+# `raw_value` keeps each `metadata` value as the text the container holds.
+serde_json = { workspace = true, features = ["raw_value"] }
+siros-codec = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

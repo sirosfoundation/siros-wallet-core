@@ -1,0 +1,12 @@
+{
+  "type": "urn:paso:sca:global:payment:1",
+  "credential_ids": ["sca_card"],
+  "payload": {
+    "transaction_id": "ab9c4d5e-6f78-9012-3456-789abcdef012",
+    "amount": "49.99 EUR",
+    "payee": {
+      "name": "Shop Inc.",
+      "id": "DE98ZZZ09999999999"
+    }
+  }
+}

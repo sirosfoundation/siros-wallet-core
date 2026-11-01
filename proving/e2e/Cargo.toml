@@ -1,0 +1,22 @@
+[package]
+name = "siros-zkp-proving-e2e"
+version = "0.0.0"
+description = "Real proofs of both nym_auth systems through the presenter and the Verifier"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+siros-codec = { workspace = true }
+siros-trust = { workspace = true }
+siros-zkp-req = { workspace = true }
+siros-zkp-req-nym-auth = { workspace = true, features = ["test-fixtures"] }
+siros-zkp-backend-longfellow = { workspace = true }
+siros-zkp-backend-vega = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

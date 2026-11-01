@@ -1,0 +1,24 @@
+{
+  "urn:paso:sca:global:generic:aisp:1": {
+    "claims": [
+      { "path": ["transaction_id"], "mandatory": true },
+      {
+        "path": ["service"],
+        "display": [{ "locale": "en", "name": "Service" }]
+      },
+      {
+        "path": ["scope"],
+        "display": [{ "locale": "en", "name": "Data shared" }]
+      },
+      {
+        "path": ["valid_until"],
+        "value_type": "iso_date",
+        "display": [{ "locale": "en", "name": "Valid until" }]
+      },
+      {
+        "path": ["data_recipients_disclosed"],
+        "display": [{ "locale": "en", "name": "Recipients of your data have been disclosed separately by the service" }]
+      }
+    ]
+  }
+}

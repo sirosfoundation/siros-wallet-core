@@ -1,0 +1,39 @@
+{
+  "description": "ver is a number with a fraction.",
+  "query": {
+    "id": "nym_attestation",
+    "format": "zkp_req",
+    "meta": {
+      "source_format": "mso_mdoc",
+      "doctype_value": "eu.europa.ec.eudi.nym_auth.1"
+    },
+    "_req": [
+      {
+        "fn_id": "pseudonym",
+        "return": "h",
+        "params": {
+          "ver": 1.5,
+          "config": "known-offender-matching-ssc",
+          "prf": "sha-256"
+        }
+      }
+    ]
+  },
+  "client_metadata": {
+    "vp_formats_supported": {
+      "zkp_req": {
+        "proof_backend_values": [
+          "longfellow-libzk-v1"
+        ],
+        "system_id_values": [
+          "urn:circuits:longfellow:nym_auth:v1"
+        ]
+      }
+    }
+  },
+  "expect": {
+    "error": "ver_invalid",
+    "item": 0
+  },
+  "v0_4": "The catalogue judges ver (v0.4: param_wrong_type); the input gains config and prf."
+}

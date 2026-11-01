@@ -1,0 +1,52 @@
+{
+  "urn:paso:sca:global:generic:limit-change:1": {
+    "claims": [
+      { "path": ["transaction_id"], "mandatory": true },
+      {
+        "path": ["scope"],
+        "display": [
+          { "locale": "en", "name": "Limit type" },
+          { "locale": "de", "name": "Limit-Typ" }
+        ]
+      },
+      {
+        "path": ["current_limit"],
+        "value_type": "iso_currency_amount",
+        "display": [
+          { "locale": "en", "name": "Current limit" },
+          { "locale": "de", "name": "Aktuelles Limit" }
+        ]
+      },
+      {
+        "path": ["new_limit"],
+        "value_type": "iso_currency_amount",
+        "display": [
+          { "locale": "en", "name": "New limit" },
+          { "locale": "de", "name": "Neues Limit" }
+        ]
+      },
+      {
+        "path": ["effective_from"],
+        "value_type": "iso_date",
+        "display": [
+          { "locale": "en", "name": "Effective from" },
+          { "locale": "de", "name": "Gültig ab" }
+        ]
+      }
+    ],
+    "ui_labels": {
+      "transaction_title": [
+        { "locale": "en", "value": "Confirm Limit Change" },
+        { "locale": "de", "value": "Limit-Änderung bestätigen" }
+      ],
+      "affirmative_action_label": [
+        { "locale": "en", "value": "Change Limit" },
+        { "locale": "de", "value": "Limit ändern" }
+      ],
+      "security_hint": [
+        { "locale": "en", "value": "Raising your daily limit increases the maximum amount that could be spent if your card is misused." },
+        { "locale": "de", "value": "Eine Erhöhung des Tageslimits erhöht den Betrag, der bei Missbrauch maximal abfließen kann." }
+      ]
+    }
+  }
+}

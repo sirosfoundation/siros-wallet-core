@@ -1,0 +1,12 @@
+[package]
+name = "engine-adapter-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+description = "Tokio and rustls adapters: WMP transport endpoints, the HTTP client, the AuthZEN client. Planned; built in parallel with the SDK adapter."
+
+[dependencies]

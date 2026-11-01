@@ -1,0 +1,44 @@
+{
+  "urn:paso:sca:global:payment:1": {
+    "claims": [
+      { "path": ["transaction_id"] },
+      {
+        "path": ["amount"],
+        "mandatory": true,
+        "value_type": "iso_currency_amount",
+        "display": [
+          { "locale": "en", "name": "Amount" },
+          { "locale": "de", "name": "Betrag" }
+        ]
+      },
+      {
+        "path": ["payee", "name"],
+        "mandatory": true,
+        "display": [
+          { "locale": "en", "name": "Payee" },
+          { "locale": "de", "name": "Empfänger" }
+        ]
+      },
+      { "path": ["payee", "id"], "mandatory": true },
+      {
+        "path": ["payee", "logo"],
+        "value_type": "image",
+        "display": [
+          { "locale": "en", "name": "Payee logo" },
+          { "locale": "de", "name": "Logo des Empfängers" }
+        ]
+      },
+      { "path": ["payee", "logo#integrity"] }
+    ],
+    "ui_labels": {
+      "transaction_title": [
+        { "locale": "en", "value": "Confirm Payment" },
+        { "locale": "de", "value": "Zahlung bestätigen" }
+      ],
+      "affirmative_action_label": [
+        { "locale": "en", "value": "Pay" },
+        { "locale": "de", "value": "Bezahlen" }
+      ]
+    }
+  }
+}

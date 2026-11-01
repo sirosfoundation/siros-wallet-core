@@ -1,0 +1,111 @@
+{
+  "provenance": "zk-cred-vega 6bc2622 test-vectors/nymauth/challenge-vectors.json (BSD-2-Clause), byte-identical in zk-cred-longfellow 0f3cc25. Generated there by an independent stdlib-only Python encoder anchored on OpenID4VP 1.0 B.2.6.1.",
+  "dc_api": [
+    {
+      "name": "circuits archive, verifier 1 (credential/pseudonym.json mdoc.challenge_digest)",
+      "origin": "https://verifier.example",
+      "nonce": "pOA0oqEAhLnqug2r7Ve4tQ",
+      "jwk_thumbprint_hex": null,
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682764f70656e4944345650444341504948616e646f766572582019fb903434402eb496b9a26aefcd28e9c84f0cf27ca6521f71c3f678e080075e",
+      "challenge_digest_hex": "7eea0f8e073961c3e82e9562e0f79edaa66dbfc17eaf0ac0596a987733516dd9"
+    },
+    {
+      "name": "circuits archive, verifier 2",
+      "origin": "https://other-verifier.example",
+      "nonce": "6YfsJcysIReLorHGvKlsFQ",
+      "jwk_thumbprint_hex": null,
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682764f70656e4944345650444341504948616e646f76657258200524632d721bfc7b18198a85f7520ac74ffa3cbf1616aedc08ecc7c0e5ce3245",
+      "challenge_digest_hex": "eadaee812dc8e402826de50dc020634bc92bbac24bf25fbbd479c98cec9e1784"
+    },
+    {
+      "name": "encrypted response, JWK thumbprint 0x11*32",
+      "origin": "https://verifier.example",
+      "nonce": "pOA0oqEAhLnqug2r7Ve4tQ",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682764f70656e4944345650444341504948616e646f766572582098a74db4c57a62c35763573aa80ce0583c9556e27bddca7c7172eaf38285fd4c",
+      "challenge_digest_hex": "59481f3b8d5ddc29777522b268170f5bc4cba969e5344de22d33857677550724"
+    },
+    {
+      "name": "another docType",
+      "origin": "https://wallet.example:8443",
+      "nonce": "0123456789abcdefghijkl",
+      "jwk_thumbprint_hex": null,
+      "doc_type": "org.iso.18013.5.1.mDL",
+      "session_transcript_hex": "83f6f682764f70656e4944345650444341504948616e646f76657258207c22b0ab8bbff263e3a840c86d73bcb3240a4dd392845c16ccad3693414f84c7",
+      "challenge_digest_hex": "e8f15c878ec7b47b1af7b17a0b9eef1d7709a4eb2ae5033f198b362e97197d8e"
+    }
+  ],
+  "transcript_only": [
+    {
+      "name": "siros-sdk-kotlin CatalogCircuitZkProverTest fixture: [null, null, \"handover\"] (red-team RT-6 e2)",
+      "session_transcript_hex": "83f6f66868616e646f766572",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "challenge_digest_hex": "205f22807094a72eb2846bacf4218375f7b6e51f2bfd49713a857f713b64d1a0"
+    }
+  ],
+  "redirect": [
+    {
+      "name": "OpenID4VP 1.0 B.2.6.1 non-normative example (client_id with x509_san_dns prefix, thumbprint of the example JWK)",
+      "client_id": "x509_san_dns:example.com",
+      "nonce": "exc7gBkxjx1rdc9udRrveKvSsJIq80avlXeLHhGwqtA",
+      "response_uri": "https://example.com/response",
+      "jwk_thumbprint_hex": "4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f7665725820048bc053c00442af9b8eed494cefdd9d95240d254b046b11b68013722aad38ac",
+      "challenge_digest_hex": "8e2d531b88e17d2b90eca466c5c929e7f264e2bff0d88274048f8456907021c9"
+    },
+    {
+      "name": "nym_auth, verifier 1: x509_san_dns client_id, encrypted response (direct_post.jwt), thumbprint 0x11*32",
+      "client_id": "x509_san_dns:verifier.example",
+      "nonce": "pOA0oqEAhLnqug2r7Ve4tQ",
+      "response_uri": "https://verifier.example/verification/direct_post",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f76657258204dcf19c000b7cbfe74ab5698820f4022e200e5165fbb6cddd4bea272e1cdf39d",
+      "challenge_digest_hex": "b020ccd1acbc88ecab505e150c07c76da775f8488b715f7832487900afdf062d"
+    },
+    {
+      "name": "nym_auth, verifier 2: other client_id and nonce",
+      "client_id": "x509_san_dns:other-verifier.example",
+      "nonce": "6YfsJcysIReLorHGvKlsFQ",
+      "response_uri": "https://other-verifier.example/cb",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f7665725820231d7451f1ebcc018c50a9999307ea6d1407c5cecd024e1bfec36b391764e4b3",
+      "challenge_digest_hex": "7a6e1de639eff36ee1dff7453403e564232a9e4b197135ca12fa6248577fbf09"
+    },
+    {
+      "name": "client_id with another prefix (x509_hash) and a hash-shaped identifier",
+      "client_id": "x509_hash:Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZszk",
+      "nonce": "0123456789abcdefghijkl",
+      "response_uri": "https://verifier.example/response",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f766572582007a6c05a06f15b4aed2acc1fb16623f692a590498611cbfd0c244ce5f07f7033",
+      "challenge_digest_hex": "2da9b28cb74d9edfd385cd04a3bff96c027ad32de5531163f84eb5f814ce825d"
+    },
+    {
+      "name": "client_id without a Client Identifier Prefix (pre-registered), response_uri with a query",
+      "client_id": "verifier.example",
+      "nonce": "0123456789abcdefghijkl",
+      "response_uri": "https://verifier.example/response?session=1",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f7665725820873b04a3b2bd45b285897a6b6f61eee13fd9f169e2dd535b9bd9094a1bb9264c",
+      "challenge_digest_hex": "a42898514b6d3118fd42ef103ba88d1ff549c56a5a4afd901384f7c5aacf9c76"
+    },
+    {
+      "name": "non-ASCII response_uri (a CBOR text length is the UTF-8 byte length) and a response_uri over 255 bytes (two-byte CBOR length head)",
+      "client_id": "x509_san_dns:xn--bcher-kva.example",
+      "nonce": "0123456789abcdefghijkl",
+      "response_uri": "https://bücher.example/pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "jwk_thumbprint_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "doc_type": "eu.europa.ec.eudi.nym_auth.1",
+      "session_transcript_hex": "83f6f682714f70656e494434565048616e646f76657258201a55585d720637a9d2de4772a72dfe5dd8f846d75a56e5313cfd1a8eead9d2aa",
+      "challenge_digest_hex": "560aab9d0a5f91b005e3430bf37e29cdd64df97c233a51dd3a8b6ab6df419be8"
+    }
+  ]
+}

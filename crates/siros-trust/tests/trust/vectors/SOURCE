@@ -1,0 +1,9 @@
+annex_d_document_signer.der
+
+ISO/IEC 18013-5:2021, Annex D: the Document Signer certificate of the standard's example
+(subject `CN=utopia ds, C=US`, valid from 2020-10-01 to 2021-10-01), with keyUsage
+digitalSignature and extKeyUsage `id-mdl-kp-mdlDS` (1.0.18013.5.1.2), both critical.
+
+The `x5chain` of the IssuerSigned in
+crates/siros-mdoc/tests/vectors/annex_d_device_response.hex: the 499 bytes from offset 1964 of the
+decoded DeviceResponse; see that directory's SOURCE for where the response comes from.

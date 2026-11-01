@@ -1,0 +1,38 @@
+[package]
+name = "siros-trust"
+version = "0.11.0"
+description = "Issuer trust for the SIROS wallet core: the trust store, issuer chains, and the resolution of DCQL trusted_authorities"
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# Without `chain`: the admission rule over a credential's recorded facts, for the credential
+# picker, checked on 1.82 in CI.
+rust-version.workspace = true
+
+[features]
+# The trust store, issuer chains, path validation and the admission witness: X.509 and ECDSA.
+chain = ["dep:der", "dep:p256", "dep:p384", "dep:x509-cert", "siros-codec/json"]
+
+[dependencies]
+siros-codec = { workspace = true }
+siros-dcql = { workspace = true }
+thiserror = { workspace = true }
+der = { version = "0.7.10", optional = true }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc"], optional = true }
+p384 = { version = "0.13.1", default-features = false, features = ["ecdsa", "alloc"], optional = true }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"], optional = true }
+
+# The tests build their certificates with x509-cert's builder; `hazmat` gives full control of
+# the extensions.
+[dev-dependencies]
+siros-trust = { path = ".", features = ["chain"] }
+p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc", "pem"] }
+p384 = { version = "0.13.1", default-features = false, features = ["ecdsa", "alloc", "pem"] }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std", "builder", "hazmat"] }
+sha2 = { version = "0.10.9", features = ["oid"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

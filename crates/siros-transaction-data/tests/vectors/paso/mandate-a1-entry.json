@@ -1,0 +1,27 @@
+{
+  "type": "urn:paso:sca:global:mandate:emandate:1",
+  "credential_ids": ["bank_payment_card"],
+  "payload": {
+    "transaction_id": "chk_2026-06-02_3f9b",
+    "mandate_id": "MND-2026-0042",
+    "mandatee": {
+      "name": "Streaming Co.",
+      "id": "DE123456789"
+    },
+    "action": "Collect monthly subscription",
+    "conditions": "The collection amount is fixed and matches the subscription plan in effect at the time of collection.",
+    "max_amount": "19.99 EUR",
+    "max_count": "24",
+    "period": "over the validity of this mandate",
+    "valid_from": "2026-06-03",
+    "valid_until": "2028-06-02",
+    "payment_payload": {
+      "transaction_id": "first_collection_001",
+      "amount": "19.99 EUR",
+      "payee": {
+        "name": "Streaming Co.",
+        "id": "DE123456789"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+annex_d_device_response.hex
+
+ISO/IEC 18013-5:2021, Annex D, D.4.1.2: the DeviceResponse of the standard's example, in
+hexadecimal. It holds one mDL document with six items of `org.iso.18013.5.1`.
+
+Taken from walt-id/waltid-identity at commit 00917b62ff28de3184807059fa91c70af39f58c9,
+waltid-libraries/credentials/waltid-mdoc-credentials/src/commonTest/kotlin/id/walt/mdoc/MDocTest.kt,
+line 186. Licence of that repository: Apache-2.0.
+
+Its IssuerSigned (bytes 68 to 3461) equals test/definitions/issuer_signed.cbor of
+spruceid/isomdl at commit fd2612df263e46481c2b0be6129432160ef60e02. Licence of that repository:
+Apache-2.0.
+
+The file holds the standard's published example as data.

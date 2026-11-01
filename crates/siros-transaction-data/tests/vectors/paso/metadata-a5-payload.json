@@ -1,0 +1,21 @@
+{
+  "iss": "https://issuer.bank.example",
+  "sub": "com.example.bank.paymentcard.1",
+  "format": "mso_mdoc",
+  "iat": 1710000000,
+  "exp": 1710604800,
+  "transaction_data_type": "urn:paso:sca:global:payment:1",
+  "metadata": {
+    "claims": [
+      {
+        "path": ["amount"],
+        "mandatory": true,
+        "value_type": "iso_currency_amount",
+        "display": [
+          { "locale": "en", "name": "Amount" },
+          { "locale": "de", "name": "Betrag" }
+        ]
+      }
+    ]
+  }
+}

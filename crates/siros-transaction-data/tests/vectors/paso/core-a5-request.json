@@ -1,0 +1,35 @@
+{
+  "dcql_query": {
+    "credentials": [
+      {
+        "id": "sca_card",
+        "format": "dc+sd-jwt",
+        "meta": { "vct_values": ["https://bank.example/sca/card"] }
+      },
+      {
+        "id": "sca_account",
+        "format": "dc+sd-jwt",
+        "meta": { "vct_values": ["https://bank.example/sca/account"] }
+      },
+      {
+        "id": "pid",
+        "format": "dc+sd-jwt",
+        "meta": { "vct_values": ["https://credentials.example/pid"] },
+        "claims": [
+          { "path": ["given_name"] },
+          { "path": ["family_name"] }
+        ]
+      }
+    ],
+    "credential_sets": [
+      {
+        "options": [
+          ["sca_card", "pid"],
+          ["sca_card"],
+          ["sca_account", "pid"],
+          ["sca_account"]
+        ]
+      }
+    ]
+  }
+}

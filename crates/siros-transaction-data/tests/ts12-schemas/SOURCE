@@ -1,0 +1,12 @@
+The JSON Schemas of the four transaction data types of EC TS12 v1.0.1, Section 4.3.
+
+Copied unchanged from
+https://github.com/eu-digital-identity-wallet/eudi-doc-standards-and-technical-specifications,
+commit ee91a294c833af5188726fd8c302c641212192aa, docs/technical-specifications/api/.
+The specification text last changed in commit 9090fe29d715d9818b0189fd60cee7f14fc5bb68.
+
+SHA-256
+b11cb79168eb9bdf64b365b2b27f815d5455833567f9b4ab3ccabc1889e94cad  ts12-urn-eudi-sca-account_access-1-data-model.json
+7e27182efc4a479d7051884aade820dc6a4f1957728ef87f9e101b1d925a5034  ts12-urn-eudi-sca-emandate-1-data-model.json
+b1ac923b1df7707fb58b35737b27bee80834c01f581a4335a805dfc33bf3ba20  ts12-urn-eudi-sca-login_risk_transaction-1-data-model.json
+fbc788b6d39941ae969e49208ce91129dd1558ccd780175ce4a68958aa97df24  ts12-urn-eudi-sca-payment-1-data-model.json

@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # No branch filter. `branches: [main]` silently gives a stacked pull request
+  # — one targeting another feature branch rather than main — no CI at all:
+  # not a failure, not a skip, simply no checks, which reads as "nothing to
+  # run" rather than "nothing was run".
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo test --locked --workspace --all-features
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      # The clippy steps enforce the lints each crate root denies outside its
+      # tests; the script fails on a root without them and on an allow of them
+      # outside the tests, and finds the panics no lint covers.
+      - name: No panic outside the tests
+        run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
+
+  proving:
+    name: Proving workspace
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proving
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: proving
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      # Real proofs of both systems, verified by the Verifier.
+      - run: scripts/fetch-artifacts.sh
+      - run: cargo test --locked --release -p siros-zkp-proving-e2e -- --ignored
+
+  browser:
+    name: Build the browser presenter
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proving
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: proving
+      # zstd-sys compiles C for wasm32 with clang.
+      - run: cargo clippy --locked -p siros-zkp-req-wasm --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo build --locked -p siros-zkp-req-wasm --target wasm32-unknown-unknown --release
+
+  msrv:
+    name: Minimum supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Both mechanisms are needed, and they do different jobs. `rustup
+      # toolchain install` here *installs* 1.82. RUSTUP_TOOLCHAIN (exported
+      # below) is what makes cargo use it: rust-toolchain.toml pins the exact
+      # CI toolchain and overrides the installed default, so without the env
+      # var this job would install 1.82 and then quietly build on the pinned
+      # one — passing while checking nothing.
+      - name: Install the MSRV toolchain
+        run: |
+          rustup toolchain install 1.82 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.82" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # The floor covers the library crates with their default features and
+      # the `wallet`/`chain` feature pairs, as the architecture contract
+      # requires. Dev-only feature combinations that need a newer toolchain
+      # are excluded here on purpose.
+      - run: cargo check --locked --workspace
+      # TODO(msrv): confirm the exact feature matrix against the ported crates
+      # and tighten this job; non-blocking on import.
+      - name: Feature matrix on the MSRV
+        run: cargo check --locked -p siros-transaction-data -p siros-trust --features wallet,chain
+        continue-on-error: true
