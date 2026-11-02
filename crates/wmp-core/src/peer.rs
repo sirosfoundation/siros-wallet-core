@@ -197,9 +197,11 @@ impl PeerBuilder {
     }
 
     /// Builds the peer behind an `Arc`: the middleware chain and the flow
-    /// deferrals hold on to it.
+    /// deferrals hold on to it. Profiles are initialised with the built
+    /// peer, as go-wmp's `Peer.Use` does.
     pub fn build(self) -> Arc<Peer> {
-        Arc::new(Peer {
+        let profiles = self.registry.profiles();
+        let peer = Arc::new(Peer {
             transport: self.transport,
             handler: self.handler,
             registry: Arc::new(self.registry),
@@ -213,7 +215,11 @@ impl PeerBuilder {
             versions: Mutex::new(FxHashMap::default()),
             pending: Mutex::new(FxHashMap::default()),
             closed: AtomicBool::new(false),
-        })
+        });
+        for profile in profiles {
+            let _ = profile.init(peer.clone());
+        }
+        peer
     }
 }
 
@@ -310,8 +316,9 @@ impl Peer {
     }
 
     /// Registers a profile with this peer, initialising it immediately.
-    pub fn use_profile(&self, profile: Arc<dyn Profile>) -> Result<(), HandlerError> {
-        self.registry.register(profile)
+    pub fn use_profile(self: &Arc<Self>, profile: Arc<dyn Profile>) -> Result<(), HandlerError> {
+        self.registry.register(profile.clone())?;
+        profile.init(self.clone())
     }
 
     /// Adds middleware to the processing chain.
@@ -495,6 +502,35 @@ impl Peer {
         negotiate_version(offered, &supported_refs)
             .map(str::to_owned)
             .ok_or_else(|| version_rejection(Some(offered), &supported_refs).into())
+    }
+
+    /// The negotiated version of the session, or [`VERSION`] — the
+    /// `version_for` the [`PeerContext`](crate::profile::PeerContext)
+    /// implementation exposes.
+    fn version_for_session(&self, session_id: &str) -> String {
+        self.version_for(session_id)
+    }
+
+    /// Sends a JSON-RPC 2.0 notification with the params as a value — the
+    /// `PeerContext` surface.
+    fn notify_value(
+        &self,
+        ctx: &RequestContext,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<(), HandlerError> {
+        self.notify(ctx, method, params)
+    }
+
+    /// Sends a JSON-RPC 2.0 request with the params as a value and waits for
+    /// the response — the `PeerContext` surface.
+    fn call_value(
+        &self,
+        ctx: &RequestContext,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> crate::profile::DispatchResult {
+        self.call(ctx, method, params)
     }
 
     /// The negotiated version of the session, or [`VERSION`].
@@ -1240,6 +1276,53 @@ impl crate::profile::FlowRouter for Peer {
         handler: Arc<dyn Profile>,
     ) -> Option<crate::profile::Claim> {
         self.registry.claim_flow(flow_id, session_id, handler)
+    }
+}
+
+impl crate::profile::PeerContext for Peer {
+    fn notify(
+        &self,
+        ctx: &RequestContext,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> Result<(), HandlerError> {
+        self.notify_value(ctx, method, params)
+    }
+
+    fn call(
+        &self,
+        ctx: &RequestContext,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> crate::profile::DispatchResult {
+        self.call_value(ctx, method, params)
+    }
+
+    fn session(&self, id: &str) -> Option<Session> {
+        Peer::session(self, id)
+    }
+
+    fn version_for(&self, session_id: &str) -> String {
+        self.version_for_session(session_id)
+    }
+
+    fn default_session_id(&self) -> String {
+        self.identity
+            .as_ref()
+            .map_or_else(String::new, |id| id.session_id.clone())
+    }
+
+    fn claim_flow_route(
+        &self,
+        flow_id: &str,
+        session_id: &str,
+        handler: Arc<dyn Profile>,
+    ) -> Option<crate::profile::Claim> {
+        self.registry.claim_flow(flow_id, session_id, handler)
+    }
+
+    fn entropy(&self) -> Option<crate::sessionservice::EntropyFn> {
+        self.entropy.clone()
     }
 }
 

@@ -178,6 +178,14 @@ impl Registry {
         Ok(())
     }
 
+    /// The registered profiles, in registration order.
+    pub(crate) fn profiles(&self) -> Vec<Arc<dyn Profile>> {
+        self.inner
+            .read()
+            .map(|inner| inner.profiles.clone())
+            .unwrap_or_default()
+    }
+
     /// Appends middleware to the chain.
     pub fn add_middleware(&self, mw: Middleware) {
         if let Ok(mut inner) = self.inner.write() {
@@ -419,7 +427,7 @@ impl Registry {
     /// the flow_id is routed or being started. The returned claim ends only
     /// with [`crate::profile::Claim::release`]; a claim is not ended by a
     /// completion or error.
-    pub(crate) fn claim_flow(
+    pub fn claim_flow(
         self: &Arc<Self>,
         flow_id: &str,
         session_id: &str,

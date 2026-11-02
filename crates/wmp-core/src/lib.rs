@@ -43,6 +43,7 @@ pub mod profile;
 pub mod registry;
 pub mod session;
 pub mod sessionservice;
+pub mod subflow;
 pub mod token;
 pub mod transport;
 pub mod types;

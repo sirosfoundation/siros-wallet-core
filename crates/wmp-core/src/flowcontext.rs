@@ -27,6 +27,7 @@ use crate::error::{RpcError, ERR_CAPABILITY_NOT_SUPPORTED, ERR_FLOW_ERROR, ERR_I
 use crate::handler::HandlerError;
 use crate::methods::*;
 use crate::profile::{PeerContext, Profile};
+use crate::subflow::{Outcome, SubFlow, SubFlowError};
 use crate::types::{Metadata, VERSION};
 
 /// A flow's worker: runs in its own thread and uses the [`FlowContext`] to
@@ -151,6 +152,9 @@ pub struct FlowContext {
     /// The generation of the flow's route, and the handles that end it.
     gen: u64,
     route: Option<FlowRouteHandle>,
+    /// The profile that runs the flow: sub-flows route their messages
+    /// through it.
+    profile: Mutex<Weak<AsyncFlowProfile>>,
     /// Cancels the context the flow's worker runs under — the same token
     /// the worker holds (go-wmp's `fc.stop`).
     stop: Arc<CancelToken>,
@@ -266,12 +270,27 @@ impl FlowContext {
         &self.stop
     }
 
+    /// The peer the flow sends through.
+    pub(crate) fn peer_context(&self) -> Option<Arc<dyn PeerContext>> {
+        self.peer.lock().ok().and_then(|peer| peer.clone())
+    }
+
+    /// The profile that runs the flow.
+    pub(crate) fn profile_context(&self) -> Option<Arc<AsyncFlowProfile>> {
+        self.profile.lock().ok().and_then(|weak| weak.upgrade())
+    }
+
+    /// The generation of the flow's route.
+    pub(crate) fn generation(&self) -> u64 {
+        self.gen
+    }
+
     /// The `wmp` object for the flow's messages: the version negotiated for
     /// the flow's session (the crate's version when the peer tracks none)
     /// and the originating session. Set here, not only by the peer's
     /// stamping: a peer without an identity does not stamp, and the message
     /// would then carry an empty `wmp.version`, which core §2.2.3 forbids.
-    fn meta(&self) -> Metadata {
+    pub(crate) fn meta(&self) -> Metadata {
         let version = self
             .peer
             .lock()
@@ -315,6 +334,10 @@ pub struct AsyncFlowProfile {
     peer: Mutex<Option<Arc<dyn PeerContext>>>,
     /// The running flows, keyed by flow id (see the module's divergences).
     flows: Mutex<FxHashMap<String, Arc<FlowContext>>>,
+    /// The sub-flows the profile's flows started, keyed by their flow id.
+    pub(crate) children: Mutex<FxHashMap<String, Arc<SubFlow>>>,
+    /// The registration order of sub-flows.
+    pub(crate) child_seq: std::sync::atomic::AtomicU64,
     /// The profile's own weak reference: the worker thread removes its flow
     /// through it.
     self_ref: Mutex<Weak<AsyncFlowProfile>>,
@@ -328,6 +351,8 @@ impl AsyncFlowProfile {
             handlers: Mutex::new(FxHashMap::default()),
             peer: Mutex::new(None),
             flows: Mutex::new(FxHashMap::default()),
+            children: Mutex::new(FxHashMap::default()),
+            child_seq: std::sync::atomic::AtomicU64::new(0),
             self_ref: Mutex::new(Weak::new()),
         });
         if let Ok(mut self_ref) = profile.self_ref.lock() {
@@ -472,8 +497,14 @@ impl Profile for AsyncFlowProfile {
             actions: Actions::default(),
             gen: ctx.generation(),
             route: ctx.flow_route.clone(),
+            profile: Mutex::new(Weak::new()),
             stop: CancelToken::new(),
         });
+        if let Ok(mut profile_ref) = flow.profile.lock() {
+            if let Some(profile) = self.self_ref.lock().ok().and_then(|r| r.upgrade()) {
+                *profile_ref = Arc::downgrade(&profile);
+            }
+        }
         if let Ok(mut flows) = self.flows.lock() {
             flows.insert(params.flow_id.clone(), flow.clone());
         }
@@ -560,12 +591,23 @@ impl Profile for AsyncFlowProfile {
     }
 
     fn handle_complete(&self, ctx: &RequestContext, params: &FlowCompleteParams) {
+        if self.deliver_sub_flow(&params.flow_id, Outcome::Result(params.result.clone())) {
+            return;
+        }
         if let Some(flow) = self.flow_of(&params.flow_id, ctx.generation()) {
             flow.cancel();
         }
     }
 
     fn handle_error(&self, ctx: &RequestContext, params: &FlowErrorParams) {
+        let failure = SubFlowError {
+            code: params.code,
+            message: params.message.clone(),
+            data: params.data.clone(),
+        };
+        if self.deliver_sub_flow(&params.flow_id, Outcome::Error(failure)) {
+            return;
+        }
         if let Some(flow) = self.flow_of(&params.flow_id, ctx.generation()) {
             flow.cancel();
         }

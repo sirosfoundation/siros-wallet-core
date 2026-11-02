@@ -256,6 +256,25 @@ pub trait PeerContext: Send + Sync {
         String::new()
     }
 
+    /// Routes the messages of a sub-flow to the profile that started it
+    /// (go-wmp's `FlowRouter` on the peer, a default here). `None` when
+    /// the flow id is already routed or a start of it is running.
+    fn claim_flow_route(
+        &self,
+        _flow_id: &str,
+        _session_id: &str,
+        _handler: Arc<dyn Profile>,
+    ) -> Option<Claim> {
+        None
+    }
+
+    /// The peer's entropy source (go-wmp samples `crypto/rand` directly).
+    /// Without one, unguessable identifiers cannot be generated and the
+    /// operation that needs one fails closed.
+    fn entropy(&self) -> Option<crate::sessionservice::EntropyFn> {
+        None
+    }
+
     /// The protocol version negotiated for a session (go-wmp reaches this
     /// through an unexported interface assertion on the peer); the default
     /// is the crate's version.
