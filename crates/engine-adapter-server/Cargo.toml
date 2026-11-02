@@ -7,6 +7,22 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Tokio and rustls adapters: WMP transport endpoints, the HTTP client, the AuthZEN client. Planned; built in parallel with the SDK adapter."
+description = "The standalone container host of the Rust WMP engine: HTTP+SSE transport, session management, health probes — the drop-in replacement for go-wallet-backend --mode=engine"
 
 [dependencies]
+wmp-core = { path = "../wmp-core" }
+engine-ports = { path = "../engine-ports" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+axum = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+rustc-hash = { workspace = true }
+tokio-stream = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+[[bin]]
+name = "engine-server"
+path = "src/main.rs"
+
+[lints]
+workspace = true
