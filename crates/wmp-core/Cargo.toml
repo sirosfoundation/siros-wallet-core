@@ -13,6 +13,7 @@ description = "The Wallet Messaging Protocol in Rust: messages, session state, p
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = { workspace = true }
+rustc-hash = { workspace = true }
 
 [lints]
 workspace = true

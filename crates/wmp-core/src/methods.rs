@@ -80,7 +80,7 @@ pub struct SessionCreateParams {
 /// on the wire — `{}` when nothing was negotiated — because
 /// `session-create-response.json` requires the member and an omit-empty
 /// would drop an empty map.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SessionCreateResult {
     /// The `wmp` envelope.
     pub wmp: Metadata,

@@ -31,11 +31,14 @@
     )
 )]
 
+pub mod context;
 pub mod error;
+pub mod handler;
 pub mod jsonrpc;
 pub mod methods;
 pub mod principal;
 pub mod session;
+pub mod sessionservice;
 pub mod token;
 pub mod types;
 pub mod version;

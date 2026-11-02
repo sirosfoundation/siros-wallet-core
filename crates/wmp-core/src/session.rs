@@ -1,7 +1,9 @@
 //! The session state, the store that persists it, and the in-memory store.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::RwLock;
+
+use rustc_hash::FxHashMap;
 
 use crate::token::tokens_equal;
 use crate::types::{Capabilities, SecurityMode};
@@ -177,7 +179,7 @@ pub trait SessionStore: Send + Sync {
 /// operation.
 #[derive(Debug, Default)]
 pub struct MemorySessionStore {
-    sessions: RwLock<HashMap<String, Session>>,
+    sessions: RwLock<FxHashMap<String, Session>>,
 }
 
 impl MemorySessionStore {
@@ -226,7 +228,7 @@ impl SessionStore for MemorySessionStore {
         Ok(sessions
             .values()
             .filter(|sess| {
-                !sess.is_expired(now) && sess.metadata.get(key).map_or(false, |v| v == value)
+                !sess.is_expired(now) && sess.metadata.get(key).is_some_and(|v| v == value)
             })
             .cloned()
             .collect())
