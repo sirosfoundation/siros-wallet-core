@@ -110,3 +110,45 @@ jobs:
       - name: Feature matrix on the MSRV
         run: cargo check --locked -p siros-transaction-data -p siros-trust --features wallet,chain
         continue-on-error: true
+
+  kotlin-smoke:
+    name: UniFFI async smoke (JVM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-java@2e7625cee6ce618ff10034f5d6aa15ae3cff0de4 # v4
+        with:
+          java-version: "21"
+      - name: Fetch the Kotlin toolchain
+        run: |
+          curl -sL -o /tmp/kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip
+          unzip -q /tmp/kotlinc.zip -d /tmp
+          curl -sL -o /tmp/coroutines.jar https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.8.1/kotlinx-coroutines-core-jvm-1.8.1.jar
+          curl -sL -o /tmp/jna.jar https://repo1.maven.org/maven2/net/java/dev/jna/jna/5.14.0/jna-5.14.0.jar
+          curl -sL -o /tmp/stdlib.jar https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.0.21/kotlin-stdlib-2.0.21.jar
+      - run: make kotlin-smoke
+        env:
+          KOTLINC: /tmp/kotlinc/bin/kotlinc
+          COROUTINES_JAR: /tmp/coroutines.jar
+          JNA_JAR: /tmp/jna.jar
+          STDLIB_JAR: /tmp/stdlib.jar
+
+  swift-bindings:
+    name: UniFFI bindings type-check (Swift)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: aarch64-apple-ios
+      - run: cargo build -p engine-adapter-sdk --target aarch64-apple-ios
+      - run: cargo run -p engine-adapter-sdk --features bindgen --bin uniffi-bindgen -- generate --library target/debug/libengine_adapter_sdk.dylib --language swift --out-dir bindings/swift
+      - name: The generated Swift compiles and carries the async surface
+        run: |
+          swiftc -typecheck bindings/swift/engine_adapter_sdk.swift \
+            -Xcc -fmodule-map-file=bindings/swift/engine_adapter_sdkFFI.modulemap
+          grep -q "func requestTxCode(flowId: String) async throws" bindings/swift/engine_adapter_sdk.swift
+          grep -q "func send(request: HttpRequest) async throws" bindings/swift/engine_adapter_sdk.swift
+          grep -q "func runPreAuthorizedFlow(http: HttpClient, host: Host, issuerUrl: String)async throws" bindings/swift/engine_adapter_sdk.swift

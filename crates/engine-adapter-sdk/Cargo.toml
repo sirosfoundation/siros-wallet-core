@@ -7,6 +7,29 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "UniFFI bindings and host callback interfaces for Kotlin and Swift. Planned; stub until the spike."
+description = "The UniFFI bindings of the WMP engine core for Kotlin and Swift — the P0.4 async smoke of the engine's port shapes"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "engine_adapter_sdk"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+default = ["tokio-runtime"]
+bindgen = ["dep:uniffi", "uniffi/cli"]
+tokio-runtime = ["dep:tokio", "dep:uniffi", "uniffi/tokio"]
 
 [dependencies]
+uniffi = { version = "0.28", optional = true }
+tokio = { version = "1", features = ["rt", "time"], optional = true }
+async-trait = "0.1"
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[lints]
+workspace = true
