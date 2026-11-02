@@ -31,16 +31,22 @@
     )
 )]
 
+pub mod channel_transport;
 pub mod context;
+pub mod discovery;
 pub mod error;
+pub mod evidence;
 pub mod flowcontext;
 pub mod handler;
+pub mod invitation;
 pub mod jsonrpc;
 pub mod methods;
+pub mod mls;
 pub mod peer;
 pub mod principal;
 pub mod profile;
 pub mod registry;
+pub mod resolve;
 pub mod session;
 pub mod sessionservice;
 pub mod subflow;

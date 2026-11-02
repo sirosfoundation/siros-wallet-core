@@ -1,11 +1,12 @@
 # wmp-core: mirroring go-wmp v0.13.0 in Rust
 
-**Status (Nov 2, 2026):** the foundation, methods, session, session service,
-request context, handler, registry, peer, profiles, transport, the async flow
-driver (`flowcontext.rs`) and the sub-flow machinery (`subflow.rs`) are
-ported and green — 33 tests, including the vector referee. Remaining:
-`channel_transport.go`, `mls/` (interface + noop), and the stage-3 modules
-(`evidence.go`, `invitation.go`, `discovery.go`, `resolve.go`).
+**Status (Nov 2, 2026): the mirror is complete.** Every module of the
+port map is ported and green — 47 tests, including the vector referee, the
+flow and sub-flow lifecycles, and the discovery, evidence, invitation and
+resolve units. The excluded modules (`ws/`, `httpsse/`, `stdio/`, `relay/`,
+`openid4x/`, `schema/`) stay out by design; they are adapter and engine
+work. go-wmp's `subflow.go` divergences and the stage-2 notes are recorded
+in the module docs.
 
 `wmp-core` is the Rust WMP library: messages, session state, peer, flows,
 validators and error codes — the future base of the native WMP clients. It is
