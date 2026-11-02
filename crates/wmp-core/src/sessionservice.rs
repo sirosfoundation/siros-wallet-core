@@ -217,6 +217,12 @@ impl SessionService {
         &self.cfg.store
     }
 
+    /// The protocol versions this service offers — what a peer negotiates
+    /// against when the handler is a [`SessionHandler`].
+    pub fn supported_versions(&self) -> Vec<String> {
+        self.cfg.versions.clone()
+    }
+
     fn versions(&self) -> Vec<&str> {
         self.cfg.versions.iter().map(String::as_str).collect()
     }
@@ -665,23 +671,28 @@ fn hex_lower(bytes: &[u8]) -> String {
     out
 }
 
+/// A clock: the current time, unix seconds. go-wmp reads `time.Now` inside
+/// the service; the mirror injects the clock so tests are deterministic.
+pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
+
 /// A [`Handler`](crate::Handler) whose session methods run a
 /// [`SessionService`].
 ///
 /// go-wmp embeds this in an application handler so the other methods come
-/// from `BaseHandler`; in Rust, implement [`crate::Handler`] for your
-/// application and delegate the three session methods to a clone of the
-/// `Arc<SessionService>` you construct this with, or hold this struct and
-/// call its methods directly.
+/// from `BaseHandler`; in Rust an application implements
+/// [`Handler`](crate::Handler) for itself and delegates the three session
+/// methods to a clone of this handler, or holds it and calls its methods
+/// directly.
 #[derive(Clone)]
 pub struct SessionHandler {
     service: Arc<SessionService>,
+    clock: Clock,
 }
 
 impl SessionHandler {
-    /// A handler backed by `service`.
-    pub fn new(service: Arc<SessionService>) -> Self {
-        Self { service }
+    /// A handler backed by `service`, reading the time from `clock`.
+    pub fn new(service: Arc<SessionService>, clock: Clock) -> Self {
+        Self { service, clock }
     }
 
     /// The service behind this handler.
@@ -712,5 +723,35 @@ impl SessionHandler {
     /// Delegates `wmp.session.close`.
     pub fn close(&self, now: i64, ctx: &RequestContext, params: &SessionCloseParams) {
         self.service.session_close(now, ctx, params)
+    }
+}
+
+impl crate::handler::Handler for SessionHandler {
+    fn session_create(
+        &self,
+        ctx: &RequestContext,
+        params: &SessionCreateParams,
+    ) -> Result<SessionCreateResult, HandlerError> {
+        self.service.session_create((self.clock)(), ctx, params)
+    }
+
+    fn session_resume(
+        &self,
+        ctx: &RequestContext,
+        params: &SessionResumeParams,
+    ) -> Result<SessionResumeResult, HandlerError> {
+        self.service.session_resume((self.clock)(), ctx, params)
+    }
+
+    fn session_close(&self, ctx: &RequestContext, params: &SessionCloseParams) {
+        self.service.session_close((self.clock)(), ctx, params)
+    }
+
+    fn session_store(&self) -> Option<Arc<dyn SessionStore>> {
+        Some(self.service.store().clone())
+    }
+
+    fn supported_versions(&self) -> Vec<String> {
+        self.service.supported_versions()
     }
 }

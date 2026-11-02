@@ -40,6 +40,26 @@ impl HandlerError {
 /// avoid breaking existing consumers; in a fresh API it is simply another
 /// default no-op here.
 pub trait Handler: Send + Sync {
+    /// The session store the handler owns, when it owns one
+    /// (go-wmp's `SessionStoreProvider` interface, a default here): the peer
+    /// uses it for session lookups when no store was set on the peer
+    /// directly, so capability gating and the per-session versions work with
+    /// the store the handler actually writes to.
+    fn session_store(&self) -> Option<std::sync::Arc<dyn crate::session::SessionStore>> {
+        None
+    }
+
+    /// The protocol versions this handler negotiates against
+    /// (go-wmp's `VersionProvider` interface, a default here). A service
+    /// configured with different versions also works through a peer.
+    fn supported_versions(&self) -> Vec<String> {
+        crate::types::SUPPORTED_VERSIONS
+            .iter()
+            .copied()
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// `wmp.session.create`
     fn session_create(
         &self,

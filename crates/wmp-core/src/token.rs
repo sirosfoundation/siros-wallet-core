@@ -12,7 +12,7 @@ pub const RESUMPTION_TOKEN_BYTES: usize = 24;
 /// randomness, so the caller supplies the entropy (an operating-system RNG in
 /// production adapters, fixed bytes in tests).
 pub fn new_resumption_token(entropy: [u8; RESUMPTION_TOKEN_BYTES]) -> String {
-    base64url_unpadded(&entropy)
+    encode_base64url(&entropy)
 }
 
 /// Compares two tokens in constant time for equal lengths. Use it for every
@@ -29,8 +29,13 @@ pub fn tokens_equal(a: &str, b: &str) -> bool {
     diff == 0
 }
 
-/// Unpadded base64url (`RFC 4648` §5, without `=`).
-fn base64url_unpadded(bytes: &[u8]) -> String {
+/// Unpadded base64url (`RFC 4648` §5, without `=`), as used by resumption
+/// tokens and request identifiers.
+pub fn base64url_unpadded(bytes: &[u8]) -> String {
+    encode_base64url(bytes)
+}
+
+fn encode_base64url(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         // Slice patterns, not indexing: every byte is bound by the pattern,
