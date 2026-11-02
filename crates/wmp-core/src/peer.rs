@@ -1005,7 +1005,26 @@ impl Peer {
         else {
             return Err(HandlerError::Rpc(RpcError::code(ERR_INTERNAL_ERROR)));
         };
-        match handler.start_flow(ctx, ps) {
+        // The route handle the profile's start receives: the generation and
+        // the functions that end exactly this route.
+        let (release_flow, release_gen) = (ps.flow_id.clone(), gen);
+        let release_registry = self.registry.clone();
+        let release: Arc<dyn Fn() + Send + Sync> =
+            Arc::new(move || release_registry.release(&release_flow, release_gen));
+        let (terminal_flow, terminal_gen) = (ps.flow_id.clone(), gen);
+        let terminal_registry = self.registry.clone();
+        let terminal: Arc<dyn Fn() + Send + Sync> =
+            Arc::new(move || terminal_registry.mark_terminal(&terminal_flow, terminal_gen));
+        let route_ctx = RequestContext {
+            flow_gen: Some(gen),
+            flow_route: Some(crate::context::FlowRouteHandle {
+                gen,
+                release,
+                terminal,
+            }),
+            ..ctx.clone()
+        };
+        match handler.start_flow(&route_ctx, ps) {
             Ok(result) => {
                 self.finish_start(&ps.flow_id, true);
                 Ok(Some(serde_json::to_value(result).map_err(internal)?))
@@ -1097,7 +1116,11 @@ impl Peer {
                 // start would deadlock a start that itself waits for the
                 // action.
                 if let Some(current) = self.registry.acquire(&ps.flow_id, entry.gen) {
-                    let result = current.handler.handle_action(ctx, ps);
+                    let gen_ctx = RequestContext {
+                        flow_gen: Some(entry.gen),
+                        ..ctx.clone()
+                    };
+                    let result = current.handler.handle_action(&gen_ctx, ps);
                     self.registry.done(&ps.flow_id, entry.gen);
                     return Ok(Some(
                         serde_json::to_value(result.map_err(internal)?).map_err(internal)?,
@@ -1233,7 +1256,7 @@ fn deliver_once(
         Some(entry) => {
             if entry.session.is_empty() || entry.session == session {
                 if let Some(current) = registry.acquire(flow_id, entry.gen) {
-                    deliver_to_profile(registry, &current, msg);
+                    deliver_to_profile(registry, &current, &msg.with_gen(entry.gen));
                     registry.done(flow_id, entry.gen);
                 }
             }
@@ -1256,7 +1279,11 @@ fn apply_cancel(
     let Some(current) = registry.acquire(&entry.flow_id, entry.gen) else {
         return Ok(false);
     };
-    let result = current.handler.handle_cancel(ctx, ps);
+    let gen_ctx = RequestContext {
+        flow_gen: Some(entry.gen),
+        ..ctx.clone()
+    };
+    let result = current.handler.handle_cancel(&gen_ctx, ps);
     registry.done(&entry.flow_id, entry.gen);
     let stopped = matches!(result, Ok(true));
     // The route of an ordinary handler's flow ends only once the handler
@@ -1310,6 +1337,35 @@ enum FlowMessage {
     Complete(RequestContext, FlowCompleteParams),
     /// A `wmp.flow.error`.
     Error(RequestContext, FlowErrorParams),
+}
+
+impl FlowMessage {
+    /// The message with the route's generation set on its context.
+    fn with_gen(&self, gen: u64) -> FlowMessage {
+        match self {
+            Self::Progress(ctx, ps) => Self::Progress(
+                RequestContext {
+                    flow_gen: Some(gen),
+                    ..ctx.clone()
+                },
+                ps.clone(),
+            ),
+            Self::Complete(ctx, ps) => Self::Complete(
+                RequestContext {
+                    flow_gen: Some(gen),
+                    ..ctx.clone()
+                },
+                ps.clone(),
+            ),
+            Self::Error(ctx, ps) => Self::Error(
+                RequestContext {
+                    flow_gen: Some(gen),
+                    ..ctx.clone()
+                },
+                ps.clone(),
+            ),
+        }
+    }
 }
 
 /// The params of a request as a parsed value.

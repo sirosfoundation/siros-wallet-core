@@ -306,7 +306,7 @@ pub struct FlowStartResult {
 }
 
 /// The params of [`METHOD_FLOW_PROGRESS`] (a notification).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FlowProgressParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
@@ -347,7 +347,7 @@ pub struct FlowActionResult {
 }
 
 /// The params of [`METHOD_FLOW_COMPLETE`] (a notification).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FlowCompleteParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,
@@ -359,7 +359,7 @@ pub struct FlowCompleteParams {
 }
 
 /// The params of [`METHOD_FLOW_ERROR`] (a notification).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FlowErrorParams {
     /// The `wmp` envelope.
     pub wmp: Metadata,

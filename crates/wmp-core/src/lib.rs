@@ -33,6 +33,7 @@
 
 pub mod context;
 pub mod error;
+pub mod flowcontext;
 pub mod handler;
 pub mod jsonrpc;
 pub mod methods;

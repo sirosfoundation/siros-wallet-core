@@ -45,8 +45,9 @@ pub trait Profile: Send + Sync {
     fn capabilities(&self) -> Vec<String>;
 
     /// Called when the profile is registered with a peer. The profile
-    /// receives a [`PeerContext`] for sending outgoing messages.
-    fn init(&self, ctx: &dyn PeerContext) -> Result<(), HandlerError>;
+    /// receives a [`PeerContext`] for sending outgoing messages and holds
+    /// it as long as it is registered.
+    fn init(&self, ctx: Arc<dyn PeerContext>) -> Result<(), HandlerError>;
 
     /// The flow types this profile handles. A profile that handles none
     /// returns an empty slice and is never dispatched flows.
@@ -247,6 +248,20 @@ pub trait PeerContext: Send + Sync {
 
     /// The session with this identifier, if the peer holds one.
     fn session(&self, id: &str) -> Option<Session>;
+
+    /// The session the peer's static identity names, which stamps the
+    /// messages that name none (go-wmp reaches this by interface
+    /// assertion); empty when the peer has no identity session.
+    fn default_session_id(&self) -> String {
+        String::new()
+    }
+
+    /// The protocol version negotiated for a session (go-wmp reaches this
+    /// through an unexported interface assertion on the peer); the default
+    /// is the crate's version.
+    fn version_for(&self, _session_id: &str) -> String {
+        crate::types::VERSION.to_owned()
+    }
 
     /// The capabilities this profile provides to a session, as negotiated.
     /// Profiles that offer none return an empty set.
