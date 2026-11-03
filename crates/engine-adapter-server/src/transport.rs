@@ -22,21 +22,57 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 
 use crate::EngineServer;
 use wmp_core::context::RequestContext;
 
-/// The router of the engine's HTTP endpoints: the HTTPS binding's routes,
-/// the WebSocket binding's upgrade on the same path, and the probes.
+/// The router of the engine's HTTP endpoints: the WMP transport routes,
+/// the authzen proxy routes, and the probes.
 pub fn router(server: Arc<EngineServer>) -> Router {
     Router::new()
         .route("/wmp", get(get_wmp_ws).post(post_wmp))
         .route("/wmp/events", get(get_events))
+        .route("/v1/evaluate", post(post_evaluate))
+        .route("/v1/resolve", post(post_resolve))
         .route("/healthz", get(get_healthz))
         .route("/readyz", get(get_readyz))
         .with_state(server)
+}
+
+/// `POST /v1/evaluate` — the authzen proxy's evaluate route: authorizes
+/// the query against SPOCP policies, looks up the tenant's PDP URL, and
+/// forwards. The engine's `BackendProxyPdp` port calls this.
+async fn post_evaluate(
+    State(_server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let _ = headers;
+    // The full SPOCP authorization and PDP forwarding arrive with the
+    // backend adapter; the route exists so the proxy path is addressable.
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        [(header::CONTENT_TYPE, "application/json")],
+        r#"{"error":"the authzen proxy arrives with the backend adapter"}"#,
+    )
+        .into_response()
+}
+
+/// `POST /v1/resolve` — the authzen proxy's resolve route.
+async fn post_resolve(
+    State(_server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let _ = (headers, body);
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        [(header::CONTENT_TYPE, "application/json")],
+        r#"{"error":"the authzen proxy arrives with the backend adapter"}"#,
+    )
+        .into_response()
 }
 
 /// `POST /wmp` — the WMP HTTPS binding's request/response mode

@@ -27,6 +27,7 @@
 
 pub mod config;
 pub mod handler;
+pub mod ports;
 pub mod token;
 pub mod transport;
 
@@ -43,30 +44,85 @@ pub struct EngineServer {
     pub store: Arc<MemorySessionStore>,
     /// The token validator both transport paths authenticate through.
     pub validator: Arc<token::TokenValidator>,
+    /// The flow runtime the handler delegates flow methods to — where the
+    /// flow families (S0–S3) register.
+    pub runtime: Arc<engine_core::runtime::FlowRuntime>,
     /// The engine's configuration.
     pub config: config::Config,
 }
 
 impl EngineServer {
-    /// Builds the server from `config`: the token validator, the session
-    /// service, the handler (the engine's flow families register here when
-    /// they land), the peer, and the SSE transport channel.
+    /// Builds the server from `config`: the token validator, the flow
+    /// runtime, the session-backed handler over both, and the peer.
+    ///
+    /// The flow families register on `runtime` after construction; a flow
+    /// type nobody registered answers `-31005` (core §10.3).
     pub fn new(config: config::Config) -> Self {
         let store = Arc::new(MemorySessionStore::new());
         let validator = Arc::new(token::TokenValidator::from_config(&config));
-        let service = handler::build_service(&config, &store);
-        let peer = wmp_core::peer::PeerBuilder::new(service)
-            .session_store(store.clone())
-            .max_message_size(config.max_message_size)
-            .build();
+
+        // The ports the engine core runs on. The server adapter supplies:
+        // the HTTP client (the flow families' fetches; reqwest with rustls
+        // on the server, or the TEE's client), the system clock, the OS
+        // RNG, the remote WMP peer as the Host (the wallet client), the
+        // PDP client, the in-memory KV store, and a no-op telemetry.
+        let ports = Arc::new(engine_core::Ports {
+            http: Arc::new(crate::ports::ServerHttpClient::new(&config)),
+            clock: Arc::new(crate::ports::SystemClock),
+            rng: Arc::new(crate::ports::OsRng),
+            host: Arc::new(crate::ports::RemoteHost),
+            pdp: Arc::new(crate::ports::BackendProxyPdp::new(&config)),
+            kv: Arc::new(crate::ports::InMemoryKv::default()),
+            telemetry: Arc::new(crate::ports::NoopTelemetry),
+        });
+
+        // Build the peer first (the FlowRuntime sends through it).
+        let peer_store = store.clone();
+        let peer_config = config.clone();
+        let peer_validator = validator.clone();
+        let peer = build_peer(&peer_config, &peer_store, ports.clone());
+
+        // Then the runtime over the same ports and peer.
+        let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
+
         Self {
             peer,
             store,
             validator,
+            runtime,
             config,
         }
     }
 }
+
+fn build_peer(
+    config: &config::Config,
+    store: &Arc<MemorySessionStore>,
+    ports: Arc<engine_core::Ports>,
+) -> Arc<Peer> {
+    // The peer needs a handler; the handler needs the runtime; the runtime
+    // needs the peer. Break the cycle: build a placeholder peer first, then
+    // the runtime, then the real handler, then rebuild the peer.
+    let placeholder_peer = wmp_core::peer::PeerBuilder::new(Arc::new(PlaceholderHandler))
+        .session_store(store.clone())
+        .max_message_size(config.max_message_size)
+        .build();
+    let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(
+        ports,
+        placeholder_peer,
+    ));
+    let handler = handler::EngineHandler::new(config, store, runtime.clone());
+    wmp_core::peer::PeerBuilder::new(handler)
+        .session_store(store.clone())
+        .max_message_size(config.max_message_size)
+        .build()
+}
+
+/// A placeholder handler that answers every request with `-32601`,
+/// used only to break the peer ↔ runtime construction cycle.
+struct PlaceholderHandler;
+
+impl wmp_core::handler::Handler for PlaceholderHandler {}
 
 /// The binary's entry point, on the library root so the panic-lint
 /// discipline covers it. Reads the config from `ENGINE_CONFIG` (a JSON

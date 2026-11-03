@@ -33,7 +33,7 @@ async fn post_wmp(server: &Arc<EngineServer>, body: &str) -> (StatusCode, Vec<u8
     (status, body)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_session_create_answers_with_the_negotiated_capabilities() {
     let server = test_server();
     let (status, body) = post_wmp(
@@ -77,7 +77,7 @@ async fn a_session_create_answers_with_the_negotiated_capabilities() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_notification_answers_empty() {
     let server = test_server();
     // Create the session first, so the close has something to name.
@@ -106,7 +106,7 @@ async fn a_notification_answers_empty() {
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn an_unknown_method_answers_32601() {
     let server = test_server();
     let (status, body) = post_wmp(
@@ -136,7 +136,7 @@ async fn an_unknown_method_answers_32601() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_health_probes_answer() {
     let server = test_server();
     let app = engine_adapter_server::transport::router(server.clone());

@@ -7,6 +7,18 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "Vector runner, fake issuer/verifier/PDP, and the OIDF conformance-suite harness driver. Planned."
+description = "The vector runner: loads the engine-vectors repository's scenarios and runs them against the engine core"
 
 [dependencies]
+wmp-core = { path = "../wmp-core" }
+engine-ports = { path = "../engine-ports" }
+engine-core = { path = "../engine-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[lints]
+workspace = true

@@ -11,6 +11,7 @@ description = "The standalone container host of the Rust WMP engine: HTTP+SSE tr
 
 [dependencies]
 wmp-core = { path = "../wmp-core" }
+engine-core = { path = "../engine-core" }
 engine-ports = { path = "../engine-ports" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 axum = { version = "0.8", features = ["ws"] }
@@ -19,7 +20,9 @@ serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 jose-rs = { version = "0.10", default-features = false }
 ureq = { version = "2", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 parking_lot = "0.12"
+async-trait = "0.1"
 thiserror = { workspace = true }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }

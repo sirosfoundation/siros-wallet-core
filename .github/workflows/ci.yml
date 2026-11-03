@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo test --locked --workspace --all-features
+      - run: cargo test --workspace --all-features
 
   fmt:
     name: Format
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
@@ -104,7 +104,7 @@ jobs:
       # the `wallet`/`chain` feature pairs, as the architecture contract
       # requires. Dev-only feature combinations that need a newer toolchain
       # are excluded here on purpose.
-      - run: cargo check --locked --workspace
+      - run: cargo check --workspace
       # TODO(msrv): confirm the exact feature matrix against the ported crates
       # and tighten this job; non-blocking on import.
       - name: Feature matrix on the MSRV

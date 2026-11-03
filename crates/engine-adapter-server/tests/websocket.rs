@@ -70,7 +70,7 @@ async fn ws_round_trip(server: Arc<EngineServer>, messages: Vec<&str>) -> Vec<Op
     replies
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_session_create_over_websocket_answers_with_capabilities() {
     let server = test_server();
     let replies = ws_round_trip(
@@ -98,7 +98,7 @@ async fn a_session_create_over_websocket_answers_with_capabilities() {
     assert!(result.get("security").is_some());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_notification_over_websocket_answers_no_frame() {
     let server = test_server();
     // Create a session first so the close has something to name, then send
@@ -122,7 +122,7 @@ async fn a_notification_over_websocket_answers_no_frame() {
     );
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn the_https_probes_still_answer_alongside_websocket() {
     let server = test_server();
     let app = engine_adapter_server::transport::router(server.clone());
