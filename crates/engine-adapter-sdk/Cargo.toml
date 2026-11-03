@@ -24,6 +24,7 @@ bindgen = ["dep:uniffi", "uniffi/cli"]
 tokio-runtime = ["dep:tokio", "dep:uniffi", "uniffi/tokio"]
 
 [dependencies]
+engine-ports = { path = "../engine-ports" }
 uniffi = { version = "0.28", optional = true }
 tokio = { version = "1", features = ["rt", "time"], optional = true }
 async-trait = "0.1"

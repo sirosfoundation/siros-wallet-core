@@ -1,9 +1,17 @@
+import uniffi.engine_adapter_sdk.ConsentParams
+import uniffi.engine_adapter_sdk.ConsentResult
 import uniffi.engine_adapter_sdk.FetchPurpose
+import uniffi.engine_adapter_sdk.HeaderPair
 import uniffi.engine_adapter_sdk.Host
 import uniffi.engine_adapter_sdk.HttpClient
 import uniffi.engine_adapter_sdk.HttpRequest
 import uniffi.engine_adapter_sdk.HttpResponse
+import uniffi.engine_adapter_sdk.MatchEntry
+import uniffi.engine_adapter_sdk.MatchResult
+import uniffi.engine_adapter_sdk.RedirectPolicy
 import uniffi.engine_adapter_sdk.SdkException
+import uniffi.engine_adapter_sdk.SignParams
+import uniffi.engine_adapter_sdk.SignResult
 import uniffi.engine_adapter_sdk.ping
 import uniffi.engine_adapter_sdk.runPreAuthorizedFlow
 
@@ -15,13 +23,10 @@ import uniffi.engine_adapter_sdk.runPreAuthorizedFlow
  *
  * Build and run from the repository root:
  *
- *   make check-bindings            # generates bindings/kotlin
- *   make kotlin-smoke              # compiles and runs this file
+ *   make kotlin-smoke
  */
 class TestHttpClient : HttpClient {
     override suspend fun send(request: HttpRequest): HttpResponse {
-        // Assert the engine declared the purpose and the limits the port
-        // contract promises, and answer the world's two endpoints.
         return when (request.purpose) {
             FetchPurpose.ISSUER_METADATA -> {
                 check(request.maxResponseBytes == 1048576UL) {
@@ -42,9 +47,29 @@ class TestHttpClient : HttpClient {
 }
 
 class TestHost : Host {
+    override suspend fun requestSign(params: SignParams): SignResult {
+        throw SdkException.Declined()
+    }
+
+    override suspend fun requestMatch(flowId: String, entries: List<MatchEntry>): MatchResult {
+        throw SdkException.Declined()
+    }
+
+    override suspend fun requestConsent(params: ConsentParams): ConsentResult {
+        return ConsentResult(true)
+    }
+
     override suspend fun requestTxCode(flowId: String): String {
         check(flowId == "flow-1") { "unexpected flow id: $flowId" }
         return "1234"
+    }
+
+    override suspend fun openAuthorization(flowId: String, url: String): Unit {
+        // No browser in the smoke.
+    }
+
+    override fun progress(flowId: String, step: String, detail: String?) {
+        // No progress in the smoke.
     }
 }
 
@@ -60,7 +85,15 @@ fun main() = kotlinx.coroutines.runBlocking {
         runPreAuthorizedFlow(
             TestHttpClient(),
             object : Host {
+                override suspend fun requestSign(params: SignParams): SignResult =
+                    throw SdkException.Declined()
+                override suspend fun requestMatch(flowId: String, entries: List<MatchEntry>): MatchResult =
+                    throw SdkException.Declined()
+                override suspend fun requestConsent(params: ConsentParams): ConsentResult =
+                    ConsentResult(false)
                 override suspend fun requestTxCode(flowId: String): String = ""
+                override suspend fun openAuthorization(flowId: String, url: String): Unit {}
+                override fun progress(flowId: String, step: String, detail: String?) {}
             },
             "https://issuer.example",
         )
@@ -70,5 +103,5 @@ fun main() = kotlinx.coroutines.runBlocking {
     }
     check(declined == "declined")
 
-    println("uniffi-async-smoke: ok — async ports across UniFFI work on the JVM")
+    println("uniffi-async-smoke: ok — the engine's port traits work over UniFFI on the JVM")
 }

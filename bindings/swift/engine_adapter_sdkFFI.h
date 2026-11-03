@@ -257,6 +257,37 @@ typedef void (*UniffiCallbackInterfaceHostMethod0)(uint64_t, RustBuffer, UniffiF
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD1
+typedef void (*UniffiCallbackInterfaceHostMethod1)(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD2
+typedef void (*UniffiCallbackInterfaceHostMethod2)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD3
+typedef void (*UniffiCallbackInterfaceHostMethod3)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD4
+typedef void (*UniffiCallbackInterfaceHostMethod4)(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteVoid _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD5
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD5
+typedef void (*UniffiCallbackInterfaceHostMethod5)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HTTP_CLIENT_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HTTP_CLIENT_METHOD0
 typedef void (*UniffiCallbackInterfaceHttpClientMethod0)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
@@ -266,7 +297,12 @@ typedef void (*UniffiCallbackInterfaceHttpClientMethod0)(uint64_t, RustBuffer, U
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_HOST
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_HOST
 typedef struct UniffiVTableCallbackInterfaceHost {
-    UniffiCallbackInterfaceHostMethod0 _Nonnull requestTxCode;
+    UniffiCallbackInterfaceHostMethod0 _Nonnull requestSign;
+    UniffiCallbackInterfaceHostMethod1 _Nonnull requestMatch;
+    UniffiCallbackInterfaceHostMethod2 _Nonnull requestConsent;
+    UniffiCallbackInterfaceHostMethod3 _Nonnull requestTxCode;
+    UniffiCallbackInterfaceHostMethod4 _Nonnull openAuthorization;
+    UniffiCallbackInterfaceHostMethod5 _Nonnull progress;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceHost;
 
@@ -592,9 +628,39 @@ uint16_t uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGN
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGN
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_sign(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_MATCH
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_MATCH
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_match(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CONSENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CONSENT
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_consent(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_TX_CODE
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_TX_CODE
 uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_OPEN_AUTHORIZATION
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_OPEN_AUTHORIZATION
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_open_authorization(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_PROGRESS
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_PROGRESS
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_progress(void
     
 );
 #endif

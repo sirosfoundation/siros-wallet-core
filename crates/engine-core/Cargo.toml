@@ -7,6 +7,20 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "The flow runtime and the OpenID4 flow family on top of it (OID4VCI, OID4VP, resolvers, PDP client). Planned; gated on the spike."
+description = "The flow runtime and the OpenID4 flow family on top of it — the engine's brain. Depends only on the port traits and wmp-core; never on a socket, a clock, or a database."
 
 [dependencies]
+engine-ports = { path = "../engine-ports" }
+wmp-core = { path = "../wmp-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+async-trait = "0.1"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[lints]
+workspace = true

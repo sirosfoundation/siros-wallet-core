@@ -7,6 +7,13 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 publish = false
-description = "The port traits and their message types — the only way the engine core touches the world. Planned; S0."
+description = "The port traits: the only way the engine core touches the world — HTTP, clock, randomness, the wallet host, trust, persistence, telemetry"
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = "0.1"
+
+[lints]
+workspace = true

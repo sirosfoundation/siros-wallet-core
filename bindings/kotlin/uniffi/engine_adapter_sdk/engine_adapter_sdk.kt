@@ -661,23 +661,53 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
     fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructVoid.UniffiByValue,)
 }
 internal interface UniffiCallbackInterfaceHostMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`entries`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod3 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod4 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteVoid,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod5 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceHttpClientMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
 }
-@Structure.FieldOrder("requestTxCode", "uniffiFree")
+@Structure.FieldOrder("requestSign", "requestMatch", "requestConsent", "requestTxCode", "openAuthorization", "progress", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceHost(
-    @JvmField internal var `requestTxCode`: UniffiCallbackInterfaceHostMethod0? = null,
+    @JvmField internal var `requestSign`: UniffiCallbackInterfaceHostMethod0? = null,
+    @JvmField internal var `requestMatch`: UniffiCallbackInterfaceHostMethod1? = null,
+    @JvmField internal var `requestConsent`: UniffiCallbackInterfaceHostMethod2? = null,
+    @JvmField internal var `requestTxCode`: UniffiCallbackInterfaceHostMethod3? = null,
+    @JvmField internal var `openAuthorization`: UniffiCallbackInterfaceHostMethod4? = null,
+    @JvmField internal var `progress`: UniffiCallbackInterfaceHostMethod5? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
-        `requestTxCode`: UniffiCallbackInterfaceHostMethod0? = null,
+        `requestSign`: UniffiCallbackInterfaceHostMethod0? = null,
+        `requestMatch`: UniffiCallbackInterfaceHostMethod1? = null,
+        `requestConsent`: UniffiCallbackInterfaceHostMethod2? = null,
+        `requestTxCode`: UniffiCallbackInterfaceHostMethod3? = null,
+        `openAuthorization`: UniffiCallbackInterfaceHostMethod4? = null,
+        `progress`: UniffiCallbackInterfaceHostMethod5? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceHost(`requestTxCode`,`uniffiFree`,), Structure.ByValue
+    ): UniffiVTableCallbackInterfaceHost(`requestSign`,`requestMatch`,`requestConsent`,`requestTxCode`,`openAuthorization`,`progress`,`uniffiFree`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceHost) {
+        `requestSign` = other.`requestSign`
+        `requestMatch` = other.`requestMatch`
+        `requestConsent` = other.`requestConsent`
         `requestTxCode` = other.`requestTxCode`
+        `openAuthorization` = other.`openAuthorization`
+        `progress` = other.`progress`
         `uniffiFree` = other.`uniffiFree`
     }
 
@@ -698,6 +728,11 @@ internal open class UniffiVTableCallbackInterfaceHttpClient(
     }
 
 }
+
+
+
+
+
 
 
 
@@ -905,7 +940,17 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow(
     ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_sign(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_match(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_consent(
+    ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_open_authorization(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_progress(
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_httpclient_send(
     ): Short
@@ -926,13 +971,28 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_engine_adapter_sdk_checksum_func_ping() != 43685.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_func_ping() != 18660.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow() != 19371.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow() != 61542.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 43251.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_match() != 59864.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_consent() != 9610.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 47288.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 21918.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_progress() != 31447.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403.toShort()) {
@@ -1124,6 +1184,29 @@ public object FfiConverterUShort: FfiConverter<UShort, Short> {
 /**
  * @suppress
  */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterULong: FfiConverter<ULong, Long> {
     override fun lift(value: Long): ULong {
         return value.toULong()
@@ -1141,6 +1224,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1UL
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
     }
 }
 
@@ -1223,7 +1329,137 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 
 
 /**
- * One HTTP request the engine makes.
+ * The consent request. Mirrors `engine_ports::ConsentParams`.
+ */
+data class ConsentParams (
+    /**
+     * The flow.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * What the verifier asks for.
+     */
+    var `purpose`: kotlin.String, 
+    /**
+     * The claims the verifier requests.
+     */
+    var `requestedClaims`: List<kotlin.String>, 
+    /**
+     * The transaction data entries.
+     */
+    var `transactionData`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeConsentParams: FfiConverterRustBuffer<ConsentParams> {
+    override fun read(buf: ByteBuffer): ConsentParams {
+        return ConsentParams(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ConsentParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterString.allocationSize(value.`purpose`) +
+            FfiConverterSequenceString.allocationSize(value.`requestedClaims`) +
+            FfiConverterSequenceString.allocationSize(value.`transactionData`)
+    )
+
+    override fun write(value: ConsentParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterString.write(value.`purpose`, buf)
+            FfiConverterSequenceString.write(value.`requestedClaims`, buf)
+            FfiConverterSequenceString.write(value.`transactionData`, buf)
+    }
+}
+
+
+
+/**
+ * The consent answer. Mirrors `engine_ports::ConsentResult`.
+ */
+data class ConsentResult (
+    /**
+     * Whether the user consented.
+     */
+    var `consented`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeConsentResult: FfiConverterRustBuffer<ConsentResult> {
+    override fun read(buf: ByteBuffer): ConsentResult {
+        return ConsentResult(
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ConsentResult) = (
+            FfiConverterBoolean.allocationSize(value.`consented`)
+    )
+
+    override fun write(value: ConsentResult, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`consented`, buf)
+    }
+}
+
+
+
+/**
+ * One header pair (UniFFI cannot pass tuples directly).
+ */
+data class HeaderPair (
+    /**
+     * The header's name.
+     */
+    var `name`: kotlin.String, 
+    /**
+     * The header's value.
+     */
+    var `value`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHeaderPair: FfiConverterRustBuffer<HeaderPair> {
+    override fun read(buf: ByteBuffer): HeaderPair {
+        return HeaderPair(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HeaderPair) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`value`)
+    )
+
+    override fun write(value: HeaderPair, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`value`, buf)
+    }
+}
+
+
+
+/**
+ * One HTTP request. Mirrors `engine_ports::HttpRequest`.
  */
 data class HttpRequest (
     /**
@@ -1235,17 +1471,33 @@ data class HttpRequest (
      */
     var `url`: kotlin.String, 
     /**
-     * The bytes of the body, when there is one.
+     * The request's headers.
+     */
+    var `headers`: List<HeaderPair>, 
+    /**
+     * The request's body.
      */
     var `body`: kotlin.ByteArray, 
     /**
-     * Why the engine is fetching, and the policy that follows.
+     * Why the engine is fetching.
      */
     var `purpose`: FetchPurpose, 
     /**
-     * The response size limit the engine declared.
+     * The response size limit.
      */
-    var `maxResponseBytes`: kotlin.ULong
+    var `maxResponseBytes`: kotlin.ULong, 
+    /**
+     * The redirect policy.
+     */
+    var `redirects`: RedirectPolicy, 
+    /**
+     * Whether plain http is allowed.
+     */
+    var `allowPlaintext`: kotlin.Boolean, 
+    /**
+     * The timeout, in milliseconds.
+     */
+    var `timeoutMs`: kotlin.ULong
 ) {
     
     companion object
@@ -1259,8 +1511,12 @@ public object FfiConverterTypeHttpRequest: FfiConverterRustBuffer<HttpRequest> {
         return HttpRequest(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterSequenceTypeHeaderPair.read(buf),
             FfiConverterByteArray.read(buf),
             FfiConverterTypeFetchPurpose.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterTypeRedirectPolicy.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterULong.read(buf),
         )
     }
@@ -1268,24 +1524,32 @@ public object FfiConverterTypeHttpRequest: FfiConverterRustBuffer<HttpRequest> {
     override fun allocationSize(value: HttpRequest) = (
             FfiConverterString.allocationSize(value.`method`) +
             FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterSequenceTypeHeaderPair.allocationSize(value.`headers`) +
             FfiConverterByteArray.allocationSize(value.`body`) +
             FfiConverterTypeFetchPurpose.allocationSize(value.`purpose`) +
-            FfiConverterULong.allocationSize(value.`maxResponseBytes`)
+            FfiConverterULong.allocationSize(value.`maxResponseBytes`) +
+            FfiConverterTypeRedirectPolicy.allocationSize(value.`redirects`) +
+            FfiConverterBoolean.allocationSize(value.`allowPlaintext`) +
+            FfiConverterULong.allocationSize(value.`timeoutMs`)
     )
 
     override fun write(value: HttpRequest, buf: ByteBuffer) {
             FfiConverterString.write(value.`method`, buf)
             FfiConverterString.write(value.`url`, buf)
+            FfiConverterSequenceTypeHeaderPair.write(value.`headers`, buf)
             FfiConverterByteArray.write(value.`body`, buf)
             FfiConverterTypeFetchPurpose.write(value.`purpose`, buf)
             FfiConverterULong.write(value.`maxResponseBytes`, buf)
+            FfiConverterTypeRedirectPolicy.write(value.`redirects`, buf)
+            FfiConverterBoolean.write(value.`allowPlaintext`, buf)
+            FfiConverterULong.write(value.`timeoutMs`, buf)
     }
 }
 
 
 
 /**
- * The world's answer.
+ * The world's answer. Mirrors `engine_ports::HttpResponse`.
  */
 data class HttpResponse (
     /**
@@ -1293,7 +1557,7 @@ data class HttpResponse (
      */
     var `status`: kotlin.UShort, 
     /**
-     * The bytes of the body.
+     * The response's body.
      */
     var `body`: kotlin.ByteArray
 ) {
@@ -1326,9 +1590,178 @@ public object FfiConverterTypeHttpResponse: FfiConverterRustBuffer<HttpResponse>
 
 
 /**
- * What an HTTP request is for — the engine declares the purpose, and the
- * adapter enforces the network policy that purpose implies. The engine
- * core's `FetchPurpose`, crossing the FFI.
+ * A match entry. Mirrors `engine_ports::MatchEntry`.
+ */
+data class MatchEntry (
+    /**
+     * The credential's identifier.
+     */
+    var `credentialId`: kotlin.String, 
+    /**
+     * The credential's display name.
+     */
+    var `displayName`: kotlin.String, 
+    /**
+     * The credential's type.
+     */
+    var `credentialType`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMatchEntry: FfiConverterRustBuffer<MatchEntry> {
+    override fun read(buf: ByteBuffer): MatchEntry {
+        return MatchEntry(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MatchEntry) = (
+            FfiConverterString.allocationSize(value.`credentialId`) +
+            FfiConverterString.allocationSize(value.`displayName`) +
+            FfiConverterString.allocationSize(value.`credentialType`)
+    )
+
+    override fun write(value: MatchEntry, buf: ByteBuffer) {
+            FfiConverterString.write(value.`credentialId`, buf)
+            FfiConverterString.write(value.`displayName`, buf)
+            FfiConverterString.write(value.`credentialType`, buf)
+    }
+}
+
+
+
+/**
+ * The match answer. Mirrors `engine_ports::MatchResult`.
+ */
+data class MatchResult (
+    /**
+     * The selected credential's identifier.
+     */
+    var `selectedId`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMatchResult: FfiConverterRustBuffer<MatchResult> {
+    override fun read(buf: ByteBuffer): MatchResult {
+        return MatchResult(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MatchResult) = (
+            FfiConverterString.allocationSize(value.`selectedId`)
+    )
+
+    override fun write(value: MatchResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`selectedId`, buf)
+    }
+}
+
+
+
+/**
+ * The sign request. Mirrors `engine_ports::SignParams`.
+ */
+data class SignParams (
+    /**
+     * The flow the request belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The to-be-signed input.
+     */
+    var `toSign`: kotlin.ByteArray, 
+    /**
+     * The key the host signs with.
+     */
+    var `keyId`: kotlin.String?, 
+    /**
+     * The signing algorithm.
+     */
+    var `algorithm`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSignParams: FfiConverterRustBuffer<SignParams> {
+    override fun read(buf: ByteBuffer): SignParams {
+        return SignParams(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SignParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterByteArray.allocationSize(value.`toSign`) +
+            FfiConverterOptionalString.allocationSize(value.`keyId`) +
+            FfiConverterString.allocationSize(value.`algorithm`)
+    )
+
+    override fun write(value: SignParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterByteArray.write(value.`toSign`, buf)
+            FfiConverterOptionalString.write(value.`keyId`, buf)
+            FfiConverterString.write(value.`algorithm`, buf)
+    }
+}
+
+
+
+/**
+ * The signature. Mirrors `engine_ports::SignResult`.
+ */
+data class SignResult (
+    /**
+     * The signature bytes.
+     */
+    var `signature`: kotlin.ByteArray
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSignResult: FfiConverterRustBuffer<SignResult> {
+    override fun read(buf: ByteBuffer): SignResult {
+        return SignResult(
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SignResult) = (
+            FfiConverterByteArray.allocationSize(value.`signature`)
+    )
+
+    override fun write(value: SignResult, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`signature`, buf)
+    }
+}
+
+
+
+/**
+ * What an HTTP request is for. Mirrors `engine_ports::FetchPurpose`.
  */
 
 enum class FetchPurpose {
@@ -1388,7 +1821,11 @@ enum class FetchPurpose {
     /**
      * The PDP.
      */
-    PDP;
+    PDP,
+    /**
+     * An AS's JWKS.
+     */
+    AS_JWKS;
     companion object
 }
 
@@ -1414,24 +1851,108 @@ public object FfiConverterTypeFetchPurpose: FfiConverterRustBuffer<FetchPurpose>
 
 
 
+/**
+ * The redirect policy. Mirrors `engine_ports::RedirectPolicy`.
+ */
+sealed class RedirectPolicy {
+    
+    /**
+     * No redirects.
+     */
+    object None : RedirectPolicy()
+    
+    
+    /**
+     * At most this many hops.
+     */
+    data class Max(
+        val v1: kotlin.UInt) : RedirectPolicy() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRedirectPolicy : FfiConverterRustBuffer<RedirectPolicy>{
+    override fun read(buf: ByteBuffer): RedirectPolicy {
+        return when(buf.getInt()) {
+            1 -> RedirectPolicy.None
+            2 -> RedirectPolicy.Max(
+                FfiConverterUInt.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: RedirectPolicy) = when(value) {
+        is RedirectPolicy.None -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is RedirectPolicy.Max -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: RedirectPolicy, buf: ByteBuffer) {
+        when(value) {
+            is RedirectPolicy.None -> {
+                buf.putInt(1)
+                Unit
+            }
+            is RedirectPolicy.Max -> {
+                buf.putInt(2)
+                FfiConverterUInt.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 
 /**
- * Why a fetch or a sub-flow refused.
+ * The error the SDK's foreign implementations answer with.
  */
 sealed class SdkException: kotlin.Exception() {
     
     /**
      * The network refused.
      */
-    class Network(
+    class NetworkRefused(
         ) : SdkException() {
         override val message
             get() = ""
     }
     
     /**
-     * The host declined the sub-flow.
+     * The transport failed.
+     */
+    class Transport(
+        
+        val v1: kotlin.String
+        ) : SdkException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    /**
+     * The host declined.
      */
     class Declined(
         ) : SdkException() {
@@ -1440,9 +1961,20 @@ sealed class SdkException: kotlin.Exception() {
     }
     
     /**
-     * The engine's answer was wrong for the request.
+     * The host cannot answer.
      */
-    class BadResponse(
+    class Cannot(
+        
+        val v1: kotlin.String
+        ) : SdkException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    /**
+     * An internal error.
+     */
+    class Internal(
         ) : SdkException() {
         override val message
             get() = ""
@@ -1464,24 +1996,40 @@ public object FfiConverterTypeSdkError : FfiConverterRustBuffer<SdkException> {
         
 
         return when(buf.getInt()) {
-            1 -> SdkException.Network()
-            2 -> SdkException.Declined()
-            3 -> SdkException.BadResponse()
+            1 -> SdkException.NetworkRefused()
+            2 -> SdkException.Transport(
+                FfiConverterString.read(buf),
+                )
+            3 -> SdkException.Declined()
+            4 -> SdkException.Cannot(
+                FfiConverterString.read(buf),
+                )
+            5 -> SdkException.Internal()
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
     }
 
     override fun allocationSize(value: SdkException): ULong {
         return when(value) {
-            is SdkException.Network -> (
+            is SdkException.NetworkRefused -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
+            )
+            is SdkException.Transport -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
             )
             is SdkException.Declined -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
             )
-            is SdkException.BadResponse -> (
+            is SdkException.Cannot -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is SdkException.Internal -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
             )
@@ -1490,16 +2038,26 @@ public object FfiConverterTypeSdkError : FfiConverterRustBuffer<SdkException> {
 
     override fun write(value: SdkException, buf: ByteBuffer) {
         when(value) {
-            is SdkException.Network -> {
+            is SdkException.NetworkRefused -> {
                 buf.putInt(1)
                 Unit
             }
-            is SdkException.Declined -> {
+            is SdkException.Transport -> {
                 buf.putInt(2)
+                FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is SdkException.BadResponse -> {
+            is SdkException.Declined -> {
                 buf.putInt(3)
+                Unit
+            }
+            is SdkException.Cannot -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is SdkException.Internal -> {
+                buf.putInt(5)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -1512,15 +2070,41 @@ public object FfiConverterTypeSdkError : FfiConverterRustBuffer<SdkException> {
 
 
 /**
- * The wallet host, seen from the engine: the sign, consent and selection
- * sub-flows. Async, because the answer is a person's.
+ * The wallet host: the sub-flows the engine asks the wallet's user for.
+ * The Kotlin/Swift implementation is the adapter's
+ * `engine_ports::Host`.
  */
 public interface Host {
     
     /**
-     * Asks the wallet's user for the transaction code.
+     * Asks the host to sign the given input.
+     */
+    suspend fun `requestSign`(`params`: SignParams): SignResult
+    
+    /**
+     * Asks the host to select a credential.
+     */
+    suspend fun `requestMatch`(`flowId`: kotlin.String, `entries`: List<MatchEntry>): MatchResult
+    
+    /**
+     * Asks the host's user for consent.
+     */
+    suspend fun `requestConsent`(`params`: ConsentParams): ConsentResult
+    
+    /**
+     * Asks the host's user for the transaction code.
      */
     suspend fun `requestTxCode`(`flowId`: kotlin.String): kotlin.String
+    
+    /**
+     * Opens the authorization URL in the host's browser.
+     */
+    suspend fun `openAuthorization`(`flowId`: kotlin.String, `url`: kotlin.String)
+    
+    /**
+     * Reports progress on a flow.
+     */
+    fun `progress`(`flowId`: kotlin.String, `step`: kotlin.String, `detail`: kotlin.String?)
     
     companion object
 }
@@ -1560,7 +2144,116 @@ public abstract class FfiConverterCallbackInterface<CallbackInterface: Any>: Ffi
 
 // Put the implementation in an object so we don't pollute the top-level namespace
 internal object uniffiCallbackInterfaceHost {
-    internal object `requestTxCode`: UniffiCallbackInterfaceHostMethod0 {
+    internal object `requestSign`: UniffiCallbackInterfaceHostMethod0 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestSign`(
+                    FfiConverterTypeSignParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: SignResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeSignResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestMatch`: UniffiCallbackInterfaceHostMethod1 {
+        override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`entries`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestMatch`(
+                    FfiConverterString.lift(`flowId`),
+                    FfiConverterSequenceTypeMatchEntry.lift(`entries`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: MatchResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeMatchResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestConsent`: UniffiCallbackInterfaceHostMethod2 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestConsent`(
+                    FfiConverterTypeConsentParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: ConsentResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeConsentResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestTxCode`: UniffiCallbackInterfaceHostMethod3 {
         override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
             val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
             val makeCall = suspend { ->
@@ -1596,6 +2289,55 @@ internal object uniffiCallbackInterfaceHost {
             )
         }
     }
+    internal object `openAuthorization`: UniffiCallbackInterfaceHostMethod4 {
+        override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteVoid,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`openAuthorization`(
+                    FfiConverterString.lift(`flowId`),
+                    FfiConverterString.lift(`url`),
+                )
+            }
+            val uniffiHandleSuccess = { _: Unit ->
+                val uniffiResult = UniffiForeignFutureStructVoid.UniffiByValue(
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructVoid.UniffiByValue(
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `progress`: UniffiCallbackInterfaceHostMethod5 {
+        override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = { ->
+                uniffiObj.`progress`(
+                    FfiConverterString.lift(`flowId`),
+                    FfiConverterString.lift(`step`),
+                    FfiConverterOptionalString.lift(`detail`),
+                )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
 
     internal object uniffiFree: UniffiCallbackInterfaceFree {
         override fun callback(handle: Long) {
@@ -1604,7 +2346,12 @@ internal object uniffiCallbackInterfaceHost {
     }
 
     internal var vtable = UniffiVTableCallbackInterfaceHost.UniffiByValue(
+        `requestSign`,
+        `requestMatch`,
+        `requestConsent`,
         `requestTxCode`,
+        `openAuthorization`,
+        `progress`,
         uniffiFree,
     )
 
@@ -1627,10 +2374,9 @@ public object FfiConverterTypeHost: FfiConverterCallbackInterface<Host>()
 
 
 /**
- * The engine's HTTP port: the host performs each request with its platform
- * stack, so system roots, proxies and VPNs behave natively. This is the
- * async-ports design — the host implements this trait from Kotlin or
- * Swift.
+ * The engine's HTTP port: the host performs each request with its
+ * platform stack. The Kotlin/Swift implementation of this trait is the
+ * adapter's `engine_ports::HttpClient`.
  */
 public interface HttpClient {
     
@@ -1711,14 +2457,128 @@ public object FfiConverterTypeHttpClient: FfiConverterCallbackInterface<HttpClie
 
 
 
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHeaderPair: FfiConverterRustBuffer<List<HeaderPair>> {
+    override fun read(buf: ByteBuffer): List<HeaderPair> {
+        val len = buf.getInt()
+        return List<HeaderPair>(len) {
+            FfiConverterTypeHeaderPair.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HeaderPair>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHeaderPair.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HeaderPair>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHeaderPair.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeMatchEntry: FfiConverterRustBuffer<List<MatchEntry>> {
+    override fun read(buf: ByteBuffer): List<MatchEntry> {
+        val len = buf.getInt()
+        return List<MatchEntry>(len) {
+            FfiConverterTypeMatchEntry.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MatchEntry>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMatchEntry.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MatchEntry>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMatchEntry.write(it, buf)
+        }
+    }
+}
+
+
+
+
 
 
 
 
         /**
-         * A smoke that needs no host: the exported async function awaits an
-         * internally-provided future, proving the async runtime wiring from the
-         * foreign side's point of view.
+         * A smoke that needs no host.
          */
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `ping`() : kotlin.String {
@@ -1735,10 +2595,8 @@ public object FfiConverterTypeHttpClient: FfiConverterCallbackInterface<HttpClie
     }
 
         /**
-         * Drives one flow through both ports, end to end: fetches through the
-         * host's HTTP stack, asks the host for the tx_code, and returns what the
-         * flow produced. This is the engine core's calling shape — the exported
-         * async function the SDKs call to run a flow.
+         * Drives one flow through both ports, end to end. This is the P0.4
+         * smoke's target — the engine core's calling shape.
          */
     @Throws(SdkException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")

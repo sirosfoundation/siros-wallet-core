@@ -1,27 +1,21 @@
 //! The UniFFI bindings of the WMP engine core for Kotlin and Swift.
 //!
-//! This is the **P0.4 smoke of the engine's port shapes**: the async-ports
-//! design of the engine specification, exercised across the FFI that the
-//! native SDKs will use. The traits here are the two the engine's whole
-//! design rests on — an async [`HttpClient`] the host performs with its
-//! platform stack, and an async [`Host`] the engine asks for sign, consent
-//! and tx_code — plus one exported async function that drives a flow through
-//! both, exactly as the engine core will.
+//! This is the **SDK adapter**: it takes the `engine-ports` trait
+//! definitions (the engine core's only interface with the world) and adds
+//! the UniFFI derives that let Kotlin and Swift implement them as async
+//! callback interfaces. The P0.4 smoke proved the shape: async port traits
+//! over UniFFI work on the JVM (`suspend fun`) and in Swift
+//! (`async throws`).
 //!
-//! The verdict this crate records (see `docs/uniffi-smoke.md`): uniffi 0.28
-//! supports foreign-implemented async trait methods for Kotlin (`suspend
-//! fun`) and Swift (`async throws`) when the trait carries `#[async_trait]`
-//! and the crate enables `uniffi/tokio`. The alternative designs — the
-//! synchronous foreign callback with an async bridge in Rust (what
-//! siros-wscd-manager ships) and the sans-I/O effect-list core (what the
-//! wallet-core presentation crates are) — remain the recorded fallbacks.
+//! The port types are defined in `engine-ports`; the UniFFI-compatible
+//! wrappers are defined here, with conversions between them. The engine
+//! core sees only `engine-ports`; the SDK sees only the UniFFI types; the
+//! adapter maps between them.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
-// Nothing panics outside the tests. scripts/check_panic_sites.py refuses an
-// allow of these lints there and finds the panics they cannot see. The uniffi
-// proc macros expand into foreign glue whose lints are not ours to control;
-// the smoke's own code holds to the workspace rules.
+// The uniffi proc macros expand into code that is not ours to lint; the
+// adapter's own code holds to the workspace rules.
 #![cfg_attr(
     not(test),
     deny(
@@ -39,9 +33,9 @@
 
 uniffi::setup_scaffolding!();
 
-/// What an HTTP request is for — the engine declares the purpose, and the
-/// adapter enforces the network policy that purpose implies. The engine
-/// core's `FetchPurpose`, crossing the FFI.
+// ─── UniFFI-compatible types (mirror the engine-ports types) ─────────────
+
+/// What an HTTP request is for. Mirrors `engine_ports::FetchPurpose`.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum FetchPurpose {
     /// An issuer's metadata.
@@ -72,58 +66,281 @@ pub enum FetchPurpose {
     Logo,
     /// The PDP.
     Pdp,
+    /// An AS's JWKS.
+    AsJwks,
 }
 
-/// One HTTP request the engine makes.
+impl From<FetchPurpose> for engine_ports::FetchPurpose {
+    fn from(p: FetchPurpose) -> Self {
+        match p {
+            FetchPurpose::IssuerMetadata => Self::IssuerMetadata,
+            FetchPurpose::AsMetadata => Self::AsMetadata,
+            FetchPurpose::Offer => Self::Offer,
+            FetchPurpose::Nonce => Self::Nonce,
+            FetchPurpose::Token => Self::Token,
+            FetchPurpose::Credential => Self::Credential,
+            FetchPurpose::Deferred => Self::Deferred,
+            FetchPurpose::Notification => Self::Notification,
+            FetchPurpose::RequestObject => Self::RequestObject,
+            FetchPurpose::ClientMetadata => Self::ClientMetadata,
+            FetchPurpose::DirectPost => Self::DirectPost,
+            FetchPurpose::Jwks => Self::Jwks,
+            FetchPurpose::Logo => Self::Logo,
+            FetchPurpose::Pdp => Self::Pdp,
+            FetchPurpose::AsJwks => Self::AsJwks,
+        }
+    }
+}
+
+/// The redirect policy. Mirrors `engine_ports::RedirectPolicy`.
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum RedirectPolicy {
+    /// No redirects.
+    None,
+    /// At most this many hops.
+    Max(u32),
+}
+
+/// One HTTP request. Mirrors `engine_ports::HttpRequest`.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct HttpRequest {
     /// The request's method.
     pub method: String,
     /// The request's URL.
     pub url: String,
-    /// The bytes of the body, when there is one.
+    /// The request's headers.
+    pub headers: Vec<HeaderPair>,
+    /// The request's body.
     pub body: Vec<u8>,
-    /// Why the engine is fetching, and the policy that follows.
+    /// Why the engine is fetching.
     pub purpose: FetchPurpose,
-    /// The response size limit the engine declared.
+    /// The response size limit.
     pub max_response_bytes: u64,
+    /// The redirect policy.
+    pub redirects: RedirectPolicy,
+    /// Whether plain http is allowed.
+    pub allow_plaintext: bool,
+    /// The timeout, in milliseconds.
+    pub timeout_ms: u64,
 }
 
-/// The world's answer.
+/// One header pair (UniFFI cannot pass tuples directly).
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct HeaderPair {
+    /// The header's name.
+    pub name: String,
+    /// The header's value.
+    pub value: String,
+}
+
+impl From<&HttpRequest> for engine_ports::HttpRequest {
+    fn from(r: &HttpRequest) -> Self {
+        Self {
+            method: r.method.clone(),
+            url: r.url.clone(),
+            headers: r
+                .headers
+                .iter()
+                .map(|h| (h.name.clone(), h.value.clone()))
+                .collect(),
+            body: r.body.clone(),
+            purpose: r.purpose.clone().into(),
+            max_response_bytes: r.max_response_bytes as usize,
+            redirects: match r.redirects {
+                RedirectPolicy::None => engine_ports::RedirectPolicy::None,
+                RedirectPolicy::Max(hops) => engine_ports::RedirectPolicy::Max(hops as usize),
+            },
+            allow_plaintext: r.allow_plaintext,
+            timeout_ms: r.timeout_ms,
+        }
+    }
+}
+
+/// The world's answer. Mirrors `engine_ports::HttpResponse`.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct HttpResponse {
     /// The response's status.
     pub status: u16,
-    /// The bytes of the body.
+    /// The response's body.
     pub body: Vec<u8>,
 }
 
-/// Why a fetch or a sub-flow refused.
+impl From<engine_ports::HttpResponse> for HttpResponse {
+    fn from(r: engine_ports::HttpResponse) -> Self {
+        Self {
+            status: r.status,
+            body: r.body,
+        }
+    }
+}
+
+/// The sign request. Mirrors `engine_ports::SignParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignParams {
+    /// The flow the request belongs to.
+    pub flow_id: String,
+    /// The to-be-signed input.
+    pub to_sign: Vec<u8>,
+    /// The key the host signs with.
+    pub key_id: Option<String>,
+    /// The signing algorithm.
+    pub algorithm: String,
+}
+
+impl From<SignParams> for engine_ports::SignParams {
+    fn from(p: SignParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            to_sign: p.to_sign,
+            key_id: p.key_id,
+            algorithm: p.algorithm,
+        }
+    }
+}
+
+/// The signature. Mirrors `engine_ports::SignResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignResult {
+    /// The signature bytes.
+    pub signature: Vec<u8>,
+}
+
+impl From<engine_ports::SignResult> for SignResult {
+    fn from(r: engine_ports::SignResult) -> Self {
+        Self {
+            signature: r.signature,
+        }
+    }
+}
+
+/// A match entry. Mirrors `engine_ports::MatchEntry`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct MatchEntry {
+    /// The credential's identifier.
+    pub credential_id: String,
+    /// The credential's display name.
+    pub display_name: String,
+    /// The credential's type.
+    pub credential_type: String,
+}
+
+impl From<MatchEntry> for engine_ports::MatchEntry {
+    fn from(e: MatchEntry) -> Self {
+        Self {
+            credential_id: e.credential_id,
+            display_name: e.display_name,
+            credential_type: e.credential_type,
+        }
+    }
+}
+
+/// The match answer. Mirrors `engine_ports::MatchResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct MatchResult {
+    /// The selected credential's identifier.
+    pub selected_id: String,
+}
+
+impl From<engine_ports::MatchResult> for MatchResult {
+    fn from(r: engine_ports::MatchResult) -> Self {
+        Self {
+            selected_id: r.selected_id,
+        }
+    }
+}
+
+/// The consent request. Mirrors `engine_ports::ConsentParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ConsentParams {
+    /// The flow.
+    pub flow_id: String,
+    /// What the verifier asks for.
+    pub purpose: String,
+    /// The claims the verifier requests.
+    pub requested_claims: Vec<String>,
+    /// The transaction data entries.
+    pub transaction_data: Vec<String>,
+}
+
+impl From<ConsentParams> for engine_ports::ConsentParams {
+    fn from(p: ConsentParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            purpose: p.purpose,
+            requested_claims: p.requested_claims,
+            transaction_data: p.transaction_data,
+        }
+    }
+}
+
+/// The consent answer. Mirrors `engine_ports::ConsentResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ConsentResult {
+    /// Whether the user consented.
+    pub consented: bool,
+}
+
+impl From<engine_ports::ConsentResult> for ConsentResult {
+    fn from(r: engine_ports::ConsentResult) -> Self {
+        Self {
+            consented: r.consented,
+        }
+    }
+}
+
+// ─── The SDK's error type ────────────────────────────────────────────────
+
+/// The error the SDK's foreign implementations answer with.
 #[derive(uniffi::Error, Clone, Debug)]
 pub enum SdkError {
     /// The network refused.
-    Network,
-    /// The host declined the sub-flow.
+    NetworkRefused,
+    /// The transport failed.
+    Transport(String),
+    /// The host declined.
     Declined,
-    /// The engine's answer was wrong for the request.
-    BadResponse,
+    /// The host cannot answer.
+    Cannot(String),
+    /// An internal error.
+    Internal,
 }
 
 impl std::fmt::Display for SdkError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text = match self {
-            Self::Network => "network",
+            Self::NetworkRefused => "network refused",
+            Self::Transport(detail) => return write!(f, "transport: {detail}"),
             Self::Declined => "declined",
-            Self::BadResponse => "bad response",
+            Self::Cannot(detail) => return write!(f, "cannot: {detail}"),
+            Self::Internal => "internal",
         };
         write!(f, "engine-adapter-sdk: {text}")
     }
 }
 
-/// The engine's HTTP port: the host performs each request with its platform
-/// stack, so system roots, proxies and VPNs behave natively. This is the
-/// async-ports design — the host implements this trait from Kotlin or
-/// Swift.
+impl From<engine_ports::HttpError> for SdkError {
+    fn from(err: engine_ports::HttpError) -> Self {
+        match err {
+            engine_ports::HttpError::Refused => Self::NetworkRefused,
+            engine_ports::HttpError::Transport(detail) => Self::Transport(detail),
+        }
+    }
+}
+
+impl From<engine_ports::HostError> for SdkError {
+    fn from(err: engine_ports::HostError) -> Self {
+        match err {
+            engine_ports::HostError::Declined => Self::Declined,
+            engine_ports::HostError::Cannot(detail) => Self::Cannot(detail),
+        }
+    }
+}
+
+// ─── The port traits, with UniFFI derives ────────────────────────────────
+
+/// The engine's HTTP port: the host performs each request with its
+/// platform stack. The Kotlin/Swift implementation of this trait is the
+/// adapter's `engine_ports::HttpClient`.
 #[uniffi::export(callback_interface)]
 #[async_trait::async_trait]
 pub trait HttpClient: Send + Sync {
@@ -131,19 +348,39 @@ pub trait HttpClient: Send + Sync {
     async fn send(&self, request: HttpRequest) -> Result<HttpResponse, SdkError>;
 }
 
-/// The wallet host, seen from the engine: the sign, consent and selection
-/// sub-flows. Async, because the answer is a person's.
+/// The wallet host: the sub-flows the engine asks the wallet's user for.
+/// The Kotlin/Swift implementation is the adapter's
+/// `engine_ports::Host`.
 #[uniffi::export(callback_interface)]
 #[async_trait::async_trait]
 pub trait Host: Send + Sync {
-    /// Asks the wallet's user for the transaction code.
+    /// Asks the host to sign the given input.
+    async fn request_sign(&self, params: SignParams) -> Result<SignResult, SdkError>;
+
+    /// Asks the host to select a credential.
+    async fn request_match(
+        &self,
+        flow_id: String,
+        entries: Vec<MatchEntry>,
+    ) -> Result<MatchResult, SdkError>;
+
+    /// Asks the host's user for consent.
+    async fn request_consent(&self, params: ConsentParams) -> Result<ConsentResult, SdkError>;
+
+    /// Asks the host's user for the transaction code.
     async fn request_tx_code(&self, flow_id: String) -> Result<String, SdkError>;
+
+    /// Opens the authorization URL in the host's browser.
+    async fn open_authorization(&self, flow_id: String, url: String) -> Result<(), SdkError>;
+
+    /// Reports progress on a flow.
+    fn progress(&self, flow_id: String, step: String, detail: Option<String>);
 }
 
-/// Drives one flow through both ports, end to end: fetches through the
-/// host's HTTP stack, asks the host for the tx_code, and returns what the
-/// flow produced. This is the engine core's calling shape — the exported
-/// async function the SDKs call to run a flow.
+// ─── The smoke test target ───────────────────────────────────────────────
+
+/// Drives one flow through both ports, end to end. This is the P0.4
+/// smoke's target — the engine core's calling shape.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn run_pre_authorized_flow(
     http: Box<dyn HttpClient>,
@@ -154,13 +391,20 @@ pub async fn run_pre_authorized_flow(
         .send(HttpRequest {
             method: "GET".to_owned(),
             url: format!("{issuer_url}/.well-known/openid-credential-issuer"),
+            headers: Vec::new(),
             body: Vec::new(),
             purpose: FetchPurpose::IssuerMetadata,
             max_response_bytes: 1_048_576,
+            redirects: RedirectPolicy::None,
+            allow_plaintext: false,
+            timeout_ms: 10_000,
         })
         .await?;
     if metadata.status != 200 {
-        return Err(SdkError::BadResponse);
+        return Err(SdkError::Transport(format!(
+            "metadata answered {}",
+            metadata.status
+        )));
     }
     let tx_code = host.request_tx_code("flow-1".to_owned()).await?;
     if tx_code.is_empty() {
@@ -170,20 +414,28 @@ pub async fn run_pre_authorized_flow(
         .send(HttpRequest {
             method: "POST".to_owned(),
             url: format!("{issuer_url}/token"),
+            headers: vec![HeaderPair {
+                name: "content-type".to_owned(),
+                value: "application/x-www-form-urlencoded".to_owned(),
+            }],
             body: format!("tx_code={tx_code}").into_bytes(),
             purpose: FetchPurpose::Token,
             max_response_bytes: 262_144,
+            redirects: RedirectPolicy::None,
+            allow_plaintext: false,
+            timeout_ms: 10_000,
         })
         .await?;
     if token.status != 200 {
-        return Err(SdkError::BadResponse);
+        return Err(SdkError::Transport(format!(
+            "token answered {}",
+            token.status
+        )));
     }
     Ok(String::from_utf8_lossy(&token.body).to_string())
 }
 
-/// A smoke that needs no host: the exported async function awaits an
-/// internally-provided future, proving the async runtime wiring from the
-/// foreign side's point of view.
+/// A smoke that needs no host.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn ping() -> String {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;

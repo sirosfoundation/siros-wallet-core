@@ -122,7 +122,8 @@ impl JwksCache {
 pub struct TokenValidator {
     jwks: JwksCache,
     issuer: String,
-    #[allow(dead_code)] // wired through jose-rs's Validation; kept for the revocation adapter's config
+    #[allow(dead_code)]
+    // wired through jose-rs's Validation; kept for the revocation adapter's config
     audiences: Vec<String>,
     revocation: Arc<dyn RevocationChecker>,
     #[allow(dead_code)] // jose-rs's Validation carries the leeway; kept for the config

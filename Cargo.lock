@@ -1024,6 +1024,7 @@ name = "engine-adapter-sdk"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "engine-ports",
  "tokio",
  "uniffi",
 ]
@@ -1056,10 +1057,27 @@ version = "0.1.0"
 [[package]]
 name = "engine-core"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "engine-ports",
+ "parking_lot",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "wmp-core",
+]
 
 [[package]]
 name = "engine-ports"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "equivalent"

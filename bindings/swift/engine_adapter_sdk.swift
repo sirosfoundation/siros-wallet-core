@@ -415,6 +415,22 @@ fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -424,6 +440,30 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     }
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -489,7 +529,264 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
- * One HTTP request the engine makes.
+ * The consent request. Mirrors `engine_ports::ConsentParams`.
+ */
+public struct ConsentParams {
+    /**
+     * The flow.
+     */
+    public var flowId: String
+    /**
+     * What the verifier asks for.
+     */
+    public var purpose: String
+    /**
+     * The claims the verifier requests.
+     */
+    public var requestedClaims: [String]
+    /**
+     * The transaction data entries.
+     */
+    public var transactionData: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow.
+         */flowId: String, 
+        /**
+         * What the verifier asks for.
+         */purpose: String, 
+        /**
+         * The claims the verifier requests.
+         */requestedClaims: [String], 
+        /**
+         * The transaction data entries.
+         */transactionData: [String]) {
+        self.flowId = flowId
+        self.purpose = purpose
+        self.requestedClaims = requestedClaims
+        self.transactionData = transactionData
+    }
+}
+
+
+
+extension ConsentParams: Equatable, Hashable {
+    public static func ==(lhs: ConsentParams, rhs: ConsentParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.purpose != rhs.purpose {
+            return false
+        }
+        if lhs.requestedClaims != rhs.requestedClaims {
+            return false
+        }
+        if lhs.transactionData != rhs.transactionData {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(purpose)
+        hasher.combine(requestedClaims)
+        hasher.combine(transactionData)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConsentParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConsentParams {
+        return
+            try ConsentParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                purpose: FfiConverterString.read(from: &buf), 
+                requestedClaims: FfiConverterSequenceString.read(from: &buf), 
+                transactionData: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConsentParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterString.write(value.purpose, into: &buf)
+        FfiConverterSequenceString.write(value.requestedClaims, into: &buf)
+        FfiConverterSequenceString.write(value.transactionData, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentParams_lift(_ buf: RustBuffer) throws -> ConsentParams {
+    return try FfiConverterTypeConsentParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentParams_lower(_ value: ConsentParams) -> RustBuffer {
+    return FfiConverterTypeConsentParams.lower(value)
+}
+
+
+/**
+ * The consent answer. Mirrors `engine_ports::ConsentResult`.
+ */
+public struct ConsentResult {
+    /**
+     * Whether the user consented.
+     */
+    public var consented: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether the user consented.
+         */consented: Bool) {
+        self.consented = consented
+    }
+}
+
+
+
+extension ConsentResult: Equatable, Hashable {
+    public static func ==(lhs: ConsentResult, rhs: ConsentResult) -> Bool {
+        if lhs.consented != rhs.consented {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(consented)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConsentResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConsentResult {
+        return
+            try ConsentResult(
+                consented: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConsentResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.consented, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentResult_lift(_ buf: RustBuffer) throws -> ConsentResult {
+    return try FfiConverterTypeConsentResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConsentResult_lower(_ value: ConsentResult) -> RustBuffer {
+    return FfiConverterTypeConsentResult.lower(value)
+}
+
+
+/**
+ * One header pair (UniFFI cannot pass tuples directly).
+ */
+public struct HeaderPair {
+    /**
+     * The header's name.
+     */
+    public var name: String
+    /**
+     * The header's value.
+     */
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The header's name.
+         */name: String, 
+        /**
+         * The header's value.
+         */value: String) {
+        self.name = name
+        self.value = value
+    }
+}
+
+
+
+extension HeaderPair: Equatable, Hashable {
+    public static func ==(lhs: HeaderPair, rhs: HeaderPair) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.value != rhs.value {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(value)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHeaderPair: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HeaderPair {
+        return
+            try HeaderPair(
+                name: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HeaderPair, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeaderPair_lift(_ buf: RustBuffer) throws -> HeaderPair {
+    return try FfiConverterTypeHeaderPair.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHeaderPair_lower(_ value: HeaderPair) -> RustBuffer {
+    return FfiConverterTypeHeaderPair.lower(value)
+}
+
+
+/**
+ * One HTTP request. Mirrors `engine_ports::HttpRequest`.
  */
 public struct HttpRequest {
     /**
@@ -501,17 +798,33 @@ public struct HttpRequest {
      */
     public var url: String
     /**
-     * The bytes of the body, when there is one.
+     * The request's headers.
+     */
+    public var headers: [HeaderPair]
+    /**
+     * The request's body.
      */
     public var body: Data
     /**
-     * Why the engine is fetching, and the policy that follows.
+     * Why the engine is fetching.
      */
     public var purpose: FetchPurpose
     /**
-     * The response size limit the engine declared.
+     * The response size limit.
      */
     public var maxResponseBytes: UInt64
+    /**
+     * The redirect policy.
+     */
+    public var redirects: RedirectPolicy
+    /**
+     * Whether plain http is allowed.
+     */
+    public var allowPlaintext: Bool
+    /**
+     * The timeout, in milliseconds.
+     */
+    public var timeoutMs: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -523,19 +836,35 @@ public struct HttpRequest {
          * The request's URL.
          */url: String, 
         /**
-         * The bytes of the body, when there is one.
+         * The request's headers.
+         */headers: [HeaderPair], 
+        /**
+         * The request's body.
          */body: Data, 
         /**
-         * Why the engine is fetching, and the policy that follows.
+         * Why the engine is fetching.
          */purpose: FetchPurpose, 
         /**
-         * The response size limit the engine declared.
-         */maxResponseBytes: UInt64) {
+         * The response size limit.
+         */maxResponseBytes: UInt64, 
+        /**
+         * The redirect policy.
+         */redirects: RedirectPolicy, 
+        /**
+         * Whether plain http is allowed.
+         */allowPlaintext: Bool, 
+        /**
+         * The timeout, in milliseconds.
+         */timeoutMs: UInt64) {
         self.method = method
         self.url = url
+        self.headers = headers
         self.body = body
         self.purpose = purpose
         self.maxResponseBytes = maxResponseBytes
+        self.redirects = redirects
+        self.allowPlaintext = allowPlaintext
+        self.timeoutMs = timeoutMs
     }
 }
 
@@ -549,6 +878,9 @@ extension HttpRequest: Equatable, Hashable {
         if lhs.url != rhs.url {
             return false
         }
+        if lhs.headers != rhs.headers {
+            return false
+        }
         if lhs.body != rhs.body {
             return false
         }
@@ -558,15 +890,28 @@ extension HttpRequest: Equatable, Hashable {
         if lhs.maxResponseBytes != rhs.maxResponseBytes {
             return false
         }
+        if lhs.redirects != rhs.redirects {
+            return false
+        }
+        if lhs.allowPlaintext != rhs.allowPlaintext {
+            return false
+        }
+        if lhs.timeoutMs != rhs.timeoutMs {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(method)
         hasher.combine(url)
+        hasher.combine(headers)
         hasher.combine(body)
         hasher.combine(purpose)
         hasher.combine(maxResponseBytes)
+        hasher.combine(redirects)
+        hasher.combine(allowPlaintext)
+        hasher.combine(timeoutMs)
     }
 }
 
@@ -580,18 +925,26 @@ public struct FfiConverterTypeHttpRequest: FfiConverterRustBuffer {
             try HttpRequest(
                 method: FfiConverterString.read(from: &buf), 
                 url: FfiConverterString.read(from: &buf), 
+                headers: FfiConverterSequenceTypeHeaderPair.read(from: &buf), 
                 body: FfiConverterData.read(from: &buf), 
                 purpose: FfiConverterTypeFetchPurpose.read(from: &buf), 
-                maxResponseBytes: FfiConverterUInt64.read(from: &buf)
+                maxResponseBytes: FfiConverterUInt64.read(from: &buf), 
+                redirects: FfiConverterTypeRedirectPolicy.read(from: &buf), 
+                allowPlaintext: FfiConverterBool.read(from: &buf), 
+                timeoutMs: FfiConverterUInt64.read(from: &buf)
         )
     }
 
     public static func write(_ value: HttpRequest, into buf: inout [UInt8]) {
         FfiConverterString.write(value.method, into: &buf)
         FfiConverterString.write(value.url, into: &buf)
+        FfiConverterSequenceTypeHeaderPair.write(value.headers, into: &buf)
         FfiConverterData.write(value.body, into: &buf)
         FfiConverterTypeFetchPurpose.write(value.purpose, into: &buf)
         FfiConverterUInt64.write(value.maxResponseBytes, into: &buf)
+        FfiConverterTypeRedirectPolicy.write(value.redirects, into: &buf)
+        FfiConverterBool.write(value.allowPlaintext, into: &buf)
+        FfiConverterUInt64.write(value.timeoutMs, into: &buf)
     }
 }
 
@@ -612,7 +965,7 @@ public func FfiConverterTypeHttpRequest_lower(_ value: HttpRequest) -> RustBuffe
 
 
 /**
- * The world's answer.
+ * The world's answer. Mirrors `engine_ports::HttpResponse`.
  */
 public struct HttpResponse {
     /**
@@ -620,7 +973,7 @@ public struct HttpResponse {
      */
     public var status: UInt16
     /**
-     * The bytes of the body.
+     * The response's body.
      */
     public var body: Data
 
@@ -631,7 +984,7 @@ public struct HttpResponse {
          * The response's status.
          */status: UInt16, 
         /**
-         * The bytes of the body.
+         * The response's body.
          */body: Data) {
         self.status = status
         self.body = body
@@ -691,12 +1044,348 @@ public func FfiConverterTypeHttpResponse_lower(_ value: HttpResponse) -> RustBuf
     return FfiConverterTypeHttpResponse.lower(value)
 }
 
+
+/**
+ * A match entry. Mirrors `engine_ports::MatchEntry`.
+ */
+public struct MatchEntry {
+    /**
+     * The credential's identifier.
+     */
+    public var credentialId: String
+    /**
+     * The credential's display name.
+     */
+    public var displayName: String
+    /**
+     * The credential's type.
+     */
+    public var credentialType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The credential's identifier.
+         */credentialId: String, 
+        /**
+         * The credential's display name.
+         */displayName: String, 
+        /**
+         * The credential's type.
+         */credentialType: String) {
+        self.credentialId = credentialId
+        self.displayName = displayName
+        self.credentialType = credentialType
+    }
+}
+
+
+
+extension MatchEntry: Equatable, Hashable {
+    public static func ==(lhs: MatchEntry, rhs: MatchEntry) -> Bool {
+        if lhs.credentialId != rhs.credentialId {
+            return false
+        }
+        if lhs.displayName != rhs.displayName {
+            return false
+        }
+        if lhs.credentialType != rhs.credentialType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(credentialId)
+        hasher.combine(displayName)
+        hasher.combine(credentialType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMatchEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchEntry {
+        return
+            try MatchEntry(
+                credentialId: FfiConverterString.read(from: &buf), 
+                displayName: FfiConverterString.read(from: &buf), 
+                credentialType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MatchEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.credentialId, into: &buf)
+        FfiConverterString.write(value.displayName, into: &buf)
+        FfiConverterString.write(value.credentialType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchEntry_lift(_ buf: RustBuffer) throws -> MatchEntry {
+    return try FfiConverterTypeMatchEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchEntry_lower(_ value: MatchEntry) -> RustBuffer {
+    return FfiConverterTypeMatchEntry.lower(value)
+}
+
+
+/**
+ * The match answer. Mirrors `engine_ports::MatchResult`.
+ */
+public struct MatchResult {
+    /**
+     * The selected credential's identifier.
+     */
+    public var selectedId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The selected credential's identifier.
+         */selectedId: String) {
+        self.selectedId = selectedId
+    }
+}
+
+
+
+extension MatchResult: Equatable, Hashable {
+    public static func ==(lhs: MatchResult, rhs: MatchResult) -> Bool {
+        if lhs.selectedId != rhs.selectedId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(selectedId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMatchResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchResult {
+        return
+            try MatchResult(
+                selectedId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MatchResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.selectedId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchResult_lift(_ buf: RustBuffer) throws -> MatchResult {
+    return try FfiConverterTypeMatchResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchResult_lower(_ value: MatchResult) -> RustBuffer {
+    return FfiConverterTypeMatchResult.lower(value)
+}
+
+
+/**
+ * The sign request. Mirrors `engine_ports::SignParams`.
+ */
+public struct SignParams {
+    /**
+     * The flow the request belongs to.
+     */
+    public var flowId: String
+    /**
+     * The to-be-signed input.
+     */
+    public var toSign: Data
+    /**
+     * The key the host signs with.
+     */
+    public var keyId: String?
+    /**
+     * The signing algorithm.
+     */
+    public var algorithm: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow the request belongs to.
+         */flowId: String, 
+        /**
+         * The to-be-signed input.
+         */toSign: Data, 
+        /**
+         * The key the host signs with.
+         */keyId: String?, 
+        /**
+         * The signing algorithm.
+         */algorithm: String) {
+        self.flowId = flowId
+        self.toSign = toSign
+        self.keyId = keyId
+        self.algorithm = algorithm
+    }
+}
+
+
+
+extension SignParams: Equatable, Hashable {
+    public static func ==(lhs: SignParams, rhs: SignParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.toSign != rhs.toSign {
+            return false
+        }
+        if lhs.keyId != rhs.keyId {
+            return false
+        }
+        if lhs.algorithm != rhs.algorithm {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(toSign)
+        hasher.combine(keyId)
+        hasher.combine(algorithm)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSignParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SignParams {
+        return
+            try SignParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                toSign: FfiConverterData.read(from: &buf), 
+                keyId: FfiConverterOptionString.read(from: &buf), 
+                algorithm: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SignParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterData.write(value.toSign, into: &buf)
+        FfiConverterOptionString.write(value.keyId, into: &buf)
+        FfiConverterString.write(value.algorithm, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignParams_lift(_ buf: RustBuffer) throws -> SignParams {
+    return try FfiConverterTypeSignParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignParams_lower(_ value: SignParams) -> RustBuffer {
+    return FfiConverterTypeSignParams.lower(value)
+}
+
+
+/**
+ * The signature. Mirrors `engine_ports::SignResult`.
+ */
+public struct SignResult {
+    /**
+     * The signature bytes.
+     */
+    public var signature: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The signature bytes.
+         */signature: Data) {
+        self.signature = signature
+    }
+}
+
+
+
+extension SignResult: Equatable, Hashable {
+    public static func ==(lhs: SignResult, rhs: SignResult) -> Bool {
+        if lhs.signature != rhs.signature {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(signature)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSignResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SignResult {
+        return
+            try SignResult(
+                signature: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SignResult, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.signature, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignResult_lift(_ buf: RustBuffer) throws -> SignResult {
+    return try FfiConverterTypeSignResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignResult_lower(_ value: SignResult) -> RustBuffer {
+    return FfiConverterTypeSignResult.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * What an HTTP request is for — the engine declares the purpose, and the
- * adapter enforces the network policy that purpose implies. The engine
- * core's `FetchPurpose`, crossing the FFI.
+ * What an HTTP request is for. Mirrors `engine_ports::FetchPurpose`.
  */
 
 public enum FetchPurpose {
@@ -757,6 +1446,10 @@ public enum FetchPurpose {
      * The PDP.
      */
     case pdp
+    /**
+     * An AS's JWKS.
+     */
+    case asJwks
 }
 
 
@@ -797,6 +1490,8 @@ public struct FfiConverterTypeFetchPurpose: FfiConverterRustBuffer {
         case 13: return .logo
         
         case 14: return .pdp
+        
+        case 15: return .asJwks
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -861,6 +1556,10 @@ public struct FfiConverterTypeFetchPurpose: FfiConverterRustBuffer {
         case .pdp:
             writeInt(&buf, Int32(14))
         
+        
+        case .asJwks:
+            writeInt(&buf, Int32(15))
+        
         }
     }
 }
@@ -886,9 +1585,85 @@ extension FetchPurpose: Equatable, Hashable {}
 
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The redirect policy. Mirrors `engine_ports::RedirectPolicy`.
+ */
+
+public enum RedirectPolicy {
+    
+    /**
+     * No redirects.
+     */
+    case none
+    /**
+     * At most this many hops.
+     */
+    case max(UInt32
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRedirectPolicy: FfiConverterRustBuffer {
+    typealias SwiftType = RedirectPolicy
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RedirectPolicy {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .none
+        
+        case 2: return .max(try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RedirectPolicy, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .none:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .max(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(v1, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRedirectPolicy_lift(_ buf: RustBuffer) throws -> RedirectPolicy {
+    return try FfiConverterTypeRedirectPolicy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRedirectPolicy_lower(_ value: RedirectPolicy) -> RustBuffer {
+    return FfiConverterTypeRedirectPolicy.lower(value)
+}
+
+
+
+extension RedirectPolicy: Equatable, Hashable {}
+
+
+
 
 /**
- * Why a fetch or a sub-flow refused.
+ * The error the SDK's foreign implementations answer with.
  */
 public enum SdkError {
 
@@ -897,15 +1672,25 @@ public enum SdkError {
     /**
      * The network refused.
      */
-    case Network
+    case NetworkRefused
     /**
-     * The host declined the sub-flow.
+     * The transport failed.
+     */
+    case Transport(String
+    )
+    /**
+     * The host declined.
      */
     case Declined
     /**
-     * The engine's answer was wrong for the request.
+     * The host cannot answer.
      */
-    case BadResponse
+    case Cannot(String
+    )
+    /**
+     * An internal error.
+     */
+    case Internal
 }
 
 
@@ -922,9 +1707,15 @@ public struct FfiConverterTypeSdkError: FfiConverterRustBuffer {
         
 
         
-        case 1: return .Network
-        case 2: return .Declined
-        case 3: return .BadResponse
+        case 1: return .NetworkRefused
+        case 2: return .Transport(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Declined
+        case 4: return .Cannot(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 5: return .Internal
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -937,16 +1728,26 @@ public struct FfiConverterTypeSdkError: FfiConverterRustBuffer {
 
         
         
-        case .Network:
+        case .NetworkRefused:
             writeInt(&buf, Int32(1))
         
         
-        case .Declined:
+        case let .Transport(v1):
             writeInt(&buf, Int32(2))
+            FfiConverterString.write(v1, into: &buf)
+            
         
-        
-        case .BadResponse:
+        case .Declined:
             writeInt(&buf, Int32(3))
+        
+        
+        case let .Cannot(v1):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case .Internal:
+            writeInt(&buf, Int32(5))
         
         }
     }
@@ -965,15 +1766,41 @@ extension SdkError: Foundation.LocalizedError {
 
 
 /**
- * The wallet host, seen from the engine: the sign, consent and selection
- * sub-flows. Async, because the answer is a person's.
+ * The wallet host: the sub-flows the engine asks the wallet's user for.
+ * The Kotlin/Swift implementation is the adapter's
+ * `engine_ports::Host`.
  */
 public protocol Host : AnyObject {
     
     /**
-     * Asks the wallet's user for the transaction code.
+     * Asks the host to sign the given input.
+     */
+    func requestSign(params: SignParams) async throws  -> SignResult
+    
+    /**
+     * Asks the host to select a credential.
+     */
+    func requestMatch(flowId: String, entries: [MatchEntry]) async throws  -> MatchResult
+    
+    /**
+     * Asks the host's user for consent.
+     */
+    func requestConsent(params: ConsentParams) async throws  -> ConsentResult
+    
+    /**
+     * Asks the host's user for the transaction code.
      */
     func requestTxCode(flowId: String) async throws  -> String
+    
+    /**
+     * Opens the authorization URL in the host's browser.
+     */
+    func openAuthorization(flowId: String, url: String) async throws 
+    
+    /**
+     * Reports progress on a flow.
+     */
+    func progress(flowId: String, step: String, detail: String?) 
     
 }
 
@@ -991,6 +1818,137 @@ fileprivate struct UniffiCallbackInterfaceHost {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     static var vtable: UniffiVTableCallbackInterfaceHost = UniffiVTableCallbackInterfaceHost(
+        requestSign: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> SignResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestSign(
+                     params: try FfiConverterTypeSignParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: SignResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeSignResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestMatch: { (
+            uniffiHandle: UInt64,
+            flowId: RustBuffer,
+            entries: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> MatchResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestMatch(
+                     flowId: try FfiConverterString.lift(flowId),
+                     entries: try FfiConverterSequenceTypeMatchEntry.lift(entries)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: MatchResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeMatchResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestConsent: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> ConsentResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestConsent(
+                     params: try FfiConverterTypeConsentParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: ConsentResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeConsentResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
         requestTxCode: { (
             uniffiHandle: UInt64,
             flowId: RustBuffer,
@@ -1033,6 +1991,77 @@ fileprivate struct UniffiCallbackInterfaceHost {
                 lowerError: FfiConverterTypeSdkError.lower
             )
             uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        openAuthorization: { (
+            uniffiHandle: UInt64,
+            flowId: RustBuffer,
+            url: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteVoid,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.openAuthorization(
+                     flowId: try FfiConverterString.lift(flowId),
+                     url: try FfiConverterString.lift(url)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: ()) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructVoid(
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructVoid(
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        progress: { (
+            uniffiHandle: UInt64,
+            flowId: RustBuffer,
+            step: RustBuffer,
+            detail: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.progress(
+                     flowId: try FfiConverterString.lift(flowId),
+                     step: try FfiConverterString.lift(step),
+                     detail: try FfiConverterOptionString.lift(detail)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
         },
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             let result = try? FfiConverterCallbackInterfaceHost.handleMap.remove(handle: uniffiHandle)
@@ -1096,10 +2125,9 @@ extension FfiConverterCallbackInterfaceHost : FfiConverter {
 
 
 /**
- * The engine's HTTP port: the host performs each request with its platform
- * stack, so system roots, proxies and VPNs behave natively. This is the
- * async-ports design — the host implements this trait from Kotlin or
- * Swift.
+ * The engine's HTTP port: the host performs each request with its
+ * platform stack. The Kotlin/Swift implementation of this trait is the
+ * adapter's `engine_ports::HttpClient`.
  */
 public protocol HttpClient : AnyObject {
     
@@ -1218,6 +2246,105 @@ extension FfiConverterCallbackInterfaceHttpClient : FfiConverter {
         writeInt(&buf, lower(v))
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHeaderPair: FfiConverterRustBuffer {
+    typealias SwiftType = [HeaderPair]
+
+    public static func write(_ value: [HeaderPair], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHeaderPair.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HeaderPair] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HeaderPair]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHeaderPair.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeMatchEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [MatchEntry]
+
+    public static func write(_ value: [MatchEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMatchEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MatchEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MatchEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMatchEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
 
@@ -1331,9 +2458,7 @@ public func uniffiForeignFutureHandleCountEngineAdapterSdk() -> Int {
     UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
 }
 /**
- * A smoke that needs no host: the exported async function awaits an
- * internally-provided future, proving the async runtime wiring from the
- * foreign side's point of view.
+ * A smoke that needs no host.
  */
 public func ping()async  -> String {
     return
@@ -1351,10 +2476,8 @@ public func ping()async  -> String {
         )
 }
 /**
- * Drives one flow through both ports, end to end: fetches through the
- * host's HTTP stack, asks the host for the tx_code, and returns what the
- * flow produced. This is the engine core's calling shape — the exported
- * async function the SDKs call to run a flow.
+ * Drives one flow through both ports, end to end. This is the P0.4
+ * smoke's target — the engine core's calling shape.
  */
 public func runPreAuthorizedFlow(http: HttpClient, host: Host, issuerUrl: String)async throws  -> String {
     return
@@ -1386,13 +2509,28 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_func_ping() != 43685) {
+    if (uniffi_engine_adapter_sdk_checksum_func_ping() != 18660) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow() != 19371) {
+    if (uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow() != 61542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 43251) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_match() != 59864) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_consent() != 9610) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 47288) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 21918) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_progress() != 31447) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403) {
