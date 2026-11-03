@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mini-wallet — the SIROS engine core, raw</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; color: #222; }
+    h1 { font-size: 1.1rem; }
+    #state { font-family: ui-monospace, monospace; padding: .5rem .75rem;
+             border-radius: 6px; background: #f4f4f5; display: inline-block; }
+    #state[data-flow-state="started"] { background: #fef3c7; }
+    #state[data-flow-state="completed"] { background: #dcfce7; }
+    #state[data-flow-state="presented"] { background: #dcfce7; }
+    #state[data-flow-state="error"] { background: #fee2e2; }
+    p { max-width: 46rem; }
+  </style>
+</head>
+<body data-flow-state="idle">
+  <h1>mini-wallet</h1>
+  <p id="state">idle</p>
+  <p>The SIROS engine core, in the browser, driven by the OIDF
+     conformance suites. Navigated by URL:
+     <code>?offer=…</code> issues a credential,
+     <code>?request=…</code> answers a presentation, and the
+     authorization-code redirect returns with <code>?code&state</code>.</p>
+
+  <script type="module" src="./wallet_glue.js"></script>
+  <script type="module" src="./wallet.js"></script>
+</body>
+</html>

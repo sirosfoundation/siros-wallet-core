@@ -33,9 +33,15 @@ futures = "0.3"
 # jose-rs's key generation reaches getrandom; on wasm32-unknown-unknown
 # it needs the JS backend (feature unification applies it build-wide).
 getrandom = { version = "0.4", features = ["wasm_js"] }
+# The mini host's device key: jose-rs generates the P-256 pair and
+# kryptering's software signer signs the proof bytes — both pinned as
+# the engine core pins them.
+jose-rs = { version = "0.10", default-features = false }
+kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+jose-rs = { version = "0.10", default-features = false }
 
 # The dispatcher's host-target tests: the routing, the capability gate
 # and the session plumbing, driven with the conformance runner's

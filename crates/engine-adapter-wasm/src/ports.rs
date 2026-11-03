@@ -495,3 +495,31 @@ pub struct NoTelemetry;
 impl engine_ports::Telemetry for NoTelemetry {
     fn event(&self, _event: engine_ports::TelemetryEvent) {}
 }
+
+/// Minimal base64url decoding, for the tests' proof inspection.
+pub fn decode_b64url(encoded: &str) -> Vec<u8> {
+    fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'-' => Some(62),
+            b'_' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes = encoded.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for &b in bytes {
+        let Some(v) = value(b) else { continue };
+        buffer = (buffer << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buffer >> bits) & 0xff) as u8);
+        }
+    }
+    out
+}

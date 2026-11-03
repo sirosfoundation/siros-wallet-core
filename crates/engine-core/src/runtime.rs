@@ -203,6 +203,21 @@ impl FlowContext {
 /// An in-flight flow: the family that owns it, and its type.
 type InFlight = (Arc<dyn FlowHandler>, String);
 
+/// The KV key a flow's registry record lives under.
+fn flow_registry_key(flow_id: &str) -> String {
+    format!("runtime:flow:{flow_id}")
+}
+
+/// Reads the flow's registry record from the KV port. The callers are
+/// the async handler dispatches, so the port's own asynchrony is
+/// native — no bridging, no runtime dependency.
+async fn registry_entry(
+    kv: &Arc<dyn engine_ports::KeyValue>,
+    flow_id: &str,
+) -> Option<engine_ports::KeyValueEntry> {
+    kv.get(&flow_registry_key(flow_id)).await
+}
+
 /// The flow runtime: the registry that dispatches flow starts to the
 /// families that own them, and the capability gate that refuses a flow
 /// type whose capability was not negotiated (core §10.3).
@@ -301,9 +316,29 @@ impl FlowRuntime {
         // is unregistered by the complete handler below — a start that
         // returns without completing (the authorization-code handoff)
         // stays registered for the redirect's action.
-        self.flows
-            .write()
-            .insert(params.flow_id.clone(), (handler, params.flow_type.clone()));
+        self.flows.write().insert(
+            params.flow_id.clone(),
+            (handler.clone(), params.flow_type.clone()),
+        );
+
+        // And in the KV registry, so a later action on a fresh runtime
+        // — the page reloaded between the handoff and the redirect —
+        // resolves the family from the persisted flow type, exactly as
+        // the stash design promises (the stateless resume).
+        if let Ok(entry) = serde_json::to_vec(&serde_json::json!({
+            "flow_type": params.flow_type,
+        })) {
+            self.ports
+                .kv
+                .put(
+                    &flow_registry_key(&params.flow_id),
+                    engine_ports::KeyValueEntry {
+                        value: entry,
+                        ttl_secs: Some(600),
+                    },
+                )
+                .await;
+        }
 
         Ok(result)
     }
@@ -315,7 +350,7 @@ impl FlowRuntime {
         params: &FlowActionParams,
     ) -> Result<FlowActionResult, HandlerError> {
         let flow_ctx = self.context_of(ctx, &params.flow_id);
-        let handler = self.handler_of_flow(ctx, &params.flow_id).ok_or_else(|| {
+        let handler = self.handler_of_flow(ctx, &params.flow_id).await.ok_or_else(|| {
             HandlerError::Rpc(RpcError::new(
                 wmp_core::error::ERR_FLOW_ERROR,
                 Some(
@@ -328,7 +363,7 @@ impl FlowRuntime {
 
     /// Handles a `wmp.flow.progress`.
     pub async fn handle_progress(&self, ctx: &RequestContext, params: &FlowProgressParams) {
-        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) {
+        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id).await {
             let flow_ctx = self.context_of(ctx, &params.flow_id);
             handler.handle_progress(&flow_ctx, params).await;
         }
@@ -336,21 +371,31 @@ impl FlowRuntime {
 
     /// Handles a `wmp.flow.complete`.
     pub async fn handle_complete(&self, ctx: &RequestContext, params: &FlowCompleteParams) {
-        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) {
+        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id).await {
             let flow_ctx = self.context_of(ctx, &params.flow_id);
             handler.handle_complete(&flow_ctx, params).await;
-            // The flow is done: unregister it.
+            // The flow is done: unregister it — in memory and in the KV
+            // registry, or a later action would resurrect it.
             self.flows.write().remove(&params.flow_id);
+            self.ports
+                .kv
+                .delete(&flow_registry_key(&params.flow_id))
+                .await;
         }
     }
 
     /// Handles a `wmp.flow.error`.
     pub async fn handle_error(&self, ctx: &RequestContext, params: &FlowErrorParams) {
-        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) {
+        if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id).await {
             let flow_ctx = self.context_of(ctx, &params.flow_id);
             handler.handle_error(&flow_ctx, params).await;
-            // The flow is dead: unregister it.
+            // The flow is dead: unregister it — in memory and in the KV
+            // registry.
             self.flows.write().remove(&params.flow_id);
+            self.ports
+                .kv
+                .delete(&flow_registry_key(&params.flow_id))
+                .await;
         }
     }
 
@@ -360,7 +405,7 @@ impl FlowRuntime {
         ctx: &RequestContext,
         params: &FlowCancelParams,
     ) -> Result<FlowCancelResult, HandlerError> {
-        let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) else {
+        let Some(handler) = self.handler_of_flow(ctx, &params.flow_id).await else {
             return Err(HandlerError::Rpc(RpcError::new(
                 wmp_core::error::ERR_FLOW_ERROR,
                 Some(
@@ -371,14 +416,25 @@ impl FlowRuntime {
         let flow_ctx = self.context_of(ctx, &params.flow_id);
         let stopped = handler.handle_cancel(&flow_ctx, params).await?;
         if stopped {
-            // The flow is cancelled: unregister it.
+            // The flow is cancelled: unregister it — in memory and in
+            // the KV registry.
             self.flows.write().remove(&params.flow_id);
+            self.ports
+                .kv
+                .delete(&flow_registry_key(&params.flow_id))
+                .await;
         }
         Ok(FlowCancelResult {
             wmp: wmp_core::types::Metadata::default(),
             flow_id: params.flow_id.clone(),
             status: if stopped { "cancelled" } else { "active" }.to_owned(),
         })
+    }
+
+    /// The ports this runtime runs on — for building a fresh runtime
+    /// over the same KV (the stateless resume's tests).
+    pub fn ports(&self) -> Arc<Ports> {
+        self.ports.clone()
     }
 
     fn lookup(&self, flow_type: &str) -> Option<Arc<dyn FlowHandler>> {
@@ -390,15 +446,21 @@ impl FlowRuntime {
     /// handler is found by the flow type the request carries; a
     /// flow-instance-to-handler map (what wmp-core's registry does) arrives
     /// with the flow families.
-    fn handler_of_flow(
+    async fn handler_of_flow(
         &self,
         _ctx: &RequestContext,
         flow_id: &str,
     ) -> Option<Arc<dyn FlowHandler>> {
-        self.flows
-            .read()
-            .get(flow_id)
-            .map(|(handler, _)| handler.clone())
+        if let Some((handler, _)) = self.flows.read().get(flow_id) {
+            return Some(handler.clone());
+        }
+        // Not in this runtime's memory: the stateless resume — the flow
+        // started on another instance (the page reloaded) and left its
+        // type in the KV registry. Resolve the family from it.
+        let entry = registry_entry(&self.ports.kv, flow_id).await?;
+        let record: serde_json::Value = serde_json::from_slice(&entry.value).ok()?;
+        let flow_type = record.get("flow_type")?.as_str()?.to_owned();
+        self.lookup(&flow_type)
     }
 
     fn context_of(&self, ctx: &RequestContext, flow_id: &str) -> FlowContext {
@@ -577,14 +639,27 @@ mod tests {
                 Err(engine_ports::PdpError::NotImplemented)
             }
         }
-        struct NoopKv;
+        /// The in-memory KV the runtime tests run on — the stateless
+        /// resume's registry reads and writes through it, exactly as a
+        /// browser's localStorage-backed KV would.
+        struct MemoryKv(parking_lot::Mutex<FxHashMap<String, Vec<u8>>>);
         #[async_trait::async_trait]
-        impl engine_ports::KeyValue for NoopKv {
-            async fn get(&self, _key: &str) -> Option<engine_ports::KeyValueEntry> {
-                None
+        impl engine_ports::KeyValue for MemoryKv {
+            async fn get(&self, key: &str) -> Option<engine_ports::KeyValueEntry> {
+                self.0
+                    .lock()
+                    .get(key)
+                    .map(|value| engine_ports::KeyValueEntry {
+                        value: value.clone(),
+                        ttl_secs: None,
+                    })
             }
-            async fn put(&self, _key: &str, _entry: engine_ports::KeyValueEntry) {}
-            async fn delete(&self, _key: &str) {}
+            async fn put(&self, key: &str, entry: engine_ports::KeyValueEntry) {
+                self.0.lock().insert(key.to_owned(), entry.value);
+            }
+            async fn delete(&self, key: &str) {
+                self.0.lock().remove(key);
+            }
         }
         struct NoopTelemetry;
         impl engine_ports::Telemetry for NoopTelemetry {
@@ -596,7 +671,7 @@ mod tests {
             rng: Arc::new(NoopRng),
             host: Arc::new(NoopHost),
             pdp: Arc::new(NoopPdp),
-            kv: Arc::new(NoopKv),
+            kv: Arc::new(MemoryKv(parking_lot::Mutex::new(FxHashMap::default()))),
             telemetry: Arc::new(NoopTelemetry),
         }
     }
@@ -657,6 +732,73 @@ mod tests {
             runtime.register(Arc::new(EchoFlow)).is_err(),
             "the second registration of the same flow type refuses"
         );
+    }
+
+    #[tokio::test]
+    async fn a_flow_started_elsewhere_resolves_its_family_from_the_kv() {
+        // The stateless resume: the start registers the flow in the KV
+        // registry, a fresh runtime (the page reloaded) resolves the
+        // family from it and the action reaches the flow.
+        let runtime = test_runtime();
+        runtime.register(Arc::new(EchoFlow)).expect("register");
+
+        let ctx = RequestContext {
+            principal: Some(wmp_core::principal::Principal::new("runtime-test", "")),
+            ..RequestContext::default()
+        };
+        runtime
+            .start_flow(
+                &ctx,
+                &FlowStartParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_type: "echo".to_owned(),
+                    flow_id: "flow-elsewhere-1".to_owned(),
+                    params: None,
+                    timeout: None,
+                },
+            )
+            .await
+            .expect("start");
+
+        // A fresh runtime over the SAME ports (the KV survived the
+        // reload): empty in-memory registry.
+        let peer = wmp_core::peer::PeerBuilder::new(Arc::new(
+            wmp_core::sessionservice::SessionHandler::new(
+                Arc::new(
+                    wmp_core::sessionservice::SessionService::new(
+                        wmp_core::sessionservice::SessionServiceConfig {
+                            store: Some(Arc::new(wmp_core::session::MemorySessionStore::new())),
+                            entropy: Some(Arc::new(|bytes: &mut [u8]| {
+                                for (i, b) in bytes.iter_mut().enumerate() {
+                                    *b = i as u8;
+                                }
+                                true
+                            })),
+                            ..wmp_core::sessionservice::SessionServiceConfig::default()
+                        },
+                    )
+                    .unwrap_or_else(|_| panic!("session service")),
+                ),
+                Arc::new(|| 0),
+            ),
+        ))
+        .build();
+        let fresh = FlowRuntime::new(runtime.ports(), peer);
+        fresh.register(Arc::new(EchoFlow)).expect("register");
+
+        let action = fresh
+            .handle_action(
+                &ctx,
+                &FlowActionParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: "flow-elsewhere-1".to_owned(),
+                    action: "go".to_owned(),
+                    params: None,
+                },
+            )
+            .await
+            .expect("the stateless resume resolves the family");
+        assert_eq!(action.status, "accepted");
     }
 
     #[tokio::test]

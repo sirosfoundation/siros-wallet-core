@@ -74,6 +74,22 @@ check-bindings: bindings
 	done < <(find bindings \( -name '*.kt' -o -name '*.swift' \) -print0); \
 	test "$$found" -ge 2 || { echo "::error::expected Kotlin and Swift bindings, found $$found"; exit 1; }
 
+# ── the mini-wallet page (the OIDF conformance harness) ──────────────────
+# wasm-pack builds the browser module; the page directory assembles the
+# harness (index.html, wallet.js, wallet_glue.js) and the built pkg into
+# target/wasm-page — serve it as the wallet under test for the
+# conformance suites (docs/oidf-conformance.md).
+.PHONY: wasm-page
+
+wasm-page:
+	wasm-pack build --target web crates/engine-adapter-wasm --out-dir $(CURDIR)/target/wasm-pkg
+	@mkdir -p target/wasm-page
+	cp crates/engine-adapter-wasm/page/index.html crates/engine-adapter-wasm/page/wallet.js crates/engine-adapter-wasm/page/mini-wallet.json target/wasm-page/
+	@mkdir -p target/wasm-page/pkg
+	cp -r target/wasm-pkg/* target/wasm-page/pkg/
+	sed 's|../pkg/engine_adapter_wasm.js|./pkg/engine_adapter_wasm.js|' \
+		crates/engine-adapter-wasm/page/wallet_glue.js > target/wasm-page/wallet_glue.js
+
 # ── the mobile packaging (AAR / XCFramework) ──────────────────────────────
 # Cross-compiles the engine-adapter-sdk for Android arm64 and iOS, and
 # packages the bindings. Mirrors siros-wscd-manager's Makefile.

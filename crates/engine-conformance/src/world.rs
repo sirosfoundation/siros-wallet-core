@@ -106,12 +106,13 @@ impl World {
                     }
                 }
                 Step::HostAsk { host_ask }
-                    if !consumed && !host_ask.expect.no_ask.unwrap_or(false) => {
-                        return Err(format!(
-                            "step {index} was not satisfied before the next wmp step: the engine \
+                    if !consumed && !host_ask.expect.no_ask.unwrap_or(false) =>
+                {
+                    return Err(format!(
+                        "step {index} was not satisfied before the next wmp step: the engine \
                                  never made the ask it expects"
-                        ));
-                    }
+                    ));
+                }
                 _ => {}
             }
         }

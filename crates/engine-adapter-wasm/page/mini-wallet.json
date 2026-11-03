@@ -1,0 +1,6 @@
+{
+  "issuerBase": "http://localhost:8097",
+  "trustProxyUrl": "http://localhost:8095/v1/evaluate",
+  "txCode": "493153",
+  "//": "Plain values only: JSON cannot carry the engine's callbacks. wallet.js builds the fetch, pdp and kv callbacks from these endpoints when the page loads."
+}

@@ -33,12 +33,15 @@
 )]
 
 pub mod dispatch;
+pub mod mini;
 pub mod ports;
+
+pub use ports::decode_b64url;
 
 use wasm_bindgen::prelude::*;
 
 use dispatch::Dispatcher;
-use ports::{JsClock, JsFetchHttp, JsHost, JsKeyValue, JsPdp, JsRng, NoTelemetry};
+use ports::{JsClock, JsFetchHttp, JsKeyValue, JsPdp, JsRng, NoTelemetry};
 
 /// The in-browser engine.
 ///
@@ -62,6 +65,7 @@ use ports::{JsClock, JsFetchHttp, JsHost, JsKeyValue, JsPdp, JsRng, NoTelemetry}
 #[wasm_bindgen]
 pub struct WasmEngine {
     dispatcher: Dispatcher,
+    mini_public_jwk: Option<serde_json::Value>,
 }
 
 #[wasm_bindgen]
@@ -70,19 +74,37 @@ impl WasmEngine {
     #[wasm_bindgen(constructor)]
     pub fn new(config: JsValue) -> Result<WasmEngine, JsValue> {
         let fetch = required(&config, "fetch")?;
-        let host = member(&config, "host")?;
         let pdp = member(&config, "pdp")?;
 
-        let js_host = JsHost {
-            sign: required(&host, "sign")?,
-            r#match: optional(&host, "match").unwrap_or_else(no_refuse),
-            consent: optional(&host, "consent").unwrap_or_else(no_refuse),
-            tx_code: optional(&host, "txCode").unwrap_or_else(no_refuse),
-            open_authorization: optional(&host, "openAuthorization").unwrap_or_else(no_refuse),
-            vp: optional(&host, "vp").unwrap_or_else(no_refuse),
-            dpop_proof: optional(&host, "dpopProof").unwrap_or_else(no_refuse),
-            attestation: optional(&host, "attestation").unwrap_or_else(no_refuse),
-            progress: optional(&host, "progress"),
+        // The host: `{"host": "mini", "txCode": "…", "openAuthorization":
+        // (url) => …}` selects the built-in conformance host (the device
+        // key, auto-consent, the configured transaction code); anything
+        // else is the page's own host object.
+        let mut mini_public_jwk: Option<serde_json::Value> = None;
+        let host: std::sync::Arc<dyn engine_ports::Host> = match member(&config, "host") {
+            Ok(host) if host.is_string() && host.as_string().as_deref() == Some("mini") => {
+                let tx_code = member(&config, "txCode")
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .unwrap_or_default();
+                let open_authorization = optional(&config, "openAuthorization");
+                let mini = mini::MiniHost::new(tx_code, open_authorization)
+                    .map_err(|reason| JsValue::from_str(reason.as_str()))?;
+                mini_public_jwk = Some(mini.public_jwk());
+                mini::arc(mini)
+            }
+            Ok(host) => std::sync::Arc::new(ports::JsHost {
+                sign: required(&host, "sign")?,
+                r#match: optional(&host, "match").unwrap_or_else(no_refuse),
+                consent: optional(&host, "consent").unwrap_or_else(no_refuse),
+                tx_code: optional(&host, "txCode").unwrap_or_else(no_refuse),
+                open_authorization: optional(&host, "openAuthorization").unwrap_or_else(no_refuse),
+                vp: optional(&host, "vp").unwrap_or_else(no_refuse),
+                dpop_proof: optional(&host, "dpopProof").unwrap_or_else(no_refuse),
+                attestation: optional(&host, "attestation").unwrap_or_else(no_refuse),
+                progress: optional(&host, "progress"),
+            }),
+            Err(err) => return Err(err),
         };
 
         let kv_config = optional(&config, "kv");
@@ -101,7 +123,7 @@ impl WasmEngine {
             http: std::sync::Arc::new(JsFetchHttp::new(fetch)),
             clock: std::sync::Arc::new(JsClock),
             rng: std::sync::Arc::new(JsRng),
-            host: std::sync::Arc::new(js_host),
+            host,
             pdp: std::sync::Arc::new(JsPdp::new(required(&pdp, "evaluate")?)),
             kv: std::sync::Arc::new(JsKeyValue::new(kv_get, kv_put, kv_del)),
             telemetry: std::sync::Arc::new(NoTelemetry),
@@ -122,7 +144,20 @@ impl WasmEngine {
         let dispatcher =
             Dispatcher::new(ports, clock, entropy).map_err(|err| JsValue::from_str(&err))?;
 
-        Ok(WasmEngine { dispatcher })
+        Ok(WasmEngine {
+            dispatcher,
+            mini_public_jwk,
+        })
+    }
+
+    /// The mini host's device key, as a public JWK — for the OIDF plan's
+    /// key registration and for verifying what the engine signed. `null`
+    /// when the page supplied its own host.
+    pub fn mini_public_jwk(&self) -> JsValue {
+        self.mini_public_jwk
+            .as_ref()
+            .and_then(|jwk| serde_wasm_bindgen::to_value(jwk).ok())
+            .unwrap_or(JsValue::NULL)
     }
 
     /// Handles one WMP method call: the method name and the params
