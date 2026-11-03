@@ -1,0 +1,163 @@
+name: Release — XCFramework + AAR + bindings
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Generate bindings on Linux (fast) ──────────────────────────────
+  bindings:
+    name: Generate bindings
+    runs-on: ubuntu-latest
+    # Explicit rather than inherited: only uploads artifacts, so read is
+    # enough.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: make bindings
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bindings
+          path: bindings/
+
+  # ── iOS / XCFramework (requires macOS) ─────────────────────────────
+  ios:
+    name: Build XCFramework
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    needs: bindings
+    env:
+      IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios-sim
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: bindings
+          path: bindings/
+      # The xcframework recipe needs the FFI header and the modulemap
+      # beside the swift bindings.
+      - run: make xcframework
+      - name: Package XCFramework
+        run: |
+          cd target/xcframework
+          zip -r ../engine_adapter_sdk.xcframework.zip engine_adapter_sdk.xcframework
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xcframework
+          path: target/engine_adapter_sdk.xcframework.zip
+
+  # ── Android / AAR (requires NDK) ──────────────────────────────────
+  android:
+    name: Build AAR
+    runs-on: ubuntu-latest
+    needs: bindings
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          api-level: 28
+          ndk-version: "27.2.12479018"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/download-artifact@v8
+        with:
+          name: bindings
+          path: bindings/
+      - name: Derive package version from tag
+        run: echo "PKG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - name: Build AAR
+        run: make aar VERSION="$PKG_VERSION"
+      - name: Generate Maven POM
+        run: make pom VERSION="$PKG_VERSION"
+      - name: Publish AAR to GitHub Packages
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > /tmp/settings.xml <<'EOF'
+          <settings>
+            <servers>
+              <server>
+                <id>github</id>
+                <username>${env.GITHUB_ACTOR}</username>
+                <password>${env.GITHUB_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+          AAR=$(ls target/siros-wallet-core-*.aar)
+          POM=$(ls target/siros-wallet-core-*.pom)
+          mvn -B deploy:deploy-file \
+            --settings /tmp/settings.xml \
+            -DrepositoryId=github \
+            -Durl="https://maven.pkg.github.com/${GITHUB_REPOSITORY}" \
+            -DpomFile="$POM" \
+            -Dfile="$AAR" \
+            -Dpackaging=aar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: aar
+          path: |
+            target/siros-wallet-core-*.aar
+            target/siros-wallet-core-*.pom
+
+  # ── Create GitHub Release ──────────────────────────────────────────
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    # Scoped to this job: it is the only one that writes anything back
+    # to the repository. The build jobs above only upload artifacts.
+    permissions:
+      contents: write
+    needs: [ios, android, bindings]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: xcframework
+          path: artifacts/
+      - uses: actions/download-artifact@v8
+        with:
+          name: aar
+          path: artifacts/
+      - uses: actions/download-artifact@v8
+        with:
+          name: bindings
+          path: artifacts/bindings/
+      - name: Package bindings
+        run: cd artifacts && zip -r bindings.zip bindings/
+      - name: Create Release
+        uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e # v3
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/engine_adapter_sdk.xcframework.zip
+            artifacts/siros-wallet-core-*.aar
+            artifacts/siros-wallet-core-*.pom
+            artifacts/bindings.zip
