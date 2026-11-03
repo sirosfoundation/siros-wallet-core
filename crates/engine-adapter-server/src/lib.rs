@@ -79,7 +79,7 @@ impl EngineServer {
         // Build the peer first (the FlowRuntime sends through it).
         let peer_store = store.clone();
         let peer_config = config.clone();
-        let peer_validator = validator.clone();
+        let _peer_validator = validator.clone();
         let peer = build_peer(&peer_config, &peer_store, ports.clone());
 
         // Then the runtime over the same ports and peer.

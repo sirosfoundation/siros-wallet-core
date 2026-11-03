@@ -1,0 +1,42 @@
+# The engine test environment: the Rust engine server alongside the Go
+# backend, so the SDKs and the wallet-frontend can validate the WMP
+# transport against a real deployment.
+#
+#   docker compose -f deploy/test/docker-compose.yml up --build
+#
+# The Rust engine listens on :8780 (WMP over HTTPS + WebSocket). The Go
+# backend (when included) listens on :8080 with its own proxy routes.
+
+services:
+  engine:
+    build:
+      context: ../..
+      dockerfile: deploy/test/Dockerfile
+    ports:
+      - "8780:8780"
+    environment:
+      ENGINE_LISTEN_ADDR: "0.0.0.0:8780"
+      # The AS's external URL — the JWKS the token validator fetches.
+      # In the test environment, the Go backend's AS.
+      # Empty = the no-AS mode (any bearer token accepted).
+      ENGINE_AS_EXTERNAL_URL: ""
+      # The PDP URL — the backend's proxy routes.
+      # Empty = no PDP configured; trust fails closed.
+      ENGINE_PDP_URL: ""
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8780/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+
+  # The Go backend, for the proxy routes and the AS. Uncomment when the
+  # test environment needs the full backend:
+  #
+  # backend:
+  #   image: ghcr.io/sirosfoundation/go-wallet-backend:latest
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     MODE: "backend,auth"
+  #     # ...

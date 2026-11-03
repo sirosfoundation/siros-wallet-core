@@ -33,6 +33,8 @@
 
 uniffi::setup_scaffolding!();
 
+pub mod client;
+
 // ─── UniFFI-compatible types (mirror the engine-ports types) ─────────────
 
 /// What an HTTP request is for. Mirrors `engine_ports::FetchPurpose`.

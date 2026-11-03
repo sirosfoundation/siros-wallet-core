@@ -1,13 +1,11 @@
 //! The server adapter's implementations of the engine-ports traits: what
 //! the engine core runs on when deployed as a container.
 
-use std::sync::Arc;
-
 use engine_ports::{
-    Clock, ConsentParams, ConsentResult, EvaluationRequest, EvaluationResponse, FetchPurpose, Host,
-    HostError, HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry,
-    MatchEntry, MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams,
-    SignResult, Telemetry, TelemetryEvent,
+    Clock, ConsentParams, ConsentResult, EvaluationRequest, EvaluationResponse, Host, HostError,
+    HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchEntry,
+    MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult,
+    Telemetry, TelemetryEvent,
 };
 
 use crate::config::Config;

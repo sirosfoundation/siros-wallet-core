@@ -46,10 +46,9 @@ pub fn router(server: Arc<EngineServer>) -> Router {
 /// forwards. The engine's `BackendProxyPdp` port calls this.
 async fn post_evaluate(
     State(_server): State<Arc<EngineServer>>,
-    headers: HeaderMap,
-    body: axum::body::Bytes,
+    _headers: HeaderMap,
+    _body: axum::body::Bytes,
 ) -> Response {
-    let _ = headers;
     // The full SPOCP authorization and PDP forwarding arrive with the
     // backend adapter; the route exists so the proxy path is addressable.
     (
@@ -63,10 +62,9 @@ async fn post_evaluate(
 /// `POST /v1/resolve` — the authzen proxy's resolve route.
 async fn post_resolve(
     State(_server): State<Arc<EngineServer>>,
-    headers: HeaderMap,
-    body: axum::body::Bytes,
+    _headers: HeaderMap,
+    _body: axum::body::Bytes,
 ) -> Response {
-    let _ = (headers, body);
     (
         StatusCode::NOT_IMPLEMENTED,
         [(header::CONTENT_TYPE, "application/json")],
