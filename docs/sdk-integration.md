@@ -191,3 +191,28 @@ existing UI and keystore, surfaced through the engine-ports traits.
 The biggest SDK-side work is the **thin transport adapter** (a Kotlin/Swift
 class wrapping wmp-core's ChannelTransport through UniFFI) and the
 **AAR/XCFramework packaging** — both mechanical, neither architectural.
+
+## The release pipeline and the verification host
+
+Releases run on the **standard GitHub builders** (`.github/workflows/
+release.yml`, on a `v*` tag): the bindings on Linux, the XCFramework on
+`macos-latest`, the AAR on `ubuntu-latest` with cargo-ndk and the
+Android NDK, the AAR published to GitHub Packages as
+`org.siros:siros-wallet-core`, and the GitHub Release assembled from
+the artifacts. Nothing about a release depends on any private machine.
+
+The private Mac on the internal network is the **verification host**,
+not a release builder: it runs the XCFramework recipe (`make
+xcframework`) on real Xcode before the pipeline is trusted with a tag.
+It has no GitHub credentials usable non-interactively, so it receives
+the tree as a git bundle over SSH — `git bundle create` on the
+workstation, `scp`, `git fetch <bundle> main` on the Mac — which also
+pins exactly what was verified. The Xcode-26 era dropped the Intel
+iOS-simulator target (`x86_64-apple-ios-sim` no longer exists in
+current rustc), so the simulator slice is aarch64-only; the
+verification run of `7a11e1a` confirmed both slices, the nested
+modulemap headers, and the zip packaging end to end.
+
+The Android half of the pipeline mirrors siros-wscd-manager's proven
+release job exactly (the same cargo-ndk invocation, NDK pin, and
+`setup-android` step); it gets its first real run on the first tag.
