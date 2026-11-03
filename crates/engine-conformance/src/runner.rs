@@ -225,6 +225,14 @@ pub fn run_vector(vector: &VectorFile) -> Verdict {
                             .or_insert(json!(session_id));
                     }
                 }
+                // The binding references: a param value of "$path"
+                // names a binding an earlier step captured (the
+                // engine-generated OAuth state, the PKCE verifier),
+                // so a two-call transcript asserts the SAME value
+                // recurred without predicting it.
+                if let Ok(bindings) = world.bindings().lock() {
+                    substitute_bindings(&mut params, &bindings);
+                }
                 let body = json!({
                     "jsonrpc": "2.0",
                     "id": request_id,
@@ -331,6 +339,30 @@ pub fn run_vector(vector: &VectorFile) -> Verdict {
         return Verdict::Fail(reason);
     }
     Verdict::Pass
+}
+
+/// Replaces `$path` string values with the binding they name.
+fn substitute_bindings(value: &mut Value, bindings: &crate::matchers::Bindings) {
+    match value {
+        Value::Object(object) => {
+            for member in object.values_mut() {
+                substitute_bindings(member, bindings);
+            }
+        }
+        Value::Array(array) => {
+            for member in array.iter_mut() {
+                substitute_bindings(member, bindings);
+            }
+        }
+        Value::String(text) => {
+            if let Some(path) = text.strip_prefix('$') {
+                if let Some(bound) = bindings.get(path) {
+                    *value = bound.clone();
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// The step's name, for failure messages.

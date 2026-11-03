@@ -153,9 +153,8 @@ fn rpc_error(code: i32, message: &str) -> JsValue {
 /// A required member of the config, of any type (the `host` and
 /// `pdp` members are objects; their members are the functions).
 fn member(object: &JsValue, name: &str) -> Result<JsValue, JsValue> {
-    js_sys::Reflect::get(object, &JsValue::from_str(name)).map_err(|_| {
-        JsValue::from_str(&format!("the engine config is missing {name:?}"))
-    })
+    js_sys::Reflect::get(object, &JsValue::from_str(name))
+        .map_err(|_| JsValue::from_str(&format!("the engine config is missing {name:?}")))
 }
 
 /// A required function member of the config.

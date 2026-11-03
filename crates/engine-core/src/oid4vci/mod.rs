@@ -808,12 +808,26 @@ async fn resume_authorization_code(
     )
     .await?;
 
-    let _ = ctx
-        .complete(&serde_json::json!({
-            "credential": credential.credential.clone().unwrap_or_default(),
-            "deferred": credential.transaction_id.is_some(),
-        }))
-        .await;
+    // The completion carries the renewal relay, exactly as the
+    // start_flow path does: the refresh token, and the DPoP key it
+    // must be reused with (the next flow may land on another engine
+    // instance).
+    let mut completion = serde_json::json!({
+        "credential": credential.credential.clone().unwrap_or_default(),
+        "deferred": credential.transaction_id.is_some(),
+    });
+    if let Some(refresh) = token.refresh_token.clone() {
+        if let Some(object) = completion.as_object_mut() {
+            object.insert(
+                "refresh_token".to_owned(),
+                serde_json::Value::String(refresh),
+            );
+            if let Some(relay) = dpop_key.as_ref().and_then(|key| key.private_jwk_json()) {
+                object.insert("dpop_jwk".to_owned(), serde_json::Value::String(relay));
+            }
+        }
+    }
+    let _ = ctx.complete(&completion).await;
 
     Ok(FlowActionResult {
         wmp: wmp_core::types::Metadata::default(),
