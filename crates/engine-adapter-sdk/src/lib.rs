@@ -34,6 +34,7 @@
 uniffi::setup_scaffolding!();
 
 pub mod client;
+pub mod engine;
 
 // ─── UniFFI-compatible types (mirror the engine-ports types) ─────────────
 

@@ -104,4 +104,8 @@ fun main() = kotlinx.coroutines.runBlocking {
     check(declined == "declined")
 
     println("uniffi-async-smoke: ok — the engine's port traits work over UniFFI on the JVM")
+
+    // The in-process engine smoke: session lifecycle through the
+    // WmpEngine handle, no WebSocket.
+    engineSmoke()
 }

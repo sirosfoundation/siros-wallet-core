@@ -69,6 +69,35 @@ check-bindings: bindings
 	done < <(find bindings \( -name '*.kt' -o -name '*.swift' \) -print0); \
 	test "$$found" -ge 2 || { echo "::error::expected Kotlin and Swift bindings, found $$found"; exit 1; }
 
+# ── the mobile packaging (AAR / XCFramework) ──────────────────────────────
+# Cross-compiles the engine-adapter-sdk for Android arm64 and iOS, and
+# packages the bindings. Mirrors siros-wscd-manager's Makefile.
+
+ANDROID_TARGETS := aarch64-linux-android
+IOS_TARGETS := aarch64-apple-ios
+IOS_SIM_TARGETS := aarch64-apple-ios-sim
+
+.PHONY: android ios xcframework
+
+android: $(ANDROID_TARGETS)
+
+$(ANDROID_TARGETS):
+	rustup target add $@
+	cargo build -p engine-adapter-sdk --target $@ --release
+
+ios: $(IOS_TARGETS) $(IOS_SIM_TARGETS)
+
+$(IOS_TARGETS) $(IOS_SIM_TARGETS):
+	rustup target add $@
+	cargo build -p engine-adapter-sdk --target $@ --release
+
+xcframework: ios
+	@mkdir -p target/xcframework
+	xcodebuild -create-xcframework \
+		-library target/$(IOS_TARGETS)/release/libengine_adapter_sdk.a \
+		-library target/$(IOS_SIM_TARGETS)/release/libengine_adapter_sdk.a \
+		-output target/xcframework/engine_adapter_sdk.xcframework
+
 # ── the JVM async smoke ──────────────────────────────────────────────────
 # Compiles the generated Kotlin bindings plus the smoke against the built
 # cdylib and runs it: the JVM implements the engine's async ports, drives

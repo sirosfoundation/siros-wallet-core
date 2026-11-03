@@ -528,6 +528,203 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 }
 
 
+
+
+/**
+ * The in-process WMP engine handle. The SDK creates one, sends WMP
+ * messages through `send`, and reads the engine's notifications through
+ * `take_notifications`.
+ *
+ * The engine runs the full WMP stack in-process: the peer dispatches
+ * every method, the session service manages sessions, and the flow
+ * families (when they land) register on the runtime. No WebSocket, no
+ * network to the engine — the only HTTP is the engine's own outgoing
+ * fetches through the `HttpClient` port.
+ */
+public protocol WmpEngineProtocol : AnyObject {
+    
+    /**
+     * The engine's session store, for the health probe.
+     */
+    func isReady()  -> Bool
+    
+    /**
+     * Sends one WMP message (a JSON-RPC request or notification) to the
+     * engine and answers the reply. A notification answers `None`.
+     *
+     * This is the SDK Transport's `send` method: the SDK serialises the
+     * WMP message, calls this, and delivers the reply bytes to its
+     * `WmpSession` through the `incoming()` flow.
+     */
+    func send(message: Data) throws  -> Data?
+    
+    /**
+     * Takes the engine's queued notifications (flow progress, sub-flow
+     * requests, completions) that arrived since the last call. The SDK
+     * delivers these to its `WmpSession` through the `incoming()` flow.
+     *
+     * Returns an empty list when nothing arrived.
+     */
+    func takeNotifications()  -> [Data]
+    
+}
+
+/**
+ * The in-process WMP engine handle. The SDK creates one, sends WMP
+ * messages through `send`, and reads the engine's notifications through
+ * `take_notifications`.
+ *
+ * The engine runs the full WMP stack in-process: the peer dispatches
+ * every method, the session service manages sessions, and the flow
+ * families (when they land) register on the runtime. No WebSocket, no
+ * network to the engine — the only HTTP is the engine's own outgoing
+ * fetches through the `HttpClient` port.
+ */
+open class WmpEngine:
+    WmpEngineProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_engine_adapter_sdk_fn_clone_wmpengine(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_engine_adapter_sdk_fn_free_wmpengine(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * The engine's session store, for the health probe.
+     */
+open func isReady() -> Bool {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_engine_adapter_sdk_fn_method_wmpengine_is_ready(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Sends one WMP message (a JSON-RPC request or notification) to the
+     * engine and answers the reply. A notification answers `None`.
+     *
+     * This is the SDK Transport's `send` method: the SDK serialises the
+     * WMP message, calls this, and delivers the reply bytes to its
+     * `WmpSession` through the `incoming()` flow.
+     */
+open func send(message: Data)throws  -> Data? {
+    return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeSdkError.lift) {
+    uniffi_engine_adapter_sdk_fn_method_wmpengine_send(self.uniffiClonePointer(),
+        FfiConverterData.lower(message),$0
+    )
+})
+}
+    
+    /**
+     * Takes the engine's queued notifications (flow progress, sub-flow
+     * requests, completions) that arrived since the last call. The SDK
+     * delivers these to its `WmpSession` through the `incoming()` flow.
+     *
+     * Returns an empty list when nothing arrived.
+     */
+open func takeNotifications() -> [Data] {
+    return try!  FfiConverterSequenceData.lift(try! rustCall() {
+    uniffi_engine_adapter_sdk_fn_method_wmpengine_take_notifications(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWmpEngine: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = WmpEngine
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> WmpEngine {
+        return WmpEngine(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: WmpEngine) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WmpEngine {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: WmpEngine, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWmpEngine_lift(_ pointer: UnsafeMutableRawPointer) throws -> WmpEngine {
+    return try FfiConverterTypeWmpEngine.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWmpEngine_lower(_ value: WmpEngine) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeWmpEngine.lower(value)
+}
+
+
 /**
  * The consent request. Mirrors `engine_ports::ConsentParams`.
  */
@@ -701,6 +898,87 @@ public func FfiConverterTypeConsentResult_lift(_ buf: RustBuffer) throws -> Cons
 #endif
 public func FfiConverterTypeConsentResult_lower(_ value: ConsentResult) -> RustBuffer {
     return FfiConverterTypeConsentResult.lower(value)
+}
+
+
+/**
+ * The engine's construction configuration.
+ */
+public struct EngineConfig {
+    /**
+     * The maximum WMP message size (default 1 MiB).
+     */
+    public var maxMessageSize: UInt64
+    /**
+     * The default session TTL in seconds (default 3600).
+     */
+    public var defaultSessionTtlSecs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The maximum WMP message size (default 1 MiB).
+         */maxMessageSize: UInt64, 
+        /**
+         * The default session TTL in seconds (default 3600).
+         */defaultSessionTtlSecs: UInt64) {
+        self.maxMessageSize = maxMessageSize
+        self.defaultSessionTtlSecs = defaultSessionTtlSecs
+    }
+}
+
+
+
+extension EngineConfig: Equatable, Hashable {
+    public static func ==(lhs: EngineConfig, rhs: EngineConfig) -> Bool {
+        if lhs.maxMessageSize != rhs.maxMessageSize {
+            return false
+        }
+        if lhs.defaultSessionTtlSecs != rhs.defaultSessionTtlSecs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(maxMessageSize)
+        hasher.combine(defaultSessionTtlSecs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEngineConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EngineConfig {
+        return
+            try EngineConfig(
+                maxMessageSize: FfiConverterUInt64.read(from: &buf), 
+                defaultSessionTtlSecs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EngineConfig, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.maxMessageSize, into: &buf)
+        FfiConverterUInt64.write(value.defaultSessionTtlSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEngineConfig_lift(_ buf: RustBuffer) throws -> EngineConfig {
+    return try FfiConverterTypeEngineConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEngineConfig_lower(_ value: EngineConfig) -> RustBuffer {
+    return FfiConverterTypeEngineConfig.lower(value)
 }
 
 
@@ -2274,6 +2552,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -2291,6 +2593,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
+    typealias SwiftType = [Data]
+
+    public static func write(_ value: [Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Data]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterData.read(from: &buf))
         }
         return seq
     }
@@ -2458,6 +2785,23 @@ public func uniffiForeignFutureHandleCountEngineAdapterSdk() -> Int {
     UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
 }
 /**
+ * Creates the in-process WMP engine with the given configuration. The
+ * SDK calls this once and holds the returned handle as its Transport.
+ *
+ * The engine runs the full WMP stack: the peer, the session service,
+ * and (when they land) the flow families registered on the runtime.
+ * The SDK's `HttpClient` and `Host` callback interfaces connect through
+ * the exported async functions (`run_pre_authorized_flow` and its
+ * siblings).
+ */
+public func createEngine(config: EngineConfig) -> WmpEngine {
+    return try!  FfiConverterTypeWmpEngine.lift(try! rustCall() {
+    uniffi_engine_adapter_sdk_fn_func_create_engine(
+        FfiConverterTypeEngineConfig.lower(config),$0
+    )
+})
+}
+/**
  * A smoke that needs no host.
  */
 public func ping()async  -> String {
@@ -2509,10 +2853,22 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_engine_adapter_sdk_checksum_func_create_engine() != 23132) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_engine_adapter_sdk_checksum_func_ping() != 18660) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_func_run_pre_authorized_flow() != 61542) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_is_ready() != 45057) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_send() != 19937) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 56681) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394) {
