@@ -3,6 +3,7 @@
 
 use engine_ports::{FetchPurpose, Host, HttpClient, HttpError, HttpRequest, RedirectPolicy};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::token::TokenResponse;
 use super::types::IssuerMetadata;
@@ -47,6 +48,13 @@ pub enum CredentialError {
     /// The response body is not a credential response.
     #[error("oid4vci: credential response is not JSON")]
     NotJson,
+    /// The issuer answered `invalid_nonce` (or an error body carrying a
+    /// refreshed `c_nonce`): retry once with a fresh nonce.
+    #[error("oid4vci: invalid_nonce from the credential endpoint")]
+    InvalidNonce {
+        /// The `c_nonce` from the error body, when the issuer sent one.
+        c_nonce: Option<String>,
+    },
 }
 
 /// Requests a credential from the issuer's credential endpoint, with the
@@ -98,14 +106,31 @@ pub async fn request_credential(
     // Assemble the signed proof JWT: the TBS plus the base64url signature.
     let proof_jwt = format!("{}.{}", proof_tbs, base64url(&sign_result.signature),);
 
-    // Build the credential request body.
-    let request_body = serde_json::json!({
-        "credential_identifier": configuration_id,
+    // Build the credential request body. OID4VCI §6: when the AS granted
+    // credential identifiers in response to our authorization_details,
+    // the Credential Request names one of those INSTEAD of the
+    // configuration id — an issuer that honours authorization_details
+    // rejects the pair.
+    let mut request_body = serde_json::json!({
+        "credential_configuration_id": configuration_id,
         "proof": {
             "proof_type": "jwt",
             "jwt": proof_jwt,
         },
     });
+    if let Some(identifier) = super::auth_params::granted_credential_identifier(
+        token.authorization_details.as_ref(),
+        configuration_id,
+    ) {
+        let Some(body) = request_body.as_object_mut() else {
+            return Err(CredentialError::NotJson);
+        };
+        body.remove("credential_configuration_id");
+        body.insert(
+            "credential_identifier".to_owned(),
+            Value::String(identifier),
+        );
+    }
 
     // Send the credential request.
     let credential_endpoint = format!(
@@ -138,6 +163,25 @@ pub async fn request_credential(
         })?;
 
     if response.status != 200 {
+        // The P0.6-verified rule: an error body carrying `invalid_nonce` —
+        // or any refreshed `c_nonce` — is retryable; everything else is
+        // terminal. The flow error is the caller's to send (the Go engine
+        // deliberately does not send one from the request helper).
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.body).unwrap_or(serde_json::Value::Null);
+        let c_nonce = body
+            .get("c_nonce")
+            .and_then(|v| v.as_str())
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned);
+        let is_invalid_nonce = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(|e| e == "invalid_nonce")
+            .unwrap_or(false);
+        if is_invalid_nonce || c_nonce.is_some() {
+            return Err(CredentialError::InvalidNonce { c_nonce });
+        }
         return Err(CredentialError::Status(response.status));
     }
 
@@ -149,6 +193,73 @@ pub async fn request_credential(
         serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?;
 
     Ok(credential_response)
+}
+
+/// Requests the credential with the `invalid_nonce` retry-once loop.
+///
+/// The P0.6-verified behaviour (the Go engine's `retries <= 1` loop):
+/// - The initial nonce comes from the issuer's nonce endpoint (§7) when
+///   the metadata advertises one, falling back to the token's `c_nonce`.
+/// - On `invalid_nonce` (or an error body carrying a refreshed `c_nonce`),
+///   the fresh nonce comes from the endpoint first, then the body's
+///   `c_nonce`; the proofs are re-requested and the request retried once.
+/// - A second `invalid_nonce` is terminal, with the underlying error.
+pub async fn request_credential_with_retry(
+    http: &dyn HttpClient,
+    host: &dyn Host,
+    metadata: &IssuerMetadata,
+    token: &TokenResponse,
+    configuration_id: &str,
+    initial_nonce: Option<&str>,
+) -> Result<CredentialResponse, CredentialError> {
+    // The initial nonce: the endpoint first (§7), then the token's c_nonce.
+    let mut nonce = resolve_nonce(http, metadata, initial_nonce).await;
+
+    for retry in 0..=1 {
+        match request_credential(
+            http,
+            host,
+            metadata,
+            token,
+            configuration_id,
+            nonce.as_deref(),
+        )
+        .await
+        {
+            Ok(response) => return Ok(response),
+            Err(CredentialError::InvalidNonce { c_nonce }) if retry == 0 => {
+                // The fresh nonce: the endpoint first, then the body's
+                // c_nonce (the legacy fallback).
+                nonce = resolve_nonce(http, metadata, c_nonce.as_deref()).await;
+                if nonce.is_none() {
+                    return Err(CredentialError::InvalidNonce { c_nonce });
+                }
+                continue;
+            }
+            Err(CredentialError::InvalidNonce { c_nonce }) => {
+                // Terminal after the retry: surface the underlying error.
+                return Err(CredentialError::InvalidNonce { c_nonce });
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    Err(CredentialError::Status(0))
+}
+
+/// Resolves the nonce: the issuer's nonce endpoint first (§7), then the
+/// fallback from the token response or the error body.
+async fn resolve_nonce(
+    http: &dyn HttpClient,
+    metadata: &IssuerMetadata,
+    fallback: Option<&str>,
+) -> Option<String> {
+    if let Some(endpoint) = metadata.nonce_endpoint.as_deref().filter(|e| !e.is_empty()) {
+        if let Ok(fresh) = super::nonce::fetch_nonce(http, endpoint).await {
+            return Some(fresh);
+        }
+    }
+    fallback.filter(|n| !n.is_empty()).map(str::to_owned)
 }
 
 /// Minimal base64url encoding of JSON bytes.
@@ -250,6 +361,7 @@ mod tests {
 
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
+            nonce_endpoint: None,
             credential_issuer: "https://issuer.example".to_owned(),
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({}),
@@ -266,6 +378,7 @@ mod tests {
             refresh_token: None,
             c_nonce: None,
             nonce: Some("nonce-1".to_owned()),
+            authorization_details: None,
         }
     }
 
@@ -318,5 +431,158 @@ mod tests {
             request_credential(&http, &FakeHost, &test_metadata(), &test_token(), "X", None).await,
             Err(CredentialError::Status(400))
         ));
+    }
+
+    /// A stateful fake: the nonce endpoint answers the fresh nonce; the
+    /// credential endpoint fails the first N calls with `invalid_nonce`,
+    /// then answers the credential.
+    struct RetryHttp {
+        nonce_body: Vec<u8>,
+        error_body: Vec<u8>,
+        error_status: u16,
+        failures: std::sync::atomic::AtomicUsize,
+        credential_calls: std::sync::atomic::AtomicUsize,
+        nonce_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl RetryHttp {
+        fn always_invalid_nonce() -> Self {
+            Self {
+                nonce_body: br#"{"nonce":"fresh-2"}"#.to_vec(),
+                error_body: br#"{"error":"invalid_nonce","c_nonce":"fresh-1"}"#.to_vec(),
+                error_status: 400,
+                failures: std::sync::atomic::AtomicUsize::new(usize::MAX),
+                credential_calls: std::sync::atomic::AtomicUsize::new(0),
+                nonce_calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn fail_once() -> Self {
+            Self {
+                failures: std::sync::atomic::AtomicUsize::new(1),
+                ..Self::always_invalid_nonce()
+            }
+        }
+
+        fn calls(&self, which: &str) -> usize {
+            match which {
+                "credential" => self
+                    .credential_calls
+                    .load(std::sync::atomic::Ordering::SeqCst),
+                "nonce" => self.nonce_calls.load(std::sync::atomic::Ordering::SeqCst),
+                _ => 0,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpClient for RetryHttp {
+        async fn send(
+            &self,
+            request: HttpRequest,
+        ) -> Result<engine_ports::HttpResponse, HttpError> {
+            match request.purpose {
+                FetchPurpose::Nonce => {
+                    self.nonce_calls
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(engine_ports::HttpResponse {
+                        status: 200,
+                        headers: Vec::new(),
+                        body: self.nonce_body.clone(),
+                    })
+                }
+                FetchPurpose::Credential => {
+                    self.credential_calls
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let failed = self.failures.load(std::sync::atomic::Ordering::SeqCst) > 0;
+                    self.failures
+                        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    if failed {
+                        Ok(engine_ports::HttpResponse {
+                            status: self.error_status,
+                            headers: Vec::new(),
+                            body: self.error_body.clone(),
+                        })
+                    } else {
+                        Ok(engine_ports::HttpResponse {
+                            status: 200,
+                            headers: Vec::new(),
+                            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+                        })
+                    }
+                }
+                _ => panic!("unexpected fetch purpose: {:?}", request.purpose),
+            }
+        }
+    }
+
+    fn metadata_with_nonce_endpoint() -> IssuerMetadata {
+        IssuerMetadata {
+            nonce_endpoint: Some("https://issuer.example/nonce".to_owned()),
+            ..test_metadata()
+        }
+    }
+
+    #[tokio::test]
+    async fn an_invalid_nonce_retries_once_with_the_endpoint_nonce_and_succeeds() {
+        let http = RetryHttp::fail_once();
+        let response = request_credential_with_retry(
+            &http,
+            &FakeHost,
+            &metadata_with_nonce_endpoint(),
+            &test_token(),
+            "UniversityDegree",
+            Some("nonce-1"),
+        )
+        .await
+        .expect("retry succeeds");
+        assert_eq!(response.credential.as_deref(), Some("jwt-1"));
+        // The initial nonce came from the endpoint; the retry refreshed it
+        // from the endpoint again (preferred over the error body's
+        // c_nonce, per §7).
+        assert_eq!(http.calls("nonce"), 2);
+        assert_eq!(http.calls("credential"), 2);
+    }
+
+    #[tokio::test]
+    async fn an_invalid_nonce_after_the_retry_is_terminal() {
+        let http = RetryHttp::always_invalid_nonce();
+        assert!(matches!(
+            request_credential_with_retry(
+                &http,
+                &FakeHost,
+                &metadata_with_nonce_endpoint(),
+                &test_token(),
+                "UniversityDegree",
+                Some("nonce-1"),
+            )
+            .await,
+            Err(CredentialError::InvalidNonce { .. })
+        ));
+        assert_eq!(http.calls("credential"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_c_nonce_carrying_error_body_triggers_the_retry_without_a_nonce_endpoint() {
+        // P0.6: any error body carrying a refreshed c_nonce is retryable,
+        // and without an advertised endpoint the body's c_nonce is the
+        // fallback source.
+        let http = RetryHttp::fail_once();
+        // With no endpoint, the fresh nonce comes from the body.
+        let mut http = http;
+        http.nonce_body = Vec::new(); // unused; the endpoint is never called
+        let response = request_credential_with_retry(
+            &http,
+            &FakeHost,
+            &test_metadata(),
+            &test_token(),
+            "UniversityDegree",
+            Some("nonce-1"),
+        )
+        .await
+        .expect("retry succeeds");
+        assert_eq!(response.credential.as_deref(), Some("jwt-1"));
+        assert_eq!(http.calls("nonce"), 0);
+        assert_eq!(http.calls("credential"), 2);
     }
 }

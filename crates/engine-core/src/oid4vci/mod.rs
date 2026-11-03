@@ -3,11 +3,13 @@
 //! issuance flow, built on the `FlowHandler` seam the echo flow proved.
 
 pub mod as_metadata;
+pub mod auth_params;
 pub mod credential;
 pub mod deferred;
 pub mod dpop;
 pub mod encryption;
 pub mod issuer;
+pub mod nonce;
 pub mod offer;
 pub mod token;
 pub mod trust;
@@ -197,7 +199,7 @@ impl FlowHandler for Oid4vciFlow {
                 .cloned()
                 .unwrap_or_default();
 
-            let credential = credential::request_credential(
+            let credential = credential::request_credential_with_retry(
                 ctx.http().as_ref(),
                 ctx.host().as_ref(),
                 &issuer_metadata,

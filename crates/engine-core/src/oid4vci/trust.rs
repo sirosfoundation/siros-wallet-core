@@ -160,6 +160,7 @@ mod tests {
 
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
+            nonce_endpoint: None,
             credential_issuer: "https://issuer.example".to_owned(),
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({

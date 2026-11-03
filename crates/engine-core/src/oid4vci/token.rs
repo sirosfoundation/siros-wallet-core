@@ -29,6 +29,11 @@ pub struct TokenResponse {
     /// The nonce, when the issuer sent one (the current form).
     #[serde(default)]
     pub nonce: Option<String>,
+    /// The `authorization_details` the AS granted, when it sent any (raw
+    /// JSON, as received). The granted `credential_identifiers` inside are
+    /// the Credential Request's `credential_identifier` substitution source.
+    #[serde(default)]
+    pub authorization_details: Option<serde_json::Value>,
 }
 
 /// Why the token exchange refused.

@@ -116,6 +116,7 @@ kotlin-smoke: bindings check-bindings
 	mkdir -p target/kotlin-smoke
 	$(KOTLINC) -classpath "$(COROUTINES_JAR):$(JNA_JAR)" -d target/kotlin-smoke \
 		bindings/kotlin/uniffi/engine_adapter_sdk/engine_adapter_sdk.kt \
-		crates/engine-adapter-sdk/bindings-test/src/main/kotlin/Main.kt
+		crates/engine-adapter-sdk/bindings-test/src/main/kotlin/Main.kt \
+		crates/engine-adapter-sdk/bindings-test/src/main/kotlin/EngineSmoke.kt
 	java -classpath "target/kotlin-smoke:$(COROUTINES_JAR):$(JNA_JAR):$(STDLIB_JAR)" \
 		-Djna.library.path=target/debug MainKt

@@ -2117,7 +2117,12 @@ data class MatchResult (
     /**
      * The selected credential's identifier.
      */
-    var `selectedId`: kotlin.String
+    var `selectedId`: kotlin.String, 
+    /**
+     * The DCQL query's credential id this selection answers, when the
+     * request carried a query.
+     */
+    var `queryId`: kotlin.String?
 ) {
     
     companion object
@@ -2130,15 +2135,18 @@ public object FfiConverterTypeMatchResult: FfiConverterRustBuffer<MatchResult> {
     override fun read(buf: ByteBuffer): MatchResult {
         return MatchResult(
             FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: MatchResult) = (
-            FfiConverterString.allocationSize(value.`selectedId`)
+            FfiConverterString.allocationSize(value.`selectedId`) +
+            FfiConverterOptionalString.allocationSize(value.`queryId`)
     )
 
     override fun write(value: MatchResult, buf: ByteBuffer) {
             FfiConverterString.write(value.`selectedId`, buf)
+            FfiConverterOptionalString.write(value.`queryId`, buf)
     }
 }
 

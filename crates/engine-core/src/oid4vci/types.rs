@@ -96,6 +96,9 @@ pub struct IssuerMetadata {
     /// The credential configurations, keyed by id.
     #[serde(default)]
     pub credential_configurations: serde_json::Value,
+    /// The nonce endpoint (OpenID4VCI §7), when the issuer advertises one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce_endpoint: Option<String>,
     /// The signed metadata JWT, when the document was served as a JWT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_metadata: Option<String>,

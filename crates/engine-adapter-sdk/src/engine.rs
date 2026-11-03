@@ -50,7 +50,7 @@ impl WmpEngine {
         };
         self.peer
             .handle_request_sync(&ctx, &message)
-            .map_err(|err| SdkError::Internal)
+            .map_err(|_err| SdkError::Internal)
     }
 
     /// Takes the engine's queued notifications (flow progress, sub-flow

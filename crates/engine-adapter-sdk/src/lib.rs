@@ -242,12 +242,16 @@ impl From<MatchEntry> for engine_ports::MatchEntry {
 pub struct MatchResult {
     /// The selected credential's identifier.
     pub selected_id: String,
+    /// The DCQL query's credential id this selection answers, when the
+    /// request carried a query.
+    pub query_id: Option<String>,
 }
 
 impl From<engine_ports::MatchResult> for MatchResult {
     fn from(r: engine_ports::MatchResult) -> Self {
         Self {
             selected_id: r.selected_id,
+            query_id: r.query_id,
         }
     }
 }

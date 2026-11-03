@@ -1426,14 +1426,24 @@ public struct MatchResult {
      * The selected credential's identifier.
      */
     public var selectedId: String
+    /**
+     * The DCQL query's credential id this selection answers, when the
+     * request carried a query.
+     */
+    public var queryId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
          * The selected credential's identifier.
-         */selectedId: String) {
+         */selectedId: String, 
+        /**
+         * The DCQL query's credential id this selection answers, when the
+         * request carried a query.
+         */queryId: String?) {
         self.selectedId = selectedId
+        self.queryId = queryId
     }
 }
 
@@ -1444,11 +1454,15 @@ extension MatchResult: Equatable, Hashable {
         if lhs.selectedId != rhs.selectedId {
             return false
         }
+        if lhs.queryId != rhs.queryId {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(selectedId)
+        hasher.combine(queryId)
     }
 }
 
@@ -1460,12 +1474,14 @@ public struct FfiConverterTypeMatchResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchResult {
         return
             try MatchResult(
-                selectedId: FfiConverterString.read(from: &buf)
+                selectedId: FfiConverterString.read(from: &buf), 
+                queryId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: MatchResult, into buf: inout [UInt8]) {
         FfiConverterString.write(value.selectedId, into: &buf)
+        FfiConverterOptionString.write(value.queryId, into: &buf)
     }
 }
 

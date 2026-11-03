@@ -222,6 +222,11 @@ pub struct MatchEntry {
 pub struct MatchResult {
     /// The selected credential's identifier.
     pub selected_id: String,
+    /// The DCQL query's credential id this selection answers, when the
+    /// request carried a query (OpenID4VP §8.1: the vp_token object is
+    /// keyed by it).
+    #[serde(default)]
+    pub query_id: Option<String>,
 }
 
 /// The consent the engine asks the host's user for.

@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use crate::{FetchPurpose, HeaderPair, HttpRequest, HttpResponse, RedirectPolicy, SdkError};
+use crate::{FetchPurpose, HeaderPair, HttpRequest, RedirectPolicy, SdkError};
 
 /// A connection to a remote engine server. Holds the base URL and the
 /// bearer token; each request goes through the host's HTTP port (so the
