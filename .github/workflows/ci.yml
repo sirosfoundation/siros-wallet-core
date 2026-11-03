@@ -21,6 +21,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Checkout engine-vectors (sibling checkout, best effort)
+        # The conformance runner loads the vectors from the sibling
+        # checkout (docs/runner-contract.md): with it present, the
+        # repository's scenarios run in CI, not just the self-tests.
+        # The vectors repository is private and GITHUB_TOKEN cannot
+        # read another repository, so this clone fails until an
+        # ENGINE_VECTORS_TOKEN secret exists — the runner's own rule is
+        # "a sibling checkout when it can", and the self-tests cover the
+        # runner either way.
+        run: |
+          TOKEN="${ENGINE_VECTORS_TOKEN:-$GITHUB_TOKEN}"
+          if git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/sirosfoundation/engine-vectors.git" "$(dirname "$GITHUB_WORKSPACE")/engine-vectors" 2>/dev/null; then
+            echo "engine-vectors checked out: the repository's scenarios run"
+          else
+            echo "::warning::engine-vectors unavailable (no token with access); the conformance self-tests still run"
+          fi
+        env:
+          ENGINE_VECTORS_TOKEN: ${{ secrets.ENGINE_VECTORS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test --workspace --all-features

@@ -93,7 +93,10 @@ MAVEN_ARTIFACT := siros-wallet-core
 
 ANDROID_TARGETS := aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 IOS_TARGETS := aarch64-apple-ios
-IOS_SIM_TARGETS := aarch64-apple-ios-sim x86_64-apple-ios-sim
+# The Intel simulator target (x86_64-apple-ios-sim) is gone: Apple
+# removed the Intel iOS-simulator SDK in Xcode 26 and Rust 1.99 dropped
+# the target with it. Apple Silicon simulators take the aarch64 slice.
+IOS_SIM_TARGETS := aarch64-apple-ios-sim
 
 .PHONY: android ios xcframework aar pom
 
@@ -113,13 +116,6 @@ $(IOS_TARGETS) $(IOS_SIM_TARGETS):
 
 xcframework: ios bindings-swift
 	@rm -rf target/xcframework
-	# The fat simulator library: both sim slices in one archive, so one
-	# XCFramework slice serves the Intel and Apple Silicon runtimes.
-	@mkdir -p target/ios-sim-universal
-	lipo -create \
-		target/aarch64-apple-ios-sim/release/libengine_adapter_sdk.a \
-		target/x86_64-apple-ios-sim/release/libengine_adapter_sdk.a \
-		-output target/ios-sim-universal/libengine_adapter_sdk.a
 	# The modulemap: plain "module", not "framework module" — this
 	# XCFramework is built from static libraries (-library/-headers), so
 	# the framework form fails at import time. The headers nest under
@@ -134,7 +130,7 @@ xcframework: ios bindings-swift
 	xcodebuild -create-xcframework \
 		-library target/$(IOS_TARGETS)/release/libengine_adapter_sdk.a \
 		-headers target/Headers \
-		-library target/ios-sim-universal/libengine_adapter_sdk.a \
+		-library target/$(IOS_SIM_TARGETS)/release/libengine_adapter_sdk.a \
 		-headers target/Headers \
 		-output target/xcframework/engine_adapter_sdk.xcframework
 	@echo "XCFramework created at target/xcframework/engine_adapter_sdk.xcframework"
