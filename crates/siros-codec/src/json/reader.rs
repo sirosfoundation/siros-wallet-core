@@ -195,15 +195,49 @@ fn value(raw: &RawValue, depth: usize) -> Result<Json, JsonFault> {
         Some(b't') => Ok(Json::Bool(true)),
         Some(b'f') => Ok(Json::Bool(false)),
         Some(b'n') => Ok(Json::Null),
-        // serde_json read the text as a number of RFC 8259, Section 6; its value may lie beyond
-        // binary64.
-        _ => match serde_json::from_slice::<Number>(bytes) {
-            Ok(number) => Ok(Json::Number(JsonNumber {
-                text: text_of.to_owned(),
-                number,
-            })),
-            Err(_) => Err(JsonFault::Read(ReadFault::NumberUnrepresentable)),
-        },
+        // serde_json read the text as a number of RFC 8259, Section 6; its
+        // value may lie beyond binary64. The representability check is
+        // explicit, not left to serde_json's acceptance: the
+        // `arbitrary_precision` feature makes serde_json accept any
+        // well-formed number text (and feature unification can switch it
+        // on from another crate in the build — jose-rs does), which would
+        // silently change this reader's semantics.
+        _ => {
+            if !number_representable(bytes) {
+                return Err(JsonFault::Read(ReadFault::NumberUnrepresentable));
+            }
+            match serde_json::from_slice::<Number>(bytes) {
+                Ok(number) => Ok(Json::Number(JsonNumber {
+                    text: text_of.to_owned(),
+                    number,
+                })),
+                Err(_) => Err(JsonFault::Read(ReadFault::NumberUnrepresentable)),
+            }
+        }
+    }
+}
+
+/// Whether an RFC 8259 number's value is one the strict reader holds: the
+/// integers of i64 and u64 exactly, and the floats binary64 reads finitely.
+///
+/// This is serde_json's default acceptance, spelled out so it holds with or
+/// without `arbitrary_precision`: an integer beyond 64 bits is a fault
+/// (serde_json does not fall back to binary64 for integer text), and a
+/// float whose magnitude overflows binary64 is a fault. Underflow reads as
+/// zero, which serde_json accepts; this does too.
+fn number_representable(bytes: &[u8]) -> bool {
+    let Some(text) = std::str::from_utf8(bytes).ok() else {
+        return false;
+    };
+    if text.bytes().any(|b| matches!(b, b'.' | b'e' | b'E')) {
+        // Float form: binary64 must hold it finitely.
+        match text.parse::<f64>() {
+            Ok(value) => value.is_finite(),
+            Err(_) => false,
+        }
+    } else {
+        // Integer form: i64, else u64.
+        text.parse::<i64>().is_ok() || text.parse::<u64>().is_ok()
     }
 }
 
