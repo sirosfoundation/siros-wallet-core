@@ -13,12 +13,14 @@ description = "The standalone container host of the Rust WMP engine: HTTP+SSE tr
 wmp-core = { path = "../wmp-core" }
 engine-ports = { path = "../engine-ports" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
+futures-util = "0.3"
+tokio-tungstenite = "0.24"
 
 [[bin]]
 name = "engine-server"

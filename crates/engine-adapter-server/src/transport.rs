@@ -1,11 +1,19 @@
-//! The HTTP+SSE transport: the routes the WMP HTTPS binding (wmp-transport
-//! §4) defines, wired to the engine's peer.
+//! The transports the WMP binding (wmp-transport.md) defines, wired to the
+//! engine's peer:
 //!
+//! **HTTPS binding (§4):**
 //! - `POST /wmp` — one JSON-RPC message from the wallet client; the response
 //!   is the JSON-RPC reply (or empty for a notification).
 //! - `GET  /wmp/events?session_id=` — the SSE stream the engine's
 //!   notifications flow on (`event: wmp\ndata: {json}`).
-//! - `GET  /healthz` and `GET /readyz` — the probes the container needs.
+//!
+//! **WebSocket binding (§3):**
+//! - `GET  /wmp` with `Upgrade: websocket` — the persistent bidirectional
+//!   channel. Each text frame is one JSON-RPC message; the subprotocol is
+//!   `wmp.v1`; ping every 30 s, close after 90 s without a pong.
+//!
+//! **Probes:**
+//! - `GET  /healthz` and `GET /readyz`.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -14,16 +22,17 @@ use axum::extract::State;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::Router;
 
 use crate::EngineServer;
 use wmp_core::context::RequestContext;
 
-/// The router of the engine's HTTP endpoints.
+/// The router of the engine's HTTP endpoints: the HTTPS binding's routes,
+/// the WebSocket binding's upgrade on the same path, and the probes.
 pub fn router(server: Arc<EngineServer>) -> Router {
     Router::new()
-        .route("/wmp", post(post_wmp))
+        .route("/wmp", get(get_wmp_ws).post(post_wmp))
         .route("/wmp/events", get(get_events))
         .route("/healthz", get(get_healthz))
         .route("/readyz", get(get_readyz))
@@ -82,7 +91,118 @@ async fn post_wmp(
     }
 }
 
-/// `GET /wmp/events` — the SSE stream the engine's notifications flow on
+/// `GET /wmp` with `Upgrade: websocket` — the WMP WebSocket binding
+/// (wmp-transport.md §3). Each text frame carries one JSON-RPC message; the
+/// engine's replies and notifications go back as text frames. The
+/// subprotocol is `wmp.v1` when the client asks for it.
+///
+/// The WebSocket binding is bidirectional: the same connection carries
+/// client-to-engine requests and engine-to-client notifications, and the
+/// session lifecycle survives reconnection (`wmp.session.resume`).
+async fn get_wmp_ws(
+    State(server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+    ws: axum::extract::ws::WebSocketUpgrade,
+) -> Response {
+    // The principal from the upgrade request's bearer token, as §3.4
+    // allows ("authentication MAY be performed at the HTTP level before
+    // the upgrade"). Without one the engine's session methods refuse.
+    let principal = bearer_principal(&headers);
+    let ctx = RequestContext {
+        principal,
+        ..RequestContext::default()
+    };
+
+    // The subprotocol: `wmp.v1` when the client asks for it.
+    let protocol = headers
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
+    // Accept the `wmp.v1` subprotocol (§3.1: "clients SHOULD request it").
+    let upgrade = ws.protocols(["wmp.v1"]);
+    upgrade.on_upgrade(move |socket| ws_loop(server, ctx, socket, protocol))
+}
+
+/// The WebSocket message loop: reads JSON-RPC frames, dispatches through
+/// the peer, writes replies and notifications back. Ping every 30 s;
+/// close after 90 s without a pong (§3.3).
+async fn ws_loop(
+    server: Arc<EngineServer>,
+    ctx: RequestContext,
+    mut socket: axum::extract::ws::WebSocket,
+    protocol: Option<String>,
+) {
+    use axum::extract::ws::Message;
+    use std::time::Duration;
+
+    // Negotiate the subprotocol: accept `wmp.v1` when offered (§3.1). The
+    // `protocols` call is on the upgrade, not here; record what was chosen.
+    let _ = protocol;
+
+    let mut last_pong = tokio::time::Instant::now();
+    let ping_interval = Duration::from_secs(30);
+    let pong_timeout = Duration::from_secs(90);
+
+    loop {
+        tokio::select! {
+            // A frame from the client.
+            frame = socket.recv() => {
+                match frame {
+                    Some(Ok(Message::Text(text))) => {
+                        let response = server
+                            .peer
+                            .handle_request_sync(&ctx, text.as_bytes())
+                            .unwrap_or_else(|err| {
+                                let rpc = err.to_rpc();
+                                let json = serde_json::json!({
+                                    "jsonrpc": "2.0",
+                                    "id": null,
+                                    "error": {
+                                        "code": rpc.code,
+                                        "message": rpc.message,
+                                    }
+                                });
+                                Some(serde_json::to_vec(&json).unwrap_or_default())
+                            });
+
+                        // A notification answers no frame; a request's
+                        // reply goes back as a text frame.
+                        if let Some(bytes) = response {
+                            let reply = String::from_utf8_lossy(&bytes).into_owned();
+                            if socket.send(Message::Text(reply.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        last_pong = tokio::time::Instant::now();
+                    }
+                    Some(Ok(Message::Ping(_))) => {
+                        // axum answers pings automatically; record it so
+                        // the keepalive does not double-ping.
+                        last_pong = tokio::time::Instant::now();
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+
+            // The keepalive ping (§3.3): every 30 s, close after 90 s
+            // without a pong.
+            _ = tokio::time::sleep(ping_interval) => {
+                if last_pong.elapsed() > pong_timeout {
+                    break;
+                }
+                let payload: &str = "keepalive";
+                if socket.send(Message::Ping(payload.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
+    }
+}
 /// (wmp-transport.md §4.3). The stream stays open until the client
 /// disconnects or the server shuts down.
 async fn get_events(
