@@ -90,6 +90,17 @@ impl MetadataType {
 pub struct IssuerMetadata {
     /// The issuer's identifier. Must equal the identifier as received.
     pub credential_issuer: String,
+    /// The credential endpoint (the metadata's member, not a
+    /// constructed path).
+    #[serde(default)]
+    pub credential_endpoint: String,
+    /// The token endpoint, when the issuer metadata carries one (an
+    /// issuer that is its own AS).
+    #[serde(default)]
+    pub token_endpoint: String,
+    /// The notification endpoint (OID4VCI §10).
+    #[serde(default)]
+    pub notification_endpoint: String,
     /// The authorization servers the issuer uses.
     #[serde(default)]
     pub authorization_servers: Vec<String>,

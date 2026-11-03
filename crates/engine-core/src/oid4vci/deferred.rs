@@ -128,12 +128,17 @@ pub async fn send_notification(
     notification_id: &str,
     event: &str,
 ) -> Result<(), NotificationError> {
-    // The notification endpoint: `{credential_issuer}/notification`, or
-    // the `notification_endpoint` from the metadata when present.
-    let endpoint = format!(
-        "{}/notification",
-        metadata.credential_issuer.trim_end_matches('/')
-    );
+    // The notification endpoint: the metadata's `notification_endpoint`
+    // when it carries one (the P0.6-verified Go behaviour), else the
+    // constructed fallback.
+    let endpoint = if metadata.notification_endpoint.is_empty() {
+        format!(
+            "{}/notification",
+            metadata.credential_issuer.trim_end_matches('/')
+        )
+    } else {
+        metadata.notification_endpoint.clone()
+    };
 
     let body = serde_json::json!({
         "notification_id": notification_id,
@@ -212,6 +217,9 @@ mod tests {
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
             nonce_endpoint: None,
+            credential_endpoint: String::new(),
+            token_endpoint: String::new(),
+            notification_endpoint: String::new(),
             credential_issuer: "https://issuer.example".to_owned(),
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({}),

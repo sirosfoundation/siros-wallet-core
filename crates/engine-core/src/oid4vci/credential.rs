@@ -160,11 +160,17 @@ pub async fn request_credential(
         );
     }
 
-    // Send the credential request.
-    let credential_endpoint = format!(
-        "{}/credential",
-        metadata.credential_issuer.trim_end_matches('/'),
-    );
+    // The credential endpoint: the metadata's member when it carries
+    // one (the P0.6-verified Go behaviour — never a constructed path
+    // when the metadata named it), else the constructed fallback.
+    let credential_endpoint = if metadata.credential_endpoint.is_empty() {
+        format!(
+            "{}/credential",
+            metadata.credential_issuer.trim_end_matches('/'),
+        )
+    } else {
+        metadata.credential_endpoint.clone()
+    };
     let response = http
         .send(HttpRequest {
             method: "POST".to_owned(),
@@ -411,6 +417,9 @@ mod tests {
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
             nonce_endpoint: None,
+            credential_endpoint: String::new(),
+            token_endpoint: String::new(),
+            notification_endpoint: String::new(),
             credential_issuer: "https://issuer.example".to_owned(),
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({}),
@@ -611,6 +620,83 @@ mod tests {
             .await,
             Err(CredentialError::EncryptedWithoutKey)
         ));
+    }
+
+    /// A fake that records the URL it was asked for.
+    struct RecordingHttp {
+        status: u16,
+        body: Vec<u8>,
+        urls: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl HttpClient for RecordingHttp {
+        async fn send(
+            &self,
+            request: HttpRequest,
+        ) -> Result<engine_ports::HttpResponse, HttpError> {
+            self.urls
+                .lock()
+                .map(|mut u| u.push(request.url.clone()))
+                .ok();
+            Ok(engine_ports::HttpResponse {
+                status: self.status,
+                headers: Vec::new(),
+                body: self.body.clone(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_credential_endpoint_comes_from_the_metadata_not_the_path() {
+        // The metadata names its endpoint: the request goes there, never
+        // to the constructed `{issuer}/credential` path.
+        let metadata = IssuerMetadata {
+            credential_endpoint: "https://issuer.example/issue-credential".to_owned(),
+            ..test_metadata()
+        };
+        let http = RecordingHttp {
+            status: 200,
+            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            urls: std::sync::Mutex::new(Vec::new()),
+        };
+        request_credential(
+            &http,
+            &FakeHost,
+            &metadata,
+            &test_token(),
+            "UniversityDegree",
+            None,
+            Some("nonce-1"),
+        )
+        .await
+        .expect("request");
+        assert_eq!(
+            http.urls.lock().expect("lock").as_slice(),
+            ["https://issuer.example/issue-credential"]
+        );
+
+        // Without the member: the constructed fallback.
+        let http = RecordingHttp {
+            status: 200,
+            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            urls: std::sync::Mutex::new(Vec::new()),
+        };
+        request_credential(
+            &http,
+            &FakeHost,
+            &test_metadata(),
+            &test_token(),
+            "UniversityDegree",
+            None,
+            Some("nonce-1"),
+        )
+        .await
+        .expect("request");
+        assert_eq!(
+            http.urls.lock().expect("lock").as_slice(),
+            ["https://issuer.example/credential"]
+        );
     }
 
     /// A stateful fake: the nonce endpoint answers the fresh nonce; the
