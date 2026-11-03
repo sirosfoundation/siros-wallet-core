@@ -7,7 +7,7 @@ use super::types::{AuthorizationRequest, ResponseError, ResponseMode};
 
 /// The maximum size of a response_uri reply: 64 KiB (the P0.6-verified
 /// `Reply::parse` limit).
-const MAX_REPLY_BYTES: usize = 64 << 10;
+pub(crate) const MAX_REPLY_BYTES: usize = 64 << 10;
 
 /// Submits the VP response to the verifier's endpoint, per the request's
 /// response mode.
@@ -24,6 +24,7 @@ pub async fn submit_response(
     http: &dyn HttpClient,
     auth_req: &AuthorizationRequest,
     vp_token: &str,
+    now_unix: i64,
 ) -> Result<String, ResponseError> {
     // Determine the response endpoint.
     let endpoint = if !auth_req.response_uri.is_empty() {
@@ -37,9 +38,11 @@ pub async fn submit_response(
     match auth_req.response_mode {
         ResponseMode::DirectPost => submit_direct_post(http, &endpoint, auth_req, vp_token).await,
         ResponseMode::DirectPostJwt => {
-            // The encrypted submission. The JWE construction arrives with
-            // the JOSE stack; the interface is here.
-            submit_direct_post(http, &endpoint, auth_req, vp_token).await
+            // The encrypted submission (JARM): the claims as a JWT,
+            // JWE-encrypted to the verifier's key, POSTed as
+            // response=<jwe>. The Clock port supplies `now_unix` — the
+            // core never reads a clock itself.
+            super::jarm::submit_jarm_response(http, auth_req, vp_token, None, now_unix).await
         }
         ResponseMode::Fragment => Ok(build_fragment_redirect(&endpoint, auth_req, vp_token)),
         ResponseMode::Query => Ok(build_query_redirect(&endpoint, auth_req, vp_token)),
@@ -160,7 +163,7 @@ fn build_query_redirect(endpoint: &str, auth_req: &AuthorizationRequest, vp_toke
 }
 
 /// Minimal URL form-encoding.
-fn url_encode(s: &str) -> String {
+pub(super) fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
@@ -231,9 +234,14 @@ mod tests {
             body: b"{}".to_vec(),
             calls: std::sync::Mutex::new(Vec::new()),
         };
-        let result = submit_response(&http, &test_request(ResponseMode::DirectPost), "vp-jwt-1")
-            .await
-            .expect("submit");
+        let result = submit_response(
+            &http,
+            &test_request(ResponseMode::DirectPost),
+            "vp-jwt-1",
+            0,
+        )
+        .await
+        .expect("submit");
         let calls = http.calls.lock().expect("lock");
         assert_eq!(calls.len(), 1);
         let body = String::from_utf8_lossy(&calls[0].1);
@@ -299,7 +307,7 @@ mod tests {
         req.response_uri = String::new();
         req.redirect_uri = String::new();
         assert!(matches!(
-            submit_response(&http, &req, "vp").await,
+            submit_response(&http, &req, "vp", 0).await,
             Err(ResponseError::NoEndpoint)
         ));
     }

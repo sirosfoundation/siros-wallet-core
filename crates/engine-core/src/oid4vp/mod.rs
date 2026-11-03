@@ -3,6 +3,7 @@
 //! presentation flow, built on the same `FlowHandler` seam.
 
 pub mod dcql;
+pub mod jarm;
 pub mod request;
 pub mod response;
 pub mod transaction_data;
@@ -63,7 +64,7 @@ impl FlowHandler for Oid4vpFlow {
             raw_params.to_owned()
         };
 
-        let auth_req = request::parse_request(ctx.http().as_ref(), &request_params)
+        let mut auth_req = request::parse_request(ctx.http().as_ref(), &request_params)
             .await
             .map_err(|err| flow_error(err.to_string()))?;
 
@@ -90,6 +91,14 @@ impl FlowHandler for Oid4vpFlow {
         // the metadata — the name falls back to the client_id.
         let client_metadata = trust::resolve_client_metadata(ctx.http().as_ref(), &auth_req).await;
         let mut verifier = trust::build_verifier_info(&auth_req, client_metadata.as_ref());
+
+        // Store the resolved metadata on the request so the downstream
+        // steps (the JARM submission's encryption parameters) see it —
+        // the Go behaviour, and the only way a metadata-by-URI request
+        // can be answered encrypted.
+        if let Some(metadata) = &client_metadata {
+            auth_req.client_metadata = Some(metadata.raw.clone());
+        }
 
         // The verifier trust through the PDP port — fail closed: a PDP
         // error is never equivalent to "no PDP configured" and never
@@ -213,10 +222,16 @@ impl FlowHandler for Oid4vpFlow {
             vp_token
         };
 
-        // Submit the response per the request's response mode.
-        let _ = response::submit_response(ctx.http().as_ref(), &auth_req, &vp_token)
-            .await
-            .map_err(|err| flow_error(err.to_string()))?;
+        // Submit the response per the request's response mode. The
+        // Clock port supplies the JARM `iat`/`exp`.
+        let _ = response::submit_response(
+            ctx.http().as_ref(),
+            &auth_req,
+            &vp_token,
+            ctx.clock().now_unix(),
+        )
+        .await
+        .map_err(|err| flow_error(err.to_string()))?;
 
         let _ = ctx
             .complete(&serde_json::json!({

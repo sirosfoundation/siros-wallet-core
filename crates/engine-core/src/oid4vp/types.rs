@@ -236,4 +236,9 @@ pub enum ResponseError {
     /// The transport failed.
     #[error("oid4vp: response submission failed: {0}")]
     Fetch(String),
+    /// The JARM (direct_post.jwt) response could not be built or
+    /// encrypted. Per P0.6, this refusal is NOT sent to the verifier —
+    /// the verifier times out; the flow error goes to the host.
+    #[error("oid4vp: {0}")]
+    Jarm(#[from] super::jarm::JarmError),
 }

@@ -1,4 +1,5 @@
-//! Test utilities shared across the oid4vp tests: base64url encoding.
+//! Test utilities shared across the oid4vp tests: base64url encoding and
+//! decoding.
 
 /// Minimal base64url encoding (unpadded), for test fixtures.
 pub fn base64url(bytes: &[u8]) -> String {
@@ -28,6 +29,35 @@ pub fn base64url(bytes: &[u8]) -> String {
         }
         if chunk.len() > 2 {
             out.push(six_to_char((n & 0x3f) as u8));
+        }
+    }
+    out
+}
+
+/// Minimal base64url decoding (unpadded), for test fixtures.
+pub fn base64url_decode(encoded: &[u8]) -> Vec<u8> {
+    fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'-' => Some(62),
+            b'_' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::with_capacity(encoded.len() * 3 / 4);
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for &b in encoded {
+        let Some(v) = value(b) else {
+            continue;
+        };
+        buffer = (buffer << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buffer >> bits) & 0xff) as u8);
         }
     }
     out

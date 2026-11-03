@@ -12,6 +12,7 @@ description = "The flow runtime and the OpenID4 flow family on top of it — the
 [dependencies]
 engine-ports = { path = "../engine-ports" }
 wmp-core = { path = "../wmp-core" }
+jose-rs = { version = "0.10", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

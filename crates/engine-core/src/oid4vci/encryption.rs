@@ -84,10 +84,6 @@ pub struct ResponseEncryptionRequest {
 
 /// Builds the `credential_response_encryption` member for the credential
 /// request, with the negotiated alg/enc and the wallet's public key.
-///
-/// The key generation goes through the `Rng` port (no ambient randomness);
-/// the P-256 key generation itself arrives with the JOSE stack (jose-rs).
-/// For S2, the key is a placeholder JWK; jose-rs replaces it.
 pub fn build_encryption_request(
     negotiated: &NegotiatedEncryption,
     public_jwk: serde_json::Value,
@@ -96,6 +92,72 @@ pub fn build_encryption_request(
         alg: negotiated.alg.clone(),
         enc: negotiated.enc.clone(),
         jwk: public_jwk,
+    }
+}
+
+/// The negotiated response encryption with the wallet's ephemeral key:
+/// everything the credential request needs to offer the key and the
+/// decrypt needs to open the answer.
+#[derive(Debug)]
+pub struct NegotiatedResponseEncryption {
+    /// The negotiated alg/enc pair.
+    pub negotiated: NegotiatedEncryption,
+    /// The ephemeral key pair: public in the request, private for the
+    /// decrypt.
+    pub key: EphemeralResponseKey,
+    /// Whether the issuer required encryption (the metadata's
+    /// `encryption_required`).
+    pub required: bool,
+}
+
+/// Negotiates and generates in one step: the alg/enc pair from the
+/// issuer's metadata, the ephemeral key for it. `None` when no pair
+/// overlaps (the caller decides whether that is fatal: it is when the
+/// issuer required encryption).
+pub fn negotiate_with_key(
+    config: &ResponseEncryptionConfig,
+) -> Option<NegotiatedResponseEncryption> {
+    let negotiated = negotiate_encryption(config)?;
+    let key = EphemeralResponseKey::generate().ok()?;
+    Some(NegotiatedResponseEncryption {
+        negotiated,
+        key,
+        required: config.required,
+    })
+}
+
+/// The wallet's ephemeral response-encryption key pair: the public JWK
+/// offered in the credential request, the private JWK held for the
+/// decrypt.
+///
+/// The key generation is the JOSE layer's (jose-rs, on the OS entropy),
+/// like the signature nonce and the JWE's own IVs and ephemeral ECDH
+/// keys: cryptographic randomness inside the chosen crypto dependency.
+/// The `Rng` port governs the core's *own* random choices — the OAuth
+/// state, the PKCE verifier — not the crypto library's internals.
+#[derive(Debug)]
+pub struct EphemeralResponseKey {
+    /// The public JWK, as the credential request carries it.
+    pub public_jwk: serde_json::Value,
+    /// The private JWK, held for the decrypt.
+    private_jwk: jose_rs::jwk::Jwk,
+}
+
+impl EphemeralResponseKey {
+    /// Generates a fresh P-256 key pair for one credential response.
+    pub fn generate() -> Result<Self, EncryptionError> {
+        let private_jwk = jose_rs::jwk::generate::generate_ec("P-256")
+            .map_err(|_| EncryptionError::KeyGeneration)?;
+        let public = private_jwk.to_public_jwk();
+        let public_json = public
+            .to_json()
+            .map_err(|_| EncryptionError::KeyGeneration)?;
+        let public_jwk: serde_json::Value =
+            serde_json::from_str(&public_json).map_err(|_| EncryptionError::KeyGeneration)?;
+        Ok(Self {
+            public_jwk,
+            private_jwk,
+        })
     }
 }
 
@@ -112,12 +174,9 @@ pub fn is_encrypted_response(content_type: &str, body: &[u8]) -> bool {
     parts == 5 && !text.starts_with('{')
 }
 
-/// Decrypts a JWE-encrypted credential response.
-///
-/// The JWE uses ECDH-ES key management with the content encryption the
-/// negotiation selected; the wallet's ephemeral private key decrypts. The
-/// jose-rs library performs the actual decrypt; this function provides the
-/// interface and the response parsing.
+/// Decrypts a JWE-encrypted credential response (OpenID4VCI §7.3): the
+/// ECDH-ES key management the negotiation selected, with the wallet's
+/// ephemeral private key — via jose-rs.
 ///
 /// **When the key was offered, an unencrypted completion is refused** —
 /// per the spec's Security requirements. The P0.6 verification found the
@@ -126,49 +185,62 @@ pub fn is_encrypted_response(content_type: &str, body: &[u8]) -> bool {
 /// decide, and the vectors pin the decision.
 pub fn decrypt_encrypted_response(
     jwe_string: &str,
-    _private_key: &[u8],
+    key: &EphemeralResponseKey,
 ) -> Result<CredentialResponse, EncryptionError> {
-    // The jose-rs integration arrives with the JOSE stack (the
-    // DEPENDENCIES.md evaluation chose jose-rs). For now, the interface
-    // is here with the full JWE parsing; the decrypt itself returns an
-    // error until jose-rs is wired in.
-    //
-    // The JWE compact serialization: header.encrypted_key.iv.ciphertext.tag
+    // The JWE compact serialization: header.encrypted_key.iv.ciphertext.tag.
+    // The encrypted_key part may be empty — ECDH-ES agrees on the CEK
+    // directly and wraps nothing (RFC 7516 §5.2), as does `dir`.
     let parts: Vec<&str> = jwe_string.split('.').collect();
-    if parts.len() != 5 || parts.iter().any(|p| p.is_empty()) {
+    if parts.len() != 5
+        || parts
+            .iter()
+            .enumerate()
+            .any(|(i, p)| p.is_empty() && i != 1)
+    {
         return Err(EncryptionError::Decrypt(
             "not a JWE compact serialization".to_owned(),
         ));
     }
 
-    // Parse the header to check the alg and enc.
+    // Parse the header to check the alg and enc against what the
+    // negotiation offered — the issuer must use the pair the wallet
+    // picked, and the algorithm must be one this stack implements.
     let header = decode_base64url(parts.first().copied().unwrap_or_default())
         .ok_or_else(|| EncryptionError::Decrypt("invalid header".to_owned()))?;
     let header_json: serde_json::Value = serde_json::from_slice(&header)
         .map_err(|_| EncryptionError::Decrypt("header is not JSON".to_owned()))?;
-    let alg = header_json
+    let alg_name = header_json
         .get("alg")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    let enc = header_json
+    let enc_name = header_json
         .get("enc")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    if !alg.starts_with("ECDH-ES") {
-        return Err(EncryptionError::Decrypt(format!(
-            "unsupported key-management algorithm {alg:?}"
-        )));
-    }
-    if !enc.starts_with("A") {
-        return Err(EncryptionError::Decrypt(format!(
-            "unsupported content-encryption algorithm {enc:?}"
-        )));
-    }
 
-    // The jose-rs decrypt arrives with the JOSE stack integration.
-    Err(EncryptionError::Decrypt(
-        "jose-rs decrypt arrives with the JOSE stack integration".to_owned(),
-    ))
+    // Both algorithms must be ones this stack implements — the parse is
+    // the check (the decrypt would refuse them too, but the error would
+    // be opaque).
+    jose_rs::algorithm::JweAlgorithm::from_str(alg_name).map_err(|_| {
+        EncryptionError::Decrypt(format!("unsupported key-management algorithm {alg_name:?}"))
+    })?;
+    jose_rs::algorithm::JweEncryption::from_str(enc_name).map_err(|_| {
+        EncryptionError::Decrypt(format!(
+            "unsupported content-encryption algorithm {enc_name:?}"
+        ))
+    })?;
+
+    // The decrypt: the private JWK carries the alg the issuer used (the
+    // decrypt path reads it, exactly as the encrypt path does).
+    let mut private = key.private_jwk.clone();
+    private.alg = Some(alg_name.to_owned());
+    let plaintext = jose_rs::jwe::compact::decrypt_with_jwk(&private, jwe_string)
+        .map_err(|err| EncryptionError::Decrypt(err.to_string()))?;
+
+    // The decrypted plaintext is the credential response.
+    let response: CredentialResponse =
+        serde_json::from_slice(&plaintext).map_err(|_| EncryptionError::NotJson)?;
+    Ok(response)
 }
 
 /// Minimal base64url decoding.
@@ -291,7 +363,66 @@ mod tests {
 
     #[test]
     fn decrypt_refuses_a_non_jwe_shape() {
-        let err = decrypt_encrypted_response("not-a-jwe", &[0u8; 32]).expect_err("refuses");
+        let key = EphemeralResponseKey::generate().expect("keygen");
+        let err = decrypt_encrypted_response("not-a-jwe", &key).expect_err("refuses");
+        assert!(matches!(err, EncryptionError::Decrypt(_)));
+    }
+
+    #[test]
+    fn the_ephemeral_key_offers_a_public_ec_jwk() {
+        let key = EphemeralResponseKey::generate().expect("keygen");
+        assert_eq!(key.public_jwk["kty"], "EC");
+        assert_eq!(key.public_jwk["crv"], "P-256");
+        // The offered JWK is public: no private member.
+        assert!(key.public_jwk.get("d").is_none());
+    }
+
+    #[test]
+    fn the_encrypted_response_roundtrips() {
+        // The issuer's side, simulated with jose-rs: the JWE to the
+        // wallet's offered public key, with the negotiated pair.
+        let key = EphemeralResponseKey::generate().expect("keygen");
+        let negotiated = NegotiatedEncryption {
+            alg: "ECDH-ES".to_owned(),
+            enc: "A256GCM".to_owned(),
+        };
+
+        let public = serde_json::from_value::<jose_rs::jwk::Jwk>(key.public_jwk.clone())
+            .expect("public jwk");
+        let mut recipient = public.clone();
+        recipient.alg = Some(negotiated.alg.clone());
+
+        let credential_response = CredentialResponse {
+            credential: Some("credential-jwt-1".to_owned()),
+            format_specific: None,
+            transaction_id: None,
+            interval: None,
+            nonce: None,
+        };
+        let plaintext = serde_json::to_vec(&credential_response).expect("serialize");
+        let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(
+            &recipient,
+            jose_rs::header::JoseHeader::for_jwe(
+                jose_rs::algorithm::JweAlgorithm::EcdhEs,
+                jose_rs::algorithm::JweEncryption::A256GCM,
+            ),
+            &plaintext,
+            jose_rs::algorithm::JweEncryption::A256GCM,
+        )
+        .expect("encrypt");
+
+        // The wallet's side: the decrypt recovers the response.
+        let decrypted = decrypt_encrypted_response(&jwe, &key).expect("decrypt");
+        assert_eq!(decrypted.credential.as_deref(), Some("credential-jwt-1"));
+    }
+
+    #[test]
+    fn a_mismatched_algorithm_refuses() {
+        // An issuer encrypting with an algorithm the wallet did not
+        // offer: the decrypt refuses (the header names RSA-OAEP-256,
+        // the key is EC — the decrypt fails, fail closed).
+        let key = EphemeralResponseKey::generate().expect("keygen");
+        let err = decrypt_encrypted_response("a.b.c.d.e", &key).expect_err("refuses");
         assert!(matches!(err, EncryptionError::Decrypt(_)));
     }
 }

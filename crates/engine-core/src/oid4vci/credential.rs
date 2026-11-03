@@ -48,6 +48,18 @@ pub enum CredentialError {
     /// The response body is not a credential response.
     #[error("oid4vci: credential response is not JSON")]
     NotJson,
+    /// The response is a JWE but the wallet offered no key (§7.3).
+    #[error("oid4vci: the response is encrypted but no key was offered")]
+    EncryptedWithoutKey,
+    /// The wallet offered a key and the issuer answered plain (§7.3:
+    /// the issuer MUST encrypt when a key was offered). The P0.6
+    /// verification found the Go engine accepts this; the Rust core
+    /// follows the spec and refuses — the vectors pin the decision.
+    #[error("oid4vci: plain response after the encryption key was offered")]
+    PlainAfterKeyOffered,
+    /// The encrypted response could not be decrypted.
+    #[error("oid4vci: response decrypt failed: {0}")]
+    Decrypt(String),
     /// The issuer answered `invalid_nonce` (or an error body carrying a
     /// refreshed `c_nonce`): retry once with a fresh nonce.
     #[error("oid4vci: invalid_nonce from the credential endpoint")]
@@ -71,6 +83,7 @@ pub async fn request_credential(
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
+    encryption: Option<&super::encryption::NegotiatedResponseEncryption>,
     nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
     // Build the proof's to-be-signed input: a JWT with the `nonce` and
@@ -118,6 +131,21 @@ pub async fn request_credential(
             "jwt": proof_jwt,
         },
     });
+    // The encryption offer (§7.3): the negotiated alg/enc and the
+    // wallet's ephemeral public key. When offered, the issuer MUST
+    // encrypt the response.
+    if let Some(encryption) = encryption {
+        let offer = super::encryption::build_encryption_request(
+            &encryption.negotiated,
+            encryption.key.public_jwk.clone(),
+        );
+        if let Some(body) = request_body.as_object_mut() {
+            body.insert(
+                "credential_response_encryption".to_owned(),
+                serde_json::to_value(&offer).unwrap_or(Value::Null),
+            );
+        }
+    }
     if let Some(identifier) = super::auth_params::granted_credential_identifier(
         token.authorization_details.as_ref(),
         configuration_id,
@@ -186,6 +214,24 @@ pub async fn request_credential(
     }
 
     // Decode the response.
+    //
+    // §7.3: when the wallet offered a key, the issuer MUST encrypt the
+    // response — a plain answer is refused (the P0.6-verified Go engine
+    // accepts it; the Rust core follows the spec, and the vectors pin
+    // the decision). An encrypted answer without an offered key cannot
+    // be opened and is refused too.
+    if super::encryption::is_encrypted_response("", &response.body) {
+        let Some(encryption) = encryption else {
+            return Err(CredentialError::EncryptedWithoutKey);
+        };
+        let jwe = String::from_utf8_lossy(&response.body).into_owned();
+        return super::encryption::decrypt_encrypted_response(&jwe, &encryption.key)
+            .map_err(|err| CredentialError::Decrypt(err.to_string()));
+    }
+    if encryption.is_some() {
+        return Err(CredentialError::PlainAfterKeyOffered);
+    }
+
     let value: serde_json::Value =
         serde_json::from_slice(&response.body).map_err(|_| CredentialError::NotJson)?;
 
@@ -210,18 +256,21 @@ pub async fn request_credential_with_retry(
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
+    encryption: Option<&super::encryption::NegotiatedResponseEncryption>,
     initial_nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
     // The initial nonce: the endpoint first (§7), then the token's c_nonce.
     let mut nonce = resolve_nonce(http, metadata, initial_nonce).await;
 
     for retry in 0..=1 {
+        // The retry re-sends the same encryption offer (P0.6).
         match request_credential(
             http,
             host,
             metadata,
             token,
             configuration_id,
+            encryption,
             nonce.as_deref(),
         )
         .await
@@ -394,6 +443,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            None,
             Some("nonce-1"),
         )
         .await
@@ -413,6 +463,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            None,
             Some("nonce-1"),
         )
         .await
@@ -428,8 +479,137 @@ mod tests {
             body: Vec::new(),
         };
         assert!(matches!(
-            request_credential(&http, &FakeHost, &test_metadata(), &test_token(), "X", None).await,
+            request_credential(
+                &http,
+                &FakeHost,
+                &test_metadata(),
+                &test_token(),
+                "X",
+                None,
+                None
+            )
+            .await,
             Err(CredentialError::Status(400))
+        ));
+    }
+
+    /// An issuer that honours §7.3: reads the request's encryption offer
+    /// and answers a JWE to the offered key.
+    struct EncryptingHttp;
+
+    #[async_trait::async_trait]
+    impl HttpClient for EncryptingHttp {
+        async fn send(
+            &self,
+            request: HttpRequest,
+        ) -> Result<engine_ports::HttpResponse, HttpError> {
+            let body: serde_json::Value =
+                serde_json::from_slice(&request.body).expect("request body json");
+            let offer = body["credential_response_encryption"]
+                .as_object()
+                .expect("the offer is in the request");
+            assert_eq!(offer["alg"], "ECDH-ES");
+            assert_eq!(offer["enc"], "A256GCM");
+            assert_eq!(offer["jwk"]["kty"], "EC");
+
+            // The issuer's encrypt: to the wallet's offered public key.
+            let jwk: jose_rs::jwk::Jwk =
+                serde_json::from_value(offer["jwk"].clone()).expect("offered jwk");
+            let mut recipient = jwk.clone();
+            recipient.alg = Some(offer["alg"].as_str().expect("alg").to_owned());
+            let plaintext = br#"{"credential":"encrypted-credential-1"}"#.to_vec();
+            let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(
+                &recipient,
+                jose_rs::header::JoseHeader::for_jwe(
+                    jose_rs::algorithm::JweAlgorithm::EcdhEs,
+                    jose_rs::algorithm::JweEncryption::A256GCM,
+                ),
+                &plaintext,
+                jose_rs::algorithm::JweEncryption::A256GCM,
+            )
+            .expect("issuer encrypt");
+
+            Ok(engine_ports::HttpResponse {
+                status: 200,
+                headers: vec![("content-type".to_owned(), "application/jwt".to_owned())],
+                body: jwe.into_bytes(),
+            })
+        }
+    }
+
+    fn negotiated_encryption() -> super::super::encryption::NegotiatedResponseEncryption {
+        super::super::encryption::negotiate_with_key(
+            &super::super::encryption::ResponseEncryptionConfig {
+                alg_values: vec!["ECDH-ES".to_owned()],
+                enc_values: vec!["A256GCM".to_owned()],
+                required: true,
+            },
+        )
+        .expect("negotiate")
+    }
+
+    #[tokio::test]
+    async fn an_encrypted_answer_to_the_offer_decrypts() {
+        let encryption = negotiated_encryption();
+        let response = request_credential(
+            &EncryptingHttp,
+            &FakeHost,
+            &test_metadata(),
+            &test_token(),
+            "UniversityDegree",
+            Some(&encryption),
+            Some("nonce-1"),
+        )
+        .await
+        .expect("request");
+        assert_eq!(
+            response.credential.as_deref(),
+            Some("encrypted-credential-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_answer_after_the_offer_refuses() {
+        let encryption = negotiated_encryption();
+        let http = FakeHttp {
+            status: 200,
+            body: br#"{"credential":"plain"}"#.to_vec(),
+        };
+        // §7.3: the issuer MUST encrypt when a key was offered. The Go
+        // engine accepts the plain answer (P0.6); the Rust core refuses.
+        assert!(matches!(
+            request_credential(
+                &http,
+                &FakeHost,
+                &test_metadata(),
+                &test_token(),
+                "UniversityDegree",
+                Some(&encryption),
+                Some("nonce-1"),
+            )
+            .await,
+            Err(CredentialError::PlainAfterKeyOffered)
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_encrypted_answer_without_an_offer_refuses() {
+        let http = FakeHttp {
+            status: 200,
+            body: b"header.key.iv.ciphertext.tag".to_vec(),
+        };
+        assert!(matches!(
+            request_credential(
+                &http,
+                &FakeHost,
+                &test_metadata(),
+                &test_token(),
+                "UniversityDegree",
+                None,
+                Some("nonce-1"),
+            )
+            .await,
+            Err(CredentialError::EncryptedWithoutKey)
         ));
     }
 
@@ -532,6 +712,7 @@ mod tests {
             &metadata_with_nonce_endpoint(),
             &test_token(),
             "UniversityDegree",
+            None,
             Some("nonce-1"),
         )
         .await
@@ -554,6 +735,7 @@ mod tests {
                 &metadata_with_nonce_endpoint(),
                 &test_token(),
                 "UniversityDegree",
+                None,
                 Some("nonce-1"),
             )
             .await,
@@ -577,6 +759,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            None,
             Some("nonce-1"),
         )
         .await

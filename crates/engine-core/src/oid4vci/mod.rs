@@ -151,11 +151,17 @@ impl FlowHandler for Oid4vciFlow {
                     .next()
             })
             .and_then(|v| serde_json::from_value::<encryption::ResponseEncryptionConfig>(v).ok());
+        // Negotiate and generate the ephemeral key in one step. When the
+        // issuer required encryption and no pair overlaps, the flow
+        // refuses — there is no compliant way to request the credential.
         let negotiated_encryption = encryption_config
             .as_ref()
-            .and_then(encryption::negotiate_encryption);
-
-        let _ = negotiated_encryption; // Used by the credential request in S2.
+            .and_then(encryption::negotiate_with_key);
+        if let (Some(config), None) = (encryption_config.as_ref(), negotiated_encryption.as_ref()) {
+            if config.required {
+                return Err(flow_error(encryption::EncryptionError::NoOverlap.to_string()).into());
+            }
+        }
 
         // ── S2: exchange the pre-authorized code for a token ─────────────
         // The grants in the offer say whether this is a pre-authorized_code
@@ -205,6 +211,7 @@ impl FlowHandler for Oid4vciFlow {
                 &issuer_metadata,
                 &token,
                 &configuration_id,
+                negotiated_encryption.as_ref(),
                 token.nonce.as_deref().or(token.c_nonce.as_deref()),
             )
             .await
