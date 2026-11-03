@@ -49,6 +49,15 @@ pub enum TokenError {
     /// The token endpoint answered a non-200.
     #[error("oid4vci: token endpoint answered {0}: {1}")]
     Status(u16, String),
+    /// The AS demanded a server-provided challenge in the Client
+    /// Attestation PoP (`use_attestation_challenge`): the response
+    /// headers, for the challenge resolution. The retry loop consumes
+    /// this.
+    #[error("oid4vci: token endpoint demanded an attestation challenge")]
+    ChallengeNeeded {
+        /// The rejection response's headers.
+        response_headers: Vec<(String, String)>,
+    },
     /// The transport failed.
     #[error("oid4vci: token exchange failed: {0}")]
     Fetch(String),
@@ -228,6 +237,7 @@ mod tests {
             authorization_endpoint: String::new(),
             par_endpoint: String::new(),
             require_par: false,
+            challenge_endpoint: String::new(),
             code_challenge_methods: None,
             grant_types: Vec::new(),
         }

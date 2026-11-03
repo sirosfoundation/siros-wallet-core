@@ -249,6 +249,36 @@ pub struct ConsentResult {
     pub consented: bool,
 }
 
+/// The client attestation the engine asks the host for: a Wallet Instance
+/// Attestation and the matching proof of possession
+/// (draft-ietf-oauth-attestation-based-client-auth §3.1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttestationParams {
+    /// The flow the request belongs to.
+    pub flow_id: String,
+    /// The PoP audience: the authorization server the request is sent to.
+    pub audience: String,
+    /// The client_id the WIA names as `sub` and the PoP as `iss`.
+    pub client_id: String,
+    /// The server-provided challenge for the PoP, when the AS demanded
+    /// one (`use_attestation_challenge`).
+    #[serde(default)]
+    pub challenge: String,
+}
+
+/// The attestation answer: the WIA and the client-signed PoP.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AttestationResult {
+    /// The Wallet Instance Attestation JWT (`oauth-client-attestation+jwt`).
+    #[serde(default)]
+    pub wia: String,
+    /// The PoP JWT binding the WIA to the audience
+    /// (`oauth-client-attestation-pop+jwt`), signed with the instance
+    /// key the WIA's `cnf` names.
+    #[serde(default)]
+    pub pop: String,
+}
+
 /// Why a sub-flow refused.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -282,6 +312,31 @@ pub trait Host: Send + Sync {
     /// Opens the authorization URL in the host's browser (the authorization
     /// code flow's user agent step).
     async fn open_authorization(&self, flow_id: &str, url: &str) -> Result<(), HostError>;
+
+    /// Asks the host for a client attestation: the Wallet Instance
+    /// Attestation and the matching PoP, for the PAR/token request's
+    /// `OAuth-Client-Attestation` headers.
+    ///
+    /// **The WIA comes from the existing wallet provider** (go-wallet-
+    /// backend's `/wallet-provider/wia/challenge` + `/wia/generate`):
+    /// the host's implementation fetches the challenge, signs the WIA-PoP
+    /// with the device's instance key, obtains the WIA from the wallet
+    /// provider, and signs the per-flow PoP for the audience. The
+    /// instance key never reaches the engine — the core builds no JWT
+    /// here, it only forwards what the host signed.
+    ///
+    /// A host that cannot answer refuses, and the flow proceeds without
+    /// client attestation (an issuer that requires it rejects on its
+    /// own) — the Go engine's exact rule. The default implementation
+    /// refuses, so older hosts and adapters keep working.
+    async fn request_attestation(
+        &self,
+        _params: AttestationParams,
+    ) -> Result<AttestationResult, HostError> {
+        Err(HostError::Cannot(
+            "client attestation not supported by this host".to_owned(),
+        ))
+    }
 
     /// Reports progress on a flow (a notification, not a request).
     fn progress(&self, flow_id: &str, step: &str, detail: Option<String>);

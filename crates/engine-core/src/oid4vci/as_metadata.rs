@@ -88,6 +88,7 @@ pub async fn discover_as_metadata(
         authorization_endpoint: format!("{trimmed}/authorize"),
         par_endpoint: String::new(),
         require_par: false,
+        challenge_endpoint: String::new(),
         code_challenge_methods: Some(vec!["S256".to_owned()]),
         grant_types: vec![
             "authorization_code".to_owned(),

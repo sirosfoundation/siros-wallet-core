@@ -92,6 +92,15 @@ pub enum ParError {
         /// The AS's error code and description, when the body had them.
         error: String,
     },
+    /// The AS demanded a server-provided challenge in the Client
+    /// Attestation PoP (`use_attestation_challenge`): the response
+    /// headers, for the challenge resolution. The retry loop consumes
+    /// this; a caller seeing it has exhausted its retry.
+    #[error("oid4vci: PAR demanded an attestation challenge")]
+    ChallengeNeeded {
+        /// The rejection response's headers.
+        response_headers: Vec<(String, String)>,
+    },
     /// The response carried no request_uri.
     #[error("oid4vci: PAR response missing request_uri")]
     NoRequestUri,
@@ -115,26 +124,38 @@ struct ParResponse {
 /// returns the `request_uri` the authorization URL carries.
 ///
 /// The parameters are the assembled auth_params set (plus the PKCE
-/// challenge pair when PKCE is enabled). Client attestation (WIA + PoP)
-/// is not yet wired; the PAR retry-once for an attestation challenge
-/// arrives with it.
+/// challenge pair when PKCE is enabled).
 pub async fn push_authorization_request(
     http: &dyn HttpClient,
     par_endpoint: &str,
     params: &[(String, String)],
 ) -> Result<String, ParError> {
+    push_with_headers(http, par_endpoint, params, &[]).await
+}
+
+/// The one PAR POST, with the client-attestation headers when the host
+/// supplied a pair. The AS's `use_attestation_challenge` demand comes
+/// back as [`ParError::ChallengeNeeded`] for the retry loop.
+async fn push_with_headers(
+    http: &dyn HttpClient,
+    par_endpoint: &str,
+    params: &[(String, String)],
+    attestation_headers: &[(String, String)],
+) -> Result<String, ParError> {
     let form = encode_form(params);
+    let mut headers = vec![
+        (
+            "content-type".to_owned(),
+            "application/x-www-form-urlencoded".to_owned(),
+        ),
+        ("accept".to_owned(), "application/json".to_owned()),
+    ];
+    headers.extend(attestation_headers.iter().cloned());
     let response = http
         .send(HttpRequest {
             method: "POST".to_owned(),
             url: par_endpoint.to_owned(),
-            headers: vec![
-                (
-                    "content-type".to_owned(),
-                    "application/x-www-form-urlencoded".to_owned(),
-                ),
-                ("accept".to_owned(), "application/json".to_owned()),
-            ],
+            headers,
             body: form.into_bytes(),
             purpose: FetchPurpose::Token,
             max_response_bytes: MAX_RESPONSE_BYTES,
@@ -163,6 +184,14 @@ pub async fn push_authorization_request(
         return Ok(parsed.request_uri);
     }
 
+    // The AS demanding a server-provided attestation challenge: the
+    // headers go to the retry loop's challenge resolution.
+    if super::attestation::is_attestation_challenge_error(response.status, &response.body) {
+        return Err(ParError::ChallengeNeeded {
+            response_headers: response.headers,
+        });
+    }
+
     // The error body: the AS's error code and description, when present.
     let parsed: ParResponse = serde_json::from_slice(&response.body).unwrap_or(ParResponse {
         request_uri: String::new(),
@@ -178,6 +207,64 @@ pub async fn push_authorization_request(
         status: response.status,
         error,
     })
+}
+
+/// Pushes with the client-attestation challenge retry (once) — the
+/// P0.6-verified PAR loop: the host supplies the (WIA, PoP) pair (the
+/// WIA from the existing wallet provider, the PoP signed with the
+/// device's instance key), and a `use_attestation_challenge` rejection
+/// resolves the fresh challenge (the response header, else the AS's
+/// `challenge_endpoint`) and re-asks the host for a PoP bound to it.
+///
+/// A host that refuses attestation at any point proceeds without it
+/// (best-effort, the Go rule); an AS that requires it rejects on its
+/// own.
+pub async fn push_authorization_request_with_attestation(
+    http: &dyn HttpClient,
+    host: &dyn engine_ports::Host,
+    as_metadata: &AsMetadata,
+    flow_id: &str,
+    client_id: &str,
+    params: &[(String, String)],
+) -> Result<String, ParError> {
+    let mut attestation = super::attestation::request_client_attestation(
+        host,
+        flow_id,
+        &as_metadata.issuer,
+        client_id,
+        "",
+    )
+    .await;
+
+    for attempt in 0..2 {
+        let headers = super::attestation::attestation_headers(attestation.as_ref());
+        match push_with_headers(http, &as_metadata.par_endpoint, params, &headers).await {
+            Ok(uri) => return Ok(uri),
+            Err(ParError::ChallengeNeeded { response_headers }) if attempt == 0 => {
+                // Resolve the fresh challenge; without one the original
+                // demand stands.
+                let Some(challenge) =
+                    super::attestation::resolve_challenge(http, as_metadata, &response_headers)
+                        .await
+                else {
+                    return Err(ParError::Fetch(
+                        "no attestation challenge could be obtained".to_owned(),
+                    ));
+                };
+                attestation = super::attestation::request_client_attestation(
+                    host,
+                    flow_id,
+                    &as_metadata.issuer,
+                    client_id,
+                    &challenge,
+                )
+                .await;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    Err(ParError::Fetch("PAR retry exhausted".to_owned()))
 }
 
 /// The authorization URL to hand the host.
@@ -216,6 +303,29 @@ pub async fn exchange_authorization_code(
     code_verifier: &str,
     resource: Option<&str>,
 ) -> Result<TokenResponse, TokenError> {
+    exchange_code_with_headers(
+        http,
+        as_metadata,
+        code,
+        redirect_uri,
+        code_verifier,
+        resource,
+        &[],
+    )
+    .await
+}
+
+/// The one code-for-token POST, with the client-attestation headers when
+/// the host supplied a pair.
+async fn exchange_code_with_headers(
+    http: &dyn HttpClient,
+    as_metadata: &AsMetadata,
+    code: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+    resource: Option<&str>,
+    attestation_headers: &[(String, String)],
+) -> Result<TokenResponse, TokenError> {
     if as_metadata.token_endpoint.is_empty() {
         return Err(TokenError::NoTokenEndpoint);
     }
@@ -234,17 +344,20 @@ pub async fn exchange_authorization_code(
         form.push_str(&format!("&resource={}", url_encode(resource)));
     }
 
+    let mut headers = vec![
+        (
+            "content-type".to_owned(),
+            "application/x-www-form-urlencoded".to_owned(),
+        ),
+        ("accept".to_owned(), "application/json".to_owned()),
+    ];
+    headers.extend(attestation_headers.iter().cloned());
+
     let response = http
         .send(HttpRequest {
             method: "POST".to_owned(),
             url: as_metadata.token_endpoint.clone(),
-            headers: vec![
-                (
-                    "content-type".to_owned(),
-                    "application/x-www-form-urlencoded".to_owned(),
-                ),
-                ("accept".to_owned(), "application/json".to_owned()),
-            ],
+            headers,
             body: form.into_bytes(),
             purpose: FetchPurpose::Token,
             max_response_bytes: MAX_RESPONSE_BYTES,
@@ -259,12 +372,96 @@ pub async fn exchange_authorization_code(
         })?;
 
     if response.status != 200 {
+        // The AS demanding a server-provided attestation challenge: the
+        // headers go to the retry loop's challenge resolution.
+        if super::attestation::is_attestation_challenge_error(response.status, &response.body) {
+            return Err(TokenError::ChallengeNeeded {
+                response_headers: response.headers,
+            });
+        }
         // The safe error code only: no raw body in the error.
         let error_code = extract_error_code(&response.body);
         return Err(TokenError::Status(response.status, error_code));
     }
 
     serde_json::from_slice(&response.body).map_err(|_| TokenError::NotJson)
+}
+
+/// The inputs to the attested code-for-token exchange.
+#[derive(Debug, Clone)]
+pub struct CodeExchangeSpec<'a> {
+    /// The flow the exchange belongs to.
+    pub flow_id: &'a str,
+    /// The wallet's client_id (the PoP `iss`).
+    pub client_id: &'a str,
+    /// The authorization code the redirect answered.
+    pub code: &'a str,
+    /// The redirect_uri the authorization request named.
+    pub redirect_uri: &'a str,
+    /// The PKCE code_verifier from the stash.
+    pub code_verifier: &'a str,
+    /// The RFC 8707 resource indicator, when cross-origin.
+    pub resource: Option<&'a str>,
+}
+
+/// Exchanges the code with the client-attestation challenge retry
+/// (once) — the same loop as the PAR path: the host supplies the (WIA,
+/// PoP) pair, a `use_attestation_challenge` rejection resolves the
+/// fresh challenge and re-asks, and the exchange retries once.
+pub async fn exchange_authorization_code_with_attestation(
+    http: &dyn HttpClient,
+    host: &dyn engine_ports::Host,
+    as_metadata: &AsMetadata,
+    spec: &CodeExchangeSpec<'_>,
+) -> Result<TokenResponse, TokenError> {
+    let mut attestation = super::attestation::request_client_attestation(
+        host,
+        spec.flow_id,
+        &as_metadata.issuer,
+        spec.client_id,
+        "",
+    )
+    .await;
+
+    for attempt in 0..2 {
+        let headers = super::attestation::attestation_headers(attestation.as_ref());
+        match exchange_code_with_headers(
+            http,
+            as_metadata,
+            spec.code,
+            spec.redirect_uri,
+            spec.code_verifier,
+            spec.resource,
+            &headers,
+        )
+        .await
+        {
+            Ok(token) => return Ok(token),
+            Err(TokenError::ChallengeNeeded { response_headers }) if attempt == 0 => {
+                let Some(challenge) =
+                    super::attestation::resolve_challenge(http, as_metadata, &response_headers)
+                        .await
+                else {
+                    return Err(TokenError::Fetch(
+                        "no attestation challenge could be obtained".to_owned(),
+                    ));
+                };
+                attestation = super::attestation::request_client_attestation(
+                    host,
+                    spec.flow_id,
+                    &as_metadata.issuer,
+                    spec.client_id,
+                    &challenge,
+                )
+                .await;
+            }
+            Err(other) => return Err(other),
+        }
+    }
+
+    Err(TokenError::Fetch(
+        "token exchange retry exhausted".to_owned(),
+    ))
 }
 
 /// Extracts the OAuth error code from a token/par error body — the safe
@@ -457,9 +654,280 @@ mod tests {
             authorization_endpoint: "https://as.example/authorize".to_owned(),
             par_endpoint: "https://as.example/par".to_owned(),
             require_par: false,
+            challenge_endpoint: String::new(),
             code_challenge_methods: None,
             grant_types: vec!["authorization_code".to_owned()],
         }
+    }
+
+    // ─── client attestation ──────────────────────────────────────────
+
+    /// A host that supplies the (WIA, PoP) pair and records the
+    /// challenges it was asked to bind.
+    struct AttestingHost {
+        challenges: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl engine_ports::Host for AttestingHost {
+        async fn request_sign(
+            &self,
+            _p: engine_ports::SignParams,
+        ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no sign".to_owned()))
+        }
+        async fn request_match(
+            &self,
+            _f: &str,
+            _e: Vec<engine_ports::MatchEntry>,
+        ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no match".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no consent".to_owned()))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no tx code".to_owned()))
+        }
+        async fn open_authorization(
+            &self,
+            _f: &str,
+            _u: &str,
+        ) -> Result<(), engine_ports::HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+
+        async fn request_attestation(
+            &self,
+            params: engine_ports::AttestationParams,
+        ) -> Result<engine_ports::AttestationResult, engine_ports::HostError> {
+            self.challenges
+                .lock()
+                .map(|mut c| c.push(params.challenge.clone()))
+                .ok();
+            Ok(engine_ports::AttestationResult {
+                wia: "wia-jwt".to_owned(),
+                pop: format!("pop-for-{}", params.challenge),
+            })
+        }
+    }
+
+    /// An HTTP fake with a scripted answer sequence per URL.
+    struct SequencedHttp {
+        answers: std::sync::Mutex<Vec<(String, HttpResponse)>>,
+        seen: std::sync::Mutex<Vec<HttpRequest>>,
+    }
+
+    impl SequencedHttp {
+        fn new(answers: Vec<(String, HttpResponse)>) -> Self {
+            Self {
+                answers: std::sync::Mutex::new(answers),
+                seen: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn take_answer(&self, url: &str) -> Option<HttpResponse> {
+            let mut answers = self.answers.lock().ok()?;
+            let index = answers.iter().position(|(u, _)| u == url)?;
+            Some(answers.remove(index).1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpClient for SequencedHttp {
+        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
+            self.seen.lock().map(|mut s| s.push(request.clone())).ok();
+            match self.take_answer(&request.url) {
+                Some(response) => Ok(response),
+                None => Ok(HttpResponse {
+                    status: 404,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_par_push_carries_the_attestation_headers() {
+        let http = SequencedHttp::new(vec![(
+            "https://as.example/par".to_owned(),
+            HttpResponse {
+                status: 201,
+                headers: Vec::new(),
+                body: br#"{"request_uri":"urn:par:1"}"#.to_vec(),
+            },
+        )]);
+        let host = AttestingHost {
+            challenges: std::sync::Mutex::new(Vec::new()),
+        };
+        let uri = push_authorization_request_with_attestation(
+            &http,
+            &host,
+            &test_as(),
+            "flow-1",
+            "client-1",
+            &[("response_type".to_owned(), "code".to_owned())],
+        )
+        .await
+        .expect("push");
+        assert_eq!(uri, "urn:par:1");
+
+        // The attestation pair arrived as the two headers.
+        let seen = http.seen.lock().expect("lock");
+        assert_eq!(seen.len(), 1);
+        let attestation = seen[0]
+            .headers
+            .iter()
+            .find(|(name, _)| name == "OAuth-Client-Attestation")
+            .map(|(_, value)| value.clone());
+        let pop = seen[0]
+            .headers
+            .iter()
+            .find(|(name, _)| name == "OAuth-Client-Attestation-PoP")
+            .map(|(_, value)| value.clone());
+        assert_eq!(attestation.as_deref(), Some("wia-jwt"));
+        assert_eq!(pop.as_deref(), Some("pop-for-"));
+
+        // The host was asked once, unchallenged.
+        let challenges = host.challenges.lock().expect("lock");
+        assert_eq!(challenges.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_par_attestation_challenge_retries_once_with_the_fresh_challenge() {
+        let http = SequencedHttp::new(vec![
+            (
+                "https://as.example/par".to_owned(),
+                HttpResponse {
+                    status: 400,
+                    headers: vec![(
+                        "OAuth-Client-Attestation-Challenge".to_owned(),
+                        "challenge-1".to_owned(),
+                    )],
+                    body: br#"{"error":"use_attestation_challenge"}"#.to_vec(),
+                },
+            ),
+            (
+                "https://as.example/par".to_owned(),
+                HttpResponse {
+                    status: 201,
+                    headers: Vec::new(),
+                    body: br#"{"request_uri":"urn:par:2"}"#.to_vec(),
+                },
+            ),
+        ]);
+        let host = AttestingHost {
+            challenges: std::sync::Mutex::new(Vec::new()),
+        };
+        let uri = push_authorization_request_with_attestation(
+            &http,
+            &host,
+            &test_as(),
+            "flow-1",
+            "client-1",
+            &[],
+        )
+        .await
+        .expect("push after the challenge");
+        assert_eq!(uri, "urn:par:2");
+
+        // The host was asked twice: unchallenged, then with the fresh
+        // challenge from the response header.
+        let challenges = host.challenges.lock().expect("lock");
+        assert_eq!(*challenges, vec![String::new(), "challenge-1".to_owned()]);
+
+        // The retry's PoP was bound to the challenge.
+        let seen = http.seen.lock().expect("lock");
+        let pop = seen[1]
+            .headers
+            .iter()
+            .find(|(name, _)| name == "OAuth-Client-Attestation-PoP")
+            .map(|(_, value)| value.clone());
+        assert_eq!(pop.as_deref(), Some("pop-for-challenge-1"));
+    }
+
+    #[tokio::test]
+    async fn the_par_challenge_retry_happens_once() {
+        let challenge = HttpResponse {
+            status: 400,
+            headers: vec![(
+                "OAuth-Client-Attestation-Challenge".to_owned(),
+                "challenge-1".to_owned(),
+            )],
+            body: br#"{"error":"use_attestation_challenge"}"#.to_vec(),
+        };
+        let http = SequencedHttp::new(vec![
+            ("https://as.example/par".to_owned(), challenge.clone()),
+            ("https://as.example/par".to_owned(), challenge),
+        ]);
+        let host = AttestingHost {
+            challenges: std::sync::Mutex::new(Vec::new()),
+        };
+        assert!(push_authorization_request_with_attestation(
+            &http,
+            &host,
+            &test_as(),
+            "flow-1",
+            "client-1",
+            &[],
+        )
+        .await
+        .is_err());
+        // Two pushes, two host asks — not more.
+        let challenges = host.challenges.lock().expect("lock");
+        assert_eq!(challenges.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_code_exchange_carries_the_attestation_and_retries_the_challenge() {
+        let http = SequencedHttp::new(vec![
+            (
+                "https://as.example/token".to_owned(),
+                HttpResponse {
+                    status: 401,
+                    headers: vec![(
+                        "OAuth-Client-Attestation-Challenge".to_owned(),
+                        "challenge-1".to_owned(),
+                    )],
+                    body: br#"{"error":"use_attestation_challenge"}"#.to_vec(),
+                },
+            ),
+            (
+                "https://as.example/token".to_owned(),
+                HttpResponse {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: br#"{"access_token":"at-1","token_type":"Bearer"}"#.to_vec(),
+                },
+            ),
+        ]);
+        let host = AttestingHost {
+            challenges: std::sync::Mutex::new(Vec::new()),
+        };
+        let token = exchange_authorization_code_with_attestation(
+            &http,
+            &host,
+            &test_as(),
+            &CodeExchangeSpec {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                code: "code-1",
+                redirect_uri: "https://wallet.example/cb",
+                code_verifier: "verifier-1",
+                resource: None,
+            },
+        )
+        .await
+        .expect("exchange");
+        assert_eq!(token.access_token, "at-1");
+
+        let challenges = host.challenges.lock().expect("lock");
+        assert_eq!(*challenges, vec![String::new(), "challenge-1".to_owned()]);
     }
 
     // ─── PKCE ─────────────────────────────────────────────────────────

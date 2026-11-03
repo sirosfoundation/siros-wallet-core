@@ -153,6 +153,12 @@ pub struct AsMetadata {
     /// path exists, so a PAR failure has no fallback.
     #[serde(default)]
     pub require_par: bool,
+    /// The client-attestation challenge endpoint
+    /// (`challenge_endpoint`, draft-ietf-oauth-attestation-based-client-
+    /// auth): where a fresh PoP challenge comes from after a
+    /// `use_attestation_challenge` rejection.
+    #[serde(default)]
+    pub challenge_endpoint: String,
     /// The supported code challenge methods. `None` when the document did
     /// not declare the member at all — the OID4VCI default assumes S256
     /// support; an explicit (even empty) list is the declaration.

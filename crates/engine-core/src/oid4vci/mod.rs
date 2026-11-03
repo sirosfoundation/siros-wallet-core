@@ -3,6 +3,7 @@
 //! issuance flow, built on the `FlowHandler` seam the echo flow proved.
 
 pub mod as_metadata;
+pub mod attestation;
 pub mod auth_code;
 pub mod auth_params;
 pub mod credential;
@@ -423,14 +424,19 @@ async fn start_authorization_code(
             .push(("code_challenge_method".to_owned(), "S256".to_owned()));
     }
 
-    // PAR (RFC 9126): push when the AS advertises it. A failure has no
-    // fallback when the AS requires PAR; otherwise fall back to the
-    // plain authorization URL with all parameters.
+    // PAR (RFC 9126): push when the AS advertises it, with the client
+    // attestation the host supplies (the WIA from the existing wallet
+    // provider, the PoP device-signed). A failure has no fallback when
+    // the AS requires PAR; otherwise fall back to the plain
+    // authorization URL with all parameters.
     let mut request_uri = None;
     if !as_metadata.par_endpoint.is_empty() {
-        match auth_code::push_authorization_request(
+        match auth_code::push_authorization_request_with_attestation(
             ctx.http().as_ref(),
-            &as_metadata.par_endpoint,
+            ctx.host().as_ref(),
+            as_metadata,
+            flow_id,
+            &client_id,
             &params.params,
         )
         .await
@@ -576,15 +582,21 @@ async fn resume_authorization_code(
         .await
         .map_err(|err| flow_error(err.to_string()))?;
 
-    // The code-for-token exchange, with the stashed verifier and the
-    // RFC 8707 resource the authorization request already decided.
-    let token = auth_code::exchange_authorization_code(
+    // The code-for-token exchange, with the stashed verifier, the RFC
+    // 8707 resource the authorization request already decided, and the
+    // client attestation the host supplies.
+    let token = auth_code::exchange_authorization_code_with_attestation(
         ctx.http().as_ref(),
+        ctx.host().as_ref(),
         &as_metadata,
-        &code,
-        &stash.redirect_uri,
-        &stash.code_verifier,
-        stash.resource.as_deref(),
+        &auth_code::CodeExchangeSpec {
+            flow_id: &params.flow_id,
+            client_id: &stash.client_id,
+            code: &code,
+            redirect_uri: &stash.redirect_uri,
+            code_verifier: &stash.code_verifier,
+            resource: stash.resource.as_deref(),
+        },
     )
     .await
     .map_err(|err| flow_error(err.to_string()))?;
@@ -877,7 +889,8 @@ mod auth_code_flow_tests {
                     "authorization_endpoint": "https://as.example/authorize",
                     "token_endpoint": "https://as.example/token",
                     "pushed_authorization_request_endpoint": "https://as.example/par",
-                    "require_pushed_authorization_requests": false
+                    "require_pushed_authorization_requests": false,
+                    "challenge_endpoint": "https://as.example/attestation/challenge"
                 })
                 .to_string(),
                 "https://as.example/par" => {
