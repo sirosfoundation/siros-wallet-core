@@ -34,6 +34,7 @@
     )
 )]
 
+pub mod oid4vci;
 pub mod runtime;
 
 /// The engine's configuration, supplied by the adapter — a struct, never
