@@ -17,6 +17,10 @@ axum = { version = "0.8", features = ["ws"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
+jose-rs = { version = "0.10", default-features = false }
+ureq = { version = "2", features = ["json"] }
+parking_lot = "0.12"
+thiserror = { workspace = true }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }
 futures-util = "0.3"

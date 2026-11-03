@@ -27,6 +27,7 @@
 
 pub mod config;
 pub mod handler;
+pub mod token;
 pub mod transport;
 
 use std::sync::Arc;
@@ -40,16 +41,19 @@ pub struct EngineServer {
     pub peer: Arc<Peer>,
     /// The session store the engine and the health probe share.
     pub store: Arc<MemorySessionStore>,
+    /// The token validator both transport paths authenticate through.
+    pub validator: Arc<token::TokenValidator>,
     /// The engine's configuration.
     pub config: config::Config,
 }
 
 impl EngineServer {
-    /// Builds the server from `config`: the session service, the handler
-    /// (the engine's flow families register here when they land), the
-    /// peer, and the SSE transport channel.
+    /// Builds the server from `config`: the token validator, the session
+    /// service, the handler (the engine's flow families register here when
+    /// they land), the peer, and the SSE transport channel.
     pub fn new(config: config::Config) -> Self {
         let store = Arc::new(MemorySessionStore::new());
+        let validator = Arc::new(token::TokenValidator::from_config(&config));
         let service = handler::build_service(&config, &store);
         let peer = wmp_core::peer::PeerBuilder::new(service)
             .session_store(store.clone())
@@ -58,6 +62,7 @@ impl EngineServer {
         Self {
             peer,
             store,
+            validator,
             config,
         }
     }

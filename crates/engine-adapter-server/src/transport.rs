@@ -51,7 +51,7 @@ async fn post_wmp(
     // validated. The adapter validates the token against the AS's JWKS
     // (the config's `as_external_url`) and extracts the subject; a missing
     // or invalid token is anonymous.
-    let principal = bearer_principal(&headers);
+    let principal = bearer_principal(&headers, &server.validator);
 
     // The WMP session the request names, for context enrichment.
     let session_id = header_session_id(&headers);
@@ -107,7 +107,7 @@ async fn get_wmp_ws(
     // The principal from the upgrade request's bearer token, as §3.4
     // allows ("authentication MAY be performed at the HTTP level before
     // the upgrade"). Without one the engine's session methods refuse.
-    let principal = bearer_principal(&headers);
+    let principal = bearer_principal(&headers, &server.validator);
     let ctx = RequestContext {
         principal,
         ..RequestContext::default()
@@ -233,23 +233,27 @@ async fn get_readyz(State(server): State<Arc<EngineServer>>) -> Response {
     (StatusCode::OK, "ready").into_response()
 }
 
-/// The principal from the `Authorization: Bearer <token>` header. The
-/// adapter validates the token against the AS's JWKS (the config's
-/// `as_external_url`) and extracts the subject; without a valid token the
-/// principal is anonymous and the engine's session methods refuse it
-/// (`-31002`). The token-validation client itself arrives with the
-/// `engine-ports::HttpClient` wiring; this is the shape.
-fn bearer_principal(headers: &HeaderMap) -> Option<wmp_core::principal::Principal> {
-    let token = headers
+/// The principal from the `Authorization: Bearer <token>` header, validated
+/// through the token validator against the AS's JWKS. A missing, malformed
+/// or invalid token answers `None` (anonymous): the engine's session
+/// methods refuse it with `-31002`, exactly as go-tokenauth's middleware
+/// refuses an unauthenticated request.
+fn bearer_principal(
+    headers: &HeaderMap,
+    validator: &crate::token::TokenValidator,
+) -> Option<wmp_core::principal::Principal> {
+    let raw_token = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))?;
-    // Token validation against the AS's JWKS: the `as_external_url` the
-    // Go engine requires. Until the OIDC validation lands with the flow
-    // families, the adapter accepts the token's presence as
-    // authentication and the subject is the token text (so the vectors can
-    // assert the shape; the real validation replaces it in S1).
-    Some(wmp_core::principal::Principal::new(token, ""))
+
+    match validator.validate(raw_token) {
+        Ok(validated) => Some(wmp_core::principal::Principal::new(
+            validated.subject,
+            validated.tenant,
+        )),
+        Err(_) => None,
+    }
 }
 
 /// The `Wmp-Session-Id` header (wmp-transport.md §4.5).
