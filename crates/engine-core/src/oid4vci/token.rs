@@ -66,6 +66,24 @@ pub enum TokenError {
     NotJson,
 }
 
+/// The flow context the token exchange needs: the client identity, the
+/// DPoP binding, and the entropy and time the proofs carry.
+#[derive(Clone)]
+pub struct TokenExchangeContext<'a> {
+    /// The flow the exchange belongs to (the attestation ask).
+    pub flow_id: &'a str,
+    /// The wallet's client_id (the form member; the attestation PoP's
+    /// `iss`).
+    pub client_id: &'a str,
+    /// The flow's DPoP key, when there is one (the engine-held legacy
+    /// mode).
+    pub dpop: Option<&'a super::dpop::DpopKey>,
+    /// The Rng port (the DPoP proof's `jti`).
+    pub rng: &'a dyn engine_ports::Rng,
+    /// The Clock port's now (the DPoP proof's `iat`).
+    pub now_unix: i64,
+}
+
 /// Exchanges a pre-authorized code for an access token, asking the host
 /// for the tx_code when the grant requires it.
 ///
@@ -73,14 +91,23 @@ pub enum TokenError {
 /// `pre-authorized_code=<code>`, and the optional `tx_code` from the host.
 /// The request goes through the `HttpClient` port with the declared
 /// `FetchPurpose::Token` and the 1 MiB size limit.
+///
+/// The client-auth loop (the Go engine's `doTokenExchange`): each attempt
+/// carries the host-supplied OAuth-Client-Attestation headers and a fresh
+/// DPoP proof over the token endpoint. A DPoP nonce error (RFC 9449 §8)
+/// captures the fresh nonce and retries; a `use_attestation_challenge`
+/// rejection resolves the challenge and re-asks the host; three attempts
+/// in all — the tx_code is asked once, before the loop.
 pub async fn exchange_pre_authorized_code(
     http: &dyn HttpClient,
     host: &dyn Host,
     as_metadata: &AsMetadata,
     pre_authorized_code: &str,
     tx_code_required: bool,
+    exchange: &TokenExchangeContext<'_>,
 ) -> Result<TokenResponse, TokenError> {
-    // Ask the host for the tx_code when the grant requires it.
+    // Ask the host for the tx_code when the grant requires it — once,
+    // not per attempt.
     let tx_code = if tx_code_required {
         host.request_tx_code("oid4vci-token")
             .await
@@ -89,47 +116,116 @@ pub async fn exchange_pre_authorized_code(
         String::new()
     };
 
-    // Build the form body.
-    let mut form = format!(
-        "grant_type=urn%3A%2F%2Fietf%3Aparams%3Aoauth%3Agrant-type%3Apre-authorized_code&pre_authorized_code={}",
-        url_encode(pre_authorized_code),
-    );
-    if !tx_code.is_empty() {
-        form.push_str(&format!("&tx_code={}", url_encode(&tx_code)));
-    }
-
     // Resolve the token endpoint.
     let token_endpoint = as_metadata.token_endpoint.clone();
     if token_endpoint.is_empty() {
         return Err(TokenError::NoTokenEndpoint);
     }
 
-    // Send the token request.
-    let response = http
-        .send(HttpRequest {
-            method: "POST".to_owned(),
-            url: token_endpoint.clone(),
-            headers: vec![
-                (
-                    "content-type".to_owned(),
-                    "application/x-www-form-urlencoded".to_owned(),
-                ),
-                ("accept".to_owned(), "application/json".to_owned()),
-            ],
-            body: form.into_bytes(),
-            purpose: FetchPurpose::Token,
-            max_response_bytes: MAX_TOKEN_BYTES,
-            redirects: RedirectPolicy::None,
-            allow_plaintext: false,
-            timeout_ms: 15_000,
-        })
-        .await
-        .map_err(|err| match err {
-            HttpError::Refused => TokenError::Fetch("refused by the adapter".to_owned()),
-            HttpError::Transport(detail) => TokenError::Fetch(detail),
-        })?;
+    // Build the form body: the grant, the code, the tx_code, and the
+    // client_id (some AS require it in the form even with attestation
+    // in the headers).
+    let mut form = format!(
+        "grant_type=urn%3A%2F%2Fietf%3Aparams%3Aoauth%3Agrant-type%3Apre-authorized_code&pre-authorized_code={}",
+        url_encode(pre_authorized_code),
+    );
+    if !tx_code.is_empty() {
+        form.push_str(&format!("&tx_code={}", url_encode(&tx_code)));
+    }
+    if !exchange.client_id.is_empty() {
+        form.push_str(&format!("&client_id={}", url_encode(exchange.client_id)));
+    }
 
-    if response.status != 200 {
+    // The client-auth state: the attestation the host supplied, and the
+    // server's DPoP nonce once it demands one.
+    let mut attestation = super::attestation::request_client_attestation(
+        host,
+        exchange.flow_id,
+        &as_metadata.issuer,
+        exchange.client_id,
+        "",
+    )
+    .await;
+    let mut dpop_nonce: Option<String> = None;
+
+    for attempt in 0..3 {
+        // The headers: the attestation pair, and a fresh DPoP proof
+        // per attempt (a new `jti`, the current nonce).
+        let mut headers: Vec<(String, String)> = vec![
+            (
+                "content-type".to_owned(),
+                "application/x-www-form-urlencoded".to_owned(),
+            ),
+            ("accept".to_owned(), "application/json".to_owned()),
+        ];
+        headers.extend(super::attestation::attestation_headers(
+            attestation.as_ref(),
+        ));
+        if let Some(key) = exchange.dpop {
+            if let Ok(proof) = key.proof(
+                exchange.rng,
+                "POST",
+                &token_endpoint,
+                None,
+                dpop_nonce.as_deref(),
+                exchange.now_unix,
+            ) {
+                headers.push(("DPoP".to_owned(), proof));
+            }
+        }
+
+        let response = http
+            .send(HttpRequest {
+                method: "POST".to_owned(),
+                url: token_endpoint.clone(),
+                headers,
+                body: form.clone().into_bytes(),
+                purpose: FetchPurpose::Token,
+                max_response_bytes: MAX_TOKEN_BYTES,
+                redirects: RedirectPolicy::None,
+                allow_plaintext: false,
+                timeout_ms: 15_000,
+            })
+            .await
+            .map_err(|err| match err {
+                HttpError::Refused => TokenError::Fetch("refused by the adapter".to_owned()),
+                HttpError::Transport(detail) => TokenError::Fetch(detail),
+            })?;
+
+        if response.status == 200 {
+            // Decode the token response.
+            let token: TokenResponse =
+                serde_json::from_slice(&response.body).map_err(|_| TokenError::NotJson)?;
+            return Ok(token);
+        }
+
+        // The DPoP nonce demand (RFC 9449 §8): capture the fresh nonce
+        // and retry with a new proof.
+        if super::dpop::is_dpop_nonce_error(&response) && attempt < 2 {
+            dpop_nonce = super::dpop::dpop_nonce_from_response(&response);
+            continue;
+        }
+
+        // The attestation challenge demand: resolve the fresh
+        // challenge and re-ask the host for a PoP bound to it.
+        if super::attestation::is_attestation_challenge_error(response.status, &response.body)
+            && attempt < 2
+        {
+            if let Some(challenge) =
+                super::attestation::resolve_challenge(http, as_metadata, &response.headers).await
+            {
+                attestation = super::attestation::request_client_attestation(
+                    host,
+                    exchange.flow_id,
+                    &as_metadata.issuer,
+                    exchange.client_id,
+                    &challenge,
+                )
+                .await;
+                continue;
+            }
+        }
+
         // The safe error code only: no raw body in the error.
         let error_code = response
             .body
@@ -147,11 +243,9 @@ pub async fn exchange_pre_authorized_code(
         ));
     }
 
-    // Decode the token response.
-    let token: TokenResponse =
-        serde_json::from_slice(&response.body).map_err(|_| TokenError::NotJson)?;
-
-    Ok(token)
+    Err(TokenError::Fetch(
+        "token exchange attempts exhausted".to_owned(),
+    ))
 }
 
 /// Minimal URL form-encoding for the grant params.
@@ -230,6 +324,29 @@ mod tests {
         fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
     }
 
+    struct FakeRng;
+    impl engine_ports::Rng for FakeRng {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            true
+        }
+    }
+
+    /// The exchange context with no DPoP key (the unauthenticated shape
+    /// the existing tests run).
+    fn plain_exchange() -> TokenExchangeContext<'static> {
+        static FAKE_RNG: FakeRng = FakeRng;
+        TokenExchangeContext {
+            flow_id: "flow-1",
+            client_id: "client-1",
+            dpop: None,
+            rng: &FAKE_RNG,
+            now_unix: 1_000,
+        }
+    }
+
     fn test_as() -> AsMetadata {
         AsMetadata {
             issuer: "https://as.example".to_owned(),
@@ -252,9 +369,16 @@ mod tests {
         let host = FakeHost {
             tx_code: String::new(),
         };
-        let token = exchange_pre_authorized_code(&http, &host, &test_as(), "pre-auth-1", false)
-            .await
-            .expect("exchange");
+        let token = exchange_pre_authorized_code(
+            &http,
+            &host,
+            &test_as(),
+            "pre-auth-1",
+            false,
+            &plain_exchange(),
+        )
+        .await
+        .expect("exchange");
         assert_eq!(token.access_token, "at-1");
         assert_eq!(token.token_type, "Bearer");
     }
@@ -268,9 +392,16 @@ mod tests {
         let host = FakeHost {
             tx_code: "1234".to_owned(),
         };
-        let token = exchange_pre_authorized_code(&http, &host, &test_as(), "pre-auth-2", true)
-            .await
-            .expect("exchange");
+        let token = exchange_pre_authorized_code(
+            &http,
+            &host,
+            &test_as(),
+            "pre-auth-2",
+            true,
+            &plain_exchange(),
+        )
+        .await
+        .expect("exchange");
         assert_eq!(token.access_token, "at-2");
     }
 
@@ -284,7 +415,15 @@ mod tests {
             tx_code: String::new(),
         };
         assert!(matches!(
-            exchange_pre_authorized_code(&http, &host, &test_as(), "pre-auth-3", true).await,
+            exchange_pre_authorized_code(
+                &http,
+                &host,
+                &test_as(),
+                "pre-auth-3",
+                true,
+                &plain_exchange()
+            )
+            .await,
             Err(TokenError::TxCodeDeclined)
         ));
     }
@@ -298,12 +437,107 @@ mod tests {
         let host = FakeHost {
             tx_code: String::new(),
         };
-        let err = exchange_pre_authorized_code(&http, &host, &test_as(), "bad", false)
-            .await
-            .expect_err("refused");
+        let err =
+            exchange_pre_authorized_code(&http, &host, &test_as(), "bad", false, &plain_exchange())
+                .await
+                .expect_err("refused");
         assert!(matches!(
             err,
             TokenError::Status(400, code) if code == "invalid_grant"
         ));
+    }
+
+    /// A sequenced HTTP: scripted answers per URL, recording requests.
+    struct SequencedHttp {
+        answers: std::sync::Mutex<Vec<engine_ports::HttpResponse>>,
+        seen: std::sync::Mutex<Vec<HttpRequest>>,
+    }
+
+    impl SequencedHttp {
+        fn new(answers: Vec<engine_ports::HttpResponse>) -> Self {
+            Self {
+                answers: std::sync::Mutex::new(answers),
+                seen: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpClient for SequencedHttp {
+        async fn send(
+            &self,
+            request: HttpRequest,
+        ) -> Result<engine_ports::HttpResponse, HttpError> {
+            self.seen.lock().map(|mut s| s.push(request.clone())).ok();
+            let answer = self.answers.lock().ok().and_then(|mut a| {
+                if a.is_empty() {
+                    None
+                } else {
+                    Some(a.remove(0))
+                }
+            });
+            Ok(answer.unwrap_or(engine_ports::HttpResponse {
+                status: 404,
+                headers: Vec::new(),
+                body: Vec::new(),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn the_pre_auth_exchange_carries_dpop_and_retries_the_nonce() {
+        let key = super::super::dpop::DpopKey::generate().expect("keygen");
+        let http = SequencedHttp::new(vec![
+            // The DPoP nonce demand (RFC 9449 §8).
+            engine_ports::HttpResponse {
+                status: 400,
+                headers: vec![("DPoP-Nonce".to_owned(), "fresh-nonce".to_owned())],
+                body: Vec::new(),
+            },
+            // The retry answers a DPoP-bound token.
+            engine_ports::HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: br#"{"access_token":"at-1","token_type":"DPoP"}"#.to_vec(),
+            },
+        ]);
+        let host = FakeHost {
+            tx_code: String::new(),
+        };
+        let token = exchange_pre_authorized_code(
+            &http,
+            &host,
+            &test_as(),
+            "pre-auth-1",
+            false,
+            &TokenExchangeContext {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                dpop: Some(&key),
+                rng: &FakeRng,
+                now_unix: 1_000,
+            },
+        )
+        .await
+        .expect("exchange");
+        assert_eq!(token.token_type, "DPoP");
+
+        let seen = http.seen.lock().expect("lock");
+        assert_eq!(seen.len(), 2);
+        // Both attempts carried a DPoP proof; the retry's proof carries
+        // the fresh nonce.
+        let first = seen[0].headers.iter().find(|(n, _)| n == "DPoP");
+        let second = seen[1].headers.iter().find(|(n, _)| n == "DPoP");
+        assert!(first.is_some() && second.is_some());
+        // The form carried the client_id.
+        let body = String::from_utf8_lossy(&seen[1].body).into_owned();
+        assert!(body.contains("client_id=client-1"));
+
+        // The retry's proof: decode the nonce claim.
+        let proof = second.expect("dpop header").1.clone();
+        let payload = proof.split('.').nth(1).unwrap_or_default();
+        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
+        assert_eq!(claims["nonce"], "fresh-nonce");
     }
 }

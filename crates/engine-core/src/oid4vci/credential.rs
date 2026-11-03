@@ -69,6 +69,29 @@ pub enum CredentialError {
     },
 }
 
+/// The DPoP binding of a resource request (the credential request),
+/// when the token the AS issued is DPoP-bound (RFC 9449 §4.3): a fresh
+/// proof over the credential endpoint, with `ath` bound to the token.
+pub struct ResourceDpop<'a> {
+    /// The flow's DPoP key — the same key that proved the token request.
+    pub key: &'a super::dpop::DpopKey,
+    /// The Rng port (the proof's `jti`).
+    pub rng: &'a dyn engine_ports::Rng,
+    /// The Clock port's now (the proof's `iat`).
+    pub now_unix: i64,
+}
+
+/// The auxiliary inputs of the credential request: the response-
+/// encryption offer and the DPoP binding, both optional.
+#[derive(Default)]
+pub struct CredentialRequestAux<'a> {
+    /// The negotiated response encryption with the wallet's ephemeral
+    /// key, when the issuer supports it.
+    pub encryption: Option<&'a super::encryption::NegotiatedResponseEncryption>,
+    /// The DPoP binding, when the token is DPoP-bound.
+    pub dpop: Option<ResourceDpop<'a>>,
+}
+
 /// Requests a credential from the issuer's credential endpoint, with the
 /// key proofs the host signed and the access token.
 ///
@@ -83,9 +106,11 @@ pub async fn request_credential(
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
-    encryption: Option<&super::encryption::NegotiatedResponseEncryption>,
+    aux: Option<&CredentialRequestAux<'_>>,
     nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
+    let encryption = aux.and_then(|aux| aux.encryption);
+    let dpop = aux.and_then(|aux| aux.dpop.as_ref());
     // Build the proof's to-be-signed input: a JWT with the `nonce` and
     // the `credential_issuer` audience (OpenID4VCI §7.5, JWT proof).
     let iat = 0; // The Clock port supplies the time; the host signs.
@@ -171,18 +196,39 @@ pub async fn request_credential(
     } else {
         metadata.credential_endpoint.clone()
     };
+
+    // The DPoP binding (RFC 9449 §4.3): a DPoP-bound token authorizes
+    // with the DPoP scheme, and the request carries a fresh proof with
+    // `ath` bound to the token.
+    let dpop_token = token.token_type.eq_ignore_ascii_case("DPoP");
+    let authorization = if dpop_token {
+        format!("DPoP {}", token.access_token)
+    } else {
+        format!("Bearer {}", token.access_token)
+    };
+    let mut headers = vec![
+        ("content-type".to_owned(), "application/json".to_owned()),
+        ("accept".to_owned(), "application/json".to_owned()),
+        ("authorization".to_owned(), authorization),
+    ];
+    if let Some(dpop) = dpop.filter(|_| dpop_token) {
+        if let Ok(proof) = dpop.key.proof(
+            dpop.rng,
+            "POST",
+            &credential_endpoint,
+            Some(&token.access_token),
+            None,
+            dpop.now_unix,
+        ) {
+            headers.push(("DPoP".to_owned(), proof));
+        }
+    }
+
     let response = http
         .send(HttpRequest {
             method: "POST".to_owned(),
             url: credential_endpoint,
-            headers: vec![
-                ("content-type".to_owned(), "application/json".to_owned()),
-                ("accept".to_owned(), "application/json".to_owned()),
-                (
-                    "authorization".to_owned(),
-                    format!("Bearer {}", token.access_token),
-                ),
-            ],
+            headers,
             body: serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
             purpose: FetchPurpose::Credential,
             max_response_bytes: MAX_CREDENTIAL_BYTES,
@@ -262,21 +308,22 @@ pub async fn request_credential_with_retry(
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
-    encryption: Option<&super::encryption::NegotiatedResponseEncryption>,
+    aux: Option<&CredentialRequestAux<'_>>,
     initial_nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
     // The initial nonce: the endpoint first (§7), then the token's c_nonce.
     let mut nonce = resolve_nonce(http, metadata, initial_nonce).await;
 
     for retry in 0..=1 {
-        // The retry re-sends the same encryption offer (P0.6).
+        // The retry re-sends the same encryption offer and DPoP binding
+        // (a fresh proof, the same key) — P0.6.
         match request_credential(
             http,
             host,
             metadata,
             token,
             configuration_id,
-            encryption,
+            aux,
             nonce.as_deref(),
         )
         .await
@@ -566,7 +613,10 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
-            Some(&encryption),
+            Some(&CredentialRequestAux {
+                encryption: Some(&encryption),
+                dpop: None,
+            }),
             Some("nonce-1"),
         )
         .await
@@ -593,7 +643,10 @@ mod tests {
                 &test_metadata(),
                 &test_token(),
                 "UniversityDegree",
-                Some(&encryption),
+                Some(&CredentialRequestAux {
+                    encryption: Some(&encryption),
+                    dpop: None,
+                }),
                 Some("nonce-1"),
             )
             .await,
@@ -853,5 +906,161 @@ mod tests {
         assert_eq!(response.credential.as_deref(), Some("jwt-1"));
         assert_eq!(http.calls("nonce"), 0);
         assert_eq!(http.calls("credential"), 2);
+    }
+
+    struct TestRng;
+    impl engine_ports::Rng for TestRng {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dpop_bound_token_authorizes_the_credential_request_with_a_proof() {
+        // A DPoP-bound token: the credential request carries the DPoP
+        // scheme and a fresh `ath`-bound proof, signed with the same
+        // key that proved the token request.
+        let key = super::super::dpop::DpopKey::generate().expect("keygen");
+        let token = TokenResponse {
+            access_token: "at-dpop".to_owned(),
+            token_type: "DPoP".to_owned(),
+            ..test_token()
+        };
+        let http = RecordingHttp {
+            status: 200,
+            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            urls: std::sync::Mutex::new(Vec::new()),
+        };
+        // A recording fake that also captures headers.
+        struct HeaderHttp {
+            status: u16,
+            body: Vec<u8>,
+            headers: std::sync::Mutex<Vec<Vec<(String, String)>>>,
+        }
+        #[async_trait::async_trait]
+        impl HttpClient for HeaderHttp {
+            async fn send(
+                &self,
+                request: HttpRequest,
+            ) -> Result<engine_ports::HttpResponse, HttpError> {
+                self.headers
+                    .lock()
+                    .map(|mut h| h.push(request.headers.clone()))
+                    .ok();
+                Ok(engine_ports::HttpResponse {
+                    status: self.status,
+                    headers: Vec::new(),
+                    body: self.body.clone(),
+                })
+            }
+        }
+        let http = HeaderHttp {
+            status: 200,
+            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            headers: std::sync::Mutex::new(Vec::new()),
+        };
+
+        let aux = CredentialRequestAux {
+            encryption: None,
+            dpop: Some(ResourceDpop {
+                key: &key,
+                rng: &TestRng,
+                now_unix: 1_000,
+            }),
+        };
+        request_credential(
+            &http,
+            &FakeHost,
+            &test_metadata(),
+            &token,
+            "X",
+            Some(&aux),
+            None,
+        )
+        .await
+        .expect("request");
+
+        let headers = http.headers.lock().expect("lock");
+        assert_eq!(headers.len(), 1);
+        let authorization = headers[0]
+            .iter()
+            .find(|(n, _)| n == "authorization")
+            .map(|(_, v)| v.clone());
+        assert_eq!(authorization.as_deref(), Some("DPoP at-dpop"));
+        let proof = headers[0]
+            .iter()
+            .find(|(n, _)| n == "DPoP")
+            .map(|(_, v)| v.clone())
+            .expect("a DPoP header");
+        let payload = proof.split('.').nth(1).unwrap_or_default();
+        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
+        assert_eq!(claims["ath"], super::super::dpop::ath_of("at-dpop"));
+        assert_eq!(claims["htm"], "POST");
+        assert_eq!(claims["htu"], "https://issuer.example/credential");
+    }
+
+    #[tokio::test]
+    async fn a_bearer_token_does_not_carry_a_dpop_proof() {
+        struct HeaderHttp {
+            status: u16,
+            body: Vec<u8>,
+            headers: std::sync::Mutex<Vec<Vec<(String, String)>>>,
+        }
+        #[async_trait::async_trait]
+        impl HttpClient for HeaderHttp {
+            async fn send(
+                &self,
+                request: HttpRequest,
+            ) -> Result<engine_ports::HttpResponse, HttpError> {
+                self.headers
+                    .lock()
+                    .map(|mut h| h.push(request.headers.clone()))
+                    .ok();
+                Ok(engine_ports::HttpResponse {
+                    status: self.status,
+                    headers: Vec::new(),
+                    body: self.body.clone(),
+                })
+            }
+        }
+
+        let key = super::super::dpop::DpopKey::generate().expect("keygen");
+        let http = HeaderHttp {
+            status: 200,
+            body: br#"{"credential":"jwt-1"}"#.to_vec(),
+            headers: std::sync::Mutex::new(Vec::new()),
+        };
+        let aux = CredentialRequestAux {
+            encryption: None,
+            dpop: Some(ResourceDpop {
+                key: &key,
+                rng: &TestRng,
+                now_unix: 1_000,
+            }),
+        };
+        // A Bearer token: the Bearer scheme, and no DPoP header even
+        // with the key available.
+        request_credential(
+            &http,
+            &FakeHost,
+            &test_metadata(),
+            &test_token(),
+            "X",
+            Some(&aux),
+            None,
+        )
+        .await
+        .expect("request");
+        let headers = http.headers.lock().expect("lock");
+        let authorization = headers[0]
+            .iter()
+            .find(|(n, _)| n == "authorization")
+            .map(|(_, v)| v.clone());
+        assert_eq!(authorization.as_deref(), Some("Bearer at-test"));
+        assert!(!headers[0].iter().any(|(n, _)| n == "DPoP"));
     }
 }

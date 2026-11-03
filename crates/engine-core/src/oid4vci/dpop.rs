@@ -57,6 +57,7 @@ pub async fn create_dpop_proof(
     access_token: Option<&str>,
     nonce: Option<&str>,
     jwk: &serde_json::Value,
+    now_unix: i64,
 ) -> Result<String, DpopError> {
     // The JTI: a counter-based identifier (the Rng port supplies the
     // entropy in production; the host's sign flow carries the proof).
@@ -67,13 +68,8 @@ pub async fn create_dpop_proof(
         jti,
         htm: htm.to_owned(),
         htu: htu.to_owned(),
-        iat: 0, // The Clock port supplies the time.
-        ath: access_token.map(|token| {
-            // ath = base64url(SHA-256(access_token)), per RFC 9449 §4.2.
-            // The SHA-256 comes with the JOSE stack; for now the raw
-            // token is the ath (the vectors pin the exact computation).
-            base64url(token.as_bytes())
-        }),
+        iat: now_unix,
+        ath: access_token.map(ath_of),
         nonce: nonce.map(str::to_owned),
     };
 
@@ -104,10 +100,14 @@ pub async fn create_dpop_proof(
     Ok(format!("{tbs}.{}", base64url(&sign_result.signature)))
 }
 
-/// Extracts the DPoP-Nonce header from the response, for the next proof.
+/// Extracts the DPoP-Nonce header from a response, for the next proof.
 pub fn dpop_nonce_from_response(response: &engine_ports::HttpResponse) -> Option<String> {
-    response
-        .headers
+    dpop_nonce_from_headers(&response.headers)
+}
+
+/// Extracts the DPoP-Nonce header from raw headers, for the next proof.
+pub fn dpop_nonce_from_headers(headers: &[(String, String)]) -> Option<String> {
+    headers
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("dpop-nonce"))
         .map(|(_, value)| value.clone())
@@ -131,6 +131,106 @@ pub enum DpopError {
     /// The host refused to sign.
     #[error("oid4vci: DPoP sign failed: {0}")]
     Sign(String),
+    /// The ephemeral key could not be generated.
+    #[error("oid4vci: DPoP key generation failed")]
+    KeyGeneration,
+    /// The Rng port could not supply the proof's identifier.
+    #[error("oid4vci: DPoP jti entropy failed")]
+    Entropy,
+    /// The jose-rs signing failed.
+    #[error("oid4vci: DPoP sign failed: {0}")]
+    Jose(String),
+}
+
+/// The engine-held ephemeral DPoP key — the Go engine's legacy mode
+/// (`clientAuthLegacy`): a P-256 pair generated for the flow, the public
+/// JWK carried in every proof's header, the proofs signed in-process
+/// through jose-rs. The client-held mode (the target design,
+/// go-wallet-backend#317: the device's key signs whole proofs on
+/// demand) arrives as a Host port extension the same staged way
+/// `request_attestation` did.
+///
+/// One key spans the flow: the token request's proofs and the resource
+/// requests' `ath`-bound proofs are signed by the same key, which is
+/// what makes the DPoP binding hold.
+pub struct DpopKey {
+    /// The private JWK (flow-scoped, never serialized out of the core).
+    private: jose_rs::jwk::Jwk,
+    /// The public JWK as the proof headers carry it.
+    public: serde_json::Value,
+}
+
+impl DpopKey {
+    /// Generates a fresh flow-scoped key pair.
+    pub fn generate() -> Result<Self, DpopError> {
+        let private =
+            jose_rs::jwk::generate::generate_ec("P-256").map_err(|_| DpopError::KeyGeneration)?;
+        let public = private.to_public_jwk();
+        let public_json = public.to_json().map_err(|_| DpopError::KeyGeneration)?;
+        let public: serde_json::Value =
+            serde_json::from_str(&public_json).map_err(|_| DpopError::KeyGeneration)?;
+        Ok(Self { private, public })
+    }
+
+    /// The public JWK, as the proof headers carry it.
+    pub fn public_jwk(&self) -> &serde_json::Value {
+        &self.public
+    }
+
+    /// Signs a fresh DPoP proof (RFC 9449 §4.2): `jti` from the Rng
+    /// port, `htm`/`htu` bound to the request, `iat` from the Clock
+    /// port, `ath` when an access token is being bound, and the
+    /// server's `nonce` when one was demanded.
+    pub fn proof(
+        &self,
+        rng: &dyn engine_ports::Rng,
+        htm: &str,
+        htu: &str,
+        access_token: Option<&str>,
+        nonce: Option<&str>,
+        now_unix: i64,
+    ) -> Result<String, DpopError> {
+        // The jti: 8 bytes from the Rng port.
+        let mut entropy = [0u8; 8];
+        if !rng.fill(&mut entropy) {
+            return Err(DpopError::Entropy);
+        }
+
+        let claims = DpopClaims {
+            jti: base64url(&entropy),
+            htm: htm.to_owned(),
+            htu: htu.to_owned(),
+            iat: now_unix,
+            ath: access_token.map(ath_of),
+            nonce: nonce.map(str::to_owned),
+        };
+
+        // The header: typ dpop+jwt, the public JWK (deliberate — RFC 9449
+        // §4.2 mandates it, so the key-reference opt-in is exactly for
+        // this).
+        let mut header = jose_rs::header::JoseHeader::new("ES256");
+        header.typ = Some("dpop+jwt".to_owned());
+        header.jwk = Some(self.public.clone());
+
+        let payload = serde_json::to_vec(&claims).map_err(|_| DpopError::Build)?;
+
+        let mut private = self.private.clone();
+        private.alg = Some("ES256".to_owned());
+        let mut options = jose_rs::jws::compact::SignOptions::default();
+        // RFC 9449 §4.2 mandates the jwk header member; the opt-in is
+        // exactly for deliberate key references like this one.
+        options.allow_key_reference_headers = true;
+        jose_rs::jws::compact::sign_with_jwk_options(&private, &payload, &header, &options)
+            .map_err(|err| DpopError::Jose(err.to_string()))
+    }
+}
+
+/// The `ath` claim: base64url(SHA-256(access_token)), per RFC 9449 §4.2.
+pub fn ath_of(access_token: &str) -> String {
+    let digest =
+        kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, access_token.as_bytes())
+            .unwrap_or_default();
+    base64url(&digest)
 }
 
 /// A monotonically increasing counter for the JTI.
@@ -225,6 +325,7 @@ mod tests {
             None,
             None,
             &test_jwk(),
+            1_000,
         )
         .await
         .expect("proof");
@@ -260,6 +361,7 @@ mod tests {
             Some("at-123"),
             Some("server-nonce"),
             &test_jwk(),
+            1_000,
         )
         .await
         .expect("proof");
@@ -268,6 +370,12 @@ mod tests {
         let payload = decode_b64(parts[1]);
         let claims: DpopClaims = serde_json::from_slice(&payload).expect("parse claims");
         assert!(claims.ath.is_some());
+        // RFC 9449 §4.2: ath = base64url(SHA-256(access_token)) — the
+        // digest, not the token.
+        assert_eq!(
+            claims.ath.as_deref(),
+            Some("pZOyhFN0Z9eQivPyniH1Gg1OzUpcjUffjr7n0FzCLck")
+        );
         assert_eq!(claims.nonce.as_deref(), Some("server-nonce"));
     }
 
@@ -321,5 +429,55 @@ mod tests {
             }
         }
         out
+    }
+
+    struct FakeRng;
+    impl engine_ports::Rng for FakeRng {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            true
+        }
+    }
+
+    #[test]
+    fn the_engine_held_key_signs_a_verifiable_proof() {
+        let key = DpopKey::generate().expect("keygen");
+        let proof = key
+            .proof(
+                &FakeRng,
+                "POST",
+                "https://as.example/token",
+                Some("at-123"),
+                Some("server-nonce"),
+                1_000,
+            )
+            .expect("proof");
+
+        // The header: typ dpop+jwt, the public JWK, ES256.
+        let parts: Vec<&str> = proof.split('.').collect();
+        assert_eq!(parts.len(), 3);
+        let header = decode_b64(parts[0]);
+        let header: serde_json::Value = serde_json::from_slice(&header).expect("header");
+        assert_eq!(header["typ"], "dpop+jwt");
+        assert_eq!(header["alg"], "ES256");
+        assert_eq!(header["jwk"]["kty"], "EC");
+
+        // The claims: htm/htu binding, the ath digest, the nonce.
+        let payload = decode_b64(parts[1]);
+        let claims: serde_json::Value = serde_json::from_slice(&payload).expect("claims");
+        assert_eq!(claims["htm"], "POST");
+        assert_eq!(claims["htu"], "https://as.example/token");
+        assert_eq!(claims["iat"], 1_000);
+        assert_eq!(claims["nonce"], "server-nonce");
+        assert_eq!(claims["ath"], "pZOyhFN0Z9eQivPyniH1Gg1OzUpcjUffjr7n0FzCLck");
+
+        // The proof verifies under the public JWK: a token request's
+        // DPoP header an AS can actually check.
+        let public: jose_rs::jwk::Jwk =
+            serde_json::from_value(key.public_jwk().clone()).expect("public jwk");
+        let verified = jose_rs::jws::compact::verify_with_jwk(&public, &proof).expect("verify");
+        assert_eq!(verified, payload);
     }
 }

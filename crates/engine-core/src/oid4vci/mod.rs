@@ -155,6 +155,23 @@ impl FlowHandler for Oid4vciFlow {
             }
         }
 
+        // The wallet's client_id (the token exchange's form member and
+        // the attestation PoP iss): the registered id, else the
+        // redirect_uri (the unregistered-client convention).
+        let client_id = offer_params
+            .get("client_id")
+            .and_then(|v| v.as_str())
+            .filter(|id| !id.is_empty())
+            .or_else(|| offer_params.get("redirect_uri").and_then(|v| v.as_str()))
+            .unwrap_or_default()
+            .to_owned();
+
+        // The flow's DPoP key (the engine-held legacy mode): fresh and
+        // best-effort — the token exchange and the credential request
+        // sign with the same key, which is what makes the DPoP binding
+        // hold.
+        let dpop_key = dpop::DpopKey::generate().ok();
+
         // ── S2: exchange the pre-authorized code for a token ─────────────
         // The grants in the offer say whether this is a pre-authorized_code
         // flow; if it is, the tx_code is asked of the host.
@@ -177,6 +194,13 @@ impl FlowHandler for Oid4vciFlow {
                 &as_metadata,
                 &pre_auth_code,
                 tx_code_required,
+                &token::TokenExchangeContext {
+                    flow_id: &params.flow_id,
+                    client_id: &client_id,
+                    dpop: dpop_key.as_ref(),
+                    rng: ctx.rng().as_ref(),
+                    now_unix: ctx.clock().now_unix(),
+                },
             )
             .await
             .map_err(|err| flow_error(err.to_string()))?;
@@ -203,6 +227,7 @@ impl FlowHandler for Oid4vciFlow {
                 &token,
                 &configuration_id,
                 negotiated_encryption.as_ref(),
+                dpop_key.as_ref(),
             )
             .await?;
 
@@ -582,6 +607,11 @@ async fn resume_authorization_code(
         .await
         .map_err(|err| flow_error(err.to_string()))?;
 
+    // The flow's DPoP key (the engine-held legacy mode): the token
+    // exchange and the credential request sign with the same key, which
+    // is what makes the DPoP binding hold.
+    let dpop_key = dpop::DpopKey::generate().ok();
+
     // The code-for-token exchange, with the stashed verifier, the RFC
     // 8707 resource the authorization request already decided, and the
     // client attestation the host supplies.
@@ -596,6 +626,9 @@ async fn resume_authorization_code(
             redirect_uri: &stash.redirect_uri,
             code_verifier: &stash.code_verifier,
             resource: stash.resource.as_deref(),
+            dpop: dpop_key.as_ref(),
+            rng: ctx.rng().as_ref(),
+            now_unix: ctx.clock().now_unix(),
         },
     )
     .await
@@ -637,6 +670,7 @@ async fn resume_authorization_code(
         &token,
         &configuration_id,
         negotiated_encryption.as_ref(),
+        dpop_key.as_ref(),
     )
     .await?;
 
@@ -690,6 +724,7 @@ async fn request_and_deliver(
     token: &token::TokenResponse,
     configuration_id: &str,
     negotiated_encryption: Option<&encryption::NegotiatedResponseEncryption>,
+    dpop_key: Option<&dpop::DpopKey>,
 ) -> Result<credential::CredentialResponse, HandlerError> {
     let flow_error = |reason: String| {
         HandlerError::Rpc(wmp_core::error::RpcError::new(
@@ -698,13 +733,25 @@ async fn request_and_deliver(
         ))
     };
 
+    // The auxiliary inputs: the encryption offer, and the DPoP binding
+    // when the AS issued a DPoP-bound token (a fresh proof over the
+    // credential endpoint, `ath`-bound, signed with the same key that
+    // proved the token request).
+    let aux = credential::CredentialRequestAux {
+        encryption: negotiated_encryption,
+        dpop: dpop_key.map(|key| credential::ResourceDpop {
+            key,
+            rng: ctx.rng().as_ref(),
+            now_unix: ctx.clock().now_unix(),
+        }),
+    };
     let credential = credential::request_credential_with_retry(
         ctx.http().as_ref(),
         ctx.host().as_ref(),
         issuer_metadata,
         token,
         configuration_id,
-        negotiated_encryption,
+        Some(&aux),
         token.nonce.as_deref().or(token.c_nonce.as_deref()),
     )
     .await

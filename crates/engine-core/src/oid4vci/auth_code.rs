@@ -372,6 +372,14 @@ async fn exchange_code_with_headers(
         })?;
 
     if response.status != 200 {
+        // The DPoP nonce demand (RFC 9449 §8): the fresh nonce goes to
+        // the retry loop's next proof. Resolved before the challenge
+        // check so a response carrying both serves both.
+        if super::dpop::is_dpop_nonce_error(&response) {
+            return Err(TokenError::ChallengeNeeded {
+                response_headers: response.headers,
+            });
+        }
         // The AS demanding a server-provided attestation challenge: the
         // headers go to the retry loop's challenge resolution.
         if super::attestation::is_attestation_challenge_error(response.status, &response.body) {
@@ -388,7 +396,6 @@ async fn exchange_code_with_headers(
 }
 
 /// The inputs to the attested code-for-token exchange.
-#[derive(Debug, Clone)]
 pub struct CodeExchangeSpec<'a> {
     /// The flow the exchange belongs to.
     pub flow_id: &'a str,
@@ -402,6 +409,13 @@ pub struct CodeExchangeSpec<'a> {
     pub code_verifier: &'a str,
     /// The RFC 8707 resource indicator, when cross-origin.
     pub resource: Option<&'a str>,
+    /// The flow's DPoP key (the engine-held legacy mode), when there is
+    /// one.
+    pub dpop: Option<&'a super::dpop::DpopKey>,
+    /// The Rng port (the DPoP proof's `jti`).
+    pub rng: &'a dyn engine_ports::Rng,
+    /// The Clock port's now (the DPoP proof's `iat`).
+    pub now_unix: i64,
 }
 
 /// Exchanges the code with the client-attestation challenge retry
@@ -662,6 +676,16 @@ mod tests {
 
     // ─── client attestation ──────────────────────────────────────────
 
+    struct TestRng;
+    impl engine_ports::Rng for TestRng {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            true
+        }
+    }
+
     /// A host that supplies the (WIA, PoP) pair and records the
     /// challenges it was asked to bind.
     struct AttestingHost {
@@ -920,6 +944,9 @@ mod tests {
                 redirect_uri: "https://wallet.example/cb",
                 code_verifier: "verifier-1",
                 resource: None,
+                dpop: None,
+                rng: &TestRng,
+                now_unix: 1_000,
             },
         )
         .await
