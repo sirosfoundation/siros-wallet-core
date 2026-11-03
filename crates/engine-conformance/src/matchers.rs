@@ -80,6 +80,36 @@ fn match_expectation(
         // comparison (a literal "$..." is legitimate).
     }
 
+    // The JWE header form: an expectation object of one member
+    // `$jwe_header` matches a compact-serialization string by decoding
+    // its first part and matching the header object — the only way to
+    // assert what an engine encrypted (the ciphertext cannot be
+    // predicted, and only the recipient can read it).
+    let single = expect
+        .as_object()
+        .and_then(|o| o.iter().collect::<Vec<_>>().into_iter().next())
+        .filter(|_| expect.as_object().is_some_and(|o| o.len() == 1));
+    if let Some((name, header_expect)) = single {
+        if name == "$jwe_header" {
+            let Some(compact) = actual.as_str() else {
+                return Err(Mismatch {
+                    path: path.to_owned(),
+                    expected: expect.clone(),
+                    actual: actual.clone(),
+                });
+            };
+            let first = compact.split('.').next().unwrap_or_default();
+            let decoded = crate::world::decode_b64url(first);
+            let header: Value = serde_json::from_slice(&decoded).unwrap_or(Value::Null);
+            return match_expectation(
+                header_expect,
+                &header,
+                bindings,
+                &format!("{path}.jwe_header"),
+            );
+        }
+    }
+
     match (expect, actual) {
         (Value::Object(expect_obj), Value::Object(actual_obj)) => {
             for (name, expected_member) in expect_obj {
