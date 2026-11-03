@@ -254,11 +254,13 @@ impl World {
             }
         }
 
-        // Consume and answer.
+        // Consume and answer. The request's JSON body feeds the
+        // encrypt-to-offer reply form.
         if let Some(state) = steps.get_mut(consumed_index) {
             state.1 = true;
         }
-        let body = reply_body(&http_out);
+        let request_json: Value = serde_json::from_slice(&request.body).unwrap_or(Value::Null);
+        let body = reply_body(&http_out, &request_json);
         let mut headers = Vec::new();
         if let Some(content_type) = &http_out.reply.content_type {
             headers.push(("content-type".to_owned(), content_type.clone()));
@@ -334,13 +336,67 @@ impl World {
     }
 }
 
-/// The reply body: a string is raw bytes, anything else is JSON.
-fn reply_body(http_out: &HttpOut) -> Vec<u8> {
-    match &http_out.reply.body {
-        Some(Value::String(text)) => text.clone().into_bytes(),
-        Some(value) => value.to_string().into_bytes(),
-        None => Vec::new(),
+/// The reply body: a string is raw bytes, a plain JSON value is its
+/// serialization, and the **encrypt-to-offer** form builds a JWE the
+/// engine can actually decrypt — the offer's JWK comes from the
+/// request the step just matched, so an encrypted answer cannot be
+/// pre-baked:
+///
+/// ```json
+/// "body": {"encrypt_to_offer": true, "plaintext": {"credential": "..."}}
+/// ```
+///
+/// The alg and enc are the request's `credential_response_encryption`
+/// members; the JWK is its `jwk`.
+fn reply_body(http_out: &HttpOut, request_json: &Value) -> Vec<u8> {
+    let Some(value) = &http_out.reply.body else {
+        return Vec::new();
+    };
+    if value.get("encrypt_to_offer").and_then(Value::as_bool) == Some(true) {
+        let offer = request_json.get("credential_response_encryption");
+        let jwk = offer
+            .and_then(|offer| offer.get("jwk"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let alg = offer
+            .and_then(|offer| offer.get("alg"))
+            .and_then(Value::as_str)
+            .unwrap_or("ECDH-ES");
+        let enc = offer
+            .and_then(|offer| offer.get("enc"))
+            .and_then(Value::as_str)
+            .unwrap_or("A256GCM");
+        let plaintext = value
+            .get("plaintext")
+            .cloned()
+            .unwrap_or(Value::Null)
+            .to_string();
+        return encrypt_to_offer(&plaintext, &jwk, alg, enc).into_bytes();
     }
+    match value {
+        Value::String(text) => text.clone().into_bytes(),
+        value => value.to_string().into_bytes(),
+    }
+}
+
+/// The JWE an issuer would send: ECDH-ES key agreement to the wallet's
+/// offered public JWK, the declared content encryption, the plaintext
+/// as the JWE's payload.
+fn encrypt_to_offer(plaintext: &str, jwk: &Value, alg: &str, enc: &str) -> String {
+    let Ok(jwk) = serde_json::from_value::<jose_rs::jwk::Jwk>(jwk.clone()) else {
+        return String::new();
+    };
+    let Ok(alg) = jose_rs::algorithm::JweAlgorithm::from_str(alg) else {
+        return String::new();
+    };
+    let Ok(enc) = jose_rs::algorithm::JweEncryption::from_str(enc) else {
+        return String::new();
+    };
+    let mut recipient = jwk.clone();
+    recipient.alg = Some(alg.as_str().to_owned());
+    let header = jose_rs::header::JoseHeader::for_jwe(alg, enc);
+    jose_rs::jwe::compact::encrypt_with_jwk_header(&recipient, header, plaintext.as_bytes(), enc)
+        .unwrap_or_default()
 }
 
 // ─── The scripted ports ──────────────────────────────────────────────────

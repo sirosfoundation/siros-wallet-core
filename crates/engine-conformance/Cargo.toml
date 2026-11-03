@@ -19,6 +19,9 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 async-trait = "0.1"
 regex = "1"
+# The encrypted-reply vector feature: a world that answers the
+# credential request with a JWE to the key the engine offered.
+jose-rs = { version = "0.10", default-features = false }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [lints]

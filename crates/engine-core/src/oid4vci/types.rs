@@ -104,8 +104,10 @@ pub struct IssuerMetadata {
     /// The authorization servers the issuer uses.
     #[serde(default)]
     pub authorization_servers: Vec<String>,
-    /// The credential configurations, keyed by id.
-    #[serde(default)]
+    /// The credential configurations, keyed by id — the 1.0 wire name
+    /// `credential_configurations_supported`, the 1.1 draft's
+    /// `credential_configurations`.
+    #[serde(default, alias = "credential_configurations_supported")]
     pub credential_configurations: serde_json::Value,
     /// The nonce endpoint (OpenID4VCI §7), when the issuer advertises one.
     #[serde(default, skip_serializing_if = "Option::is_none")]

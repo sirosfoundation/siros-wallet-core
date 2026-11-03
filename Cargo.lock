@@ -1114,6 +1114,7 @@ dependencies = [
  "async-trait",
  "engine-core",
  "engine-ports",
+ "jose-rs",
  "regex",
  "rustc-hash",
  "serde",
