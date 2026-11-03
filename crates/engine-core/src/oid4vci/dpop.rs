@@ -177,6 +177,28 @@ impl DpopKey {
         &self.public
     }
 
+    /// The private JWK, serialized — the renewal relay. A renewal must
+    /// reuse the key its refresh_token was bound to at issuance, and
+    /// the remote-engine case cannot assume the next flow lands on the
+    /// same instance, so the flow's completion carries the engine-held
+    /// key back to the client (the Go engine's
+    /// `dpopJWKForRefreshToken`).
+    pub fn private_jwk_json(&self) -> Option<String> {
+        self.private.to_json().ok()
+    }
+
+    /// Rebuilds the flow's engine-held key from the relayed private
+    /// JWK (the renewal's `dpop_jwk` parameter).
+    pub fn from_private_jwk_json(jwk_json: &str) -> Result<Self, DpopError> {
+        let private: jose_rs::jwk::Jwk =
+            serde_json::from_str(jwk_json).map_err(|_| DpopError::KeyGeneration)?;
+        let public = private.to_public_jwk();
+        let public_json = public.to_json().map_err(|_| DpopError::KeyGeneration)?;
+        let public: serde_json::Value =
+            serde_json::from_str(&public_json).map_err(|_| DpopError::KeyGeneration)?;
+        Ok(Self { private, public })
+    }
+
     /// Signs a fresh DPoP proof (RFC 9449 §4.2): `jti` from the Rng
     /// port, `htm`/`htu` bound to the request, `iat` from the Clock
     /// port, `ath` when an access token is being bound, and the
@@ -231,6 +253,71 @@ pub fn ath_of(access_token: &str) -> String {
         kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, access_token.as_bytes())
             .unwrap_or_default();
     base64url(&digest)
+}
+
+/// One DPoP proof request: everything `proof_for` needs.
+pub struct ProofRequest<'a> {
+    /// The flow the proof belongs to.
+    pub flow_id: &'a str,
+    /// The device key to sign with, when the flow names one — a
+    /// renewal reuses the key its refresh_token was bound to.
+    pub key_id: Option<&'a str>,
+    /// The HTTP method the proof is bound to.
+    pub htm: &'a str,
+    /// The HTTP URI the proof is bound to.
+    pub htu: &'a str,
+    /// The access token, when a resource request is being proofed.
+    pub access_token: Option<&'a str>,
+    /// The server-provided DPoP nonce, when one was demanded.
+    pub nonce: Option<&'a str>,
+    /// The Rng port (the engine-held proof's `jti`).
+    pub rng: &'a dyn engine_ports::Rng,
+    /// The Clock port's now (the engine-held proof's `iat`).
+    pub now_unix: i64,
+}
+
+/// Resolves one DPoP proof for an outbound request: the client-held
+/// proof the host signed (the target design, go-wallet-backend#317 —
+/// the device's key signs whole proofs on demand), else the
+/// engine-held key's proof (the legacy fallback). `None` when neither
+/// side can produce one — the request goes without the `DPoP` header,
+/// and an AS that requires DPoP rejects on its own.
+///
+/// The host ask is best-effort by the same rule as the attestation: a
+/// refusal is a fallback, not a failure.
+pub async fn proof_for(
+    host: &dyn Host,
+    fallback: Option<&DpopKey>,
+    request: ProofRequest<'_>,
+) -> Option<String> {
+    // The client-held proof first.
+    if let Ok(result) = host
+        .request_dpop_proof(engine_ports::DpopProofParams {
+            flow_id: request.flow_id.to_owned(),
+            key_id: request.key_id.map(str::to_owned),
+            htm: request.htm.to_owned(),
+            htu: request.htu.to_owned(),
+            access_token: request.access_token.unwrap_or_default().to_owned(),
+            nonce: request.nonce.unwrap_or_default().to_owned(),
+        })
+        .await
+    {
+        if !result.proof.is_empty() {
+            return Some(result.proof);
+        }
+    }
+
+    // The engine-held fallback.
+    let key = fallback?;
+    key.proof(
+        request.rng,
+        request.htm,
+        request.htu,
+        request.access_token,
+        request.nonce,
+        request.now_unix,
+    )
+    .ok()
 }
 
 /// A monotonically increasing counter for the JTI.
@@ -289,8 +376,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _f: &str,
-            _e: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, HostError> {
             Err(HostError::Cannot("no match".to_owned()))
         }

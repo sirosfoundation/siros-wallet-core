@@ -73,6 +73,11 @@ pub enum CredentialError {
 /// when the token the AS issued is DPoP-bound (RFC 9449 §4.3): a fresh
 /// proof over the credential endpoint, with `ath` bound to the token.
 pub struct ResourceDpop<'a> {
+    /// The flow the request belongs to (the client-held proof ask).
+    pub flow_id: &'a str,
+    /// The device key to sign with, when the flow names one — a
+    /// renewal reuses the key its refresh_token was bound to.
+    pub key_id: Option<&'a str>,
     /// The flow's DPoP key — the same key that proved the token request.
     pub key: &'a super::dpop::DpopKey,
     /// The Rng port (the proof's `jti`).
@@ -90,6 +95,10 @@ pub struct CredentialRequestAux<'a> {
     pub encryption: Option<&'a super::encryption::NegotiatedResponseEncryption>,
     /// The DPoP binding, when the token is DPoP-bound.
     pub dpop: Option<ResourceDpop<'a>>,
+    /// The reissuance kid: a renewal's proof is signed with the
+    /// EXISTING keypair the issuer knows (ARF ISSU_65 same-key
+    /// re-signing) — the key id on the host's sign ask.
+    pub reissuance_kid: Option<&'a str>,
 }
 
 /// Requests a credential from the issuer's credential endpoint, with the
@@ -130,12 +139,14 @@ pub async fn request_credential(
         base64url_json(&proof_payload),
     );
 
-    // Ask the host to sign the proof.
+    // Ask the host to sign the proof — with the reissuance kid when
+    // this is a renewal, so the proof's public key matches the
+    // original credential's cnf.jwk (ARF ISSU_65 same-key re-signing).
     let sign_result = host
         .request_sign(engine_ports::SignParams {
             flow_id: "oid4vci-credential".to_owned(),
             to_sign: proof_tbs.as_bytes().to_vec(),
-            key_id: None,
+            key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
             algorithm: "ES256".to_owned(),
         })
         .await
@@ -211,16 +222,26 @@ pub async fn request_credential(
         ("accept".to_owned(), "application/json".to_owned()),
         ("authorization".to_owned(), authorization),
     ];
-    if let Some(dpop) = dpop.filter(|_| dpop_token) {
-        if let Ok(proof) = dpop.key.proof(
-            dpop.rng,
-            "POST",
-            &credential_endpoint,
-            Some(&token.access_token),
-            None,
-            dpop.now_unix,
-        ) {
-            headers.push(("DPoP".to_owned(), proof));
+    if dpop_token {
+        if let Some(dpop) = dpop {
+            if let Some(proof) = super::dpop::proof_for(
+                host,
+                Some(dpop.key),
+                super::dpop::ProofRequest {
+                    flow_id: dpop.flow_id,
+                    key_id: dpop.key_id,
+                    htm: "POST",
+                    htu: &credential_endpoint,
+                    access_token: Some(&token.access_token),
+                    nonce: None,
+                    rng: dpop.rng,
+                    now_unix: dpop.now_unix,
+                },
+            )
+            .await
+            {
+                headers.push(("DPoP".to_owned(), proof));
+            }
         }
     }
 
@@ -441,8 +462,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _f: &str,
-            _e: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, HostError> {
             Err(HostError::Cannot("no match in the test".to_owned()))
         }
@@ -616,6 +636,7 @@ mod tests {
             Some(&CredentialRequestAux {
                 encryption: Some(&encryption),
                 dpop: None,
+                reissuance_kid: None,
             }),
             Some("nonce-1"),
         )
@@ -646,6 +667,7 @@ mod tests {
                 Some(&CredentialRequestAux {
                     encryption: Some(&encryption),
                     dpop: None,
+                    reissuance_kid: None,
                 }),
                 Some("nonce-1"),
             )
@@ -965,7 +987,10 @@ mod tests {
 
         let aux = CredentialRequestAux {
             encryption: None,
+            reissuance_kid: None,
             dpop: Some(ResourceDpop {
+                flow_id: "flow-1",
+                key_id: None,
                 key: &key,
                 rng: &TestRng,
                 now_unix: 1_000,
@@ -1036,7 +1061,10 @@ mod tests {
         };
         let aux = CredentialRequestAux {
             encryption: None,
+            reissuance_kid: None,
             dpop: Some(ResourceDpop {
+                flow_id: "flow-1",
+                key_id: None,
                 key: &key,
                 rng: &TestRng,
                 now_unix: 1_000,

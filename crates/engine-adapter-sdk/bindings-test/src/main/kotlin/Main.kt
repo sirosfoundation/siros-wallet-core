@@ -6,8 +6,12 @@ import uniffi.engine_adapter_sdk.Host
 import uniffi.engine_adapter_sdk.HttpClient
 import uniffi.engine_adapter_sdk.HttpRequest
 import uniffi.engine_adapter_sdk.HttpResponse
-import uniffi.engine_adapter_sdk.MatchEntry
 import uniffi.engine_adapter_sdk.MatchResult
+import uniffi.engine_adapter_sdk.MatchParams
+import uniffi.engine_adapter_sdk.VpParams
+import uniffi.engine_adapter_sdk.VpResult
+import uniffi.engine_adapter_sdk.DpopProofParams
+import uniffi.engine_adapter_sdk.DpopProofResult
 import uniffi.engine_adapter_sdk.RedirectPolicy
 import uniffi.engine_adapter_sdk.SdkException
 import uniffi.engine_adapter_sdk.SignParams
@@ -51,7 +55,15 @@ class TestHost : Host {
         throw SdkException.Declined()
     }
 
-    override suspend fun requestMatch(flowId: String, entries: List<MatchEntry>): MatchResult {
+    override suspend fun requestMatch(params: MatchParams): MatchResult {
+        throw SdkException.Declined()
+    }
+
+    override suspend fun requestVp(params: VpParams): VpResult {
+        throw SdkException.Declined()
+    }
+
+    override suspend fun requestDpopProof(params: DpopProofParams): DpopProofResult {
         throw SdkException.Declined()
     }
 
@@ -87,7 +99,11 @@ fun main() = kotlinx.coroutines.runBlocking {
             object : Host {
                 override suspend fun requestSign(params: SignParams): SignResult =
                     throw SdkException.Declined()
-                override suspend fun requestMatch(flowId: String, entries: List<MatchEntry>): MatchResult =
+                override suspend fun requestMatch(params: MatchParams): MatchResult =
+                    throw SdkException.Declined()
+                override suspend fun requestVp(params: VpParams): VpResult =
+                    throw SdkException.Declined()
+                override suspend fun requestDpopProof(params: DpopProofParams): DpopProofResult =
                     throw SdkException.Declined()
                 override suspend fun requestConsent(params: ConsentParams): ConsentResult =
                     ConsentResult(false)

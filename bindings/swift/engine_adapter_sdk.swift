@@ -902,6 +902,211 @@ public func FfiConverterTypeConsentResult_lower(_ value: ConsentResult) -> RustB
 
 
 /**
+ * The client-held DPoP proof request. Mirrors
+ * `engine_ports::DpopProofParams`.
+ */
+public struct DpopProofParams {
+    /**
+     * The flow.
+     */
+    public var flowId: String
+    /**
+     * The device key to sign with, named when the flow knows it.
+     */
+    public var keyId: String?
+    /**
+     * The HTTP method the proof is bound to.
+     */
+    public var htm: String
+    /**
+     * The HTTP URI the proof is bound to.
+     */
+    public var htu: String
+    /**
+     * The access token, when a resource request is being proofed.
+     */
+    public var accessToken: String
+    /**
+     * The server-provided DPoP nonce, when one was demanded.
+     */
+    public var nonce: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow.
+         */flowId: String, 
+        /**
+         * The device key to sign with, named when the flow knows it.
+         */keyId: String?, 
+        /**
+         * The HTTP method the proof is bound to.
+         */htm: String, 
+        /**
+         * The HTTP URI the proof is bound to.
+         */htu: String, 
+        /**
+         * The access token, when a resource request is being proofed.
+         */accessToken: String, 
+        /**
+         * The server-provided DPoP nonce, when one was demanded.
+         */nonce: String) {
+        self.flowId = flowId
+        self.keyId = keyId
+        self.htm = htm
+        self.htu = htu
+        self.accessToken = accessToken
+        self.nonce = nonce
+    }
+}
+
+
+
+extension DpopProofParams: Equatable, Hashable {
+    public static func ==(lhs: DpopProofParams, rhs: DpopProofParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.keyId != rhs.keyId {
+            return false
+        }
+        if lhs.htm != rhs.htm {
+            return false
+        }
+        if lhs.htu != rhs.htu {
+            return false
+        }
+        if lhs.accessToken != rhs.accessToken {
+            return false
+        }
+        if lhs.nonce != rhs.nonce {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(keyId)
+        hasher.combine(htm)
+        hasher.combine(htu)
+        hasher.combine(accessToken)
+        hasher.combine(nonce)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDpopProofParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DpopProofParams {
+        return
+            try DpopProofParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                keyId: FfiConverterOptionString.read(from: &buf), 
+                htm: FfiConverterString.read(from: &buf), 
+                htu: FfiConverterString.read(from: &buf), 
+                accessToken: FfiConverterString.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DpopProofParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterOptionString.write(value.keyId, into: &buf)
+        FfiConverterString.write(value.htm, into: &buf)
+        FfiConverterString.write(value.htu, into: &buf)
+        FfiConverterString.write(value.accessToken, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDpopProofParams_lift(_ buf: RustBuffer) throws -> DpopProofParams {
+    return try FfiConverterTypeDpopProofParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDpopProofParams_lower(_ value: DpopProofParams) -> RustBuffer {
+    return FfiConverterTypeDpopProofParams.lower(value)
+}
+
+
+/**
+ * The DPoP proof answer. Mirrors `engine_ports::DpopProofResult`.
+ */
+public struct DpopProofResult {
+    /**
+     * The proof JWT (`dpop+jwt`).
+     */
+    public var proof: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The proof JWT (`dpop+jwt`).
+         */proof: String) {
+        self.proof = proof
+    }
+}
+
+
+
+extension DpopProofResult: Equatable, Hashable {
+    public static func ==(lhs: DpopProofResult, rhs: DpopProofResult) -> Bool {
+        if lhs.proof != rhs.proof {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(proof)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDpopProofResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DpopProofResult {
+        return
+            try DpopProofResult(
+                proof: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DpopProofResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.proof, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDpopProofResult_lift(_ buf: RustBuffer) throws -> DpopProofResult {
+    return try FfiConverterTypeDpopProofResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDpopProofResult_lower(_ value: DpopProofResult) -> RustBuffer {
+    return FfiConverterTypeDpopProofResult.lower(value)
+}
+
+
+/**
  * The engine's construction configuration.
  */
 public struct EngineConfig {
@@ -1324,60 +1529,84 @@ public func FfiConverterTypeHttpResponse_lower(_ value: HttpResponse) -> RustBuf
 
 
 /**
- * A match entry. Mirrors `engine_ports::MatchEntry`.
+ * The presentation match request. Mirrors `engine_ports::MatchParams`.
  */
-public struct MatchEntry {
+public struct MatchParams {
     /**
-     * The credential's identifier.
+     * The flow.
      */
-    public var credentialId: String
+    public var flowId: String
     /**
-     * The credential's display name.
+     * The DCQL query as raw JSON text, when the request carried one.
      */
-    public var displayName: String
+    public var dcqlQuery: String?
     /**
-     * The credential's type.
+     * The scope, when the request used scope instead of a query.
      */
-    public var credentialType: String
+    public var scope: String
+    /**
+     * The verifier as the consent UI shows it.
+     */
+    public var verifier: VerifierInfo
+    /**
+     * The transaction data entries, raw, for the UI's summary.
+     */
+    public var transactionData: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
-         * The credential's identifier.
-         */credentialId: String, 
+         * The flow.
+         */flowId: String, 
         /**
-         * The credential's display name.
-         */displayName: String, 
+         * The DCQL query as raw JSON text, when the request carried one.
+         */dcqlQuery: String?, 
         /**
-         * The credential's type.
-         */credentialType: String) {
-        self.credentialId = credentialId
-        self.displayName = displayName
-        self.credentialType = credentialType
+         * The scope, when the request used scope instead of a query.
+         */scope: String, 
+        /**
+         * The verifier as the consent UI shows it.
+         */verifier: VerifierInfo, 
+        /**
+         * The transaction data entries, raw, for the UI's summary.
+         */transactionData: [String]) {
+        self.flowId = flowId
+        self.dcqlQuery = dcqlQuery
+        self.scope = scope
+        self.verifier = verifier
+        self.transactionData = transactionData
     }
 }
 
 
 
-extension MatchEntry: Equatable, Hashable {
-    public static func ==(lhs: MatchEntry, rhs: MatchEntry) -> Bool {
-        if lhs.credentialId != rhs.credentialId {
+extension MatchParams: Equatable, Hashable {
+    public static func ==(lhs: MatchParams, rhs: MatchParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
             return false
         }
-        if lhs.displayName != rhs.displayName {
+        if lhs.dcqlQuery != rhs.dcqlQuery {
             return false
         }
-        if lhs.credentialType != rhs.credentialType {
+        if lhs.scope != rhs.scope {
+            return false
+        }
+        if lhs.verifier != rhs.verifier {
+            return false
+        }
+        if lhs.transactionData != rhs.transactionData {
             return false
         }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(credentialId)
-        hasher.combine(displayName)
-        hasher.combine(credentialType)
+        hasher.combine(flowId)
+        hasher.combine(dcqlQuery)
+        hasher.combine(scope)
+        hasher.combine(verifier)
+        hasher.combine(transactionData)
     }
 }
 
@@ -1385,20 +1614,24 @@ extension MatchEntry: Equatable, Hashable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeMatchEntry: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchEntry {
+public struct FfiConverterTypeMatchParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchParams {
         return
-            try MatchEntry(
-                credentialId: FfiConverterString.read(from: &buf), 
-                displayName: FfiConverterString.read(from: &buf), 
-                credentialType: FfiConverterString.read(from: &buf)
+            try MatchParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                dcqlQuery: FfiConverterOptionString.read(from: &buf), 
+                scope: FfiConverterString.read(from: &buf), 
+                verifier: FfiConverterTypeVerifierInfo.read(from: &buf), 
+                transactionData: FfiConverterSequenceString.read(from: &buf)
         )
     }
 
-    public static func write(_ value: MatchEntry, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.credentialId, into: &buf)
-        FfiConverterString.write(value.displayName, into: &buf)
-        FfiConverterString.write(value.credentialType, into: &buf)
+    public static func write(_ value: MatchParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterOptionString.write(value.dcqlQuery, into: &buf)
+        FfiConverterString.write(value.scope, into: &buf)
+        FfiConverterTypeVerifierInfo.write(value.verifier, into: &buf)
+        FfiConverterSequenceString.write(value.transactionData, into: &buf)
     }
 }
 
@@ -1406,15 +1639,15 @@ public struct FfiConverterTypeMatchEntry: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeMatchEntry_lift(_ buf: RustBuffer) throws -> MatchEntry {
-    return try FfiConverterTypeMatchEntry.lift(buf)
+public func FfiConverterTypeMatchParams_lift(_ buf: RustBuffer) throws -> MatchParams {
+    return try FfiConverterTypeMatchParams.lift(buf)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeMatchEntry_lower(_ value: MatchEntry) -> RustBuffer {
-    return FfiConverterTypeMatchEntry.lower(value)
+public func FfiConverterTypeMatchParams_lower(_ value: MatchParams) -> RustBuffer {
+    return FfiConverterTypeMatchParams.lower(value)
 }
 
 
@@ -1423,27 +1656,17 @@ public func FfiConverterTypeMatchEntry_lower(_ value: MatchEntry) -> RustBuffer 
  */
 public struct MatchResult {
     /**
-     * The selected credential's identifier.
+     * The selected credentials; empty means nothing matched.
      */
-    public var selectedId: String
-    /**
-     * The DCQL query's credential id this selection answers, when the
-     * request carried a query.
-     */
-    public var queryId: String?
+    public var selections: [VpSelection]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
-         * The selected credential's identifier.
-         */selectedId: String, 
-        /**
-         * The DCQL query's credential id this selection answers, when the
-         * request carried a query.
-         */queryId: String?) {
-        self.selectedId = selectedId
-        self.queryId = queryId
+         * The selected credentials; empty means nothing matched.
+         */selections: [VpSelection]) {
+        self.selections = selections
     }
 }
 
@@ -1451,18 +1674,14 @@ public struct MatchResult {
 
 extension MatchResult: Equatable, Hashable {
     public static func ==(lhs: MatchResult, rhs: MatchResult) -> Bool {
-        if lhs.selectedId != rhs.selectedId {
-            return false
-        }
-        if lhs.queryId != rhs.queryId {
+        if lhs.selections != rhs.selections {
             return false
         }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(selectedId)
-        hasher.combine(queryId)
+        hasher.combine(selections)
     }
 }
 
@@ -1474,14 +1693,12 @@ public struct FfiConverterTypeMatchResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchResult {
         return
             try MatchResult(
-                selectedId: FfiConverterString.read(from: &buf), 
-                queryId: FfiConverterOptionString.read(from: &buf)
+                selections: FfiConverterSequenceTypeVpSelection.read(from: &buf)
         )
     }
 
     public static func write(_ value: MatchResult, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.selectedId, into: &buf)
-        FfiConverterOptionString.write(value.queryId, into: &buf)
+        FfiConverterSequenceTypeVpSelection.write(value.selections, into: &buf)
     }
 }
 
@@ -1675,6 +1892,621 @@ public func FfiConverterTypeSignResult_lift(_ buf: RustBuffer) throws -> SignRes
 public func FfiConverterTypeSignResult_lower(_ value: SignResult) -> RustBuffer {
     return FfiConverterTypeSignResult.lower(value)
 }
+
+
+/**
+ * The verifier info the consent UI shows. Mirrors
+ * `engine_ports::VerifierInfo`.
+ */
+public struct VerifierInfo {
+    /**
+     * The display name (the metadata's client_name, else the client_id).
+     */
+    public var name: String
+    /**
+     * The client_id, with its scheme prefix.
+     */
+    public var clientId: String
+    /**
+     * The inferred client_id scheme.
+     */
+    public var clientIdScheme: ClientIdScheme
+    /**
+     * The domain extracted from the client_id, when there is one.
+     */
+    public var domain: String
+    /**
+     * The logo URI, when the metadata published one.
+     */
+    public var logoUri: String
+    /**
+     * Whether the PDP trusts the verifier.
+     */
+    public var trusted: Bool
+    /**
+     * The trust framework that made the decision, when there is one.
+     */
+    public var framework: String
+    /**
+     * Why the decision was made (the PDP's reason).
+     */
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The display name (the metadata's client_name, else the client_id).
+         */name: String, 
+        /**
+         * The client_id, with its scheme prefix.
+         */clientId: String, 
+        /**
+         * The inferred client_id scheme.
+         */clientIdScheme: ClientIdScheme, 
+        /**
+         * The domain extracted from the client_id, when there is one.
+         */domain: String, 
+        /**
+         * The logo URI, when the metadata published one.
+         */logoUri: String, 
+        /**
+         * Whether the PDP trusts the verifier.
+         */trusted: Bool, 
+        /**
+         * The trust framework that made the decision, when there is one.
+         */framework: String, 
+        /**
+         * Why the decision was made (the PDP's reason).
+         */reason: String) {
+        self.name = name
+        self.clientId = clientId
+        self.clientIdScheme = clientIdScheme
+        self.domain = domain
+        self.logoUri = logoUri
+        self.trusted = trusted
+        self.framework = framework
+        self.reason = reason
+    }
+}
+
+
+
+extension VerifierInfo: Equatable, Hashable {
+    public static func ==(lhs: VerifierInfo, rhs: VerifierInfo) -> Bool {
+        if lhs.name != rhs.name {
+            return false
+        }
+        if lhs.clientId != rhs.clientId {
+            return false
+        }
+        if lhs.clientIdScheme != rhs.clientIdScheme {
+            return false
+        }
+        if lhs.domain != rhs.domain {
+            return false
+        }
+        if lhs.logoUri != rhs.logoUri {
+            return false
+        }
+        if lhs.trusted != rhs.trusted {
+            return false
+        }
+        if lhs.framework != rhs.framework {
+            return false
+        }
+        if lhs.reason != rhs.reason {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(clientId)
+        hasher.combine(clientIdScheme)
+        hasher.combine(domain)
+        hasher.combine(logoUri)
+        hasher.combine(trusted)
+        hasher.combine(framework)
+        hasher.combine(reason)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVerifierInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VerifierInfo {
+        return
+            try VerifierInfo(
+                name: FfiConverterString.read(from: &buf), 
+                clientId: FfiConverterString.read(from: &buf), 
+                clientIdScheme: FfiConverterTypeClientIdScheme.read(from: &buf), 
+                domain: FfiConverterString.read(from: &buf), 
+                logoUri: FfiConverterString.read(from: &buf), 
+                trusted: FfiConverterBool.read(from: &buf), 
+                framework: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VerifierInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.clientId, into: &buf)
+        FfiConverterTypeClientIdScheme.write(value.clientIdScheme, into: &buf)
+        FfiConverterString.write(value.domain, into: &buf)
+        FfiConverterString.write(value.logoUri, into: &buf)
+        FfiConverterBool.write(value.trusted, into: &buf)
+        FfiConverterString.write(value.framework, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVerifierInfo_lift(_ buf: RustBuffer) throws -> VerifierInfo {
+    return try FfiConverterTypeVerifierInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVerifierInfo_lower(_ value: VerifierInfo) -> RustBuffer {
+    return FfiConverterTypeVerifierInfo.lower(value)
+}
+
+
+/**
+ * The presentation construction request. Mirrors
+ * `engine_ports::VpParams`.
+ */
+public struct VpParams {
+    /**
+     * The flow.
+     */
+    public var flowId: String
+    /**
+     * The audience (the client_id, or the redirect_uri fallback).
+     */
+    public var audience: String
+    /**
+     * The request's nonce.
+     */
+    public var nonce: String
+    /**
+     * The selected credentials to present.
+     */
+    public var selections: [VpSelection]
+    /**
+     * The response endpoint (the mdoc session transcript input).
+     */
+    public var responseUri: String
+    /**
+     * The verifier encryption key's JWK thumbprint, for
+     * direct_post.jwt's OpenID4VPHandover — empty otherwise.
+     */
+    public var verifierJwkThumbprint: String
+    /**
+     * The verifier's session id (the ZK/PPID verifier_context) —
+     * empty for non-ZK presentations.
+     */
+    public var verifierSessionId: String
+    /**
+     * The transaction data entries, raw — the KB-JWT hashes.
+     */
+    public var transactionData: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow.
+         */flowId: String, 
+        /**
+         * The audience (the client_id, or the redirect_uri fallback).
+         */audience: String, 
+        /**
+         * The request's nonce.
+         */nonce: String, 
+        /**
+         * The selected credentials to present.
+         */selections: [VpSelection], 
+        /**
+         * The response endpoint (the mdoc session transcript input).
+         */responseUri: String, 
+        /**
+         * The verifier encryption key's JWK thumbprint, for
+         * direct_post.jwt's OpenID4VPHandover — empty otherwise.
+         */verifierJwkThumbprint: String, 
+        /**
+         * The verifier's session id (the ZK/PPID verifier_context) —
+         * empty for non-ZK presentations.
+         */verifierSessionId: String, 
+        /**
+         * The transaction data entries, raw — the KB-JWT hashes.
+         */transactionData: [String]) {
+        self.flowId = flowId
+        self.audience = audience
+        self.nonce = nonce
+        self.selections = selections
+        self.responseUri = responseUri
+        self.verifierJwkThumbprint = verifierJwkThumbprint
+        self.verifierSessionId = verifierSessionId
+        self.transactionData = transactionData
+    }
+}
+
+
+
+extension VpParams: Equatable, Hashable {
+    public static func ==(lhs: VpParams, rhs: VpParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.audience != rhs.audience {
+            return false
+        }
+        if lhs.nonce != rhs.nonce {
+            return false
+        }
+        if lhs.selections != rhs.selections {
+            return false
+        }
+        if lhs.responseUri != rhs.responseUri {
+            return false
+        }
+        if lhs.verifierJwkThumbprint != rhs.verifierJwkThumbprint {
+            return false
+        }
+        if lhs.verifierSessionId != rhs.verifierSessionId {
+            return false
+        }
+        if lhs.transactionData != rhs.transactionData {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(audience)
+        hasher.combine(nonce)
+        hasher.combine(selections)
+        hasher.combine(responseUri)
+        hasher.combine(verifierJwkThumbprint)
+        hasher.combine(verifierSessionId)
+        hasher.combine(transactionData)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVpParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VpParams {
+        return
+            try VpParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                audience: FfiConverterString.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                selections: FfiConverterSequenceTypeVpSelection.read(from: &buf), 
+                responseUri: FfiConverterString.read(from: &buf), 
+                verifierJwkThumbprint: FfiConverterString.read(from: &buf), 
+                verifierSessionId: FfiConverterString.read(from: &buf), 
+                transactionData: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VpParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterString.write(value.audience, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterSequenceTypeVpSelection.write(value.selections, into: &buf)
+        FfiConverterString.write(value.responseUri, into: &buf)
+        FfiConverterString.write(value.verifierJwkThumbprint, into: &buf)
+        FfiConverterString.write(value.verifierSessionId, into: &buf)
+        FfiConverterSequenceString.write(value.transactionData, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpParams_lift(_ buf: RustBuffer) throws -> VpParams {
+    return try FfiConverterTypeVpParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpParams_lower(_ value: VpParams) -> RustBuffer {
+    return FfiConverterTypeVpParams.lower(value)
+}
+
+
+/**
+ * The presentation answer. Mirrors `engine_ports::VpResult`.
+ */
+public struct VpResult {
+    /**
+     * The VP token: newline-separated per selection, or a pre-formed
+     * JSON object.
+     */
+    public var vpToken: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The VP token: newline-separated per selection, or a pre-formed
+         * JSON object.
+         */vpToken: String) {
+        self.vpToken = vpToken
+    }
+}
+
+
+
+extension VpResult: Equatable, Hashable {
+    public static func ==(lhs: VpResult, rhs: VpResult) -> Bool {
+        if lhs.vpToken != rhs.vpToken {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(vpToken)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVpResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VpResult {
+        return
+            try VpResult(
+                vpToken: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VpResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.vpToken, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpResult_lift(_ buf: RustBuffer) throws -> VpResult {
+    return try FfiConverterTypeVpResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpResult_lower(_ value: VpResult) -> RustBuffer {
+    return FfiConverterTypeVpResult.lower(value)
+}
+
+
+/**
+ * One credential the host selected to present. Mirrors
+ * `engine_ports::VpSelection`.
+ */
+public struct VpSelection {
+    /**
+     * The DCQL query's credential id this selection answers.
+     */
+    public var credentialQueryId: String
+    /**
+     * The wallet credential to present.
+     */
+    public var credentialId: String
+    /**
+     * The claim names the presentation discloses.
+     */
+    public var disclosedClaims: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The DCQL query's credential id this selection answers.
+         */credentialQueryId: String, 
+        /**
+         * The wallet credential to present.
+         */credentialId: String, 
+        /**
+         * The claim names the presentation discloses.
+         */disclosedClaims: [String]) {
+        self.credentialQueryId = credentialQueryId
+        self.credentialId = credentialId
+        self.disclosedClaims = disclosedClaims
+    }
+}
+
+
+
+extension VpSelection: Equatable, Hashable {
+    public static func ==(lhs: VpSelection, rhs: VpSelection) -> Bool {
+        if lhs.credentialQueryId != rhs.credentialQueryId {
+            return false
+        }
+        if lhs.credentialId != rhs.credentialId {
+            return false
+        }
+        if lhs.disclosedClaims != rhs.disclosedClaims {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(credentialQueryId)
+        hasher.combine(credentialId)
+        hasher.combine(disclosedClaims)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVpSelection: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VpSelection {
+        return
+            try VpSelection(
+                credentialQueryId: FfiConverterString.read(from: &buf), 
+                credentialId: FfiConverterString.read(from: &buf), 
+                disclosedClaims: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VpSelection, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.credentialQueryId, into: &buf)
+        FfiConverterString.write(value.credentialId, into: &buf)
+        FfiConverterSequenceString.write(value.disclosedClaims, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpSelection_lift(_ buf: RustBuffer) throws -> VpSelection {
+    return try FfiConverterTypeVpSelection.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVpSelection_lower(_ value: VpSelection) -> RustBuffer {
+    return FfiConverterTypeVpSelection.lower(value)
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The client_id scheme of the verifier. Mirrors
+ * `engine_ports::ClientIdScheme`.
+ */
+
+public enum ClientIdScheme {
+    
+    /**
+     * An x.509 certificate's SAN DNS entry (`x509_san_dns:`).
+     */
+    case x509SanDns
+    /**
+     * An x.509 certificate's SAN URI entry (`x509_san_uri:`).
+     */
+    case x509SanUri
+    /**
+     * A DID-based request (`did:`).
+     */
+    case decentralizedIdentifier
+    /**
+     * A verifier attestation (`verifier_attestation:`).
+     */
+    case verifierAttestation
+    /**
+     * The redirect URI itself (unsigned requests only).
+     */
+    case redirectUri
+    /**
+     * An unrecognized prefix.
+     */
+    case unknown
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeClientIdScheme: FfiConverterRustBuffer {
+    typealias SwiftType = ClientIdScheme
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ClientIdScheme {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .x509SanDns
+        
+        case 2: return .x509SanUri
+        
+        case 3: return .decentralizedIdentifier
+        
+        case 4: return .verifierAttestation
+        
+        case 5: return .redirectUri
+        
+        case 6: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ClientIdScheme, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .x509SanDns:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .x509SanUri:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .decentralizedIdentifier:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .verifierAttestation:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .redirectUri:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClientIdScheme_lift(_ buf: RustBuffer) throws -> ClientIdScheme {
+    return try FfiConverterTypeClientIdScheme.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeClientIdScheme_lower(_ value: ClientIdScheme) -> RustBuffer {
+    return FfiConverterTypeClientIdScheme.lower(value)
+}
+
+
+
+extension ClientIdScheme: Equatable, Hashable {}
+
+
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -2072,9 +2904,24 @@ public protocol Host : AnyObject {
     func requestSign(params: SignParams) async throws  -> SignResult
     
     /**
-     * Asks the host to select a credential.
+     * Asks the host to match the wallet's credentials against the DCQL
+     * query and select what to present. An empty answer means nothing
+     * matched: the flow ends there.
      */
-    func requestMatch(flowId: String, entries: [MatchEntry]) async throws  -> MatchResult
+    func requestMatch(params: MatchParams) async throws  -> MatchResult
+    
+    /**
+     * Asks the host to construct and sign the VP token for the
+     * selected credentials — the wallet's presentation formats and
+     * key custody live in the host.
+     */
+    func requestVp(params: VpParams) async throws  -> VpResult
+    
+    /**
+     * Asks the host for a client-held DPoP proof; the engine falls
+     * back to its own key when the host cannot answer.
+     */
+    func requestDpopProof(params: DpopProofParams) async throws  -> DpopProofResult
     
     /**
      * Asks the host's user for consent.
@@ -2157,8 +3004,7 @@ fileprivate struct UniffiCallbackInterfaceHost {
         },
         requestMatch: { (
             uniffiHandle: UInt64,
-            flowId: RustBuffer,
-            entries: RustBuffer,
+            params: RustBuffer,
             uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
             uniffiCallbackData: UInt64,
             uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
@@ -2169,8 +3015,7 @@ fileprivate struct UniffiCallbackInterfaceHost {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return try await uniffiObj.requestMatch(
-                     flowId: try FfiConverterString.lift(flowId),
-                     entries: try FfiConverterSequenceTypeMatchEntry.lift(entries)
+                     params: try FfiConverterTypeMatchParams.lift(params)
                 )
             }
 
@@ -2179,6 +3024,92 @@ fileprivate struct UniffiCallbackInterfaceHost {
                     uniffiCallbackData,
                     UniffiForeignFutureStructRustBuffer(
                         returnValue: FfiConverterTypeMatchResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestVp: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> VpResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestVp(
+                     params: try FfiConverterTypeVpParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: VpResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeVpResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestDpopProof: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> DpopProofResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestDpopProof(
+                     params: try FfiConverterTypeDpopProofParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: DpopProofResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeDpopProofResult.lower(returnValue),
                         callStatus: RustCallStatus()
                     )
                 )
@@ -2667,23 +3598,23 @@ fileprivate struct FfiConverterSequenceTypeHeaderPair: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeMatchEntry: FfiConverterRustBuffer {
-    typealias SwiftType = [MatchEntry]
+fileprivate struct FfiConverterSequenceTypeVpSelection: FfiConverterRustBuffer {
+    typealias SwiftType = [VpSelection]
 
-    public static func write(_ value: [MatchEntry], into buf: inout [UInt8]) {
+    public static func write(_ value: [VpSelection], into buf: inout [UInt8]) {
         let len = Int32(value.count)
         writeInt(&buf, len)
         for item in value {
-            FfiConverterTypeMatchEntry.write(item, into: &buf)
+            FfiConverterTypeVpSelection.write(item, into: &buf)
         }
     }
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MatchEntry] {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [VpSelection] {
         let len: Int32 = try readInt(&buf)
-        var seq = [MatchEntry]()
+        var seq = [VpSelection]()
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeMatchEntry.read(from: &buf))
+            seq.append(try FfiConverterTypeVpSelection.read(from: &buf))
         }
         return seq
     }
@@ -2890,19 +3821,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_request_match() != 59864) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_match() != 22239) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_request_consent() != 9610) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_vp() != 43578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 47288) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_dpop_proof() != 57206) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 21918) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_consent() != 20155) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_progress() != 31447) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_tx_code() != 41113) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 25041) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_progress() != 22765) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403) {

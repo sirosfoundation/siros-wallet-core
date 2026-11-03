@@ -5,18 +5,8 @@
 //! matching (the host UI does the local credential matching; the engine
 //! assembles what it answers with).
 
+use engine_ports::VpSelection;
 use serde_json::Value;
-
-/// One selected credential, as the host's consent answer reports it.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ConsentSelection {
-    /// The DCQL query's `credentials[i].id` this selection answers.
-    #[serde(default)]
-    pub credential_query_id: String,
-    /// The credential the user selected for that query.
-    #[serde(default)]
-    pub credential_id: String,
-}
 
 /// Why the DCQL assembly refused.
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -59,10 +49,7 @@ pub fn validate_raw_query(raw: &str) -> Result<(), DcqlError> {
 ///   selected credential; the count must match or the assembly refuses.
 /// - A selection with no `credential_query_id` is dropped from the
 ///   object (it answers no query).
-pub fn build_dcql_vp_token(
-    vp_token: &str,
-    selected: &[ConsentSelection],
-) -> Result<String, DcqlError> {
+pub fn build_dcql_vp_token(vp_token: &str, selected: &[VpSelection]) -> Result<String, DcqlError> {
     // A host that already returned a JSON object: pass it through.
     let trimmed = vp_token.trim();
     if trimmed.starts_with('{') {
@@ -204,10 +191,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn selection(query_id: &str) -> ConsentSelection {
-        ConsentSelection {
+    fn selection(query_id: &str) -> VpSelection {
+        VpSelection {
             credential_query_id: query_id.to_owned(),
             credential_id: format!("cred-{query_id}"),
+            disclosed_claims: Vec::new(),
         }
     }
 
@@ -258,7 +246,7 @@ mod tests {
     fn a_selection_answering_no_query_is_dropped() {
         let vp = build_dcql_vp_token(
             "token-a\ntoken-b",
-            &[selection("pid"), ConsentSelection::default()],
+            &[selection("pid"), VpSelection::default()],
         )
         .expect("build");
         let value: Value = serde_json::from_str(&vp).expect("json");

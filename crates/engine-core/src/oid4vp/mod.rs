@@ -141,36 +141,68 @@ impl FlowHandler for Oid4vpFlow {
             )
             .await;
 
-        // Ask the host for credential selection: the match sub-flow.
+        // Ask the host to match the wallet's credentials against the
+        // query and select what to present — the local matching is the
+        // host's (the wallet state and the credential formats live
+        // there), exactly the Go engine's credentials_matched
+        // contract. An empty answer ends the flow: nothing to present
+        // is not an error.
         let match_result = ctx
             .host()
-            .request_match(
-                &params.flow_id,
-                vec![engine_ports::MatchEntry {
-                    credential_id: "cred-1".to_owned(),
-                    display_name: "Credential 1".to_owned(),
-                    credential_type: "sd-jwt".to_owned(),
-                }],
-            )
+            .request_match(engine_ports::MatchParams {
+                flow_id: params.flow_id.clone(),
+                dcql_query: auth_req.dcql_query.clone(),
+                scope: auth_req.scope.clone(),
+                verifier: verifier.clone(),
+                transaction_data: auth_req.transaction_data_raw.clone(),
+            })
             .await
             .map_err(|err| flow_error(err.to_string()))?;
+
+        if match_result.selections.is_empty() {
+            // Nothing matched: the flow ends here without an error
+            // (the Go engine's empty credentials_matched).
+            let _ = ctx
+                .progress(
+                    "no_matching_credential",
+                    &serde_json::json!({
+                        "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
+                    }),
+                )
+                .await;
+            let _ = ctx.complete(&serde_json::json!({ "matched": false })).await;
+            return Ok(FlowStartResult {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: params.flow_id.clone(),
+                flow_type: params.flow_type.clone(),
+            });
+        }
 
         let _ = ctx
             .progress(
                 "credential_selected",
                 &serde_json::json!({
-                    "credential_id": match_result.selected_id,
+                    "count": match_result.selections.len(),
+                    "credential_ids": match_result
+                        .selections
+                        .iter()
+                        .map(|s| s.credential_id.clone())
+                        .collect::<Vec<_>>(),
                 }),
             )
             .await;
 
-        // Ask the host for consent.
+        // Ask the host's user for consent.
         let consent = ctx
             .host()
             .request_consent(engine_ports::ConsentParams {
                 flow_id: params.flow_id.clone(),
                 purpose: auth_req.scope.clone(),
-                requested_claims: vec![],
+                requested_claims: match_result
+                    .selections
+                    .iter()
+                    .flat_map(|s| s.disclosed_claims.iter().cloned())
+                    .collect(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
             })
             .await
@@ -193,30 +225,44 @@ impl FlowHandler for Oid4vpFlow {
             });
         }
 
-        // Build the VP signing input and ask the host to sign it.
-        let vp_tbs = build_vp_signing_input(&auth_req, &match_result.selected_id);
-        let sign_result = ctx
+        // Ask the host to construct and sign the VP token — the
+        // wallet's presentation formats and key custody live there
+        // (the Go SignActionSignPresentation). The verifier JWK
+        // thumbprint rides along for direct_post.jwt's
+        // OpenID4VPHandover transcript; the verifier's session id
+        // (the `sessionId` query parameter) for the ZK/PPID
+        // verifier_context.
+        let vp_result = ctx
             .host()
-            .request_sign(engine_ports::SignParams {
+            .request_vp(engine_ports::VpParams {
                 flow_id: params.flow_id.clone(),
-                to_sign: vp_tbs.into_bytes(),
-                key_id: None,
-                algorithm: "ES256".to_owned(),
+                audience: if !auth_req.client_id.is_empty() {
+                    auth_req.client_id.clone()
+                } else {
+                    auth_req.redirect_uri.clone()
+                },
+                nonce: auth_req.nonce.clone(),
+                selections: match_result.selections.clone(),
+                response_uri: if !auth_req.response_uri.is_empty() {
+                    auth_req.response_uri.clone()
+                } else {
+                    auth_req.redirect_uri.clone()
+                },
+                verifier_jwk_thumbprint: jarm::verifier_jwk_thumbprint(&auth_req),
+                verifier_session_id: trust::query_param(&outer_request_uri, "sessionId")
+                    .unwrap_or_default(),
+                transaction_data: auth_req.transaction_data_raw.clone(),
             })
             .await
             .map_err(|err| flow_error(err.to_string()))?;
 
-        let vp_token = String::from_utf8_lossy(&sign_result.signature).into_owned();
+        let vp_token = vp_result.vp_token;
 
         // The DCQL vp_token assembly (OID4VP §8.1): a newline-separated
         // answer restructures into the object keyed by credential query
         // id; a host that returned a JSON object passes through.
         let vp_token = if auth_req.dcql_query.is_some() {
-            let selections = vec![dcql::ConsentSelection {
-                credential_query_id: match_result.query_id.clone().unwrap_or_default(),
-                credential_id: match_result.selected_id.clone(),
-            }];
-            dcql::build_dcql_vp_token(&vp_token, &selections)
+            dcql::build_dcql_vp_token(&vp_token, &match_result.selections)
                 .map_err(|err| flow_error(err.to_string()))?
         } else {
             vp_token
@@ -236,7 +282,11 @@ impl FlowHandler for Oid4vpFlow {
         let _ = ctx
             .complete(&serde_json::json!({
                 "presented": true,
-                "credential_id": match_result.selected_id,
+                "credential_ids": match_result
+                    .selections
+                    .iter()
+                    .map(|s| s.credential_id.clone())
+                    .collect::<Vec<_>>(),
             }))
             .await;
 
@@ -268,16 +318,389 @@ impl FlowHandler for Oid4vpFlow {
     }
 }
 
-/// Builds the VP signing input: the audience, nonce, response URI, and the
-/// selected credential. The host signs this as the VP token.
-fn build_vp_signing_input(auth_req: &types::AuthorizationRequest, credential_id: &str) -> String {
-    let audience = if !auth_req.client_id.is_empty() {
-        auth_req.client_id.clone()
-    } else {
-        auth_req.redirect_uri.clone()
+#[cfg(test)]
+mod presentation_flow_tests {
+    //! The presentation flow, end to end on scripted ports: the request,
+    //! the trust evaluation, the match with the DCQL query and the
+    //! verifier, the consent, the host-constructed VP token, the DCQL
+    //! assembly, and the submission.
+
+    use super::*;
+    use crate::runtime::{FlowContext, FlowHandler};
+    use crate::Ports;
+    use engine_ports::{
+        AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
+        DpopProofResult, EvaluationRequest, EvaluationResponse, FetchPurpose, Host, HostError,
+        HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchParams,
+        MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult,
+        VpParams, VpResult, VpSelection,
     };
-    format!(
-        "{}|{}|{}|{}",
-        audience, auth_req.nonce, auth_req.response_uri, credential_id
-    )
+    use std::sync::{Arc, Mutex};
+
+    struct TrustedPdp;
+    #[async_trait::async_trait]
+    impl Pdp for TrustedPdp {
+        async fn evaluate(
+            &self,
+            _request: EvaluationRequest,
+        ) -> Result<EvaluationResponse, PdpError> {
+            Ok(EvaluationResponse {
+                trusted: true,
+                decision: Some("in the registry".to_owned()),
+            })
+        }
+        async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
+            Err(PdpError::NotImplemented)
+        }
+    }
+
+    /// The host that answers the whole ask chain and records what it
+    /// was asked.
+    struct RecordingHost {
+        matches: Mutex<Vec<MatchParams>>,
+        vps: Mutex<Vec<VpParams>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Host for RecordingHost {
+        async fn request_sign(&self, _params: SignParams) -> Result<SignResult, HostError> {
+            Err(HostError::Cannot(
+                "no plain sign in the presentation test".to_owned(),
+            ))
+        }
+        async fn request_match(&self, params: MatchParams) -> Result<MatchResult, HostError> {
+            self.matches.lock().map(|mut m| m.push(params)).ok();
+            Ok(MatchResult {
+                selections: vec![
+                    VpSelection {
+                        credential_query_id: "pid-query".to_owned(),
+                        credential_id: "cred-pid".to_owned(),
+                        disclosed_claims: vec!["given_name".to_owned()],
+                    },
+                    VpSelection {
+                        credential_query_id: "degree-query".to_owned(),
+                        credential_id: "cred-degree".to_owned(),
+                        disclosed_claims: Vec::new(),
+                    },
+                ],
+            })
+        }
+        async fn request_consent(
+            &self,
+            _params: ConsentParams,
+        ) -> Result<ConsentResult, HostError> {
+            Ok(ConsentResult { consented: true })
+        }
+        async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
+            Err(HostError::Cannot("no tx code".to_owned()))
+        }
+        async fn open_authorization(&self, _flow_id: &str, _url: &str) -> Result<(), HostError> {
+            Ok(())
+        }
+        async fn request_vp(&self, params: VpParams) -> Result<VpResult, HostError> {
+            self.vps.lock().map(|mut v| v.push(params)).ok();
+            Ok(VpResult {
+                vp_token: "token-pid\ntoken-degree".to_owned(),
+            })
+        }
+        async fn request_dpop_proof(
+            &self,
+            _params: DpopProofParams,
+        ) -> Result<DpopProofResult, HostError> {
+            Err(HostError::Cannot("no client-held dpop".to_owned()))
+        }
+        async fn request_attestation(
+            &self,
+            _params: AttestationParams,
+        ) -> Result<AttestationResult, HostError> {
+            Err(HostError::Cannot("no attestation".to_owned()))
+        }
+        fn progress(&self, _flow_id: &str, _step: &str, _detail: Option<String>) {}
+    }
+
+    /// The scripted HTTP: one answer per URL.
+    struct ScriptedHttp {
+        answers: Mutex<Vec<(String, HttpResponse)>>,
+        seen: Mutex<Vec<HttpRequest>>,
+    }
+
+    impl ScriptedHttp {
+        fn new(answers: Vec<(String, HttpResponse)>) -> Self {
+            Self {
+                answers: Mutex::new(answers),
+                seen: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl HttpClient for ScriptedHttp {
+        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
+            self.seen.lock().map(|mut s| s.push(request.clone())).ok();
+            let answer = self.answers.lock().ok().and_then(|mut a| {
+                a.iter()
+                    .position(|(url, _)| *url == request.url)
+                    .map(|index| a.remove(index).1)
+            });
+            Ok(answer.unwrap_or(HttpResponse {
+                status: 404,
+                headers: Vec::new(),
+                body: Vec::new(),
+            }))
+        }
+    }
+
+    fn test_context(host: Arc<RecordingHost>, http: Arc<ScriptedHttp>) -> FlowContext {
+        let store = Arc::new(wmp_core::session::MemorySessionStore::new());
+        let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
+            Arc::new(
+                wmp_core::sessionservice::SessionService::new(
+                    wmp_core::sessionservice::SessionServiceConfig {
+                        store: Some(store.clone()),
+                        entropy: Some(Arc::new(|bytes: &mut [u8]| {
+                            for (i, b) in bytes.iter_mut().enumerate() {
+                                *b = i as u8;
+                            }
+                            true
+                        })),
+                        ..wmp_core::sessionservice::SessionServiceConfig::default()
+                    },
+                )
+                .unwrap_or_else(|_| panic!("session service")),
+            ),
+            Arc::new(|| 0),
+        ));
+        let peer = wmp_core::peer::PeerBuilder::new(handler)
+            .session_store(store)
+            .build();
+        FlowContext {
+            flow_id: "flow-vp-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            session: None,
+            ports: Arc::new(Ports {
+                http,
+                clock: Arc::new(FixedClock),
+                rng: Arc::new(FakeRng),
+                host,
+                pdp: Arc::new(TrustedPdp),
+                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
+                telemetry: Arc::new(NoTelemetry),
+            }),
+            peer,
+            request_context: wmp_core::context::RequestContext::default(),
+        }
+    }
+
+    struct FixedClock;
+    #[async_trait::async_trait]
+    impl engine_ports::Clock for FixedClock {
+        fn now_unix(&self) -> i64 {
+            1_000
+        }
+        async fn sleep(&self, _duration_ms: u64) {}
+    }
+
+    struct FakeRng;
+    impl Rng for FakeRng {
+        fn fill(&self, buf: &mut [u8]) -> bool {
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            true
+        }
+    }
+
+    struct MemKv(Mutex<rustc_hash::FxHashMap<String, Vec<u8>>>);
+    #[async_trait::async_trait]
+    impl KeyValue for MemKv {
+        async fn get(&self, key: &str) -> Option<KeyValueEntry> {
+            self.0.lock().ok()?.get(key).map(|v| KeyValueEntry {
+                value: v.clone(),
+                ttl_secs: None,
+            })
+        }
+        async fn put(&self, key: &str, entry: KeyValueEntry) {
+            self.0
+                .lock()
+                .map(|mut m| m.insert(key.to_owned(), entry.value))
+                .ok();
+        }
+        async fn delete(&self, key: &str) {
+            self.0.lock().map(|mut m| m.remove(key)).ok();
+        }
+    }
+
+    struct NoTelemetry;
+    impl engine_ports::Telemetry for NoTelemetry {
+        fn event(&self, _event: engine_ports::TelemetryEvent) {}
+    }
+
+    /// A params Box<RawValue> from a JSON value.
+    fn raw_value(value: serde_json::Value) -> Option<Box<serde_json::value::RawValue>> {
+        serde_json::value::RawValue::from_string(value.to_string()).ok()
+    }
+
+    fn start_params() -> FlowStartParams {
+        FlowStartParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-vp-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            params: raw_value(serde_json::json!({
+                "client_id": "x509_san_dns:verifier.example",
+                "nonce": "nonce-vp-1",
+                "response_uri": "https://verifier.example/response",
+                "response_mode": "direct_post",
+                "state": "state-vp-1",
+                "dcql_query": {
+                    "credentials": [
+                        { "id": "pid-query", "meta": { "vct_values": ["urn:pid"] } },
+                        { "id": "degree-query", "meta": { "vct_values": ["urn:degree"] } }
+                    ]
+                }
+            })),
+            timeout: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_presentation_flow_matches_consents_and_presents() {
+        let host = Arc::new(RecordingHost {
+            matches: Mutex::new(Vec::new()),
+            vps: Mutex::new(Vec::new()),
+        });
+        let http = Arc::new(ScriptedHttp::new(vec![(
+            "https://verifier.example/response".to_owned(),
+            HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: br#"{"redirect_uri":"https://verifier.example/done"}"#.to_vec(),
+            },
+        )]));
+        let ctx = test_context(host.clone(), http.clone());
+
+        Oid4vpFlow
+            .start_flow(&ctx, &start_params())
+            .await
+            .expect("the presentation flow completes");
+
+        // The match ask carried the DCQL query and the verifier.
+        let matches = host.matches.lock().expect("lock");
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].dcql_query.is_some());
+        assert_eq!(
+            matches[0].verifier.client_id,
+            "x509_san_dns:verifier.example"
+        );
+        assert!(matches[0].verifier.trusted);
+        drop(matches);
+
+        // The VP ask carried the audience, the nonce, both selections,
+        // and the response endpoint; no thumbprint for direct_post.
+        let vps = host.vps.lock().expect("lock");
+        assert_eq!(vps.len(), 1);
+        assert_eq!(vps[0].audience, "x509_san_dns:verifier.example");
+        assert_eq!(vps[0].nonce, "nonce-vp-1");
+        assert_eq!(vps[0].response_uri, "https://verifier.example/response");
+        assert_eq!(vps[0].selections.len(), 2);
+        assert_eq!(vps[0].selections[0].credential_query_id, "pid-query");
+        assert_eq!(vps[0].verifier_jwk_thumbprint, "");
+        drop(vps);
+
+        // The submission: the vp_token restructured into the DCQL
+        // object keyed by query id.
+        let seen = http.seen.lock().expect("lock");
+        assert_eq!(seen.len(), 1);
+        let body = String::from_utf8_lossy(&seen[0].body).into_owned();
+        assert!(body.contains("vp_token="));
+        let vp_token = body
+            .strip_prefix("vp_token=")
+            .and_then(|rest| rest.split('&').next())
+            .unwrap_or_default();
+        let decoded = crate::oid4vp::test_util::percent_decode(vp_token).into_bytes();
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&decoded).expect("the restructured vp_token is JSON");
+        assert_eq!(parsed["pid-query"], serde_json::json!(["token-pid"]));
+        assert_eq!(parsed["degree-query"], serde_json::json!(["token-degree"]));
+    }
+
+    #[tokio::test]
+    async fn an_empty_match_ends_the_flow_without_presenting() {
+        struct EmptyMatchHost;
+        #[async_trait::async_trait]
+        impl Host for EmptyMatchHost {
+            async fn request_sign(&self, _params: SignParams) -> Result<SignResult, HostError> {
+                Err(HostError::Cannot("no".to_owned()))
+            }
+            async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
+                Ok(MatchResult {
+                    selections: Vec::new(),
+                })
+            }
+            async fn request_consent(
+                &self,
+                _params: ConsentParams,
+            ) -> Result<ConsentResult, HostError> {
+                Err(HostError::Cannot("never asked".to_owned()))
+            }
+            async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
+                Err(HostError::Cannot("no".to_owned()))
+            }
+            async fn open_authorization(
+                &self,
+                _flow_id: &str,
+                _url: &str,
+            ) -> Result<(), HostError> {
+                Ok(())
+            }
+            fn progress(&self, _flow_id: &str, _step: &str, _detail: Option<String>) {}
+        }
+
+        let http = Arc::new(ScriptedHttp::new(Vec::new()));
+        let store = Arc::new(wmp_core::session::MemorySessionStore::new());
+        let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
+            Arc::new(
+                wmp_core::sessionservice::SessionService::new(
+                    wmp_core::sessionservice::SessionServiceConfig {
+                        store: Some(store.clone()),
+                        entropy: Some(Arc::new(|bytes: &mut [u8]| {
+                            for (i, b) in bytes.iter_mut().enumerate() {
+                                *b = i as u8;
+                            }
+                            true
+                        })),
+                        ..wmp_core::sessionservice::SessionServiceConfig::default()
+                    },
+                )
+                .unwrap_or_else(|_| panic!("session service")),
+            ),
+            Arc::new(|| 0),
+        ));
+        let peer = wmp_core::peer::PeerBuilder::new(handler)
+            .session_store(store)
+            .build();
+        let ctx = FlowContext {
+            flow_id: "flow-vp-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            session: None,
+            ports: Arc::new(Ports {
+                http: http.clone(),
+                clock: Arc::new(FixedClock),
+                rng: Arc::new(FakeRng),
+                host: Arc::new(EmptyMatchHost),
+                pdp: Arc::new(TrustedPdp),
+                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
+                telemetry: Arc::new(NoTelemetry),
+            }),
+            peer,
+            request_context: wmp_core::context::RequestContext::default(),
+        };
+
+        Oid4vpFlow
+            .start_flow(&ctx, &start_params())
+            .await
+            .expect("the empty match ends the flow, it is not an error");
+
+        // Nothing was submitted to the verifier.
+        assert!(http.seen.lock().expect("lock").is_empty());
+    }
 }

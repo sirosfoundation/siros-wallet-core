@@ -418,25 +418,45 @@ impl engine_ports::Host for ScriptedHost {
 
     async fn request_match(
         &self,
-        flow_id: &str,
-        entries: Vec<engine_ports::MatchEntry>,
+        params: engine_ports::MatchParams,
     ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
-        let ask = json!({
-            "flow_id": flow_id,
-            "entries": entries,
-        });
+        let ask = serde_json::to_value(&params).unwrap_or(Value::Null);
         match self.world.host_ask("match", ask) {
-            Ok(value) => Ok(engine_ports::MatchResult {
-                selected_id: value
-                    .get("selected_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-                query_id: value
-                    .get("query_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-            }),
+            Ok(value) => {
+                let selections = value
+                    .get("selections")
+                    .and_then(Value::as_array)
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .map(|entry| engine_ports::VpSelection {
+                                credential_query_id: entry
+                                    .get("credential_query_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                                credential_id: entry
+                                    .get("credential_id")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                                disclosed_claims: entry
+                                    .get("disclosed_claims")
+                                    .and_then(Value::as_array)
+                                    .map(|claims| {
+                                        claims
+                                            .iter()
+                                            .filter_map(Value::as_str)
+                                            .map(str::to_owned)
+                                            .collect()
+                                    })
+                                    .unwrap_or_default(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Ok(engine_ports::MatchResult { selections })
+            }
             Err(reason) => {
                 self.world.fail(reason);
                 Err(engine_ports::HostError::Cannot(
@@ -488,6 +508,59 @@ impl engine_ports::Host for ScriptedHost {
         let ask = json!({ "flow_id": flow_id, "url": url });
         match self.world.host_ask("open_authorization", ask) {
             Ok(_) => Ok(()),
+            Err(reason) => {
+                self.world.fail(reason);
+                Err(engine_ports::HostError::Cannot(
+                    "the scripted host refused".to_owned(),
+                ))
+            }
+        }
+    }
+
+    async fn request_vp(
+        &self,
+        params: engine_ports::VpParams,
+    ) -> Result<engine_ports::VpResult, engine_ports::HostError> {
+        let ask = serde_json::to_value(&params).unwrap_or(Value::Null);
+        match self.world.host_ask("presentation", ask) {
+            Ok(value) => {
+                // No scripted answer is the refusal: an empty VP token
+                // submitted to a verifier would be worse.
+                let token = value
+                    .get("vp_token")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                if token.is_empty() {
+                    return Err(engine_ports::HostError::Cannot(
+                        "the scripted host refuses to present".to_owned(),
+                    ));
+                }
+                Ok(engine_ports::VpResult { vp_token: token })
+            }
+            Err(reason) => {
+                self.world.fail(reason);
+                Err(engine_ports::HostError::Cannot(
+                    "the scripted host refused".to_owned(),
+                ))
+            }
+        }
+    }
+
+    async fn request_dpop_proof(
+        &self,
+        params: engine_ports::DpopProofParams,
+    ) -> Result<engine_ports::DpopProofResult, engine_ports::HostError> {
+        let ask = serde_json::to_value(&params).unwrap_or(Value::Null);
+        match self.world.host_ask("dpop", ask) {
+            Ok(value) => {
+                let proof = value
+                    .get("proof")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                Ok(engine_ports::DpopProofResult { proof })
+            }
             Err(reason) => {
                 self.world.fail(reason);
                 Err(engine_ports::HostError::Cannot(

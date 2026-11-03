@@ -259,7 +259,7 @@ typedef void (*UniffiCallbackInterfaceHostMethod0)(uint64_t, RustBuffer, UniffiF
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD1
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD1
-typedef void (*UniffiCallbackInterfaceHostMethod1)(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+typedef void (*UniffiCallbackInterfaceHostMethod1)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
     );
 
 #endif
@@ -277,13 +277,25 @@ typedef void (*UniffiCallbackInterfaceHostMethod3)(uint64_t, RustBuffer, UniffiF
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD4
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD4
-typedef void (*UniffiCallbackInterfaceHostMethod4)(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteVoid _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+typedef void (*UniffiCallbackInterfaceHostMethod4)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
     );
 
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD5
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD5
-typedef void (*UniffiCallbackInterfaceHostMethod5)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceHostMethod5)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD6
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD6
+typedef void (*UniffiCallbackInterfaceHostMethod6)(uint64_t, RustBuffer, RustBuffer, UniffiForeignFutureCompleteVoid _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD7
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD7
+typedef void (*UniffiCallbackInterfaceHostMethod7)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -299,10 +311,12 @@ typedef void (*UniffiCallbackInterfaceHttpClientMethod0)(uint64_t, RustBuffer, U
 typedef struct UniffiVTableCallbackInterfaceHost {
     UniffiCallbackInterfaceHostMethod0 _Nonnull requestSign;
     UniffiCallbackInterfaceHostMethod1 _Nonnull requestMatch;
-    UniffiCallbackInterfaceHostMethod2 _Nonnull requestConsent;
-    UniffiCallbackInterfaceHostMethod3 _Nonnull requestTxCode;
-    UniffiCallbackInterfaceHostMethod4 _Nonnull openAuthorization;
-    UniffiCallbackInterfaceHostMethod5 _Nonnull progress;
+    UniffiCallbackInterfaceHostMethod2 _Nonnull requestVp;
+    UniffiCallbackInterfaceHostMethod3 _Nonnull requestDpopProof;
+    UniffiCallbackInterfaceHostMethod4 _Nonnull requestConsent;
+    UniffiCallbackInterfaceHostMethod5 _Nonnull requestTxCode;
+    UniffiCallbackInterfaceHostMethod6 _Nonnull openAuthorization;
+    UniffiCallbackInterfaceHostMethod7 _Nonnull progress;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceHost;
 
@@ -691,6 +705,18 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_sign(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_MATCH
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_MATCH
 uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_match(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_VP
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_VP
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_vp(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_DPOP_PROOF
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_DPOP_PROOF
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_dpop_proof(void
     
 );
 #endif

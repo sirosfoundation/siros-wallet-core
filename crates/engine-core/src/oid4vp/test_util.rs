@@ -62,3 +62,30 @@ pub fn base64url_decode(encoded: &[u8]) -> Vec<u8> {
     }
     out
 }
+
+/// Minimal percent-decoding (unpadded test utility).
+pub fn percent_decode(value: &str) -> String {
+    let mut out = Vec::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+            continue;
+        }
+        let mut hex = String::with_capacity(2);
+        for _ in 0..2 {
+            if let Some(h) = chars.next() {
+                hex.push(h);
+            }
+        }
+        match u8::from_str_radix(&hex, 16) {
+            Ok(byte) if hex.len() == 2 => out.push(byte),
+            _ => {
+                out.push(b'%');
+                out.extend(hex.as_bytes());
+            }
+        }
+    }
+    String::from_utf8(out).unwrap_or_default()
+}

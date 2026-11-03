@@ -206,27 +206,211 @@ pub struct SignResult {
     pub signature: Vec<u8>,
 }
 
-/// A credential match the engine asks the host to select from.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MatchEntry {
-    /// The credential's identifier.
-    pub credential_id: String,
-    /// The credential's display name.
-    pub display_name: String,
-    /// The credential's type.
-    pub credential_type: String,
+/// The client_id scheme, inferred from the `client_id` prefix — a
+/// wire contract (it crosses the Host boundary in the verifier info).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientIdScheme {
+    /// `x509_san_dns:` — an x.509 certificate's SAN DNS entry.
+    X509SanDns,
+    /// `x509_san_uri:` — an x.509 certificate's SAN URI entry.
+    X509SanUri,
+    /// `did:` — a DID-based request (verified first, per the spec).
+    DecentralizedIdentifier,
+    /// `verifier_attestation:` — a verifier attestation.
+    VerifierAttestation,
+    /// `redirect_uri:` — the redirect URI itself (unsigned requests only).
+    RedirectUri,
+    /// An unrecognized prefix.
+    Unknown(String),
 }
 
-/// The match answer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MatchResult {
-    /// The selected credential's identifier.
-    pub selected_id: String,
-    /// The DCQL query's credential id this selection answers, when the
-    /// request carried a query (OpenID4VP §8.1: the vp_token object is
-    /// keyed by it).
+impl ClientIdScheme {
+    /// Infers the scheme from the `client_id` string's prefix.
+    pub fn infer(client_id: &str) -> Self {
+        if client_id.starts_with("x509_san_dns:") {
+            Self::X509SanDns
+        } else if client_id.starts_with("x509_san_uri:") {
+            Self::X509SanUri
+        } else if client_id.starts_with("did:") {
+            Self::DecentralizedIdentifier
+        } else if client_id.starts_with("verifier_attestation:") {
+            Self::VerifierAttestation
+        } else if client_id.starts_with("http://") || client_id.starts_with("https://") {
+            Self::RedirectUri
+        } else {
+            Self::Unknown(client_id.to_owned())
+        }
+    }
+
+    /// The prefix this scheme implies; the client_id must start with it.
+    pub fn prefix(&self) -> &str {
+        match self {
+            Self::X509SanDns => "x509_san_dns:",
+            Self::X509SanUri => "x509_san_uri:",
+            Self::DecentralizedIdentifier => "did:",
+            Self::VerifierAttestation => "verifier_attestation:",
+            Self::RedirectUri => "",
+            Self::Unknown(_) => "",
+        }
+    }
+}
+
+/// The verifier info the host's consent UI shows (OpenID4VP §5.2's
+/// client metadata, plus the trust decision the PDP made) — a wire
+/// contract.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VerifierInfo {
+    /// The display name (the client metadata's client_name, else the
+    /// client_id).
+    pub name: String,
+    /// The client_id, with its scheme prefix.
+    pub client_id: String,
+    /// The inferred client_id scheme.
+    pub client_id_scheme: ClientIdScheme,
+    /// The domain extracted from the client_id, when there is one.
+    pub domain: String,
+    /// The logo URI, when the metadata published one.
     #[serde(default)]
-    pub query_id: Option<String>,
+    pub logo_uri: String,
+    /// Whether the PDP trusts the verifier.
+    pub trusted: bool,
+    /// The trust framework that made the decision, when there is one.
+    #[serde(default)]
+    pub framework: String,
+    /// Why the decision was made (the PDP's reason).
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// One credential the host selected to present, as the match answer
+/// reports it (the Go engine's `ConsentSelection`): which DCQL query it
+/// answers, which credential satisfies it, and the claims the user
+/// agreed to disclose.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VpSelection {
+    /// The DCQL query's credential id this selection answers
+    /// (OpenID4VP §8.1: the vp_token object is keyed by it).
+    #[serde(default)]
+    pub credential_query_id: String,
+    /// The wallet credential to present.
+    pub credential_id: String,
+    /// The claim names the presentation discloses.
+    #[serde(default)]
+    pub disclosed_claims: Vec<String>,
+}
+
+/// The presentation match: the engine asks the host to match the
+/// wallet's credentials against the DCQL query (or the scope) and
+/// select what to present. The local matching is the host's — it has
+/// the wallet state and the credential formats; the engine never
+/// enumerates the wallet's credentials.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchParams {
+    /// The flow the match belongs to.
+    pub flow_id: String,
+    /// The DCQL query, raw, when the request carried one.
+    #[serde(default)]
+    pub dcql_query: Option<serde_json::Value>,
+    /// The scope, when the request used scope instead of a query.
+    #[serde(default)]
+    pub scope: String,
+    /// The verifier as the consent UI shows it.
+    pub verifier: VerifierInfo,
+    /// The transaction data entries, raw (the base64url strings), for
+    /// the UI's transaction summary.
+    #[serde(default)]
+    pub transaction_data: Vec<String>,
+}
+
+/// The match answer: the selected credentials, one per DCQL query
+/// answered. An empty answer means nothing matched — the flow ends
+/// there, exactly as the Go engine's `credentials_matched` with an
+/// empty set.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MatchResult {
+    /// The selected credentials.
+    #[serde(default)]
+    pub selections: Vec<VpSelection>,
+}
+
+/// The presentation the engine asks the host to construct and sign:
+/// the VP token for the selected credentials. The wallet's
+/// presentation formats (mdoc, SD-JWT, ZK) and its key custody live in
+/// the host; the engine never sees a private key (the Go engine's
+/// `SignActionSignPresentation`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VpParams {
+    /// The flow the presentation belongs to.
+    pub flow_id: String,
+    /// The audience: the client_id (the redirect_uri fallback when the
+    /// request carried none).
+    pub audience: String,
+    /// The request's nonce.
+    pub nonce: String,
+    /// The selected credentials to present.
+    pub selections: Vec<VpSelection>,
+    /// The response endpoint — the mdoc session transcript input.
+    pub response_uri: String,
+    /// The base64url SHA-256 JWK thumbprint of the verifier's
+    /// encryption key, for direct_post.jwt's OpenID4VPHandover
+    /// transcript. Empty for the other response modes.
+    #[serde(default)]
+    pub verifier_jwk_thumbprint: String,
+    /// The verifier-assigned session id (the `sessionId` query
+    /// parameter) — the ZK/PPID pseudonym's verifier_context binds to
+    /// it. Empty for non-ZK presentations.
+    #[serde(default)]
+    pub verifier_session_id: String,
+    /// The transaction data entries, raw — the host hashes each into
+    /// the KB-JWT (TS12).
+    #[serde(default)]
+    pub transaction_data: Vec<String>,
+}
+
+/// The presentation answer.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VpResult {
+    /// The VP token: one token per selection, newline-separated — the
+    /// engine restructures the multi-selection answer into the DCQL
+    /// object — or a pre-formed JSON object, which passes through.
+    #[serde(default)]
+    pub vp_token: String,
+}
+
+/// The client-held DPoP proof the engine asks the host for (RFC 9449
+/// §4.2, the Go engine's `SignActionSignClientAuth` — the target
+/// design, go-wallet-backend#317: the device's key signs whole proofs
+/// on demand). The engine falls back to its own ephemeral key when
+/// the host cannot answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DpopProofParams {
+    /// The flow the proof belongs to.
+    pub flow_id: String,
+    /// The device key to sign with, named when the flow knows it — a
+    /// renewal must reuse the key its refresh_token was bound to at
+    /// issuance (RFC 9449 / ARF 3.0 §6.6.6.2.2).
+    #[serde(default)]
+    pub key_id: Option<String>,
+    /// The HTTP method the proof is bound to.
+    pub htm: String,
+    /// The HTTP URI the proof is bound to.
+    pub htu: String,
+    /// The access-token hash input, when a resource request is being
+    /// proofed (the `ath`).
+    #[serde(default)]
+    pub access_token: String,
+    /// The server-provided DPoP nonce, when one was demanded.
+    #[serde(default)]
+    pub nonce: String,
+}
+
+/// The DPoP proof answer.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DpopProofResult {
+    /// The proof JWT (`dpop+jwt`), signed by the device-held key with
+    /// its public JWK in the header.
+    #[serde(default)]
+    pub proof: String,
 }
 
 /// The consent the engine asks the host's user for.
@@ -296,12 +480,16 @@ pub trait Host: Send + Sync {
     /// Asks the host to sign the given input with the named key.
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, HostError>;
 
-    /// Asks the host to select a credential from the given entries.
-    async fn request_match(
-        &self,
-        flow_id: &str,
-        entries: Vec<MatchEntry>,
-    ) -> Result<MatchResult, HostError>;
+    /// Asks the host to match the wallet's credentials against the
+    /// DCQL query (or the scope) and select what to present. The local
+    /// matching is the host's — it has the wallet state and the
+    /// credential formats; the engine never enumerates the wallet's
+    /// credentials (the Go engine's `credentials_matched` contract).
+    ///
+    /// An empty answer means nothing matched: the flow ends there
+    /// without an error, exactly as the Go engine treats an empty
+    /// match set.
+    async fn request_match(&self, params: MatchParams) -> Result<MatchResult, HostError>;
 
     /// Asks the host's user for consent to the given presentation.
     async fn request_consent(&self, params: ConsentParams) -> Result<ConsentResult, HostError>;
@@ -312,6 +500,41 @@ pub trait Host: Send + Sync {
     /// Opens the authorization URL in the host's browser (the authorization
     /// code flow's user agent step).
     async fn open_authorization(&self, flow_id: &str, url: &str) -> Result<(), HostError>;
+
+    /// Asks the host to construct and sign the VP token for the
+    /// selected credentials — the wallet's presentation formats (mdoc,
+    /// SD-JWT, ZK) and its key custody live in the host; the engine
+    /// never sees a private key (the Go engine's
+    /// `SignActionSignPresentation`).
+    ///
+    /// The answer's `vp_token` is one token per selection,
+    /// newline-separated (the engine restructures the multi-selection
+    /// answer into the DCQL object, OpenID4VP §8.1), or a pre-formed
+    /// JSON object, which passes through unchanged.
+    ///
+    /// The default implementation refuses, so older hosts and adapters
+    /// keep working; a flow whose host cannot present ends with the
+    /// user's decline rather than a fabricated token.
+    async fn request_vp(&self, _params: VpParams) -> Result<VpResult, HostError> {
+        Err(HostError::Cannot(
+            "presentation signing not supported by this host".to_owned(),
+        ))
+    }
+
+    /// Asks the host for a client-held DPoP proof (RFC 9449 §4.2, the
+    /// Go engine's `SignActionSignClientAuth` — the target design,
+    /// go-wallet-backend#317: the device's key signs whole proofs on
+    /// demand). The engine falls back to its own ephemeral key when
+    /// the host cannot answer — the legacy mode — so the default
+    /// refusal keeps every flow working.
+    async fn request_dpop_proof(
+        &self,
+        _params: DpopProofParams,
+    ) -> Result<DpopProofResult, HostError> {
+        Err(HostError::Cannot(
+            "client-held DPoP not supported by this host".to_owned(),
+        ))
+    }
 
     /// Asks the host for a client attestation: the Wallet Instance
     /// Attestation and the matching PoP, for the PAR/token request's

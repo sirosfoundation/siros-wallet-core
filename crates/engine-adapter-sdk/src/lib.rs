@@ -216,23 +216,129 @@ impl From<engine_ports::SignResult> for SignResult {
     }
 }
 
-/// A match entry. Mirrors `engine_ports::MatchEntry`.
-#[derive(uniffi::Record, Clone, Debug)]
-pub struct MatchEntry {
-    /// The credential's identifier.
-    pub credential_id: String,
-    /// The credential's display name.
-    pub display_name: String,
-    /// The credential's type.
-    pub credential_type: String,
+/// The client_id scheme of the verifier. Mirrors
+/// `engine_ports::ClientIdScheme`.
+#[derive(uniffi::Enum, Clone, Debug)]
+pub enum ClientIdScheme {
+    /// An x.509 certificate's SAN DNS entry (`x509_san_dns:`).
+    X509SanDns,
+    /// An x.509 certificate's SAN URI entry (`x509_san_uri:`).
+    X509SanUri,
+    /// A DID-based request (`did:`).
+    DecentralizedIdentifier,
+    /// A verifier attestation (`verifier_attestation:`).
+    VerifierAttestation,
+    /// The redirect URI itself (unsigned requests only).
+    RedirectUri,
+    /// An unrecognized prefix.
+    Unknown,
 }
 
-impl From<MatchEntry> for engine_ports::MatchEntry {
-    fn from(e: MatchEntry) -> Self {
+impl From<engine_ports::ClientIdScheme> for ClientIdScheme {
+    fn from(s: engine_ports::ClientIdScheme) -> Self {
+        match s {
+            engine_ports::ClientIdScheme::X509SanDns => Self::X509SanDns,
+            engine_ports::ClientIdScheme::X509SanUri => Self::X509SanUri,
+            engine_ports::ClientIdScheme::DecentralizedIdentifier => Self::DecentralizedIdentifier,
+            engine_ports::ClientIdScheme::VerifierAttestation => Self::VerifierAttestation,
+            engine_ports::ClientIdScheme::RedirectUri => Self::RedirectUri,
+            engine_ports::ClientIdScheme::Unknown(_) => Self::Unknown,
+        }
+    }
+}
+
+/// The verifier info the consent UI shows. Mirrors
+/// `engine_ports::VerifierInfo`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VerifierInfo {
+    /// The display name (the metadata's client_name, else the client_id).
+    pub name: String,
+    /// The client_id, with its scheme prefix.
+    pub client_id: String,
+    /// The inferred client_id scheme.
+    pub client_id_scheme: ClientIdScheme,
+    /// The domain extracted from the client_id, when there is one.
+    pub domain: String,
+    /// The logo URI, when the metadata published one.
+    pub logo_uri: String,
+    /// Whether the PDP trusts the verifier.
+    pub trusted: bool,
+    /// The trust framework that made the decision, when there is one.
+    pub framework: String,
+    /// Why the decision was made (the PDP's reason).
+    pub reason: String,
+}
+
+impl From<engine_ports::VerifierInfo> for VerifierInfo {
+    fn from(v: engine_ports::VerifierInfo) -> Self {
         Self {
-            credential_id: e.credential_id,
-            display_name: e.display_name,
-            credential_type: e.credential_type,
+            name: v.name,
+            client_id: v.client_id,
+            client_id_scheme: v.client_id_scheme.into(),
+            domain: v.domain,
+            logo_uri: v.logo_uri,
+            trusted: v.trusted,
+            framework: v.framework,
+            reason: v.reason,
+        }
+    }
+}
+
+/// One credential the host selected to present. Mirrors
+/// `engine_ports::VpSelection`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VpSelection {
+    /// The DCQL query's credential id this selection answers.
+    pub credential_query_id: String,
+    /// The wallet credential to present.
+    pub credential_id: String,
+    /// The claim names the presentation discloses.
+    pub disclosed_claims: Vec<String>,
+}
+
+impl From<VpSelection> for engine_ports::VpSelection {
+    fn from(s: VpSelection) -> Self {
+        Self {
+            credential_query_id: s.credential_query_id,
+            credential_id: s.credential_id,
+            disclosed_claims: s.disclosed_claims,
+        }
+    }
+}
+
+impl From<engine_ports::VpSelection> for VpSelection {
+    fn from(s: engine_ports::VpSelection) -> Self {
+        Self {
+            credential_query_id: s.credential_query_id,
+            credential_id: s.credential_id,
+            disclosed_claims: s.disclosed_claims,
+        }
+    }
+}
+
+/// The presentation match request. Mirrors `engine_ports::MatchParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct MatchParams {
+    /// The flow.
+    pub flow_id: String,
+    /// The DCQL query as raw JSON text, when the request carried one.
+    pub dcql_query: Option<String>,
+    /// The scope, when the request used scope instead of a query.
+    pub scope: String,
+    /// The verifier as the consent UI shows it.
+    pub verifier: VerifierInfo,
+    /// The transaction data entries, raw, for the UI's summary.
+    pub transaction_data: Vec<String>,
+}
+
+impl From<engine_ports::MatchParams> for MatchParams {
+    fn from(m: engine_ports::MatchParams) -> Self {
+        Self {
+            flow_id: m.flow_id,
+            dcql_query: m.dcql_query.and_then(|q| serde_json::to_string(&q).ok()),
+            scope: m.scope,
+            verifier: m.verifier.into(),
+            transaction_data: m.transaction_data,
         }
     }
 }
@@ -240,19 +346,114 @@ impl From<MatchEntry> for engine_ports::MatchEntry {
 /// The match answer. Mirrors `engine_ports::MatchResult`.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct MatchResult {
-    /// The selected credential's identifier.
-    pub selected_id: String,
-    /// The DCQL query's credential id this selection answers, when the
-    /// request carried a query.
-    pub query_id: Option<String>,
+    /// The selected credentials; empty means nothing matched.
+    pub selections: Vec<VpSelection>,
 }
 
 impl From<engine_ports::MatchResult> for MatchResult {
     fn from(r: engine_ports::MatchResult) -> Self {
         Self {
-            selected_id: r.selected_id,
-            query_id: r.query_id,
+            selections: r.selections.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+/// The presentation construction request. Mirrors
+/// `engine_ports::VpParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VpParams {
+    /// The flow.
+    pub flow_id: String,
+    /// The audience (the client_id, or the redirect_uri fallback).
+    pub audience: String,
+    /// The request's nonce.
+    pub nonce: String,
+    /// The selected credentials to present.
+    pub selections: Vec<VpSelection>,
+    /// The response endpoint (the mdoc session transcript input).
+    pub response_uri: String,
+    /// The verifier encryption key's JWK thumbprint, for
+    /// direct_post.jwt's OpenID4VPHandover — empty otherwise.
+    pub verifier_jwk_thumbprint: String,
+    /// The verifier's session id (the ZK/PPID verifier_context) —
+    /// empty for non-ZK presentations.
+    pub verifier_session_id: String,
+    /// The transaction data entries, raw — the KB-JWT hashes.
+    pub transaction_data: Vec<String>,
+}
+
+impl From<engine_ports::VpParams> for VpParams {
+    fn from(p: engine_ports::VpParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            audience: p.audience,
+            nonce: p.nonce,
+            selections: p.selections.into_iter().map(Into::into).collect(),
+            response_uri: p.response_uri,
+            verifier_jwk_thumbprint: p.verifier_jwk_thumbprint,
+            verifier_session_id: p.verifier_session_id,
+            transaction_data: p.transaction_data,
+        }
+    }
+}
+
+/// The presentation answer. Mirrors `engine_ports::VpResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct VpResult {
+    /// The VP token: newline-separated per selection, or a pre-formed
+    /// JSON object.
+    pub vp_token: String,
+}
+
+impl From<VpResult> for engine_ports::VpResult {
+    fn from(r: VpResult) -> Self {
+        Self {
+            vp_token: r.vp_token,
+        }
+    }
+}
+
+/// The client-held DPoP proof request. Mirrors
+/// `engine_ports::DpopProofParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DpopProofParams {
+    /// The flow.
+    pub flow_id: String,
+    /// The device key to sign with, named when the flow knows it.
+    pub key_id: Option<String>,
+    /// The HTTP method the proof is bound to.
+    pub htm: String,
+    /// The HTTP URI the proof is bound to.
+    pub htu: String,
+    /// The access token, when a resource request is being proofed.
+    pub access_token: String,
+    /// The server-provided DPoP nonce, when one was demanded.
+    pub nonce: String,
+}
+
+impl From<engine_ports::DpopProofParams> for DpopProofParams {
+    fn from(p: engine_ports::DpopProofParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            key_id: p.key_id,
+            htm: p.htm,
+            htu: p.htu,
+            access_token: p.access_token,
+            nonce: p.nonce,
+        }
+    }
+}
+
+/// The DPoP proof answer. Mirrors `engine_ports::DpopProofResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct DpopProofResult {
+    /// The proof JWT (`dpop+jwt`).
+    pub proof: String,
+}
+
+impl From<DpopProofResult> for engine_ports::DpopProofResult {
+    fn from(r: DpopProofResult) -> Self {
+        Self { proof: r.proof }
     }
 }
 
@@ -364,12 +565,22 @@ pub trait Host: Send + Sync {
     /// Asks the host to sign the given input.
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, SdkError>;
 
-    /// Asks the host to select a credential.
-    async fn request_match(
+    /// Asks the host to match the wallet's credentials against the DCQL
+    /// query and select what to present. An empty answer means nothing
+    /// matched: the flow ends there.
+    async fn request_match(&self, params: MatchParams) -> Result<MatchResult, SdkError>;
+
+    /// Asks the host to construct and sign the VP token for the
+    /// selected credentials — the wallet's presentation formats and
+    /// key custody live in the host.
+    async fn request_vp(&self, params: VpParams) -> Result<VpResult, SdkError>;
+
+    /// Asks the host for a client-held DPoP proof; the engine falls
+    /// back to its own key when the host cannot answer.
+    async fn request_dpop_proof(
         &self,
-        flow_id: String,
-        entries: Vec<MatchEntry>,
-    ) -> Result<MatchResult, SdkError>;
+        params: DpopProofParams,
+    ) -> Result<DpopProofResult, SdkError>;
 
     /// Asks the host's user for consent.
     async fn request_consent(&self, params: ConsentParams) -> Result<ConsentResult, SdkError>;

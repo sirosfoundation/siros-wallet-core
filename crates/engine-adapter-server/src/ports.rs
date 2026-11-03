@@ -3,9 +3,9 @@
 
 use engine_ports::{
     Clock, ConsentParams, ConsentResult, EvaluationRequest, EvaluationResponse, Host, HostError,
-    HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchEntry,
-    MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult,
-    Telemetry, TelemetryEvent,
+    HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchResult, Pdp,
+    PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult, Telemetry,
+    TelemetryEvent,
 };
 
 use crate::config::Config;
@@ -156,8 +156,7 @@ impl Host for RemoteHost {
 
     async fn request_match(
         &self,
-        _flow_id: &str,
-        _entries: Vec<MatchEntry>,
+        _params: engine_ports::MatchParams,
     ) -> Result<MatchResult, HostError> {
         Err(HostError::Cannot(
             "the remote host's match sub-flow arrives with the flow families".to_owned(),

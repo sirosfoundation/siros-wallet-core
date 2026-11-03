@@ -58,30 +58,8 @@ impl ClientMetadata {
     }
 }
 
-/// The verifier info the host shows and the flow records.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct VerifierInfo {
-    /// The display name (the client metadata's client_name, else the
-    /// client_id).
-    pub name: String,
-    /// The client_id, with its scheme prefix.
-    pub client_id: String,
-    /// The inferred client_id scheme.
-    pub client_id_scheme: ClientIdScheme,
-    /// The domain extracted from the client_id, when there is one.
-    pub domain: String,
-    /// The logo URI, when the metadata published one.
-    #[serde(default)]
-    pub logo_uri: String,
-    /// Whether the PDP trusts the verifier.
-    pub trusted: bool,
-    /// The trust framework that made the decision, when there is one.
-    #[serde(default)]
-    pub framework: String,
-    /// Why the decision was made (the PDP's reason).
-    #[serde(default)]
-    pub reason: String,
-}
+/// The verifier info — the wire contract lives in engine-ports.
+pub use engine_ports::VerifierInfo;
 
 /// Why the verifier trust evaluation refused.
 #[derive(Debug, thiserror::Error)]
@@ -408,7 +386,7 @@ fn scheme_and_host(url: &str) -> Option<(String, String)> {
 
 /// Extracts a query parameter's value from a URI string, with minimal
 /// percent-decoding.
-fn query_param(url: &str, name: &str) -> Option<String> {
+pub fn query_param(url: &str, name: &str) -> Option<String> {
     let query = url.split_once('?')?.1;
     let query = query.split('#').next().unwrap_or(query);
     for pair in query.split('&') {

@@ -72,6 +72,10 @@ pub enum TokenError {
 pub struct TokenExchangeContext<'a> {
     /// The flow the exchange belongs to (the attestation ask).
     pub flow_id: &'a str,
+    /// The device DPoP key to sign with, when the flow names one — a
+    /// renewal reuses the key its refresh_token was bound to at
+    /// issuance (RFC 9449 / ARF 3.0 §6.6.6.2.2).
+    pub dpop_key_id: Option<&'a str>,
     /// The wallet's client_id (the form member; the attestation PoP's
     /// `iss`).
     pub client_id: &'a str,
@@ -116,9 +120,7 @@ pub async fn exchange_pre_authorized_code(
         String::new()
     };
 
-    // Resolve the token endpoint.
-    let token_endpoint = as_metadata.token_endpoint.clone();
-    if token_endpoint.is_empty() {
+    if as_metadata.token_endpoint.is_empty() {
         return Err(TokenError::NoTokenEndpoint);
     }
 
@@ -136,8 +138,52 @@ pub async fn exchange_pre_authorized_code(
         form.push_str(&format!("&client_id={}", url_encode(exchange.client_id)));
     }
 
-    // The client-auth state: the attestation the host supplied, and the
-    // server's DPoP nonce once it demands one.
+    token_exchange_loop(http, host, as_metadata, form, exchange).await
+}
+
+/// Exchanges a refresh token (the renewal grant): the same client-auth
+/// loop as every grant — the attestation headers, a fresh DPoP proof
+/// per attempt, the nonce and challenge retries.
+///
+/// **The DPoP key is the one the refresh_token was bound to at
+/// issuance** (RFC 9449 / ARF 3.0 §6.6.6.2.2): the caller's exchange
+/// context names the client-held key or carries the relayed
+/// engine-held key; a fresh key here would be rejected by the issuer.
+pub async fn exchange_refresh_token(
+    http: &dyn HttpClient,
+    host: &dyn Host,
+    as_metadata: &AsMetadata,
+    refresh_token: &str,
+    exchange: &TokenExchangeContext<'_>,
+) -> Result<TokenResponse, TokenError> {
+    if as_metadata.token_endpoint.is_empty() {
+        return Err(TokenError::NoTokenEndpoint);
+    }
+    let mut form = format!(
+        "grant_type=refresh_token&refresh_token={}",
+        url_encode(refresh_token),
+    );
+    if !exchange.client_id.is_empty() {
+        form.push_str(&format!("&client_id={}", url_encode(exchange.client_id)));
+    }
+    token_exchange_loop(http, host, as_metadata, form, exchange).await
+}
+
+/// The shared token-endpoint loop: the client-auth state (the
+/// attestation the host supplied, the server's DPoP nonce once it
+/// demands one), three attempts, the tx_code already in the form.
+async fn token_exchange_loop(
+    http: &dyn HttpClient,
+    host: &dyn Host,
+    as_metadata: &AsMetadata,
+    form: String,
+    exchange: &TokenExchangeContext<'_>,
+) -> Result<TokenResponse, TokenError> {
+    // Resolve the token endpoint.
+    let token_endpoint = as_metadata.token_endpoint.clone();
+    if token_endpoint.is_empty() {
+        return Err(TokenError::NoTokenEndpoint);
+    }
     let mut attestation = super::attestation::request_client_attestation(
         host,
         exchange.flow_id,
@@ -161,17 +207,23 @@ pub async fn exchange_pre_authorized_code(
         headers.extend(super::attestation::attestation_headers(
             attestation.as_ref(),
         ));
-        if let Some(key) = exchange.dpop {
-            if let Ok(proof) = key.proof(
-                exchange.rng,
-                "POST",
-                &token_endpoint,
-                None,
-                dpop_nonce.as_deref(),
-                exchange.now_unix,
-            ) {
-                headers.push(("DPoP".to_owned(), proof));
-            }
+        if let Some(proof) = super::dpop::proof_for(
+            host,
+            exchange.dpop,
+            super::dpop::ProofRequest {
+                flow_id: exchange.flow_id,
+                key_id: exchange.dpop_key_id,
+                htm: "POST",
+                htu: &token_endpoint,
+                access_token: None,
+                nonce: dpop_nonce.as_deref(),
+                rng: exchange.rng,
+                now_unix: exchange.now_unix,
+            },
+        )
+        .await
+        {
+            headers.push(("DPoP".to_owned(), proof));
         }
 
         let response = http
@@ -300,8 +352,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _flow_id: &str,
-            _entries: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, HostError> {
             Err(HostError::Cannot("no match in the test".to_owned()))
         }
@@ -340,6 +391,7 @@ mod tests {
         static FAKE_RNG: FakeRng = FakeRng;
         TokenExchangeContext {
             flow_id: "flow-1",
+            dpop_key_id: None,
             client_id: "client-1",
             dpop: None,
             rng: &FAKE_RNG,
@@ -512,6 +564,7 @@ mod tests {
             false,
             &TokenExchangeContext {
                 flow_id: "flow-1",
+                dpop_key_id: None,
                 client_id: "client-1",
                 dpop: Some(&key),
                 rng: &FakeRng,
@@ -539,5 +592,93 @@ mod tests {
         let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
         let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
         assert_eq!(claims["nonce"], "fresh-nonce");
+    }
+
+    /// A host whose device-held key signs DPoP proofs on demand — the
+    /// target design (go-wallet-backend#317).
+    struct ClientHeldDpopHost {
+        tx_code: String,
+        proofs: std::sync::Mutex<Vec<engine_ports::DpopProofParams>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Host for ClientHeldDpopHost {
+        async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+            Err(HostError::Cannot("no plain sign".to_owned()))
+        }
+        async fn request_match(
+            &self,
+            _params: engine_ports::MatchParams,
+        ) -> Result<engine_ports::MatchResult, HostError> {
+            Err(HostError::Cannot("no match".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, HostError> {
+            Err(HostError::Cannot("no consent".to_owned()))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, HostError> {
+            Ok(self.tx_code.clone())
+        }
+        async fn open_authorization(&self, _f: &str, _u: &str) -> Result<(), HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+
+        async fn request_dpop_proof(
+            &self,
+            params: engine_ports::DpopProofParams,
+        ) -> Result<engine_ports::DpopProofResult, HostError> {
+            self.proofs.lock().map(|mut p| p.push(params)).ok();
+            Ok(engine_ports::DpopProofResult {
+                proof: "client-held-proof".to_owned(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_client_held_dpop_proof_is_preferred() {
+        // The host signs the whole proof with the device's key; the
+        // engine never needs its own.
+        let host = ClientHeldDpopHost {
+            tx_code: String::new(),
+            proofs: std::sync::Mutex::new(Vec::new()),
+        };
+        let http = SequencedHttp::new(vec![engine_ports::HttpResponse {
+            status: 200,
+            headers: Vec::new(),
+            body: br#"{"access_token":"at-1","token_type":"Bearer"}"#.to_vec(),
+        }]);
+        let token = exchange_pre_authorized_code(
+            &http,
+            &host,
+            &test_as(),
+            "pre-auth-1",
+            false,
+            &TokenExchangeContext {
+                flow_id: "flow-1",
+                dpop_key_id: None,
+                client_id: "client-1",
+                dpop: None, // no engine-held fallback
+                rng: &FakeRng,
+                now_unix: 1_000,
+            },
+        )
+        .await
+        .expect("exchange");
+        assert_eq!(token.access_token, "at-1");
+
+        // The host was asked once, and its proof is the header.
+        let proofs = host.proofs.lock().expect("lock");
+        assert_eq!(proofs.len(), 1);
+        assert_eq!(proofs[0].htu, "https://as.example/token");
+        let seen = http.seen.lock().expect("lock");
+        let dpop = seen[0]
+            .headers
+            .iter()
+            .find(|(n, _)| n == "DPoP")
+            .map(|(_, v)| v.clone());
+        assert_eq!(dpop.as_deref(), Some("client-held-proof"));
     }
 }

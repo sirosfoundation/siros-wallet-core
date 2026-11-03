@@ -5,62 +5,8 @@ use serde::{Deserialize, Serialize};
 
 // ─── Authorization Request (OpenID4VP §5) ─────────────────────────────────
 
-/// The client_id scheme, inferred from the `client_id` prefix.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClientIdScheme {
-    /// `x509_san_dns:` — an x.509 certificate's SAN DNS entry.
-    X509SanDns,
-    /// `x509_san_uri:` — an x.509 certificate's SAN URI entry.
-    X509SanUri,
-    /// `did:` — a DID-based request (verified first, per the spec).
-    DecentralizedIdentifier,
-    /// `verifier_attestation:` — a verifier attestation.
-    VerifierAttestation,
-    /// `redirect_uri:` — the redirect URI itself (unsigned requests only).
-    RedirectUri,
-    /// An unrecognized prefix.
-    Unknown(String),
-}
-
-impl ClientIdScheme {
-    /// Infers the scheme from the `client_id` string's prefix.
-    pub fn infer(client_id: &str) -> Self {
-        if client_id.starts_with("x509_san_dns:") {
-            Self::X509SanDns
-        } else if client_id.starts_x509_san_uri() {
-            Self::X509SanUri
-        } else if client_id.starts_with("did:") {
-            Self::DecentralizedIdentifier
-        } else if client_id.starts_with("verifier_attestation:") {
-            Self::VerifierAttestation
-        } else if client_id.starts_with("http://") || client_id.starts_with("https://") {
-            Self::RedirectUri
-        } else {
-            Self::Unknown(client_id.to_owned())
-        }
-    }
-
-    /// The prefix this scheme implies; the client_id must start with it.
-    pub fn prefix(&self) -> &str {
-        match self {
-            Self::X509SanDns => "x509_san_dns:",
-            Self::X509SanUri => "x509_san_uri:",
-            Self::DecentralizedIdentifier => "did:",
-            Self::VerifierAttestation => "verifier_attestation:",
-            Self::RedirectUri => "",
-            Self::Unknown(_) => "",
-        }
-    }
-}
-
-trait StrExt {
-    fn starts_x509_san_uri(&self) -> bool;
-}
-impl StrExt for str {
-    fn starts_x509_san_uri(&self) -> bool {
-        self.starts_with("x509_san_uri:")
-    }
-}
+/// The client_id scheme — the wire contract lives in engine-ports.
+pub use engine_ports::ClientIdScheme;
 
 /// The response mode, from the request's `response_mode`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

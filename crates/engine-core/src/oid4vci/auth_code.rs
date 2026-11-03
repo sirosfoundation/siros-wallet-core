@@ -399,6 +399,10 @@ async fn exchange_code_with_headers(
 pub struct CodeExchangeSpec<'a> {
     /// The flow the exchange belongs to.
     pub flow_id: &'a str,
+    /// The device DPoP key to sign with, when the flow names one — a
+    /// renewal reuses the key its refresh_token was bound to at
+    /// issuance (RFC 9449 / ARF 3.0 §6.6.6.2.2).
+    pub dpop_key_id: Option<&'a str>,
     /// The wallet's client_id (the PoP `iss`).
     pub client_id: &'a str,
     /// The authorization code the redirect answered.
@@ -428,6 +432,8 @@ pub async fn exchange_authorization_code_with_attestation(
     as_metadata: &AsMetadata,
     spec: &CodeExchangeSpec<'_>,
 ) -> Result<TokenResponse, TokenError> {
+    // The client-auth state: the attestation the host supplied, and the
+    // server's DPoP nonce once it demands one.
     let mut attestation = super::attestation::request_client_attestation(
         host,
         spec.flow_id,
@@ -436,9 +442,31 @@ pub async fn exchange_authorization_code_with_attestation(
         "",
     )
     .await;
+    let mut dpop_nonce: Option<String> = None;
 
-    for attempt in 0..2 {
-        let headers = super::attestation::attestation_headers(attestation.as_ref());
+    for attempt in 0..3 {
+        // The headers: the attestation pair, and a fresh DPoP proof
+        // per attempt (the client-held proof the host signs, else the
+        // engine-held key; a new `jti`, the current nonce).
+        let mut headers = super::attestation::attestation_headers(attestation.as_ref());
+        if let Some(proof) = super::dpop::proof_for(
+            host,
+            spec.dpop,
+            super::dpop::ProofRequest {
+                flow_id: spec.flow_id,
+                key_id: spec.dpop_key_id,
+                htm: "POST",
+                htu: &as_metadata.token_endpoint,
+                access_token: None,
+                nonce: dpop_nonce.as_deref(),
+                rng: spec.rng,
+                now_unix: spec.now_unix,
+            },
+        )
+        .await
+        {
+            headers.push(("DPoP".to_owned(), proof));
+        }
         match exchange_code_with_headers(
             http,
             as_metadata,
@@ -451,7 +479,16 @@ pub async fn exchange_authorization_code_with_attestation(
         .await
         {
             Ok(token) => return Ok(token),
-            Err(TokenError::ChallengeNeeded { response_headers }) if attempt == 0 => {
+            Err(TokenError::ChallengeNeeded { response_headers }) if attempt < 2 => {
+                // A DPoP nonce demand (RFC 9449 §8): capture the fresh
+                // nonce; the next attempt's proof carries it. No
+                // attestation re-ask — the pair is still good.
+                if let Some(nonce) = super::dpop::dpop_nonce_from_headers(&response_headers) {
+                    dpop_nonce = Some(nonce);
+                    continue;
+                }
+                // An attestation challenge demand: resolve the fresh
+                // challenge and re-ask the host for a PoP bound to it.
                 let Some(challenge) =
                     super::attestation::resolve_challenge(http, as_metadata, &response_headers)
                         .await
@@ -702,8 +739,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _f: &str,
-            _e: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
             Err(engine_ports::HostError::Cannot("no match".to_owned()))
         }
@@ -939,6 +975,7 @@ mod tests {
             &test_as(),
             &CodeExchangeSpec {
                 flow_id: "flow-1",
+                dpop_key_id: None,
                 client_id: "client-1",
                 code: "code-1",
                 redirect_uri: "https://wallet.example/cb",

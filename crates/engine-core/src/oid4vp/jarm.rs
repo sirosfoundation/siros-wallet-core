@@ -116,6 +116,24 @@ pub fn build_jarm_claims(vp_token: &str, client_id: &str, state: &str, now_unix:
     Value::Object(claims)
 }
 
+/// The base64url SHA-256 thumbprint (RFC 7638) of the verifier's
+/// encryption JWK, for `direct_post.jwt`'s OpenID4VPHandover session
+/// transcript — empty for the other response modes and for any key
+/// that cannot be extracted (the Go engine's
+/// `computeVerifierJWKThumbprint`, which logs and continues).
+pub fn verifier_jwk_thumbprint(auth_req: &super::types::AuthorizationRequest) -> String {
+    if auth_req.response_mode != super::types::ResponseMode::DirectPostJwt {
+        return String::new();
+    }
+    let Some(metadata) = auth_req.client_metadata.as_ref() else {
+        return String::new();
+    };
+    let Ok(jwk) = select_verifier_jwk(metadata) else {
+        return String::new();
+    };
+    jose_rs::jwk::thumbprint::thumbprint_sha256(&jwk).unwrap_or_default()
+}
+
 /// Selects the verifier's encryption JWK from the client metadata's
 /// `jwks`: prefer a key with `use: "enc"`, else the first parseable key —
 /// the P0.6-verified selection.

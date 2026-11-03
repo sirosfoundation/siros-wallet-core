@@ -536,8 +536,7 @@ mod tests {
             }
             async fn request_match(
                 &self,
-                _flow_id: &str,
-                _entries: Vec<engine_ports::MatchEntry>,
+                _params: engine_ports::MatchParams,
             ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
                 Err(engine_ports::HostError::Cannot("noop".to_owned()))
             }

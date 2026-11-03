@@ -232,8 +232,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _f: &str,
-            _e: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, HostError> {
             Err(HostError::Cannot("no match".to_owned()))
         }
@@ -275,8 +274,7 @@ mod tests {
         }
         async fn request_match(
             &self,
-            _f: &str,
-            _e: Vec<engine_ports::MatchEntry>,
+            _params: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, HostError> {
             Err(HostError::Cannot("no match".to_owned()))
         }
@@ -327,8 +325,7 @@ mod tests {
             }
             async fn request_match(
                 &self,
-                _f: &str,
-                _e: Vec<engine_ports::MatchEntry>,
+                _params: engine_ports::MatchParams,
             ) -> Result<engine_ports::MatchResult, HostError> {
                 Err(HostError::Cannot("no".to_owned()))
             }
