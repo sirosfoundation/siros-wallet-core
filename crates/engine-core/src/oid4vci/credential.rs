@@ -159,20 +159,33 @@ fn base64url_json(value: &serde_json::Value) -> String {
 
 /// Minimal base64url encoding.
 fn base64url(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    fn six_to_char(v: u8) -> char {
+        // The base64url character for a 6-bit value: A-Z, a-z, 0-9, -, _.
+        if v < 26 {
+            (b'A' + v) as char
+        } else if v < 52 {
+            (b'a' + (v - 26)) as char
+        } else if v < 62 {
+            (b'0' + (v - 52)) as char
+        } else if v == 62 {
+            '-'
+        } else {
+            '_'
+        }
+    }
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b0 = chunk[0];
+        let b0 = chunk.first().copied().unwrap_or_default();
         let b1 = chunk.get(1).copied().unwrap_or_default();
         let b2 = chunk.get(2).copied().unwrap_or_default();
         let n = ((b0 as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
-        out.push(ALPHABET[((n >> 18) & 0x3f) as usize] as char);
-        out.push(ALPHABET[((n >> 12) & 0x3f) as usize] as char);
+        out.push(six_to_char(((n >> 18) & 0x3f) as u8));
+        out.push(six_to_char(((n >> 12) & 0x3f) as u8));
         if chunk.len() > 1 {
-            out.push(ALPHABET[((n >> 6) & 0x3f) as usize] as char);
+            out.push(six_to_char(((n >> 6) & 0x3f) as u8));
         }
         if chunk.len() > 2 {
-            out.push(ALPHABET[(n & 0x3f) as usize] as char);
+            out.push(six_to_char((n & 0x3f) as u8));
         }
     }
     out

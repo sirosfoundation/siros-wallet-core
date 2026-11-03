@@ -7,6 +7,7 @@ pub mod credential;
 pub mod issuer;
 pub mod offer;
 pub mod token;
+pub mod trust;
 pub mod types;
 
 use wmp_core::handler::HandlerError;
@@ -107,6 +108,29 @@ impl FlowHandler for Oid4vciFlow {
             )
             .await;
 
+        // ── S3: evaluate the issuer's trust through the PDP ─────────────
+        // Fail closed: an unreachable PDP or an untrusted issuer refuses
+        // the flow. No fallback to client-asserted trust.
+        let trust_info = trust::evaluate_issuer_trust(
+            ctx.pdp().as_ref(),
+            &offer.credential_issuer,
+            &issuer_metadata,
+        )
+        .await
+        .map_err(|err| flow_error(err.to_string()))?;
+
+        let _ = ctx
+            .progress(
+                "trust_evaluated",
+                &serde_json::json!({
+                    "issuer": offer.credential_issuer,
+                    "trusted": trust_info.trusted,
+                    "framework": trust_info.framework,
+                    "reason": trust_info.reason,
+                }),
+            )
+            .await;
+
         // ── S2: exchange the pre-authorized code for a token ─────────────
         // The grants in the offer say whether this is a pre-authorized_code
         // flow; if it is, the tx_code is asked of the host.
@@ -115,7 +139,7 @@ impl FlowHandler for Oid4vciFlow {
             .get("urn:ietf:params:oauth:grant-type:pre-authorized_code")
             .cloned();
 
-        let (token, credential) = if let Some(grant) = pre_auth {
+        let (_token, credential) = if let Some(grant) = pre_auth {
             let pre_auth_code = grant
                 .get("pre-authorized_code")
                 .and_then(|v| v.as_str())
