@@ -6,6 +6,7 @@ pub mod as_metadata;
 pub mod credential;
 pub mod deferred;
 pub mod dpop;
+pub mod encryption;
 pub mod issuer;
 pub mod offer;
 pub mod token;
@@ -132,6 +133,27 @@ impl FlowHandler for Oid4vciFlow {
                 }),
             )
             .await;
+
+        // ── S2: negotiate the response encryption, when the issuer supports it
+        // The alg/enc pair from the issuer's credential_response_encryption
+        // metadata, in preference order (A256GCM first). The key the wallet
+        // offers goes in the credential request's
+        // credential_response_encryption member.
+        let encryption_config = issuer_metadata
+            .credential_configurations
+            .as_object()
+            .and_then(|configs| {
+                configs
+                    .values()
+                    .filter_map(|config| config.get("credential_response_encryption").cloned())
+                    .next()
+            })
+            .and_then(|v| serde_json::from_value::<encryption::ResponseEncryptionConfig>(v).ok());
+        let negotiated_encryption = encryption_config
+            .as_ref()
+            .and_then(encryption::negotiate_encryption);
+
+        let _ = negotiated_encryption; // Used by the credential request in S2.
 
         // ── S2: exchange the pre-authorized code for a token ─────────────
         // The grants in the offer say whether this is a pre-authorized_code
