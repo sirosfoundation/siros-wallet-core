@@ -200,11 +200,19 @@ impl FlowContext {
     }
 }
 
+/// An in-flight flow: the family that owns it, and its type.
+type InFlight = (Arc<dyn FlowHandler>, String);
+
 /// The flow runtime: the registry that dispatches flow starts to the
 /// families that own them, and the capability gate that refuses a flow
 /// type whose capability was not negotiated (core §10.3).
 pub struct FlowRuntime {
     handlers: parking_lot::RwLock<FxHashMap<String, Arc<dyn FlowHandler>>>,
+    /// The in-flight flows: the flow id to the family that owns it and
+    /// the flow's type. A start registers; a completion, an error or a
+    /// cancel unregisters. The authorization-code grant spans two WMP
+    /// calls on the strength of this map.
+    flows: parking_lot::RwLock<FxHashMap<String, InFlight>>,
     ports: Arc<Ports>,
     peer: Arc<wmp_core::peer::Peer>,
 }
@@ -214,6 +222,7 @@ impl FlowRuntime {
     pub fn new(ports: Arc<Ports>, peer: Arc<wmp_core::peer::Peer>) -> Self {
         Self {
             handlers: parking_lot::RwLock::new(FxHashMap::default()),
+            flows: parking_lot::RwLock::new(FxHashMap::default()),
             ports,
             peer,
         }
@@ -284,7 +293,19 @@ impl FlowRuntime {
             peer: self.peer.clone(),
             request_context: ctx.clone(),
         };
-        handler.start_flow(&flow_ctx, params).await
+        let result = handler.start_flow(&flow_ctx, params).await?;
+
+        // The flow is in flight: the action, progress, complete and
+        // cancel calls resolve the family through this map. A flow the
+        // family completed inside the start (the pre-authorized grant)
+        // is unregistered by the complete handler below — a start that
+        // returns without completing (the authorization-code handoff)
+        // stays registered for the redirect's action.
+        self.flows
+            .write()
+            .insert(params.flow_id.clone(), (handler, params.flow_type.clone()));
+
+        Ok(result)
     }
 
     /// Handles a `wmp.flow.action`.
@@ -318,6 +339,8 @@ impl FlowRuntime {
         if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) {
             let flow_ctx = self.context_of(ctx, &params.flow_id);
             handler.handle_complete(&flow_ctx, params).await;
+            // The flow is done: unregister it.
+            self.flows.write().remove(&params.flow_id);
         }
     }
 
@@ -326,6 +349,8 @@ impl FlowRuntime {
         if let Some(handler) = self.handler_of_flow(ctx, &params.flow_id) {
             let flow_ctx = self.context_of(ctx, &params.flow_id);
             handler.handle_error(&flow_ctx, params).await;
+            // The flow is dead: unregister it.
+            self.flows.write().remove(&params.flow_id);
         }
     }
 
@@ -345,6 +370,10 @@ impl FlowRuntime {
         };
         let flow_ctx = self.context_of(ctx, &params.flow_id);
         let stopped = handler.handle_cancel(&flow_ctx, params).await?;
+        if stopped {
+            // The flow is cancelled: unregister it.
+            self.flows.write().remove(&params.flow_id);
+        }
         Ok(FlowCancelResult {
             wmp: wmp_core::types::Metadata::default(),
             flow_id: params.flow_id.clone(),
@@ -361,19 +390,27 @@ impl FlowRuntime {
     /// handler is found by the flow type the request carries; a
     /// flow-instance-to-handler map (what wmp-core's registry does) arrives
     /// with the flow families.
-    fn handler_of_flow(&self, ctx: &RequestContext, flow_id: &str) -> Option<Arc<dyn FlowHandler>> {
-        let _ = (ctx, flow_id);
-        // When the flow families land, this resolves the flow's handler
-        // through wmp-core's registry (which routes by flow_id and
-        // generation). Until then, no handler is found for an in-flight
-        // flow; the start is the entry point.
-        None
+    fn handler_of_flow(
+        &self,
+        _ctx: &RequestContext,
+        flow_id: &str,
+    ) -> Option<Arc<dyn FlowHandler>> {
+        self.flows
+            .read()
+            .get(flow_id)
+            .map(|(handler, _)| handler.clone())
     }
 
     fn context_of(&self, ctx: &RequestContext, flow_id: &str) -> FlowContext {
+        let flow_type = self
+            .flows
+            .read()
+            .get(flow_id)
+            .map(|(_, flow_type)| flow_type.clone())
+            .unwrap_or_default();
         FlowContext {
             flow_id: flow_id.to_owned(),
-            flow_type: String::new(),
+            flow_type,
             session: ctx.session.clone(),
             ports: self.ports.clone(),
             peer: self.peer.clone(),
@@ -621,5 +658,73 @@ mod tests {
             runtime.register(Arc::new(EchoFlow)).is_err(),
             "the second registration of the same flow type refuses"
         );
+    }
+
+    #[tokio::test]
+    async fn an_in_flight_flow_resolves_its_family_for_the_action() {
+        // The two-call shape the authorization-code grant needs: a
+        // start that returns without completing keeps the flow
+        // registered, the action reaches the family, and the completion
+        // unregisters.
+        let runtime = test_runtime();
+        runtime.register(Arc::new(EchoFlow)).expect("register");
+
+        let ctx = RequestContext {
+            principal: Some(wmp_core::principal::Principal::new("runtime-test", "")),
+            ..RequestContext::default()
+        };
+        let start = runtime
+            .start_flow(
+                &ctx,
+                &FlowStartParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_type: "echo".to_owned(),
+                    flow_id: "flow-9".to_owned(),
+                    params: None,
+                    timeout: None,
+                },
+            )
+            .await
+            .expect("start");
+        assert_eq!(start.flow_id, "flow-9");
+
+        // The action resolves the family through the in-flight map.
+        let action = runtime
+            .handle_action(
+                &ctx,
+                &FlowActionParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: "flow-9".to_owned(),
+                    action: "go".to_owned(),
+                    params: None,
+                },
+            )
+            .await
+            .expect("action");
+        assert_eq!(action.status, "accepted");
+
+        // The completion unregisters: a later action finds no flow.
+        runtime
+            .handle_complete(
+                &ctx,
+                &FlowCompleteParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: "flow-9".to_owned(),
+                    result: None,
+                },
+            )
+            .await;
+        assert!(runtime
+            .handle_action(
+                &ctx,
+                &FlowActionParams {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: "flow-9".to_owned(),
+                    action: "go".to_owned(),
+                    params: None,
+                },
+            )
+            .await
+            .is_err());
     }
 }

@@ -126,7 +126,7 @@ pub async fn exchange_pre_authorized_code(
     // client_id (some AS require it in the form even with attestation
     // in the headers).
     let mut form = format!(
-        "grant_type=urn%3A%2F%2Fietf%3Aparams%3Aoauth%3Agrant-type%3Apre-authorized_code&pre-authorized_code={}",
+        "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Apre-authorized_code&pre-authorized_code={}",
         url_encode(pre_authorized_code),
     );
     if !tx_code.is_empty() {

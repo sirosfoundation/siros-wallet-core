@@ -16,9 +16,10 @@ engine-core = { path = "../engine-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-
-[dev-dependencies]
-tokio = { version = "1", features = ["rt", "macros"] }
+rustc-hash = { workspace = true }
+async-trait = "0.1"
+regex = "1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true

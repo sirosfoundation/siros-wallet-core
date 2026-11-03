@@ -1,16 +1,16 @@
-//! The vector runner: loads the `engine-vectors` repository's scenarios and
-//! runs them against the engine core — the referee the plan names, the
-//! container host the conformance runs use.
+//! The vector runner: loads the `engine-vectors` repository's scenarios
+//! and runs them against the engine core — the referee the plan names,
+//! the container host the conformance runs use.
+//!
+//! Every vector is validated against the repository's
+//! `vector-schema.json` before it runs; a schema violation fails the
+//! run rather than passing silently. A go-observed vector past its
+//! `review_by` refuses to gate unless it carries a `review_reason`
+//! (the provenance sunset, the runner contract).
 //!
 //! `ENGINE_VECTORS_DIR` overrides the search; the local default is the
-//! sibling checkout `../../../engine-vectors/vectors` (three levels up
-//! from `crates/engine-conformance`).
-//!
-//! Until the flow families land, the runner executes the structural
-//! validation (every vector matches the schema) and the session-level
-//! scenarios (create, resume, close through the peer). The flow scenarios
-//! are counted as *pending*, never silently passed — the port is done when
-//! the pending count is zero.
+//! sibling checkout `../../../engine-vectors` (three levels up from
+//! `crates/engine-conformance`).
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -30,178 +30,99 @@
     )
 )]
 
+pub mod matchers;
+pub mod runner;
+pub mod schema;
+pub mod script;
+pub mod world;
+
 use std::path::PathBuf;
 
-use serde::Deserialize;
-
-/// Where the vectors live: the override, else the sibling checkout.
-pub fn vectors_dir() -> PathBuf {
+/// Where the vectors repository is: the override, else the sibling
+/// checkout.
+pub fn repository_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("ENGINE_VECTORS_DIR") {
         return PathBuf::from(dir);
     }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest.join("../../../engine-vectors/vectors")
+    manifest.join("../../../engine-vectors")
 }
 
-/// One engine test vector, as defined by the `engine-vectors` schema.
-#[derive(Debug, Clone, Deserialize)]
-pub struct TestVector {
-    /// The vector's dotted identifier.
-    pub id: String,
-    /// What the vector tests.
-    pub description: String,
-    /// What backs the expected behaviour.
-    pub provenance: String,
-    /// The WMP method the scenario drives (`wmp_in`).
-    #[serde(default)]
-    pub input: Option<serde_json::Value>,
-    /// The expected response (`wmp_out`).
-    #[serde(default)]
-    pub expected_response: Option<serde_json::Value>,
-    /// The expected error (`wmp_out` with `must_refuse`).
-    #[serde(default)]
-    pub expected_error: Option<serde_json::Value>,
+/// Where the vectors live: the repository's `vectors` directory.
+pub fn vectors_dir() -> PathBuf {
+    repository_dir().join("vectors")
 }
 
-/// Why a vector was skipped.
-#[derive(Debug, thiserror::Error)]
-pub enum SkipReason {
-    /// The vector file is not present (the sibling checkout is absent).
-    #[error("vectors not available at {0}")]
-    NotAvailable(String),
-    /// The vector needs a flow family that is not registered.
-    #[error("pending: the flow family for {0} is not registered yet")]
-    FlowFamilyNotRegistered(String),
+/// Where the schema lives: the repository's `vector-schema.json`.
+pub fn schema_path() -> PathBuf {
+    repository_dir().join("vector-schema.json")
 }
 
-/// The result of running the vectors.
-#[derive(Debug, Default)]
-pub struct RunSummary {
-    /// How many vectors passed.
-    pub passed: usize,
-    /// How many failed (with the vector ids).
-    pub failed: Vec<String>,
-    /// How many were pending (flow families not yet landed).
-    pub pending: Vec<String>,
-    /// How many were skipped (vectors not available).
-    pub skipped: usize,
-}
-
-/// Loads every vector file in the vectors directory.
-pub fn load_vectors() -> Result<Vec<TestVector>, SkipReason> {
+/// Loads and validates every vector in the vectors directory. Errors
+/// are the file's violations; a file that fails the schema refuses the
+/// whole run (an unvalidated vector is a typo away from testing
+/// nothing).
+pub fn load() -> Result<Vec<script::VectorFile>, String> {
     let dir = vectors_dir();
     if !dir.is_dir() {
-        return Err(SkipReason::NotAvailable(dir.display().to_string()));
+        return Err(format!(
+            "the vectors directory {} does not exist",
+            dir.display()
+        ));
     }
-    let mut vectors = Vec::new();
+    let schema_text =
+        std::fs::read_to_string(schema_path()).map_err(|err| format!("read the schema: {err}"))?;
+    let schema: serde_json::Value =
+        serde_json::from_str(&schema_text).map_err(|err| format!("parse the schema: {err}"))?;
+
     let mut entries: Vec<_> = std::fs::read_dir(&dir)
         .map(|entries| entries.filter_map(|e| e.ok()).collect())
         .unwrap_or_default();
     entries.sort_by_key(|e| e.path());
+
+    let mut vectors = Vec::new();
     for entry in entries {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
+        // The schema document itself is not a vector.
+        if path.file_name().and_then(|n| n.to_str()) == Some("vector-schema.json") {
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let Ok(file_vectors) = serde_json::from_str::<Vec<TestVector>>(&text) else {
-            continue;
-        };
-        vectors.extend(file_vectors);
+        let document: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|err| format!("{}: not JSON — {err}", path.display()))?;
+        schema::validate(&schema, &document)
+            .map_err(|errors| format!("{}: {errors:?}", path.display()))?;
+        let vector: script::VectorFile = serde_json::from_value(document).map_err(|err| {
+            format!(
+                "{}: the vector does not deserialize — {err}",
+                path.display()
+            )
+        })?;
+        vectors.push(vector);
     }
     Ok(vectors)
 }
 
-/// Runs every loaded vector against the peer. Session-level scenarios
-/// (create, resume, close) execute; flow scenarios are pending until the
-/// families register on the runtime.
-pub fn run_vectors(peer: &std::sync::Arc<wmp_core::peer::Peer>) -> RunSummary {
-    let mut summary = RunSummary::default();
-    let vectors = match load_vectors() {
+/// Runs every loadable vector against the engine, returning the report.
+/// Vectors that cannot load are skipped with the reason, never
+/// silently passed.
+pub fn run_all() -> runner::Report {
+    let mut report = runner::Report::default();
+    let vectors = match load() {
         Ok(vectors) => vectors,
-        Err(_) => {
-            summary.skipped = 1;
-            return summary;
+        Err(reason) => {
+            report.skipped.push(("all".to_owned(), reason));
+            return report;
         }
     };
-
-    for vector in vectors {
-        let Some(input) = &vector.input else {
-            // A vector with no input is structural only.
-            summary.passed += 1;
-            continue;
-        };
-
-        let method = input
-            .get("method")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-
-        // Session-level scenarios execute now; flow scenarios are pending.
-        if method.starts_with("wmp.flow.") {
-            summary
-                .pending
-                .push(format!("{} (flow family not registered)", vector.id));
-            continue;
-        }
-
-        let body = match serde_json::to_vec(input) {
-            Ok(body) => body,
-            Err(_) => {
-                summary
-                    .failed
-                    .push(format!("{} (serialize input)", vector.id));
-                continue;
-            }
-        };
-
-        let ctx = wmp_core::context::RequestContext {
-            principal: Some(wmp_core::principal::Principal::new(
-                "conformance-runner",
-                "",
-            )),
-            ..wmp_core::context::RequestContext::default()
-        };
-
-        match peer.handle_request_sync(&ctx, &body) {
-            Ok(Some(response)) => {
-                let actual: serde_json::Value =
-                    serde_json::from_slice(&response).unwrap_or_default();
-                if let Some(expected) = &vector.expected_response {
-                    if actual == *expected {
-                        summary.passed += 1;
-                    } else {
-                        summary
-                            .failed
-                            .push(format!("{} (response mismatch)", vector.id));
-                    }
-                } else {
-                    summary.passed += 1;
-                }
-            }
-            Ok(None) => {
-                // A notification: no response expected.
-                if vector.expected_response.is_none() {
-                    summary.passed += 1;
-                } else {
-                    summary
-                        .failed
-                        .push(format!("{} (notification, expected a response)", vector.id));
-                }
-            }
-            Err(err) => {
-                if vector.expected_error.is_some() {
-                    // The error was expected; check the code matches.
-                    summary.passed += 1;
-                } else {
-                    summary
-                        .failed
-                        .push(format!("{} (unexpected error: {})", vector.id, err));
-                }
-            }
-        }
+    for vector in &vectors {
+        let verdict = runner::run_vector(vector);
+        report.record(&vector.id, &vector.provenance, verdict);
     }
-    summary
+    report
 }
