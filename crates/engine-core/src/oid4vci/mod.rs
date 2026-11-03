@@ -4,6 +4,8 @@
 
 pub mod as_metadata;
 pub mod credential;
+pub mod deferred;
+pub mod dpop;
 pub mod issuer;
 pub mod offer;
 pub mod token;
@@ -183,6 +185,53 @@ impl FlowHandler for Oid4vciFlow {
             )
             .await
             .map_err(|err| flow_error(err.to_string()))?;
+
+            // ── S2: deferred polling, when the issuer deferred ──────────
+            let credential = if let Some(transaction_id) = &credential.transaction_id {
+                let deferred_credential = deferred::poll_deferred_credential(
+                    ctx.http().as_ref(),
+                    ctx.clock().as_ref(),
+                    &issuer_metadata,
+                    &token,
+                    transaction_id,
+                    credential.interval,
+                    &|attempt| {
+                        let _ = attempt;
+                    },
+                )
+                .await
+                .map_err(|err| flow_error(err.to_string()))?;
+
+                let _ = ctx
+                    .progress(
+                        "deferred_credential_received",
+                        &serde_json::json!({
+                            "has_credential": deferred_credential.credential.is_some(),
+                        }),
+                    )
+                    .await;
+
+                deferred_credential
+            } else {
+                credential
+            };
+
+            // ── S2: the notification, best effort ───────────────────────
+            let notification_id = format!(
+                "notif-{}",
+                offer
+                    .credential_configuration_ids
+                    .first()
+                    .cloned()
+                    .unwrap_or_default()
+            );
+            let _ = deferred::send_notification(
+                ctx.http().as_ref(),
+                &issuer_metadata,
+                &notification_id,
+                "credential_accepted",
+            )
+            .await;
 
             let _ = ctx
                 .progress(
