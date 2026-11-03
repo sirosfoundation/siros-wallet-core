@@ -87,7 +87,8 @@ pub async fn discover_as_metadata(
         token_endpoint: format!("{trimmed}/token"),
         authorization_endpoint: format!("{trimmed}/authorize"),
         par_endpoint: String::new(),
-        code_challenge_methods: vec!["S256".to_owned()],
+        require_par: false,
+        code_challenge_methods: Some(vec!["S256".to_owned()]),
         grant_types: vec![
             "authorization_code".to_owned(),
             "pre-authorized_code".to_owned(),

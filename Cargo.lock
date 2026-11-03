@@ -1098,6 +1098,7 @@ dependencies = [
  "async-trait",
  "engine-ports",
  "jose-rs",
+ "kryptering",
  "parking_lot",
  "rustc-hash",
  "serde",

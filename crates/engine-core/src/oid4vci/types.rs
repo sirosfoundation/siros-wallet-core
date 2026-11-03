@@ -148,12 +148,31 @@ pub struct AsMetadata {
     /// The pushed authorization request endpoint.
     #[serde(default, alias = "pushed_authorization_request_endpoint")]
     pub par_endpoint: String,
-    /// The supported code challenge methods.
+    /// Whether the AS requires PAR (RFC 9126
+    /// `require_pushed_authorization_requests`): no non-PAR /authorize
+    /// path exists, so a PAR failure has no fallback.
     #[serde(default)]
-    pub code_challenge_methods: Vec<String>,
+    pub require_par: bool,
+    /// The supported code challenge methods. `None` when the document did
+    /// not declare the member at all — the OID4VCI default assumes S256
+    /// support; an explicit (even empty) list is the declaration.
+    #[serde(default)]
+    pub code_challenge_methods: Option<Vec<String>>,
     /// The supported grant types.
     #[serde(default)]
     pub grant_types: Vec<String>,
+}
+
+impl AsMetadata {
+    /// Whether the AS supports PKCE S256: assumed when the document did
+    /// not declare `code_challenge_methods_supported` (the OID4VCI
+    /// default); an explicit list must name S256.
+    pub fn supports_pkce_s256(&self) -> bool {
+        match &self.code_challenge_methods {
+            None => true,
+            Some(methods) => methods.iter().any(|m| m == "S256"),
+        }
+    }
 }
 
 /// Why the AS metadata resolution refused.

@@ -227,7 +227,8 @@ mod tests {
             token_endpoint: "https://as.example/token".to_owned(),
             authorization_endpoint: String::new(),
             par_endpoint: String::new(),
-            code_challenge_methods: Vec::new(),
+            require_par: false,
+            code_challenge_methods: None,
             grant_types: Vec::new(),
         }
     }

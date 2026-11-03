@@ -186,6 +186,18 @@ impl FlowContext {
     pub fn pdp(&self) -> &Arc<dyn engine_ports::Pdp> {
         &self.ports.pdp
     }
+
+    /// The randomness the flow samples (the OAuth state, the PKCE
+    /// verifier — the core's own random choices).
+    pub fn rng(&self) -> &Arc<dyn engine_ports::Rng> {
+        &self.ports.rng
+    }
+
+    /// The persistence the flow stashes its cross-call state in (the
+    /// authorization-code resume: the verifier, the state, the offer).
+    pub fn kv(&self) -> &Arc<dyn engine_ports::KeyValue> {
+        &self.ports.kv
+    }
 }
 
 /// The flow runtime: the registry that dispatches flow starts to the
