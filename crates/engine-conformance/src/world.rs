@@ -144,10 +144,10 @@ impl World {
         match mismatch {
             Ok(reply) => Ok(reply),
             Err(reason) => {
-                self.fail(reason);
-                Err(engine_ports::HttpError::Transport(
-                    "the scripted world refused the request".to_owned(),
-                ))
+                self.fail(reason.clone());
+                // The refusal carries the reason: the engine's flow
+                // error then names what actually mismatched.
+                Err(engine_ports::HttpError::Transport(reason))
             }
         }
     }
@@ -241,7 +241,10 @@ impl World {
         if let Some(form) = &http_out.expect.form {
             let actual = parse_form(&request.body);
             if let Err(mismatch) = matches(form, &actual, &mut bindings) {
-                return Err(format!("http_out step {consumed_index}: {mismatch}"));
+                return Err(format!(
+                    "http_out step {consumed_index}: {mismatch} — the body was {:?}",
+                    String::from_utf8_lossy(&request.body)
+                ));
             }
         }
         if let Some(expected_json) = &http_out.expect.json {

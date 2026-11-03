@@ -1,0 +1,49 @@
+[package]
+name = "engine-adapter-wasm"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+description = "The browser adapter: the engine core over a JS JSON-RPC surface, the page's fetch behind the HttpClient port, and the wallet's UI callbacks behind the Host port — the in-browser engine the wallet-frontend runs instead of a WebSocket to a remote one."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+engine-ports = { path = "../engine-ports" }
+engine-core = { path = "../engine-core" }
+wmp-core = { path = "../wmp-core" }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = { workspace = true }
+rustc-hash = { workspace = true }
+async-trait = "0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+# The spawn_local bridge: JS futures are single-threaded (not Send);
+# the port traits demand Send futures. The oneshot channel is the
+# thread-safe handoff between the JS event loop and the engine's
+# executor.
+futures = "0.3"
+# jose-rs's key generation reaches getrandom; on wasm32-unknown-unknown
+# it needs the JS backend (feature unification applies it build-wide).
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+# The dispatcher's host-target tests: the routing, the capability gate
+# and the session plumbing, driven with the conformance runner's
+# scripted world. Not for the wasm target — the browser proof is the
+# wasm_smoke test.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+engine-conformance = { path = "../engine-conformance" }
+
+[lints]
+workspace = true

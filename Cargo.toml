@@ -21,6 +21,7 @@ members = [
     "crates/engine-core",
     "crates/engine-adapter-sdk",
     "crates/engine-adapter-server",
+    "crates/engine-adapter-wasm",
     "crates/engine-conformance",
 ]
 

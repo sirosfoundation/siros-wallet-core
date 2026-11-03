@@ -66,6 +66,22 @@ jobs:
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 
+  wasm:
+    name: WASM (browser engine, Node)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install wasm-pack
+        run: curl -sSLf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: The browser smoke (Node's JS event loop)
+        run: wasm-pack test --node crates/engine-adapter-wasm
+
   proving:
     name: Proving workspace
     runs-on: ubuntu-latest
