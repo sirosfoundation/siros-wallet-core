@@ -310,6 +310,15 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
     twice.exact(kind("t1"), profile);
     twice.exact(kind("t1"), profile);
     assert!(matches!(twice.build(), Err(RegistryError::TypeTwice(_))));
+    // A registration under a handle another builder gave names no profile this one holds.
+    let mut other = Registry::<TestHost>::builder();
+    let elsewhere = other.profile(TestProfile::new(Binds::First));
+    let mut unheld = Registry::<TestHost>::builder();
+    unheld.exact(kind("t1"), elsewhere);
+    assert!(matches!(
+        unheld.build(),
+        Err(RegistryError::UnknownProfile(registration)) if registration == "t1"
+    ));
 }
 
 #[test]
@@ -317,61 +326,6 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     use siros_openid4vp::hash::{HashAlgorithm, Sha2};
     use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
     use siros_testkit::fixtures::TestScope;
-
-    /// A mode in the clear of a name and channel, declaring `wallet_metadata` members.
-    #[derive(Clone)]
-    struct Declares(&'static str, ChannelKind, &'static [&'static str]);
-
-    impl Mode for Declares {
-        fn name(&self) -> siros_openid4vp::routing::ModeName {
-            siros_openid4vp::routing::ModeName::new(self.0).expect("a mode name")
-        }
-
-        fn channel(&self) -> ChannelKind {
-            self.1
-        }
-
-        fn rules(
-            &self,
-            _request: &Request<'_>,
-            _metadata: &siros_openid4vp::routing::VerifierMetadata<'_>,
-        ) -> Vec<Refusal> {
-            Vec::new()
-        }
-
-        fn metadata_names(&self) -> &'static [siros_openid4vp::wallet_metadata::ParameterName] {
-            match self.2 {
-                ["test_member"] => &[siros_explain::checked!(
-                    siros_openid4vp::wallet_metadata::ParameterName,
-                    "test_member"
-                )],
-                ["jwks"] => &[siros_explain::checked!(
-                    siros_openid4vp::wallet_metadata::ParameterName,
-                    "jwks"
-                )],
-                _ => &[],
-            }
-        }
-    }
-
-    impl siros_openid4vp::routing::ModeHost<TestHost> for Declares {
-        fn encryption<'k>(
-            &self,
-            _metadata: &'k siros_openid4vp::routing::VerifierMetadata<'k>,
-            _sealer: &siros_openid4vp::request::Agreements,
-            _host: &TestHost,
-        ) -> Result<siros_openid4vp::routing::Encrypting<'k>, Refusal> {
-            Ok(siros_openid4vp::routing::Encrypting::Plain)
-        }
-
-        fn wallet_metadata(
-            &self,
-            _sealer: &siros_openid4vp::request::Agreements,
-            _host: &TestHost,
-        ) -> Result<Vec<siros_openid4vp::wallet_metadata::MetadataMember>, Fault> {
-            Ok(Vec::new())
-        }
-    }
 
     /// A scope value's query, given.
     struct Scoped(&'static str, &'static str);
@@ -386,19 +340,29 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         }
     }
     use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPostJwt};
-    use siros_openid4vp::routing::{ChannelKind, Mode, ResponseType, VpToken};
+    use siros_openid4vp::routing::{ChannelKind, Mode, ModeName, ResponseType, VpToken};
+    use siros_openid4vp::wallet_metadata::ParameterName;
+    use siros_testkit::{TestHash, TestMode, TestResponseType};
 
-    // A response type twice (RFC 6749 §3.1.1 keys it by its name).
+    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
+    const JWKS: ParameterName = siros_explain::checked!(ParameterName, "jwks");
+    // A mode in the clear of a name and channel, declaring `wallet_metadata` members.
+    let declares = |name: &'static str, channel, names: &'static [ParameterName]| TestMode {
+        declares: names,
+        ..TestMode::new(ModeName::new(name).expect("a mode name"), channel)
+    };
+    // The core's cases are peers of an extension's: an extension of the name of one of them is
+    // that name twice. A response type twice (RFC 6749 §3.1.1 keys it by its name).
     let mut builder = Registry::<TestHost>::builder();
     builder.response_type(VpToken);
-    builder.response_type(VpToken);
+    builder.response_type(TestResponseType(VpToken.name()));
     assert_eq!(
         builder.build().map(drop),
         Err(RegistryError::ResponseTypeTwice(VpToken.name()))
     );
     // A mode twice on one channel, whatever its sealing.
     let mut builder = Registry::<TestHost>::builder();
-    builder.mode(DcApiJwt);
+    builder.mode(TestMode::new(DcApiJwt.name(), ChannelKind::DcApi));
     builder.jwe_mode(DcApiJwt);
     assert_eq!(
         builder.build().map(drop),
@@ -421,7 +385,11 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     // A hash algorithm twice; a transaction data profile without B.3.3.1's default sha-256.
     let mut builder = Registry::<TestHost>::builder();
     builder.hash(Sha2::Sha256);
-    builder.hash(Sha2::Sha256);
+    builder.hash(TestHash {
+        name: Sha2::Sha256.name(),
+        octets: Sha2::Sha256.octets(),
+        writes: 32,
+    });
     assert_eq!(
         builder.build().map(drop),
         Err(RegistryError::HashTwice(Sha2::Sha256.name()))
@@ -459,33 +427,28 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     // A DC API mode that declares wallet_metadata members; a name two modes declare; a name the
     // core writes.
     let mut builder = Registry::<TestHost>::builder();
-    builder.mode(Declares(
-        "dc_api.test",
-        ChannelKind::DcApi,
-        &["test_member"],
-    ));
+    builder.mode(declares("dc_api.test", ChannelKind::DcApi, &[MEMBER]));
     assert!(matches!(
         builder.build().map(drop),
         Err(RegistryError::MetadataChannel(_))
     ));
     let mut builder = Registry::<TestHost>::builder();
-    builder.mode(Declares("post.one", ChannelKind::Uri, &["test_member"]));
-    builder.mode(Declares("post.two", ChannelKind::Uri, &["test_member"]));
+    builder.mode(declares("post.one", ChannelKind::Uri, &[MEMBER]));
+    builder.mode(declares("post.two", ChannelKind::Uri, &[MEMBER]));
     assert!(matches!(
         builder.build().map(drop),
         Err(RegistryError::NameTwice { name, .. }) if name.as_str() == "test_member"
     ));
     let mut builder = Registry::<TestHost>::builder();
-    builder.mode(Declares("post.one", ChannelKind::Uri, &["jwks"]));
+    builder.mode(declares("post.one", ChannelKind::Uri, &[JWKS]));
     assert!(matches!(
         builder.build().map(drop),
         Err(RegistryError::NameReserved { name, .. }) if name.as_str() == "jwks"
     ));
     // A POST contribution's member a mode declares too; its parameter the core owns; a reader's
     // member another reader declares; the answer member the core reads.
-    use siros_openid4vp::wallet_metadata::{NamePlace, ParameterName, PostContent};
+    use siros_openid4vp::wallet_metadata::{NamePlace, PostContent};
     use siros_testkit::{TestAnswerReader, TestPostContribution};
-    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
     const NONCE: ParameterName = siros_explain::checked!(ParameterName, "wallet_nonce");
     const REDIRECT: ParameterName = siros_explain::checked!(ParameterName, "redirect_uri");
     let contribution = |members, parameters| TestPostContribution {
@@ -494,7 +457,7 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         content: PostContent::default(),
     };
     let mut builder = Registry::<TestHost>::builder();
-    builder.mode(Declares("post.one", ChannelKind::Uri, &["test_member"]));
+    builder.mode(declares("post.one", ChannelKind::Uri, &[MEMBER]));
     builder.post_contribution(contribution(&[MEMBER], &[]));
     assert_eq!(
         builder.build().map(drop),

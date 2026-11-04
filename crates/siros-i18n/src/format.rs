@@ -235,6 +235,14 @@ impl<'m> LanguageFormats<'m> {
 /// A format module's load half: the wallet's loader parses the options a module defines for it,
 /// language by language, and compiles each placeholder of the module that calls one of its
 /// functions with the parsed options.
+///
+/// # Implementing
+///
+/// `id`, `functions` and `options` are constants; the loader refuses two load halves sharing a
+/// `FormatId` or a function (`ModuleError::Compiler`). `parse` reads the option texts a module
+/// defines per language and refuses one its format does not take, and the compiled form it
+/// writes is what [`FormatRenderer`] of the same `FormatId` reads under the package's root.
+/// siros-i18n's format modules implement both halves.
 #[cfg(feature = "load")]
 pub trait FormatCompiler: Send + Sync {
     /// The module.

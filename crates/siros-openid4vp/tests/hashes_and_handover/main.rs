@@ -323,3 +323,70 @@ fn transaction_data_hashes_follow_b_3_3_1() {
         );
     }
 }
+
+/// A registered algorithm writes exactly the octets it states: the core refuses another length
+/// with a `Fault`, and a digest of the stated length is the response's hash. The algorithm is an
+/// extension's, of the name of B.3.3.1's default.
+#[test]
+fn a_hash_algorithms_digest_holds_the_octets_it_states() {
+    use siros_openid4vp::envelope::Envelope;
+    use siros_openid4vp::hash::HashAlgorithm;
+    use siros_openid4vp::ids::TransactionType;
+    use siros_openid4vp::modes::DcApi;
+    use siros_openid4vp::resolve::Outcome;
+    use siros_openid4vp::routing::VpToken;
+    use siros_testkit::{TestFormat, TestHash, TestProfile};
+
+    let data = entry(r#"{"type": "t1", "credential_ids": ["q"]}"#);
+    let text = parameters(
+        &test_queries(&["q"]),
+        &format!(r#""transaction_data":["{data}"]"#),
+    );
+    let received = unsigned(&text).expect("received");
+    let holder = Held::answering("c", &["q"], &["t1"]);
+    let wallet = Wallet::new(vec![holder.credential()]).expect("wallet");
+    let env = env("en");
+    for writes in [32, 31] {
+        let mut builder = Registry::<TestHost>::builder();
+        builder.response_type(VpToken);
+        builder.mode(DcApi);
+        builder.hash(TestHash {
+            name: Sha2::Sha256.name(),
+            octets: Sha2::Sha256.octets(),
+            writes,
+        });
+        builder.format(TestFormat::new().expect("format"));
+        let profile = builder.profile(TestProfile::new(Binds::Every));
+        builder.exact(TransactionType::parse("t1").expect("type"), profile);
+        let registry = builder.build().expect("registry");
+        let envelope = Envelope::parse(&received, &registry).expect("envelope");
+        let request = Request::parse(&envelope).expect("request");
+        let accepted = Accepted::new(&request, &registry).expect("accepted");
+        let matched = Match::run(&accepted, &wallet, &env).expect("match");
+        let consent = Consent::of(&matched).expect("consent");
+        let views = Views::of(&matched, &env).expect("views");
+        let sets = offer(&matched, &consent, Choice::First);
+        let shown = display(&sets, &views, &[]).expect("display");
+        let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+        let ids = shown.select(0, &first).expect("selection").ids();
+        let outcome =
+            Prepared::prepare(&request, &ids, &wallet, &registry, &env).and_then(|prepared| {
+                prepared.respond(
+                    |resource| Published::default().answer(resource),
+                    &TestHost::default(),
+                )
+            });
+        match (writes, outcome) {
+            (32, Ok(response)) => {
+                let token: Json =
+                    serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+                assert_eq!(
+                    token["q"][0]["proof"]["transaction_data_hashes"],
+                    serde_json::json!([URL_SAFE_NO_PAD.encode(Sha256::digest(data.as_bytes()))])
+                );
+            }
+            (31, Err(Outcome::Fault(_))) => {}
+            (writes, other) => panic!("{writes} octets: {other:?}"),
+        }
+    }
+}

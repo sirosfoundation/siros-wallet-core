@@ -27,6 +27,14 @@ pub enum Reading {
 }
 
 /// The wallet's version and its risk signals; the app keeps the last measurement of each.
+///
+/// # Implementing
+///
+/// `version` is the wallet's version as `wallet_instance_version` writes it (Core §6.1).
+/// `measure` returns the last measurement of a signal no older than `max_age`, else a new one when
+/// the wallet can measure again, else an unavailable one, and `None` for a signal the wallet does
+/// not implement; siros-paso reports the signal's status from it (Risk Signals §2.3). siros-paso's registration
+/// requires it. The app implements it; `TestPaso` is the double.
 pub trait Paso {
     /// The wallet's version (Core §6.1 `wallet_instance_version`).
     fn version(&self) -> &str;

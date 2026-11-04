@@ -18,7 +18,7 @@ use crate::refusal::Refusal;
 use crate::refusal::{ErrorCode, RequestRule};
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::request::Request;
-use crate::request::{Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement};
+use crate::request::{Agreements, ContentEncryption, Curve, KeyAgreement};
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::routing::{ChannelKind, Mode};
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
@@ -28,6 +28,8 @@ use crate::routing::{ModeName, VerifierKey, VerifierMetadata};
 use crate::wallet_metadata::MetadataMember;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::wallet_metadata::ParameterName;
+
+pub use crate::routing::KeyChoice;
 
 #[cfg(feature = "dc-api")]
 /// `dc_api` (A.2): the Authorization Response in the clear, as the DigitalCredential's `data`.
@@ -78,8 +80,8 @@ impl RequestRule for KeyRule {
     }
 }
 
-/// HAIP §5's key rule (§8.3): ECDH-ES on P-256, A256GCM before A128GCM.
-const KEY_RULE: Agreements = Agreements::new(
+/// HAIP §5's key rule's statement (§8.3): ECDH-ES on P-256, A256GCM before A128GCM.
+pub const KEY_RULE: Agreements = Agreements::new(
     &[Curve::P_256],
     &[KeyAgreement::ECDH_ES],
     &[ContentEncryption::A256GCM, ContentEncryption::A128GCM],
@@ -105,8 +107,12 @@ const P_256_OCTETS: usize = 32;
 /// `alg`, present (§8.3: "The alg parameter MUST be present in the JWKs"), both the rule and
 /// `sealer` state, each coordinate 32 octets; then the first `enc` in `sealer`'s order of
 /// preference that the rule states and the Verifier lists, or A128GCM when it lists none (§5.1's
-/// default). Phase 1, which holds no module, reads the rule as its own sealer.
-fn key_rule<'k>(
+/// default). Phase 1, which holds no module, reads the rule as its own sealer ([`KEY_RULE`]).
+///
+/// # Errors
+///
+/// C7 under `mode`: no key, or no `enc`, the rule accepts.
+pub fn key_rule<'k>(
     mode: ModeName,
     metadata: &'k VerifierMetadata<'k>,
     sealer: &Agreements,
@@ -124,67 +130,14 @@ fn key_rule<'k>(
                 && key.point().y().is_some_and(|y| y.len() == P_256_OCTETS)
         })
         .ok_or(KeyRule::Key { mode })?;
-    let listed = metadata.member("encrypted_response_enc_values_supported");
     let enc = sealer
         .encryptions()
         .iter()
         .copied()
         .filter(|enc| KEY_RULE.encrypts(*enc))
-        .find(|enc| match listed {
-            Some(listed) => listed.as_array().is_some_and(|values| {
-                values
-                    .iter()
-                    .any(|value| value.as_str() == Some(enc.as_str()))
-            }),
-            None => *enc == ContentEncryption::A128GCM,
-        })
+        .find(|enc| metadata.lists(*enc))
         .ok_or(KeyRule::Enc { mode })?;
     Ok((key, enc))
-}
-
-/// What HAIP §5's key rule chooses under its own statement, as phase 1 reads it: the key's
-/// place among the request's agreeable keys and its `kid`, and the content encryption. Phase 2
-/// chooses under the sealing module's statement, which can narrow it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeyChoice {
-    place: usize,
-    kid: String,
-    enc: ContentEncryption<'static>,
-}
-
-impl KeyChoice {
-    /// The key rule's choice among the request's `client_metadata.jwks`, for a reader that binds
-    /// the key before phase 2 (a session transcript).
-    ///
-    /// # Errors
-    ///
-    /// C7 under `mode`.
-    pub fn of(mode: ModeName, metadata: &ClientMetadata<'_>) -> Result<Self, KeyRule> {
-        let metadata = VerifierMetadata::of(metadata);
-        key_rule(mode, &metadata, &KEY_RULE).map(|(key, enc)| Self {
-            place: key.place(),
-            kid: key.key().kid().to_owned(),
-            enc,
-        })
-    }
-
-    /// The key's place among `ClientMetadata::agreeable_keys`.
-    #[must_use]
-    pub const fn place(&self) -> usize {
-        self.place
-    }
-
-    /// The key's `kid`.
-    #[must_use]
-    pub fn kid(&self) -> &str {
-        &self.kid
-    }
-
-    /// The content encryption.
-    #[must_use]
-    pub const fn enc(&self) -> ContentEncryption<'static> {
-        self.enc
-    }
 }
 
 #[cfg(any(feature = "dc-api", feature = "uri"))]

@@ -16,9 +16,9 @@ use crate::json::Node;
 use crate::plugins::Fault;
 use crate::plugins::registry::Routes;
 use crate::refusal::{ErrorCode, Refusal, RequestRule};
-use crate::request::{AgreeableKey, ClientMetadata, Request};
 #[cfg(feature = "resolve")]
-use crate::request::{Agreements, ContentEncryption};
+use crate::request::Agreements;
+use crate::request::{AgreeableKey, ClientMetadata, ContentEncryption, Request};
 #[cfg(feature = "resolve")]
 use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
@@ -233,6 +233,69 @@ impl<'k> VerifierMetadata<'k> {
     #[must_use]
     pub const fn keys(&self) -> &VerifierKeys<'k> {
         &self.keys
+    }
+
+    /// Whether the Verifier takes answers under the content encryption:
+    /// `encrypted_response_enc_values_supported` lists it, or, absent, it is A128GCM (§5.1's
+    /// default).
+    #[must_use]
+    pub fn lists(&self, enc: ContentEncryption<'_>) -> bool {
+        match self.member("encrypted_response_enc_values_supported") {
+            Some(listed) => listed.as_array().is_some_and(|values| {
+                values
+                    .iter()
+                    .any(|value| value.as_str() == Some(enc.as_str()))
+            }),
+            None => enc == ContentEncryption::A128GCM,
+        }
+    }
+}
+
+/// What HAIP §5's key rule chooses under its own statement, as phase 1 reads it: the key's
+/// place among the request's agreeable keys and its `kid`, and the content encryption. Phase 2
+/// chooses under the sealing module's statement, which can narrow it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyChoice {
+    place: usize,
+    kid: String,
+    enc: ContentEncryption<'static>,
+}
+
+impl KeyChoice {
+    /// The key rule's choice among the request's `client_metadata.jwks`, for a reader that binds
+    /// the key before phase 2 (a session transcript).
+    ///
+    /// # Errors
+    ///
+    /// C7 under `mode`.
+    pub fn of(
+        mode: ModeName,
+        metadata: &ClientMetadata<'_>,
+    ) -> Result<Self, crate::modes::KeyRule> {
+        let metadata = VerifierMetadata::of(metadata);
+        crate::modes::key_rule(mode, &metadata, &crate::modes::KEY_RULE).map(|(key, enc)| Self {
+            place: key.place(),
+            kid: key.key().kid().to_owned(),
+            enc,
+        })
+    }
+
+    /// The key's place among `ClientMetadata::agreeable_keys`.
+    #[must_use]
+    pub const fn place(&self) -> usize {
+        self.place
+    }
+
+    /// The key's `kid`.
+    #[must_use]
+    pub fn kid(&self) -> &str {
+        &self.kid
+    }
+
+    /// The content encryption.
+    #[must_use]
+    pub const fn enc(&self) -> ContentEncryption<'static> {
+        self.enc
     }
 }
 

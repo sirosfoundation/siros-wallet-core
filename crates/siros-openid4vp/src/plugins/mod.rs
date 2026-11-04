@@ -286,7 +286,21 @@ pub struct Shown<'i> {
     pub chosen: &'i [Item],
 }
 
-/// A format plug-in.
+/// A format plug-in: a Credential Format Identifier's queries, credentials and presentations.
+///
+/// # Implementing
+///
+/// `id` is a constant; the registry refuses a format identifier registered twice
+/// (`RegistryError::FormatTwice`). `query` reads a Credential Query of the format under the
+/// core-made `QueryContext`, and refuses with the request rules it breaks, one or more, as an
+/// `AllOf<Refusal>`. `wallet_formats` is the JSON object `vp_formats_supported` holds under `id`
+/// (§10.1); the core refuses another value (`MetadataRefused::NotObject`). `placement` states how
+/// the format's proof carries a profile's members, and the format writes the members a profile
+/// gives where that placement says; the registry refuses a profile naming a member the placement
+/// does not hold (`MemberPlacement`) or one the format's proof writes itself (`MemberTwice`,
+/// through `reserved`). The phase-2 half, `FormatHost`, answers a query as phase 2 reads it, over
+/// the host modules its bounds name, with a `Presentation` of §8.1's two forms. siros-mdoc,
+/// siros-sdjwt and siros-zkp-req implement it; siros-testkit's `TestFormat` is the double.
 pub trait Format: DynClone + Send + Sync {
     /// The Credential Format Identifier it owns.
     fn id(&self) -> FormatId<'_>;
@@ -500,7 +514,21 @@ pub struct Binding<'b> {
     pub carriage: Carriage,
 }
 
-/// A transaction data profile.
+/// A transaction data profile: the rules, binding and response members of the transaction data
+/// types it is registered under.
+///
+/// # Implementing
+///
+/// The registry keys a profile by exact type and by type prefix, and refuses a type or prefix
+/// registered twice (`TypeTwice`), a registration under a handle it does not hold
+/// (`UnknownProfile`), and members a format's proof cannot hold (`MemberPlacement`,
+/// `MemberTwice`). `refusals` reads the request's entries the profile owns and refuses with its
+/// rules' codes. `members` places the profile's members by the format's [`Placement`] and names
+/// no format. `bind` reads a core-made [`Binding`] and renders the entries the credential
+/// authorizes. The phase-2 half, `ProfileHost`, names the resources it revalidates with
+/// (`wanted`), the authentication a record needs, its revalidation and its response members over
+/// the host modules its bounds name. siros-paso and siros-qes implement it; siros-testkit's
+/// `TestProfile` is the double.
 pub trait Profile: Clone + Send + Sync + 'static {
     /// What phase 2 finds when something the matcher assumed no longer holds.
     type Finding: fmt::Debug + Send + Sync + 'static;

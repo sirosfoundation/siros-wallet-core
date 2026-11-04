@@ -26,6 +26,13 @@ impl Mac {
 
 /// ISO/IEC 18013-5 §9.1.3.5's device MAC; the credentials' device keys sit in the platform's
 /// keystore.
+///
+/// # Implementing
+///
+/// `mac` agrees a secret between the credential's device key and the Verifier's key, derives
+/// EMacKey from it salted with the session transcript siros-mdoc builds, and returns the
+/// HMAC-SHA-256 of `data`; siros-mdoc writes it in the DeviceResponse. A build lacking the
+/// module signs where the Verifier lists a signature, and falls back otherwise. The app implements it; `TestDeviceMac` is the double.
 pub trait DeviceMac {
     /// HMAC-SHA-256 under EMacKey: the HKDF of the ECDH secret of the credential's device key
     /// and the Verifier's key, salted with the SHA-256 of the transcript.

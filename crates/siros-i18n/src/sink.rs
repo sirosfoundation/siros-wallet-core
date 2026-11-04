@@ -27,6 +27,12 @@ impl Style {
 
 /// Where rendering writes. A compiled message opens and closes its styles in nested order, each
 /// once.
+///
+/// # Implementing
+///
+/// `text` receives each run of text in order; `open` and `close` each style around the runs it
+/// spans, nested and once each, so a sink keeps a stack. The plain and formatted sinks of
+/// siros-i18n implement it; an app writes its own for its widgets.
 #[cfg(feature = "render")]
 pub trait Sink {
     /// Text, as given.

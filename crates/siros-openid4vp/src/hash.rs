@@ -137,36 +137,7 @@ impl<A: HashAlgorithm> HostedHash for A {}
 dyn_clone::clone_trait_object!(HostedHash);
 
 #[cfg(feature = "transaction-data")]
-/// The registered algorithms, in registration order, as the request carries them from the
-/// registry its envelope was read with.
-#[derive(Clone, Copy)]
-pub struct Hashes<'r>(&'r [Box<dyn HostedHash>]);
-
-#[cfg(feature = "transaction-data")]
-impl<'r> Hashes<'r> {
-    /// The registry's algorithms.
-    pub(crate) const fn of(algorithms: &'r [Box<dyn HostedHash>]) -> Self {
-        Self(algorithms)
-    }
-
-    /// The algorithm of a Hash Name String.
-    #[must_use]
-    pub fn named(&self, name: &str) -> Option<&'r dyn HostedHash> {
-        self.0
-            .iter()
-            .find(|algorithm| algorithm.name().as_str() == name)
-            .map(AsRef::as_ref)
-    }
-}
-
-#[cfg(feature = "transaction-data")]
-impl fmt::Debug for Hashes<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.0.iter().map(|algorithm| algorithm.name()))
-            .finish()
-    }
-}
+pub use crate::plugins::registry::Hashes;
 
 #[cfg(feature = "transaction-data")]
 /// The digest lengths of the hash families, one or more octets each.

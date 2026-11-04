@@ -9,6 +9,7 @@ mod common;
 
 use siros_explain::AllOf;
 use siros_openid4vp::detail;
+use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{
     Authentication, AuthenticationNeed, CoreHost, Factor, Haip, Knowledge, Platform, ProfileHost,
     RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid,
@@ -62,12 +63,17 @@ fn fixture() -> (String, Vec<Held>) {
 
 /// The id of each entry the display offers, in display order.
 fn offered(text: &str, held: &[Held]) -> Vec<String> {
+    offered_in(text, held, &registry(Binds::First))
+}
+
+/// The ids the consent offers over a registry, which reads the request.
+fn offered_in<H>(text: &str, held: &[Held], registry: &Registry<H>) -> Vec<String> {
     let received = unsigned(text).expect("received");
-    let request = request_of(&received).expect("request");
-    let registry = registry(Binds::First);
+    let envelope = Envelope::parse(&received, registry).expect("envelope");
+    let request = Request::parse(&envelope).expect("request");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
-    let accepted = Accepted::new(&request, &registry).expect("accepted");
+    let accepted = Accepted::new(&request, registry).expect("accepted");
     let matched = Match::run(&accepted, &wallet, &env).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, &env).expect("views");
@@ -514,4 +520,82 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
         )]
     );
     assert_eq!(host.platform.authentications(), 0);
+}
+
+#[test]
+fn the_core_checks_the_key_and_enc_a_mode_chooses() {
+    use siros_openid4vp::routing::{ChannelKind, ModeName};
+    use siros_testkit::{TestChoice, TestMode};
+
+    const NAME: ModeName = siros_explain::checked!(ModeName, "dc_api.test");
+    let jwk = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES"}"#;
+    // The Verifier lists A192GCM and A128GCM; the test HAIP module states A256GCM and A128GCM.
+    let text = format!(
+        r#"{{"response_type":"vp_token","response_mode":"dc_api.test","nonce":"n-0S6_WzA2Mj","client_metadata":{{"jwks":{{"keys":[{jwk}]}},"encrypted_response_enc_values_supported":["A192GCM","A128GCM"]}},"dcql_query":{}}}"#,
+        test_queries(&["q"])
+    );
+    let held = [Held::answering("c", &["q"], &[])];
+    let received = unsigned(&text).expect("received");
+    let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
+    let key = |enc| TestChoice::Key { place: 0, enc };
+    // Each case: the mode's choice, whether its registration seals, and whether the core seals.
+    let cases = [
+        (key(ContentEncryption::A128GCM), true, true),
+        (TestChoice::Plain, false, true),
+        // An enc the module does not state; an enc the Verifier does not list.
+        (
+            key(siros_explain::checked!(
+                ContentEncryption<'static>,
+                "A192GCM"
+            )),
+            true,
+            false,
+        ),
+        (key(ContentEncryption::A256GCM), true, false),
+        // A key on a route in the clear; no key on a sealed route.
+        (key(ContentEncryption::A128GCM), false, false),
+        (TestChoice::Plain, true, false),
+    ];
+    for (choice, sealed_route, seals) in cases {
+        let mode = TestMode {
+            choice,
+            ..TestMode::new(NAME, ChannelKind::DcApi)
+        };
+        let mut builder = Registry::<TestHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
+        builder.format(TestFormat::new().expect("format"));
+        if sealed_route {
+            builder.jwe_mode(mode);
+        } else {
+            builder.mode(mode);
+        }
+        let registry = builder.build().expect("registry");
+        let envelope = Envelope::parse(&received, &registry).expect("envelope");
+        let request = Request::parse(&envelope).expect("request");
+        let ids = offered_in(&text, &held, &registry);
+        let host = TestHost::default();
+        let outcome = sealed(&request, &ids[0], &wallet, &registry, &host);
+        match (seals, sealed_route, outcome) {
+            (
+                true,
+                true,
+                Ok(Response {
+                    data: ResponseData::Encrypted(_),
+                    ..
+                }),
+            )
+            | (
+                true,
+                false,
+                Ok(Response {
+                    data: ResponseData::Plain(_),
+                    ..
+                }),
+            ) => assert_eq!(host.platform.authentications(), 1, "{choice:?}"),
+            (false, _, Err(Outcome::Fault(_))) => {
+                assert_eq!(host.platform.authentications(), 0, "{choice:?}");
+            }
+            (_, _, other) => panic!("{choice:?}, sealed route {sealed_route}: {other:?}"),
+        }
+    }
 }

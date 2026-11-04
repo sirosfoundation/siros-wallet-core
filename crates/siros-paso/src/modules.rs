@@ -24,6 +24,12 @@ pub trait CoseSlot {}
 impl<H> CoseSlot for H {}
 
 /// Fresh identifiers: a response's `jti`. Required by siros-paso.
+///
+/// # Implementing
+///
+/// `random_id` returns a fresh version 4 UUID from the platform's random bytes
+/// ([`RandomId::from_bytes`]); siros-paso writes it as a response's `jti` (Core §6.1). The app
+/// implements it; `TestRandomIds` is the double.
 pub trait RandomIds {
     /// A fresh random identifier.
     fn random_id(&self) -> RandomId;

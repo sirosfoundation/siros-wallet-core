@@ -43,6 +43,14 @@ use crate::request::{AgreeableKey, Agreements, ContentEncryption};
 use crate::wallet::Credential;
 
 /// The wallet app: its clock, its credentials' status, the End-User's prompt.
+///
+/// # Implementing
+///
+/// The core calls it with no extension registered ([`CoreHost`]). `now` is the platform's clock;
+/// `usable` checks a credential's validity and status now; `authenticate` prompts the End-User
+/// at least as strongly as the need asks and returns the factors used, or `None` when the
+/// End-User failed or cancelled. The app implements it; siros-testkit's `TestPlatform` is the
+/// double, which counts the End-User's authentications.
 pub trait Platform {
     /// The current time.
     fn now(&self) -> Timestamp;
@@ -57,6 +65,16 @@ pub trait Platform {
 /// platform's keystore. The module states what it implements, and the core accepts exactly that:
 /// a module without a capability states none ([`JwsAlgorithms::NONE`], [`Agreements::NONE`]),
 /// and the core never calls the method that would serve it.
+///
+/// # Implementing
+///
+/// `verifies` and `agreements` are constants, empty for a capability the module lacks. `verify`
+/// refuses a key that does not fit the signature's `alg`, a point off its curve included;
+/// `encrypt_jwe` writes a compact JWE to the key under its key agreement and `enc`, a fresh
+/// ephemeral key and IV per message. The core calls `verify` and `encrypt_jwe` for what the
+/// statements name alone, parses the JWE (`SealedJwe`), and seals an answer to its route's key and
+/// `enc`. The registrations that make the core call it (`client_prefix`, `jwe_mode`) bound it.
+/// The app implements it; siros-testkit's `TestHaip` is the double.
 pub trait Haip {
     /// The JWS algorithms `verify` verifies; HAIP's module states ES256 (§7).
     fn verifies(&self) -> JwsAlgorithms;
@@ -100,6 +118,15 @@ pub struct SignatureInvalid;
 
 /// An encrypted Request Object (OpenID4VP §5.10, RFC 9101 §6.1; feature `request-decryption`);
 /// the key travels in the value.
+///
+/// # Implementing
+///
+/// `decrypts` is a constant. `ephemeral_key` draws a fresh key per POST on a stated curve,
+/// returns its public JWK and keeps the secret behind a `KeyHandle`; the core refuses a key on
+/// another curve with a `Fault`. `decrypt` consumes the key, forgets its secret, and answers one
+/// failure for every cause; the core checks the JWE's `alg` and `enc` against `decrypts` first.
+/// `RegistryBuilder::request_encryption` bounds it. The app implements it; siros-testkit's
+/// `TestRequestDecryption` is the double.
 #[cfg(feature = "request-decryption")]
 pub trait RequestDecryption {
     /// The curves of the keys it draws and the JWE `alg` and `enc` values `decrypt` implements;

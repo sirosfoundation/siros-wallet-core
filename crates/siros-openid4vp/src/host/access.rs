@@ -2,6 +2,14 @@
 //! module the plug-in requires, [`MayHave`] for one it uses when the build holds it.
 
 /// The host holds module `M`: a required provider (axum: `M: FromRef<S>`).
+///
+/// # Implementing
+///
+/// A build's host struct implements `Has<dyn M>` for each module it holds and [`MayHave<dyn M>`]
+/// for each optional module, held or lacking; `siros_testkit::test_host!` writes both. A
+/// registration bounds the modules it calls, so a host lacking a required module does not
+/// compile with it. The presence of a module is the slot's type ([`Slot`]), sealed: no host
+/// changes it while running. siros-integration's builds implement it.
 pub trait Has<M: ?Sized> {
     /// The module.
     fn module(&self) -> &M;

@@ -16,7 +16,7 @@ use super::{Format, Member, Profile};
 use crate::authenticate::{HostedPrefix, ObjectRule};
 use crate::hash::HashName;
 #[cfg(feature = "transaction-data")]
-use crate::hash::{Hashes, HostedHash};
+use crate::hash::HostedHash;
 #[cfg(feature = "uri")]
 use crate::host::EphemeralKey;
 #[cfg(feature = "request-decryption")]
@@ -1165,6 +1165,38 @@ impl<H> Registry<H> {
     #[cfg(feature = "resolve")]
     pub(crate) fn mode_host(&self, handle: ModeHandle) -> Option<&RegisteredMode<H>> {
         self.modes.get(handle.place())
+    }
+}
+
+#[cfg(feature = "transaction-data")]
+/// The registered algorithms, in registration order, as the request carries them from the
+/// registry its envelope was read with.
+#[derive(Clone, Copy)]
+pub struct Hashes<'r>(&'r [Box<dyn HostedHash>]);
+
+#[cfg(feature = "transaction-data")]
+impl<'r> Hashes<'r> {
+    /// The registry's algorithms.
+    pub(crate) const fn of(algorithms: &'r [Box<dyn HostedHash>]) -> Self {
+        Self(algorithms)
+    }
+
+    /// The algorithm of a Hash Name String.
+    #[must_use]
+    pub fn named(&self, name: &str) -> Option<&'r dyn HostedHash> {
+        self.0
+            .iter()
+            .find(|algorithm| algorithm.name().as_str() == name)
+            .map(AsRef::as_ref)
+    }
+}
+
+#[cfg(feature = "transaction-data")]
+impl fmt::Debug for Hashes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|algorithm| algorithm.name()))
+            .finish()
     }
 }
 

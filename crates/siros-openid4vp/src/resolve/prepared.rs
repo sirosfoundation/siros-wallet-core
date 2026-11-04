@@ -269,7 +269,7 @@ fn seal<'k, 'h, H>(
                 .key()
                 .alg()
                 .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
-            if stated {
+            if stated && metadata.lists(enc) {
                 Ok(Some(Sealing {
                     haip,
                     key: RouteKey::of(key, enc),
@@ -277,7 +277,7 @@ fn seal<'k, 'h, H>(
             } else {
                 Err(Fault::new(
                     FAULT,
-                    detail!("a mode chose a key or an enc the sealing module does not state"),
+                    detail!("a mode chose a key or an enc the sealing module does not state, or an enc the Verifier does not list"),
                 )
                 .into())
             }
