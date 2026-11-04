@@ -169,7 +169,7 @@ impl NymAuthSystem {
 
     /// The attestation form it proves over.
     pub fn form(self) -> Form {
-        Form::StoredMdoc
+        Form::Mdoc
     }
 
     /// The dates E and C may take (Section 2): 0000-01-01 to 9999-12-31 for both systems.

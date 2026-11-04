@@ -58,7 +58,7 @@ pub enum Presenting {
     /// No option has a usable pair with the system: each option's refusal.
     NoPair(Vec<PairRefusal<Unsupported>>),
     /// The credential is no mdoc.
-    StoredMdoc(MdocError),
+    Mdoc(MdocError),
     /// The mdoc is no tested attestation.
     Unusable(Unusable),
     /// The query's `trusted_authorities` do not admit the Document Signer.
@@ -214,7 +214,7 @@ pub fn usable(
     data: &str,
     now: DateTime,
 ) -> Result<UsableAttestation, Presenting> {
-    let mdoc = StoredMdoc::parse(data).map_err(Presenting::StoredMdoc)?;
+    let mdoc = StoredMdoc::parse(data).map_err(Presenting::Mdoc)?;
     let tested = TestedAttestation::of(&mdoc, now).map_err(Presenting::Unusable)?;
     let issuer = admitted(query, &mdoc, now).map_err(Presenting::Unadmitted)?;
     UsableAttestation::new(tested, issuer, nym).map_err(Presenting::OtherIssuer)

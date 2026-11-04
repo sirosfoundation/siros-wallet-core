@@ -39,7 +39,7 @@ pub const UNDISCLOSABLE: [&str; 4] = ["ssc", "psc", "secret_seed", "birth_date"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Form {
     /// `mso_mdoc`, `doctype_value` [`MDOC_DOCTYPE`].
-    StoredMdoc,
+    Mdoc,
     /// `bbs_cd`, `schema_id_value` [`BBS_SCHEMA_ID`].
     BbsCd,
 }
@@ -130,9 +130,9 @@ impl Prf {
     /// Whether the catalogue defines this PRF for `form` and `config`.
     fn defined_for(self, form: Form, config: &Config) -> bool {
         match (self, form) {
-            (Self::Sha256, Form::StoredMdoc) => true,
+            (Self::Sha256, Form::Mdoc) => true,
             (Self::HashdhBls12381G1, Form::BbsCd) => *config == Config::KnownOffenderMatchingSsc,
-            (Self::Sha256, Form::BbsCd) | (Self::HashdhBls12381G1, Form::StoredMdoc) => false,
+            (Self::Sha256, Form::BbsCd) | (Self::HashdhBls12381G1, Form::Mdoc) => false,
         }
     }
 }
@@ -362,7 +362,7 @@ impl NymAuthQuery {
 fn form_of(credential_type: &CredentialType) -> Result<Option<Form>, CatalogueRule> {
     match credential_type {
         CredentialType::MsoMdoc { doctype } => {
-            Ok((doctype.as_str() == MDOC_DOCTYPE).then_some(Form::StoredMdoc))
+            Ok((doctype.as_str() == MDOC_DOCTYPE).then_some(Form::Mdoc))
         }
         CredentialType::Profiled {
             source_format,
