@@ -319,8 +319,7 @@ impl WalletMetadata {
             ));
         }
         let verifies = client_id
-            .as_str()
-            .split_once(':')
+            .prefixed()
             .and_then(|(prefix, _)| registry.client_prefix(prefix))
             .map(|(_, haip)| haip(host).verifies());
         if let Some(verifies) = verifies {

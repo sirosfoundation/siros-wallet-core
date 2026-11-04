@@ -153,6 +153,15 @@ text_id!(
     "transaction data type prefix",
     non_empty
 );
+impl ClientId<'_> {
+    /// The Client Identifier Prefix and the original identifier (§5.9.1): the text before the
+    /// first `:` and the text after it; `None` for an identifier without a `:`, a pre-registered
+    /// client's (§5.9.2).
+    #[must_use]
+    pub fn prefixed(&self) -> Option<(&str, &str)> {
+        self.0.split_once(':')
+    }
+}
 impl TransactionType<'_> {
     /// Whether the type identifier starts with the prefix.
     #[must_use]

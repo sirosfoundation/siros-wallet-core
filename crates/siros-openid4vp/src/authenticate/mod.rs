@@ -101,8 +101,7 @@ impl<'c> ClientClaim<'c> {
     #[must_use]
     pub fn original(&self) -> &str {
         self.client_id
-            .as_str()
-            .split_once(':')
+            .prefixed()
             .map_or("", |(_, original)| original)
     }
 

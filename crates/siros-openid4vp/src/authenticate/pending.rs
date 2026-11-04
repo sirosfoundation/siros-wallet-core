@@ -217,7 +217,7 @@ impl<'e> Envelope<'e> {
         signed: Signed<'e>,
         response_uri: Option<&ResponseUri>,
     ) -> Result<Pieces<'e, H>, Unauthenticated> {
-        let (prefix, haip) = match client_id.as_str().split_once(':') {
+        let (prefix, haip) = match client_id.prefixed() {
             Some(("origin", _)) => return Err(Unauthenticated::Origin),
             Some((name, _)) => registry.client_prefix(name),
             None => None,
