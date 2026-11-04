@@ -6,11 +6,11 @@
 use crate::date::DateTime;
 use serde_json::value::RawValue;
 use serde_json::Value;
-use siros_explain::MessageId;
+use siros_explain::{Explain, MessageId};
 use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SessionTranscript};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::host::Timestamp;
-use siros_openid4vp::request::Query;
+use siros_openid4vp::request::{DcqlRule, Query};
 use siros_trust::{Certificate, IssuerChain, PathRefusal};
 use siros_zkp_req::{
     answered_option, EncodingError, InputName, ProofBackend, ProofEnvelope, QueryOption,
@@ -351,9 +351,6 @@ fn encoding(fault: ProofEncodingFault) -> Rejection {
     Rejection::ProofEncoding(fault)
 }
 
-/// The message of a Verifier's own query that is no Credential Query.
-const OWN_QUERY: MessageId = siros_explain::checked!(MessageId, "openid4vp.dcql.query_not_object");
-
 fn own_query(
     query: &Value,
     client_metadata: &Value,
@@ -361,9 +358,11 @@ fn own_query(
     let invalid = |rule: InvalidRequest| Rejection::Request(OwnQueryFault::Invalid(rule));
     let refused = |id| Rejection::Request(OwnQueryFault::Dcql(id));
     let dcql = RawValue::from_string(serde_json::json!({ "credentials": [query] }).to_string())
-        .map_err(|_| refused(OWN_QUERY))?;
+        .map_err(|e| refused(DcqlRule::QueryNotObject(e.into()).id()))?;
     let queries = Query::read_all(&dcql).map_err(|refusal| refused(refusal.rule().id()))?;
-    let query = queries.first().ok_or(refused(OWN_QUERY))?;
+    let query = queries
+        .first()
+        .ok_or_else(|| refused(DcqlRule::Credentials.id()))?;
     let parsed = ZkpReqQuery::parse(query).map_err(|r| invalid(r.into()))?;
     let formats =
         ZkpFormats::from_client_metadata(client_metadata).map_err(|r| invalid(r.into()))?;
