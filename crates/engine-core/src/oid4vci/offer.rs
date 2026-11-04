@@ -63,10 +63,18 @@ async fn parse_offer_uri(http: &dyn HttpClient, uri: &str) -> Result<CredentialO
     // Strip the `//` if present (the bare form has none).
     let rest = rest.strip_prefix("//").unwrap_or(rest);
 
-    // The query string carries `credential_offer_uri=`.
+    // The query string carries the offer: `credential_offer=` (the 1.0
+    // by-value form, the OIDF suite's) or `credential_offer_uri=` (the
+    // by-reference form).
     if let Some(query) = rest.strip_prefix('?') {
         for pair in query.split('&') {
             let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            if key == "credential_offer" {
+                let decoded = urldecode(value);
+                let value: serde_json::Value =
+                    serde_json::from_str(&decoded).map_err(|_| OfferError::NotAnObject)?;
+                return parse_offer_value(&value);
+            }
             if key == "credential_offer_uri" {
                 let decoded = urldecode(value);
                 return fetch_offer(http, &decoded).await;
@@ -323,5 +331,49 @@ mod tests {
             parse_offer(&http, &params).await,
             Err(OfferError::Fetch(_))
         ));
+    }
+    #[tokio::test]
+    async fn parses_an_offer_from_the_credential_offer_uri_scheme_by_value() {
+        // The OIDF suite's by-value form: the offer JSON rides in the
+        // credential_offer= query parameter (OpenID4VCI 1.0 §4.1).
+        let http = FakeHttp {
+            status: 500,
+            body: Vec::new(),
+        };
+        let offer_json = serde_json::json!({
+            "credential_issuer": "https://issuer.example",
+            "credential_configuration_ids": ["eu.europa.ec.eudi.pid.1"],
+            "grants": {
+                "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+                    "pre-authorized_code": "preauth-1",
+                    "tx_code": {"length": 6, "input_mode": "numeric"}
+                }
+            }
+        });
+        // The minimal percent-encoding the parser's urldecode undoes:
+        // braces, quotes, colons.
+        let text = offer_json.to_string();
+        let mut encoded = String::new();
+        for b in text.bytes() {
+            match b {
+                b'{' | b'}' | b'"' | b':' | b' ' | b'[' | b']' | b',' | b'/' | b'=' | b'+'
+                | b'#' | b'&' | b'?' | b'%' => {
+                    encoded.push_str(&format!("%{b:02X}"));
+                }
+                _ => encoded.push(b as char),
+            }
+        }
+        let uri = format!("openid-credential-offer://?credential_offer={encoded}");
+        let params = serde_json::Value::String(uri);
+        let offer = parse_offer(&http, &params).await.expect("parse");
+        assert_eq!(offer.credential_issuer, "https://issuer.example");
+        assert_eq!(
+            offer.credential_configuration_ids,
+            vec!["eu.europa.ec.eudi.pid.1".to_owned()]
+        );
+        assert!(offer
+            .grants
+            .get("urn:ietf:params:oauth:grant-type:pre-authorized_code")
+            .is_some());
     }
 }

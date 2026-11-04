@@ -230,6 +230,15 @@ impl FlowHandler for Oid4vciFlow {
             .filter(|kid| !kid.is_empty())
             .map(str::to_owned);
 
+        // The wallet's registered client key's kid (the private_key_jwt
+        // assertion's kid): the app knows the kid it registered with
+        // the AS, the engine asks the host to sign with it.
+        let client_key_kid = offer_params
+            .get("client_key_kid")
+            .and_then(|v| v.as_str())
+            .filter(|kid| !kid.is_empty())
+            .map(str::to_owned);
+
         // ── S2: exchange the pre-authorized code for a token ─────────────
         // The grants in the offer say whether this is a pre-authorized_code
         // flow; if it is, the tx_code is asked of the host.
@@ -250,6 +259,7 @@ impl FlowHandler for Oid4vciFlow {
                     flow_id: &params.flow_id,
                     client_id: &client_id,
                     dpop_key_id: dpop_key_id.as_deref(),
+                    client_key_kid: client_key_kid.as_deref(),
                     dpop: dpop_key.as_ref(),
                     rng: ctx.rng().as_ref(),
                     now_unix: ctx.clock().now_unix(),
@@ -307,6 +317,7 @@ impl FlowHandler for Oid4vciFlow {
                     flow_id: &params.flow_id,
                     client_id: &client_id,
                     dpop_key_id: dpop_key_id.as_deref(),
+                    client_key_kid: client_key_kid.as_deref(),
                     dpop: dpop_key.as_ref(),
                     rng: ctx.rng().as_ref(),
                     now_unix: ctx.clock().now_unix(),
@@ -906,8 +917,13 @@ async fn request_and_deliver(
             key,
             rng: ctx.rng().as_ref(),
             now_unix: ctx.clock().now_unix(),
+            // The DPoP nonce captured from the token response (RFC 9449
+            // §8): the resource request's proof carries it, so the
+            // binding holds across the token and credential endpoints.
+            dpop_nonce: token.dpop_nonce.as_deref(),
         }),
         reissuance_kid: deliver.reissuance_kid,
+        now_unix: ctx.clock().now_unix(),
     };
     let credential = credential::request_credential_with_retry(
         ctx.http().as_ref(),
@@ -925,9 +941,11 @@ async fn request_and_deliver(
     let credential = if let Some(transaction_id) = &credential.transaction_id {
         let deferred_credential = deferred::poll_deferred_credential(
             ctx.http().as_ref(),
+            ctx.host().as_ref(),
             ctx.clock().as_ref(),
             issuer_metadata,
             token,
+            aux.dpop.as_ref(),
             transaction_id,
             credential.interval,
             &|attempt| {
@@ -951,15 +969,23 @@ async fn request_and_deliver(
         credential
     };
 
-    // The notification, best effort.
-    let notification_id = format!("notif-{configuration_id}");
-    let _ = deferred::send_notification(
-        ctx.http().as_ref(),
-        issuer_metadata,
-        &notification_id,
-        "credential_accepted",
-    )
-    .await;
+    // The notification (OID4VCI 1.0 §11), best effort — only when the
+    // issuer's response named a `notification_id` (the wallet echoes
+    // that exact value), and with the same sender-constrained binding
+    // the credential request carried (the DPoP scheme and a fresh
+    // proof; RFC 9449 §4.3).
+    if let Some(notification_id) = credential.notification_id.as_deref() {
+        let _ = deferred::send_notification(
+            ctx.http().as_ref(),
+            ctx.host().as_ref(),
+            issuer_metadata,
+            Some(&token),
+            aux.dpop.as_ref(),
+            notification_id,
+            "credential_accepted",
+        )
+        .await;
+    }
 
     let _ = ctx
         .progress(
@@ -1280,7 +1306,9 @@ mod auth_code_flow_tests {
         assert_eq!(requests.len(), 1);
         let body: serde_json::Value = serde_json::from_slice(&requests[0]).expect("json");
         assert_eq!(body["credential_configuration_id"], "UniversityDegree");
-        assert!(body["proof"]["jwt"].as_str().is_some_and(|j| !j.is_empty()));
+        assert!(body["proofs"]["jwt"][0]
+            .as_str()
+            .is_some_and(|j| !j.is_empty()));
     }
 
     #[tokio::test]

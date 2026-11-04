@@ -31,6 +31,11 @@ pub struct CredentialResponse {
     /// The nonce, when the issuer sent a new one.
     #[serde(default)]
     pub nonce: Option<String>,
+    /// The `notification_id` (OID4VCI 1.0 §11.1), when the issuer
+    /// requires the credential-accepted notification: the wallet's
+    /// notification MUST echo this exact value.
+    #[serde(default)]
+    pub notification_id: Option<String>,
 }
 
 /// Why the credential request refused.
@@ -84,6 +89,9 @@ pub struct ResourceDpop<'a> {
     pub rng: &'a dyn engine_ports::Rng,
     /// The Clock port's now (the proof's `iat`).
     pub now_unix: i64,
+    /// The server-provided DPoP nonce (RFC 9449 §8), captured from the
+    /// token response: the resource request's proof carries it.
+    pub dpop_nonce: Option<&'a str>,
 }
 
 /// The auxiliary inputs of the credential request: the response-
@@ -99,6 +107,8 @@ pub struct CredentialRequestAux<'a> {
     /// EXISTING keypair the issuer knows (ARF ISSU_65 same-key
     /// re-signing) — the key id on the host's sign ask.
     pub reissuance_kid: Option<&'a str>,
+    /// The Clock port's now (the proof's `iat`).
+    pub now_unix: i64,
 }
 
 /// Requests a credential from the issuer's credential endpoint, with the
@@ -122,17 +132,32 @@ pub async fn request_credential(
     let dpop = aux.and_then(|aux| aux.dpop.as_ref());
     // Build the proof's to-be-signed input: a JWT with the `nonce` and
     // the `credential_issuer` audience (OpenID4VCI §7.5, JWT proof).
-    let iat = 0; // The Clock port supplies the time; the host signs.
     let proof_payload = serde_json::json!({
         "iss": metadata.credential_issuer,
         "aud": metadata.credential_issuer,
-        "iat": iat,
+        "iat": aux.map(|aux| aux.now_unix).unwrap_or_default(),
         "nonce": nonce.unwrap_or_default(),
     });
-    let proof_header = serde_json::json!({
+    // The proof header identifies the signing key (OpenID4VCI 1.0
+    // §7.5.1: exactly one of `jwk`, `kid`, or `x5c` — the unregistered
+    // device key travels as the `jwk`, with the RFC 7638 thumbprint as
+    // its `kid` — the SDK's `jose.calculateJwkThumbprint(jwk,
+    // "sha256")` convention). Keys live in the app; the host answers
+    // with the public JWK only. A host that cannot answer keeps the
+    // bare header (the legacy shape).
+    let mut proof_header = serde_json::json!({
         "typ": "openid4vci-proof+jwt",
         "alg": "ES256",
     });
+    if let Ok(answer) = host
+        .request_signing_key(engine_ports::SigningKeyParams {
+            flow_id: "oid4vci-credential".to_owned(),
+            key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
+        })
+        .await
+    {
+        proof_header["jwk"] = public_jwk_for_header(&answer.jwk);
+    }
     let proof_tbs = format!(
         "{}.{}",
         base64url_json(&proof_header),
@@ -155,16 +180,19 @@ pub async fn request_credential(
     // Assemble the signed proof JWT: the TBS plus the base64url signature.
     let proof_jwt = format!("{}.{}", proof_tbs, base64url(&sign_result.signature),);
 
-    // Build the credential request body. OID4VCI §6: when the AS granted
-    // credential identifiers in response to our authorization_details,
-    // the Credential Request names one of those INSTEAD of the
-    // configuration id — an issuer that honours authorization_details
-    // rejects the pair.
+    // Build the credential request body. OID4VCI 1.0 §7.5: `proofs` is
+    // an object keyed by the proof type, its value the array of proofs
+    // of that type — `{"jwt": ["..."]}` (the single `proof` member was
+    // the pre-1.0 drafts' shape, and the draft-era array of
+    // `{proof_type, jwt}` objects is not the 1.0 form either). And §6:
+    // when the AS granted credential identifiers in response to our
+    // authorization_details, the Credential Request names one of those
+    // INSTEAD of the configuration id — an issuer that honours
+    // authorization_details rejects the pair.
     let mut request_body = serde_json::json!({
         "credential_configuration_id": configuration_id,
-        "proof": {
-            "proof_type": "jwt",
-            "jwt": proof_jwt,
+        "proofs": {
+            "jwt": [proof_jwt],
         },
     });
     // The encryption offer (§7.3): the negotiated alg/enc and the
@@ -217,51 +245,70 @@ pub async fn request_credential(
     } else {
         format!("Bearer {}", token.access_token)
     };
-    let mut headers = vec![
-        ("content-type".to_owned(), "application/json".to_owned()),
-        ("accept".to_owned(), "application/json".to_owned()),
-        ("authorization".to_owned(), authorization),
-    ];
-    if dpop_token {
-        if let Some(dpop) = dpop {
-            if let Some(proof) = super::dpop::proof_for(
-                host,
-                Some(dpop.key),
-                super::dpop::ProofRequest {
-                    flow_id: dpop.flow_id,
-                    key_id: dpop.key_id,
-                    htm: "POST",
-                    htu: &credential_endpoint,
-                    access_token: Some(&token.access_token),
-                    nonce: None,
-                    rng: dpop.rng,
-                    now_unix: dpop.now_unix,
-                },
-            )
-            .await
-            {
-                headers.push(("DPoP".to_owned(), proof));
+
+    // The DPoP nonce retry loop (RFC 9449 §8.1): the resource server
+    // may demand its own nonce — the token response's nonce binds the
+    // AS, not the credential endpoint — answering 401
+    // `use_dpop_nonce` with a fresh `DPoP-Nonce` header. The proof is
+    // rebuilt with the fresh nonce and the request retried once; a
+    // second demand is terminal (the status check below reports it).
+    let mut dpop_nonce = dpop.and_then(|dpop| dpop.dpop_nonce).map(str::to_owned);
+    let mut response: Option<engine_ports::HttpResponse> = None;
+    for attempt in 0..2 {
+        let mut headers = vec![
+            ("content-type".to_owned(), "application/json".to_owned()),
+            ("accept".to_owned(), "application/json".to_owned()),
+            ("authorization".to_owned(), authorization.clone()),
+        ];
+        if dpop_token {
+            if let Some(dpop) = dpop {
+                if let Some(proof) = super::dpop::proof_for(
+                    host,
+                    Some(dpop.key),
+                    super::dpop::ProofRequest {
+                        flow_id: dpop.flow_id,
+                        key_id: dpop.key_id,
+                        htm: "POST",
+                        htu: &credential_endpoint,
+                        access_token: Some(&token.access_token),
+                        nonce: dpop_nonce.as_deref(),
+                        rng: dpop.rng,
+                        now_unix: dpop.now_unix,
+                    },
+                )
+                .await
+                {
+                    headers.push(("DPoP".to_owned(), proof));
+                }
             }
         }
-    }
 
-    let response = http
-        .send(HttpRequest {
-            method: "POST".to_owned(),
-            url: credential_endpoint,
-            headers,
-            body: serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
-            purpose: FetchPurpose::Credential,
-            max_response_bytes: MAX_CREDENTIAL_BYTES,
-            redirects: RedirectPolicy::None,
-            allow_plaintext: false,
-            timeout_ms: 30_000,
-        })
-        .await
-        .map_err(|err| match err {
-            HttpError::Refused => CredentialError::Fetch("refused by the adapter".to_owned()),
-            HttpError::Transport(detail) => CredentialError::Fetch(detail),
-        })?;
+        let sent = http
+            .send(HttpRequest {
+                method: "POST".to_owned(),
+                url: credential_endpoint.clone(),
+                headers,
+                body: serde_json::to_vec(&request_body).map_err(|_| CredentialError::NotJson)?,
+                purpose: FetchPurpose::Credential,
+                max_response_bytes: MAX_CREDENTIAL_BYTES,
+                redirects: RedirectPolicy::None,
+                allow_plaintext: false,
+                timeout_ms: 30_000,
+            })
+            .await
+            .map_err(|err| match err {
+                HttpError::Refused => CredentialError::Fetch("refused by the adapter".to_owned()),
+                HttpError::Transport(detail) => CredentialError::Fetch(detail),
+            })?;
+
+        if attempt == 1 || !super::dpop::is_dpop_nonce_error(&sent) {
+            response = Some(sent);
+            break;
+        }
+        // The fresh nonce for the retried proof.
+        dpop_nonce = super::dpop::dpop_nonce_from_response(&sent);
+    }
+    let response = response.expect("the loop always stores the last response");
 
     if response.status != 200 {
         // The P0.6-verified rule: an error body carrying `invalid_nonce` —
@@ -282,6 +329,17 @@ pub async fn request_credential(
             .unwrap_or(false);
         if is_invalid_nonce || c_nonce.is_some() {
             return Err(CredentialError::InvalidNonce { c_nonce });
+        }
+        // The deferred acceptance (OID4VCI 1.0 §8): 202 with a
+        // `transaction_id` — the caller polls the deferred credential
+        // endpoint for the credential. A 202 without a parseable body
+        // stays an error.
+        if response.status == 202 {
+            if let Ok(deferred) = serde_json::from_value::<CredentialResponse>(body) {
+                if deferred.transaction_id.is_some() {
+                    return Ok(deferred);
+                }
+            }
         }
         return Err(CredentialError::Status(response.status));
     }
@@ -333,7 +391,7 @@ pub async fn request_credential_with_retry(
     initial_nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
     // The initial nonce: the endpoint first (§7), then the token's c_nonce.
-    let mut nonce = resolve_nonce(http, metadata, initial_nonce).await;
+    let mut nonce = resolve_nonce(http, host, metadata, aux, initial_nonce).await;
 
     for retry in 0..=1 {
         // The retry re-sends the same encryption offer and DPoP binding
@@ -353,7 +411,7 @@ pub async fn request_credential_with_retry(
             Err(CredentialError::InvalidNonce { c_nonce }) if retry == 0 => {
                 // The fresh nonce: the endpoint first, then the body's
                 // c_nonce (the legacy fallback).
-                nonce = resolve_nonce(http, metadata, c_nonce.as_deref()).await;
+                nonce = resolve_nonce(http, host, metadata, aux, c_nonce.as_deref()).await;
                 if nonce.is_none() {
                     return Err(CredentialError::InvalidNonce { c_nonce });
                 }
@@ -374,11 +432,13 @@ pub async fn request_credential_with_retry(
 /// fallback from the token response or the error body.
 async fn resolve_nonce(
     http: &dyn HttpClient,
+    host: &dyn Host,
     metadata: &IssuerMetadata,
+    aux: Option<&CredentialRequestAux<'_>>,
     fallback: Option<&str>,
 ) -> Option<String> {
     if let Some(endpoint) = metadata.nonce_endpoint.as_deref().filter(|e| !e.is_empty()) {
-        if let Ok(fresh) = super::nonce::fetch_nonce(http, endpoint).await {
+        if let Ok(fresh) = super::nonce::fetch_nonce(http, host, endpoint, aux).await {
             return Some(fresh);
         }
     }
@@ -423,6 +483,69 @@ fn base64url(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// The public JWK as a proof header carries it: the public members
+/// only (no private material ever crosses the port boundary twice),
+/// the RFC 7638 thumbprint as the `kid`, and `key_ops` limited to
+/// verification — the SDK's proof-header shape.
+fn public_jwk_for_header(jwk: &Value) -> Value {
+    let Some(object) = jwk.as_object() else {
+        return jwk.clone();
+    };
+    // The private members (RFC 7518 §6) never ride a proof header.
+    const PRIVATE: [&str; 8] = ["d", "p", "q", "dp", "dq", "qi", "k", "oth"];
+    let public: serde_json::Map<String, Value> = object
+        .iter()
+        .filter(|(name, _)| !PRIVATE.contains(&name.as_str()))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let mut jwk = Value::Object(public);
+    let kid = rfc7638_thumbprint(&jwk);
+    jwk["kid"] = Value::String(kid);
+    jwk["key_ops"] = serde_json::json!(["verify"]);
+    jwk
+}
+
+/// The RFC 7638 JWK thumbprint (SHA-256, base64url): the hash of the
+/// canonical JSON built from the key type's required members only, in
+/// lexicographic order, with no whitespace — the SDK's
+/// `jose.calculateJwkThumbprint(jwk, "sha256")` convention. The `kid`
+/// is always this thumbprint, never a random or conventional name.
+fn rfc7638_thumbprint(jwk: &Value) -> String {
+    // The required members per key type (RFC 7638 §3.2).
+    let kty = jwk.get("kty").and_then(Value::as_str).unwrap_or_default();
+    let required: Vec<&str> = match kty {
+        "EC" => vec!["crv", "kty", "x", "y"],
+        "OKP" => vec!["crv", "kty", "x"],
+        "RSA" => vec!["e", "kty", "n"],
+        _ => Vec::new(),
+    };
+    if required.is_empty() {
+        return String::new();
+    }
+    // The canonical form: the required members, sorted, no whitespace.
+    let mut members: Vec<(&str, &Value)> = required
+        .into_iter()
+        .filter_map(|name| jwk.get(name).map(|value| (name, value)))
+        .collect();
+    members.sort_by_key(|(name, _)| *name);
+    let canonical = format!(
+        "{{{}}}",
+        members
+            .iter()
+            .map(|(name, value)| format!(
+                "{}:{}",
+                serde_json::to_string(name).unwrap_or_default(),
+                serde_json::to_string(value).unwrap_or_default()
+            ))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let digest =
+        kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, canonical.as_bytes())
+            .unwrap_or_default();
+    base64url(&digest)
 }
 
 #[cfg(test)]
@@ -481,9 +604,53 @@ mod tests {
         fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
     }
 
+    /// A host that answers the signing-key ask: the app holds the key,
+    /// so the proof header can identify it (the public JWK + the RFC
+    /// 7638 thumbprint kid — the SDK's shape).
+    struct KeyHost {
+        jwk: Value,
+    }
+
+    #[async_trait::async_trait]
+    impl Host for KeyHost {
+        async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+            Ok(SignResult {
+                signature: vec![0xde, 0xad, 0xbe, 0xef],
+            })
+        }
+        async fn request_signing_key(
+            &self,
+            _params: engine_ports::SigningKeyParams,
+        ) -> Result<engine_ports::SigningKeyResult, HostError> {
+            Ok(engine_ports::SigningKeyResult {
+                jwk: self.jwk.clone(),
+            })
+        }
+        async fn request_match(
+            &self,
+            _params: engine_ports::MatchParams,
+        ) -> Result<engine_ports::MatchResult, HostError> {
+            Err(HostError::Cannot("no match in the test".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, HostError> {
+            Err(HostError::Cannot("no consent in the test".to_owned()))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, HostError> {
+            Ok("1234".to_owned())
+        }
+        async fn open_authorization(&self, _f: &str, _u: &str) -> Result<(), HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+    }
+
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
             nonce_endpoint: None,
+            deferred_credential_endpoint: None,
             credential_endpoint: String::new(),
             token_endpoint: String::new(),
             notification_endpoint: String::new(),
@@ -504,6 +671,7 @@ mod tests {
             c_nonce: None,
             nonce: Some("nonce-1".to_owned()),
             authorization_details: None,
+            dpop_nonce: None,
         }
     }
 
@@ -584,15 +752,18 @@ mod tests {
             let offer = body["credential_response_encryption"]
                 .as_object()
                 .expect("the offer is in the request");
-            assert_eq!(offer["alg"], "ECDH-ES");
+            // The 1.0 wire form: jwk + enc only — the key-management
+            // algorithm rides the JWE header, not the offer.
+            assert!(offer.get("alg").is_none());
             assert_eq!(offer["enc"], "A256GCM");
             assert_eq!(offer["jwk"]["kty"], "EC");
 
-            // The issuer's encrypt: to the wallet's offered public key.
+            // The issuer's encrypt: to the wallet's offered public key
+            // (ECDH-ES, the 1.0 response-encryption algorithm).
             let jwk: jose_rs::jwk::Jwk =
                 serde_json::from_value(offer["jwk"].clone()).expect("offered jwk");
             let mut recipient = jwk.clone();
-            recipient.alg = Some(offer["alg"].as_str().expect("alg").to_owned());
+            recipient.alg = Some("ECDH-ES".to_owned());
             let plaintext = br#"{"credential":"encrypted-credential-1"}"#.to_vec();
             let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(
                 &recipient,
@@ -637,6 +808,7 @@ mod tests {
                 encryption: Some(&encryption),
                 dpop: None,
                 reissuance_kid: None,
+                now_unix: 1_000,
             }),
             Some("nonce-1"),
         )
@@ -668,6 +840,7 @@ mod tests {
                     encryption: Some(&encryption),
                     dpop: None,
                     reissuance_kid: None,
+                    now_unix: 1_000,
                 }),
                 Some("nonce-1"),
             )
@@ -988,12 +1161,14 @@ mod tests {
         let aux = CredentialRequestAux {
             encryption: None,
             reissuance_kid: None,
+            now_unix: 1_000,
             dpop: Some(ResourceDpop {
                 flow_id: "flow-1",
                 key_id: None,
                 key: &key,
                 rng: &TestRng,
                 now_unix: 1_000,
+                dpop_nonce: None,
             }),
         };
         request_credential(
@@ -1026,6 +1201,184 @@ mod tests {
         assert_eq!(claims["ath"], super::super::dpop::ath_of("at-dpop"));
         assert_eq!(claims["htm"], "POST");
         assert_eq!(claims["htu"], "https://issuer.example/credential");
+    }
+
+    #[tokio::test]
+    async fn a_dpop_nonce_demand_on_the_credential_endpoint_is_retried_with_the_fresh_nonce() {
+        // The resource server may demand its own DPoP nonce (RFC 9449
+        // §8.1): the first credential request answers 401
+        // `use_dpop_nonce` with a fresh `DPoP-Nonce` header, and the
+        // retried proof carries that nonce.
+        struct NonceHttp {
+            responses: Vec<engine_ports::HttpResponse>,
+            headers: std::sync::Mutex<Vec<Vec<(String, String)>>>,
+        }
+        #[async_trait::async_trait]
+        impl HttpClient for NonceHttp {
+            async fn send(
+                &self,
+                request: HttpRequest,
+            ) -> Result<engine_ports::HttpResponse, HttpError> {
+                let index = {
+                    let mut calls = self.headers.lock().expect("lock");
+                    let index = calls.len();
+                    calls.push(request.headers.clone());
+                    index
+                };
+                Ok(self
+                    .responses
+                    .get(index)
+                    .cloned()
+                    .unwrap_or_else(|| engine_ports::HttpResponse {
+                        status: 200,
+                        headers: Vec::new(),
+                        body: br#"{"credential":"jwt-1"}"#.to_vec(),
+                    }))
+            }
+        }
+        let key = super::super::dpop::DpopKey::generate().expect("keygen");
+        let token = TokenResponse {
+            access_token: "at-dpop".to_owned(),
+            token_type: "DPoP".to_owned(),
+            ..test_token()
+        };
+        let http = NonceHttp {
+            responses: vec![engine_ports::HttpResponse {
+                status: 401,
+                headers: vec![("DPoP-Nonce".to_owned(), "fresh-nonce".to_owned())],
+                body: br#"{"error":"invalid_token"}"#.to_vec(),
+            }],
+            headers: std::sync::Mutex::new(Vec::new()),
+        };
+
+        let aux = CredentialRequestAux {
+            encryption: None,
+            reissuance_kid: None,
+            now_unix: 1_000,
+            dpop: Some(ResourceDpop {
+                flow_id: "flow-1",
+                key_id: None,
+                key: &key,
+                rng: &TestRng,
+                now_unix: 1_000,
+                dpop_nonce: None,
+            }),
+        };
+        let response = request_credential(
+            &http,
+            &FakeHost,
+            &test_metadata(),
+            &token,
+            "X",
+            Some(&aux),
+            None,
+        )
+        .await
+        .expect("the nonce retry succeeds");
+        assert_eq!(response.credential.as_deref(), Some("jwt-1"));
+
+        let headers = http.headers.lock().expect("lock");
+        assert_eq!(headers.len(), 2, "the request is sent twice");
+        let first_proof = headers[0]
+            .iter()
+            .find(|(n, _)| n == "DPoP")
+            .map(|(_, v)| v.clone())
+            .expect("the first request carries a proof");
+        let second_proof = headers[1]
+            .iter()
+            .find(|(n, _)| n == "DPoP")
+            .map(|(_, v)| v.clone())
+            .expect("the retried request carries a proof");
+        let decode = |proof: &str| {
+            let payload = proof.split('.').nth(1).unwrap_or_default();
+            let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+            let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
+            claims
+        };
+        assert!(decode(&first_proof)["nonce"].is_null());
+        assert_eq!(decode(&second_proof)["nonce"], "fresh-nonce");
+    }
+
+    #[tokio::test]
+    async fn the_proof_header_identifies_the_key_with_the_jwk_and_the_thumbprint_kid() {
+        // The app holds the signing key, so the engine asks for its
+        // public JWK and identifies it in the proof header: the public
+        // JWK and the RFC 7638 thumbprint as the `kid` (the SDK's
+        // `jose.calculateJwkThumbprint` convention — never a random or
+        // conventional name). The proof's `iat` is the Clock's now.
+        struct BodyHttp {
+            body: std::sync::Mutex<Vec<u8>>,
+        }
+        #[async_trait::async_trait]
+        impl HttpClient for BodyHttp {
+            async fn send(
+                &self,
+                request: HttpRequest,
+            ) -> Result<engine_ports::HttpResponse, HttpError> {
+                self.body
+                    .lock()
+                    .map(|mut b| *b = request.body.clone())
+                    .ok();
+                Ok(engine_ports::HttpResponse {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: br#"{"credential":"jwt-1"}"#.to_vec(),
+                })
+            }
+        }
+        let host = KeyHost {
+            jwk: serde_json::json!({
+                "kty": "EC",
+                "crv": "P-256",
+                "x": "yD-oreWV0aEuPH94c_DGCtOvqIvFujzIoloNCcfjZyY",
+                "y": "HO-K1-uhDZXpdSn3U6sxr0792PwurIcGraTFIV4x51k",
+            }),
+        };
+        let http = BodyHttp {
+            body: std::sync::Mutex::new(Vec::new()),
+        };
+
+        let aux = CredentialRequestAux {
+            encryption: None,
+            reissuance_kid: None,
+            now_unix: 1_000,
+            dpop: None,
+        };
+        request_credential(
+            &http,
+            &host,
+            &test_metadata(),
+            &test_token(),
+            "X",
+            Some(&aux),
+            Some("nonce-1"),
+        )
+        .await
+        .expect("request");
+
+        let body = http.body.lock().expect("lock").clone();
+        let request: serde_json::Value = serde_json::from_slice(&body).expect("body");
+        let jwt = request["proofs"]["jwt"][0].as_str().expect("the proof jwt");
+        let decode = |part: usize| {
+            let payload = jwt.split('.').nth(part).unwrap_or_default();
+            crate::oid4vp::test_util::base64url_decode(payload.as_bytes())
+        };
+        let header: Value = serde_json::from_slice(&decode(0)).expect("the JOSE header");
+        let claims: Value = serde_json::from_slice(&decode(1)).expect("the claims");
+
+        // The public JWK rides the header, public members only, with
+        // the thumbprint kid and verify-only key ops — and it is the
+        // ONLY key identification (exactly one of jwk/kid/x5c).
+        let expected_thumbprint = super::rfc7638_thumbprint(&host.jwk);
+        assert!(!expected_thumbprint.is_empty());
+        assert_eq!(header["jwk"]["kty"], "EC");
+        assert!(header["jwk"].get("d").is_none());
+        assert_eq!(header["jwk"]["kid"], expected_thumbprint);
+        assert!(header.get("kid").is_none());
+        assert!(header.get("x5c").is_none());
+        assert_eq!(header["jwk"]["key_ops"], serde_json::json!(["verify"]));
+        // The iat is the Clock's now, not a placeholder.
+        assert_eq!(claims["iat"], 1_000);
     }
 
     #[tokio::test]
@@ -1062,12 +1415,14 @@ mod tests {
         let aux = CredentialRequestAux {
             encryption: None,
             reissuance_kid: None,
+            now_unix: 1_000,
             dpop: Some(ResourceDpop {
                 flow_id: "flow-1",
                 key_id: None,
                 key: &key,
                 rng: &TestRng,
                 now_unix: 1_000,
+                dpop_nonce: None,
             }),
         };
         // A Bearer token: the Bearer scheme, and no DPoP header even

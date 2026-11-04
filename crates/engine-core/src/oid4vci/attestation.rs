@@ -482,6 +482,7 @@ mod tests {
             token_endpoint: "https://as.example/token".to_owned(),
             authorization_endpoint: String::new(),
             par_endpoint: String::new(),
+            token_endpoint_auth_methods: Vec::new(),
             require_par: false,
             challenge_endpoint: "https://as.example/challenge".to_owned(),
             code_challenge_methods: None,

@@ -34,6 +34,12 @@ pub struct TokenResponse {
     /// the Credential Request's `credential_identifier` substitution source.
     #[serde(default)]
     pub authorization_details: Option<serde_json::Value>,
+    /// The server-provided DPoP nonce (RFC 9449 §8), captured from the
+    /// token response's `DPoP-Nonce` header — never a wire member. The
+    /// resource requests' DPoP proofs carry it, so the binding holds
+    /// across the token and credential endpoints.
+    #[serde(default, skip_serializing)]
+    pub dpop_nonce: Option<String>,
 }
 
 /// Why the token exchange refused.
@@ -76,6 +82,10 @@ pub struct TokenExchangeContext<'a> {
     /// renewal reuses the key its refresh_token was bound to at
     /// issuance (RFC 9449 / ARF 3.0 §6.6.6.2.2).
     pub dpop_key_id: Option<&'a str>,
+    /// The wallet's registered client key's kid — the private_key_jwt
+    /// assertion's `kid`. The app knows the kid it registered; the
+    /// engine asks the host to sign with it.
+    pub client_key_kid: Option<&'a str>,
     /// The wallet's client_id (the form member; the attestation PoP's
     /// `iss`).
     pub client_id: &'a str,
@@ -194,7 +204,32 @@ async fn token_exchange_loop(
     .await;
     let mut dpop_nonce: Option<String> = None;
 
+    // private_key_jwt (RFC 7523): the AS metadata names it, the client
+    // assertion is a JWT the engine builds and the host signs — iss
+    // and sub the client_id, aud the AS issuer, a short life, the jti
+    // from the Rng port. One assertion PER REQUEST (RFC 7523 §3: the
+    // jti is single-use, so every attempt — including the DPoP nonce
+    // retry — builds a fresh one); the key is the host's, named by the
+    // registered kid or the conventional `client-auth` key id.
+    let client_assertion_required = as_metadata
+        .token_endpoint_auth_methods
+        .iter()
+        .any(|m| m == "private_key_jwt");
+
     for attempt in 0..3 {
+        // The per-attempt form: the grant and the fresh assertion.
+        let mut form = form.clone();
+        if client_assertion_required {
+            if let Some(assertion) =
+                build_client_assertion(host, exchange, &as_metadata.issuer).await
+            {
+                form.push_str(
+                    "&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
+                );
+                form.push_str(&format!("&client_assertion={}", url_encode(&assertion)));
+            }
+        }
+
         // The headers: the attestation pair, and a fresh DPoP proof
         // per attempt (a new `jti`, the current nonce).
         let mut headers: Vec<(String, String)> = vec![
@@ -245,9 +280,11 @@ async fn token_exchange_loop(
             })?;
 
         if response.status == 200 {
-            // Decode the token response.
-            let token: TokenResponse =
+            // Decode the token response, carrying the captured DPoP nonce
+            // (RFC 9449 §8) for the resource requests' proofs.
+            let mut token: TokenResponse =
                 serde_json::from_slice(&response.body).map_err(|_| TokenError::NotJson)?;
+            token.dpop_nonce = dpop_nonce.clone();
             return Ok(token);
         }
 
@@ -310,6 +347,111 @@ fn url_encode(s: &str) -> String {
             }
             b' ' => out.push_str("%20"),
             _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// The conventional key id the client assertion asks the host to sign
+/// with: the wallet's registered client key. The host that holds it
+/// answers; a host without it refuses and the token request goes
+/// without the assertion (an AS that requires it rejects on its own).
+pub const CLIENT_AUTH_KEY_ID: &str = "client-auth";
+
+/// Builds the RFC 7523 client assertion: the JWT the engine assembles
+/// and the host signs. The TBS is the base64url header + payload; the
+/// host returns the raw JOSE signature bytes.
+///
+/// The kid is the key id the host was asked for — the AS matches the
+/// assertion's key against the client's registered JWKS.
+async fn build_client_assertion(
+    host: &dyn Host,
+    exchange: &TokenExchangeContext<'_>,
+    audience: &str,
+) -> Option<String> {
+    let now = exchange.now_unix;
+    let mut entropy = [0u8; 12];
+    if !exchange.rng.fill(&mut entropy) {
+        return None;
+    }
+    let mut jti = String::with_capacity(24);
+    for b in entropy {
+        jti.push_str(&format!("{b:02x}"));
+    }
+    let header = serde_json::json!({
+        "alg": "ES256",
+        "typ": "JWT",
+        "kid": exchange.client_key_kid.unwrap_or(CLIENT_AUTH_KEY_ID),
+    });
+    let payload = serde_json::json!({
+        "iss": exchange.client_id,
+        "sub": exchange.client_id,
+        "aud": audience,
+        "iat": now,
+        "exp": now + 300,
+        "jti": jti,
+    });
+    let tbs = format!(
+        "{}.{}",
+        base64url_json(&header),
+        base64url_json(&payload),
+    );
+    let kid = exchange
+        .client_key_kid
+        .unwrap_or(CLIENT_AUTH_KEY_ID)
+        .to_owned();
+    let Ok(sign) = host
+        .request_sign(engine_ports::SignParams {
+            flow_id: exchange.flow_id.to_owned(),
+            to_sign: tbs.as_bytes().to_vec(),
+            key_id: Some(kid),
+            algorithm: "ES256".to_owned(),
+        })
+        .await
+    else {
+        return None;
+    };
+    // The signature as base64url — the JOSE wire form (the shared
+    // helper; a hand-rolled tail-chunk loop once emitted three chars
+    // for a one-byte tail, and the 64-byte ES256 signature arrived as
+    // a bogus 65-byte value the suite rightly refused).
+    Some(format!("{tbs}.{}", base64url(&sign.signature)))
+}
+
+/// Minimal base64url encoding of a JSON value — the JOSE wire form.
+fn base64url_json(value: &serde_json::Value) -> String {
+    base64url(&value.to_string().as_bytes().to_vec())
+}
+
+/// Minimal base64url encoding of bytes.
+fn base64url(bytes: &[u8]) -> String {
+    fn six_to_char(v: u8) -> char {
+        // The base64url character for a 6-bit value: A-Z, a-z, 0-9, -, _.
+        if v < 26 {
+            (b'A' + v) as char
+        } else if v < 52 {
+            (b'a' + (v - 26)) as char
+        } else if v < 62 {
+            (b'0' + (v - 52)) as char
+        } else if v == 62 {
+            '-'
+        } else {
+            '_'
+        }
+    }
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk.first().copied().unwrap_or_default();
+        let b1 = chunk.get(1).copied().unwrap_or_default();
+        let b2 = chunk.get(2).copied().unwrap_or_default();
+        let n = ((u32::from(b0)) << 16) | ((u32::from(b1)) << 8) | u32::from(b2);
+        out.push(six_to_char(((n >> 18) & 0x3f) as u8));
+        out.push(six_to_char(((n >> 12) & 0x3f) as u8));
+        if chunk.len() > 1 {
+            out.push(six_to_char(((n >> 6) & 0x3f) as u8));
+        }
+        if chunk.len() > 2 {
+            out.push(six_to_char((n & 0x3f) as u8));
         }
     }
     out
@@ -392,6 +534,7 @@ mod tests {
         TokenExchangeContext {
             flow_id: "flow-1",
             dpop_key_id: None,
+            client_key_kid: None,
             client_id: "client-1",
             dpop: None,
             rng: &FAKE_RNG,
@@ -406,6 +549,7 @@ mod tests {
             authorization_endpoint: String::new(),
             par_endpoint: String::new(),
             require_par: false,
+            token_endpoint_auth_methods: Vec::new(),
             challenge_endpoint: String::new(),
             code_challenge_methods: None,
             grant_types: Vec::new(),
@@ -565,6 +709,7 @@ mod tests {
             &TokenExchangeContext {
                 flow_id: "flow-1",
                 dpop_key_id: None,
+                client_key_kid: None,
                 client_id: "client-1",
                 dpop: Some(&key),
                 rng: &FakeRng,
@@ -659,6 +804,7 @@ mod tests {
             &TokenExchangeContext {
                 flow_id: "flow-1",
                 dpop_key_id: None,
+                client_key_kid: None,
                 client_id: "client-1",
                 dpop: None, // no engine-held fallback
                 rng: &FakeRng,

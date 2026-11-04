@@ -22,8 +22,7 @@
 // survives the redirect's page reload.
 async function engineConfig() {
   if (window.MINI_WALLET_CONFIG) return window.MINI_WALLET_CONFIG;
-  const response = await fetch('mini-wallet.json');
-  const endpoints = await response.json();
+  const endpoints = await loadEndpoints();
 
   const fetchImpl = async (request) => {
     const headers = new Headers();
@@ -43,12 +42,41 @@ async function engineConfig() {
     return { status: response.status, headers: flat, body: Array.from(body) };
   };
 
+  // The engine's EvaluationRequest, translated to the trust proxy's
+  // AuthZEN shape (go-trust's POST /evaluation): the subject is the
+  // issuer or verifier's identifier, the resource the key material,
+  // the action the trust role. The answer translates back — tolerantly:
+  // go-trust answers decision: "PERMIT" (AuthZEN), and the internal
+  // shape also carries trusted/reason/trust_framework for the context.
+  // The engine's EvaluationRequest, translated to go-trust's AuthZEN
+  // /evaluation: the subject is the issuer's identifier, the resource
+  // the key material (go-trust requires the resource's id too — the
+  // issuer's identifier), the action the trust role. The answer's
+  // decision is a boolean; the context's reason names the registry.
   const evaluate = (request) =>
     fetch(endpoints.trustProxyUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(request),
-    }).then((r) => r.json());
+      body: JSON.stringify({
+        subject: { type: 'key', id: request.subject },
+        resource: {
+          type: 'jwk',
+          id: request.subject,
+          key: Array.from(new TextEncoder().encode(request.key_material)),
+        },
+        action: { name: request.resource_type || 'credential-issuer' },
+      }),
+    })
+      .then((r) => r.json())
+      .then((answer) => {
+        const reason = answer.context && answer.context.reason;
+        return {
+          trusted: answer.decision === true || answer.trusted === true,
+          decision: typeof reason === 'string'
+            ? reason
+            : ((reason && (reason.registry || reason.type)) || '') + '',
+        };
+      });
 
   // The kv over localStorage: the flow stash and the credential store
   // survive the redirect's page reload.
@@ -58,19 +86,44 @@ async function engineConfig() {
     del: (key) => { localStorage.removeItem('mini-wallet-kv:' + key); return Promise.resolve(); },
   };
 
+  window.__mini_debug = { clientKey: endpoints.clientKeyJwk ? 'present' : 'absent' };
   return {
     fetch: fetchImpl,
     host: 'mini',
     txCode: endpoints.txCode,
+    // The registered client key (private_key_jwt's signing key) — the
+    // mini host parses the JWK and routes its sign asks by the kid, so
+    // the client assertion is signed by the key the plan registered.
+    clientKeyJwk: endpoints.clientKeyJwk,
     pdp: { evaluate },
     kv,
   };
 }
 
+// The endpoints from mini-wallet.json, cached once loaded — the
+// wallet identity (client_id, the client key's kid) rides the flow
+// start params, so it is read outside the engine config too.
+let endpointsData = null;
+async function loadEndpoints() {
+  if (!endpointsData) {
+    const response = await fetch('mini-wallet.json');
+    endpointsData = await response.json();
+  }
+  return endpointsData;
+}
+
 async function ensureEngine() {
   if (!window.__engine) {
-    const config = await engineConfig();
-    window.__engine = await Engine.new(config);  // set by wallet_glue.js
+    try {
+      // The wasm module boots asynchronously: await it before anything
+      // touches the Engine constructor.
+      await window.__engine_boot;
+      const config = await engineConfig();
+      window.__engine = await Engine.new(config);  // set by wallet_glue.js
+    } catch (err) {
+      window.__last_error = { engine_boot: String(err && (err.message || err)) };
+      throw err;
+    }
   }
   return window.__engine;
 }
@@ -103,19 +156,29 @@ async function openAuthorization(url) {
 }
 
 async function startOffer(offerUrl) {
+  const e = await loadEndpoints();
   const session = await wmp('wmp.session.create', {
     wmp: { version: '0.1', sender: 'mini-wallet' },
     capabilities_offered: { flows: { max_concurrent: 16 } },
     security: { mode: 'tls' },
   });
-  const sessionId = session.wmp.session_id;
+  console.log('[mini-wallet] session create:', JSON.stringify(session));
+  const sessionId = session && session.wmp && session.wmp.session_id;
   const flowId = 'flow-' + crypto.randomUUID();
   const result = await wmp('wmp.flow.start', {
     wmp: { session_id: sessionId, version: '0.1' },
     flow_id: flowId,
     flow_type: 'oid4vci',
-    // The engine's offer parser: the by-reference form.
-    params: { credential_offer_uri: offerUrl },
+    // The offer URL plus the wallet's client identity, in the object
+    // form the engine's flow start reads: the registered client_id and
+    // the client key's kid (the private_key_jwt assertion's kid — the
+    // app knows the kid it registered). The offer parser takes the
+    // credential_offer member as the scheme URL directly.
+    params: {
+      credential_offer: offerUrl,
+      client_id: e.clientId,
+      client_key_kid: e.clientKeyId,
+    },
   });
   // The authorization-code grant returns with the flow still open: the
   // redirect answers through wmp.flow.action, and the page reload
@@ -189,6 +252,7 @@ window.addEventListener('load', async () => {
       await startRequest(query('request'));
     }
   } catch (err) {
+    window.__boot_error = String(err && (err.message || err));
     document.body.setAttribute('data-flow-state', 'error');
   }
 });

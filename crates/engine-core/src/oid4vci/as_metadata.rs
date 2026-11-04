@@ -88,6 +88,7 @@ pub async fn discover_as_metadata(
         authorization_endpoint: format!("{trimmed}/authorize"),
         par_endpoint: String::new(),
         require_par: false,
+        token_endpoint_auth_methods: Vec::new(),
         challenge_endpoint: String::new(),
         code_challenge_methods: Some(vec!["S256".to_owned()]),
         grant_types: vec![
@@ -115,14 +116,18 @@ fn build_candidates(as_url: &str) -> Vec<String> {
 
     let mut candidates = Vec::new();
 
-    // RFC 8414 §3.1: insert between host and path.
+    // RFC 8414 §3.1: insert between host and path. An issuer
+    // identifier with a terminating slash keeps its path components —
+    // the well-known path is the identifier's path with the
+    // terminating slash REMOVED (the suite's RFC 8414-3.1 check
+    // demands exactly that), so the trimmed form is tried first.
     let rfc8414 = format!("{scheme}://{host}/.well-known/oauth-authorization-server{path}");
-    candidates.push(rfc8414.clone());
     if let Some(trimmed) = rfc8414.strip_suffix('/') {
         if trimmed != rfc8414 {
             candidates.push(trimmed.to_owned());
         }
     }
+    candidates.push(rfc8414.clone());
 
     // OIDC discovery: append to the full URL.
     let oidc = format!("{as_url}/.well-known/openid-configuration");
@@ -264,12 +269,17 @@ mod tests {
     #[test]
     fn builds_candidates_in_order() {
         let candidates = build_candidates("https://as.example/path/");
+        // The RFC 8414 path-insertion form comes first, with the
+        // terminating slash removed (the RFC 8414-3.1 expectation);
+        // the slash-kept form is the fallback. The OIDC discovery
+        // form is appended after.
         assert_eq!(
             candidates[0],
-            "https://as.example/.well-known/oauth-authorization-server/path/"
+            "https://as.example/.well-known/oauth-authorization-server/path"
         );
-        // The trailing-slash-removed form is only added when different.
-        // The OIDC discovery form is appended.
+        assert!(candidates
+            .iter()
+            .any(|c| c == "https://as.example/.well-known/oauth-authorization-server/path/"));
         assert!(candidates
             .iter()
             .any(|c| c.contains("openid-configuration")));

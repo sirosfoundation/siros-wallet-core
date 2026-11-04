@@ -112,6 +112,11 @@ pub struct IssuerMetadata {
     /// The nonce endpoint (OpenID4VCI §7), when the issuer advertises one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nonce_endpoint: Option<String>,
+    /// The deferred credential endpoint (OID4VCI 1.0 §9), when the
+    /// issuer advertises one — the polling target for a deferred
+    /// issuance, preferred over the constructed fallback path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deferred_credential_endpoint: Option<String>,
     /// The signed metadata JWT, when the document was served as a JWT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_metadata: Option<String>,
@@ -166,6 +171,12 @@ pub struct AsMetadata {
     /// path exists, so a PAR failure has no fallback.
     #[serde(default)]
     pub require_par: bool,
+    /// The token endpoint's client authentication methods
+    /// (`token_endpoint_auth_methods_supported`). `private_key_jwt`
+    /// (RFC 7523) is the one the engine answers: the client assertion
+    /// is built and signed through the Host's sign port.
+    #[serde(default, alias = "token_endpoint_auth_methods_supported")]
+    pub token_endpoint_auth_methods: Vec<String>,
     /// The client-attestation challenge endpoint
     /// (`challenge_endpoint`, draft-ietf-oauth-attestation-based-client-
     /// auth): where a fresh PoP challenge comes from after a

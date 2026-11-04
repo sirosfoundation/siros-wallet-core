@@ -1,7 +1,7 @@
 //! Deferred credential polling: the `transaction_id` + `interval` loop, and
 //! the notification afterwards — the S2 pieces after the initial request.
 
-use engine_ports::{Clock, FetchPurpose, HttpClient, HttpError, HttpRequest, RedirectPolicy};
+use engine_ports::{Clock, FetchPurpose, Host, HttpClient, HttpError, HttpRequest, RedirectPolicy};
 
 use super::credential::CredentialResponse;
 use super::token::TokenResponse;
@@ -43,20 +43,37 @@ pub enum DeferredError {
 ///   credential; a 202 answers "not yet, keep polling".
 pub async fn poll_deferred_credential(
     http: &dyn HttpClient,
+    host: &dyn Host,
     clock: &dyn Clock,
     metadata: &IssuerMetadata,
     token: &TokenResponse,
+    dpop: Option<&super::credential::ResourceDpop<'_>>,
     transaction_id: &str,
     interval_secs: Option<i64>,
     on_progress: &(dyn Fn(usize) + Sync),
 ) -> Result<CredentialResponse, DeferredError> {
-    let deferred_endpoint = format!(
-        "{}/deferred_credential",
-        metadata.credential_issuer.trim_end_matches('/')
-    );
+    // The deferred credential endpoint: the metadata's
+    // `deferred_credential_endpoint` (OID4VCI 1.0 §9), else the
+    // constructed fallback.
+    let deferred_endpoint = metadata
+        .deferred_credential_endpoint
+        .as_deref()
+        .filter(|e| !e.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            format!(
+                "{}/deferred_credential",
+                metadata.credential_issuer.trim_end_matches('/')
+            )
+        });
     let interval_ms = interval_secs.unwrap_or(5).max(1).saturating_mul(1000) as u64;
 
     let request_body = serde_json::json!({ "transaction_id": transaction_id });
+    // The sender-constrained binding (RFC 9449 §4.3): a DPoP-bound
+    // token authorizes with the DPoP scheme and a fresh `ath`-bound
+    // proof per poll, the resource nonce threading along.
+    let dpop_bound = token.token_type.eq_ignore_ascii_case("DPoP");
+    let mut dpop_nonce = dpop.and_then(|dpop| dpop.dpop_nonce).map(str::to_owned);
 
     for attempt in 0..MAX_ATTEMPTS {
         // Sleep the interval before each poll (the first poll waits too —
@@ -64,29 +81,67 @@ pub async fn poll_deferred_credential(
         clock.sleep(interval_ms).await;
         on_progress(attempt + 1);
 
-        let response = http
-            .send(HttpRequest {
-                method: "POST".to_owned(),
-                url: deferred_endpoint.clone(),
-                headers: vec![
-                    ("content-type".to_owned(), "application/json".to_owned()),
-                    (
-                        "authorization".to_owned(),
-                        format!("Bearer {}", token.access_token),
-                    ),
-                ],
-                body: serde_json::to_vec(&request_body).unwrap_or_default(),
-                purpose: FetchPurpose::Deferred,
-                max_response_bytes: MAX_DEFERRED_BYTES,
-                redirects: RedirectPolicy::None,
-                allow_plaintext: false,
-                timeout_ms: 30_000,
-            })
-            .await
-            .map_err(|err| match err {
-                HttpError::Refused => DeferredError::Fetch("refused by the adapter".to_owned()),
-                HttpError::Transport(detail) => DeferredError::Fetch(detail),
-            })?;
+        // The nonce retry (RFC 9449 §8.1): a use_dpop_nonce demand
+        // re-proofs and re-sends this poll once before giving up on it.
+        let mut response: Option<engine_ports::HttpResponse> = None;
+        for retry in 0..2 {
+            let authorization = if dpop_bound {
+                format!("DPoP {}", token.access_token)
+            } else {
+                format!("Bearer {}", token.access_token)
+            };
+            let mut headers = vec![
+                ("content-type".to_owned(), "application/json".to_owned()),
+                ("authorization".to_owned(), authorization),
+            ];
+            if dpop_bound {
+                if let Some(dpop) = dpop {
+                    if let Some(proof) = super::dpop::proof_for(
+                        host,
+                        Some(dpop.key),
+                        super::dpop::ProofRequest {
+                            flow_id: dpop.flow_id,
+                            key_id: dpop.key_id,
+                            htm: "POST",
+                            htu: &deferred_endpoint,
+                            access_token: Some(&token.access_token),
+                            nonce: dpop_nonce.as_deref(),
+                            rng: dpop.rng,
+                            now_unix: dpop.now_unix,
+                        },
+                    )
+                    .await
+                    {
+                        headers.push(("DPoP".to_owned(), proof));
+                    }
+                }
+            }
+            let sent = http
+                .send(HttpRequest {
+                    method: "POST".to_owned(),
+                    url: deferred_endpoint.clone(),
+                    headers,
+                    body: serde_json::to_vec(&request_body).unwrap_or_default(),
+                    purpose: FetchPurpose::Deferred,
+                    max_response_bytes: MAX_DEFERRED_BYTES,
+                    redirects: RedirectPolicy::None,
+                    allow_plaintext: false,
+                    timeout_ms: 30_000,
+                })
+                .await
+                .map_err(|err| match err {
+                    HttpError::Refused => {
+                        DeferredError::Fetch("refused by the adapter".to_owned())
+                    }
+                    HttpError::Transport(detail) => DeferredError::Fetch(detail),
+                })?;
+            if retry == 1 || !super::dpop::is_dpop_nonce_error(&sent) {
+                response = Some(sent);
+                break;
+            }
+            dpop_nonce = super::dpop::dpop_nonce_from_response(&sent);
+        }
+        let response = response.expect("the retry loop always stores the last response");
 
         match response.status {
             200 => {
@@ -124,7 +179,10 @@ pub enum NotificationError {
 /// flow — the credential is already received.
 pub async fn send_notification(
     http: &dyn HttpClient,
+    host: &dyn Host,
     metadata: &IssuerMetadata,
+    token: Option<&super::token::TokenResponse>,
+    dpop: Option<&super::credential::ResourceDpop<'_>>,
     notification_id: &str,
     event: &str,
 ) -> Result<(), NotificationError> {
@@ -145,19 +203,71 @@ pub async fn send_notification(
         "event": event,
     });
 
-    let _ = http
-        .send(HttpRequest {
-            method: "POST".to_owned(),
-            url: endpoint,
-            headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-            body: serde_json::to_vec(&body).unwrap_or_default(),
-            purpose: FetchPurpose::Notification,
-            max_response_bytes: 1024,
-            redirects: RedirectPolicy::None,
-            allow_plaintext: false,
-            timeout_ms: 10_000,
-        })
-        .await;
+    // The sender-constrained binding (RFC 9449 §4.3): a DPoP-bound
+    // token authorizes the notification like any other resource
+    // request — the DPoP scheme with a fresh `ath`-bound proof, the
+    // nonce retry included (§8.1).
+    let dpop_bound = token
+        .map(|token| token.token_type.eq_ignore_ascii_case("DPoP"))
+        .unwrap_or(false);
+    let mut dpop_nonce = dpop.and_then(|dpop| dpop.dpop_nonce).map(str::to_owned);
+    for attempt in 0..2 {
+        let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
+        if dpop_bound {
+            let token = token.expect("checked above");
+            headers.push((
+                "authorization".to_owned(),
+                format!("DPoP {}", token.access_token),
+            ));
+            if let Some(dpop) = dpop {
+                if let Some(proof) = super::dpop::proof_for(
+                    host,
+                    Some(dpop.key),
+                    super::dpop::ProofRequest {
+                        flow_id: dpop.flow_id,
+                        key_id: dpop.key_id,
+                        htm: "POST",
+                        htu: &endpoint,
+                        access_token: Some(&token.access_token),
+                        nonce: dpop_nonce.as_deref(),
+                        rng: dpop.rng,
+                        now_unix: dpop.now_unix,
+                    },
+                )
+                .await
+                {
+                    headers.push(("DPoP".to_owned(), proof));
+                }
+            }
+        }
+
+        let response = http
+            .send(HttpRequest {
+                method: "POST".to_owned(),
+                url: endpoint.clone(),
+                headers,
+                body: serde_json::to_vec(&body).unwrap_or_default(),
+                purpose: FetchPurpose::Notification,
+                max_response_bytes: 1024,
+                redirects: RedirectPolicy::None,
+                allow_plaintext: false,
+                timeout_ms: 10_000,
+            })
+            .await;
+
+        // The nonce demand (RFC 9449 §8.1): one retry with the fresh
+        // nonce; the notification is best effort either way.
+        match response {
+            Ok(response) => {
+                if attempt == 0 && super::dpop::is_dpop_nonce_error(&response) {
+                    dpop_nonce = super::dpop::dpop_nonce_from_response(&response);
+                    continue;
+                }
+            }
+            Err(_) => break,
+        }
+        break;
+    }
 
     // Best effort: the notification does not fail the flow.
     Ok(())
@@ -217,6 +327,7 @@ mod tests {
     fn test_metadata() -> IssuerMetadata {
         IssuerMetadata {
             nonce_endpoint: None,
+            deferred_credential_endpoint: None,
             credential_endpoint: String::new(),
             token_endpoint: String::new(),
             notification_endpoint: String::new(),
@@ -237,7 +348,47 @@ mod tests {
             c_nonce: None,
             nonce: None,
             authorization_details: None,
+            dpop_nonce: None,
         }
+    }
+
+    /// A refusing host: the deferred tests poll with Bearer tokens, so
+    /// no sub-flow ask is ever answered.
+    struct TestHost;
+
+    #[async_trait::async_trait]
+    impl Host for TestHost {
+        async fn request_sign(
+            &self,
+            _p: engine_ports::SignParams,
+        ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no keys in the test".to_owned()))
+        }
+        async fn request_match(
+            &self,
+            _p: engine_ports::MatchParams,
+        ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no match in the test".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no consent in the test".to_owned()))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot(
+                "no tx code in the test".to_owned(),
+            ))
+        }
+        async fn open_authorization(
+            &self,
+            _f: &str,
+            _u: &str,
+        ) -> Result<(), engine_ports::HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
     }
 
     #[tokio::test]
@@ -245,9 +396,11 @@ mod tests {
         let http = FakeHttp::credential_ready();
         let result = poll_deferred_credential(
             &http,
+            &TestHost,
             &InstantClock,
             &test_metadata(),
             &test_token(),
+            None,
             "tx-1",
             Some(1),
             &|_| {},
@@ -263,9 +416,11 @@ mod tests {
         let http = FakeHttp::pending();
         let err = poll_deferred_credential(
             &http,
+            &TestHost,
             &InstantClock,
             &test_metadata(),
             &test_token(),
+            None,
             "tx-2",
             Some(1),
             &|_| {},
@@ -286,9 +441,11 @@ mod tests {
         assert!(matches!(
             poll_deferred_credential(
                 &http,
+                &TestHost,
                 &InstantClock,
                 &test_metadata(),
                 &test_token(),
+                None,
                 "tx-3",
                 Some(1),
                 &|_| {},

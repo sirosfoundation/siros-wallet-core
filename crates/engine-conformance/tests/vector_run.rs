@@ -156,7 +156,10 @@ fn preauth_script() -> serde_json::Value {
                 },
                 "reply": {
                     "status": 200,
-                    "body": { "credential": "credential-jwt-selftest-1" }
+                    "body": {
+                        "credential": "credential-jwt-selftest-1",
+                        "notification_id": "notif-selftest-1"
+                    }
                 }
             }
         },
@@ -165,7 +168,11 @@ fn preauth_script() -> serde_json::Value {
                 "expect": {
                     "method": "POST",
                     "url": "https://issuer.example/notification",
-                    "purpose": "Notification"
+                    "purpose": "Notification",
+                    "json": {
+                        "notification_id": "notif-selftest-1",
+                        "event": "credential_accepted"
+                    }
                 },
                 "reply": { "status": 200, "body": {} }
             }

@@ -704,6 +704,7 @@ mod tests {
             token_endpoint: "https://as.example/token".to_owned(),
             authorization_endpoint: "https://as.example/authorize".to_owned(),
             par_endpoint: "https://as.example/par".to_owned(),
+            token_endpoint_auth_methods: Vec::new(),
             require_par: false,
             challenge_endpoint: String::new(),
             code_challenge_methods: None,

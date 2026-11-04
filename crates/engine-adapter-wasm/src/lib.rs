@@ -88,7 +88,12 @@ impl WasmEngine {
                     .and_then(|v| v.as_string())
                     .unwrap_or_default();
                 let open_authorization = optional(&config, "openAuthorization");
-                let mini = mini::MiniHost::new(tx_code, open_authorization)
+                // A string member — `optional` is function-typed (the
+                // host callbacks); the client key JWK is read raw.
+                let client_key_jwk = member(&config, "clientKeyJwk")
+                    .ok()
+                    .and_then(|v| v.as_string());
+                let mini = mini::MiniHost::new(tx_code, client_key_jwk, open_authorization)
                     .map_err(|reason| JsValue::from_str(reason.as_str()))?;
                 mini_public_jwk = Some(mini.public_jwk());
                 mini::arc(mini)
@@ -168,21 +173,33 @@ impl WasmEngine {
         let params: serde_json::Value = serde_wasm_bindgen::from_value(params)
             .map_err(|err| rpc_error(wmp_core::error::ERR_INVALID_PARAMS, &err.to_string()))?;
         match self.dispatcher.request(&method, &params).await {
-            Ok(result) => serde_wasm_bindgen::to_value(&result)
-                .map_err(|err| rpc_error(wmp_core::error::ERR_INTERNAL_ERROR, &err.to_string())),
+            // Through JSON text, not serde_wasm_bindgen's serializer:
+            // it hands JS ES2015 Maps (the page reads properties) and
+            // chokes on serde_json::Value's private Number type. The
+            // JSON round-trip gives the page exactly the wire shape.
+            Ok(result) => {
+                let text = serde_json::to_string(&result).unwrap_or_default();
+                js_sys::JSON::parse(&text)
+                    .map_err(|_| rpc_error(wmp_core::error::ERR_INTERNAL_ERROR, "serialize the result"))
+            }
             Err(err) => {
-                let rpc = err.to_rpc();
-                Err(rpc_error(rpc.code, &rpc.message))
+                // The whole RPC error — the data carries the flow's
+                // reason, which the page's diagnostics need.
+                let text = serde_json::to_string(&err.to_rpc()).unwrap_or_default();
+                Err(js_sys::JSON::parse(&text)
+                    .unwrap_or_else(|_| JsValue::from_str("flow refused")))
             }
         }
     }
 }
 
-/// A JSON-RPC error object for the rejections.
+/// A JSON-RPC error object for the rejections — plain-object shaped
+/// through the same JSON round-trip.
 fn rpc_error(code: i32, message: &str) -> JsValue {
     let error = serde_json::json!({ "code": code, "message": message });
-    serde_wasm_bindgen::to_value(&error)
-        .unwrap_or_else(|_| js_sys::wasm_bindgen::JsValue::from_str(message))
+    let text = serde_json::to_string(&error).unwrap_or_default();
+    js_sys::JSON::parse(&text)
+        .unwrap_or_else(|_| JsValue::from_str(message))
 }
 
 /// A required member of the config, of any type (the `host` and

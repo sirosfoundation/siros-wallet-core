@@ -70,11 +70,17 @@ pub fn negotiate_encryption(config: &ResponseEncryptionConfig) -> Option<Negotia
     None
 }
 
-/// The `credential_response_encryption` member of the credential request:
-/// the alg, enc, and the wallet's ephemeral public key as a JWK.
+/// The `credential_response_encryption` member of the credential
+/// request (OID4VCI 1.0 §7.3): the wallet's ephemeral public key as a
+/// JWK and the content-encryption algorithm — no `alg`; the 1.0 wire
+/// form carries only `jwk` (required), `enc` (required), and `zip`
+/// (optional), the key-management algorithm riding the JWE header
+/// instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseEncryptionRequest {
-    /// The negotiated key-management algorithm.
+    /// The negotiated key-management algorithm — engine-internal
+    /// only; never serialized to the wire.
+    #[serde(skip_serializing)]
     pub alg: String,
     /// The negotiated content-encryption algorithm.
     pub enc: String,
@@ -398,6 +404,7 @@ mod tests {
             transaction_id: None,
             interval: None,
             nonce: None,
+            notification_id: None,
         };
         let plaintext = serde_json::to_vec(&credential_response).expect("serialize");
         let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(

@@ -1,7 +1,25 @@
 # The OIDF conformance plan: the raw engine against the certification suite
 
-**Status: designed, deferred** — start when the remaining engine work is
-finished. This document is the plan agreed on 2026-11-04.
+**Status: Phase 1 green (2026-11-04).** The OID4VCI wallet plan passes
+through the mini-wallet — both variants (`sd_jwt_vc /
+pre_authorization_code`, immediate and deferred; DPoP sender-constrain;
+private_key_jwt client auth):
+
+- `oid4vci-1_0-wallet-test-credential-issuance` — PASSED
+- `oid4vci-1_0-wallet-test-credential-issuance-notification` — PASSED
+- `oid4vci-1_0-wallet-happy-path-with-scopes-without-authorization-details-in-token-response` — PASSED
+- `oid4vci-1_0-wallet-test-batch-credential-issuance` — SKIPPED by the
+  suite (not exercised by the agreed variant)
+
+`make test-mini-wallet` in siros-conformance runs it end to end. The
+1.0 wire shapes the suite demanded are pinned by tests and vectors:
+the `proofs: {"jwt": [...]}` credential request, the proof header's
+public JWK with the RFC 7638 thumbprint kid (exactly one of
+jwk/kid/x5c), the DPoP nonce retries on the token, credential, nonce,
+deferred and notification endpoints (RFC 9449 §8.1), the RFC 7523
+assertion (single-use jti, one per request), the RFC 8414 well-known
+path without the trailing slash, and the `notification_id` echo
+(OID4VCI 1.0 §11). Phase 2 (the OID4VP plans) needs the VP builder.
 
 ## The goal
 

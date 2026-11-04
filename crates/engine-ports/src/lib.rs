@@ -206,6 +206,30 @@ pub struct SignResult {
     pub signature: Vec<u8>,
 }
 
+/// The signing-key ask: the public JWK of the key the engine is about
+/// to ask the host to sign with, so the engine can identify the key in
+/// the proof headers it builds (the OID4VCI JWT proof's `jwk` and its
+/// RFC 7638 thumbprint `kid` — the SDK's
+/// `jose.calculateJwkThumbprint(jwk, "sha256")` convention).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SigningKeyParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The key the engine will sign with, named when the flow knows
+    /// it — a renewal's reissuance kid; the device key when unnamed.
+    #[serde(default)]
+    pub key_id: Option<String>,
+}
+
+/// The public JWK answer. Keys always live in the app; the engine
+/// only ever sees the public JWK.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SigningKeyResult {
+    /// The public JWK, public members only, as the app holds it.
+    #[serde(default)]
+    pub jwk: serde_json::Value,
+}
+
 /// The client_id scheme, inferred from the `client_id` prefix — a
 /// wire contract (it crosses the Host boundary in the verifier info).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,6 +503,21 @@ pub enum HostError {
 pub trait Host: Send + Sync {
     /// Asks the host to sign the given input with the named key.
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, HostError>;
+
+    /// Asks the host for the public JWK of the named signing key, so
+    /// the engine can identify the key in the proof headers it builds
+    /// (the OID4VCI JWT proof's `jwk` and its RFC 7638 thumbprint
+    /// `kid`). Keys always live in the app; the engine only ever sees
+    /// the public JWK. The default refusal keeps older hosts working —
+    /// those flows send the proof header without key identification.
+    async fn request_signing_key(
+        &self,
+        _params: SigningKeyParams,
+    ) -> Result<SigningKeyResult, HostError> {
+        Err(HostError::Cannot(
+            "the host does not expose its signing keys".to_owned(),
+        ))
+    }
 
     /// Asks the host to match the wallet's credentials against the
     /// DCQL query (or the scope) and select what to present. The local

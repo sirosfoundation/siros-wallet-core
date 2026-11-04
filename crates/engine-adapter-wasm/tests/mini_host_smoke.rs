@@ -143,7 +143,7 @@ async fn the_mini_host_signs_the_proof_and_the_issuance_completes() {
     let body: Vec<u8> = captured_credential_request();
     let request: serde_json::Value = serde_json::from_slice(&body).expect("the request is JSON");
     let proof = request
-        .pointer("/proof/jwt")
+        .pointer("/proofs/jwt/0")
         .and_then(|jwt| jwt.as_str())
         .expect("the proof JWT")
         .to_owned();
