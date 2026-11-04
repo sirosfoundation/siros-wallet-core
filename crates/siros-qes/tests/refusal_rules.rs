@@ -37,7 +37,7 @@ fn each_rule_of_the_type_refuses_its_entry() {
             .map(|problem| {
                 (
                     format!("QES entry 0: {problem}"),
-                    ErrorCode::InvalidTransactionData,
+                    ErrorCode::INVALID_TRANSACTION_DATA,
                 )
             })
             .collect();
@@ -55,7 +55,7 @@ fn one_presentation_approves_one_request() {
             .collect::<Vec<_>>(),
         [(
             "QES entries [0, 1, 2] name xyz123: one presentation approves one request".to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
 }

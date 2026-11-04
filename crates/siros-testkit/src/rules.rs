@@ -36,7 +36,7 @@ pub enum FormatRule {
 
 impl RequestRule for FormatRule {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidRequest
+        ErrorCode::INVALID_REQUEST
     }
 }
 
@@ -101,7 +101,7 @@ impl TestRule {
     pub fn invalid_request(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            code: ErrorCode::InvalidRequest,
+            code: ErrorCode::INVALID_REQUEST,
         }
     }
 
@@ -109,7 +109,7 @@ impl TestRule {
     pub fn invalid_transaction_data(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            code: ErrorCode::InvalidTransactionData,
+            code: ErrorCode::INVALID_TRANSACTION_DATA,
         }
     }
 }

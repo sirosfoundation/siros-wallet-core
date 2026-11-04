@@ -84,9 +84,12 @@ fn an_authorization_request_uri_breaks_its_rules_in_order() {
     }
     // The codes: invalid_request_uri, invalid_request_uri_method, request_not_supported.
     let code = |uri: &str| Failure::Unreadable(refused(uri)).code();
-    assert_eq!(code(cases[8].0), Some(ErrorCode::InvalidRequestUri));
-    assert_eq!(code(cases[10].0), Some(ErrorCode::InvalidRequestUriMethod));
-    assert_eq!(code(cases[6].0), Some(ErrorCode::RequestNotSupported));
+    assert_eq!(code(cases[8].0), Some(ErrorCode::INVALID_REQUEST_URI));
+    assert_eq!(
+        code(cases[10].0),
+        Some(ErrorCode::INVALID_REQUEST_URI_METHOD)
+    );
+    assert_eq!(code(cases[6].0), Some(ErrorCode::REQUEST_NOT_SUPPORTED));
 }
 
 #[test]
@@ -239,7 +242,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     ));
     assert_eq!(
         rejected.failure().code(),
-        Some(ErrorCode::InvalidRequestObject)
+        Some(ErrorCode::INVALID_REQUEST_OBJECT)
     );
     // A JWE header member twice is the json module's refusal.
     let twice = format!(

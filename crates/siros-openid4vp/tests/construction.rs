@@ -201,31 +201,53 @@ fn constrained_strings_are_refused_when_they_break_their_rule() {
     assert!(LocaleTag::parse("").is_err());
 }
 
+/// The codes as RFC 6749 §4.1.2.1, RFC 9101 §7 and OpenID4VP §8.5 name them; a code is one or
+/// more of RFC 6749 Appendix A.7's `NQSCHAR` (`%x20-21 / %x23-5B / %x5D-7E`).
 #[test]
-fn error_codes_are_written_as_section_8_5_names_them() {
+fn error_codes_are_the_specifications_names_in_appendix_a_7s_syntax() {
     let codes = [
-        (ErrorCode::InvalidRequest, "invalid_request"),
+        (ErrorCode::INVALID_REQUEST, "invalid_request"),
+        (ErrorCode::UNAUTHORIZED_CLIENT, "unauthorized_client"),
+        (ErrorCode::ACCESS_DENIED, "access_denied"),
         (
-            ErrorCode::UnsupportedResponseType,
+            ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
             "unsupported_response_type",
         ),
-        (ErrorCode::InvalidRequestUri, "invalid_request_uri"),
-        (ErrorCode::InvalidRequestObject, "invalid_request_object"),
-        (ErrorCode::RequestNotSupported, "request_not_supported"),
-        (ErrorCode::InvalidScope, "invalid_scope"),
+        (ErrorCode::INVALID_SCOPE, "invalid_scope"),
+        (ErrorCode::SERVER_ERROR, "server_error"),
         (
-            ErrorCode::InvalidRequestUriMethod,
+            ErrorCode::TEMPORARILY_UNAVAILABLE,
+            "temporarily_unavailable",
+        ),
+        (ErrorCode::INVALID_REQUEST_URI, "invalid_request_uri"),
+        (ErrorCode::INVALID_REQUEST_OBJECT, "invalid_request_object"),
+        (ErrorCode::REQUEST_NOT_SUPPORTED, "request_not_supported"),
+        (
+            ErrorCode::REQUEST_URI_NOT_SUPPORTED,
+            "request_uri_not_supported",
+        ),
+        (ErrorCode::INVALID_CLIENT, "invalid_client"),
+        (
+            ErrorCode::VP_FORMATS_NOT_SUPPORTED,
+            "vp_formats_not_supported",
+        ),
+        (
+            ErrorCode::INVALID_REQUEST_URI_METHOD,
             "invalid_request_uri_method",
         ),
         (
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "invalid_transaction_data",
         ),
-        (ErrorCode::VpFormatsNotSupported, "vp_formats_not_supported"),
-        (ErrorCode::AccessDenied, "access_denied"),
+        (ErrorCode::WALLET_UNAVAILABLE, "wallet_unavailable"),
     ];
     for (code, name) in codes {
         assert_eq!((code.as_str(), code.to_string()), (name, name.to_owned()));
+        assert_eq!(ErrorCode::new(name), Some(code));
+    }
+    assert!(ErrorCode::new(" !#[]~").is_some());
+    for refused in ["", "a\"b", "a\\b", "a\u{7f}", "a\tb", "caf\u{e9}"] {
+        assert_eq!(ErrorCode::new(refused), None, "{refused:?}");
     }
 }
 

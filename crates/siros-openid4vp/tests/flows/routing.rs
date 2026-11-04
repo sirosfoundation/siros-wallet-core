@@ -47,39 +47,39 @@ fn each_routed_rule_refuses_with_its_code() {
         (
             with(p1, ""),
             "P1 response_type is absent",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(p1, r#""response_type":"code","#),
             "P1 response_type 'code' is not vp_token",
-            ErrorCode::UnsupportedResponseType,
+            ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
         ),
         // C5: absent; off the channel; direct_post.
         (
             with(&format!("{mode},"), ""),
             "C5 response_mode None is no mode the wallet answers in by URI",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"dc_api.jwt""#),
             "C5 response_mode 'dc_api.jwt' is no mode the wallet answers in by URI",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"direct_post""#),
             "C5 response_mode 'direct_post' is no mode the wallet answers in by URI",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         // P5, P6, P7.
         (
             uri_payload(r#","redirect_uri":"https://verifier.example/cb""#),
             "P5 redirect_uri is present with response_mode direct_post.jwt",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(r#""state":"eyJhb-6-sVA""#, r#""state":"a b""#),
             "P6 state is not a non-empty string of URL-safe ASCII",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(r#","state":"eyJhb-6-sVA""#, "").replace(
@@ -87,24 +87,24 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#""format":"test","require_cryptographic_holder_binding":false"#,
             ),
             "P7 a query waives holder binding and state is absent",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         // N1, S3.
         (
             with("n-0S6_WzA2Mj", "n 0"),
             "N1 nonce is not URL-safe ASCII",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             uri_payload(r#","scope":"openid""#),
             "S3 scope is present; the wallet maps no scope value to a DCQL query",
-            ErrorCode::InvalidScope,
+            ErrorCode::INVALID_SCOPE,
         ),
         // C7: no key the rule accepts (alg absent), no enc it accepts.
         (
             with(r#","alg":"ECDH-ES""#, ""),
             "C7 direct_post.jwt: client_metadata offers no key and content encryption the wallet supports",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
         (
             with(
@@ -112,7 +112,7 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#"]},"encrypted_response_enc_values_supported":["A128CBC-HS256"]}"#,
             ),
             "C7 direct_post.jwt: client_metadata offers no key and content encryption the wallet supports",
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
         ),
     ];
     for (payload, text, code) in cases {

@@ -25,7 +25,7 @@ pub struct QueryRule<R: Explained> {
 
 impl<R: Explained> RequestRule for QueryRule<R> {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidRequest
+        ErrorCode::INVALID_REQUEST
     }
 }
 

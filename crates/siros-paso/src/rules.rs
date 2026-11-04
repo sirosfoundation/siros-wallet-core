@@ -35,8 +35,8 @@ pub enum PasoRule {
 impl RequestRule for PasoRule {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Unsigned => ErrorCode::InvalidRequest,
-            Self::Entry { .. } | Self::Coupled | Self::Sets => ErrorCode::InvalidTransactionData,
+            Self::Unsigned => ErrorCode::INVALID_REQUEST,
+            Self::Entry { .. } | Self::Coupled | Self::Sets => ErrorCode::INVALID_TRANSACTION_DATA,
         }
     }
 }

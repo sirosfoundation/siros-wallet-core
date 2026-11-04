@@ -74,9 +74,9 @@ impl RequestRule for CoreRule {
             Self::NoProfile { .. }
             | Self::CredentialIds { .. }
             | Self::TwoTransactions
-            | Self::TwoProfiles { .. } => ErrorCode::InvalidTransactionData,
+            | Self::TwoProfiles { .. } => ErrorCode::INVALID_TRANSACTION_DATA,
             Self::ClientMetadata(_) | Self::Encryption { .. } | Self::ExpectedOrigins { .. } => {
-                ErrorCode::InvalidRequest
+                ErrorCode::INVALID_REQUEST
             }
         }
     }

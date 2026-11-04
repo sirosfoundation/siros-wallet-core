@@ -197,28 +197,28 @@ fn each_core_rule_refuses_with_its_error_code() {
             r#"{"response_type":"vp_token","response_mode":"dc_api","nonce":"n-0S6_WzA2Mj"}"#
                 .to_owned(),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "dcql_query is absent",
         ),
         (
             "transaction_data",
             request("dc_api", "{}", &[], r#","transaction_data":[]"#),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "transaction_data is not a non-empty array of strings",
         ),
         (
             "expected_origins",
             request("dc_api", "{}", &[], r#","expected_origins":5"#),
             true,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "expected_origins is not an array of strings",
         ),
         (
             "nonce",
             unsigned.replace(r#""nonce":"n-0S6_WzA2Mj""#, r#""nonce":5"#),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "nonce is not a non-empty string",
         ),
         (
@@ -228,28 +228,28 @@ fn each_core_rule_refuses_with_its_error_code() {
                 r#"{"id":"q","format":"test","options":5}"#,
             ),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "test q: options is not an array of item arrays",
         ),
         (
             "C0",
             request("dc_api", "{}", &["e30=".to_owned()], ""),
             false,
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "C0 entry 0: not base64url without padding",
         ),
         (
             "C1",
             request("dc_api", "{}", &[named("t9", r#"["q"]"#)], ""),
             false,
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "C1 entry 0: no profile for type t9",
         ),
         (
             "C2",
             request("dc_api", "{}", &[named("t1", r#"["q", "qX"]"#)], ""),
             false,
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "C2 entry 0: credential_ids ['q', 'qX'] names no Credential Query of the request",
         ),
         (
@@ -261,7 +261,7 @@ fn each_core_rule_refuses_with_its_error_code() {
                 "",
             ),
             false,
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "C3 two queries transaction data names can be presented together",
         ),
         (
@@ -273,35 +273,35 @@ fn each_core_rule_refuses_with_its_error_code() {
                 "",
             ),
             false,
-            ErrorCode::InvalidTransactionData,
+            ErrorCode::INVALID_TRANSACTION_DATA,
             "C4 q: entries of two profiles name it",
         ),
         (
             "C5",
             request("direct_post", "{}", &[], ""),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "C5 response_mode 'direct_post' is no DC API response mode",
         ),
         (
             "C6",
             request("dc_api", "[]", &[], ""),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "C6 client_metadata: client_metadata is not a JSON object",
         ),
         (
             "C7",
             request("dc_api.jwt", "{}", &[], ""),
             false,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "C7 dc_api.jwt: client_metadata offers no key and content encryption the wallet supports",
         ),
         (
             "C8",
             request("dc_api", "{}", &[], ""),
             true,
-            ErrorCode::InvalidRequest,
+            ErrorCode::INVALID_REQUEST,
             "C8 a signed request whose expected_origins [] lack the Origin https://verifier.example",
         ),
     ];
@@ -374,7 +374,7 @@ fn malformed_entries_are_refused_by_c0() {
         let [refusal] = refused.as_slice() else {
             panic!("one refusal for {entry}: {refused:?}")
         };
-        assert_eq!(refusal.code, ErrorCode::InvalidTransactionData);
+        assert_eq!(refusal.code, ErrorCode::INVALID_TRANSACTION_DATA);
         match want {
             Some(text) => assert_eq!(refusal.text, text),
             // A syntax error's wording is the JSON parser's.

@@ -28,7 +28,7 @@ pub enum StructureRule {
 
 impl RequestRule for StructureRule {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidRequest
+        ErrorCode::INVALID_REQUEST
     }
 }
 
@@ -54,8 +54,8 @@ pub enum ParameterRule {
 impl RequestRule for ParameterRule {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Scope => ErrorCode::InvalidScope,
-            Self::Nonce | Self::StateRequired => ErrorCode::InvalidRequest,
+            Self::Scope => ErrorCode::INVALID_SCOPE,
+            Self::Nonce | Self::StateRequired => ErrorCode::INVALID_REQUEST,
         }
     }
 }
@@ -73,7 +73,7 @@ pub struct UndecodedEntry {
 
 impl RequestRule for UndecodedEntry {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidTransactionData
+        ErrorCode::INVALID_TRANSACTION_DATA
     }
 }
 
@@ -142,6 +142,6 @@ pub enum DcqlRule {
 
 impl RequestRule for DcqlRule {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidRequest
+        ErrorCode::INVALID_REQUEST
     }
 }

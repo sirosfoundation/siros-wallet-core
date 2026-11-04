@@ -124,7 +124,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         };
         assert!(holds, "{id}: {rejected:?}");
         assert_eq!(target(&rejected), unverified(), "{id}: unverified");
-        assert_eq!(rejected.failure().code(), Some(ErrorCode::InvalidRequest));
+        assert_eq!(rejected.failure().code(), Some(ErrorCode::INVALID_REQUEST));
     }
     // A6: the trust service denies.
     let denied = TestTrust {
@@ -154,7 +154,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         assert!(holds, "{why}: {rejected:?}");
         assert_eq!(
             rejected.failure().code(),
-            Some(ErrorCode::InvalidRequestObject)
+            Some(ErrorCode::INVALID_REQUEST_OBJECT)
         );
     }
     // Within the skew both stand.
@@ -259,7 +259,7 @@ fn a_signature_over_altered_parameters_fails_by_a8_on_its_route() {
     assert!(matches!(cause(&rejected), Unauthenticated::Signature));
     assert_eq!(
         rejected.failure().code(),
-        Some(ErrorCode::InvalidRequestObject)
+        Some(ErrorCode::INVALID_REQUEST_OBJECT)
     );
     // Under a Request binding the route is unverified; under a Framework one it is listed.
     assert_eq!(target(&rejected), unverified());
@@ -428,7 +428,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
     assert_eq!(target(&rejected), Some(ErrorTarget::DcApi));
     assert_eq!(
         rejected.failure().code(),
-        Some(ErrorCode::InvalidRequestObject)
+        Some(ErrorCode::INVALID_REQUEST_OBJECT)
     );
 }
 

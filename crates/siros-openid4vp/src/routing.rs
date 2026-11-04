@@ -159,12 +159,12 @@ pub enum RoutingRule {
 impl RequestRule for RoutingRule {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::ResponseType(_) => ErrorCode::UnsupportedResponseType,
+            Self::ResponseType(_) => ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
             Self::ResponseTypeAbsent
             | Self::DcApiMode { .. }
             | Self::UriMode { .. }
             | Self::RedirectUri { .. }
-            | Self::State => ErrorCode::InvalidRequest,
+            | Self::State => ErrorCode::INVALID_REQUEST,
         }
     }
 }

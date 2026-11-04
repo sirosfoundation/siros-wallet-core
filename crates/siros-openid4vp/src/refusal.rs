@@ -13,47 +13,85 @@ use unicode_general_category::{GeneralCategory, get_general_category};
 
 use crate::json::Node;
 
-/// The error codes a wallet returns to a Verifier.
+/// An error code a wallet returns to a Verifier (RFC 6749 §4.1.2.1, §8.5: extensions' codes "MAY
+/// be defined"): one or more of RFC 6749 Appendix A.7's `NQSCHAR`. The constants are RFC 6749's,
+/// RFC 9101 §7's and OpenID4VP 1.0 §8.5's codes; a plug-in makes its own specification's with
+/// `checked!(ErrorCode, "...")`, whose syntax holds when the crate builds.
+///
+/// ```
+/// use siros_explain::checked;
+/// use siros_openid4vp::refusal::ErrorCode;
+///
+/// const RISK_UNSUPPORTED: ErrorCode = checked!(ErrorCode, "risk_signals_unsupported");
+/// assert_eq!(RISK_UNSUPPORTED.as_str(), "risk_signals_unsupported");
+/// ```
+///
+/// A code outside Appendix A.7's syntax fails the build:
+///
+/// ```compile_fail,E0080
+/// use siros_explain::checked;
+/// use siros_openid4vp::refusal::ErrorCode;
+///
+/// const QUOTED: ErrorCode = checked!(ErrorCode, "a\"b");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ErrorCode {
-    /// `invalid_request`.
-    InvalidRequest,
-    /// `unsupported_response_type`.
-    UnsupportedResponseType,
-    /// `invalid_scope`.
-    InvalidScope,
-    /// `invalid_request_uri` (RFC 9101 §7).
-    InvalidRequestUri,
-    /// `invalid_request_object` (RFC 9101 §7).
-    InvalidRequestObject,
-    /// `request_not_supported` (RFC 9101 §7).
-    RequestNotSupported,
-    /// `invalid_request_uri_method`.
-    InvalidRequestUriMethod,
-    /// `invalid_transaction_data`.
-    InvalidTransactionData,
-    /// `vp_formats_not_supported`.
-    VpFormatsNotSupported,
-    /// `access_denied`.
-    AccessDenied,
-}
+pub struct ErrorCode(&'static str);
 
 impl ErrorCode {
+    /// `invalid_request` (RFC 6749 §4.1.2.1).
+    pub const INVALID_REQUEST: Self = Self("invalid_request");
+    /// `unauthorized_client` (RFC 6749 §4.1.2.1).
+    pub const UNAUTHORIZED_CLIENT: Self = Self("unauthorized_client");
+    /// `access_denied` (RFC 6749 §4.1.2.1).
+    pub const ACCESS_DENIED: Self = Self("access_denied");
+    /// `unsupported_response_type` (RFC 6749 §4.1.2.1).
+    pub const UNSUPPORTED_RESPONSE_TYPE: Self = Self("unsupported_response_type");
+    /// `invalid_scope` (RFC 6749 §4.1.2.1).
+    pub const INVALID_SCOPE: Self = Self("invalid_scope");
+    /// `server_error` (RFC 6749 §4.1.2.1).
+    pub const SERVER_ERROR: Self = Self("server_error");
+    /// `temporarily_unavailable` (RFC 6749 §4.1.2.1).
+    pub const TEMPORARILY_UNAVAILABLE: Self = Self("temporarily_unavailable");
+    /// `invalid_request_uri` (RFC 9101 §7).
+    pub const INVALID_REQUEST_URI: Self = Self("invalid_request_uri");
+    /// `invalid_request_object` (RFC 9101 §7).
+    pub const INVALID_REQUEST_OBJECT: Self = Self("invalid_request_object");
+    /// `request_not_supported` (RFC 9101 §7).
+    pub const REQUEST_NOT_SUPPORTED: Self = Self("request_not_supported");
+    /// `request_uri_not_supported` (RFC 9101 §7).
+    pub const REQUEST_URI_NOT_SUPPORTED: Self = Self("request_uri_not_supported");
+    /// `invalid_client` (OpenID4VP 1.0 §8.5); no rule of the core returns it.
+    pub const INVALID_CLIENT: Self = Self("invalid_client");
+    /// `vp_formats_not_supported` (OpenID4VP 1.0 §8.5).
+    pub const VP_FORMATS_NOT_SUPPORTED: Self = Self("vp_formats_not_supported");
+    /// `invalid_request_uri_method` (OpenID4VP 1.0 §8.5).
+    pub const INVALID_REQUEST_URI_METHOD: Self = Self("invalid_request_uri_method");
+    /// `invalid_transaction_data` (OpenID4VP 1.0 §8.5).
+    pub const INVALID_TRANSACTION_DATA: Self = Self("invalid_transaction_data");
+    /// `wallet_unavailable` (OpenID4VP 1.0 §8.5).
+    pub const WALLET_UNAVAILABLE: Self = Self("wallet_unavailable");
+
+    /// The code, when `code` is one or more of RFC 6749 Appendix A.7's `NQSCHAR` (`%x20-21`,
+    /// `%x23-5B`, `%x5D-7E`).
+    #[must_use]
+    pub const fn new(code: &'static str) -> Option<Self> {
+        let mut rest = code.as_bytes();
+        if rest.is_empty() {
+            return None;
+        }
+        while let [byte, tail @ ..] = rest {
+            if !matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E) {
+                return None;
+            }
+            rest = tail;
+        }
+        Some(Self(code))
+    }
+
     /// The code as the error response writes it.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidRequest => "invalid_request",
-            Self::UnsupportedResponseType => "unsupported_response_type",
-            Self::InvalidScope => "invalid_scope",
-            Self::InvalidRequestUri => "invalid_request_uri",
-            Self::InvalidRequestObject => "invalid_request_object",
-            Self::RequestNotSupported => "request_not_supported",
-            Self::InvalidRequestUriMethod => "invalid_request_uri_method",
-            Self::InvalidTransactionData => "invalid_transaction_data",
-            Self::VpFormatsNotSupported => "vp_formats_not_supported",
-            Self::AccessDenied => "access_denied",
-        }
+        self.0
     }
 }
 

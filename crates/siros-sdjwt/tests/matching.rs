@@ -240,7 +240,7 @@ fn each_format_rule_refuses_with_its_code() {
             [(
                 "dc+sd-jwt q: meta.vct_values is not a non-empty array of strings (B.3.5)"
                     .to_owned(),
-                ErrorCode::InvalidRequest
+                ErrorCode::INVALID_REQUEST
             )],
             "{meta}"
         );
@@ -255,7 +255,7 @@ fn each_format_rule_refuses_with_its_code() {
         [(
             "dc+sd-jwt q: vp_formats_supported is not an object of non-empty algorithm arrays"
                 .to_owned(),
-            ErrorCode::InvalidRequest
+            ErrorCode::INVALID_REQUEST
         )]
     );
     // B.3.3: transaction data needs holder binding.
@@ -270,7 +270,7 @@ fn each_format_rule_refuses_with_its_code() {
         ),
         [(
             "dc+sd-jwt q: transaction data on a query without holder binding (B.3.3)".to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     assert_eq!(refusals(&query(meta), &entries), [], "with holder binding");

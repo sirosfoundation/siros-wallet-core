@@ -237,7 +237,7 @@ fn each_format_rule_refuses_with_its_code() {
             refusals(&query(meta), ""),
             [(
                 "mso_mdoc r: meta.doctype_value is not a string (B.2.3)".to_owned(),
-                ErrorCode::InvalidRequest
+                ErrorCode::INVALID_REQUEST
             )],
             "{meta}"
         );
@@ -255,7 +255,7 @@ fn each_format_rule_refuses_with_its_code() {
             [(
                 "mso_mdoc r: vp_formats_supported is not an object of non-empty algorithm arrays"
                     .to_owned(),
-                ErrorCode::InvalidRequest
+                ErrorCode::INVALID_REQUEST
             )],
             "{listed}"
         );
@@ -272,7 +272,7 @@ fn each_format_rule_refuses_with_its_code() {
             [(
                 "mso_mdoc r: claims[1].path is not [name space, data element identifier] (OpenID4VP §7.2)"
                     .to_owned(),
-                ErrorCode::InvalidRequest
+                ErrorCode::INVALID_REQUEST
             )],
             "{path}"
         );

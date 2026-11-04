@@ -67,7 +67,7 @@ impl IntoArg for Positions {
 
 impl RequestRule for QesRule {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidTransactionData
+        ErrorCode::INVALID_TRANSACTION_DATA
     }
 }
 

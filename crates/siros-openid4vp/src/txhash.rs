@@ -182,7 +182,7 @@ pub enum HashesAlgRule {
 
 impl RequestRule for HashesAlgRule {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidTransactionData
+        ErrorCode::INVALID_TRANSACTION_DATA
     }
 }
 

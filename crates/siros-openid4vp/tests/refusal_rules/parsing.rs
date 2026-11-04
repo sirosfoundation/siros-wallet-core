@@ -47,7 +47,7 @@ fn every_parse_refuses_a_member_named_twice() {
         if let Some(text) = text {
             assert_eq!(refusal.text, text);
         } else {
-            assert_eq!(refusal.code, ErrorCode::InvalidRequest, "{parameters}");
+            assert_eq!(refusal.code, ErrorCode::INVALID_REQUEST, "{parameters}");
             assert!(
                 refusal.text.contains("repeats a member name"),
                 "{}",
@@ -107,7 +107,7 @@ fn transaction_data_hashes_alg_names_a_hash_the_wallet_computes() {
             refused,
             [Said {
                 text: text.to_owned(),
-                code: ErrorCode::InvalidTransactionData
+                code: ErrorCode::INVALID_TRANSACTION_DATA
             }]
         );
     }
@@ -140,7 +140,7 @@ fn a_dcql_query_breaking_section_6_is_refused() {
             panic!("one refusal for {dcql}: {refused:?}")
         };
         assert!(
-            refusal.text.starts_with("dcql_query: ") && refusal.code == ErrorCode::InvalidRequest,
+            refusal.text.starts_with("dcql_query: ") && refusal.code == ErrorCode::INVALID_REQUEST,
             "{dcql}: {refusal:?}"
         );
     }

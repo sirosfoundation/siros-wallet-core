@@ -410,7 +410,7 @@ impl Unauthenticated {
     pub const fn code(&self) -> ErrorCode {
         match self {
             Self::Signature | Self::Validity(_) | Self::Audience(_) | Self::NoSignature(_) => {
-                ErrorCode::InvalidRequestObject
+                ErrorCode::INVALID_REQUEST_OBJECT
             }
             Self::Origin
             | Self::UnknownPrefix(_)
@@ -418,7 +418,7 @@ impl Unauthenticated {
             | Self::Prefix(_)
             | Self::Untrusted(_)
             | Self::Endpoint(_)
-            | Self::EndpointScheme(_) => ErrorCode::InvalidRequest,
+            | Self::EndpointScheme(_) => ErrorCode::INVALID_REQUEST,
         }
     }
 }

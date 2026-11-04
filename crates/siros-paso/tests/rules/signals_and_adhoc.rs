@@ -359,7 +359,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         codes(&parameters(&dcql, &[&valid], ""), false),
         [(
             "PaSO requests are signed; this one is not (Core §3)".to_owned(),
-            ErrorCode::InvalidRequest
+            ErrorCode::INVALID_REQUEST
         )]
     );
     assert_eq!(
@@ -375,7 +375,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         ),
         [(
             "PaSO entry 0: unknown member transaction_data_hashes_alg (OpenID4VP §5.1)".to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     let not_object = format!(r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": ["x"]}}"#);
@@ -383,7 +383,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         codes(&parameters(&dcql, &[&not_object], ""), true),
         [(
             "PaSO entry 0: payload is not a JSON object (Core §7.1)".to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     assert_eq!(
@@ -393,7 +393,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         ),
         [(
             "PaSO entry 0: metadata is not a string (Proof Metadata §5.1)".to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     // Core A.6: the counterexample's alternatives are not transposable; the repair is.
@@ -419,7 +419,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         [(
             "PaSO alternatives involving its transaction data are not transposable (Core §7.4.1)"
                 .to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     assert_eq!(
@@ -432,7 +432,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         [(
             "PaSO transaction data names queries of more than one credential set (Core §7.4.1)"
                 .to_owned(),
-            ErrorCode::InvalidTransactionData
+            ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
 }

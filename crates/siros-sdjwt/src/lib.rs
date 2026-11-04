@@ -79,7 +79,7 @@ pub struct HolderBindingWaived {
 
 impl RequestRule for HolderBindingWaived {
     fn code(&self) -> ErrorCode {
-        ErrorCode::InvalidTransactionData
+        ErrorCode::INVALID_TRANSACTION_DATA
     }
 }
 

@@ -53,16 +53,16 @@ impl Unreadable {
             | Self::ClientIdAbsent
             | Self::RequestAndRequestUri
             | Self::Placement(_)
-            | Self::ParametersInUri => ErrorCode::InvalidRequest,
-            Self::RequestUri(_) => ErrorCode::InvalidRequestUri,
-            Self::RequestUriMethod(_) => ErrorCode::InvalidRequestUriMethod,
+            | Self::ParametersInUri => ErrorCode::INVALID_REQUEST,
+            Self::RequestUri(_) => ErrorCode::INVALID_REQUEST_URI,
+            Self::RequestUriMethod(_) => ErrorCode::INVALID_REQUEST_URI_METHOD,
             Self::Jws(_)
             | Self::Encrypted
             | Self::Jwe(_)
             | Self::Undecryptable
             | Self::Typ(_)
-            | Self::Nested(_) => ErrorCode::InvalidRequestObject,
-            Self::RequestByValue => ErrorCode::RequestNotSupported,
+            | Self::Nested(_) => ErrorCode::INVALID_REQUEST_OBJECT,
+            Self::RequestByValue => ErrorCode::REQUEST_NOT_SUPPORTED,
         })
     }
 }
