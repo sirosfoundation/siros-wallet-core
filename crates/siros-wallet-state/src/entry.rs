@@ -48,7 +48,7 @@ pub struct CredentialEntry {
 }
 
 /// `data`: the stored credential, in the serialization of its format. It holds the claim
-/// values (R-G6).
+/// values.
 pub struct CredentialData(String);
 
 impl CredentialData {

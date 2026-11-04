@@ -19,7 +19,7 @@ engine core. Keep changes small and protocol-specific.
   disclosure, proof choice, transaction data, display content and response
   construction has its only implementation here. Platforms must not keep a copy.
 - **The core is pure and offline.** No networking, storage, clock, randomness or
-  key operations inside; effects in, results out (R-G2). Every error carries a
+  key operations inside; effects in, results out. Every error carries a
   stable code.
 - **Construction guards validity.** Data enters through a parser whose output
   type can only hold valid states; no separate `validate()` beside a parser.
@@ -76,7 +76,7 @@ Run all checks before committing:
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
-python3 scripts/check_panic_sites.py Cargo.toml
+python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 ```
 
 Rust 1.89 is the floor of every crate; the `msrv` CI job checks it.

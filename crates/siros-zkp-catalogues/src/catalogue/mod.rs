@@ -32,7 +32,7 @@ pub const BBS_SCHEMA_ID: &str = "eu.europa.ec.eudi.nym_auth.bbs.1";
 pub const ATTESTATION_TYPES: [&str; 2] = [MDOC_DOCTYPE, BBS_SCHEMA_ID];
 
 /// The attributes of a nym_auth attestation that nothing discloses: the commitments, the seed
-/// and the birth date (R-G6).
+/// and the birth date.
 pub const UNDISCLOSABLE: [&str; 4] = ["ssc", "psc", "secret_seed", "birth_date"];
 
 /// The form of the attestation a query asks for.

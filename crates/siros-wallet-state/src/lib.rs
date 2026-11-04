@@ -10,7 +10,7 @@
 //!
 //! The host supplies `S` with its events folded in. Types that hold a credential, a
 //! presentation or a `metadata` value implement no `Debug`: those hold claim values and
-//! delivered secrets (R-G6).
+//! delivered secrets.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]

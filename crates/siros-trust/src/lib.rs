@@ -1,4 +1,4 @@
-//! Issuer trust for the SIROS wallet core (§4.18): the trust store, issuer chains, and the
+//! Issuer trust for the SIROS wallet core: the trust store, issuer chains, and the
 //! resolution of a Credential Query's `trusted_authorities` (OpenID4VP 1.0, Section 6.1.1)
 //! into an admission of a credential's issuer.
 //!
