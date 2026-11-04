@@ -29,7 +29,7 @@ impl Failure {
     /// The code its error response carries (§8.5, RFC 9101 §7); `None` when the specification
     /// terminates the request (U9, U14: §5.10.1, §5.10.2).
     #[must_use]
-    pub const fn code(&self) -> Option<ErrorCode> {
+    pub fn code(&self) -> Option<ErrorCode> {
         match self {
             Self::Unreadable(rule) => rule.code(),
             Self::Unauthenticated(rule) => Some(rule.code()),

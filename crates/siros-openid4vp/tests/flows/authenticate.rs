@@ -21,7 +21,7 @@ use siros_openid4vp::request::Request;
 use siros_testkit::fixtures;
 use siros_testkit::fixtures::REQUEST_OBJECT_HEADER;
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
-use siros_testkit::{TestHost, TestPrefix, TestTrust};
+use siros_testkit::{TestFormat, TestHost, TestPrefix, TestTrust};
 
 use super::{
     RESPONSE_URI, authenticated, config, envelope, fetched, link, registry, registry_with,
@@ -94,6 +94,38 @@ fn a_uri_request_authenticates_under_its_prefix() {
         BoundEndpoint::ResponseUri { uri, basis: EndpointBasis::Request } if uri.as_str() == RESPONSE_URI
     ));
     assert!(verifier.metadata().is_some());
+}
+
+#[test]
+fn a_registered_object_rule_refuses_the_claims_it_reads_as_a14() {
+    // A14: after A10, each registered rule reads the payload's claims; its refusal carries its
+    // own code, and no Authenticated is built.
+    let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.format(TestFormat::new().expect("format"));
+    builder.client_prefix(siros_testkit::TestPrefix::Request);
+    builder.object_rule(siros_testkit::rules::TestObjectRule("jti"));
+    let registry = builder.build().expect("registry");
+    let uri = link("test%3Averifier", "");
+    let trust = TestTrust::default();
+    let without = request_object(&uri_payload(""));
+    let received = fetched(&uri, &without).expect("fetched");
+    let refused = envelope(&received);
+    let rejected = authenticated(&refused, &registry, &trust, &config())
+        .map(drop)
+        .expect_err("A14");
+    assert!(matches!(
+        rejected.failure(),
+        Failure::Unauthenticated(Unauthenticated::Object(_))
+    ));
+    assert_eq!(
+        rejected.failure().code(),
+        Some(ErrorCode::INVALID_REQUEST_OBJECT)
+    );
+    let with = request_object(&uri_payload(r#","jti":"j""#));
+    let received = fetched(&uri, &with).expect("fetched");
+    let accepted = envelope(&received);
+    assert!(authenticated(&accepted, &registry, &trust, &config()).is_ok());
 }
 
 #[test]

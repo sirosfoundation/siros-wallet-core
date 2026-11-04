@@ -138,3 +138,31 @@ impl Exclusion for TestExclusion {
         Cow::Borrowed("test")
     }
 }
+
+/// The rule over a Request Object's claims double: the claim it names is present.
+#[derive(Debug, Clone, Copy)]
+pub struct TestObjectRule(pub &'static str);
+
+/// A Request Object without the claim [`TestObjectRule`] requires.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "testkit.object")]
+#[error("the Request Object states no {0}")]
+pub struct ClaimAbsent(#[explain(name = "claim")] &'static str);
+
+impl RequestRule for ClaimAbsent {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::INVALID_REQUEST_OBJECT
+    }
+}
+
+impl siros_openid4vp::authenticate::ObjectRule for TestObjectRule {
+    fn check(
+        &self,
+        claims: &siros_openid4vp::json::Object<'_>,
+    ) -> Option<siros_openid4vp::refusal::Refusal> {
+        claims
+            .get(self.0)
+            .is_none()
+            .then(|| siros_openid4vp::refusal::Refusal::new(ClaimAbsent(self.0)))
+    }
+}

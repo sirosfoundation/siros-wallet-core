@@ -13,7 +13,7 @@ use super::{Answered, Fault, FetchedRecord, Members};
 use super::{Binding, Bound, NoCandidate};
 use super::{Format, Member, Profile};
 #[cfg(feature = "resolve")]
-use crate::authenticate::HostedPrefix;
+use crate::authenticate::{HostedPrefix, ObjectRule};
 use crate::hash::{HashName, Hashes, HostedHash};
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
@@ -234,6 +234,8 @@ pub struct Registry<H = NoHost> {
     #[cfg(feature = "resolve")]
     clients: Vec<RegisteredPrefix<H>>,
     #[cfg(feature = "resolve")]
+    object_rules: Vec<Box<dyn ObjectRule>>,
+    #[cfg(feature = "resolve")]
     post: Option<Post<H>>,
 }
 
@@ -268,6 +270,8 @@ pub struct RegistryBuilder<H = NoHost> {
     #[cfg(feature = "resolve")]
     clients: Vec<RegisteredPrefix<H>>,
     #[cfg(feature = "resolve")]
+    object_rules: Vec<Box<dyn ObjectRule>>,
+    #[cfg(feature = "resolve")]
     posts: Vec<PostPart<H>>,
 }
 
@@ -285,6 +289,8 @@ impl<H> Default for RegistryBuilder<H> {
             prefixes: Vec::new(),
             #[cfg(feature = "resolve")]
             clients: Vec::new(),
+            #[cfg(feature = "resolve")]
+            object_rules: Vec::new(),
             #[cfg(feature = "resolve")]
             posts: Vec::new(),
         }
@@ -432,6 +438,13 @@ impl<H> RegistryBuilder<H> {
         });
     }
 
+    /// A rule over an authenticated Request Object's claims (A14), run after A10 in registration
+    /// order.
+    #[cfg(feature = "resolve")]
+    pub fn object_rule(&mut self, rule: impl ObjectRule + 'static) {
+        self.object_rules.push(Box::new(rule));
+    }
+
     /// The POST of `wallet_metadata` to the `request_uri` (§5.10): with it, a request whose
     /// `request_uri_method` is `post` is fetched by POST; without it, by GET (§5.1: "Wallets not
     /// supporting the post method will send a GET request"). `build` refuses it twice.
@@ -492,6 +505,8 @@ impl<H> RegistryBuilder<H> {
             prefixes,
             #[cfg(feature = "resolve")]
             clients,
+            #[cfg(feature = "resolve")]
+            object_rules,
             #[cfg(feature = "resolve")]
             posts,
         } = self;
@@ -617,6 +632,8 @@ impl<H> RegistryBuilder<H> {
             #[cfg(feature = "resolve")]
             clients,
             #[cfg(feature = "resolve")]
+            object_rules,
+            #[cfg(feature = "resolve")]
             post,
         })
     }
@@ -661,6 +678,12 @@ impl<H> Registry<H> {
                 }
                 Role::Clear | Role::Jwe(_) | Role::Errors => None,
             })
+    }
+
+    /// The registered rules over a Request Object's claims, in registration order.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn object_rules(&self) -> &[Box<dyn ObjectRule>] {
+        &self.object_rules
     }
 
     /// The registered POST of `wallet_metadata`, with the decrypting module's accessor when
@@ -756,6 +779,7 @@ impl<H> Registry<H> {
             exact: self.exact.clone(),
             prefixes: self.prefixes.clone(),
             clients: self.clients.clone(),
+            object_rules: self.object_rules.clone(),
             post: self.post.clone(),
         })
     }

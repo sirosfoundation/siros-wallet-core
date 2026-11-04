@@ -73,6 +73,13 @@ impl<'r> Parameters<'r> {
         })
     }
 
+    /// The parameters as JSON, `client_metadata` left out: the claims a Request Object's
+    /// signature covers.
+    #[must_use]
+    pub const fn object(&self) -> &Object<'r> {
+        &self.read
+    }
+
     /// Whether the parameters name the member.
     #[must_use]
     pub fn holds(&self, name: &str) -> bool {

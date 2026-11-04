@@ -6,9 +6,9 @@ use std::borrow::Cow;
 use siros_explain::AllOf;
 
 use super::{
-    BoundEndpoint, ClaimChannel, ClientBinding, ClientClaim, EndpointBasis, OriginPolicy,
-    OutsideValidity, PrefixClaim, PrefixRefusal, RequestClaims, TrustConfig, Unauthenticated,
-    Unbound, Verifier, VerifierId,
+    BoundEndpoint, ClaimChannel, ClientBinding, ClientClaim, EndpointBasis, ObjectRule,
+    OriginPolicy, OutsideValidity, PrefixClaim, PrefixRefusal, RequestClaims, TrustConfig,
+    Unauthenticated, Unbound, Verifier, VerifierId,
 };
 use crate::arrival::ReceivedForm;
 use crate::effects::{
@@ -36,6 +36,7 @@ const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-ver
 #[must_use]
 pub struct Pending<'e, H> {
     envelope: &'e Envelope<'e>,
+    rules: &'e [Box<dyn ObjectRule>],
     response_uri: Option<ResponseUri>,
     asked: Asked<'e, H>,
 }
@@ -198,6 +199,7 @@ impl<'e> Envelope<'e> {
         };
         Ok(Pending {
             envelope: self,
+            rules: registry.object_rules(),
             response_uri,
             asked,
         })
@@ -328,6 +330,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
         let Self {
             envelope,
+            rules,
             response_uri,
             asked,
         } = self;
@@ -370,6 +373,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
             Asked::Claims(first, rest) => {
                 let check = Check {
                     envelope,
+                    rules,
                     response_uri: response_uri.as_ref(),
                     config,
                     now: host.get::<dyn Platform>().now(),
@@ -439,6 +443,7 @@ impl<'e> Failed<'e> {
 /// configuration and the platform's clock.
 struct Check<'c, 'e> {
     envelope: &'e Envelope<'e>,
+    rules: &'e [Box<dyn ObjectRule>],
     response_uri: Option<&'c ResponseUri>,
     config: &'c TrustConfig,
     now: crate::host::Timestamp,
@@ -495,6 +500,13 @@ impl<'e> Check<'_, 'e> {
             .map_err(|cause| failed(Unauthenticated::Validity(cause)))?;
         self.audience()
             .map_err(|aud| failed(Unauthenticated::Audience(aud)))?;
+        if let Some(refusal) = self
+            .rules
+            .iter()
+            .find_map(|rule| rule.check(self.envelope.parameters().object()))
+        {
+            return Err(failed(Unauthenticated::Object(refusal)));
+        }
         Ok((binding, endpoint))
     }
 

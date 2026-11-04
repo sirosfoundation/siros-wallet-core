@@ -18,7 +18,7 @@ use crate::host::Timestamp;
 use crate::ids::{ClientId, Origin};
 use crate::jose::{Signed, Skew, VerificationKey};
 use crate::json::{Member, Node, Object};
-use crate::refusal::ErrorCode;
+use crate::refusal::{ErrorCode, Refusal};
 use crate::uri::{RequestUri, ResponseUri};
 
 pub use pending::{Authenticated, Pending};
@@ -360,6 +360,21 @@ pub enum RequestClaims {
     Required,
 }
 
+/// A rule a profile or a deployment sets on an authenticated Request Object's claims, beside RFC
+/// 7519's checks when present (A9, A10): a claim it requires, a value it restricts.
+///
+/// # Implementing
+///
+/// `check` reads the Request Object's payload claims as the signature covers them, after A10,
+/// and returns its rule's refusal; the core refuses the request with A14 and the rule's code. The
+/// rule reads claims alone and reaches no key or endpoint.
+pub trait ObjectRule: DynClone + Send + Sync {
+    /// The rule's refusal of the claims; `None` when they hold.
+    fn check(&self, claims: &Object<'_>) -> Option<Refusal>;
+}
+
+dyn_clone::clone_trait_object!(ObjectRule);
+
 /// The wallet's authentication configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct TrustConfig {
@@ -426,13 +441,19 @@ pub enum Unauthenticated {
     #[error("A13 {0}")]
     #[explain(id = "a13")]
     EndpointScheme(#[explain(name = "cause")] crate::uri::NotHttps),
+    /// A14: a registered [`ObjectRule`] refuses the Request Object's claims; the code is the
+    /// rule's.
+    #[error("A14 {0}")]
+    #[explain(id = "a14")]
+    Object(#[explain(name = "rule")] Refusal),
 }
 
 impl Unauthenticated {
     /// The rule's code (§8.5, RFC 9101 §6.2).
     #[must_use]
-    pub const fn code(&self) -> ErrorCode {
+    pub fn code(&self) -> ErrorCode {
         match self {
+            Self::Object(refusal) => refusal.code(),
             Self::Algorithm(_)
             | Self::Signature
             | Self::Validity(_)
