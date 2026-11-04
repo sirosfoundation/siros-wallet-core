@@ -265,62 +265,129 @@ pub(super) fn an_entry_whose_risk_signals_the_wallet_cannot_send_gives_way_to_th
 }
 
 #[test]
-pub(super) fn the_authentication_methods_are_rfc_8176_values_and_one_biometric_strength() {
+pub(super) fn the_authentication_methods_are_rfc_8176_values_and_one_biometric_class() {
     use std::num::NonZeroU32;
 
     use siros_explain::AllOf;
     use siros_openid4vp::host::{
-        Authentication, Factor, Inherence, Knowledge, Modality, Possession, Sensor, Strength,
-        Timestamp,
+        AttackDetection, Authentication, Factor, FalseAcceptRate, Inherence, Isolation, Knowledge,
+        Modality, Possession, Sensor, Timestamp,
     };
-    use siros_paso::amr::methods;
+    use siros_paso::amr::{BiometricClass, methods};
 
-    let inherence = |modality, strength| {
-        Factor::Inherence(Inherence {
-            modality,
-            sensor: Sensor::Device,
-            strength,
-        })
+    let facts = |isolation, attempts: u32, attack_detection| Inherence {
+        modality: Modality::Face,
+        sensor: Sensor::Device,
+        isolation,
+        false_accepts: NonZeroU32::new(attempts).map(FalseAcceptRate::one_in),
+        attack_detection,
     };
+    // Registry §2.8: bio_strong needs hardware isolation, FAR 1:50,000 or less, and presentation
+    // attack detection; bio_weak needs FAR 1:10,000 or less; an unreported FAR meets neither.
+    let strong = Some(BiometricClass::Strong);
+    let weak = Some(BiometricClass::Weak);
+    let classes = [
+        (
+            facts(Isolation::Hardware, 50_000, AttackDetection::Present),
+            strong,
+        ),
+        (
+            facts(Isolation::Hardware, 1_000_000, AttackDetection::Present),
+            strong,
+        ),
+        (
+            facts(Isolation::None, 50_000, AttackDetection::Present),
+            weak,
+        ),
+        (
+            facts(Isolation::Unreported, 50_000, AttackDetection::Present),
+            weak,
+        ),
+        (
+            facts(Isolation::Hardware, 49_999, AttackDetection::Present),
+            weak,
+        ),
+        (
+            facts(Isolation::Hardware, 50_000, AttackDetection::Absent),
+            weak,
+        ),
+        (
+            facts(Isolation::Hardware, 50_000, AttackDetection::Unreported),
+            weak,
+        ),
+        (
+            facts(Isolation::None, 10_000, AttackDetection::Absent),
+            weak,
+        ),
+        (
+            facts(Isolation::Hardware, 9_999, AttackDetection::Present),
+            None,
+        ),
+        (
+            facts(Isolation::Hardware, 0, AttackDetection::Present),
+            None,
+        ),
+    ];
+    for (inherence, class) in classes {
+        assert_eq!(BiometricClass::of(&inherence), class, "{inherence:?}");
+    }
+    let strong = facts(Isolation::Hardware, 50_000, AttackDetection::Present);
+    let weak = facts(Isolation::None, 10_000, AttackDetection::Present);
+    let unclassed = facts(Isolation::Hardware, 9_999, AttackDetection::Present);
+    let inherence = |modality, facts: Inherence| Factor::Inherence(Inherence { modality, ..facts });
     // RFC 8176 §2 and Risk Signal Registry §2.8, by hand.
-    let cases: [(Vec<Factor>, Json); 5] = [
+    let cases: [(Vec<Factor>, Option<Json>); 7] = [
         (
             vec![
                 Factor::Knowledge(Knowledge::Pin(NonZeroU32::new(6))),
                 Factor::Possession(Possession::LocalNativeWscd),
             ],
-            json!(["pin", "hwk"]),
+            Some(json!(["pin", "hwk"])),
         ),
         (
             vec![
                 Factor::Possession(Possession::Software),
                 Factor::Knowledge(Knowledge::Passphrase(None)),
             ],
-            json!(["swk", "pwd"]),
+            Some(json!(["swk", "pwd"])),
         ),
         (
             vec![
                 Factor::Possession(Possession::RemoteWscd),
-                inherence(Modality::Face, Strength::Strong),
+                inherence(Modality::Face, strong),
             ],
-            json!(["hwk", "bio_strong", "face"]),
+            Some(json!(["hwk", "bio_strong", "face"])),
         ),
         (
             vec![
-                inherence(Modality::Fingerprint, Strength::Weak),
-                inherence(Modality::Unknown, Strength::Strong),
+                inherence(Modality::Fingerprint, weak),
+                inherence(Modality::Unknown, strong),
                 Factor::Knowledge(Knowledge::Pattern),
                 Factor::Knowledge(Knowledge::Unknown),
             ],
-            json!(["pin", "kba", "bio_strong", "fpt"]),
+            Some(json!(["pin", "kba", "bio_strong", "fpt"])),
         ),
         (
             vec![
                 Factor::Knowledge(Knowledge::Pin(None)),
                 Factor::Knowledge(Knowledge::Pin(NonZeroU32::new(4))),
-                inherence(Modality::Iris, Strength::Weak),
+                inherence(Modality::Iris, weak),
             ],
-            json!(["pin", "bio_weak", "iris"]),
+            Some(json!(["pin", "bio_weak", "iris"])),
+        ),
+        (
+            vec![
+                inherence(Modality::Face, unclassed),
+                inherence(Modality::Fingerprint, weak),
+            ],
+            Some(json!(["bio_weak", "face", "fpt"])),
+        ),
+        (
+            vec![
+                Factor::Knowledge(Knowledge::Pin(None)),
+                inherence(Modality::Face, unclassed),
+            ],
+            None,
         ),
     ];
     for (factors, want) in cases {
@@ -331,9 +398,9 @@ pub(super) fn the_authentication_methods_are_rfc_8176_values_and_one_biometric_s
             .reduce(AllOf::and)
             .expect("one factor or more");
         let authentication = Authentication::new(Timestamp(0), all);
-        let got: Json =
-            serde_json::from_str(&methods(&authentication).python_compact().to_string())
-                .expect("json");
+        let got: Option<Json> = methods(&authentication).map(|methods| {
+            serde_json::from_str(&methods.python_compact().to_string()).expect("json")
+        });
         assert_eq!(got, want, "{factors:?}");
     }
 }

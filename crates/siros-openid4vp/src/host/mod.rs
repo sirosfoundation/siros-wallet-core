@@ -22,8 +22,8 @@ mod values;
 pub use crate::routing::AnsweredContext;
 pub use access::{Empty, Has, Held, Host, MayHave, Slot};
 pub use authentication::{
-    Authentication, AuthenticationNeed, Categories, Factor, Inherence, Knowledge, Modality,
-    Possession, Sensor, Strength,
+    AttackDetection, Authentication, AuthenticationNeed, Categories, Factor, FalseAcceptRate,
+    Inherence, Isolation, Knowledge, Modality, Possession, Sensor,
 };
 pub use ciphertext::{NotSealed, SealedJwe};
 pub use ephemeral::{EphemeralKey, KeyHandle};
@@ -45,7 +45,7 @@ pub trait Platform {
     /// Whether the credential can still be presented (validity, status), checked now.
     fn usable<'c>(&self, credential: &'c Credential<'c>) -> Option<Usable<'c>>;
     /// The End-User's authentication, at least as strong as `need`; `None` when the End-User
-    /// failed or cancelled.
+    /// failed or cancelled. An inherence factor carries its matching's facts ([`Inherence`]).
     fn authenticate(&self, need: AuthenticationNeed) -> Option<Authentication>;
 }
 

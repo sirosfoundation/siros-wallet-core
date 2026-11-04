@@ -17,7 +17,8 @@ use std::num::NonZeroU32;
 
 use siros_explain::AllOf;
 use siros_openid4vp::host::{
-    Authentication, Factor, Inherence, Knowledge, Modality, Possession, Sensor, Strength, Timestamp,
+    AttackDetection, Authentication, Factor, FalseAcceptRate, Inherence, Isolation, Knowledge,
+    Modality, Possession, Sensor, Timestamp,
 };
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -225,7 +226,9 @@ fn authenticated_as_a2() -> HaipHost {
             .and(AllOf::one(Factor::Inherence(Inherence {
                 modality: Modality::Face,
                 sensor: Sensor::Device,
-                strength: Strength::Strong,
+                isolation: Isolation::Hardware,
+                false_accepts: NonZeroU32::new(50_000).map(FalseAcceptRate::one_in),
+                attack_detection: AttackDetection::Present,
             }))),
     ));
     host

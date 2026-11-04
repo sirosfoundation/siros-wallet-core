@@ -58,24 +58,60 @@ pub enum Sensor {
     External,
 }
 
-/// How strong an inherence factor is (PaSO Risk Signal Registry §2.8 `bio_strong` criteria).
+/// Where an inherence factor's comparison ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Strength {
-    /// The criteria are met.
-    Strong,
-    /// They are not.
-    Weak,
+pub enum Isolation {
+    /// In an environment the operating system cannot read: a TEE or a secure element.
+    Hardware,
+    /// Alongside the operating system.
+    None,
+    /// The platform does not report it.
+    Unreported,
 }
 
-/// An inherence factor.
+/// A matcher's false accept rate: at most one false accept in `n` attempts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FalseAcceptRate(NonZeroU32);
+
+impl FalseAcceptRate {
+    /// At most one in `n`.
+    #[must_use]
+    pub const fn one_in(n: NonZeroU32) -> Self {
+        Self(n)
+    }
+
+    /// `n`.
+    #[must_use]
+    pub const fn attempts(self) -> NonZeroU32 {
+        self.0
+    }
+}
+
+/// Whether the matching detects presentation attacks (ISO/IEC 30107-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AttackDetection {
+    /// It does.
+    Present,
+    /// It does not.
+    Absent,
+    /// The platform does not report it.
+    Unreported,
+}
+
+/// An inherence factor as the platform reports it: the modality, the sensor, and the facts of its
+/// matching, which a profile classifies by its own criteria.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Inherence {
     /// The modality.
     pub modality: Modality,
     /// Where the sensor sits.
     pub sensor: Sensor,
-    /// How strong it is.
-    pub strength: Strength,
+    /// Where the comparison ran.
+    pub isolation: Isolation,
+    /// The false accept rate, when the platform reports it.
+    pub false_accepts: Option<FalseAcceptRate>,
+    /// Presentation attack detection.
+    pub attack_detection: AttackDetection,
 }
 
 /// One factor the wallet applied, by PSD2 Art. 4(30) category.

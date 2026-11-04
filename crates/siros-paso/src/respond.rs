@@ -317,7 +317,8 @@ impl Answer<'_> {
 
     /// A required signal's collection time and status. The response mode is the request's, read
     /// as the wallet answers it (Registry §2.7); the authentication methods are the End-User's
-    /// authentication for this response, collected when the user completed it (Registry §2.8);
+    /// authentication for this response, collected when the user completed it, or unavailable
+    /// when its biometric factors meet no class (Registry §2.8);
     /// any other signal is the PaSO module's measurement, or unavailable when the wallet does not
     /// implement it. A collection older than the signal's bound is a fault (§4.3).
     fn reading(
@@ -332,7 +333,8 @@ impl Answer<'_> {
             return Ok((now, Status::Ok(mode)));
         }
         let (collected_at, status) = if spec.signal == RiskSignal::AMR {
-            (authentication.completed_at(), Status::Ok(amr::methods(authentication)))
+            let status = amr::methods(authentication).map_or(Status::Unavailable, Status::Ok);
+            (authentication.completed_at(), status)
         } else {
             let bound = spec.max_age.map(|age| Seconds(age.0));
             let Some(measurement) = modules.paso.measure(spec.signal.signal(), bound) else {
