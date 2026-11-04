@@ -1,5 +1,5 @@
 //! What cannot exist is refused at construction: a registry whose profile writes a member
-//! twice, a name given twice where each is given once, bound entries outside those offered,
+//! twice or one its format's proof does not hold, a name given twice where each is given once, bound entries outside those offered,
 //! identifiers breaking their rule; and the protocol values the core writes: the error codes,
 //! the registry's profile lookup, the modules' ciphertexts.
 
@@ -25,6 +25,7 @@ use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::{
     Credential, Document, Facts, HeldAuthority, Holder, RegistrationError, Wallet,
 };
+use siros_openid4vp::wallet_metadata::Placement;
 use siros_testkit::{Binds, TestFormat, TestProfile};
 
 use common::{entry, test_queries};
@@ -72,14 +73,16 @@ impl<H> ProfileHost<H> for Writes {
 
 #[test]
 fn what_cannot_exist_is_refused_at_construction() {
-    let build = |members: Vec<Member>| {
+    let build_placing = |placement: Placement, members: Vec<Member>| {
         let mut builder = Registry::<NoHost>::builder();
         siros_testkit::fixtures::hashes(&mut builder);
-        builder.format(TestFormat::new().expect("format"));
+        builder.format(TestFormat::placing(placement).expect("format"));
         let profile = builder.profile(Writes(members));
         builder.exact(TransactionType::parse("t1").expect("type"), profile);
         builder.build().map(drop)
     };
+    let build = |members: Vec<Member>| build_placing(Placement::Claims, members);
+    let elements = |members: Vec<Member>| build_placing(Placement::NameSpaces, members);
     // A profile that would write a member twice into one presentation: one it declares twice,
     // or one the format's proof writes itself. A profile binding nothing in a format writes
     // nothing there.
@@ -96,12 +99,22 @@ fn what_cannot_exist_is_refused_at_construction() {
     // A data element is its name space and identifier: one identifier in two name spaces is two
     // members.
     assert_eq!(
-        build(vec![Member::element("a", "x"), Member::element("b", "x")]),
+        elements(vec![Member::element("a", "x"), Member::element("b", "x")]),
         Ok(())
     );
     assert!(matches!(
-        build(vec![Member::element("a", "x"), Member::element("a", "x")]),
+        elements(vec![Member::element("a", "x"), Member::element("a", "x")]),
         Err(RegistryError::MemberTwice { .. })
+    ));
+    // A member of another kind than the format's proof holds (Placement): a data element where
+    // it holds claims, a claim where it holds name-space elements.
+    assert!(matches!(
+        build(vec![Member::claim("x"), Member::element("a", "x")]),
+        Err(RegistryError::MemberPlacement { .. })
+    ));
+    assert!(matches!(
+        elements(vec![Member::claim("x")]),
+        Err(RegistryError::MemberPlacement { .. })
     ));
     // A response's members, the names a response attests, and an object's members: each once.
     let text = |value: &str| MemberValue::Text(value.to_owned());

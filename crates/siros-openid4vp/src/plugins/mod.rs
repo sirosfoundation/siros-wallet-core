@@ -470,8 +470,9 @@ pub trait Profile: Clone + Send + Sync + 'static {
     /// The profile's request rules over its own entries.
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
 
-    /// The response members its transactions write in a proof of this placement; `None` when it
-    /// defines no binding for it. A profile names no format.
+    /// The response members its transactions write in a proof of this placement, each of the
+    /// kind the placement holds ([`Placement::places`]; the registry refuses another); `None`
+    /// when it defines no binding for it. A profile names no format.
     fn members(&self, placement: Placement) -> Option<&[Member]>;
 
     /// The entries of `binding.entries` the credential authorizes, rendered.

@@ -6,11 +6,12 @@
 use siros_explain::{AllOf, Explain};
 
 use crate::envelope::Channel;
-use crate::plugins::registry::Catalog;
-use crate::plugins::{Format, FormatQuery, ProfileHandle, Registry};
+use crate::plugins::registry::{Catalog, Placed};
+use crate::plugins::{FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
 use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
+use crate::wallet_metadata::Placement;
 
 /// The core's rules C1 to C8, each with its code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -83,7 +84,8 @@ pub struct Transaction {
 
 /// A query's format, as its plug-in parsed it.
 pub(crate) struct Formatted<'q> {
-    pub(crate) format: &'q dyn Format,
+    /// The placement the format stated at registration.
+    pub(crate) placement: Option<Placement>,
     pub(crate) query: Box<dyn FormatQuery + 'q>,
 }
 
@@ -215,7 +217,7 @@ impl<'q> Formatted<'q> {
         index: QueryIndex,
         query: &'q crate::request::Query<'q>,
     ) -> Option<Result<Self, AllOf<Refusal>>> {
-        let format = registry.format(&query.format)?;
+        let Placed { format, placement } = registry.placed(&query.format)?;
         let context = QueryContext::of(
             request,
             mode,
@@ -223,7 +225,7 @@ impl<'q> Formatted<'q> {
             metadata.vp_formats(&query.format).cloned(),
         );
         Some(format.query(query, context).map(|parsed| Self {
-            format,
+            placement,
             query: parsed,
         }))
     }

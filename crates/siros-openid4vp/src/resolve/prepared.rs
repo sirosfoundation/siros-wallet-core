@@ -14,7 +14,7 @@ use crate::host::{
     Host, Platform, PresentError, Usable,
 };
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
-use crate::plugins::registry::{DynProfile, Role};
+use crate::plugins::registry::{DynProfile, Placed, Role};
 use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
     ProfileHandle, Registry,
@@ -314,8 +314,8 @@ fn chosen<'p, H>(
     let query = request
         .query(view.pick.query)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
-    let format = registry
-        .format_host(&query.format)
+    let Placed { format, placement } = registry
+        .placed_host(&query.format)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
     let context = AnsweredContext::of(
         QueryContext::of(
@@ -334,7 +334,6 @@ fn chosen<'p, H>(
             let profile = registry
                 .profile_host(transaction.profile)
                 .ok_or_else(|| Fault::new(FAULT, detail!("a transaction has no profile")))?;
-            let placement = format.placement();
             let wanted = profile.wanted(Answered::of(
                 request,
                 credential,

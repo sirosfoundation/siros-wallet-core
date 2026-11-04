@@ -24,11 +24,25 @@ use crate::{FAULT, detail};
 /// (an mdoc's `DeviceSigned`). A profile places its members by it and names no format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Placement {
-    /// Members as claims ([`Member::claim`](crate::plugins::Member::claim)).
+    /// Members as claims of a JSON proof ([`Member::claim`](crate::plugins::Member::claim)),
+    /// their values JSON.
     Claims,
-    /// Members as elements of a name space
-    /// ([`Member::element`](crate::plugins::Member::element)).
+    /// Members as data elements of a CBOR proof's name spaces
+    /// ([`Member::element`](crate::plugins::Member::element)), their values CBOR data items.
     NameSpaces,
+}
+
+impl Placement {
+    /// Whether a proof of this placement holds `member`: a claim under [`Self::Claims`], a
+    /// data element under [`Self::NameSpaces`].
+    #[must_use]
+    pub const fn places(self, member: &crate::plugins::Member) -> bool {
+        matches!(
+            (self, member),
+            (Self::Claims, crate::plugins::Member::Claim(_))
+                | (Self::NameSpaces, crate::plugins::Member::Element { .. })
+        )
+    }
 }
 
 /// A parameter or metadata name (RFC 6749 §8.2's `param-name`: one or more of ASCII letters,

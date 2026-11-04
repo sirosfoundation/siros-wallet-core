@@ -54,14 +54,21 @@ const TYPED: [(FormattedKind, Written<'static>); 9] = [
 pub struct TestFormat {
     id: FormatId<'static>,
     reserved: [Member; 2],
+    placement: Placement,
 }
 
 impl TestFormat {
-    /// The format.
+    /// The format, its proof holding a profile's members as claims.
     pub fn new() -> Result<Self, InvalidId> {
+        Self::placing(Placement::Claims)
+    }
+
+    /// The format, its proof holding a profile's members by `placement`.
+    pub fn placing(placement: Placement) -> Result<Self, InvalidId> {
         Ok(Self {
             id: FormatId::parse("test")?,
             reserved: [Member::claim("aud"), Member::claim("nonce")],
+            placement,
         })
     }
 }
@@ -80,9 +87,8 @@ impl Format for TestFormat {
         Ok(Node::Object(siros_openid4vp::json::Object::default()))
     }
 
-    /// The proof holds the members as claims.
     fn placement(&self) -> Option<Placement> {
-        Some(Placement::Claims)
+        Some(self.placement)
     }
 
     fn query<'q>(

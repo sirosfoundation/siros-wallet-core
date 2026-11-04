@@ -135,6 +135,41 @@ pub enum RegistryError {
         /// The members.
         members: AllOf<String>,
     },
+    /// A profile names members of another kind than the format's placement holds: a data
+    /// element where the proof holds claims, or a claim where it holds name-space elements.
+    #[error("the profile registered for {registration} names {} in a {format} presentation, whose proof holds no such member", .members.items().join(", "))]
+    MemberPlacement {
+        /// A type or prefix the profile is registered under.
+        registration: String,
+        /// The format.
+        format: String,
+        /// The members.
+        members: AllOf<String>,
+    },
+}
+
+/// A registered format and the placement it stated when the registry was built, which the
+/// registry checked each profile's members against and which matching and phase 2 read.
+struct RegisteredFormat<H> {
+    format: Box<dyn HostedFormat<H>>,
+    placement: Option<Placement>,
+}
+
+impl<H> Clone for RegisteredFormat<H> {
+    fn clone(&self) -> Self {
+        Self {
+            format: self.format.clone(),
+            placement: self.placement,
+        }
+    }
+}
+
+/// A format of the registry, as phase 1 (`dyn Format`) or phase 2 (`dyn FormatHost<H>`) reads
+/// it, with the placement it stated at registration.
+#[cfg(feature = "match")]
+pub(crate) struct Placed<'r, F: ?Sized> {
+    pub(crate) format: &'r F,
+    pub(crate) placement: Option<Placement>,
 }
 
 /// The matcher's build: a registry without a host.
@@ -245,7 +280,7 @@ pub struct Registry<H = NoHost> {
     scopes: Vec<ScopeEntry>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
-    formats: Vec<Box<dyn HostedFormat<H>>>,
+    formats: Vec<RegisteredFormat<H>>,
     #[cfg_attr(
         not(feature = "match"),
         expect(dead_code, reason = "matching and phase 2 read the profiles")
@@ -269,7 +304,7 @@ impl<H> fmt::Debug for Registry<H> {
                 &self
                     .formats
                     .iter()
-                    .map(|format| format.id().to_string())
+                    .map(|registered| registered.format.id().to_string())
                     .collect::<Vec<_>>(),
             )
             .field("exact", &self.exact)
@@ -512,8 +547,9 @@ impl<H> RegistryBuilder<H> {
 
     /// The registry. Refused when a response type is registered twice, a mode twice on one
     /// channel, an error mode twice or on the DC API, two formats share an identifier, a type or
-    /// prefix is registered twice, a registration names no profile, or a profile would write a
-    /// member twice into one presentation.
+    /// prefix is registered twice, a registration names no profile, a profile would write a
+    /// member twice into one presentation, or a profile names a member the format's placement
+    /// does not hold.
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
             hashes,
@@ -589,6 +625,13 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::FormatTwice(format.id().to_string()));
             }
         }
+        let formats: Vec<RegisteredFormat<H>> = formats
+            .into_iter()
+            .map(|format| RegisteredFormat {
+                placement: format.placement(),
+                format,
+            })
+            .collect();
         let registrations: Vec<(String, ProfileHandle)> = exact
             .iter()
             .map(|(kind, handle)| (kind.to_string(), *handle))
@@ -608,13 +651,28 @@ impl<H> RegistryBuilder<H> {
             let profile = profiles
                 .get(handle.0)
                 .ok_or_else(|| RegistryError::UnknownProfile(name.clone()))?;
-            for format in &formats {
-                let Some(members) = format
-                    .placement()
-                    .and_then(|placement| profile.members(placement))
-                else {
+            for RegisteredFormat { format, placement } in &formats {
+                let Some((placement, members)) = placement.and_then(|placement| {
+                    profile
+                        .members(placement)
+                        .map(|members| (placement, members))
+                }) else {
                     continue;
                 };
+                let mut misplaced: Vec<String> = members
+                    .iter()
+                    .filter(|member| !placement.places(member))
+                    .map(ToString::to_string)
+                    .collect();
+                misplaced.sort();
+                misplaced.dedup();
+                if let Some(members) = AllOf::new(misplaced) {
+                    return Err(RegistryError::MemberPlacement {
+                        registration: name.clone(),
+                        format: format.id().to_string(),
+                        members,
+                    });
+                }
                 let mut twice: Vec<String> = members
                     .iter()
                     .enumerate()
@@ -724,14 +782,43 @@ impl<H> Registry<H> {
     pub(crate) fn formats(&self) -> impl Iterator<Item = &dyn Format> {
         self.formats
             .iter()
-            .map(|format| -> &dyn Format { format.as_ref() })
+            .map(|registered| -> &dyn Format { registered.format.as_ref() })
+    }
+
+    fn registered(&self, id: &FormatId<'_>) -> Option<&RegisteredFormat<H>> {
+        self.formats
+            .iter()
+            .find(|registered| registered.format.id() == *id)
     }
 
     fn plugged(&self, id: &FormatId<'_>) -> Option<&dyn HostedFormat<H>> {
-        self.formats
-            .iter()
-            .find(|format| format.id() == *id)
-            .map(AsRef::as_ref)
+        self.registered(id)
+            .map(|registered| registered.format.as_ref())
+    }
+
+    /// The format with an identifier and the placement it stated at registration.
+    #[cfg(feature = "match")]
+    pub(crate) fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>> {
+        self.registered(id).map(|registered| {
+            let format: &dyn Format = registered.format.as_ref();
+            Placed {
+                format,
+                placement: registered.placement,
+            }
+        })
+    }
+
+    /// The format with an identifier, with its phase 2 over the build's host, and the placement
+    /// it stated at registration.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn placed_host(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn FormatHost<H>>> {
+        self.registered(id).map(|registered| {
+            let format: &dyn FormatHost<H> = registered.format.as_ref();
+            Placed {
+                format,
+                placement: registered.placement,
+            }
+        })
     }
 
     /// The format with an identifier.
@@ -1003,15 +1090,15 @@ fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, Regis
 /// The plug-ins as phase 1 reads them, whatever the build's host.
 #[cfg(feature = "match")]
 pub(crate) trait Catalog {
-    fn format(&self, id: &FormatId<'_>) -> Option<&dyn Format>;
+    fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>>;
     fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle>;
     fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile>;
 }
 
 #[cfg(feature = "match")]
 impl<H> Catalog for Registry<H> {
-    fn format(&self, id: &FormatId<'_>) -> Option<&dyn Format> {
-        Self::format(self, id)
+    fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>> {
+        Self::placed(self, id)
     }
 
     fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle> {
