@@ -11,7 +11,7 @@
 //! - [`ids`], [`json`], [`refusal`]: the identifiers, JSON with unique member names, and refusals
 //!   with their error codes.
 //! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them.
-//! - [`txhash`], [`sri`]: OpenID4VP B.3.3.1 hashes, W3C SRI.
+//! - [`hash`], [`sri`]: OpenID4VP B.3.3.1 hashes over the registered algorithms, W3C SRI.
 //! - [`arrival`], [`jose`], [`envelope`], [`routing`], [`modes`]: the request as received over the
 //!   DC API or by URI, the JWS and JWE it arrives in, its parameters and signatures as read, what
 //!   it asks of its answer, and OpenID4VP's response modes.
@@ -52,6 +52,7 @@ pub mod arrival;
 pub mod boxes;
 pub mod claims;
 pub mod envelope;
+pub mod hash;
 pub mod ids;
 pub mod jose;
 pub mod json;
@@ -64,7 +65,6 @@ pub mod routing;
 pub mod rows;
 pub mod sri;
 pub mod text;
-pub mod txhash;
 pub mod wallet;
 
 /// The core's domain, as its fault message.
@@ -101,7 +101,7 @@ impl siros_explain::Messages for CrateMessages {
             rows::EnvError::messages,
             rows::NotHttpsUrl::messages,
             rows::NoALabel::messages,
-            txhash::HashesAlgRule::messages,
+            hash::HashesAlgRule::messages,
             arrival::Unreadable::messages,
             arrival::DataShape::messages,
             arrival::UriError::messages,
@@ -125,7 +125,7 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             plugins::InformError::messages,
             #[cfg(feature = "resolve")]
-            txhash::HashesError::messages,
+            hash::HashesError::messages,
             #[cfg(feature = "resolve")]
             host::NotSealed::messages,
             #[cfg(feature = "resolve")]

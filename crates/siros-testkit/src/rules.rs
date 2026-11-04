@@ -3,10 +3,10 @@
 use std::borrow::Cow;
 
 use siros_explain::Explain;
+use siros_openid4vp::hash::HashesAlgRule;
 use siros_openid4vp::json::JsonError;
 use siros_openid4vp::plugins::Exclusion;
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
-use siros_openid4vp::txhash::HashesAlgRule;
 
 /// A rule of the test format's queries: `invalid_request`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]

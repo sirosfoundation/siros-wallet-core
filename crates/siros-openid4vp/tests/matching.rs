@@ -313,6 +313,7 @@ fn a_plug_in_failing_or_breaking_its_contract_fails_phase_1() {
     let mut unreadable = Held::answering("c", &["q"], &["t1"]);
     unreadable.document = "not JSON".to_owned();
     let mut foreign = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut foreign);
     foreign.format(TestFormat::new().expect("format"));
     let profile = foreign.profile(Foreign(TestProfile::new(Binds::First)));
     foreign.exact(TransactionType::parse("t1").expect("type"), profile);

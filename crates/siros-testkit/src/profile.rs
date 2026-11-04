@@ -6,6 +6,7 @@
 
 use siros_openid4vp::boxes::{Header, Overlay, PaymentHeader};
 use siros_openid4vp::detail;
+use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::json::Node;
@@ -16,7 +17,6 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Label, Parsed, Row, Value};
-use siros_openid4vp::txhash;
 use siros_openid4vp::wallet::Credential;
 
 use crate::FAULT;
@@ -110,7 +110,7 @@ impl Profile for TestProfile {
             .iter()
             .filter_map(|index| request.entry(*index).map(|entry| (index, entry)))
             .flat_map(|(index, entry)| {
-                txhash::rule(entry).map(|rule| {
+                hash::rule(entry, request.envelope().hashes()).map(|rule| {
                     Refusal::new(EntryRule {
                         entry: index.get(),
                         rule,
@@ -122,7 +122,7 @@ impl Profile for TestProfile {
 
     fn members(&self, _format: &FormatId<'_>) -> Option<&[Member]> {
         Some(match self.binds {
-            Binds::Every => &txhash::MEMBERS,
+            Binds::Every => &hash::MEMBERS,
             Binds::First => &BINDING,
         })
     }
@@ -158,7 +158,7 @@ impl Profile for TestProfile {
                 .iter()
                 .filter_map(|index| binding.request.entry(*index))
                 .collect();
-            if txhash::algorithm(&entries).is_none() {
+            if hash::algorithm(&entries, binding.request.envelope().hashes()).is_none() {
                 return Err(Exclude::new(Excluded::NoAlgorithm).into());
             }
         }
@@ -271,7 +271,7 @@ impl<H> ProfileHost<H> for TestProfile {
                     .iter()
                     .filter_map(|index| record.request().entry(*index))
                     .collect();
-                txhash::members(&entries)
+                hash::members(&entries, record.request().envelope().hashes())
                     .map_err(|e| Fault::caused(FAULT, detail!("B.3.3.1 hashes"), e))
             }
             Binds::First => {

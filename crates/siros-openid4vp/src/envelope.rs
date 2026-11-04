@@ -9,6 +9,7 @@ use siros_explain::{IntoArg, kind};
 use serde_json::value::RawValue;
 
 use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
+use crate::hash::Hashes;
 use crate::ids::{ClientId, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
@@ -187,10 +188,11 @@ impl<'r> Signer<'r> {
     }
 }
 
-/// The request's parameters, signatures and routing, its mode the registry's it was read with,
-/// which every later step reads. The channel is the received form's.
+/// The request's parameters, signatures and routing, its mode and hash algorithms the registry's
+/// it was read with, which every later step reads. The channel is the received form's.
 #[derive(Debug, Clone)]
 pub struct Envelope<'r> {
+    hashes: Hashes<'r>,
     received: &'r Received<'r>,
     parameters: Parameters<'r>,
     signatures: Signatures<'r>,
@@ -255,11 +257,18 @@ impl<'r> Envelope<'r> {
         };
         let routing = Routing::read(&parameters, &channel(received), routes);
         Ok(Self {
+            hashes: routes.hashes(),
             received,
             parameters,
             signatures,
             routing,
         })
+    }
+
+    /// The hash algorithms of the registry the envelope was read with (B.3.3.1).
+    #[must_use]
+    pub const fn hashes(&self) -> Hashes<'r> {
+        self.hashes
     }
 
     /// What the request asks of its answer: every later step reads it here.

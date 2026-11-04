@@ -7,6 +7,7 @@ use std::num::NonZeroU32;
 use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::envelope::Envelope;
+use siros_openid4vp::hash::{Blake2, K12, Sha2, Sha3};
 use siros_openid4vp::host::{Haip, Has, RequestDecryption};
 use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
@@ -171,11 +172,12 @@ pub fn data_of<'a>(
     }
 }
 
-/// Registers OpenID4VP's response type, response modes and Request Object POST, as the flows'
-/// tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
+/// Registers the hash algorithms ([`hashes`]) and OpenID4VP's response type, response modes and
+/// Request Object POST, as the flows' tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
 /// through the host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`; the POST of
 /// `wallet_metadata` with encrypted Request Objects through the host's `RequestDecryption`.
 pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut RegistryBuilder<H>) {
+    hashes(builder);
     builder.response_type(VpToken);
     builder.mode(DcApi);
     builder.jwe_mode(DcApiJwt);
@@ -186,9 +188,27 @@ pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut Re
     builder.request_encryption(EncryptedRequests);
 }
 
+/// Registers the seventeen hash algorithms of the IANA registry B.3.3.1 names, as the
+/// differential's build registers them (I9).
+pub fn hashes<H>(builder: &mut RegistryBuilder<H>) {
+    for algorithm in Sha2::ALL {
+        builder.hash(algorithm);
+    }
+    for algorithm in Sha3::ALL {
+        builder.hash(algorithm);
+    }
+    for algorithm in Blake2::ALL {
+        builder.hash(algorithm);
+    }
+    for algorithm in K12::ALL {
+        builder.hash(algorithm);
+    }
+}
+
 /// Registers OpenID4VP's response type and the modes a build without `Haip` answers in:
-/// `vp_token`, `dc_api`, and the errors of `direct_post`.
+/// `vp_token`, `dc_api`, and the errors of `direct_post`; and the hash algorithms ([`hashes`]).
 pub fn openid4vp_clear<H>(builder: &mut RegistryBuilder<H>) {
+    hashes(builder);
     builder.response_type(VpToken);
     builder.mode(DcApi);
     builder.error_mode(DirectPost);

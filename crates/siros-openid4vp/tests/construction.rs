@@ -71,6 +71,7 @@ impl<H> ProfileHost<H> for Writes {
 fn what_cannot_exist_is_refused_at_construction() {
     let build = |members: Vec<Member>| {
         let mut builder = Registry::<NoHost>::builder();
+        siros_testkit::fixtures::hashes(&mut builder);
         builder.format(TestFormat::new().expect("format"));
         let profile = builder.profile(Writes(members));
         builder.exact(TransactionType::parse("t1").expect("type"), profile);
@@ -295,6 +296,7 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
 
 #[test]
 fn each_routing_conflict_is_refused_when_the_registry_builds() {
+    use siros_openid4vp::hash::{HashAlgorithm, Sha2};
     use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPostJwt};
     use siros_openid4vp::routing::{ChannelKind, Mode, ResponseType, VpToken};
 
@@ -328,6 +330,19 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
             channel: ChannelKind::Uri
         })
     );
+    // A hash algorithm twice; a transaction data profile without B.3.3.1's default sha-256.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.hash(Sha2::Sha256);
+    builder.hash(Sha2::Sha256);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::HashTwice(Sha2::Sha256.name()))
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.hash(Sha2::Sha384);
+    let profile = builder.profile(TestProfile::new(Binds::First));
+    builder.exact(TransactionType::parse("t1").expect("t1"), profile);
+    assert_eq!(builder.build().map(drop), Err(RegistryError::Sha256Absent));
     // An error mode on the DC API, whose errors A.4 fixes.
     let mut builder = Registry::<TestHost>::builder();
     builder.error_mode(DcApi);

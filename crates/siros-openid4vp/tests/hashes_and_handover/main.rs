@@ -13,13 +13,13 @@ use k12::{ExtendableOutput, Kt128, Kt256};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256, Sha512};
 use sha3::Sha3_256;
+use siros_openid4vp::hash::{Blake2, HostedHash, K12, Sha2, Sha3};
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Prepared, Response};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::sri;
-use siros_openid4vp::txhash::HashAlgorithm;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::{Binds, Published, TestHost};
 
@@ -31,10 +31,33 @@ fn hex(bytes: &[u8]) -> String {
 
 #[test]
 fn every_named_hash_matches_its_standards_examples() {
+    let algorithms: Vec<Box<dyn HostedHash>> = Sha2::ALL
+        .into_iter()
+        .map(|algorithm| Box::new(algorithm) as Box<dyn HostedHash>)
+        .chain(
+            Sha3::ALL
+                .into_iter()
+                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+        )
+        .chain(
+            Blake2::ALL
+                .into_iter()
+                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+        )
+        .chain(
+            K12::ALL
+                .into_iter()
+                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+        )
+        .collect();
     let digest = |name: &str, message: &[u8]| {
-        let algorithm = HashAlgorithm::parse(name).expect("a Hash Name String B.3.3.1 allows");
-        assert_eq!(algorithm.name(), name);
-        hex(&algorithm.digest(message)).to_uppercase()
+        let algorithm = algorithms
+            .iter()
+            .find(|algorithm| algorithm.name().as_str() == name)
+            .expect("a Hash Name String B.3.3.1 allows");
+        let digest = algorithm.digest(message);
+        assert_eq!(digest.len(), algorithm.octets().get(), "{name}");
+        hex(&digest).to_uppercase()
     };
     // "abc" in FIPS 180-4's and FIPS 202's examples, RFC 7693 Appendices A and B; RFC 6920 §2's
     // truncations keep the leftmost bits; CPython's hashlib for BLAKE2b's 32-byte output, which

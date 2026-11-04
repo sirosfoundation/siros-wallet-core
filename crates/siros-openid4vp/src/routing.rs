@@ -205,10 +205,6 @@ pub struct VerifierMetadata<'k> {
 
 impl<'k> VerifierMetadata<'k> {
     /// The metadata of the request's `client_metadata`, which C6 accepted.
-    #[cfg_attr(
-        not(feature = "match"),
-        expect(dead_code, reason = "the request rules read it")
-    )]
     pub(crate) fn of(metadata: &'k ClientMetadata<'k>) -> Self {
         Self {
             metadata,

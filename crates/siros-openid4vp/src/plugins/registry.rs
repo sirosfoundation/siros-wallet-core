@@ -14,6 +14,7 @@ use super::{Binding, Bound, NoCandidate};
 use super::{Format, Member, Profile};
 #[cfg(feature = "resolve")]
 use crate::authenticate::HostedPrefix;
+use crate::hash::{HashName, Hashes, HostedHash};
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
@@ -73,6 +74,12 @@ pub enum RegistryError {
     /// `RequestPost` or `EncryptedRequests` registered twice.
     #[error("the request_uri POST is registered twice")]
     PostTwice,
+    /// Two hash algorithms of one name.
+    #[error("the hash algorithm {0} is registered twice")]
+    HashTwice(#[explain(name = "algorithm")] HashName),
+    /// A transaction data profile without `sha-256`, B.3.3.1's default.
+    #[error("a transaction data profile is registered and sha-256 is not")]
+    Sha256Absent,
     /// `EncryptedRequests` without `RequestPost`.
     #[error("encrypted Request Objects are registered without the request_uri POST")]
     DecryptionWithoutPost,
@@ -193,6 +200,7 @@ impl<H> Clone for RegisteredMode<H> {
 /// only as a [`FormatHost<H>`](crate::host::FormatHost), a profile as a
 /// [`ProfileHost<H>`](crate::host::ProfileHost).
 pub struct Registry<H = NoHost> {
+    hashes: Vec<Box<dyn HostedHash>>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
@@ -228,6 +236,7 @@ impl<H> fmt::Debug for Registry<H> {
 
 /// Collects the plug-ins of a [`Registry`].
 pub struct RegistryBuilder<H = NoHost> {
+    hashes: Vec<Box<dyn HostedHash>>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
@@ -243,6 +252,7 @@ pub struct RegistryBuilder<H = NoHost> {
 impl<H> Default for RegistryBuilder<H> {
     fn default() -> Self {
         Self {
+            hashes: Vec::new(),
             response_types: Vec::new(),
             modes: Vec::new(),
             formats: Vec::new(),
@@ -258,6 +268,12 @@ impl<H> Default for RegistryBuilder<H> {
 }
 
 impl<H> RegistryBuilder<H> {
+    /// A transaction data hash algorithm (B.3.3.1), keyed by its name; `build` refuses a name
+    /// registered twice, and a registry with a transaction data profile and without `sha-256`.
+    pub fn hash(&mut self, algorithm: impl HostedHash + 'static) {
+        self.hashes.push(Box::new(algorithm));
+    }
+
     /// A response type (RFC 6749 §3.1.1), keyed by its name (P1); `build` refuses a name
     /// registered twice.
     pub fn response_type(&mut self, response_type: impl ResponseType + 'static) {
@@ -433,6 +449,7 @@ impl<H> RegistryBuilder<H> {
     /// member twice into one presentation.
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
+            hashes,
             response_types,
             modes,
             formats,
@@ -444,6 +461,14 @@ impl<H> RegistryBuilder<H> {
             #[cfg(feature = "resolve")]
             posts,
         } = self;
+        for (k, algorithm) in hashes.iter().enumerate() {
+            if hashes
+                .get(..k)
+                .is_some_and(|before| before.iter().any(|other| other.name() == algorithm.name()))
+            {
+                return Err(RegistryError::HashTwice(algorithm.name()));
+            }
+        }
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
                 .get(..k)
@@ -534,7 +559,16 @@ impl<H> RegistryBuilder<H> {
                 }
             }
         }
+        let transacting = !exact.is_empty() || !prefixes.is_empty();
+        if transacting
+            && !hashes
+                .iter()
+                .any(|algorithm| algorithm.name().as_str() == "sha-256")
+        {
+            return Err(RegistryError::Sha256Absent);
+        }
         Ok(Registry {
+            hashes,
             response_types,
             modes,
             formats,
@@ -674,6 +708,7 @@ impl<H> Registry<H> {
             .map(|(profile, own)| profile.read(own))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            hashes: self.hashes.clone(),
             response_types: self.response_types.clone(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
@@ -775,6 +810,8 @@ pub(crate) trait Routes {
     /// The registered mode of a name on a channel: the mode that carries answers, else the one
     /// that carries errors alone.
     fn routed(&self, channel: ChannelKind, name: &str) -> Option<(RoutedMode, &dyn Mode)>;
+    /// The registered hash algorithms.
+    fn hashes(&self) -> Hashes<'_>;
 }
 
 impl<H> Routes for Registry<H> {
@@ -809,6 +846,10 @@ impl<H> Routes for Registry<H> {
                 })
         };
         find(false).or_else(|| find(true))
+    }
+
+    fn hashes(&self) -> Hashes<'_> {
+        Hashes::of(&self.hashes)
     }
 }
 
