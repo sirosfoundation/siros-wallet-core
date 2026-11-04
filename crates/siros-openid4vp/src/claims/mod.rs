@@ -3,6 +3,7 @@
 //! share beyond matching: the Verifier's algorithms, the card and the rows of a credential, the
 //! elements an option discloses.
 
+#[cfg(feature = "claims")]
 pub mod kit;
 
 use std::borrow::Cow;

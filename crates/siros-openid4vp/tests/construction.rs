@@ -49,9 +49,13 @@ impl Profile for Writes {
     fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {
         Err(Exclude::new(TestExclusion::new("binds nothing")).into())
     }
+}
+
+impl<H> ProfileHost<H> for Writes {
     fn wanted(&self, _: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
     }
+
     fn informed(&self, _: &[&()]) -> Self {
         self.clone()
     }
@@ -59,9 +63,7 @@ impl Profile for Writes {
     fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-impl<H> ProfileHost<H> for Writes {
     fn revalidate(&self, _: FetchedRecord<'_>, _: &H) -> Result<Option<()>, Fault> {
         Ok(None)
     }

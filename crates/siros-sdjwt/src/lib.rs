@@ -39,9 +39,8 @@ mod jose;
 pub mod type_metadata;
 mod view;
 
-siros_openid4vp::with_resolve! {
-    mod presentation;
-}
+#[cfg(feature = "resolve")]
+mod presentation;
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
@@ -300,43 +299,43 @@ impl ClaimsPlugin for SdJwtVc {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    /// Signs the Key Binding JWT with HAIP's keystore, its `iat` the platform's clock.
-    impl<H> siros_openid4vp::host::FormatHost<H> for SdJwtVc
-    where
-        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
-            + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
-    {
-        fn answer<'q>(
-            &'q self,
-            query: &'q Query<'q>,
-            context: siros_openid4vp::host::AnsweredContext<'q>,
-        ) -> Result<Box<dyn siros_openid4vp::host::AnsweredQuery<H> + 'q>, AllOf<Refusal>> {
-            kit::answer(self, query, context)
-        }
+#[cfg(feature = "resolve")]
+/// Signs the Key Binding JWT with HAIP's keystore, its `iat` the platform's clock.
+impl<H> siros_openid4vp::host::FormatHost<H> for SdJwtVc
+where
+    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
+{
+    fn answer<'q>(
+        &'q self,
+        query: &'q Query<'q>,
+        context: siros_openid4vp::host::AnsweredContext<'q>,
+    ) -> Result<Box<dyn siros_openid4vp::host::AnsweredQuery<H> + 'q>, AllOf<Refusal>> {
+        kit::answer(self, query, context)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H> kit::ClaimsPresent<H> for SdJwtVc
+where
+    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
+{
+    /// Nothing: the presentation needs only required modules, and its key binding reads
+    /// the view phase 2 derived again.
+    fn revalidate(
+        &self,
+        _revalidating: kit::Revalidating<'_>,
+        _host: &H,
+    ) -> Result<Option<Box<dyn siros_openid4vp::plugins::FindingData>>, Fault> {
+        Ok(None)
     }
 
-    impl<H> kit::ClaimsPresent<H> for SdJwtVc
-    where
-        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
-            + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
-    {
-        /// Nothing: the presentation needs only required modules, and its key binding reads
-        /// the view phase 2 derived again.
-        fn revalidate(
-            &self,
-            _revalidating: kit::Revalidating<'_>,
-            _host: &H,
-        ) -> Result<Option<Box<dyn siros_openid4vp::plugins::FindingData>>, Fault> {
-            Ok(None)
-        }
-
-        fn present(
-            &self,
-            presenting: kit::Presenting<'_>,
-            host: &H,
-        ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
-            presentation::present(presenting, host)
-        }
+    fn present(
+        &self,
+        presenting: kit::Presenting<'_>,
+        host: &H,
+    ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
+        presentation::present(presenting, host)
     }
 }

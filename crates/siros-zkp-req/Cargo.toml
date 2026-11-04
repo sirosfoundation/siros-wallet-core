@@ -15,7 +15,7 @@ vp-token = []
 
 [dependencies]
 # The core's DCQL reader, CBOR, JSON with unique member names and identifiers.
-siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-openid4vp = { workspace = true, features = ["resolve", "cbor"] }
 base64 = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

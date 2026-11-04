@@ -13,12 +13,15 @@ publish = false
 default = ["resolve"]
 # Phase 2: revalidation of what the matcher assumed, its findings, and the SCA response members.
 resolve = ["siros-openid4vp/resolve", "dep:uuid"]
-# The `Paso`, `RandomIds` and `CoseEncrypt` doubles for the tests of crates that register
-# siros-paso.
+# The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6) and its `CoseEncrypt`
+# module. Without it, an mdoc entry whose signals need encryption is refused (`NotCompatible::Lacks`).
+sealed-signals = ["siros-openid4vp/cbor"]
+# The `Paso`, `RandomIds` and, with `sealed-signals`, `CoseEncrypt` doubles for the tests of crates
+# that register siros-paso.
 test-util = ["resolve"]
 
 [dependencies]
-siros-openid4vp = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["transaction-data", "sri"] }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }
@@ -30,7 +33,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
-siros-paso = { path = ".", features = ["test-util"] }
+siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
 siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
 siros-testkit = { workspace = true }
 # The placements the tests' credentials take from their formats' plug-ins.

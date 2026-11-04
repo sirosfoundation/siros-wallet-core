@@ -1,11 +1,11 @@
 //! What the device signs and authenticates (ISO/IEC 18013-5 §8.3.2.1.2.2, §9.1.3.4):
 //! DeviceNameSpacesBytes and DeviceAuthenticationBytes.
 
+use crate::transcript::SessionTranscript;
 use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Item, Value, embedded};
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::MemberValue;
-use crate::transcript::SessionTranscript;
 
 /// A device-signed data element: its identifier and its value.
 pub(crate) struct Element<'a> {
@@ -33,10 +33,18 @@ pub(crate) enum ElementValue<'a> {
 pub(crate) enum ValueError {
     /// The JSON text does not parse.
     #[error("a JSON member")]
-    Json(#[source] #[explain(name = "cause")] JsonError),
+    Json(
+        #[source]
+        #[explain(name = "cause")]
+        JsonError,
+    ),
     /// The CBOR item does not decode.
     #[error("a CBOR member")]
-    Cbor(#[source] #[explain(name = "cause")] CborError),
+    Cbor(
+        #[source]
+        #[explain(name = "cause")]
+        CborError,
+    ),
 }
 
 impl<'a> ElementValue<'a> {
@@ -45,9 +53,11 @@ impl<'a> ElementValue<'a> {
         Ok(match value {
             MemberValue::Text(text) => Self::Text(text),
             MemberValue::Bytes(bytes) => Self::Bytes(bytes),
-            MemberValue::Json(json) => {
-                Self::Json(Node::parse(json.as_str()).map_err(ValueError::Json)?.into_owned())
-            }
+            MemberValue::Json(json) => Self::Json(
+                Node::parse(json.as_str())
+                    .map_err(ValueError::Json)?
+                    .into_owned(),
+            ),
             MemberValue::Cbor(item) => {
                 Self::Cbor(cbor::decode(item.as_bytes()).map_err(ValueError::Cbor)?)
             }
@@ -79,7 +89,9 @@ impl DeviceNameSpacesBytes {
             .map(|(namespace, elements)| {
                 let items = elements
                     .iter()
-                    .map(|element| Ok((Value::Text(element.name.to_owned()), element.value.item()?)))
+                    .map(|element| {
+                        Ok((Value::Text(element.name.to_owned()), element.value.item()?))
+                    })
                     .collect::<Result<Vec<_>, CborError>>()?;
                 Ok((Value::Text((*namespace).to_owned()), Value::Map(items)))
             })
@@ -102,7 +114,9 @@ pub(crate) fn device_authentication_bytes(
 ) -> Result<Vec<u8>, CborError> {
     // A four-item array (RFC 8949 §3.1, major type 4) holding the transcript's own encoding.
     let mut authentication = vec![0x84];
-    authentication.extend(cbor::encode(&Value::Text("DeviceAuthentication".to_owned()))?);
+    authentication.extend(cbor::encode(&Value::Text(
+        "DeviceAuthentication".to_owned(),
+    ))?);
     authentication.extend_from_slice(transcript.as_bytes());
     authentication.extend(cbor::encode(&Value::Text(doctype.to_owned()))?);
     authentication.extend(cbor::encode(&namespaces.tagged())?);

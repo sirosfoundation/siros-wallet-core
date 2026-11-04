@@ -11,19 +11,35 @@ publish = false
 
 [features]
 default = ["match", "resolve"]
-# Phase 1: request rules, matching, consent, display, records.
+# Phase 1: JOSE parsing, the envelope, routing over the registered response types and modes, the
+# request rules, matching and consent entries.
 match = []
-# Phase 2: the response. It derives the records with the matcher's code.
-resolve = [
-    "match",
-    "dep:sha3",
-    "dep:blake2",
-    "dep:k12",
-    "dep:ciborium",
-    "dep:coset",
-    "dep:serde_urlencoded",
-    "fluent-uri/net",
-]
+# Phase 2: the route, the sealing of encrypted answers, A.4's errors, the session, `Prepared`, the
+# authentication step, the host's modules. It derives the records with the matcher's code.
+resolve = ["match"]
+# Requests over the DC API (Annex A): `Received::dc_api`; the modes `dc_api` and `dc_api.jwt`.
+dc-api = ["match"]
+# Requests by URI (§5): the Authorization Request URI's parsers, the fetch of the Request Object,
+# the `request_uri` POST and its contributions, the Response URI's answer, scope queries; the
+# modes `direct_post.jwt` and `direct_post`.
+uri = ["signed", "resolve", "dep:serde_urlencoded", "fluent-uri/net"]
+# Signed Request Objects: Client Identifier Prefixes, the signature step of authentication (A7,
+# A8), the rules on a Request Object's claims (A14).
+signed = ["resolve"]
+# Encrypted Request Objects (§5.10): `EncryptedRequests`, `RequestDecryption`, `CompactJwe`.
+request-decryption = ["uri"]
+# CBOR (RFC 8949) with distinct map keys, and COSE through coset.
+cbor = ["dep:ciborium", "dep:coset"]
+# Transaction data hashes (B.3.3.1): the registered algorithms and the core's SHA-2.
+transaction-data = []
+# The SHA-3, BLAKE2 and KangarooTwelve hash algorithms, each linking its crate.
+sha3 = ["transaction-data", "dep:sha3"]
+blake2 = ["transaction-data", "dep:blake2"]
+k12 = ["transaction-data", "dep:k12"]
+# W3C Subresource Integrity.
+sri = []
+# The claims kit: DCQL claims queries over a credential's JSON view, for the formats that use it.
+claims = []
 # A plug-in's tests: a record made from given parts, and its revalidation as phase 2 runs it.
 test-util = ["resolve"]
 

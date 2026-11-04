@@ -36,22 +36,29 @@
 mod cose;
 mod view;
 
-siros_openid4vp::with_resolve! {
-    mod device_authentication;
-    mod device_mac;
-    pub mod issuer_signed;
-    mod presentation;
-    pub mod stored;
-    mod transcript;
+#[cfg(feature = "resolve")]
+mod device_authentication;
+#[cfg(feature = "resolve")]
+mod device_mac;
+#[cfg(feature = "resolve")]
+pub mod issuer_signed;
+#[cfg(feature = "resolve")]
+mod presentation;
+#[cfg(feature = "resolve")]
+pub mod stored;
+#[cfg(feature = "resolve")]
+mod transcript;
 
-    pub use device_mac::{DeviceMac, Mac};
-    pub use transcript::{
-        Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
-    };
-    pub use presentation::DeviceAuthRefused;
-    #[cfg(feature = "test-util")]
-    pub use device_mac::TestDeviceMac;
-}
+#[cfg(feature = "test-util")]
+pub use device_mac::TestDeviceMac;
+#[cfg(feature = "resolve")]
+pub use device_mac::{DeviceMac, Mac};
+#[cfg(feature = "resolve")]
+pub use presentation::DeviceAuthRefused;
+#[cfg(feature = "resolve")]
+pub use transcript::{
+    Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
+};
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
@@ -85,24 +92,22 @@ pub enum MdocRule {
     Pointer,
 }
 
-siros_openid4vp::with_resolve! {
-    /// The messages phase 2's error types declare.
-    fn phase_two() -> Vec<Message> {
-        [
-            issuer_signed::IssuedError::messages(),
-            device_authentication::ValueError::messages(),
-            presentation::DeviceAuthRefused::messages(),
-            transcript::TranscriptError::messages(),
-        ]
-        .concat()
-    }
+#[cfg(feature = "resolve")]
+/// The messages phase 2's error types declare.
+fn phase_two() -> Vec<Message> {
+    [
+        issuer_signed::IssuedError::messages(),
+        device_authentication::ValueError::messages(),
+        presentation::DeviceAuthRefused::messages(),
+        transcript::TranscriptError::messages(),
+    ]
+    .concat()
 }
 
-siros_openid4vp::without_resolve! {
-    /// The messages phase 2's error types declare: none without phase 2.
-    fn phase_two() -> Vec<Message> {
-        Vec::new()
-    }
+#[cfg(not(feature = "resolve"))]
+/// The messages phase 2's error types declare: none without phase 2.
+fn phase_two() -> Vec<Message> {
+    Vec::new()
 }
 
 /// The plug-in's messages: those its error types and rules declare, and its fault's.
@@ -288,42 +293,44 @@ impl ClaimsPlugin for Mdoc {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    /// Signs with HAIP's keystore, or MACs with the device MAC module when the build holds it.
-    impl<H> siros_openid4vp::host::FormatHost<H> for Mdoc
-    where
-        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip> + siros_openid4vp::host::MayHave<dyn DeviceMac>,
-    {
-        fn answer<'q>(
-            &'q self,
-            query: &'q Query<'q>,
-            context: siros_openid4vp::host::AnsweredContext<'q>,
-        ) -> Result<Box<dyn siros_openid4vp::host::AnsweredQuery<H> + 'q>, AllOf<Refusal>> {
-            kit::answer(self, query, context)
-        }
+#[cfg(feature = "resolve")]
+/// Signs with HAIP's keystore, or MACs with the device MAC module when the build holds it.
+impl<H> siros_openid4vp::host::FormatHost<H> for Mdoc
+where
+    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::MayHave<dyn DeviceMac>,
+{
+    fn answer<'q>(
+        &'q self,
+        query: &'q Query<'q>,
+        context: siros_openid4vp::host::AnsweredContext<'q>,
+    ) -> Result<Box<dyn siros_openid4vp::host::AnsweredQuery<H> + 'q>, AllOf<Refusal>> {
+        kit::answer(self, query, context)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H> kit::ClaimsPresent<H> for Mdoc
+where
+    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::MayHave<dyn DeviceMac>,
+{
+    /// ISO/IEC 18013-5 §9.1.3 and OpenID4VP B.2.4: a device authentication the Verifier
+    /// accepts, with the device MAC module when the host's type holds it.
+    fn revalidate(
+        &self,
+        revalidating: kit::Revalidating<'_>,
+        _host: &H,
+    ) -> Result<Option<Box<dyn siros_openid4vp::plugins::FindingData>>, Fault> {
+        presentation::revalidate::<H>(&revalidating)
     }
 
-    impl<H> kit::ClaimsPresent<H> for Mdoc
-    where
-        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip> + siros_openid4vp::host::MayHave<dyn DeviceMac>,
-    {
-        /// ISO/IEC 18013-5 §9.1.3 and OpenID4VP B.2.4: a device authentication the Verifier
-        /// accepts, with the device MAC module when the host's type holds it.
-        fn revalidate(
-            &self,
-            revalidating: kit::Revalidating<'_>,
-            _host: &H,
-        ) -> Result<Option<Box<dyn siros_openid4vp::plugins::FindingData>>, Fault> {
-            presentation::revalidate::<H>(&revalidating)
-        }
-
-        fn present(
-            &self,
-            presenting: kit::Presenting<'_>,
-            host: &H,
-        ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
-            presentation::present(presenting, host)
-        }
+    fn present(
+        &self,
+        presenting: kit::Presenting<'_>,
+        host: &H,
+    ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
+        presentation::present(presenting, host)
     }
 }
 

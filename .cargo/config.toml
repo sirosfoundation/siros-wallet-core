@@ -1,0 +1,3 @@
+# The workspace's gates as `cargo xtask <command>` (the cargo-xtask pattern).
+[alias]
+xtask = "run --locked --quiet --package xtask --"

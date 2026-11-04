@@ -515,15 +515,17 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let query = request.indexed_queries().next().expect("query").0;
         assert_eq!(again.candidates(query).len(), 0);
         let entry = request.entries().first().expect("an entry");
-        let rendered = PasoProfile::default()
-            .informed(&[data])
-            .render(
-                entry,
-                &card.credential(),
-                crate::common::placement(&card.credential().format),
-                &en(),
-            )
-            .expect("no fault");
+        let rendered = <PasoProfile as ProfileHost<SealerlessHost>>::informed(
+            &PasoProfile::default(),
+            &[data],
+        )
+        .render(
+            entry,
+            &card.credential(),
+            crate::common::placement(&card.credential().format),
+            &en(),
+        )
+        .expect("no fault");
         assert_eq!(
             rendered.err(),
             Some(Outcome::NotCompatible(NotCompatible::Lacks(

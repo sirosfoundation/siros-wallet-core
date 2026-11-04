@@ -37,8 +37,9 @@ test-fixtures = [
 ]
 
 [dependencies]
-# The core's requests, sessions and identifiers.
-siros-openid4vp = { workspace = true, features = ["resolve"] }
+# The core's requests, sessions and identifiers, its CBOR, and the JWE modes nym_auth's policy
+# names.
+siros-openid4vp = { workspace = true, features = ["resolve", "cbor", "dc-api", "uri"] }
 siros-zkp-req = { workspace = true }
 siros-explain = { workspace = true }
 base64 = { workspace = true }

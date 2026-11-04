@@ -37,11 +37,10 @@ pub struct FailedDocument {
 pub struct FailedDocuments(Vec<FailedDocument>);
 
 impl FailedDocuments {
-    siros_openid4vp::with_resolve! {
-        /// The finding of the failed documents; `None` when none failed.
-        pub(crate) fn of(failed: Vec<FailedDocument>) -> Option<Self> {
-            (!failed.is_empty()).then_some(Self(failed))
-        }
+    #[cfg(feature = "resolve")]
+    /// The finding of the failed documents; `None` when none failed.
+    pub(crate) fn of(failed: Vec<FailedDocument>) -> Option<Self> {
+        (!failed.is_empty()).then_some(Self(failed))
     }
 
     /// The failed documents in the entry's order.

@@ -7,13 +7,15 @@ use siros_explain::Explain;
 
 use super::{AuthorizationUri, FormBody, RequestUri, RequestUriMethod};
 use crate::arrival::{FetchFailure, Received, Unreadable};
-use crate::host::{CoreHost, EphemeralKey};
-use crate::jose::{CompactJwe, CompactJws, JwsError};
+use crate::host::CoreHost;
+#[cfg(feature = "request-decryption")]
+use crate::host::EphemeralKey;
+use crate::jose::CompactJws;
+#[cfg(feature = "request-decryption")]
+use crate::jose::{CompactJwe, JwsError};
 use crate::plugins::{Fault, Registry};
 use crate::recourse::{self, Rejected};
-use crate::request::Curve;
 use crate::wallet_metadata::{MetadataRefused, RequestUriPost, WalletMetadata};
-use crate::{FAULT, detail};
 
 /// What the caller fetches, with `Accept: application/oauth-authz-req+jwt` (RFC 9101 §5.2.3,
 /// §5.10): a GET of the `request_uri`, or a POST of this form body to it.
@@ -71,6 +73,7 @@ enum FetchMethod {
     Get,
     Post {
         body: FormBody,
+        #[cfg(feature = "request-decryption")]
         key: Option<EphemeralKey>,
     },
 }
@@ -96,29 +99,14 @@ impl<'a> Fetch<'a> {
         let method = match (uri.method(), registry.post()) {
             (RequestUriMethod::Get, _) | (RequestUriMethod::Post, None) => FetchMethod::Get,
             (RequestUriMethod::Post, Some(post)) => {
-                let key = post
-                    .decryption
-                    .map(|access| {
-                        let decryption = access(host);
-                        let key = decryption.ephemeral_key()?;
-                        let curve = key
-                            .public()
-                            .member("crv")
-                            .and_then(|crv| crv.as_str())
-                            .and_then(Curve::new);
-                        if curve.is_some_and(|curve| decryption.decrypts().curve(curve)) {
-                            Ok(key)
-                        } else {
-                            Err(Fault::new(
-                                FAULT,
-                                detail!("the ephemeral key's crv is none the module states"),
-                            ))
-                        }
-                    })
-                    .transpose()?;
+                let key = post.ephemeral_key(host)?;
                 let metadata = WalletMetadata::of(registry, host, uri.client_id(), key.as_ref())?;
                 let body = FormBody::of(&RequestUriPost::of(&metadata))?;
-                FetchMethod::Post { body, key }
+                FetchMethod::Post {
+                    body,
+                    #[cfg(feature = "request-decryption")]
+                    key,
+                }
             }
         };
         Ok(Self { uri, method })
@@ -157,22 +145,7 @@ impl<'a> Fetch<'a> {
             FetchAnswer::Body(body) => body,
         };
         let text: Cow<'a, str> = if body.split('.').count() == 5 {
-            let (FetchMethod::Post { key: Some(key), .. }, Some(access)) =
-                (method, registry.post().and_then(|post| post.decryption))
-            else {
-                return Err(end_user(Unreadable::Encrypted));
-            };
-            let decryption = access(host);
-            let jwe = CompactJwe::parse(body, &decryption.decrypts())
-                .map_err(|e| end_user(Unreadable::Jwe(e)))?;
-            let plaintext = decryption
-                .decrypt(key, &jwe)
-                .map_err(|_| end_user(Unreadable::Undecryptable))?;
-            // A plaintext beyond ASCII holds no compact serialization (RFC 7515 §7.1).
-            Cow::Owned(
-                String::from_utf8(plaintext)
-                    .map_err(|_| end_user(Unreadable::Jws(JwsError::Structure)))?,
-            )
+            Cow::Owned(decrypted(body, method, registry, host).map_err(end_user)?)
         } else {
             Cow::Borrowed(body)
         };
@@ -185,4 +158,43 @@ impl<'a> Fetch<'a> {
             }
         }
     }
+}
+
+/// A compact JWE Request Object's plaintext, after a POST that posted a key: decrypted with it
+/// through the registry's encrypted Request Objects, the key consumed. U11 for a JWE after a GET
+/// or a POST that posted none, or one that does not decrypt; U10 for a plaintext beyond ASCII,
+/// which holds no compact serialization (RFC 7515 §7.1).
+#[cfg(feature = "request-decryption")]
+fn decrypted<H>(
+    body: &str,
+    method: FetchMethod,
+    registry: &Registry<H>,
+    host: &H,
+) -> Result<String, Unreadable> {
+    let (FetchMethod::Post { key: Some(key), .. }, Some(access)) = (
+        method,
+        registry
+            .post()
+            .and_then(crate::plugins::registry::Post::decryption),
+    ) else {
+        return Err(Unreadable::Encrypted);
+    };
+    let decryption = access(host);
+    let jwe = CompactJwe::parse(body, &decryption.decrypts()).map_err(Unreadable::Jwe)?;
+    let plaintext = decryption
+        .decrypt(key, &jwe)
+        .map_err(|_| Unreadable::Undecryptable)?;
+    String::from_utf8(plaintext).map_err(|_| Unreadable::Jws(JwsError::Structure))
+}
+
+/// A compact JWE Request Object: U11, as the build registers no encrypted Request Objects and so
+/// posts no key.
+#[cfg(not(feature = "request-decryption"))]
+fn decrypted<H>(
+    _body: &str,
+    _method: FetchMethod,
+    _registry: &Registry<H>,
+    _host: &H,
+) -> Result<String, Unreadable> {
+    Err(Unreadable::Encrypted)
 }

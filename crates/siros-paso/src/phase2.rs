@@ -18,6 +18,15 @@ pub enum OptionalModule {
 }
 
 impl OptionalModule {
+    /// The modules the build compiles without: `COSE_Encrypt` without the feature
+    /// `sealed-signals`, so that phase 1 refuses an entry needing one (Risk Signals §7.6).
+    #[cfg(feature = "sealed-signals")]
+    pub(crate) const UNCOMPILED: &[Self] = &[];
+    /// The modules the build compiles without: `COSE_Encrypt` without the feature
+    /// `sealed-signals`, so that phase 1 refuses an entry needing one (Risk Signals §7.6).
+    #[cfg(not(feature = "sealed-signals"))]
+    pub(crate) const UNCOMPILED: &[Self] = &[Self::CoseEncrypt];
+
     /// The module the response of an entry with these signals needs, by how the presentation's
     /// format places the members: `COSE_Encrypt` for encrypted risk signals in a name space
     /// (Risk Signals §7.6).
@@ -114,258 +123,312 @@ impl PasoFinding {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    use siros_openid4vp::claims::Concrete;
-    use siros_openid4vp::json::Node;
-    use siros_openid4vp::detail;
-    use siros_openid4vp::effects::Fetch;
-    use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
-    use siros_openid4vp::rows::{HttpsUrl, Shown, ValueKind};
-    use siros_openid4vp::host::{Authentication, AuthenticationNeed, Platform, Timestamp};
+#[cfg(feature = "resolve")]
+use siros_openid4vp::claims::Concrete;
+#[cfg(feature = "resolve")]
+use siros_openid4vp::detail;
+#[cfg(feature = "resolve")]
+use siros_openid4vp::effects::Fetch;
+#[cfg(feature = "resolve")]
+use siros_openid4vp::host::{Authentication, AuthenticationNeed, Platform, Timestamp};
+#[cfg(feature = "resolve")]
+use siros_openid4vp::json::Node;
+#[cfg(feature = "resolve")]
+use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
+#[cfg(feature = "resolve")]
+use siros_openid4vp::rows::{HttpsUrl, Shown, ValueKind};
 
-    use crate::{FAULT, PasoProfile};
-    use crate::adhoc::Jws;
-    use crate::document::{DOCUMENT, PasoDocument};
-    use crate::entry::PasoEntry;
-    use crate::image::{self, Resolution};
-    use crate::metadata::ValueType;
-    use crate::outcome::NotCompatible;
-    use crate::path::{at, select};
-    use crate::render::{integrity_sibling, rulebook_metadata};
-    use crate::respond::{Answer, Modules};
-    use crate::risk::RiskSignal;
-    use crate::rulebook::Family;
+#[cfg(feature = "resolve")]
+use crate::adhoc::Jws;
+#[cfg(feature = "resolve")]
+use crate::document::{DOCUMENT, PasoDocument};
+#[cfg(feature = "resolve")]
+use crate::entry::PasoEntry;
+#[cfg(feature = "resolve")]
+use crate::image::{self, Resolution};
+#[cfg(feature = "resolve")]
+use crate::metadata::ValueType;
+#[cfg(feature = "resolve")]
+use crate::outcome::NotCompatible;
+#[cfg(feature = "resolve")]
+use crate::path::{at, select};
+#[cfg(feature = "resolve")]
+use crate::render::{integrity_sibling, rulebook_metadata};
+#[cfg(feature = "resolve")]
+use crate::respond::{Answer, Modules};
+#[cfg(feature = "resolve")]
+use crate::risk::RiskSignal;
+#[cfg(feature = "resolve")]
+use crate::rulebook::Family;
+#[cfg(feature = "resolve")]
+use crate::{FAULT, PasoProfile};
 
-    /// What a record's entry reads: the entry, the credential's document, and the metadata that
-    /// rendered it with the ad-hoc metadata JWT when that was it.
-    struct Read<'r> {
-        entry: PasoEntry<'r>,
-        document: &'r PasoDocument<'r>,
-        given: &'r Node<'r>,
-        adhoc: Option<&'r Jws<'r>>,
+#[cfg(feature = "resolve")]
+/// What a record's entry reads: the entry, the credential's document, and the metadata that
+/// rendered it with the ad-hoc metadata JWT when that was it.
+struct Read<'r> {
+    entry: PasoEntry<'r>,
+    document: &'r PasoDocument<'r>,
+    given: &'r Node<'r>,
+    adhoc: Option<&'r Jws<'r>>,
+}
+
+#[cfg(feature = "resolve")]
+/// Reads the record's one entry and passes it on.
+fn read<T>(
+    record: &Answered<'_>,
+    then: impl FnOnce(Read<'_>) -> Result<T, Fault>,
+) -> Result<T, Fault> {
+    let [index] = record.entries().entries() else {
+        return Err(Fault::new(
+            FAULT,
+            detail!("a PaSO record authorizes one entry"),
+        ));
+    };
+    let entry = record
+        .request()
+        .entry(*index)
+        .ok_or_else(|| Fault::new(FAULT, detail!("a record's entry the request lacks")))?;
+    let entry = PasoEntry::read(entry)
+        .map_err(|refused| Fault::caused(FAULT, detail!("a bound PaSO entry"), refused))?;
+    let bytes = record.credential().document(DOCUMENT).ok_or_else(|| {
+        Fault::new(
+            FAULT,
+            detail!("a bound credential without its PaSO document"),
+        )
+    })?;
+    let node = PasoDocument::json(bytes)
+        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+    let document = PasoDocument::read(&node)
+        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+    let jws = entry
+        .metadata
+        .map(Jws::parse)
+        .transpose()
+        .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's ad-hoc metadata"), e))?;
+    let given = match &jws {
+        Some(jws) => jws.metadata(),
+        None => document.metadata(entry.kind.as_str()),
     }
+    .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
+    then(Read {
+        entry,
+        document: &document,
+        given,
+        adhoc: jws.as_ref(),
+    })
+}
 
-    /// Reads the record's one entry and passes it on.
-    fn read<T>(
-        record: &Answered<'_>,
-        then: impl FnOnce(Read<'_>) -> Result<T, Fault>,
-    ) -> Result<T, Fault> {
-        let [index] = record.entries().entries() else {
-            return Err(Fault::new(FAULT, detail!("a PaSO record authorizes one entry")));
+#[cfg(feature = "resolve")]
+/// Whether an `exp` has passed: an integer at or before the instant.
+fn passed(exp: Option<&Node<'_>>, now: Timestamp) -> Result<bool, Fault> {
+    match exp {
+        Some(Node::Number(exp)) if exp.is_integer() => Ok(match exp.as_u64() {
+            Some(seconds) => now.0 >= seconds,
+            None => exp.text().starts_with('-'),
+        }),
+        _ => Err(Fault::new(
+            FAULT,
+            detail!("a verified ad-hoc metadata JWT without an integer exp"),
+        )),
+    }
+}
+
+#[cfg(feature = "resolve")]
+/// An https image of the payload the record's metadata displays and the matcher did not
+/// have: its text as written, the URL a fetch reaches, and its `#integrity` sibling.
+struct Pending<'r> {
+    text: &'r str,
+    url: Option<HttpsUrl>,
+    integrity: Option<&'r Node<'r>>,
+}
+
+#[cfg(feature = "resolve")]
+/// The images phase 2 resolves for the entry, in the metadata's claim order.
+fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>>, Fault> {
+    let kind = read.entry.kind.as_str();
+    let family = Family::of(kind).ok_or_else(|| {
+        Fault::new(
+            FAULT,
+            detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
+        )
+    })?;
+    let (metadata, _) = rulebook_metadata(kind, family, read.given)
+        .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's metadata"), e))?;
+    let payload = read.entry.payload.node();
+    let mut pending = Vec::new();
+    for claim in &metadata.claims {
+        let Some(display) = &claim.display else {
+            continue;
         };
-        let entry = record
-            .request()
-            .entry(*index)
-            .ok_or_else(|| Fault::new(FAULT, detail!("a record's entry the request lacks")))?;
-        let entry =
-            PasoEntry::read(entry).map_err(|refused| Fault::caused(FAULT, detail!("a bound PaSO entry"), refused))?;
-        let bytes = record
-            .credential()
-            .document(DOCUMENT)
-            .ok_or_else(|| Fault::new(FAULT, detail!("a bound credential without its PaSO document")))?;
-        let node = PasoDocument::json(bytes).map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-        let document = PasoDocument::read(&node).map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-        let jws = entry
-            .metadata
-            .map(Jws::parse)
-            .transpose()
-            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's ad-hoc metadata"), e))?;
-        let given = match &jws {
-            Some(jws) => jws.metadata(),
-            None => document.metadata(entry.kind.as_str()),
+        if display.value != ValueType::Kind(ValueKind::Image) {
+            continue;
         }
-        .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
-        then(Read {
-            entry,
-            document: &document,
-            given,
-            adhoc: jws.as_ref(),
-        })
-    }
-
-    /// Whether an `exp` has passed: an integer at or before the instant.
-    fn passed(exp: Option<&Node<'_>>, now: Timestamp) -> Result<bool, Fault> {
-        match exp {
-            Some(Node::Number(exp)) if exp.is_integer() => Ok(match exp.as_u64() {
-                Some(seconds) => now.0 >= seconds,
-                None => exp.text().starts_with('-'),
-            }),
-            _ => Err(Fault::new(FAULT, detail!("a verified ad-hoc metadata JWT without an integer exp"))),
-        }
-    }
-
-    /// An https image of the payload the record's metadata displays and the matcher did not
-    /// have: its text as written, the URL a fetch reaches, and its `#integrity` sibling.
-    struct Pending<'r> {
-        text: &'r str,
-        url: Option<HttpsUrl>,
-        integrity: Option<&'r Node<'r>>,
-    }
-
-    /// The images phase 2 resolves for the entry, in the metadata's claim order.
-    fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>>, Fault> {
-        let kind = read.entry.kind.as_str();
-        let family = Family::of(kind)
-            .ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
-                )
-            })?;
-        let (metadata, _) = rulebook_metadata(kind, family, read.given)
-            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's metadata"), e))?;
-        let payload = read.entry.payload.node();
-        let mut pending = Vec::new();
-        for claim in &metadata.claims {
-            let Some(display) = &claim.display else {
+        let found = select(payload, &claim.path).map_err(|e| {
+            Fault::caused(
+                FAULT,
+                detail!("a bound entry's image"),
+                NotCompatible::from(e),
+            )
+        })?;
+        for (path, value) in found {
+            let (Some(text), Some(Concrete::Key(_))) = (value.as_str(), path.last()) else {
                 continue;
             };
-            if display.value != ValueType::Kind(ValueKind::Image) {
+            let url = match HttpsUrl::shown(text) {
+                Ok(Shown::Url(url)) => Some(url),
+                // A host without an A-label form names nothing a fetch reaches.
+                Ok(Shown::Unreachable(_)) => None,
+                Err(_) => continue,
+            };
+            if !matches!(profile.resolution(text), Resolution::Unknown) {
+                // The matcher had it, verified or failed, and decided with it.
                 continue;
             }
-            let found = select(payload, &claim.path)
-                .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's image"), NotCompatible::from(e)))?;
-            for (path, value) in found {
-                let (Some(text), Some(Concrete::Key(_))) = (value.as_str(), path.last()) else {
-                    continue;
-                };
-                let url = match HttpsUrl::shown(text) {
-                    Ok(Shown::Url(url)) => Some(url),
-                    // A host without an A-label form names nothing a fetch reaches.
-                    Ok(Shown::Unreachable(_)) => None,
-                    Err(_) => continue,
-                };
-                if !matches!(profile.resolution(text), Resolution::Unknown) {
-                    // The matcher had it, verified or failed, and decided with it.
-                    continue;
-                }
-                let integrity = match integrity_sibling(&path) {
-                    Some(sibling) => at(payload, &sibling).map_err(|e| {
-                        Fault::caused(FAULT, detail!("a bound entry's image"), NotCompatible::from(e))
-                    })?,
-                    None => None,
-                };
-                pending.push(Pending { text, url, integrity });
-            }
+            let integrity = match integrity_sibling(&path) {
+                Some(sibling) => at(payload, &sibling).map_err(|e| {
+                    Fault::caused(
+                        FAULT,
+                        detail!("a bound entry's image"),
+                        NotCompatible::from(e),
+                    )
+                })?,
+                None => None,
+            };
+            pending.push(Pending {
+                text,
+                url,
+                integrity,
+            });
         }
-        Ok(pending)
     }
+    Ok(pending)
+}
 
-    /// The URLs of the images phase 2 resolves that a fetch reaches, in the metadata's claim
-    /// order.
-    pub(crate) fn wanted(profile: &PasoProfile, record: &Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        read(record, |read| {
-            Ok(pending(profile, &read)?
-                .into_iter()
-                .filter_map(|image| image.url)
-                .collect())
-        })
-    }
+#[cfg(feature = "resolve")]
+/// The URLs of the images phase 2 resolves that a fetch reaches, in the metadata's claim
+/// order.
+pub(crate) fn wanted(profile: &PasoProfile, record: &Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+    read(record, |read| {
+        Ok(pending(profile, &read)?
+            .into_iter()
+            .filter_map(|image| image.url)
+            .collect())
+    })
+}
 
-    /// Revalidates a record: whether the build holds the modules its response needs, whether
-    /// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
-    /// a key the issuer publishes, its ad-hoc metadata JWT's `exp`, then each https image of the
-    /// payload its metadata displays and the matcher did not have, with what the caller fetched.
-    /// `cose_held`: the build holds the `COSE_Encrypt` module, stating §7.6's A256GCM.
-    pub(crate) fn revalidate(
-        profile: &PasoProfile,
-        fetched: &FetchedRecord<'_>,
-        platform: &dyn Platform,
-        sealer: Agreements,
-        cose_held: bool,
-    ) -> Result<Option<PasoFinding>, Fault> {
-        let resources = fetched.resources();
-        let record = fetched.record();
-        read(&record, |read| {
-            let signals = Effective::resolve(read.given, &profile.catalogue)
-                .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
-            let lacks = OptionalModule::needed(&signals, record.placement()).filter(|module| match module {
+#[cfg(feature = "resolve")]
+/// Revalidates a record: whether the build holds the modules its response needs, whether
+/// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
+/// a key the issuer publishes, its ad-hoc metadata JWT's `exp`, then each https image of the
+/// payload its metadata displays and the matcher did not have, with what the caller fetched.
+/// `cose_held`: the build holds the `COSE_Encrypt` module, stating §7.6's A256GCM.
+pub(crate) fn revalidate(
+    profile: &PasoProfile,
+    fetched: &FetchedRecord<'_>,
+    platform: &dyn Platform,
+    sealer: Agreements,
+    cose_held: bool,
+) -> Result<Option<PasoFinding>, Fault> {
+    let resources = fetched.resources();
+    let record = fetched.record();
+    read(&record, |read| {
+        let signals = Effective::resolve(read.given, &profile.catalogue)
+            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+        let lacks =
+            OptionalModule::needed(&signals, record.placement()).filter(|module| match module {
                 OptionalModule::CoseEncrypt => !cose_held,
             });
-            let unsealable = (signals.sealing == Sealing::Encrypted
-                && record.placement() == Some(Placement::Claims)
-                && read.document.encryption_key(Some(&sealer)).is_none())
-            .then_some(sealer);
-            let expired = match read.adhoc {
-                Some(jws) if passed(jws.exp(), platform.now())? => Some(jws.text.to_owned()),
-                _ => None,
-            };
-            let mut failed = Vec::new();
-            for image in pending(profile, &read)? {
-                let fetch = image
-                    .url
-                    .map(|url| {
-                        resources.fetched(&url).ok_or_else(|| {
-                            Fault::new(FAULT, detail!("an image the profile wanted is unanswered"))
-                        })
+        let unsealable = (signals.sealing == Sealing::Encrypted
+            && record.placement() == Some(Placement::Claims)
+            && read.document.encryption_key(Some(&sealer)).is_none())
+        .then_some(sealer);
+        let expired = match read.adhoc {
+            Some(jws) if passed(jws.exp(), platform.now())? => Some(jws.text.to_owned()),
+            _ => None,
+        };
+        let mut failed = Vec::new();
+        for image in pending(profile, &read)? {
+            let fetch = image
+                .url
+                .map(|url| {
+                    resources.fetched(&url).ok_or_else(|| {
+                        Fault::new(FAULT, detail!("an image the profile wanted is unanswered"))
                     })
-                    .transpose()?;
-                let resolution = |_: &str| match fetch {
-                    Some(Fetch::Fetched { content, media }) => Resolution::Fetched {
-                        content,
-                        media: media.essence(),
-                    },
-                    Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
-                };
-                match image::resolve(image.text, image.integrity, resolution) {
-                    Ok(_) => {}
-                    Err(NotCompatible::Image { failure, .. }) => {
-                        failed.push(FailedImage {
-                            url: image.text.to_owned(),
-                            failure,
-                        });
-                    }
-                    Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
+                })
+                .transpose()?;
+            let resolution = |_: &str| match fetch {
+                Some(Fetch::Fetched { content, media }) => Resolution::Fetched {
+                    content,
+                    media: media.essence(),
+                },
+                Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
+            };
+            match image::resolve(image.text, image.integrity, resolution) {
+                Ok(_) => {}
+                Err(NotCompatible::Image { failure, .. }) => {
+                    failed.push(FailedImage {
+                        url: image.text.to_owned(),
+                        failure,
+                    });
                 }
+                Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
             }
-            Ok(PasoFinding::of(lacks, unsealable, expired, failed))
-        })
-    }
+        }
+        Ok(PasoFinding::of(lacks, unsealable, expired, failed))
+    })
+}
 
-    /// The End-User authentication the record's entry needs: strong when the type's effective
-    /// risk signals require `amr` (Risk Signal Registry §2.8), presence otherwise.
-    pub(crate) fn authentication(
-        profile: &PasoProfile,
-        record: &Answered<'_>,
-    ) -> Result<AuthenticationNeed, Fault> {
-        read(record, |read| {
-            let signals = Effective::resolve(read.given, &profile.catalogue)
-                .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
-            Ok(if signals.required().any(|spec| spec.signal == RiskSignal::AMR) {
+#[cfg(feature = "resolve")]
+/// The End-User authentication the record's entry needs: strong when the type's effective
+/// risk signals require `amr` (Risk Signal Registry §2.8), presence otherwise.
+pub(crate) fn authentication(
+    profile: &PasoProfile,
+    record: &Answered<'_>,
+) -> Result<AuthenticationNeed, Fault> {
+    read(record, |read| {
+        let signals = Effective::resolve(read.given, &profile.catalogue)
+            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+        Ok(
+            if signals
+                .required()
+                .any(|spec| spec.signal == RiskSignal::AMR)
+            {
                 AuthenticationNeed::Strong
             } else {
                 AuthenticationNeed::Presence
-            })
-        })
-    }
+            },
+        )
+    })
+}
 
-    /// The SCA response members for the record's entry, keyed for the presentation's format,
-    /// with the End-User's authentication for this response.
-    pub(crate) fn respond(
-        profile: &PasoProfile,
-        record: &Answered<'_>,
-        modules: Modules<'_>,
-        authentication: &Authentication,
-    ) -> Result<Members, Fault> {
-        read(record, |read| {
-            let placement = record.placement().ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("PaSO binds no presentation whose proof carries no members"),
-                )
-            })?;
-            let signals = Effective::resolve(read.given, &profile.catalogue)
-                .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
-            Answer {
-                request: record.request(),
-                entry: read.entry,
-                document: read.document,
-                signals,
-                attested: record.attested(),
-                placement,
-                mode: record.mode(),
-            }
-            .members(modules, authentication)
-        })
-    }
+#[cfg(feature = "resolve")]
+/// The SCA response members for the record's entry, keyed for the presentation's format,
+/// with the End-User's authentication for this response.
+pub(crate) fn respond(
+    profile: &PasoProfile,
+    record: &Answered<'_>,
+    modules: Modules<'_>,
+    authentication: &Authentication,
+) -> Result<Members, Fault> {
+    read(record, |read| {
+        let placement = record.placement().ok_or_else(|| {
+            Fault::new(
+                FAULT,
+                detail!("PaSO binds no presentation whose proof carries no members"),
+            )
+        })?;
+        let signals = Effective::resolve(read.given, &profile.catalogue)
+            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+        Answer {
+            request: record.request(),
+            entry: read.entry,
+            document: read.document,
+            signals,
+            attested: record.attested(),
+            placement,
+            mode: record.mode(),
+        }
+        .members(modules, authentication)
+    })
 }

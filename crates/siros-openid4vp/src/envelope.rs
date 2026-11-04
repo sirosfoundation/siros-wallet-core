@@ -9,6 +9,7 @@ use siros_explain::{IntoArg, kind};
 use serde_json::value::RawValue;
 
 use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
+#[cfg(feature = "transaction-data")]
 use crate::hash::Hashes;
 use crate::ids::{ClientId, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
@@ -200,6 +201,7 @@ impl<'r> Signer<'r> {
 /// it was read with, which every later step reads. The channel is the received form's.
 #[derive(Debug, Clone)]
 pub struct Envelope<'r> {
+    #[cfg(feature = "transaction-data")]
     hashes: Hashes<'r>,
     scopes: Scopes<'r>,
     received: &'r Received<'r>,
@@ -251,7 +253,6 @@ impl<'r> Envelope<'r> {
                     (parameters, Signatures::Many(Multisigned::read(jws)?))
                 }
             },
-            #[cfg(feature = "resolve")]
             ReceivedForm::Uri { uri, object: jws } => {
                 let parameters = object(jws)?;
                 let client_id = client_id(&parameters)?;
@@ -266,6 +267,7 @@ impl<'r> Envelope<'r> {
         };
         let routing = Routing::read(&parameters, &channel(received), routes);
         Ok(Self {
+            #[cfg(feature = "transaction-data")]
             hashes: routes.hashes(),
             scopes: routes.scopes(),
             received,
@@ -275,7 +277,9 @@ impl<'r> Envelope<'r> {
         })
     }
 
-    /// The hash algorithms of the registry the envelope was read with (B.3.3.1).
+    /// The hash algorithms of the registry the envelope was read with (B.3.3.1; feature
+    /// `transaction-data`).
+    #[cfg(feature = "transaction-data")]
     #[must_use]
     pub const fn hashes(&self) -> Hashes<'r> {
         self.hashes
@@ -338,7 +342,6 @@ impl<'r> Envelope<'r> {
 fn channel<'r>(received: &'r Received<'r>) -> Channel<'r> {
     match received.form() {
         ReceivedForm::DcApi { origin, .. } => Channel::DcApi(origin),
-        #[cfg(feature = "resolve")]
         ReceivedForm::Uri { .. } => Channel::Uri,
     }
 }

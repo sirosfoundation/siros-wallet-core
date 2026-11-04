@@ -28,6 +28,8 @@ members = [
     "crates/engine-adapter-server",
     "crates/engine-adapter-wasm",
     "crates/engine-conformance",
+    # The workspace's build gates (`cargo xtask`).
+    "xtask",
 ]
 
 [workspace.package]

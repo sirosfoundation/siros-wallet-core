@@ -233,18 +233,21 @@ impl Profile for Strong {
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         self.0.bind(binding, env)
     }
-    fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        self.0.wanted(answered)
-    }
-    fn informed(&self, findings: &[&Stale]) -> Self {
-        Self(self.0.informed(findings))
-    }
-    fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
-        Ok(AuthenticationNeed::Strong)
-    }
 }
 
 impl<H> ProfileHost<H> for Strong {
+    fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::<H>::wanted(&self.0, answered)
+    }
+
+    fn informed(&self, findings: &[&Stale]) -> Self {
+        Self(ProfileHost::<H>::informed(&self.0, findings))
+    }
+
+    fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
+        Ok(AuthenticationNeed::Strong)
+    }
+
     fn revalidate(&self, fetched: FetchedRecord<'_>, host: &H) -> Result<Option<Stale>, Fault> {
         self.0.revalidate(fetched, host)
     }
@@ -304,19 +307,21 @@ impl Profile for Undeclared {
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         self.0.bind(binding, env)
     }
+}
+
+impl<H> ProfileHost<H> for Undeclared {
     fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        self.0.wanted(answered)
+        ProfileHost::<H>::wanted(&self.0, answered)
     }
+
     fn informed(&self, findings: &[&Stale]) -> Self {
-        Self(self.0.informed(findings))
+        Self(ProfileHost::<H>::informed(&self.0, findings))
     }
 
     fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-impl<H> ProfileHost<H> for Undeclared {
     fn revalidate(&self, fetched: FetchedRecord<'_>, host: &H) -> Result<Option<Stale>, Fault> {
         self.0.revalidate(fetched, host)
     }

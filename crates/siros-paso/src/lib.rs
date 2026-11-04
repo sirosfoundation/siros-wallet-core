@@ -36,30 +36,40 @@
 )]
 
 pub mod adhoc;
+#[cfg(feature = "resolve")]
+pub mod amr;
 mod conform;
+#[cfg(all(feature = "resolve", feature = "sealed-signals"))]
+mod cose;
 pub mod document;
 pub mod entry;
 pub mod image;
 pub mod labels;
 pub mod locale;
 pub mod mandate;
+#[cfg(feature = "resolve")]
+pub mod measure;
 pub mod metadata;
+#[cfg(feature = "resolve")]
+pub mod modules;
 pub mod outcome;
 mod path;
 pub mod render;
-siros_openid4vp::with_resolve! {
-    pub mod amr;
-    pub mod measure;
-    pub mod modules;
-    pub mod respond;
+#[cfg(feature = "resolve")]
+pub mod respond;
 
-    pub use measure::{Measurement, Paso, Reading};
-    pub use modules::{CoseEnc, CoseEncrypt, NotRandomId, NotSealedCose, RandomId, RandomIds, SealedCose};
-    #[cfg(feature = "test-util")]
-    pub use measure::{Measured, Signal, TestPaso};
-    #[cfg(feature = "test-util")]
-    pub use modules::{TestCoseEncrypt, TestRandomIds};
-}
+#[cfg(all(feature = "test-util", feature = "sealed-signals"))]
+pub use cose::TestCoseEncrypt;
+#[cfg(all(feature = "resolve", feature = "sealed-signals"))]
+pub use cose::{CoseEnc, CoseEncrypt, NotSealedCose, SealedCose};
+#[cfg(feature = "test-util")]
+pub use measure::{Measured, Signal, TestPaso};
+#[cfg(feature = "resolve")]
+pub use measure::{Measurement, Paso, Reading};
+#[cfg(feature = "test-util")]
+pub use modules::TestRandomIds;
+#[cfg(feature = "resolve")]
+pub use modules::{CoseSlot, NotRandomId, RandomId, RandomIds};
 pub mod risk;
 pub mod rulebook;
 pub mod rules;
@@ -71,6 +81,8 @@ pub use conform::{ClaimIndex, Placement};
 use siros_explain::{Message, Messages};
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
+#[cfg(all(feature = "resolve", feature = "sealed-signals"))]
+use siros_openid4vp::host::{MayHave, Slot};
 use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FaultDomain, HostedProfile,
@@ -80,14 +92,11 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Credential;
-siros_openid4vp::with_resolve! {
-    use siros_openid4vp::{
-        plugins::{Answered, FetchedRecord, Members},
-        host::{
-            Authentication, AuthenticationNeed, Haip, Has, MayHave, Platform, ProfileHost, Slot,
-        },
-    };
-}
+#[cfg(feature = "resolve")]
+use siros_openid4vp::{
+    host::{Authentication, AuthenticationNeed, Haip, Has, Platform, ProfileHost},
+    plugins::{Answered, FetchedRecord, Members},
+};
 
 use crate::adhoc::TrustAnchor;
 use crate::document::{DOCUMENT, PasoDocument};
@@ -127,8 +136,8 @@ impl Messages for CrateMessages {
             rules::BindExcluded::messages,
             #[cfg(feature = "resolve")]
             modules::NotRandomId::messages,
-            #[cfg(feature = "resolve")]
-            modules::NotSealedCose::messages,
+            #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
+            cose::NotSealedCose::messages,
         ];
         declared
             .iter()
@@ -193,8 +202,9 @@ pub struct PasoProfile {
 }
 
 impl Default for PasoProfile {
-    /// No resource fetched, the bound 200, PaSO's Default profile, an empty trust store, every
-    /// module held.
+    /// No resource fetched, the bound 200, PaSO's Default profile, an empty trust store, and
+    /// every optional module held but those the build compiles without: `COSE_Encrypt` without
+    /// the feature `sealed-signals`.
     fn default() -> Self {
         Self {
             resources: Vec::new(),
@@ -202,7 +212,7 @@ impl Default for PasoProfile {
             catalogue: Catalogue::paso(),
             trust: Vec::new(),
             expired: Vec::new(),
-            lacking: Vec::new(),
+            lacking: OptionalModule::UNCOMPILED.to_vec(),
             sealer: None,
         }
     }
@@ -509,79 +519,83 @@ impl Profile for PasoProfile {
         }
         Err(Exclude::new(BindExcluded::NoEntry).into())
     }
-
-    siros_openid4vp::with_resolve! {
-        /// View §3: the https images the payload displays that the matcher had not fetched and a
-        /// fetch reaches.
-        fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-            phase2::wanted(self, &record)
-        }
-
-        /// The profile knowing the failed images as failed fetches, the expired JWTs as expired
-        /// and the modules the build lacks as lacking: first match then moves past the entries
-        /// they rendered.
-        fn informed(&self, findings: &[&PasoFinding]) -> Self {
-            let mut informed = self.clone();
-            for finding in findings {
-                informed.resources.extend(finding.failed().iter().map(|failed| {
-                    (failed.url.clone(), Fetch::Failed(failed.failure.to_string()))
-                }));
-                informed.expired.extend(finding.expired().map(str::to_owned));
-                informed.lacking.extend(finding.lacks());
-                if let Some(sealer) = finding.unsealable() {
-                    informed.sealer = Some(sealer);
-                }
-            }
-            informed
-        }
-
-        /// Strong when the type's effective risk signals require `amr` (Risk Signal Registry
-        /// §2.8), else presence.
-        fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
-            phase2::authentication(self, &record)
-        }
-    }
 }
 
-siros_openid4vp::with_resolve! {
-    /// Requires the PaSO module, the platform and HAIP's JWE; seals an mdoc's risk signals with
-    /// the `COSE_Encrypt` module when the build holds it.
-    impl<H> ProfileHost<H> for PasoProfile
-    where
-        H: Has<dyn Platform>
-            + Has<dyn Haip>
-            + Has<dyn Paso>
-            + Has<dyn RandomIds>
-            + MayHave<dyn CoseEncrypt>,
-    {
-        /// Risk Signals §7.6, Proof Metadata §5.3 step 5 and View §3: the `COSE_Encrypt` module
-        /// an mdoc's sealed risk signals need, read from the host's type; the ad-hoc metadata
-        /// JWT's `exp`; the https images the matcher had not fetched, as the caller fetched them.
-        fn revalidate(
-            &self,
-            record: FetchedRecord<'_>,
-            host: &H,
-        ) -> Result<Option<PasoFinding>, Fault> {
-            phase2::revalidate(
-                self,
-                &record,
-                Has::<dyn Platform>::module(host),
-                Has::<dyn Haip>::module(host).agreements(),
-                MayHave::<dyn CoseEncrypt>::slot(host)
-                    .filled()
-                    .is_some_and(|cose| cose.encryptions().contains(&CoseEnc::A256GCM)),
-            )
-        }
+#[cfg(feature = "resolve")]
+/// Requires the PaSO module, the platform and HAIP's JWE; seals an mdoc's risk signals with
+/// the `COSE_Encrypt` module when the build holds it.
+impl<H> ProfileHost<H> for PasoProfile
+where
+    H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + Has<dyn RandomIds> + CoseSlot,
+{
+    /// View §3: the https images the payload displays that the matcher had not fetched and a
+    /// fetch reaches.
+    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+        phase2::wanted(self, &record)
+    }
 
-        /// Core §6.1: the SCA response claims, the `amr` signal the End-User's authentication
-        /// (Risk Signal Registry §2.8).
-        fn respond(
-            &self,
-            record: Answered<'_>,
-            host: &H,
-            authentication: &Authentication,
-        ) -> Result<Members, Fault> {
-            phase2::respond(self, &record, respond::Modules::of(host), authentication)
+    /// The profile knowing the failed images as failed fetches, the expired JWTs as expired
+    /// and the modules the build lacks as lacking: first match then moves past the entries
+    /// they rendered.
+    fn informed(&self, findings: &[&PasoFinding]) -> Self {
+        let mut informed = self.clone();
+        for finding in findings {
+            informed
+                .resources
+                .extend(finding.failed().iter().map(|failed| {
+                    (
+                        failed.url.clone(),
+                        Fetch::Failed(failed.failure.to_string()),
+                    )
+                }));
+            informed
+                .expired
+                .extend(finding.expired().map(str::to_owned));
+            informed.lacking.extend(finding.lacks());
+            if let Some(sealer) = finding.unsealable() {
+                informed.sealer = Some(sealer);
+            }
         }
+        informed
+    }
+
+    /// Strong when the type's effective risk signals require `amr` (Risk Signal Registry
+    /// §2.8), else presence.
+    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
+        phase2::authentication(self, &record)
+    }
+
+    /// Risk Signals §7.6, Proof Metadata §5.3 step 5 and View §3: the `COSE_Encrypt` module
+    /// an mdoc's sealed risk signals need, read from the host's type; the ad-hoc metadata
+    /// JWT's `exp`; the https images the matcher had not fetched, as the caller fetched them.
+    fn revalidate(
+        &self,
+        record: FetchedRecord<'_>,
+        host: &H,
+    ) -> Result<Option<PasoFinding>, Fault> {
+        #[cfg(feature = "sealed-signals")]
+        let cose_held = MayHave::<dyn CoseEncrypt>::slot(host)
+            .filled()
+            .is_some_and(|cose| cose.encryptions().contains(&CoseEnc::A256GCM));
+        #[cfg(not(feature = "sealed-signals"))]
+        let cose_held = false;
+        phase2::revalidate(
+            self,
+            &record,
+            Has::<dyn Platform>::module(host),
+            Has::<dyn Haip>::module(host).agreements(),
+            cose_held,
+        )
+    }
+
+    /// Core §6.1: the SCA response claims, the `amr` signal the End-User's authentication
+    /// (Risk Signal Registry §2.8).
+    fn respond(
+        &self,
+        record: Answered<'_>,
+        host: &H,
+        authentication: &Authentication,
+    ) -> Result<Members, Fault> {
+        phase2::respond(self, &record, respond::Modules::of(host), authentication)
     }
 }

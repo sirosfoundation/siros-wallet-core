@@ -6,19 +6,18 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member};
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
-siros_openid4vp::with_resolve! {
-    use siros_openid4vp::{
-        plugins::{MemberTwice, MemberValue, Members},
-        request::Entry,
-    };
-}
+#[cfg(feature = "resolve")]
+use siros_openid4vp::{
+    plugins::{MemberTwice, MemberValue, Members},
+    request::Entry,
+};
 
 use crate::approval::SignatureQualifier;
 use crate::{CLAIM, DOCUMENT, FAULT, NAMESPACE};
 
 /// The hash algorithms the wallet computes, by object identifier (NIST CSOR
 /// 2.16.840.1.101.3.4.2): the SHA-2 and SHA-3 families ETSI TS 119 312 recommends for signatures
-/// (CSC §7.2 and its [i.13]).
+/// (CSC §7.2 and its [i.13]); the SHA-3 family under the feature `sha3`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApprovalHash {
     /// SHA-256.
@@ -34,25 +33,33 @@ pub(crate) enum ApprovalHash {
     /// SHA-512/256.
     Sha512_256,
     /// SHA3-224.
+    #[cfg(feature = "sha3")]
     Sha3_224,
     /// SHA3-256.
+    #[cfg(feature = "sha3")]
     Sha3_256,
     /// SHA3-384.
+    #[cfg(feature = "sha3")]
     Sha3_384,
     /// SHA3-512.
+    #[cfg(feature = "sha3")]
     Sha3_512,
 }
 
-const OIDS: [(&str, ApprovalHash); 10] = [
+const OIDS: &[(&str, ApprovalHash)] = &[
     ("2.16.840.1.101.3.4.2.1", ApprovalHash::Sha256),
     ("2.16.840.1.101.3.4.2.2", ApprovalHash::Sha384),
     ("2.16.840.1.101.3.4.2.3", ApprovalHash::Sha512),
     ("2.16.840.1.101.3.4.2.4", ApprovalHash::Sha224),
     ("2.16.840.1.101.3.4.2.5", ApprovalHash::Sha512_224),
     ("2.16.840.1.101.3.4.2.6", ApprovalHash::Sha512_256),
+    #[cfg(feature = "sha3")]
     ("2.16.840.1.101.3.4.2.7", ApprovalHash::Sha3_224),
+    #[cfg(feature = "sha3")]
     ("2.16.840.1.101.3.4.2.8", ApprovalHash::Sha3_256),
+    #[cfg(feature = "sha3")]
     ("2.16.840.1.101.3.4.2.9", ApprovalHash::Sha3_384),
+    #[cfg(feature = "sha3")]
     ("2.16.840.1.101.3.4.2.10", ApprovalHash::Sha3_512),
 ];
 
@@ -64,23 +71,27 @@ impl ApprovalHash {
             .map(|(_, algorithm)| *algorithm)
     }
 
-    siros_openid4vp::with_resolve! {
-        /// The digest of data.
-        fn digest(self, data: &[u8]) -> Vec<u8> {
-            use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
-            use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
-            match self {
-                Self::Sha256 => Sha256::digest(data).to_vec(),
-                Self::Sha384 => Sha384::digest(data).to_vec(),
-                Self::Sha512 => Sha512::digest(data).to_vec(),
-                Self::Sha224 => Sha224::digest(data).to_vec(),
-                Self::Sha512_224 => Sha512_224::digest(data).to_vec(),
-                Self::Sha512_256 => Sha512_256::digest(data).to_vec(),
-                Self::Sha3_224 => Sha3_224::digest(data).to_vec(),
-                Self::Sha3_256 => Sha3_256::digest(data).to_vec(),
-                Self::Sha3_384 => Sha3_384::digest(data).to_vec(),
-                Self::Sha3_512 => Sha3_512::digest(data).to_vec(),
-            }
+    #[cfg(feature = "resolve")]
+    /// The digest of data.
+    fn digest(self, data: &[u8]) -> Vec<u8> {
+        use sha2::{Digest, Sha224, Sha256, Sha384, Sha512, Sha512_224, Sha512_256};
+        #[cfg(feature = "sha3")]
+        use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
+        match self {
+            Self::Sha256 => Sha256::digest(data).to_vec(),
+            Self::Sha384 => Sha384::digest(data).to_vec(),
+            Self::Sha512 => Sha512::digest(data).to_vec(),
+            Self::Sha224 => Sha224::digest(data).to_vec(),
+            Self::Sha512_224 => Sha512_224::digest(data).to_vec(),
+            Self::Sha512_256 => Sha512_256::digest(data).to_vec(),
+            #[cfg(feature = "sha3")]
+            Self::Sha3_224 => Sha3_224::digest(data).to_vec(),
+            #[cfg(feature = "sha3")]
+            Self::Sha3_256 => Sha3_256::digest(data).to_vec(),
+            #[cfg(feature = "sha3")]
+            Self::Sha3_384 => Sha3_384::digest(data).to_vec(),
+            #[cfg(feature = "sha3")]
+            Self::Sha3_512 => Sha3_512::digest(data).to_vec(),
         }
     }
 }
@@ -116,28 +127,27 @@ impl Encoding {
         }
     }
 
-    siros_openid4vp::with_resolve! {
-        /// `qesApproval` for the entry, by the algorithm its `hashAlgorithmOID` names.
-        pub(crate) fn approval(
-            self,
-            hash: ApprovalHash,
-            entry: &Entry<'_>,
-        ) -> Result<Members, MemberTwice> {
-            use base64::Engine;
-            use base64::engine::general_purpose::STANDARD;
-            let (member, value) = match self {
-                Self::DeviceSigned => (
-                    DEVICE_SIGNED.clone(),
-                    MemberValue::Bytes(hash.digest(entry.decoded().as_bytes())),
-                ),
-                Self::KeyBinding => (
-                    KEY_BINDING.clone(),
-                    MemberValue::Text(STANDARD.encode(hash.digest(entry.raw().as_bytes()))),
-                ),
-            };
-            let [member] = member;
-            Members::new(vec![(member, value)])
-        }
+    #[cfg(feature = "resolve")]
+    /// `qesApproval` for the entry, by the algorithm its `hashAlgorithmOID` names.
+    pub(crate) fn approval(
+        self,
+        hash: ApprovalHash,
+        entry: &Entry<'_>,
+    ) -> Result<Members, MemberTwice> {
+        use base64::Engine;
+        use base64::engine::general_purpose::STANDARD;
+        let (member, value) = match self {
+            Self::DeviceSigned => (
+                DEVICE_SIGNED.clone(),
+                MemberValue::Bytes(hash.digest(entry.decoded().as_bytes())),
+            ),
+            Self::KeyBinding => (
+                KEY_BINDING.clone(),
+                MemberValue::Text(STANDARD.encode(hash.digest(entry.raw().as_bytes()))),
+            ),
+        };
+        let [member] = member;
+        Members::new(vec![(member, value)])
     }
 }
 

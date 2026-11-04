@@ -4,7 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_openid4vp::effects::MediaType;
-use siros_openid4vp::host::Timestamp;
+use siros_openid4vp::host::{ProfileHost, Timestamp};
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::plugins::{Answered, Binding, Bound, Carriage, NoCandidate, Profile};
 use siros_openid4vp::request::Request;
@@ -193,7 +193,8 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         (None, expired.as_deref(), &failed),
         "R-findings"
     );
-    let informed = PasoProfile::default().informed(&[&finding]);
+    let informed =
+        <PasoProfile as ProfileHost<PasoHost>>::informed(&PasoProfile::default(), &[&finding]);
     let offered: Vec<_> = answer
         .request
         .indexed_entries()

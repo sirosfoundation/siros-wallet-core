@@ -2,27 +2,41 @@
 //! holds, its `request_uri`, the fetch the caller performs, and the endpoints answers go to. URIs
 //! parse with fluent-uri (RFC 3986), which keeps the text as received; serde_urlencoded reads the
 //! query and writes the form bodies.
+//!
+//! The types compile in every build, as the core's enums carry them; their parsers, the fetch,
+//! the POST and the Response URI's answer compile under the feature `uri`, encrypted Request
+//! Objects under `request-decryption`. A `response_uri` parses in every build: each build holds
+//! the URI form's case.
 
+#[cfg(feature = "uri")]
 mod answer;
+#[cfg(feature = "uri")]
 mod fetch;
 mod form;
+#[cfg(feature = "uri")]
 mod query;
 
 use fluent_uri::Uri;
 use fluent_uri::component::{Host, Scheme};
 use siros_explain::Explain;
 
+#[cfg(feature = "uri")]
 use crate::arrival::{Unreadable, UriError};
 use crate::ids::ClientId;
 
 pub use crate::arrival::{FailedStatus, FetchFailure};
+#[cfg(feature = "uri")]
 pub use answer::{AnswerError, AnswerMembers, AnswerReader, ResponseUriAnswer};
+#[cfg(feature = "uri")]
 pub use fetch::{Fetch, FetchAnswer, NoFetch, RequestObjectFetch};
-pub use form::{FormBody, FormMembers};
+pub use form::FormBody;
+#[cfg(feature = "uri")]
+pub use form::FormMembers;
 
 /// The POST of `wallet_metadata` to the `request_uri` (§5.10), a core component the registry
 /// takes (`RegistryBuilder::request_post`): with it, a request whose `request_uri_method` is
 /// `post` is fetched by POST.
+#[cfg(feature = "uri")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RequestPost;
 
@@ -31,9 +45,12 @@ pub struct RequestPost;
 /// whose host holds `RequestDecryption`, beside [`RequestPost`]
 /// (`RegistryBuilder::request_encryption`): each POST's `jwks` holds a key from
 /// `RequestDecryption::ephemeral_key`, and a JWE Request Object decrypts through
-/// `RequestDecryption::decrypt` under the algorithms `RequestDecryption::decrypts` states.
+/// `RequestDecryption::decrypt` under the algorithms `RequestDecryption::decrypts` states
+/// (feature `request-decryption`).
+#[cfg(feature = "request-decryption")]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EncryptedRequests;
+#[cfg(feature = "uri")]
 use query::QueryRead;
 
 /// The `https` scheme, compared without regard to case (RFC 3986 §3.1).
@@ -55,12 +72,14 @@ pub struct AuthorizationUri<'a> {
 }
 
 impl<'a> AuthorizationUri<'a> {
-    /// Parses the URI and reads its query; refused per U3 to U8, U18 and U19, in this order: U3
+    /// Parses the URI and reads its query (feature `uri`); refused per U3 to U8, U18 and U19, in
+    /// this order: U3
     /// (the URI, its query), U4 while reading, then U5, U3 (`client_id`), U6, U19, U18, U7, U8.
     ///
     /// # Errors
     ///
     /// The U rule the URI breaks.
+    #[cfg(feature = "uri")]
     pub fn parse(text: &'a str) -> Result<Self, Unreadable> {
         let uri = Uri::parse(text).map_err(|e| Unreadable::Uri(UriError::Syntax(e.to_string())))?;
         let query = uri
@@ -134,11 +153,12 @@ fn https_with_host(uri: &Uri<String>) -> bool {
 pub struct RequestUri(Uri<String>);
 
 impl RequestUri {
-    /// The URI; refused per U7.
+    /// The URI (feature `uri`); refused per U7.
     ///
     /// # Errors
     ///
     /// The text is no absolute `https` URI with a host.
+    #[cfg(feature = "uri")]
     pub fn parse(text: String) -> Result<Self, Unreadable> {
         match Uri::parse(text) {
             Ok(uri) if https_with_host(&uri) => Ok(Self(uri)),
@@ -210,11 +230,12 @@ pub struct RedirectTarget(Uri<String>);
 pub struct NotUri(#[explain(name = "uri")] pub String);
 
 impl RedirectTarget {
-    /// The URI.
+    /// The URI (feature `uri`).
     ///
     /// # Errors
     ///
     /// The text is no URI with a scheme.
+    #[cfg(feature = "uri")]
     pub fn parse(text: String) -> Result<Self, NotUri> {
         Uri::parse(text).map(Self).map_err(|(_, text)| NotUri(text))
     }
@@ -235,6 +256,7 @@ pub enum RequestUriMethod {
     Post,
 }
 
+#[cfg(feature = "uri")]
 impl RequestUriMethod {
     /// The method a parameter names; `get` when absent.
     fn parse(text: Option<&str>) -> Result<Self, Unreadable> {

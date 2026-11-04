@@ -213,7 +213,10 @@ impl Profile for TestProfile {
             },
         })
     }
+}
 
+/// Needs no module.
+impl<H> ProfileHost<H> for TestProfile {
     /// No resource.
     fn wanted(&self, _record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
@@ -238,10 +241,7 @@ impl Profile for TestProfile {
     fn authentication(&self, _record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-/// Needs no module.
-impl<H> ProfileHost<H> for TestProfile {
     fn revalidate(&self, record: FetchedRecord<'_>, _host: &H) -> Result<Option<Stale>, Fault> {
         let record = record.record();
         let document = document(record.credential())?;

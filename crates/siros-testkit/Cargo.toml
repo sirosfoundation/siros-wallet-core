@@ -10,7 +10,18 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
+# The doubles of every mechanism the core holds.
+siros-openid4vp = { workspace = true, features = [
+    "test-util",
+    "dc-api",
+    "request-decryption",
+    "cbor",
+    "sha3",
+    "blake2",
+    "k12",
+    "sri",
+    "claims",
+] }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }

@@ -1,7 +1,9 @@
 //! The request as it reached the wallet: over the DC API with its Origin (Annex A), or by a URI
-//! with the Request Object fetched from its `request_uri` (§5, RFC 9101; feature `resolve`).
-//! Records commit to its digest.
+//! with the Request Object fetched from its `request_uri` (§5, RFC 9101). Each form holds its
+//! case in every build; [`Received::dc_api`] compiles under the feature `dc-api`, and the URI
+//! form's constructor, `Fetch::resume`, under `uri`. Records commit to its digest.
 
+#[cfg(feature = "dc-api")]
 use std::borrow::Cow;
 use std::fmt;
 
@@ -10,9 +12,10 @@ use siros_explain::{Explain, IntoArg, kind};
 use crate::envelope::{ClientIdPlacement, NestedParameter, Parameters};
 use crate::ids::Origin;
 use crate::jose::{CompactJws, JsonJws, JweError, JwsError};
-use crate::json::{self, JsonError, RawObject};
+use crate::json::JsonError;
+#[cfg(feature = "dc-api")]
+use crate::json::{self, RawObject};
 use crate::request::RequestDigest;
-#[cfg(feature = "resolve")]
 use crate::uri::AuthorizationUri;
 
 /// A DC API exchange protocol (A.1).
@@ -269,9 +272,7 @@ pub enum ReceivedForm<'a> {
         /// The request as `data` holds it.
         request: DcApiRequest<'a>,
     },
-    /// By a URI (feature `resolve`): the URI, and the Request Object fetched from its
-    /// `request_uri`.
-    #[cfg(feature = "resolve")]
+    /// By a URI: the URI, and the Request Object fetched from its `request_uri`.
     Uri {
         /// The URI as the link or the QR code holds it, its parameters read.
         uri: AuthorizationUri<'a>,
@@ -292,13 +293,15 @@ pub enum DcApiRequest<'a> {
 }
 
 impl<'a> Received<'a> {
-    /// A DC API request: its protocol, its `data` and the Origin the platform reports. Refused
+    /// A DC API request (feature `dc-api`): its protocol, its `data` and the Origin the platform
+    /// reports. Refused
     /// per U1 (a protocol outside A.1's or outside `protocols`), U2, U3 for unsigned `data`, U10
     /// and U16.
     ///
     /// # Errors
     ///
     /// The U rule `data` or the protocol breaks.
+    #[cfg(feature = "dc-api")]
     pub fn dc_api(
         protocol: &str,
         data: &'a str,
@@ -350,7 +353,7 @@ impl<'a> Received<'a> {
     }
 
     /// A request by URI with its Request Object, its digest over the URI and the Request Object.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn uri(uri: AuthorizationUri<'a>, object: CompactJws<'a>) -> Self {
         let digest =
             RequestDigest::of(&[uri.as_str().as_bytes(), &[0x10], object.text().as_bytes()]);
@@ -373,6 +376,7 @@ impl<'a> Received<'a> {
     }
 }
 
+#[cfg(feature = "dc-api")]
 /// `data.request` as A.3.2.1 places a JWS: `data` a JSON object with unique member names whose
 /// `request` is a string.
 fn wrapped(data: &str) -> Result<Cow<'_, str>, DataShape> {

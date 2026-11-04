@@ -151,6 +151,7 @@ pub struct Decision {
 pub struct Decided<'a>(&'a [Reply<Evaluation>]);
 
 impl<'a> Decided<'a> {
+    #[cfg(feature = "signed")]
     pub(crate) const fn of(replies: &'a [Reply<Evaluation>]) -> Self {
         Self(replies)
     }

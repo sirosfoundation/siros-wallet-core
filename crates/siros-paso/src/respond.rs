@@ -5,24 +5,24 @@ use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use sha2::{Digest, Sha256};
-use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::detail;
+use siros_openid4vp::hash::{HashAlgorithm, HashDigest, Sha2};
+use siros_openid4vp::host::{Authentication, Haip, Has, Platform, Seconds, Timestamp};
+use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::plugins::{Attested, Fault, JsonText, MemberValue, Members};
-use siros_openid4vp::host::{
-    Authentication, Haip, Has, MayHave, Platform, Seconds, Timestamp,
-};
 use siros_openid4vp::request::{ContentEncryption, Request};
 use siros_openid4vp::routing::ModeName;
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet_metadata::Placement;
 
 use crate::FAULT;
+use crate::amr;
+#[cfg(feature = "sealed-signals")]
+use crate::cose::{CoseEnc, CoseEncrypt, SealedCose};
 use crate::document::PasoDocument;
 use crate::entry::PasoEntry;
 use crate::measure::{Paso, Reading};
-use crate::modules::{CoseEnc, CoseEncrypt, RandomIds, SealedCose};
-use crate::amr;
+use crate::modules::{CoseSlot, RandomIds};
 use crate::risk::{Effective, RiskSignal, Sealing, SignalSpec};
 use crate::sca::{self, Sca};
 
@@ -131,6 +131,7 @@ pub(crate) struct Modules<'h> {
     pub(crate) paso: &'h dyn Paso,
     pub(crate) random_ids: &'h dyn RandomIds,
     pub(crate) haip: &'h dyn Haip,
+    #[cfg(feature = "sealed-signals")]
     pub(crate) cose: Option<&'h dyn CoseEncrypt>,
 }
 
@@ -138,11 +139,7 @@ impl<'h> Modules<'h> {
     /// The modules of the build's host.
     pub(crate) fn of<H>(host: &'h H) -> Self
     where
-        H: Has<dyn Platform>
-            + Has<dyn Haip>
-            + Has<dyn Paso>
-            + Has<dyn RandomIds>
-            + MayHave<dyn CoseEncrypt>,
+        H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + Has<dyn RandomIds> + CoseSlot,
     {
         use siros_openid4vp::host::Host;
 
@@ -151,6 +148,7 @@ impl<'h> Modules<'h> {
             paso: host.get::<dyn Paso>(),
             random_ids: host.get::<dyn RandomIds>(),
             haip: host.get::<dyn Haip>(),
+            #[cfg(feature = "sealed-signals")]
             cose: host.maybe::<dyn CoseEncrypt>(),
         }
     }
@@ -180,16 +178,16 @@ impl Answer<'_> {
     ) -> Result<Members, Fault> {
         let placement = self.placement;
         let attested = |name: &str| {
-            self.attested
-                .get(name)
-                .ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!("the record attests no {name}", name = name.to_owned()),
-                    )
-                })
+            self.attested.get(name).ok_or_else(|| {
+                Fault::new(
+                    FAULT,
+                    detail!("the record attests no {name}", name = name.to_owned()),
+                )
+            })
         };
-        let digest = Sha256::digest(self.entry.entry.raw().as_bytes()).to_vec();
+        // Core §6.1: SHA-256 over the entry as received, B.3.3.1's default algorithm.
+        let algorithm = Sha2::Sha256;
+        let digest = algorithm.digest(self.entry.entry.raw().as_bytes());
         let mut out = vec![
             (
                 sca::member(placement, Sca::Jti),
@@ -208,7 +206,7 @@ impl Answer<'_> {
             ),
             (
                 sca::member(placement, Sca::TransactionDataHashAlg),
-                MemberValue::Text("sha-256".to_owned()),
+                MemberValue::Text(algorithm.name().as_str().to_owned()),
             ),
         ];
         if let Some(integrity) = self.attested.get("metadata_integrity") {
@@ -217,10 +215,12 @@ impl Answer<'_> {
                 MemberValue::Text(integrity.to_owned()),
             ));
         }
-        let request_object = self
-            .request
-            .request_object()
-            .ok_or_else(|| Fault::new(FAULT, detail!("PaSO answers a signed request only (Core §3)")))?;
+        let request_object = self.request.request_object().ok_or_else(|| {
+            Fault::new(
+                FAULT,
+                detail!("PaSO answers a signed request only (Core §3)"),
+            )
+        })?;
         out.push((
             sca::member(placement, Sca::RequestIntegrity),
             MemberValue::Text(sri::integrity(request_object.as_bytes())),
@@ -238,7 +238,8 @@ impl Answer<'_> {
             };
             out.push((sca::member(placement, Sca::RiskSignals), value));
         }
-        Members::new(out).map_err(|twice| Fault::caused(FAULT, detail!("the SCA response claims"), twice))
+        Members::new(out)
+            .map_err(|twice| Fault::caused(FAULT, detail!("the SCA response claims"), twice))
     }
 
     /// Risk Signals §7: the envelopes as `json.dumps` writes them by default, encrypted to the
@@ -252,9 +253,7 @@ impl Answer<'_> {
         let key = self.document.encryption_key(sealer.as_ref()).ok_or_else(|| {
             Fault::new(FAULT, detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
         })?;
-        let plaintext = envelopes
-            .python_ascii()
-            .to_string();
+        let plaintext = envelopes.python_ascii().to_string();
         Ok(match self.placement {
             Placement::Claims => MemberValue::Text(
                 modules
@@ -262,6 +261,16 @@ impl Answer<'_> {
                     .encrypt_jwe(&key, ContentEncryption::A256GCM, plaintext.as_bytes())?
                     .into_string(),
             ),
+            #[cfg(not(feature = "sealed-signals"))]
+            Placement::NameSpaces => {
+                return Err(Fault::new(
+                    FAULT,
+                    detail!(
+                        "an mdoc's sealed risk signals in a build without sealed-signals, which revalidation refuses"
+                    ),
+                ));
+            }
+            #[cfg(feature = "sealed-signals")]
             Placement::NameSpaces => {
                 let cose = modules.cose.ok_or_else(|| {
                     Fault::new(
@@ -270,8 +279,9 @@ impl Answer<'_> {
                     )
                 })?;
                 let sealed = cose.encrypt_cose(&key, CoseEnc::A256GCM, plaintext.as_bytes())?;
-                let sealed = SealedCose::parse(sealed, cose.encryptions())
-                    .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt module's ciphertext"), e))?;
+                let sealed = SealedCose::parse(sealed, cose.encryptions()).map_err(|e| {
+                    Fault::caused(FAULT, detail!("the COSE_Encrypt module's ciphertext"), e)
+                })?;
                 MemberValue::Cbor(
                     sealed
                         .into_item()
@@ -291,8 +301,9 @@ impl Answer<'_> {
         let mut out = Vec::new();
         for spec in self.signals.required() {
             let (collected_at, status) = self.reading(spec, modules, authentication)?;
-            let stamped = stamp(collected_at)
-                .ok_or_else(|| Fault::new(FAULT, detail!("a measurement collected past the year 9999")))?;
+            let stamped = stamp(collected_at).ok_or_else(|| {
+                Fault::new(FAULT, detail!("a measurement collected past the year 9999"))
+            })?;
             let mut members = vec![
                 member(
                     "type",
@@ -309,7 +320,8 @@ impl Answer<'_> {
                 members.push(member("value", value));
             }
             out.push(Node::Object(
-                Object::new(members).map_err(|e| Fault::caused(FAULT, detail!("an envelope"), e))?,
+                Object::new(members)
+                    .map_err(|e| Fault::caused(FAULT, detail!("an envelope"), e))?,
             ));
         }
         Ok(out)

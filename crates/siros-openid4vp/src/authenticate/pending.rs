@@ -5,26 +5,35 @@ use std::borrow::Cow;
 
 use siros_explain::AllOf;
 
+use super::{BoundEndpoint, OriginPolicy, TrustConfig, Unauthenticated, Verifier, VerifierId};
+#[cfg(feature = "signed")]
 use super::{
-    BoundEndpoint, ClaimChannel, ClientBinding, ClientClaim, EndpointBasis, ObjectRule,
-    OriginPolicy, PrefixClaim, PrefixRefusal, TrustConfig, Unauthenticated, Unbound, Verifier,
-    VerifierId,
+    ClaimChannel, ClientBinding, ClientClaim, EndpointBasis, ObjectRule, PrefixClaim,
+    PrefixRefusal, Unbound,
 };
+#[cfg(feature = "signed")]
 use crate::arrival::ReceivedForm;
+#[cfg(feature = "signed")]
+use crate::effects::Decided;
 use crate::effects::{
-    Action, ActionName, Decided, Decision, Entity, EntityId, EntityType, Evaluation, Slots, Verdict,
+    Action, ActionName, Decision, Entity, EntityId, EntityType, Evaluation, Slots, Verdict,
 };
 use crate::envelope::{Channel, Envelope, Signatures, Signer};
-use crate::host::{CoreHost, Host, Platform};
+use crate::host::CoreHost;
+#[cfg(feature = "signed")]
+use crate::host::{Host, Platform};
 use crate::ids::{ClientId, Origin};
+#[cfg(feature = "signed")]
 use crate::jose::{Signed, TimeError, Validity};
 use crate::json::{Node, Object};
 use crate::plugins::Registry;
+#[cfg(feature = "signed")]
 use crate::plugins::registry::HaipAccess;
 use crate::recourse::{self, ErrorRoute, Rejected};
 use crate::uri::ResponseUri;
 
 /// The audience a Request Object may name: the wallet, discovered statically (§5.8; reading 13).
+#[cfg(feature = "signed")]
 const SELF_ISSUED: &str = "https://self-issued.me/v2";
 
 /// The Origin's evaluation: its subject and resource types, and the action.
@@ -36,6 +45,7 @@ const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-ver
 #[must_use]
 pub struct Pending<'e, H> {
     envelope: &'e Envelope<'e>,
+    #[cfg(feature = "signed")]
     rules: &'e [Box<dyn ObjectRule>],
     response_uri: Option<ResponseUri>,
     asked: Asked<'e, H>,
@@ -46,9 +56,14 @@ pub struct Pending<'e, H> {
 enum Asked<'e, H> {
     Origin(&'e Origin<'e>, Slots<Evaluation>),
     Nothing(&'e Origin<'e>),
+    #[cfg(feature = "signed")]
     Claims(Claimed<'e, H>, Vec<Claimed<'e, H>>),
+    #[cfg(not(feature = "signed"))]
+    #[expect(dead_code, reason = "a build without prefixes reads no claim")]
+    Claims(std::convert::Infallible, std::marker::PhantomData<H>),
 }
 
+#[cfg(feature = "signed")]
 /// A signature's claim: read by its prefix, with the slots of its own evaluations and the
 /// accessor of the `Haip` the prefix's registration bounded, or refused by A1 to A5 or A7.
 enum Claimed<'e, H> {
@@ -62,6 +77,7 @@ enum Claimed<'e, H> {
     Refused(Unauthenticated),
 }
 
+#[cfg(feature = "signed")]
 impl<'e, H> Claimed<'e, H> {
     fn of(read: Result<Pieces<'e, H>, Unauthenticated>) -> Self {
         match read {
@@ -120,6 +136,13 @@ impl<'e> Envelope<'e> {
     /// # Errors
     ///
     /// The A rule the request breaks.
+    #[cfg_attr(
+        not(feature = "signed"),
+        expect(
+            unused_variables,
+            reason = "the prefixes read the registry and the host"
+        )
+    )]
     pub fn questions<H: CoreHost>(
         &'e self,
         registry: &'e Registry<H>,
@@ -150,6 +173,30 @@ impl<'e> Envelope<'e> {
             ) => {
                 return Err(reject(Unauthenticated::ClientIdAbsent, self.route()));
             }
+            #[cfg(not(feature = "signed"))]
+            (
+                Signatures::One {
+                    client_id: Some(client_id),
+                    ..
+                },
+                _,
+            ) => return Err(reject(unclaimed(client_id), self.route())),
+            #[cfg(not(feature = "signed"))]
+            (Signatures::Many(signers), _) => {
+                let read = |signer: &Signer<'e>| {
+                    signer
+                        .client_id()
+                        .map_or(Unauthenticated::ClientIdAbsent, unclaimed)
+                };
+                let reasons = signers
+                    .rest()
+                    .map(read)
+                    .fold(AllOf::one(read(signers.first())), |all, cause| {
+                        all.and(AllOf::one(cause))
+                    });
+                return Err(reject(Unauthenticated::NoSignature(reasons), self.route()));
+            }
+            #[cfg(feature = "signed")]
             (
                 Signatures::One {
                     jws,
@@ -168,6 +215,7 @@ impl<'e> Envelope<'e> {
                     .map_err(|cause| reject(cause, self.route()))?;
                 Asked::Claims(Claimed::of(Ok(claimed)), Vec::new())
             }
+            #[cfg(feature = "signed")]
             (Signatures::Many(signers), _) => {
                 let read = |signer: &Signer<'e>| -> Result<Pieces<'e, H>, Unauthenticated> {
                     let client_id = signer.client_id().ok_or(Unauthenticated::ClientIdAbsent)?;
@@ -199,6 +247,7 @@ impl<'e> Envelope<'e> {
         };
         Ok(Pending {
             envelope: self,
+            #[cfg(feature = "signed")]
             rules: registry.object_rules(),
             response_uri,
             asked,
@@ -209,6 +258,7 @@ impl<'e> Envelope<'e> {
     /// `origin`, A2 for an unregistered prefix or none (a pre-registered client, §5.9.2), A5 for
     /// the prefix's rule, A7 for an `alg` the `Haip` the prefix's registration bounded does not
     /// state.
+    #[cfg(feature = "signed")]
     fn claim<H>(
         &'e self,
         registry: &'e Registry<H>,
@@ -266,12 +316,23 @@ impl<'e> Envelope<'e> {
     }
 }
 
+#[cfg(feature = "signed")]
 /// A signature's claim before its slots are counted.
 struct Pieces<'e, H> {
     client_id: ClientId<'e>,
     signed: Signed<'e>,
     claim: Box<dyn PrefixClaim + 'e>,
     haip: HaipAccess<H>,
+}
+
+/// A signature's Client Identifier in a build without Client Identifier Prefixes (feature
+/// `signed`): A1 for `origin`, else A2, as for a prefix the build does not register.
+#[cfg(not(feature = "signed"))]
+fn unclaimed(client_id: &ClientId<'_>) -> Unauthenticated {
+    match client_id.prefixed() {
+        Some(("origin", _)) => Unauthenticated::Origin,
+        _ => Unauthenticated::UnknownPrefix(client_id.to_string()),
+    }
 }
 
 /// The Origin's evaluation: may the Origin act as a credential Verifier over the DC API?
@@ -299,16 +360,24 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     /// The evaluations for the caller, in order: the Origin's, or each claim's in the
     /// signatures' order.
     pub fn questions(&self) -> impl Iterator<Item = &Evaluation> {
+        #[cfg(feature = "signed")]
         let (origin, first, rest): (&[Evaluation], &[Evaluation], &[Claimed<'e, H>]) =
             match &self.asked {
                 Asked::Origin(_, slots) => (slots.questions(), &[], &[]),
                 Asked::Nothing(_) => (&[], &[], &[]),
                 Asked::Claims(first, rest) => (&[], first.questions(), rest),
             };
-        origin
+        #[cfg(feature = "signed")]
+        return origin
             .iter()
             .chain(first)
-            .chain(rest.iter().flat_map(Claimed::questions))
+            .chain(rest.iter().flat_map(Claimed::questions));
+        #[cfg(not(feature = "signed"))]
+        match &self.asked {
+            Asked::Origin(_, slots) => slots.questions().iter(),
+            Asked::Nothing(_) => [].iter(),
+            Asked::Claims(never, _) => match *never {},
+        }
     }
 
     /// The authenticated request. `decide` answers every evaluation of `questions`, once, in
@@ -322,6 +391,13 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     /// # Errors
     ///
     /// The A rule the request breaks.
+    #[cfg_attr(
+        not(feature = "signed"),
+        expect(
+            unused_variables,
+            reason = "the claims read the configuration and the host"
+        )
+    )]
     pub fn authenticate(
         self,
         decide: impl FnMut(&Evaluation) -> Decision,
@@ -330,27 +406,25 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
         let Self {
             envelope,
+            #[cfg(feature = "signed")]
             rules,
             response_uri,
             asked,
         } = self;
-        let authenticated = |id, binding: Option<ClientBinding>, endpoint| {
-            let (name, facts) = binding.map_or((None, None), |b| (b.name, b.facts));
-            Authenticated {
-                envelope,
-                verifier: Verifier {
-                    id,
-                    name,
-                    facts,
-                    metadata: envelope.parameters().raw("client_metadata"),
-                    endpoint,
-                },
-            }
+        let authenticated = |id, (name, facts): Named, endpoint| Authenticated {
+            envelope,
+            verifier: Verifier {
+                id,
+                name,
+                facts,
+                metadata: envelope.parameters().raw("client_metadata"),
+                endpoint,
+            },
         };
         match asked {
             Asked::Nothing(origin) => Ok(authenticated(
                 VerifierId::Origin(origin),
-                None,
+                (None, None),
                 BoundEndpoint::DcApi,
             )),
             Asked::Origin(origin, slots) => {
@@ -362,7 +436,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                 {
                     Ok(authenticated(
                         VerifierId::Origin(origin),
-                        None,
+                        (None, None),
                         BoundEndpoint::DcApi,
                     ))
                 } else {
@@ -370,6 +444,9 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                     Err(Box::new(Rejected::of(cause, envelope.route())))
                 }
             }
+            #[cfg(not(feature = "signed"))]
+            Asked::Claims(never, _) => match never {},
+            #[cfg(feature = "signed")]
             Asked::Claims(first, rest) => {
                 let check = Check {
                     envelope,
@@ -400,7 +477,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                             .map(|(binding, endpoint)| {
                                 authenticated(
                                     VerifierId::Client(client_id),
-                                    Some(binding),
+                                    (binding.name, binding.facts),
                                     endpoint,
                                 )
                             })
@@ -427,18 +504,24 @@ impl<'e, H: CoreHost> Pending<'e, H> {
     }
 }
 
+/// How the framework names the Verifier and what it states, when a prefix bound it.
+type Named = (Option<String>, Option<Object<'static>>);
+
+#[cfg(feature = "signed")]
 /// A claim refused, with the route its error takes.
 struct Failed<'e> {
     cause: Unauthenticated,
     route: Option<ErrorRoute<'e>>,
 }
 
+#[cfg(feature = "signed")]
 impl<'e> Failed<'e> {
     fn of(cause: Unauthenticated, route: Option<ErrorRoute<'e>>) -> Box<Self> {
         Box::new(Self { cause, route })
     }
 }
 
+#[cfg(feature = "signed")]
 /// What checking a claim reads: the envelope, the decisions, the `response_uri` as parsed, the
 /// configuration and the platform's clock.
 struct Check<'c, 'e> {
@@ -449,6 +532,7 @@ struct Check<'c, 'e> {
     now: crate::host::Timestamp,
 }
 
+#[cfg(feature = "signed")]
 impl<'e> Check<'_, 'e> {
     /// A claim's binding (A6), endpoint (A12), signature (A8), validity (A9) and audience
     /// (A10), each refusal with its route.

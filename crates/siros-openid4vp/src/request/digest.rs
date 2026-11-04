@@ -1,7 +1,8 @@
 //! The digest of a request as received, which the matcher and phase 2 each compute.
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+#[cfg(any(feature = "dc-api", feature = "uri"))]
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+#[cfg(any(feature = "dc-api", feature = "uri"))]
 use sha2::{Digest, Sha256};
 
 /// base64url (no padding) of SHA-256 over the parts of the received form, each preceded by its
@@ -13,6 +14,7 @@ use sha2::{Digest, Sha256};
 pub struct RequestDigest(String);
 
 impl RequestDigest {
+    #[cfg(any(feature = "dc-api", feature = "uri"))]
     pub(crate) fn of(parts: &[&[u8]]) -> Self {
         let hash = parts.iter().fold(Sha256::new(), |hash, part| {
             hash.chain_update((part.len() as u64).to_be_bytes())

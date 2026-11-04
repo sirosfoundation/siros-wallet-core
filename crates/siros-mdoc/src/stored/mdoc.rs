@@ -2,9 +2,9 @@
 
 use std::fmt;
 
-use rustc_hash::FxHashSet;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use rustc_hash::FxHashSet;
 use siros_openid4vp::cbor::{self, Value};
 
 use super::item::{Read as _, raw};
@@ -14,7 +14,7 @@ use super::error::{
     DocTypeFault, EnvelopeFault, IssuerAuthFault, ItemFault, ItemMember, MdocError, NameSpacesFault,
 };
 use super::issuer_auth::IssuerAuth;
-use super::mso::{non_empty_array, non_empty_map, Mso};
+use super::mso::{Mso, non_empty_array, non_empty_map};
 use super::names::{DigestId, ElementIdentifier, NameSpace};
 
 /// An mdoc whose `Document` and items agree with its MSO.
@@ -51,9 +51,7 @@ impl StoredMdoc {
     /// [`MdocError`]: the first part of the credential that breaks its structure or disagrees
     /// with the MSO.
     pub fn parse(data: &str) -> Result<Self, MdocError> {
-        let bytes = URL_SAFE_NO_PAD
-            .decode(data)
-            .map_err(MdocError::Encoding)?;
+        let bytes = URL_SAFE_NO_PAD.decode(data).map_err(MdocError::Encoding)?;
         let root = cbor::decode(&bytes).map_err(|e| MdocError::Cbor(e.into()))?;
         let (issuer_signed, doc_type) = envelope(&root)?;
         let auth = issuer_signed
@@ -201,7 +199,7 @@ fn envelope(root: &Value) -> Result<(&Value, Option<&str>), MdocError> {
         Some(documents) => {
             return Err(MdocError::Envelope(EnvelopeFault::Documents(
                 documents.len(),
-            )))
+            )));
         }
         None => root,
     };

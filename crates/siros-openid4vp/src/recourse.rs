@@ -8,6 +8,7 @@ use siros_explain::Explain;
 use crate::arrival::{Received, ReceivedForm, Unreadable};
 use crate::authenticate::Unauthenticated;
 use crate::envelope::Parameters;
+#[cfg(feature = "uri")]
 use crate::jose::JwsError;
 use crate::refusal::ErrorCode;
 use crate::routing::Echo;
@@ -182,6 +183,7 @@ pub(crate) const fn dc_api_route<'a>() -> ErrorRoute<'a> {
 }
 
 /// The route to the `response_uri` a trust decision listed, with `state` as received.
+#[cfg(feature = "signed")]
 pub(crate) const fn listed<'a>(uri: ResponseUri, echo: Option<Echo<'a>>) -> ErrorRoute<'a> {
     ErrorRoute {
         target: ErrorTarget::Listed(uri),
@@ -201,6 +203,7 @@ pub(crate) fn unverified<'a>(parameters: &Parameters<'a>) -> Option<ErrorRoute<'
 }
 
 /// The unverified route of a U10 body whose payload still decodes to a JSON object (reading 3).
+#[cfg(feature = "uri")]
 pub(crate) fn unverified_body<'a>(body: &str, cause: &JwsError) -> Option<ErrorRoute<'a>> {
     if matches!(
         cause,

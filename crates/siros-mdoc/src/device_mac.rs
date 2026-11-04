@@ -1,10 +1,10 @@
 //! The device MAC module (ISO/IEC 18013-5 §9.1.3.5), which siros-mdoc uses when the build's host
 //! holds it, and its tag.
 
+use crate::transcript::SessionTranscriptBytes;
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::AgreeableKey;
-use crate::transcript::SessionTranscriptBytes;
 
 /// A MAC's tag (RFC 9052 §6) as the module made it.
 #[derive(Debug, Clone, PartialEq, Eq)]

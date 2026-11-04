@@ -72,7 +72,10 @@ fn read_data_elements(
         }
         let identifiers = names_once(identifiers, ElementIdentifier::new)
             .map_err(|fault| KeyAuthorizationsFault::Elements(name_space.clone(), fault))?;
-        if data_elements.insert(name_space.clone(), identifiers).is_some() {
+        if data_elements
+            .insert(name_space.clone(), identifiers)
+            .is_some()
+        {
             return Err(KeyAuthorizationsFault::RepeatedNameSpace(name_space));
         }
     }

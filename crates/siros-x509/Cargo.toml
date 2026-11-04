@@ -14,7 +14,7 @@ publish = false
 test-util = ["dep:p256"]
 
 [dependencies]
-siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-openid4vp = { workspace = true, features = ["signed"] }
 siros-explain = { workspace = true }
 thiserror = { workspace = true }
 x509-cert = { workspace = true }

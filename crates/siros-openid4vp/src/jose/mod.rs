@@ -1,6 +1,6 @@
-//! JOSE as requests carry it: a JWS in compact and JSON serialization (RFC 7515 §7) whose `alg`
-//! is ES256, a compact JWE Request Object (RFC 7516 §7.1), and under `resolve` the JWT claims a
-//! recipient checks (RFC 7519 §4.1) and the P-256 key a signature verifies under. JSON parses
+//! JOSE as requests carry it: a JWS in compact and JSON serialization (RFC 7515 §7), under
+//! `request-decryption` a compact JWE Request Object (RFC 7516 §7.1), and under `resolve` the JWT
+//! claims a recipient checks (RFC 7519 §4.1) and the public JWK a signature verifies under. JSON parses
 //! through the core's [`json`](crate::json) module, which refuses a repeated member name at every
 //! level; base64url decodes through the `base64` crate, without padding.
 
@@ -16,6 +16,7 @@ use std::borrow::Cow;
 use siros_explain::Explain;
 
 use crate::json::{JsonError, Node, Object};
+#[cfg(feature = "request-decryption")]
 use crate::request::{ContentEncryption, KeyAgreement};
 use parts::{decode, object, utf8};
 
@@ -422,13 +423,15 @@ pub enum JweError {
 
 /// A compact JWE Request Object (RFC 7516 §7.1): five base64url parts, its protected header read,
 /// with an `alg` and an `enc` the decrypting module states (`RequestDecryption::decrypts`; RFC
-/// 8725 §3.1). `RequestDecryption::decrypt` decrypts it.
+/// 8725 §3.1). `RequestDecryption::decrypt` decrypts it (feature `request-decryption`).
+#[cfg(feature = "request-decryption")]
 #[derive(Debug, Clone)]
 pub struct CompactJwe<'t> {
     text: &'t str,
     header: Object<'static>,
 }
 
+#[cfg(feature = "request-decryption")]
 impl<'t> CompactJwe<'t> {
     /// The JWE, refused per [`JweError`].
     ///

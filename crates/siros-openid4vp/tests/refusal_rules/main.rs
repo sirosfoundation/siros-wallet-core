@@ -150,9 +150,13 @@ impl Profile for Counts {
     fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {
         Err(Exclude::new(TestExclusion::new("binds nothing")).into())
     }
+}
+
+impl<H> ProfileHost<H> for Counts {
     fn wanted(&self, _: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
     }
+
     fn informed(&self, _: &[&()]) -> Self {
         Self
     }
@@ -160,9 +164,7 @@ impl Profile for Counts {
     fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-impl<H> ProfileHost<H> for Counts {
     fn revalidate(&self, _: FetchedRecord<'_>, _: &H) -> Result<Option<()>, Fault> {
         Ok(None)
     }

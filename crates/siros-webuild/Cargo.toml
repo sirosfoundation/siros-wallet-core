@@ -10,7 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-openid4vp = { workspace = true, features = ["signed", "uri"] }
 siros-explain = { workspace = true }
 thiserror = { workspace = true }
 

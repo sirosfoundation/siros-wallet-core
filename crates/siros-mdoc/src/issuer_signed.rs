@@ -51,16 +51,28 @@ pub struct Disclosed<'a> {
 pub enum IssuedError {
     /// No CBOR the wallet reads.
     #[error("no CBOR the wallet reads")]
-    Cbor(#[from] #[explain(name = "cause")] CborError),
+    Cbor(
+        #[from]
+        #[explain(name = "cause")]
+        CborError,
+    ),
     /// Another shape than ISO/IEC 18013-5's CDDL, or an unknown member.
     #[error("{0}")]
     Shape(#[explain(name = "detail")] String),
     /// IssuerAuth is no COSE_Sign1 the wallet reads.
     #[error("IssuerAuth")]
-    IssuerAuth(#[from] #[explain(name = "cause")] CoseShape),
+    IssuerAuth(
+        #[from]
+        #[explain(name = "cause")]
+        CoseShape,
+    ),
     /// coset cannot write IssuerAuth back.
     #[error("IssuerAuth does not encode")]
-    Encode(#[source] #[explain(skip)] coset::CoseError),
+    Encode(
+        #[source]
+        #[explain(skip)]
+        coset::CoseError,
+    ),
     /// One element identifier twice in a name space.
     #[error("{namespace}: {element} issued twice")]
     Twice {

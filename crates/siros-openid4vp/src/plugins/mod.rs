@@ -43,8 +43,6 @@ use crate::routing::QueryContext;
 use crate::rows::Env;
 use crate::wallet::Credential;
 use crate::wallet_metadata::Placement;
-#[cfg(feature = "resolve")]
-use crate::{host::AuthenticationNeed, rows::HttpsUrl};
 
 /// A rule that keeps a credential from answering a query: its message, and the clause that
 /// decides it.
@@ -517,24 +515,4 @@ pub trait Profile: Clone + Send + Sync + 'static {
 
     /// The entries of `binding.entries` the credential authorizes, rendered.
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
-
-    /// The https resources the profile revalidates the record with, in the order it reads them;
-    /// the caller fetches each distinct URL once. Pure: the record and the profile's own data
-    /// decide them.
-    #[cfg(feature = "resolve")]
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
-
-    /// The profile with what phase 2 found, for re-running the consent: the matcher then treats
-    /// those conditions as known to fail.
-    #[cfg(feature = "resolve")]
-    #[must_use]
-    fn informed(&self, findings: &[&Self::Finding]) -> Self;
-
-    /// The End-User authentication the record needs (CS-12 §5 item 4; TS12 §3.6).
-    ///
-    /// # Errors
-    ///
-    /// The profile cannot read the record.
-    #[cfg(feature = "resolve")]
-    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
 }

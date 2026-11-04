@@ -4,7 +4,7 @@
 
 use siros_explain::{AllOf, Explain, Explained};
 
-use super::{Authentication, Presentation, SignFailed, Usable};
+use super::{Authentication, AuthenticationNeed, Presentation, SignFailed, Usable};
 use crate::plugins::{
     Answered, Fault, FetchedRecord, FindingData, Format, FormatQuery, Member, Members, OptionIndex,
     Profile,
@@ -12,11 +12,28 @@ use crate::plugins::{
 use crate::refusal::Refusal;
 use crate::request::Query;
 use crate::routing::AnsweredContext;
-use crate::rows::Env;
+use crate::rows::{Env, HttpsUrl};
 use crate::session::Session;
 
 /// A profile's phase 2 over the build's host; its bounds name the modules it calls.
 pub trait ProfileHost<H>: Profile {
+    /// The https resources the profile revalidates the record with, in the order it reads them;
+    /// the caller fetches each distinct URL once. Pure: the record and the profile's own data
+    /// decide them.
+    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
+
+    /// The profile with what phase 2 found, for re-running the consent: the matcher then treats
+    /// those conditions as known to fail.
+    #[must_use]
+    fn informed(&self, findings: &[&Self::Finding]) -> Self;
+
+    /// The End-User authentication the record needs (CS-12 §5 item 4; TS12 §3.6).
+    ///
+    /// # Errors
+    ///
+    /// The profile cannot read the record.
+    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
+
     /// What the matcher assumed and phase 2 can check, checked now with the resources the
     /// profile wanted: the finding when something no longer holds.
     ///

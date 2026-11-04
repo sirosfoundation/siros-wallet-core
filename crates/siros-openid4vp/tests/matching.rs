@@ -277,19 +277,21 @@ impl Profile for Foreign {
             .map_err(|e| Fault::caused(FAULT, detail!("other entries"), e))?;
         Ok(Bound { entries, ..bound })
     }
+}
+
+impl<H> ProfileHost<H> for Foreign {
     fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        self.0.wanted(answered)
+        ProfileHost::<H>::wanted(&self.0, answered)
     }
+
     fn informed(&self, findings: &[&Stale]) -> Self {
-        Self(self.0.informed(findings))
+        Self(ProfileHost::<H>::informed(&self.0, findings))
     }
 
     fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-impl<H> ProfileHost<H> for Foreign {
     fn revalidate(&self, fetched: FetchedRecord<'_>, host: &H) -> Result<Option<Stale>, Fault> {
         self.0.revalidate(fetched, host)
     }

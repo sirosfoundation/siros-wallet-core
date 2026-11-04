@@ -10,7 +10,7 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dev-dependencies]
-siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-openid4vp = { workspace = true, features = ["resolve", "cbor"] }
 siros-trust = { workspace = true }
 siros-zkp-req = { workspace = true }
 siros-zkp-catalogues = { workspace = true, features = ["test-fixtures"] }

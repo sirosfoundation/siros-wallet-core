@@ -11,22 +11,44 @@
 //!   and the consent entry as platform-neutral data.
 //! - [`ids`], [`json`], [`media`], [`refusal`]: the identifiers, JSON with unique member names,
 //!   media types, and refusals with their error codes.
-//! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them.
-//! - [`hash`], [`sri`]: OpenID4VP B.3.3.1 hashes over the registered algorithms, W3C SRI.
+//! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them; its `kit`
+//!   under the feature `claims`.
 //! - [`arrival`], [`jose`], [`envelope`], [`routing`], [`modes`]: the request as received over the
 //!   DC API or by URI, the JWS and JWE it arrives in, its parameters and signatures as read, what
 //!   it asks of its answer, and OpenID4VP's response modes.
-//! - [`matching`] (feature `match`): phase 1, the request rules, matching, consent, the display
+//! - [`uri`], [`wallet_metadata`], [`scope`]: a request by URI, the fetch of its Request Object,
+//!   the metadata the wallet posts for it and the scope values that stand for DCQL queries.
+//! - [`hash`]: OpenID4VP B.3.3.1 hashes over the registered algorithms.
+//! - `matching` (feature `match`): phase 1, the request rules, matching, consent, the display
 //!   and the records its entries carry.
-//! - [`uri`], [`authenticate`], [`recourse`] (feature `resolve`): a request by URI and the fetch
-//!   of its Request Object, the Verifier's authentication through its Client Identifier Prefix,
-//!   and where a request refused before it goes.
-//! - [`resolve`], [`effects`], [`host`], [`session`] (feature `resolve`): phase 2, the response
-//!   to the records the user chose, the questions it asks its caller, the host's modules it and
-//!   the plug-ins call, and what binds a presentation to its request.
-//! - [`wallet_metadata`] (feature `resolve`): the metadata the wallet posts for a Request Object.
-//! - [`cbor`] (feature `resolve`): CBOR with distinct map keys, its conversions with JSON, and
-//!   COSE through the re-exported coset.
+//! - `authenticate`, `recourse`, `resolve`, `effects`, `host`, `session` (feature `resolve`):
+//!   the Verifier's authentication through its Client Identifier Prefix, where a request refused
+//!   before it goes, phase 2, the questions it asks its caller, the host's modules it and the
+//!   plug-ins call, and what binds a presentation to its request.
+//! - `sri` (feature `sri`): W3C Subresource Integrity.
+//! - `cbor` (feature `cbor`): CBOR with distinct map keys, its conversions with JSON, and COSE
+//!   through the re-exported coset.
+//!
+//! # Features
+//!
+//! Each mechanism compiles under the feature of the crates that use it, and a build compiles
+//! what it registers. A feature adds types, trait implementations, methods and modules, and
+//! changes no signature.
+//!
+//! | Feature | Holds |
+//! | :-- | :-- |
+//! | `match` | phase 1 |
+//! | `resolve` | phase 2; implies `match` |
+//! | `dc-api` | `Received::dc_api`; the modes `dc_api` and `dc_api.jwt` |
+//! | `uri` | the URI parsers, the fetch, the POST and its contributions, the Response URI's answer, scope queries; the modes `direct_post.jwt` and `direct_post`; implies `signed` and `resolve` |
+//! | `signed` | Client Identifier Prefixes, the signature step of authentication, the rules on a Request Object's claims; implies `resolve` |
+//! | `request-decryption` | encrypted Request Objects; implies `uri` |
+//! | `cbor` | the `cbor` module and its COSE reading |
+//! | `transaction-data` | B.3.3.1's hashes, the registered algorithms, `Sha2` |
+//! | `sha3`, `blake2`, `k12` | `Sha3`, `Blake2`, `K12`; each implies `transaction-data` |
+//! | `sri` | W3C SRI |
+//! | `claims` | the claims kit |
+//! | `test-util` | the constructors a plug-in's tests use |
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -66,8 +88,10 @@ pub mod request;
 pub mod routing;
 pub mod rows;
 pub mod scope;
+#[cfg(feature = "sri")]
 pub mod sri;
 pub mod text;
+pub mod uri;
 pub mod wallet;
 pub mod wallet_metadata;
 
@@ -87,8 +111,11 @@ impl siros_explain::Messages for CrateMessages {
             json::JsonError::messages,
             claims::PathError::messages,
             claims::ClaimsError::messages,
+            #[cfg(feature = "claims")]
             claims::kit::KitRule::messages,
+            #[cfg(feature = "claims")]
             claims::kit::QueryRule::<claims::kit::KitRule>::messages,
+            #[cfg(feature = "claims")]
             claims::kit::NoAlgorithm::messages,
             request::Malformed::messages,
             request::MetadataError::messages,
@@ -107,6 +134,7 @@ impl siros_explain::Messages for CrateMessages {
             media::NotMediaType::messages,
             rows::NotHttpsUrl::messages,
             rows::NoALabel::messages,
+            #[cfg(feature = "transaction-data")]
             hash::HashesAlgRule::messages,
             arrival::Unreadable::messages,
             arrival::DataShape::messages,
@@ -130,7 +158,7 @@ impl siros_explain::Messages for CrateMessages {
             matching::SelectionError::messages,
             #[cfg(feature = "resolve")]
             plugins::InformError::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(all(feature = "transaction-data", feature = "resolve"))]
             hash::HashesError::messages,
             #[cfg(feature = "resolve")]
             host::NotSealed::messages,
@@ -140,13 +168,13 @@ impl siros_explain::Messages for CrateMessages {
             host::SignFailed::messages,
             #[cfg(feature = "resolve")]
             host::SignatureInvalid::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "request-decryption")]
             host::DecryptFailed::messages,
             #[cfg(feature = "resolve")]
             host::PresentError::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "cbor")]
             cbor::CborError::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "cbor")]
             cbor::cose::CoseShape::messages,
             #[cfg(feature = "resolve")]
             resolve::Rejection::messages,
@@ -154,19 +182,17 @@ impl siros_explain::Messages for CrateMessages {
             authenticate::Unauthenticated::messages,
             #[cfg(feature = "resolve")]
             authenticate::PrefixRefusal::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             authenticate::Unbound::messages,
             #[cfg(feature = "resolve")]
             recourse::Failure::messages,
-            #[cfg(feature = "resolve")]
             uri::NotHttps::messages,
-            #[cfg(feature = "resolve")]
             uri::NotUri::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             uri::NoFetch::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             uri::AnswerError::messages,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             wallet_metadata::MetadataRefused::messages,
             #[cfg(feature = "resolve")]
             resolve::Outcome::messages,
@@ -179,43 +205,9 @@ impl siros_explain::Messages for CrateMessages {
     }
 }
 
-/// The items given, which exist when the core's phase 2 does (feature `resolve`). A plug-in
-/// crate writes its phase-2 code inside it, so the code follows the core's features as Cargo
-/// unifies them.
-#[cfg(feature = "resolve")]
-#[macro_export]
-macro_rules! with_resolve {
-    ($($item:tt)*) => { $($item)* };
-}
-
-/// The items given, which exist when the core's phase 2 does (feature `resolve`). A plug-in
-/// crate writes its phase-2 code inside it, so the code follows the core's features as Cargo
-/// unifies them.
-#[cfg(not(feature = "resolve"))]
-#[macro_export]
-macro_rules! with_resolve {
-    ($($item:tt)*) => {};
-}
-
-/// The items given, which exist when the core's phase 2 does not: the counterpart of
-/// [`with_resolve!`].
-#[cfg(feature = "resolve")]
-#[macro_export]
-macro_rules! without_resolve {
-    ($($item:tt)*) => {};
-}
-
-/// The items given, which exist when the core's phase 2 does not: the counterpart of
-/// [`with_resolve!`].
-#[cfg(not(feature = "resolve"))]
-#[macro_export]
-macro_rules! without_resolve {
-    ($($item:tt)*) => { $($item)* };
-}
-
 #[cfg(feature = "resolve")]
 pub mod authenticate;
-#[cfg(feature = "resolve")]
+#[cfg(feature = "cbor")]
 pub mod cbor;
 #[cfg(feature = "resolve")]
 pub mod effects;
@@ -229,5 +221,3 @@ pub mod recourse;
 pub mod resolve;
 #[cfg(feature = "resolve")]
 pub mod session;
-#[cfg(feature = "resolve")]
-pub mod uri;

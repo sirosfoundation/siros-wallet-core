@@ -57,14 +57,13 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Entry, EntryIndex, Request};
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::wallet_metadata::Placement;
-siros_openid4vp::with_resolve! {
-    use siros_openid4vp::{
-        effects::Fetch,
-        plugins::{Answered, FetchedRecord, Members},
-        rows::HttpsUrl,
-        host::{Authentication, AuthenticationNeed, ProfileHost},
-    };
-}
+#[cfg(feature = "resolve")]
+use siros_openid4vp::{
+    effects::Fetch,
+    host::{Authentication, AuthenticationNeed, ProfileHost},
+    plugins::{Answered, FetchedRecord, Members},
+    rows::HttpsUrl,
+};
 
 use approval::ApprovalRequest;
 use binding::Encoding;
@@ -130,29 +129,29 @@ impl QesProfile {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    /// A linked document phase 2 checks: its `href` and its checksum (W3C SRI metadata).
-    struct Unheld<'a> {
-        href: &'a str,
-        checksum: &'a str,
-    }
+#[cfg(feature = "resolve")]
+/// A linked document phase 2 checks: its `href` and its checksum (W3C SRI metadata).
+struct Unheld<'a> {
+    href: &'a str,
+    checksum: &'a str,
+}
 
-    impl QesProfile {
-        /// The entry's linked documents with a checksum the profile does not hold, in the
-        /// entry's order: those phase 2 checks.
-        fn unheld<'a>(&'a self, approval: &'a ApprovalRequest<'a>) -> impl Iterator<Item = Unheld<'a>> {
-            approval
-                .documents
-                .iter()
-                .filter_map(|document| document.link)
-                .filter(|link| !self.held.contains_key(link.href))
-                .filter_map(|link| {
-                    link.checksum.map(|checksum| Unheld {
-                        href: link.href,
-                        checksum,
-                    })
+#[cfg(feature = "resolve")]
+impl QesProfile {
+    /// The entry's linked documents with a checksum the profile does not hold, in the
+    /// entry's order: those phase 2 checks.
+    fn unheld<'a>(&'a self, approval: &'a ApprovalRequest<'a>) -> impl Iterator<Item = Unheld<'a>> {
+        approval
+            .documents
+            .iter()
+            .filter_map(|document| document.link)
+            .filter(|link| !self.held.contains_key(link.href))
+            .filter_map(|link| {
+                link.checksum.map(|checksum| Unheld {
+                    href: link.href,
+                    checksum,
                 })
-        }
+            })
     }
 }
 
@@ -267,34 +266,6 @@ impl Profile for QesProfile {
             },
         })
     }
-
-    siros_openid4vp::with_resolve! {
-        /// CSC §6.3: each linked document with a checksum the profile does not hold, whose
-        /// `href` is an https URL a fetch reaches.
-        fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-            let (_, _, approval) = approval_of(record.request(), record.entries().entries())?;
-            Ok(self
-                .unheld(&approval)
-                // A link whose host has no A-label form names nothing a fetch reaches.
-                .filter_map(|document| HttpsUrl::parse(document.href).ok())
-                .collect())
-        }
-
-        /// The profile holding the failed documents too: binding then excludes the credential
-        /// (§6.3, abort).
-        fn informed(&self, findings: &[&FailedDocuments]) -> Self {
-            let failed = findings
-                .iter()
-                .flat_map(|finding| finding.documents())
-                .map(|document| (document.href.clone(), document.fetched.clone()));
-            Self::new(self.held.clone().into_iter().chain(failed))
-        }
-
-        /// Presence.
-        fn authentication(&self, _record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
-            Ok(AuthenticationNeed::Presence)
-        }
-    }
 }
 
 /// One presentation approves one request: no two of the profile's entries name one query. The
@@ -326,63 +297,90 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
         .collect()
 }
 
-siros_openid4vp::with_resolve! {
-    /// Needs no module.
-    impl<H> ProfileHost<H> for QesProfile {
-        /// CSC §6.3: each linked document with a checksum the profile does not hold, as the
-        /// caller fetched it; the finding lists those whose fetch failed or whose content does
-        /// not match.
-        fn revalidate(
-            &self,
-            record: FetchedRecord<'_>,
-            _host: &H,
-        ) -> Result<Option<FailedDocuments>, Fault> {
-            let answered = record.record();
-            let resources = record.resources();
-            let (_, _, approval) = approval_of(answered.request(), answered.entries().entries())?;
-            let failed = self
-                .unheld(&approval)
-                .map(|document| {
-                    let fetched = match HttpsUrl::parse(document.href) {
-                        Ok(url) => match resources.fetched(&url) {
-                            Some(Fetch::Fetched { content, .. }) => Fetched::Content(content.clone()),
-                            Some(Fetch::Unfetched) => Fetched::Failed,
-                            None => {
-                                return Err(Fault::new(
-                                    FAULT,
-                                    detail!("a document the profile wanted is unanswered"),
-                                ));
-                            }
-                        },
-                        Err(_) => Fetched::Failed,
-                    };
-                    Ok((!fetched.verifies(document.checksum)).then(|| FailedDocument {
+#[cfg(feature = "resolve")]
+/// Needs no module.
+impl<H> ProfileHost<H> for QesProfile {
+    /// CSC §6.3: each linked document with a checksum the profile does not hold, whose
+    /// `href` is an https URL a fetch reaches.
+    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+        let (_, _, approval) = approval_of(record.request(), record.entries().entries())?;
+        Ok(self
+            .unheld(&approval)
+            // A link whose host has no A-label form names nothing a fetch reaches.
+            .filter_map(|document| HttpsUrl::parse(document.href).ok())
+            .collect())
+    }
+
+    /// The profile holding the failed documents too: binding then excludes the credential
+    /// (§6.3, abort).
+    fn informed(&self, findings: &[&FailedDocuments]) -> Self {
+        let failed = findings
+            .iter()
+            .flat_map(|finding| finding.documents())
+            .map(|document| (document.href.clone(), document.fetched.clone()));
+        Self::new(self.held.clone().into_iter().chain(failed))
+    }
+
+    /// Presence.
+    fn authentication(&self, _record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
+        Ok(AuthenticationNeed::Presence)
+    }
+
+    /// CSC §6.3: each linked document with a checksum the profile does not hold, as the
+    /// caller fetched it; the finding lists those whose fetch failed or whose content does
+    /// not match.
+    fn revalidate(
+        &self,
+        record: FetchedRecord<'_>,
+        _host: &H,
+    ) -> Result<Option<FailedDocuments>, Fault> {
+        let answered = record.record();
+        let resources = record.resources();
+        let (_, _, approval) = approval_of(answered.request(), answered.entries().entries())?;
+        let failed = self
+            .unheld(&approval)
+            .map(|document| {
+                let fetched = match HttpsUrl::parse(document.href) {
+                    Ok(url) => match resources.fetched(&url) {
+                        Some(Fetch::Fetched { content, .. }) => Fetched::Content(content.clone()),
+                        Some(Fetch::Unfetched) => Fetched::Failed,
+                        None => {
+                            return Err(Fault::new(
+                                FAULT,
+                                detail!("a document the profile wanted is unanswered"),
+                            ));
+                        }
+                    },
+                    Err(_) => Fetched::Failed,
+                };
+                Ok(
+                    (!fetched.verifies(document.checksum)).then(|| FailedDocument {
                         href: document.href.to_owned(),
                         fetched,
-                    }))
-                })
-                .filter_map(Result::transpose)
-                .collect::<Result<Vec<_>, Fault>>()?;
-            Ok(FailedDocuments::of(failed))
-        }
-
-        /// `qesApproval` (CSC §7.2, §7.2.1) in the presentation's format.
-        fn respond(
-            &self,
-            record: Answered<'_>,
-            _host: &H,
-            _authentication: &Authentication,
-        ) -> Result<Members, Fault> {
-            let (_, entry, approval) = approval_of(record.request(), record.entries().entries())?;
-            let encoding = record.placement().map(Encoding::of).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("QES binds no presentation whose proof carries no members"),
+                    }),
                 )
-            })?;
-            encoding
-                .approval(approval.hash, entry)
-                .map_err(|e| Fault::caused(FAULT, detail!("qesApproval"), e))
-        }
+            })
+            .filter_map(Result::transpose)
+            .collect::<Result<Vec<_>, Fault>>()?;
+        Ok(FailedDocuments::of(failed))
+    }
+
+    /// `qesApproval` (CSC §7.2, §7.2.1) in the presentation's format.
+    fn respond(
+        &self,
+        record: Answered<'_>,
+        _host: &H,
+        _authentication: &Authentication,
+    ) -> Result<Members, Fault> {
+        let (_, entry, approval) = approval_of(record.request(), record.entries().entries())?;
+        let encoding = record.placement().map(Encoding::of).ok_or_else(|| {
+            Fault::new(
+                FAULT,
+                detail!("QES binds no presentation whose proof carries no members"),
+            )
+        })?;
+        encoding
+            .approval(approval.hash, entry)
+            .map_err(|e| Fault::caused(FAULT, detail!("qesApproval"), e))
     }
 }

@@ -5,27 +5,27 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_explain::Explain;
 use siros_openid4vp::cbor::cose::coset::AsCborValue;
 use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
 use siros_openid4vp::cbor::{self, Value};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::claims::kit::{Presenting, Revalidating};
-use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::json::Node;
-use siros_explain::Explain;
 use siros_openid4vp::detail;
-use siros_openid4vp::plugins::{Fault, FindingData, Member};
-use siros_openid4vp::request::AgreeableKey;
 use siros_openid4vp::host::{
     Haip, Has, Host, MayHave, PresentError, Presentation, Signature, Slot,
 };
+use siros_openid4vp::ids::CredentialId;
+use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::{Fault, FindingData, Member};
+use siros_openid4vp::request::AgreeableKey;
 
 use crate::FAULT;
 use crate::cose::{Signer, device_mac, device_signature};
-use crate::device_mac::{DeviceMac, Mac};
 use crate::device_authentication::{
     DeviceNameSpacesBytes, Element, ElementValue, device_authentication_bytes,
 };
+use crate::device_mac::{DeviceMac, Mac};
 use crate::issuer_signed::{DOCUMENT, Disclosed, IssuerSigned};
 use crate::reader_key;
 use crate::transcript::{Handover, SessionTranscript};
@@ -76,10 +76,14 @@ impl<'k, M> DeviceAuth<'k, M> {
         let allowed = match supported.and_then(|supported| supported.get("deviceauth_alg_values")) {
             None => None,
             Some(listed) => Some(listed.as_array().ok_or_else(|| {
-                Fault::new(FAULT, detail!("deviceauth_alg_values is no array, which the request rules refuse"))
+                Fault::new(
+                    FAULT,
+                    detail!("deviceauth_alg_values is no array, which the request rules refuse"),
+                )
             })?),
         };
-        let lists = |id: i64| allowed.is_some_and(|allowed| allowed.contains(&Node::integer(id.into())));
+        let lists =
+            |id: i64| allowed.is_some_and(|allowed| allowed.contains(&Node::integer(id.into())));
         let reader = reader_key(device, keys);
         let mac = reader
             .and_then(|reader| crate::cose::mac(reader.curve()))
@@ -124,9 +128,7 @@ pub(crate) fn revalidate<H: MayHave<dyn DeviceMac>>(
 }
 
 /// The values grouped by name space, in the order each name space first comes.
-fn grouped<'a, T>(
-    pairs: impl IntoIterator<Item = (&'a str, T)>,
-) -> Vec<(&'a str, Vec<T>)> {
+fn grouped<'a, T>(pairs: impl IntoIterator<Item = (&'a str, T)>) -> Vec<(&'a str, Vec<T>)> {
     let mut out: Vec<(&'a str, Vec<T>)> = Vec::new();
     for (namespace, value) in pairs {
         match out.iter_mut().find(|(known, _)| *known == namespace) {
@@ -247,7 +249,9 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
         DeviceAuth::Signature(alg) => (
             "deviceSignature",
             device_signature(alg, &detached, |data| {
-                host.get::<dyn Haip>().sign(id, data).map(Signature::into_bytes)
+                host.get::<dyn Haip>()
+                    .sign(id, data)
+                    .map(Signature::into_bytes)
             })?
             .to_cbor_value()
             .map_err(caused(id, "DeviceSignature"))?,
@@ -274,7 +278,10 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
             text("deviceSigned"),
             Value::Map(vec![
                 (text("nameSpaces"), namespaces.tagged()),
-                (text("deviceAuth"), Value::Map(vec![(text(mode), structure)])),
+                (
+                    text("deviceAuth"),
+                    Value::Map(vec![(text(mode), structure)]),
+                ),
             ]),
         ),
     ]);

@@ -1,23 +1,23 @@
 //! The wallet's metadata for one POST to a `request_uri` (OpenID4VP §5.10, §10.1; RFC 8414 §2),
-//! composed from what each registered part contributes, and the POST's form; the names registered
-//! parts declare, which the registry checks when it builds.
+//! composed from what each registered part contributes, and the POST's form (feature `uri`); the
+//! names registered parts declare, which the registry checks when it builds, in every build.
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use std::borrow::Cow;
 use std::fmt;
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use siros_explain::Explain;
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::host::{CoreHost, EphemeralKey};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::ids::ClientId;
 #[cfg(feature = "resolve")]
 use crate::json::Node;
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::plugins::{Fault, Registry};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::{FAULT, detail};
 
 /// How a format's proof carries a profile's response members (B.3.3.1, PaSO Core §6.2, §6.3, CSC
@@ -151,7 +151,7 @@ impl MetadataMember {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// One parameter of the `request_uri` POST beside `wallet_metadata`: its declared name and its
 /// text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,7 +160,7 @@ pub struct PostParameter {
     value: String,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl PostParameter {
     /// The parameter.
     #[must_use]
@@ -181,7 +181,7 @@ impl PostParameter {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// What a contribution writes into one POST.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PostContent {
@@ -191,7 +191,7 @@ pub struct PostContent {
     pub parameters: Vec<PostParameter>,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// Members of `wallet_metadata` and parameters of the `request_uri` POST a profile or a deployment
 /// adds (§10.1: "Additional Wallet metadata parameters MAY be defined and used"; §5.10:
 /// "Additional parameters MAY be defined and used in the request to the Request URI Endpoint").
@@ -211,7 +211,7 @@ pub trait PostContribution: dyn_clone::DynClone + Send + Sync {
     fn parameters(&self) -> &'static [ParameterName];
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// The phase-2 half of [`PostContribution`] over the build's host: its bounds name the modules
 /// it calls.
 pub trait PostContributionHost<H>: PostContribution {
@@ -223,17 +223,17 @@ pub trait PostContributionHost<H>: PostContribution {
     fn write(&self, host: &H) -> Result<PostContent, Fault>;
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// A contribution the registry takes.
 pub trait HostedPostContribution<H>: PostContributionHost<H> {}
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl<H, C: PostContributionHost<H>> HostedPostContribution<H> for C {}
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 dyn_clone::clone_trait_object!(<H> HostedPostContribution<H>);
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// `wallet_metadata`: a JSON object, as the POST carries it, and the POST parameters its
 /// contributors wrote in the same pass. Only [`WalletMetadata::of`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -242,7 +242,7 @@ pub struct WalletMetadata {
     parameters: Vec<PostParameter>,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// Contributions that make no `wallet_metadata`. The registry refused every name conflict when it
 /// built, so what remains is a contributor that broke its declaration.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -260,7 +260,7 @@ pub enum MetadataRefused {
     Fault(#[from] Fault),
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl WalletMetadata {
     /// Each member from its one contributor: `vp_formats_supported`, each registered format's
     /// `Format::wallet_formats` under its `Format::id` (§10.1: REQUIRED; Appendix B);
@@ -376,7 +376,7 @@ impl WalletMetadata {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// A contributor's members as `wallet_metadata` holds them, each of a name it declared.
 fn declared_members(
     declared: &'static [ParameterName],
@@ -394,7 +394,7 @@ fn declared_members(
         .collect()
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// The key's public JWK as `jwks` holds it: its members, and `use` `enc`.
 fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
     let public = key.public().object();
@@ -417,7 +417,7 @@ fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
     Node::object(members).map_err(|e| Fault::caused(FAULT, detail!("the ephemeral key's JWK"), e))
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 /// The `request_uri` POST's form (§5.10): `wallet_metadata`, a JSON string, then each registered
 /// contribution's parameters in registration order; §5.10's `wallet_nonce` stays out (decision
 /// 12). It serializes as a map of text members, which `FormBody::of` writes.
@@ -426,7 +426,7 @@ pub struct RequestUriPost<'a> {
     wallet_metadata: &'a WalletMetadata,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl serde::Serialize for RequestUriPost<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
@@ -440,7 +440,7 @@ impl serde::Serialize for RequestUriPost<'_> {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl<'a> RequestUriPost<'a> {
     /// The form of the metadata and its contributors' parameters.
     #[must_use]

@@ -1,0 +1,17 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+description = "The workspace's build gates: what each build compiles, and each crate alone"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

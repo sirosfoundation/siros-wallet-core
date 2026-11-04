@@ -1,15 +1,17 @@
 //! Scope values that stand for DCQL queries (§5.5: "The specific scope values, and the mapping
 //! between a certain scope value and the respective DCQL query, are out of scope of this
 //! specification"): a scope query is a plug-in, which a profile or the app registers. Over the DC
-//! API `scope` is no parameter A.2 lists, and the wallet ignores it (reading 12).
+//! API `scope` is no parameter A.2 lists, and the wallet ignores it (reading 12). Scope queries
+//! register under the feature `uri`; a build without it holds none, and a URI request's `scope`
+//! names no registered query (S3).
 
 use std::fmt;
 
 use serde_json::value::RawValue;
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::json::RawObject;
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::request::Query;
 
 /// A scope value (RFC 6749 §3.3's `scope-token`): one or more of %x21, %x23-5B, %x5D-7E. A plug-in
@@ -56,7 +58,7 @@ impl siros_explain::IntoArg for ScopeValue {
     }
 }
 
-/// A scope value and the DCQL query it stands for (§5.5).
+/// A scope value and the DCQL query it stands for (§5.5; feature `uri`).
 ///
 /// # Implementing
 ///
@@ -65,6 +67,7 @@ impl siros_explain::IntoArg for ScopeValue {
 /// registered twice (`ScopeTwice`), and a Credential Query or claim id two scope values' queries
 /// share (`ScopeIds`; §5.5: "MUST be unique"). A request by URI whose `scope` names registered
 /// values is read as the union of their queries; a value no query names is S3 (`invalid_scope`).
+#[cfg(feature = "uri")]
 pub trait ScopeQuery: Send + Sync {
     /// The scope value.
     fn scope(&self) -> ScopeValue;
@@ -80,7 +83,7 @@ pub(crate) struct ScopeEntry {
     pub(crate) credentials: Vec<&'static RawValue>,
     pub(crate) sets: Vec<&'static RawValue>,
     #[cfg_attr(
-        not(feature = "resolve"),
+        not(feature = "uri"),
         expect(dead_code, reason = "the registry of a URI build checks the ids")
     )]
     pub(crate) ids: Vec<String>,
@@ -88,7 +91,7 @@ pub(crate) struct ScopeEntry {
 
 impl ScopeEntry {
     /// The entry of a scope query; `None` when the core's DCQL reader refuses its query.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn read(query: &dyn ScopeQuery) -> Option<Self> {
         let raw: &'static RawValue = serde_json::from_str(query.query()).ok()?;
         let queries = Query::read_all(raw).ok()?;

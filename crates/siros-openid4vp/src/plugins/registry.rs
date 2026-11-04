@@ -12,16 +12,24 @@ use super::{Answered, Fault, FetchedRecord, Members};
 #[cfg(feature = "match")]
 use super::{Binding, Bound, NoCandidate};
 use super::{Format, Member, Profile};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "signed")]
 use crate::authenticate::{HostedPrefix, ObjectRule};
-use crate::hash::{HashName, Hashes, HostedHash};
+use crate::hash::HashName;
+#[cfg(feature = "transaction-data")]
+use crate::hash::{Hashes, HostedHash};
+#[cfg(feature = "uri")]
+use crate::host::EphemeralKey;
+#[cfg(feature = "request-decryption")]
+use crate::host::RequestDecryption;
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
-use crate::host::{Haip, Has, RequestDecryption};
+use crate::host::{Haip, Has};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::request::Agreements;
+#[cfg(feature = "request-decryption")]
+use crate::request::Curve;
 #[cfg(feature = "resolve")]
 use crate::routing::ModeHost;
 use crate::routing::{
@@ -29,16 +37,20 @@ use crate::routing::{
 };
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::scope::ScopeQuery;
 use crate::scope::{ScopeEntry, ScopeValue, Scopes};
-#[cfg(feature = "resolve")]
-use crate::uri::{AnswerReader, EncryptedRequests, RequestPost};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "request-decryption")]
+use crate::uri::EncryptedRequests;
+#[cfg(feature = "uri")]
+use crate::uri::{AnswerReader, RequestPost};
 use crate::wallet_metadata::{
-    CORE_ANSWER, CORE_PARAMETERS, HostedPostContribution, MetadataMember, PostContribution,
+    CORE_ANSWER, CORE_METADATA, CORE_PARAMETERS, NamePlace, ParameterName, Placement,
 };
-use crate::wallet_metadata::{CORE_METADATA, NamePlace, ParameterName, Placement};
+#[cfg(feature = "uri")]
+use crate::wallet_metadata::{HostedPostContribution, MetadataMember, PostContribution};
+#[cfg(feature = "request-decryption")]
+use crate::{FAULT, detail};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
@@ -282,6 +294,7 @@ impl<H> Clone for RegisteredMode<H> {
 /// only as a [`FormatHost<H>`](crate::host::FormatHost), a profile as a
 /// [`ProfileHost<H>`](crate::host::ProfileHost).
 pub struct Registry<H = NoHost> {
+    #[cfg(feature = "transaction-data")]
     hashes: Vec<Box<dyn HostedHash>>,
     scopes: Vec<ScopeEntry>,
     response_types: Vec<Box<dyn ResponseType>>,
@@ -294,15 +307,15 @@ pub struct Registry<H = NoHost> {
     profiles: Vec<Box<dyn DynProfile<H>>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     clients: Vec<RegisteredPrefix<H>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     object_rules: Vec<Box<dyn ObjectRule>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     post: Option<Post<H>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     contributions: Vec<Box<dyn HostedPostContribution<H>>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     readers: Vec<Box<dyn AnswerReader>>,
 }
 
@@ -325,8 +338,9 @@ impl<H> fmt::Debug for Registry<H> {
 
 /// Collects the plug-ins of a [`Registry`].
 pub struct RegistryBuilder<H = NoHost> {
+    #[cfg(feature = "transaction-data")]
     hashes: Vec<Box<dyn HostedHash>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     scopes: Vec<Box<dyn ScopeQuery>>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
@@ -334,23 +348,26 @@ pub struct RegistryBuilder<H = NoHost> {
     profiles: Vec<Box<dyn DynProfile<H>>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     clients: Vec<RegisteredPrefix<H>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     object_rules: Vec<Box<dyn ObjectRule>>,
-    #[cfg(feature = "resolve")]
-    posts: Vec<PostPart<H>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
+    posts: Vec<RequestPost>,
+    #[cfg(feature = "request-decryption")]
+    encrypted: Vec<DecryptionAccess<H>>,
+    #[cfg(feature = "uri")]
     contributions: Vec<Box<dyn HostedPostContribution<H>>>,
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     readers: Vec<Box<dyn AnswerReader>>,
 }
 
 impl<H> Default for RegistryBuilder<H> {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "transaction-data")]
             hashes: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             scopes: Vec::new(),
             response_types: Vec::new(),
             modes: Vec::new(),
@@ -358,15 +375,17 @@ impl<H> Default for RegistryBuilder<H> {
             profiles: Vec::new(),
             exact: Vec::new(),
             prefixes: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             clients: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             object_rules: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             posts: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "request-decryption")]
+            encrypted: Vec::new(),
+            #[cfg(feature = "uri")]
             contributions: Vec::new(),
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             readers: Vec::new(),
         }
     }
@@ -374,15 +393,17 @@ impl<H> Default for RegistryBuilder<H> {
 
 impl<H> RegistryBuilder<H> {
     /// A transaction data hash algorithm (B.3.3.1), keyed by its name; `build` refuses a name
-    /// registered twice, and a registry with a transaction data profile and without `sha-256`.
+    /// registered twice, and a registry with a transaction data profile and without `sha-256`
+    /// (feature `transaction-data`).
+    #[cfg(feature = "transaction-data")]
     pub fn hash(&mut self, algorithm: impl HostedHash + 'static) {
         self.hashes.push(Box::new(algorithm));
     }
 
     /// A scope value's DCQL query (§5.5), keyed by its scope value; `build` refuses a value
     /// twice, a query the DCQL reader refuses, and a Credential Query or claim id two queries
-    /// share.
-    #[cfg(feature = "resolve")]
+    /// share (feature `uri`).
+    #[cfg(feature = "uri")]
     pub fn scope(&mut self, query: impl ScopeQuery + 'static) {
         self.scopes.push(Box::new(query));
     }
@@ -502,7 +523,7 @@ impl<H> RegistryBuilder<H> {
     /// let mut builder = Registry::<Bare>::builder();
     /// builder.client_prefix(siros_testkit::TestPrefix::Request);
     /// ```
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     pub fn client_prefix(&mut self, prefix: impl HostedPrefix<H> + 'static)
     where
         H: Has<dyn Haip>,
@@ -514,18 +535,19 @@ impl<H> RegistryBuilder<H> {
     }
 
     /// A rule over an authenticated Request Object's claims (A14), run after A10 in registration
-    /// order.
-    #[cfg(feature = "resolve")]
+    /// order (feature `signed`).
+    #[cfg(feature = "signed")]
     pub fn object_rule(&mut self, rule: impl ObjectRule + 'static) {
         self.object_rules.push(Box::new(rule));
     }
 
     /// The POST of `wallet_metadata` to the `request_uri` (§5.10): with it, a request whose
     /// `request_uri_method` is `post` is fetched by POST; without it, by GET (§5.1: "Wallets not
-    /// supporting the post method will send a GET request"). `build` refuses it twice.
-    #[cfg(feature = "resolve")]
+    /// supporting the post method will send a GET request"). `build` refuses it twice (feature
+    /// `uri`).
+    #[cfg(feature = "uri")]
     pub fn request_post(&mut self, post: RequestPost) {
-        self.posts.push(PostPart::Post(post));
+        self.posts.push(post);
     }
 
     /// Encrypted Request Objects (§5.10): each POST's `jwks` holds a fresh key from the host's
@@ -553,29 +575,29 @@ impl<H> RegistryBuilder<H> {
     /// let mut builder = Registry::<Bare>::builder();
     /// builder.request_encryption(siros_openid4vp::uri::EncryptedRequests);
     /// ```
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "request-decryption")]
     pub fn request_encryption(&mut self, requests: EncryptedRequests)
     where
         H: Has<dyn RequestDecryption>,
     {
-        self.posts.push(PostPart::Encrypted(requests, |host| {
-            Has::<dyn RequestDecryption>::module(host)
-        }));
+        let EncryptedRequests = requests;
+        self.encrypted
+            .push(|host| Has::<dyn RequestDecryption>::module(host));
     }
 
     /// Members of `wallet_metadata` and parameters of the `request_uri` POST a profile or a
     /// deployment adds (§10.1, §5.10: "Additional parameters MAY be defined"), keyed by their
     /// names: `build` refuses a name another part declares (`NameTwice`) and a name the core
-    /// writes (`NameReserved`).
-    #[cfg(feature = "resolve")]
+    /// writes (`NameReserved`) (feature `uri`).
+    #[cfg(feature = "uri")]
     pub fn post_contribution(&mut self, contribution: impl HostedPostContribution<H> + 'static) {
         self.contributions.push(Box::new(contribution));
     }
 
     /// A reader of the Response URI's answer members (§8.2: "Additional parameters MAY be
     /// defined"), keyed by their names: `build` refuses a name another reader declares
-    /// (`NameTwice`) and `redirect_uri` (`NameReserved`).
-    #[cfg(feature = "resolve")]
+    /// (`NameTwice`) and `redirect_uri` (`NameReserved`) (feature `uri`).
+    #[cfg(feature = "uri")]
     pub fn answer_reader(&mut self, reader: impl AnswerReader + 'static) {
         self.readers.push(Box::new(reader));
     }
@@ -589,8 +611,9 @@ impl<H> RegistryBuilder<H> {
     /// writes.
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
+            #[cfg(feature = "transaction-data")]
             hashes,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             scopes,
             response_types,
             modes,
@@ -598,17 +621,20 @@ impl<H> RegistryBuilder<H> {
             profiles,
             exact,
             prefixes,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             clients,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             object_rules,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             posts,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "request-decryption")]
+            encrypted,
+            #[cfg(feature = "uri")]
             contributions,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             readers,
         } = self;
+        #[cfg(feature = "transaction-data")]
         for (k, algorithm) in hashes.iter().enumerate() {
             if hashes
                 .get(..k)
@@ -617,9 +643,9 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::HashTwice(algorithm.name()));
             }
         }
-        #[cfg(feature = "resolve")]
+        #[cfg(feature = "uri")]
         let scopes = read_scopes(&scopes)?;
-        #[cfg(not(feature = "resolve"))]
+        #[cfg(not(feature = "uri"))]
         let scopes = Vec::new();
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
@@ -645,7 +671,7 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
         }
-        #[cfg(feature = "resolve")]
+        #[cfg(feature = "uri")]
         let declared = Declared {
             members: contributions
                 .iter()
@@ -663,10 +689,10 @@ impl<H> RegistryBuilder<H> {
                 .copied()
                 .collect(),
         };
-        #[cfg(not(feature = "resolve"))]
+        #[cfg(not(feature = "uri"))]
         let declared = Declared::default();
         names(&modes, declared)?;
-        #[cfg(feature = "resolve")]
+        #[cfg(feature = "signed")]
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
             clients
@@ -676,8 +702,10 @@ impl<H> RegistryBuilder<H> {
         }) {
             return Err(RegistryError::PrefixTwice(twice));
         }
-        #[cfg(feature = "resolve")]
-        let post = Post::of(posts)?;
+        #[cfg(feature = "request-decryption")]
+        let post = Post::of(&posts, encrypted)?;
+        #[cfg(all(feature = "uri", not(feature = "request-decryption")))]
+        let post = Post::of(&posts)?;
         for (k, format) in formats.iter().enumerate() {
             if formats
                 .get(..k)
@@ -757,7 +785,9 @@ impl<H> RegistryBuilder<H> {
                 }
             }
         }
+        #[cfg(feature = "transaction-data")]
         let transacting = !exact.is_empty() || !prefixes.is_empty();
+        #[cfg(feature = "transaction-data")]
         if transacting
             && !hashes
                 .iter()
@@ -766,6 +796,7 @@ impl<H> RegistryBuilder<H> {
             return Err(RegistryError::Sha256Absent);
         }
         Ok(Registry {
+            #[cfg(feature = "transaction-data")]
             hashes,
             scopes,
             response_types,
@@ -774,15 +805,15 @@ impl<H> RegistryBuilder<H> {
             profiles,
             exact,
             prefixes,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             clients,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "signed")]
             object_rules,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             post,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             contributions,
-            #[cfg(feature = "resolve")]
+            #[cfg(feature = "uri")]
             readers,
         })
     }
@@ -795,8 +826,8 @@ impl<H> Registry<H> {
         RegistryBuilder::default()
     }
 
-    /// Whether a Client Identifier Prefix of the name is registered.
-    #[cfg(feature = "resolve")]
+    /// Whether a Client Identifier Prefix of the name is registered (feature `signed`).
+    #[cfg(feature = "signed")]
     #[must_use]
     pub fn names_prefix(&self, name: &str) -> bool {
         self.client_prefix(name).is_some()
@@ -804,7 +835,7 @@ impl<H> Registry<H> {
 
     /// The Client Identifier Prefix of a name, with the accessor of the `Haip` its registration
     /// bounded.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     pub(crate) fn client_prefix(
         &self,
         name: &str,
@@ -816,7 +847,7 @@ impl<H> Registry<H> {
     }
 
     /// The registered prefixes' names, in registration order.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn prefix_names(&self) -> impl Iterator<Item = crate::authenticate::PrefixName> {
         self.clients
             .iter()
@@ -830,7 +861,7 @@ impl<H> Registry<H> {
     /// # Errors
     ///
     /// A mode broke its contract.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn mode_metadata(&self, host: &H) -> Result<Vec<ModeMembers>, Fault> {
         self.modes
             .iter()
@@ -852,32 +883,32 @@ impl<H> Registry<H> {
     }
 
     /// The registered POST contributions, in registration order.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn contributions(&self) -> impl Iterator<Item = &dyn HostedPostContribution<H>> {
         self.contributions.iter().map(AsRef::as_ref)
     }
 
     /// The registered readers of the Response URI's answer, in registration order.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn answer_readers(&self) -> &[Box<dyn AnswerReader>] {
         &self.readers
     }
 
     /// The registered rules over a Request Object's claims, in registration order.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     pub(crate) fn object_rules(&self) -> &[Box<dyn ObjectRule>] {
         &self.object_rules
     }
 
     /// The registered POST of `wallet_metadata`, with the decrypting module's accessor when
     /// encrypted Request Objects are registered.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) const fn post(&self) -> Option<&Post<H>> {
         self.post.as_ref()
     }
 
     /// The formats, in registration order.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "uri")]
     pub(crate) fn formats(&self) -> impl Iterator<Item = &dyn Format> {
         self.formats
             .iter()
@@ -982,6 +1013,7 @@ impl<H> Registry<H> {
             .map(|(profile, own)| profile.read(own))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            #[cfg(feature = "transaction-data")]
             hashes: self.hashes.clone(),
             scopes: self.scopes.clone(),
             response_types: self.response_types.clone(),
@@ -990,23 +1022,28 @@ impl<H> Registry<H> {
             profiles: read.into_iter().map(|informed| informed()).collect(),
             exact: self.exact.clone(),
             prefixes: self.prefixes.clone(),
+            #[cfg(feature = "signed")]
             clients: self.clients.clone(),
+            #[cfg(feature = "signed")]
             object_rules: self.object_rules.clone(),
+            #[cfg(feature = "uri")]
             post: self.post.clone(),
+            #[cfg(feature = "uri")]
             contributions: self.contributions.clone(),
+            #[cfg(feature = "uri")]
             readers: self.readers.clone(),
         })
     }
 }
 
 /// A registered prefix, with the accessor of the host's `Haip` its registration bounded.
-#[cfg(feature = "resolve")]
+#[cfg(feature = "signed")]
 pub(crate) struct RegisteredPrefix<H> {
     prefix: Box<dyn HostedPrefix<H>>,
     haip: HaipAccess<H>,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "signed")]
 impl<H> Clone for RegisteredPrefix<H> {
     fn clone(&self) -> Self {
         Self {
@@ -1017,62 +1054,109 @@ impl<H> Clone for RegisteredPrefix<H> {
 }
 
 /// A mode's `wallet_metadata` members, with the names it declared.
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 pub(crate) type ModeMembers = (&'static [ParameterName], Vec<MetadataMember>);
 
 /// The host's `RequestDecryption`, as the registration of encrypted Request Objects keeps it.
-#[cfg(feature = "resolve")]
+#[cfg(feature = "request-decryption")]
 pub(crate) type DecryptionAccess<H> = fn(&H) -> &dyn RequestDecryption;
-
-/// A part of the `request_uri` POST as registered.
-#[cfg(feature = "resolve")]
-enum PostPart<H> {
-    Post(RequestPost),
-    Encrypted(EncryptedRequests, DecryptionAccess<H>),
-}
 
 /// The registered POST of `wallet_metadata`, and the decrypting module's accessor when encrypted
 /// Request Objects are registered.
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 pub(crate) struct Post<H> {
-    pub(crate) decryption: Option<DecryptionAccess<H>>,
+    #[cfg(feature = "request-decryption")]
+    decryption: Option<DecryptionAccess<H>>,
+    #[cfg(not(feature = "request-decryption"))]
+    host: std::marker::PhantomData<fn(&H)>,
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl<H> Clone for Post<H> {
     fn clone(&self) -> Self {
         Self {
+            #[cfg(feature = "request-decryption")]
             decryption: self.decryption,
+            #[cfg(not(feature = "request-decryption"))]
+            host: std::marker::PhantomData,
         }
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "request-decryption")]
 impl<H> Post<H> {
-    /// The POST the parts make: none without parts; refused when a part is given twice, or
-    /// encrypted Request Objects without the POST.
-    fn of(parts: Vec<PostPart<H>>) -> Result<Option<Self>, RegistryError> {
-        let mut post = None;
-        let mut decryption = None;
-        for part in parts {
-            match part {
-                PostPart::Post(RequestPost) => {
-                    if post.replace(()).is_some() {
-                        return Err(RegistryError::PostTwice);
-                    }
-                }
-                PostPart::Encrypted(EncryptedRequests, access) => {
-                    if decryption.replace(access).is_some() {
-                        return Err(RegistryError::PostTwice);
-                    }
-                }
-            }
+    /// The POST the registrations make: none without the POST; refused when a part is given
+    /// twice, or encrypted Request Objects without the POST.
+    fn of(
+        posts: &[RequestPost],
+        encrypted: Vec<DecryptionAccess<H>>,
+    ) -> Result<Option<Self>, RegistryError> {
+        let mut encrypted = encrypted.into_iter();
+        let decryption = encrypted.next();
+        if posts.len() > 1 || encrypted.next().is_some() {
+            return Err(RegistryError::PostTwice);
         }
-        match (post, decryption) {
-            (None, None) => Ok(None),
-            (None, Some(_)) => Err(RegistryError::DecryptionWithoutPost),
-            (Some(()), decryption) => Ok(Some(Self { decryption })),
+        match (posts, decryption) {
+            ([], None) => Ok(None),
+            ([], Some(_)) => Err(RegistryError::DecryptionWithoutPost),
+            (_, decryption) => Ok(Some(Self { decryption })),
         }
+    }
+
+    /// The decrypting module's accessor, when encrypted Request Objects are registered.
+    pub(crate) const fn decryption(&self) -> Option<DecryptionAccess<H>> {
+        self.decryption
+    }
+
+    /// The key a POST's `jwks` holds: a fresh one from the decrypting module, on a curve it
+    /// states, when encrypted Request Objects are registered.
+    ///
+    /// # Errors
+    ///
+    /// The module broke its contract.
+    pub(crate) fn ephemeral_key(&self, host: &H) -> Result<Option<EphemeralKey>, Fault> {
+        self.decryption
+            .map(|access| {
+                let decryption = access(host);
+                let key = decryption.ephemeral_key()?;
+                let curve = key
+                    .public()
+                    .member("crv")
+                    .and_then(|crv| crv.as_str())
+                    .and_then(Curve::new);
+                if curve.is_some_and(|curve| decryption.decrypts().curve(curve)) {
+                    Ok(key)
+                } else {
+                    Err(Fault::new(
+                        FAULT,
+                        detail!("the ephemeral key's crv is none the module states"),
+                    ))
+                }
+            })
+            .transpose()
+    }
+}
+
+#[cfg(all(feature = "uri", not(feature = "request-decryption")))]
+impl<H> Post<H> {
+    /// The POST the registrations make: none without the POST; refused when it is given twice.
+    fn of(posts: &[RequestPost]) -> Result<Option<Self>, RegistryError> {
+        match posts {
+            [] => Ok(None),
+            [_] => Ok(Some(Self {
+                host: std::marker::PhantomData,
+            })),
+            _ => Err(RegistryError::PostTwice),
+        }
+    }
+
+    /// The key a POST's `jwks` holds: none, as the build registers no encrypted Request Objects.
+    ///
+    /// # Errors
+    ///
+    /// None in this build; the signature is the one encrypted Request Objects need.
+    pub(crate) const fn ephemeral_key(&self, _host: &H) -> Result<Option<EphemeralKey>, Fault> {
+        Ok(None)
     }
 }
 
@@ -1093,6 +1177,7 @@ pub(crate) trait Routes {
     /// that carries errors alone.
     fn routed(&self, channel: ChannelKind, name: &str) -> Option<(RoutedMode, &dyn Mode)>;
     /// The registered hash algorithms.
+    #[cfg(feature = "transaction-data")]
     fn hashes(&self) -> Hashes<'_>;
     /// The registered scope queries.
     fn scopes(&self) -> Scopes<'_>;
@@ -1132,6 +1217,7 @@ impl<H> Routes for Registry<H> {
         find(false).or_else(|| find(true))
     }
 
+    #[cfg(feature = "transaction-data")]
     fn hashes(&self) -> Hashes<'_> {
         Hashes::of(&self.hashes)
     }
@@ -1153,8 +1239,7 @@ struct Declared {
 
 /// The names registered parts declare: a DC API mode declares none (`MetadataChannel`); each name
 /// once in its place (`NameTwice`), none the core writes there (`NameReserved`):
-/// [`CORE_METADATA`], and under `resolve` the POST's `wallet_metadata` and `wallet_nonce` and the
-/// answer's `redirect_uri`.
+/// [`CORE_METADATA`], [`CORE_PARAMETERS`] and [`CORE_ANSWER`].
 fn names<H>(modes: &[RegisteredMode<H>], mut declared: Declared) -> Result<(), RegistryError> {
     let mut members: Vec<ParameterName> = Vec::new();
     for registered in modes {
@@ -1168,15 +1253,14 @@ fn names<H>(modes: &[RegisteredMode<H>], mut declared: Declared) -> Result<(), R
         members.extend_from_slice(names);
     }
     members.append(&mut declared.members);
-    #[cfg(feature = "resolve")]
-    let (parameters, answers): (&[ParameterName], &[ParameterName]) =
-        (&CORE_PARAMETERS, &CORE_ANSWER);
-    #[cfg(not(feature = "resolve"))]
-    let (parameters, answers): (&[ParameterName], &[ParameterName]) = (&[], &[]);
     let places = [
         (NamePlace::WalletMetadata, &CORE_METADATA[..], members),
-        (NamePlace::PostParameter, parameters, declared.parameters),
-        (NamePlace::AnswerMember, answers, declared.answers),
+        (
+            NamePlace::PostParameter,
+            &CORE_PARAMETERS[..],
+            declared.parameters,
+        ),
+        (NamePlace::AnswerMember, &CORE_ANSWER[..], declared.answers),
     ];
     for (place, reserved, names) in places {
         for (k, name) in names.iter().enumerate() {
@@ -1193,7 +1277,7 @@ fn names<H>(modes: &[RegisteredMode<H>], mut declared: Declared) -> Result<(), R
 
 /// The registered scope queries as read: refused per [`RegistryError::ScopeTwice`],
 /// [`RegistryError::ScopeQuery`] and [`RegistryError::ScopeIds`].
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, RegistryError> {
     let mut entries: Vec<ScopeEntry> = Vec::new();
     for query in queries {
@@ -1274,18 +1358,13 @@ pub struct InformError;
 #[cfg(feature = "resolve")]
 type Informed<'f, H> = Box<dyn FnOnce() -> Box<dyn DynProfile<H>> + 'f>;
 
-/// A [`Profile`] with its finding type erased: phase 1's methods, and phase 2's that read no
-/// host.
+/// A [`Profile`] with its finding type erased.
 pub(crate) trait ErasedProfile: Send + Sync {
     #[cfg(feature = "match")]
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
     fn members(&self, placement: Placement) -> Option<&[Member]>;
     #[cfg(feature = "match")]
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
-    #[cfg(feature = "resolve")]
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
-    #[cfg(feature = "resolve")]
-    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
 }
 
 impl<P: Profile> ErasedProfile for P {
@@ -1302,20 +1381,14 @@ impl<P: Profile> ErasedProfile for P {
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         Profile::bind(self, binding, env)
     }
-
-    #[cfg(feature = "resolve")]
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        Profile::wanted(self, record)
-    }
-
-    #[cfg(feature = "resolve")]
-    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
-        Profile::authentication(self, record)
-    }
 }
 
 /// An [`ErasedProfile`] with phase 2's methods over the build's host `H`.
 pub(crate) trait DynProfile<H>: ErasedProfile {
+    #[cfg(feature = "resolve")]
+    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
+    #[cfg(feature = "resolve")]
+    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
     #[cfg(feature = "resolve")]
     fn revalidate(
         &self,
@@ -1342,6 +1415,14 @@ impl<H, P: Profile> DynProfile<H> for P {}
 
 #[cfg(feature = "resolve")]
 impl<H, P: ProfileHost<H>> DynProfile<H> for P {
+    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::wanted(self, record)
+    }
+
+    fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
+        ProfileHost::authentication(self, record)
+    }
+
     fn revalidate(
         &self,
         handle: ProfileHandle,
@@ -1371,7 +1452,7 @@ impl<H, P: ProfileHost<H>> DynProfile<H> for P {
         Ok(Box::new(move || -> Box<dyn DynProfile<H>> {
             match own.as_slice() {
                 [] => Box::new(self.clone()),
-                own => Box::new(Profile::informed(self, own)),
+                own => Box::new(ProfileHost::informed(self, own)),
             }
         }))
     }

@@ -120,50 +120,52 @@ impl Signer {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    use siros_openid4vp::cbor::cose::coset::{
-        CoseMac0, CoseMac0Builder, CoseSign1, CoseSign1Builder, HeaderBuilder, MacContext,
-        ProtectedHeader, iana, mac_structure_data,
-    };
-    use siros_openid4vp::plugins::Fault;
+#[cfg(feature = "resolve")]
+use siros_openid4vp::cbor::cose::coset::{
+    CoseMac0, CoseMac0Builder, CoseSign1, CoseSign1Builder, HeaderBuilder, MacContext,
+    ProtectedHeader, iana, mac_structure_data,
+};
+#[cfg(feature = "resolve")]
+use siros_openid4vp::plugins::Fault;
 
-    /// DeviceSignature (ISO/IEC 18013-5 §9.1.3.6): a COSE_Sign1 with the device key's `alg`
-    /// protected, nothing unprotected and the payload detached (nil); the signature over RFC 9052
-    /// §4.4's Sig_structure of DeviceAuthenticationBytes with an empty external_aad.
-    pub(crate) fn device_signature<E>(
-        alg: iana::Algorithm,
-        detached: &[u8],
-        sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, E>,
-    ) -> Result<CoseSign1, E> {
-        CoseSign1Builder::new()
-            .protected(HeaderBuilder::new().algorithm(alg).build())
-            .try_create_detached_signature(detached, b"", sign)
-            .map(CoseSign1Builder::build)
-    }
+#[cfg(feature = "resolve")]
+/// DeviceSignature (ISO/IEC 18013-5 §9.1.3.6): a COSE_Sign1 with the device key's `alg`
+/// protected, nothing unprotected and the payload detached (nil); the signature over RFC 9052
+/// §4.4's Sig_structure of DeviceAuthenticationBytes with an empty external_aad.
+pub(crate) fn device_signature<E>(
+    alg: iana::Algorithm,
+    detached: &[u8],
+    sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, E>,
+) -> Result<CoseSign1, E> {
+    CoseSign1Builder::new()
+        .protected(HeaderBuilder::new().algorithm(alg).build())
+        .try_create_detached_signature(detached, b"", sign)
+        .map(CoseSign1Builder::build)
+}
 
-    /// DeviceMac (ISO/IEC 18013-5 §9.1.3.5): a COSE_Mac0 with HMAC 256/256 (5) protected, nothing
-    /// unprotected and the payload detached; the tag over RFC 9052 §6.3's MAC_structure of
-    /// DeviceAuthenticationBytes. coset's builder MACs a set payload alone, so the MAC_structure
-    /// comes from its `mac_structure_data`.
-    pub(crate) fn device_mac(
-        detached: &[u8],
-        mac: impl FnOnce(&[u8]) -> Result<Vec<u8>, Fault>,
-    ) -> Result<CoseMac0, Fault> {
-        let protected = HeaderBuilder::new()
-            .algorithm(iana::Algorithm::HMAC_256_256)
-            .build();
-        let to_be_maced = mac_structure_data(
-            MacContext::CoseMac0,
-            ProtectedHeader {
-                original_data: None,
-                header: protected.clone(),
-            },
-            b"",
-            detached,
-        );
-        Ok(CoseMac0Builder::new()
-            .protected(protected)
-            .tag(mac(&to_be_maced)?)
-            .build())
-    }
+#[cfg(feature = "resolve")]
+/// DeviceMac (ISO/IEC 18013-5 §9.1.3.5): a COSE_Mac0 with HMAC 256/256 (5) protected, nothing
+/// unprotected and the payload detached; the tag over RFC 9052 §6.3's MAC_structure of
+/// DeviceAuthenticationBytes. coset's builder MACs a set payload alone, so the MAC_structure
+/// comes from its `mac_structure_data`.
+pub(crate) fn device_mac(
+    detached: &[u8],
+    mac: impl FnOnce(&[u8]) -> Result<Vec<u8>, Fault>,
+) -> Result<CoseMac0, Fault> {
+    let protected = HeaderBuilder::new()
+        .algorithm(iana::Algorithm::HMAC_256_256)
+        .build();
+    let to_be_maced = mac_structure_data(
+        MacContext::CoseMac0,
+        ProtectedHeader {
+            original_data: None,
+            header: protected.clone(),
+        },
+        b"",
+        detached,
+    );
+    Ok(CoseMac0Builder::new()
+        .protected(protected)
+        .tag(mac(&to_be_maced)?)
+        .build())
 }

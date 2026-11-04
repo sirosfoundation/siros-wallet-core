@@ -72,7 +72,7 @@ impl Item {
     /// # Errors
     ///
     /// `cbor::decode` refuses the bytes.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "cbor")]
     pub fn parse(bytes: Vec<u8>) -> Result<Self, crate::cbor::CborError> {
         crate::cbor::decode(&bytes).map(|_| Self(bytes))
     }

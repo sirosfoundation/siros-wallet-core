@@ -4,10 +4,10 @@ use rustc_hash::FxHashMap;
 use sha2::{Digest as _, Sha256, Sha384, Sha512};
 use siros_openid4vp::cbor::{self, Value};
 
-use super::item::Read as _;
-use siros_openid4vp::host::Timestamp;
 use super::error::MemberFault;
+use super::item::Read as _;
 use super::names::DocType;
+use siros_openid4vp::host::Timestamp;
 
 use super::device_key::P256Key;
 use super::error::{
@@ -37,7 +37,8 @@ impl Mso {
             .untag(24)
             .and_then(|v| v.bytes())
             .ok_or(MdocError::Payload(PayloadFault::NotTagged))?;
-        let mso = cbor::decode(inner).map_err(|e| MdocError::Payload(PayloadFault::Mso(e.into())))?;
+        let mso =
+            cbor::decode(inner).map_err(|e| MdocError::Payload(PayloadFault::Mso(e.into())))?;
         let doc_type = mso
             .get("docType")
             .and_then(Value::as_text)
@@ -289,7 +290,20 @@ fn tdate(text: &str) -> Option<Timestamp> {
     let (year, month, day) = (field(0, 4)?, field(5, 7)?, field(8, 10)?);
     let (hour, minute, second) = (field(11, 13)?, field(14, 16)?, field(17, 19)?);
     let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-    let lengths: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let lengths: [u64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let month_days = *lengths.get(usize::try_from(month.checked_sub(1)?).ok()?)?;
     if year < 1970 || day == 0 || day > month_days || hour > 23 || minute > 59 || second > 59 {
         return None;
@@ -302,7 +316,10 @@ fn tdate(text: &str) -> Option<Timestamp> {
         }
     });
     let days = years.sum::<u64>()
-        + lengths.iter().take(usize::try_from(month - 1).ok()?).sum::<u64>()
+        + lengths
+            .iter()
+            .take(usize::try_from(month - 1).ok()?)
+            .sum::<u64>()
         + (day - 1);
     Some(Timestamp(((days * 24 + hour) * 60 + minute) * 60 + second))
 }

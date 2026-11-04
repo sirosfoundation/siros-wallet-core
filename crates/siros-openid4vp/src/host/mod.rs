@@ -6,8 +6,8 @@
 //! `&self`: the state behind it is the platform's, and a module without state is a zero-sized
 //! type the host gives as `&'static`.
 //!
-//! The core defines the access traits, its own modules ([`Platform`], [`Haip`],
-//! [`RequestDecryption`]), the values they exchange, and each plug-in's phase 2 over the host
+//! The core defines the access traits, its own modules ([`Platform`], [`Haip`], and
+//! `RequestDecryption` under the feature `request-decryption`), the values they exchange, and each plug-in's phase 2 over the host
 //! ([`ProfileHost`], [`FormatHost`]). A plug-in defines its own modules in its crate. The core
 //! calls [`Platform`] with no extension registered ([`CoreHost`]); each registration that makes it
 //! call another module bounds the build's host by it, and keeps the module's accessor.
@@ -15,6 +15,7 @@
 mod access;
 mod authentication;
 mod ciphertext;
+#[cfg(feature = "uri")]
 mod ephemeral;
 mod phase2;
 mod values;
@@ -26,6 +27,7 @@ pub use authentication::{
     Inherence, Isolation, Knowledge, Modality, Possession, Sensor,
 };
 pub use ciphertext::{NotSealed, SealedJwe};
+#[cfg(feature = "uri")]
 pub use ephemeral::{EphemeralKey, KeyHandle};
 pub use phase2::{AnsweredOption, AnsweredQuery, FormatHost, PresentError, ProfileHost};
 pub use values::{NotPresentation, Presentation, Seconds, Signature, Timestamp, Usable};
@@ -33,7 +35,9 @@ pub use values::{NotPresentation, Presentation, Seconds, Signature, Timestamp, U
 use siros_explain::Explain;
 
 use crate::ids::CredentialId;
-use crate::jose::{CompactJwe, JweAlgorithms, JwsAlgorithms, Signed, VerificationKey};
+#[cfg(feature = "request-decryption")]
+use crate::jose::{CompactJwe, JweAlgorithms};
+use crate::jose::{JwsAlgorithms, Signed, VerificationKey};
 use crate::plugins::Fault;
 use crate::request::{AgreeableKey, Agreements, ContentEncryption};
 use crate::wallet::Credential;
@@ -94,7 +98,9 @@ pub trait Haip {
 #[error("the signature does not verify under the key")]
 pub struct SignatureInvalid;
 
-/// An encrypted Request Object (OpenID4VP §5.10, RFC 9101 §6.1); the key travels in the value.
+/// An encrypted Request Object (OpenID4VP §5.10, RFC 9101 §6.1; feature `request-decryption`);
+/// the key travels in the value.
+#[cfg(feature = "request-decryption")]
 pub trait RequestDecryption {
     /// The curves of the keys it draws and the JWE `alg` and `enc` values `decrypt` implements;
     /// HAIP's module states P-256, ECDH-ES, A256GCM and A128GCM.
@@ -119,6 +125,7 @@ pub trait RequestDecryption {
 }
 
 /// A JWE that does not decrypt: one failure for every cause.
+#[cfg(feature = "request-decryption")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.host")]
 #[error("the JWE does not decrypt under the key")]
@@ -139,7 +146,7 @@ pub enum SignFailed {
 /// The module the core calls with no extension registered: the platform's clock, the credentials'
 /// status and the End-User's authentication. Each registration that makes the core call another
 /// module bounds it (`prefix` and `jwe_mode`: [`Haip`]; `request_encryption`:
-/// [`RequestDecryption`]), and a plug-in bounds the modules it calls itself.
+/// `RequestDecryption`), and a plug-in bounds the modules it calls itself.
 pub trait CoreHost: Has<dyn Platform> {}
 
 impl<H: Has<dyn Platform>> CoreHost for H {}

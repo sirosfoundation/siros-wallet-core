@@ -99,13 +99,18 @@ mod test_util {
             &self.version
         }
 
-        fn measure(&self, signal: &SignalType<'_>, max_age: Option<Seconds>) -> Option<Measurement> {
+        fn measure(
+            &self,
+            signal: &SignalType<'_>,
+            max_age: Option<Seconds>,
+        ) -> Option<Measurement> {
             let Measured { last, .. } = self
                 .signals
                 .iter()
                 .find(|measured| measured.signal.as_str() == signal.as_str())?;
-            let fresh = max_age
-                .is_none_or(|Seconds(bound)| self.now.0.saturating_sub(last.collected_at.0) <= bound);
+            let fresh = max_age.is_none_or(|Seconds(bound)| {
+                self.now.0.saturating_sub(last.collected_at.0) <= bound
+            });
             Some(match (fresh, last.retakes) {
                 (true, _) => Measurement {
                     collected_at: last.collected_at,

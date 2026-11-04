@@ -11,12 +11,11 @@ publish = false
 
 [features]
 default = ["resolve"]
-# Phase 2: the presentation. The crate's phase-2 code follows the core's `resolve`
-# (`siros_openid4vp::with_resolve!`), whichever crate enables it.
+# Phase 2: the presentation.
 resolve = ["siros-openid4vp/resolve"]
 
 [dependencies]
-siros-openid4vp = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["claims"] }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }

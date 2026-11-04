@@ -1,25 +1,38 @@
 //! Verifier authentication (§5.9, A.2, A.3): the Client Identifier read by its prefix (§5.9.1),
 //! the prefix a plug-in that binds a key to the Verifier and vouches for its endpoint from the
 //! caller's decisions; the core verifies the signature under the bound key. The matcher never
-//! authenticates.
+//! authenticates. The prefixes, the signature step and the rules on a Request Object's claims
+//! compile under the feature `signed`; a build without it refuses every signed request with A2,
+//! as a build registering no prefix does.
 
 mod pending;
 
+#[cfg(feature = "signed")]
 use std::borrow::Cow;
 use std::fmt;
 
+#[cfg(feature = "signed")]
 use dyn_clone::DynClone;
 use serde_json::value::RawValue;
 use siros_explain::{AllOf, Explain, Explained, IntoArg, kind};
 
+#[cfg(feature = "signed")]
 use crate::effects::{Decided, Evaluation};
+#[cfg(feature = "signed")]
 use crate::envelope::Parameters;
+#[cfg(feature = "signed")]
 use crate::host::Timestamp;
 use crate::ids::{ClientId, Origin};
-use crate::jose::{Signed, Skew, VerificationKey};
-use crate::json::{Member, Node, Object};
+use crate::jose::Skew;
+#[cfg(feature = "signed")]
+use crate::jose::{Signed, VerificationKey};
+use crate::json::Object;
+#[cfg(feature = "signed")]
+use crate::json::{Member, Node};
 use crate::refusal::{ErrorCode, Refusal};
-use crate::uri::{RequestUri, ResponseUri};
+#[cfg(feature = "signed")]
+use crate::uri::RequestUri;
+use crate::uri::ResponseUri;
 
 pub use pending::{Authenticated, Pending};
 
@@ -78,6 +91,7 @@ impl IntoArg for PrefixName {
     }
 }
 
+#[cfg(feature = "signed")]
 /// What a prefix reads of a signed request. Only `Envelope::questions` makes one, from the
 /// envelope and the signature the Client Identifier belongs to.
 #[derive(Debug, Clone)]
@@ -90,6 +104,7 @@ pub struct ClientClaim<'c> {
     query: Option<&'c RawValue>,
 }
 
+#[cfg(feature = "signed")]
 impl<'c> ClientClaim<'c> {
     /// The full Client Identifier (§14.8).
     #[must_use]
@@ -177,6 +192,7 @@ impl<'c> ClientClaim<'c> {
     }
 }
 
+#[cfg(feature = "signed")]
 /// The channel of a claim, with what the prefix reads of it.
 #[derive(Debug, Clone)]
 pub enum ClaimChannel<'c> {
@@ -193,7 +209,7 @@ pub enum ClaimChannel<'c> {
 }
 
 /// A prefix rule a claim breaks: the prefix the core called, and the plug-in's rule (A5). The
-/// core makes one from [`PrefixHost::claim`]'s refusal.
+/// core makes one from `PrefixHost::claim`'s refusal.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.authenticate", id = "prefix")]
 #[error("{prefix}: {rule}")]
@@ -217,7 +233,7 @@ impl PrefixRefusal {
 }
 
 /// A prefix plug-in (§5.9.3: "Other specifications can define further Client Identifier
-/// Prefixes"): its name. Its claim is [`PrefixHost`].
+/// Prefixes"; feature `signed`): its name. Its claim is [`PrefixHost`].
 ///
 /// # Implementing
 ///
@@ -229,11 +245,13 @@ impl PrefixRefusal {
 /// (A7), verifies the signature under the bound key through the `Haip` the registration reached
 /// (A8), and binds the endpoint itself, so a prefix reaches no endpoint and no key the request
 /// and the decisions do not give.
+#[cfg(feature = "signed")]
 pub trait ClientPrefix: DynClone + Send + Sync {
     /// The prefix as written before the `:`.
     fn name(&self) -> PrefixName;
 }
 
+#[cfg(feature = "signed")]
 /// A prefix's claim over the build's host: its bounds name the modules it calls.
 pub trait PrefixHost<H>: ClientPrefix {
     /// Reads a claim: the prefix's syntax and header rules, refused with the rule the claim
@@ -249,13 +267,17 @@ pub trait PrefixHost<H>: ClientPrefix {
     ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>>;
 }
 
+#[cfg(feature = "signed")]
 /// A prefix the registry takes, as [`HostedFormat`](crate::plugins::HostedFormat) takes a format.
 pub trait HostedPrefix<H>: PrefixHost<H> {}
 
+#[cfg(feature = "signed")]
 impl<H, P: PrefixHost<H>> HostedPrefix<H> for P {}
 
+#[cfg(feature = "signed")]
 dyn_clone::clone_trait_object!(<H> HostedPrefix<H>);
 
+#[cfg(feature = "signed")]
 /// A claim a prefix read: its evaluations, then its binding from their decisions, then, by URI,
 /// what vouches for the endpoint. The core hands each method the decisions on the claim's own
 /// evaluations, one per evaluation, in the order `questions` gave them.
@@ -289,6 +311,7 @@ pub trait PrefixClaim {
     ) -> Result<EndpointBasis, Unbound>;
 }
 
+#[cfg(feature = "signed")]
 /// Why a claim binds nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.authenticate.unbound")]
@@ -328,6 +351,7 @@ pub enum EndpointBasis {
     Request,
 }
 
+#[cfg(feature = "signed")]
 /// What a prefix binds to the Verifier.
 #[derive(Debug, Clone)]
 pub struct ClientBinding {
@@ -349,8 +373,10 @@ pub enum OriginPolicy {
     Evaluate,
 }
 
+#[cfg(feature = "signed")]
 /// A rule a profile or a deployment sets on an authenticated Request Object's claims, beside RFC
-/// 7519's checks when present (A9, A10): a claim it requires, a value it restricts.
+/// 7519's checks when present (A9, A10; feature `signed`): a claim it requires, a value it
+/// restricts.
 ///
 /// # Implementing
 ///
@@ -362,6 +388,7 @@ pub trait ObjectRule: DynClone + Send + Sync {
     fn check(&self, claims: &Object<'_>) -> Option<Refusal>;
 }
 
+#[cfg(feature = "signed")]
 dyn_clone::clone_trait_object!(ObjectRule);
 
 /// The wallet's authentication configuration.
@@ -427,7 +454,7 @@ pub enum Unauthenticated {
     #[error("A13 {0}")]
     #[explain(id = "a13")]
     EndpointScheme(#[explain(name = "cause")] crate::uri::NotHttps),
-    /// A14: a registered [`ObjectRule`] refuses the Request Object's claims; the code is the
+    /// A14: a registered `ObjectRule` refuses the Request Object's claims; the code is the
     /// rule's.
     #[error("A14 {0}")]
     #[explain(id = "a14")]
@@ -489,7 +516,7 @@ impl<'r> Verifier<'r> {
         self.name.as_deref()
     }
 
-    /// What the framework states about it ([`ClientBinding::facts`]).
+    /// What the framework states about it (`ClientBinding::facts`).
     #[must_use]
     pub const fn facts(&self) -> Option<&Object<'static>> {
         self.facts.as_ref()

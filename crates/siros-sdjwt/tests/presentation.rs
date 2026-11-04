@@ -515,7 +515,9 @@ impl siros_openid4vp::plugins::Profile for Writes {
                 .into(),
         )
     }
+}
 
+impl<H> ProfileHost<H> for Writes {
     fn wanted(
         &self,
         _record: siros_openid4vp::plugins::Answered<'_>,
@@ -525,6 +527,7 @@ impl siros_openid4vp::plugins::Profile for Writes {
             detail!("judged at registration alone"),
         ))
     }
+
     fn informed(&self, _findings: &[&()]) -> Self {
         self.clone()
     }
@@ -535,9 +538,7 @@ impl siros_openid4vp::plugins::Profile for Writes {
     ) -> Result<AuthenticationNeed, siros_openid4vp::plugins::Fault> {
         Ok(AuthenticationNeed::Presence)
     }
-}
 
-impl<H> ProfileHost<H> for Writes {
     fn revalidate(
         &self,
         _record: siros_openid4vp::plugins::FetchedRecord<'_>,

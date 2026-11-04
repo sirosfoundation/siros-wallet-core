@@ -197,7 +197,7 @@ impl<'a> Object<'a> {
     }
 
     /// The object of members whose names the caller wrote distinct.
-    #[cfg(feature = "resolve")]
+    #[cfg(feature = "signed")]
     pub(crate) const fn distinct(members: Vec<Member<'a>>) -> Self {
         Object(members)
     }

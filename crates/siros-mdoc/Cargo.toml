@@ -11,14 +11,13 @@ publish = false
 
 [features]
 default = ["resolve"]
-# Phase 2: the presentation. The crate's phase-2 code follows the core's `resolve`
-# (`siros_openid4vp::with_resolve!`), whichever crate enables it.
-resolve = ["siros-openid4vp/resolve"]
+# Phase 2: the presentation, in ISO/IEC 18013-5's CBOR and COSE.
+resolve = ["siros-openid4vp/resolve", "siros-openid4vp/cbor"]
 # The `DeviceMac` double for the tests of crates that register siros-mdoc.
 test-util = ["resolve"]
 
 [dependencies]
-siros-openid4vp = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["claims"] }
 serde_json = { workspace = true }
 base64 = { workspace = true }
 thiserror = { workspace = true }

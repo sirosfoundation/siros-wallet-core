@@ -14,10 +14,10 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::claims::kit::Presenting;
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::detail;
+use siros_openid4vp::host::{Haip, Has, Host, Platform, PresentError, Presentation};
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::{Fault, Member, MemberValue};
 use siros_openid4vp::refusal::Quoted;
-use siros_openid4vp::host::{Haip, Has, Host, Platform, PresentError, Presentation};
 use siros_openid4vp::wallet::{Credential, Holder};
 
 use crate::FAULT;
@@ -38,7 +38,8 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
         sd_jwt.push('~');
     }
     let id = || credential.id.to_string();
-    let fault = |e: JsonError| Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e);
+    let fault =
+        |e: JsonError| Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e);
     let presentation = match credential.facts.holder {
         Holder::Unbound => {
             if let Some(member) = presenting.members.names().next() {
@@ -81,14 +82,16 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
                 ("signature".into(), text(signature)),
             ])
             .map_err(fault)?;
-            Node::object(vec![("sd_jwt".into(), text(sd_jwt)), ("kb_jwt".into(), kb_jwt)])
-                .map_err(fault)?
+            Node::object(vec![
+                ("sd_jwt".into(), text(sd_jwt)),
+                ("kb_jwt".into(), kb_jwt),
+            ])
+            .map_err(fault)?
         }
     };
     Ok(
-        Presentation::object(&presentation.python_compact().to_string()).map_err(|e| {
-            Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e)
-        })?,
+        Presentation::object(&presentation.python_compact().to_string())
+            .map_err(|e| Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e))?,
     )
 }
 
@@ -125,15 +128,17 @@ fn payload<'p>(
         };
         let value = match value {
             MemberValue::Text(value) => text(value.clone()),
-            MemberValue::Json(value) => Node::parse(value.as_str())
-                .map(Node::into_owned)
-                .map_err(|e| {
-                    Fault::caused(
-                        FAULT,
-                        detail!("{id}: the member {name}", id = id(), name = name.clone()),
-                        e,
-                    )
-                })?,
+            MemberValue::Json(value) => {
+                Node::parse(value.as_str())
+                    .map(Node::into_owned)
+                    .map_err(|e| {
+                        Fault::caused(
+                            FAULT,
+                            detail!("{id}: the member {name}", id = id(), name = name.clone()),
+                            e,
+                        )
+                    })?
+            }
             MemberValue::Bytes(_) | MemberValue::Cbor(_) => {
                 return Err(Fault::new(
                     FAULT,
@@ -209,7 +214,12 @@ fn disclosure(path: &ConcretePath<'_>, value: &Node<'_>) -> Result<String, Fault
     let name = match path.last() {
         Some(Concrete::Key(key)) => text(key.to_string()),
         Some(Concrete::Index(at)) => Node::integer(*at as i128),
-        None => return Err(Fault::new(FAULT, detail!("a disclosed element without a path"))),
+        None => {
+            return Err(Fault::new(
+                FAULT,
+                detail!("a disclosed element without a path"),
+            ));
+        }
     };
     Ok(base64_json(&Node::Array(vec![
         text(salt),
@@ -226,5 +236,3 @@ fn base64_json(node: &Node<'_>) -> String {
 fn text<'a>(value: String) -> Node<'a> {
     Node::String(Cow::Owned(value))
 }
-
-

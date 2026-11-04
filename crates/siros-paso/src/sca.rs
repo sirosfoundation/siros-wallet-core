@@ -69,12 +69,11 @@ pub const fn members(placement: Placement) -> &'static [Member] {
     }
 }
 
-siros_openid4vp::with_resolve! {
-    /// A claim as a member of a proof that places members so.
-    pub(crate) const fn member(placement: Placement, claim: Sca) -> Member {
-        match placement {
-            Placement::Claims => Member::claim(claim.name()),
-            Placement::NameSpaces => Member::element(NAMESPACE, claim.name()),
-        }
+#[cfg(feature = "resolve")]
+/// A claim as a member of a proof that places members so.
+pub(crate) const fn member(placement: Placement, claim: Sca) -> Member {
+    match placement {
+        Placement::Claims => Member::claim(claim.name()),
+        Placement::NameSpaces => Member::element(NAMESPACE, claim.name()),
     }
 }

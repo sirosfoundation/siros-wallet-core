@@ -1,39 +1,51 @@
 //! The core's response modes (§8.2, §8.3, A.2), peers of any extension's: `dc_api` and
 //! `dc_api.jwt` over the DC API, `direct_post.jwt` and `direct_post` by URI. The JWE modes share
 //! HAIP §5's key rule (§8.3; reading 25) and its refusal, C7; a build registers them with
-//! `jwe_mode`, `dc_api` with `mode`, and `direct_post` with `error_mode` alone.
+//! `jwe_mode`, `dc_api` with `mode`, and `direct_post` with `error_mode` alone. The DC API modes
+//! compile under the feature `dc-api`, the URI modes under `uri`; the key rule in every build.
 
 use siros_explain::Explain;
 
-use crate::refusal::{ErrorCode, Refusal, RequestRule};
-use crate::request::{Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement, Request};
-use crate::routing::{ChannelKind, Mode, ModeName, VerifierKey, VerifierMetadata};
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use std::borrow::Cow;
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 use crate::json::Node;
-#[cfg(feature = "resolve")]
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::plugins::Fault;
-#[cfg(feature = "resolve")]
+#[cfg(any(feature = "dc-api", feature = "uri"))]
+use crate::refusal::Refusal;
+use crate::refusal::{ErrorCode, RequestRule};
+#[cfg(any(feature = "dc-api", feature = "uri"))]
+use crate::request::Request;
+use crate::request::{Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement};
+#[cfg(any(feature = "dc-api", feature = "uri"))]
+use crate::routing::{ChannelKind, Mode};
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::routing::{Encrypting, ModeHost};
-#[cfg(feature = "resolve")]
+use crate::routing::{ModeName, VerifierKey, VerifierMetadata};
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::wallet_metadata::MetadataMember;
+#[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::wallet_metadata::ParameterName;
 
+#[cfg(feature = "dc-api")]
 /// `dc_api` (A.2): the Authorization Response in the clear, as the DigitalCredential's `data`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DcApi;
 
+#[cfg(feature = "dc-api")]
 /// `dc_api.jwt` (A.2, §8.3): the Authorization Response sealed to the Verifier's key.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DcApiJwt;
 
+#[cfg(feature = "uri")]
 /// `direct_post.jwt` (§8.3.1): the Authorization Response sealed to the Verifier's key, POSTed to
 /// the `response_uri`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DirectPostJwt;
 
+#[cfg(feature = "uri")]
 /// `direct_post` (§8.2), which a build registers with `error_mode` alone: C5 refuses a request
 /// naming it, and its error goes plain to the `response_uri` (reading 24).
 #[derive(Debug, Clone, Copy, Default)]
@@ -73,6 +85,7 @@ const KEY_RULE: Agreements = Agreements::new(
     &[ContentEncryption::A256GCM, ContentEncryption::A128GCM],
 );
 
+#[cfg(feature = "uri")]
 /// The `wallet_metadata` members `direct_post.jwt` writes (JARM §4's names, as §5.10 uses them).
 const JWE_NAMES: [ParameterName; 2] = [
     siros_explain::checked!(
@@ -174,6 +187,7 @@ impl KeyChoice {
     }
 }
 
+#[cfg(any(feature = "dc-api", feature = "uri"))]
 /// A JWE mode's C7 in phase 1, under the rule's own statement.
 fn c7(mode: ModeName, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
     match key_rule(mode, metadata, &KEY_RULE) {
@@ -183,7 +197,7 @@ fn c7(mode: ModeName, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
 }
 
 /// A JWE mode's route in phase 2, under the rule and the sealing module's statement.
-#[cfg(feature = "resolve")]
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 fn encrypting<'k>(
     mode: ModeName,
     metadata: &'k VerifierMetadata<'k>,
@@ -194,6 +208,7 @@ fn encrypting<'k>(
         .map_err(Refusal::new)
 }
 
+#[cfg(feature = "dc-api")]
 impl Mode for DcApi {
     fn name(&self) -> ModeName {
         siros_explain::checked!(ModeName, "dc_api")
@@ -212,6 +227,7 @@ impl Mode for DcApi {
     }
 }
 
+#[cfg(feature = "dc-api")]
 impl Mode for DcApiJwt {
     fn name(&self) -> ModeName {
         siros_explain::checked!(ModeName, "dc_api.jwt")
@@ -230,6 +246,7 @@ impl Mode for DcApiJwt {
     }
 }
 
+#[cfg(feature = "uri")]
 impl Mode for DirectPostJwt {
     fn name(&self) -> ModeName {
         siros_explain::checked!(ModeName, "direct_post.jwt")
@@ -248,6 +265,7 @@ impl Mode for DirectPostJwt {
     }
 }
 
+#[cfg(feature = "uri")]
 impl Mode for DirectPost {
     fn name(&self) -> ModeName {
         siros_explain::checked!(ModeName, "direct_post")
@@ -266,7 +284,7 @@ impl Mode for DirectPost {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(all(feature = "resolve", feature = "dc-api"))]
 impl<H> ModeHost<H> for DcApi {
     fn encryption<'k>(
         &self,
@@ -287,7 +305,7 @@ impl<H> ModeHost<H> for DcApi {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(all(feature = "resolve", feature = "dc-api"))]
 impl<H> ModeHost<H> for DcApiJwt {
     fn encryption<'k>(
         &self,
@@ -308,7 +326,7 @@ impl<H> ModeHost<H> for DcApiJwt {
     }
 }
 
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl<H> ModeHost<H> for DirectPostJwt {
     fn encryption<'k>(
         &self,
@@ -356,7 +374,7 @@ impl<H> ModeHost<H> for DirectPostJwt {
 }
 
 /// `direct_post` carries errors alone, in the clear.
-#[cfg(feature = "resolve")]
+#[cfg(feature = "uri")]
 impl<H> ModeHost<H> for DirectPost {
     fn encryption<'k>(
         &self,

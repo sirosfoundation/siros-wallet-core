@@ -2,8 +2,8 @@
 
 use siros_openid4vp::cbor::{self, Value};
 
-use super::item::{Read as _, raw};
 use super::error::{ArrayIndex, MemberFault};
+use super::item::{Read as _, raw};
 
 use super::error::{AlgorithmFault, IssuerAuthFault, MdocError};
 use super::signature::{CoseAlgorithm, SigStructure};
@@ -31,9 +31,7 @@ impl IssuerAuth {
         let Some([protected, unprotected, payload, signature]) = item.items() else {
             return Err(fault(IssuerAuthFault::NotSign1));
         };
-        let header = protected
-            .bytes()
-            .ok_or(fault(IssuerAuthFault::Protected))?;
+        let header = protected.bytes().ok_or(fault(IssuerAuthFault::Protected))?;
         let algorithm = cbor::decode(header)
             .map_err(|e| MdocError::Algorithm(AlgorithmFault::Header(e.into())))?
             .get_int(ALG)
@@ -42,9 +40,7 @@ impl IssuerAuth {
             .ok_or(MdocError::Algorithm(AlgorithmFault::Absent))?;
         let x5chain = x5chain(unprotected.get_int(X5CHAIN)).map_err(MdocError::X5chain)?;
         let payload_bytes = payload.bytes().ok_or(fault(IssuerAuthFault::Payload))?;
-        let signature = signature
-            .bytes()
-            .ok_or(fault(IssuerAuthFault::Signature))?;
+        let signature = signature.bytes().ok_or(fault(IssuerAuthFault::Signature))?;
         // RFC 9052, Section 4.4: ["Signature1", protected, external_aad = h'', payload], with the
         // protected header and the payload as the issuer wrote them.
         let sig_structure = [

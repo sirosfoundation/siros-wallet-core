@@ -1,0 +1,393 @@
+{
+  "builds": [
+    {
+      "name": "SD-JWT over the DC API, unsigned",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "dc-api",
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-sdjwt",
+          "features": [
+            "resolve"
+          ]
+        }
+      ],
+      "forbid": [
+        "ciborium",
+        "ciborium-io",
+        "ciborium-ll",
+        "half",
+        "coset",
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "serde_urlencoded",
+        "form_urlencoded",
+        "fluent-uri/net",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "uuid",
+        "x509-cert",
+        "der",
+        "spki",
+        "zerocopy",
+        "zerocopy-derive",
+        "percent-encoding",
+        "ryu",
+        "sponge-cursor",
+        "der_derive",
+        "flagset"
+      ]
+    },
+    {
+      "name": "mdoc over the DC API, unsigned",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "dc-api",
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-mdoc",
+          "features": [
+            "resolve"
+          ]
+        }
+      ],
+      "forbid": [
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "serde_urlencoded",
+        "form_urlencoded",
+        "fluent-uri/net",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "uuid",
+        "x509-cert",
+        "der",
+        "spki",
+        "percent-encoding",
+        "ryu",
+        "sponge-cursor",
+        "der_derive",
+        "flagset"
+      ]
+    },
+    {
+      "name": "SD-JWT by URI with siros-x509",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "uri"
+          ]
+        },
+        {
+          "name": "siros-sdjwt",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-x509",
+          "features": []
+        }
+      ],
+      "forbid": [
+        "ciborium",
+        "ciborium-io",
+        "ciborium-ll",
+        "half",
+        "coset",
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "uuid",
+        "zerocopy",
+        "zerocopy-derive",
+        "sponge-cursor"
+      ]
+    },
+    {
+      "name": "siros-paso with SD-JWT",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "dc-api",
+            "resolve",
+            "transaction-data"
+          ]
+        },
+        {
+          "name": "siros-sdjwt",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-paso",
+          "features": [
+            "resolve"
+          ]
+        }
+      ],
+      "forbid": [
+        "ciborium",
+        "ciborium-io",
+        "ciborium-ll",
+        "half",
+        "coset",
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "serde_urlencoded",
+        "form_urlencoded",
+        "fluent-uri/net",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "zerocopy",
+        "zerocopy-derive",
+        "percent-encoding",
+        "ryu",
+        "sponge-cursor"
+      ]
+    },
+    {
+      "name": "HAIP",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "dc-api",
+            "uri",
+            "transaction-data"
+          ]
+        },
+        {
+          "name": "siros-sdjwt",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-mdoc",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-x509",
+          "features": []
+        }
+      ],
+      "forbid": [
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "uuid",
+        "sponge-cursor"
+      ]
+    },
+    {
+      "name": "WE BUILD",
+      "crates": [
+        {
+          "name": "siros-openid4vp",
+          "features": [
+            "dc-api",
+            "uri",
+            "request-decryption",
+            "transaction-data"
+          ]
+        },
+        {
+          "name": "siros-sdjwt",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-x509",
+          "features": []
+        },
+        {
+          "name": "siros-paso",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
+          "name": "siros-webuild",
+          "features": []
+        }
+      ],
+      "forbid": [
+        "ciborium",
+        "ciborium-io",
+        "ciborium-ll",
+        "half",
+        "coset",
+        "p256",
+        "elliptic-curve",
+        "primeorder",
+        "crypto-bigint",
+        "ff",
+        "group",
+        "sha3",
+        "keccak",
+        "blake2",
+        "k12",
+        "zerocopy",
+        "zerocopy-derive",
+        "sponge-cursor"
+      ]
+    }
+  ],
+  "alone": [
+    {
+      "name": "siros-openid4vp",
+      "names": [
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-x509",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-mdoc",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-sdjwt",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-paso",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-qes",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-credman",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-webuild",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-zkp-req",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-testkit",
+      "names": [
+        "siros-openid4vp",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-i18n",
+      "names": [
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-explain",
+      "names": [
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-explain-derive",
+      "names": []
+    },
+    {
+      "name": "siros-cldr",
+      "names": [
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-integration",
+      "names": []
+    }
+  ]
+}
