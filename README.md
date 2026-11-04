@@ -52,6 +52,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-sdjwt` | `dc+sd-jwt` |
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules |
 | `siros-qes` | CSC's QES transaction data |
+| `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
 | `siros-wallet-state` | The decrypted wallet state of the private data container |
 | `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
@@ -70,6 +71,7 @@ siros-openid4vp     the core: a request in, a response built
 ├── siros-sdjwt     dc+sd-jwt
 ├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt
 ├── siros-qes       CSC's QES transaction data
+├── siros-credman   Credential Manager's entries for the matcher
 └── siros-trust     issuer trust at registration
 siros-i18n          the i18n engine
 siros-explain       the message contract

@@ -6,7 +6,7 @@ use siros_explain::AllOf;
 use super::super::ConcretePath;
 use super::super::PathError;
 use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
-use crate::boxes::Card;
+use crate::consent::Card;
 use crate::json::Node;
 use crate::plugins::{Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown};
 use crate::refusal::Refusal;

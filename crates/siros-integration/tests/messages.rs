@@ -14,6 +14,7 @@ fn an_identifier_names_one_message_across_the_crates() {
         siros_paso::CrateMessages::messages(),
         siros_qes::CrateMessages::messages(),
         siros_x509::CrateMessages::messages(),
+        siros_credman::CrateMessages::messages(),
         siros_testkit::CrateMessages::messages(),
         siros_i18n::CrateMessages::messages(),
     ];

@@ -42,7 +42,7 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
         let shown = display(&sets, views, statics).expect("no fault");
         assert_eq!(sets.len(), shown.sets().len(), "P-display sets");
         for (set, slots) in sets.iter().zip(shown.sets()) {
-            // The wallet's static boxes first, one slot each, then the offer's slots.
+            // The wallet's static entries first, one slot each, then the offer's slots.
             let (head, rest) = slots.split_at(statics.len());
             assert!(
                 head.iter().zip(statics).all(|(slot, content)| {

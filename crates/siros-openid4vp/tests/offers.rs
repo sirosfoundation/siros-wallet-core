@@ -1,4 +1,4 @@
-//! Credential Manager's sets for the wallet's choices, and the choices inside a candidate, as the
+//! The consent's sets for the wallet's choices, and the choices inside a candidate, as the
 //! DCQL examples, PaSO Core §7.4.1 and zkp_req §2.1 state them.
 
 mod common;
@@ -329,91 +329,6 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         assert!(ReturnedRecord::parse(malformed).is_err(), "{malformed}");
     }
     assert!(ReturnedRecord::parse(r#"["q", "c", 0, [], {}, "d"]"#).is_ok());
-}
-
-#[test]
-fn a_profile_overlay_draws_over_the_formats_card() {
-    use siros_openid4vp::boxes::{Card, EntryBox, Overlay, PaymentHeader};
-    use siros_openid4vp::rows::{Icon, Label, Row};
-    let row = |label: &str| Row::full_text(Label::text(label));
-    let card = || Card {
-        icon: Icon::DEFAULT,
-        title: "Card".to_owned(),
-        subtitle: Some("Issuer".to_owned()),
-        rows: vec![row("claim")],
-    };
-    // No transaction: the card itself.
-    let EntryBox::Standard(plain) = EntryBox::compose(card(), None) else {
-        panic!("a Standard entry")
-    };
-    assert_eq!(
-        (
-            plain.title.as_str(),
-            plain.subtitle.as_deref(),
-            plain.warning.as_deref(),
-            plain.rows.len()
-        ),
-        ("Card", Some("Issuer"), None, 1)
-    );
-    // A Standard presentation (PaSO Generic and Mandate, QES, the test profile's t1): the card stays
-    // the identity, the transaction's rows come first, the hint is the warning.
-    let standard = Overlay {
-        rows: vec![row("Reference")],
-        payment: None,
-        hint: Some("Check the payee".to_owned()),
-    };
-    let EntryBox::Standard(shown) = EntryBox::compose(card(), Some(&standard)) else {
-        panic!("a Standard entry")
-    };
-    assert_eq!(
-        (
-            shown.title.as_str(),
-            shown.subtitle.as_deref(),
-            shown.warning.as_deref(),
-            &shown.icon
-        ),
-        (
-            "Card",
-            Some("Issuer"),
-            Some("Check the payee"),
-            &Icon::DEFAULT
-        )
-    );
-    assert_eq!(shown.rows, [row("Reference"), row("claim")]);
-    // A payment (PaSO Payment, the test profile's t2): merchant and amount from the header, whose
-    // rows the box leaves out; the card is the payment method; the hint the additional info.
-    let header = PaymentHeader {
-        merchant: "Shop".to_owned(),
-        amount: "€1.00".to_owned(),
-        rows: vec![row("Payee"), row("Amount")],
-    };
-    let payment = Overlay {
-        rows: vec![row("Payee logo")],
-        payment: Some(header),
-        hint: None,
-    };
-    let EntryBox::Payment(paid) = EntryBox::compose(card(), Some(&payment)) else {
-        panic!("a Payment entry")
-    };
-    assert_eq!(
-        (
-            paid.merchant.as_str(),
-            paid.amount.as_str(),
-            paid.method_name.as_str(),
-            paid.method_subtitle.as_deref(),
-            paid.additional_info.as_deref()
-        ),
-        ("Shop", "€1.00", "Card", Some("Issuer"), None)
-    );
-    assert_eq!(paid.rows, [row("Payee logo"), row("claim")]);
-    // Either kind: the overlay's rows then the card's, and the card's icon.
-    for (overlay, first) in [(&standard, "Reference"), (&payment, "Payee logo")] {
-        let composed = EntryBox::compose(card(), Some(overlay));
-        assert_eq!(
-            (composed.rows(), composed.icon()),
-            (&[row(first), row("claim")][..], &Icon::DEFAULT)
-        );
-    }
 }
 
 #[test]

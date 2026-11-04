@@ -46,7 +46,7 @@ mod rules;
 
 use rustc_hash::FxHashMap;
 use siros_explain::{AllOf, Message, Messages};
-use siros_openid4vp::boxes::Overlay;
+use siros_openid4vp::consent::Overlay;
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::{InvalidId, TransactionType};
 use siros_openid4vp::plugins::{
@@ -262,7 +262,7 @@ impl Profile for QesProfile {
             attested: Attested::default(),
             overlay: Overlay {
                 rows: rendered.rows,
-                payment: None,
+                header: None,
                 hint: None,
             },
         })

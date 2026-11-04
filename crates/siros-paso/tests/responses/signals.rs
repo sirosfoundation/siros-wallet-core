@@ -176,13 +176,13 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
             &en(),
         )
         .expect("binds");
-    let payment = bound.overlay.payment.as_ref().expect("a payment");
+    let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(
-        (payment.merchant.as_str(), payment.amount.as_str()),
+        (payment.counterparty.as_str(), payment.amount.as_str()),
         ("Shop Inc.", "€49.99")
     );
     assert_eq!(bound.overlay.hint.as_deref(), Some(hint));
-    // The header shows merchant and amount: the box's rows leave them out.
+    // The header shows merchant and amount: the overlay's rows leave them out.
     assert!(bound.overlay.rows.is_empty());
     assert_eq!(
         payment

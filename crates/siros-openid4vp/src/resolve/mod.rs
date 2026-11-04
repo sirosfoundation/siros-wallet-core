@@ -1,4 +1,4 @@
-//! Phase 2: the response to a selection, from the request, the ids Credential Manager returns,
+//! Phase 2: the response to a selection, from the request, the ids the platform returns,
 //! the wallet's credentials, its configuration, the resources its caller fetches and its host's
 //! modules. Each id is a record the matcher wrote. Phase 2 trusts the user's choice of records
 //! alone: it derives every record itself, with the matcher's code, from the request it holds and

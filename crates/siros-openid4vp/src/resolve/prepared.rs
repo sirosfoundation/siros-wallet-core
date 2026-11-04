@@ -88,7 +88,7 @@ struct Presenting<'a, 'p, H> {
 }
 
 impl<'p, H: CoreHost> Prepared<'p, H> {
-    /// Phase 2's first step, from the ids Credential Manager returned; `wallet`, `registry` and
+    /// Phase 2's first step, from the ids the platform returned; `wallet`, `registry` and
     /// `env` the data and configuration the wallet registered. The request's rules run again;
     /// every record is derived with the matcher's code and checked as a selection; each
     /// record's query is read through its format's [`FormatHost::answer`] under the accepted

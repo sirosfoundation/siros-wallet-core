@@ -151,7 +151,7 @@ pub enum Amounts {
     Raw,
 }
 
-/// How Credential Manager offers the consent.
+/// How the platform offers the consent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Choice {
     /// Each slot's default preselected; the user changes one slot at a time.

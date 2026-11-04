@@ -22,7 +22,7 @@ pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
 pub use rules::{KitRule, NoAlgorithm, QueryRule};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
-use crate::boxes::Card;
+use crate::consent::Card;
 use crate::ids::{LocaleTag, QueryId};
 use crate::json::Node;
 use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};

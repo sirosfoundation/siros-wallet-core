@@ -3329,6 +3329,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "siros-credman"
+version = "0.1.0"
+dependencies = [
+ "siros-explain",
+ "siros-openid4vp",
+ "siros-testkit",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "siros-explain"
 version = "0.1.0"
 dependencies = [
@@ -3385,6 +3395,7 @@ dependencies = [
  "serde_urlencoded",
  "sha2 0.11.1",
  "sha3 0.12.0",
+ "siros-credman",
  "siros-explain",
  "siros-i18n",
  "siros-mdoc",

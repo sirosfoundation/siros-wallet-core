@@ -71,7 +71,7 @@ pub enum Image {
     /// An image the matcher holds and verified.
     Embedded(ImageRef),
     /// An https image the matcher could not fetch: phase 2 fetches and verifies it before
-    /// answering. Credential Manager draws no image; the wallet UI draws one once verified.
+    /// answering. The matcher's platform draws no image; the wallet UI draws one once verified.
     Remote(RemoteImage),
 }
 

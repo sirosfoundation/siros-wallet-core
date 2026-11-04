@@ -1,5 +1,5 @@
 //! The record a consent entry carries: what choosing it presents and what the response attests of
-//! it. Credential Manager returns it as the entry's id when the user picks the entry.
+//! it. The platform returns it as the entry's id when the user picks the entry.
 
 use siros_explain::Explain;
 
@@ -94,7 +94,7 @@ impl<'m> Record<'m> {
     }
 }
 
-/// An id Credential Manager returned that is no record.
+/// An id the platform returned that is no record.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.record")]
 pub enum RecordError {

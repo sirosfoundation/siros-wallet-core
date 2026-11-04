@@ -12,7 +12,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use siros_openid4vp::boxes::{EntryBox, Header};
+use siros_openid4vp::consent::{ConsentEntry, Header};
 use std::num::NonZeroU32;
 
 use siros_explain::AllOf;
@@ -94,7 +94,7 @@ fn english() -> Env {
 /// each slot's default.
 struct Answered {
     header: Header,
-    entry: EntryBox,
+    entry: ConsentEntry,
     response: Response,
 }
 
@@ -127,7 +127,7 @@ fn answer(
     let entry = views
         .by_id(chosen[0])
         .expect("the chosen entry")
-        .entry_box
+        .entry
         .clone();
     let response = Prepared::prepare(request, &chosen, &wallet, &registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
@@ -263,11 +263,13 @@ fn assert_core_a4(answered: &Answered) {
         ),
         ("Payment Confirmation", "Pay", "Cancel")
     );
-    let EntryBox::Payment(payment) = &answered.entry else {
-        panic!("a payment entry: {:?}", answered.entry);
-    };
+    let payment = answered
+        .entry
+        .overlay()
+        .and_then(|overlay| overlay.header.as_ref())
+        .expect("a payment's transaction header");
     assert_eq!(
-        (payment.merchant.as_str(), payment.amount.as_str()),
+        (payment.counterparty.as_str(), payment.amount.as_str()),
         ("Shop Inc.", "49.99 EUR")
     );
 }

@@ -176,7 +176,7 @@ impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
         credential: &siros_openid4vp::wallet::Credential<'_>,
         shown: siros_openid4vp::plugins::Shown<'_>,
         env: &siros_openid4vp::rows::Env,
-    ) -> Result<siros_openid4vp::boxes::Card, siros_openid4vp::plugins::Fault> {
+    ) -> Result<siros_openid4vp::consent::Card, siros_openid4vp::plugins::Fault> {
         match self.1 {
             Script::DrawFails => Err(Fault::new(FAULT, detail!("the format draws no card"))),
             Script::WhenProvided | Script::OutOfRange => self.0.draw(credential, shown, env),

@@ -21,7 +21,6 @@ use rand::seq::IndexedRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::json;
-use siros_openid4vp::boxes::EntryBox;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::{ProfileFinding, Registry};
@@ -246,22 +245,22 @@ fn the_profile_keeps_the_properties_the_model_states() {
         let [view] = views.as_slice() else {
             panic!("case {at}: one entry")
         };
-        let EntryBox::Standard(standard) = &view.entry_box else {
-            panic!("case {at}: a standard entry")
-        };
+        let overlay = view.entry.overlay().expect("the approval's overlay");
+        let rows: Vec<_> = view.entry.rows().collect();
         let creates = if case.qualifier == "eu_eidas_qes" {
             "signatures"
         } else {
             "seals"
         };
         assert!(
-            standard.warning.is_none()
-                && standard.rows.first().is_some_and(|row| row.value.is_none())
-                && standard.rows.last().map(|row| row.label.text.as_str()) == Some("userName")
+            overlay.header.is_none()
+                && overlay.hint.is_none()
+                && rows.first().is_some_and(|row| row.value.is_none())
+                && rows.last().map(|row| row.label.text.as_str()) == Some("userName")
                 && view.header.as_ref().map(|h| h.title.text.clone())
                     == Some(format!("Approve qualified {creates}")),
             "case {at}: {:?}",
-            view.entry_box
+            view.entry
         );
         let failing = case.failing();
         let published = serving(published());

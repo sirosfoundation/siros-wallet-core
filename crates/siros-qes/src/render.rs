@@ -5,7 +5,7 @@
 //! that it has none, its one-time password, its link, and whether its integrity was checked.
 
 use rustc_hash::FxHashMap;
-use siros_openid4vp::boxes::Header;
+use siros_openid4vp::consent::Header;
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Exclude, Fault, NoCandidate};
 use siros_openid4vp::rows::{

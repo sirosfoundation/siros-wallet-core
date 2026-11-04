@@ -4,9 +4,9 @@ use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde_json::{Value, json};
 use siros_openid4vp::arrival::{DcApiProtocol, Received};
-use siros_openid4vp::boxes::StandardBox;
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::matching::StaticBox;
+use siros_openid4vp::matching::StaticEntry;
 use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, IconMedia, Label, Row};
 use siros_openid4vp::wallet::Holder;
 use siros_testkit::fixtures::{self, Held, ORIGIN};
@@ -21,7 +21,7 @@ use super::{
     string,
 };
 
-/// A dressed case: the request as received, the wallet, its configuration and static boxes, and
+/// A dressed case: the request as received, the wallet, its configuration and static entries, and
 /// the credentials the host says can no longer be presented.
 pub struct Dressed {
     /// The DC API protocol.
@@ -34,8 +34,8 @@ pub struct Dressed {
     pub credentials: Vec<Held>,
     /// The wallet's configuration.
     pub env: Env,
-    /// The wallet's static boxes.
-    pub statics: Vec<StaticBox>,
+    /// The wallet's static entries.
+    pub statics: Vec<StaticEntry>,
     /// The credentials no longer valid.
     pub unusable: Vec<String>,
 }
@@ -204,11 +204,11 @@ pub(super) fn icons() -> Vec<(String, Icon)> {
         .collect()
 }
 
-/// A static box the wallet adds to every set.
-pub(super) fn static_box(k: usize) -> StaticBox {
-    StaticBox {
+/// A static entry the wallet adds to every set.
+pub(super) fn static_entry(k: usize) -> StaticEntry {
+    StaticEntry {
         id: format!("static:{k}"),
-        content: StandardBox {
+        card: Card {
             icon: Icon {
                 reference: Cow::Borrowed("wallet:warning"),
                 media: IconMedia::Png,
@@ -216,7 +216,6 @@ pub(super) fn static_box(k: usize) -> StaticBox {
             },
             title: format!("Notice {k}"),
             subtitle: None,
-            warning: None,
             rows: vec![Row::full_text(Label::text(format!("Wallet notice {k}")))],
         },
     }
@@ -458,7 +457,7 @@ pub(super) fn dress(
         .iter()
         .map(|credential| dress_credential(rng, credential, &formats, &types))
         .collect();
-    let statics = (0..pick(rng, &[0, 0, 1, 2])).map(static_box).collect();
+    let statics = (0..pick(rng, &[0, 0, 1, 2])).map(static_entry).collect();
     let metadata = client_metadata(rng);
     let unusable = credentials
         .iter()

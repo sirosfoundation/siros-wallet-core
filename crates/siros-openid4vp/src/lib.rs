@@ -7,7 +7,8 @@
 //!   Sets and `transaction_data` entries, the alternatives the sets allow and their factoring.
 //! - [`plugins`]: the format and transaction data profile contracts and the [`plugins::Registry`].
 //! - [`wallet`]: the credentials as the wallet registers them.
-//! - [`rows`], [`text`], [`boxes`]: what plug-ins render into, and the text rules the core applies.
+//! - [`rows`], [`text`], [`consent`]: what plug-ins render into, the text rules the core applies,
+//!   and the consent entry as platform-neutral data.
 //! - [`ids`], [`json`], [`refusal`]: the identifiers, JSON with unique member names, and refusals
 //!   with their error codes.
 //! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them.
@@ -49,8 +50,8 @@
 )]
 
 pub mod arrival;
-pub mod boxes;
 pub mod claims;
+pub mod consent;
 pub mod envelope;
 pub mod hash;
 pub mod ids;

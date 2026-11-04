@@ -1,4 +1,4 @@
-//! Credential Manager's shape of the consent: sets of slots of alternative entries, in the shape
+//! The consent's shape on the platform: sets of slots of alternative entries, in the shape
 //! the wallet chooses.
 
 use super::{CandidateIndex, Consent, Match, Pick};
@@ -118,7 +118,7 @@ fn ordered(matched: &Match<'_>, option: crate::request::QuerySet) -> Vec<QueryIn
         .collect()
 }
 
-/// Credential Manager's shape when the wallet preselects each slot's default: sets of slots of
+/// The consent's shape when the wallet preselects each slot's default: sets of slots of
 /// alternative entries. Per consent slot, in the order of its options: each run of ways that are
 /// single slots joins one slot, with "none" for ∅; every other way is a branch of its own; the
 /// sets are the product of the branches. The user meets each slot's options in their order, and
@@ -172,7 +172,7 @@ pub fn flatten(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
         .collect()
 }
 
-/// Credential Manager's shape when the wallet lets the user choose: one set per selection,
+/// The consent's shape when the wallet lets the user choose: one set per selection,
 /// every slot holding one entry, "none" for ∅. The sets follow each slot's options in order and
 /// open on the same selection as [`flatten`]'s.
 #[must_use]
@@ -211,7 +211,7 @@ pub fn each(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
         .collect()
 }
 
-/// Credential Manager's sets for the wallet's choice.
+/// The consent's sets for the wallet's choice.
 #[must_use]
 pub fn offer(matched: &Match<'_>, consent: &Consent, choice: Choice) -> Vec<OfferSet> {
     match choice {

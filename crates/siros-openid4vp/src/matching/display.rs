@@ -1,11 +1,11 @@
-//! The consent display both renderers draw: each entry's record, box and header, the sets of
-//! slots of choices, and the selection read back from the ids Credential Manager returns.
+//! The consent display every renderer draws: each entry's record, consent entry and header, the
+//! sets of slots of choices, and the selection read back from the ids the platform returns.
 
 use rustc_hash::FxHashMap;
 use siros_explain::Explain;
 
 use super::{Match, OfferSet, Offered, Pick, Record};
-use crate::boxes::{EntryBox, Header, StandardBox};
+use crate::consent::{Card, ConsentEntry, Header};
 use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
 use crate::request::Item;
 use crate::rows::{Env, Label, WalletText};
@@ -46,15 +46,15 @@ pub fn option_items(
     (everyone, chosen)
 }
 
-/// One consent entry: its pick, its record, its box, and its transaction's header.
+/// One consent entry: its pick, its record, what it shows, and its transaction's header.
 #[derive(Debug, Clone)]
 pub struct EntryView<'m> {
     /// The pick.
     pub pick: Pick,
     /// The record.
     pub record: Record<'m>,
-    /// The box: the profile's overlay over the format's card, or the card alone.
-    pub entry_box: EntryBox,
+    /// What it shows: the format's card, with the profile's overlay for a transaction.
+    pub entry: ConsentEntry,
     /// The transaction's header.
     pub header: Option<&'m Header>,
 }
@@ -67,8 +67,8 @@ pub struct Views<'m> {
 }
 
 impl<'m> Views<'m> {
-    /// Every (query, candidate, answerable option): its record, and the box and header of the
-    /// transaction it authorizes.
+    /// Every (query, candidate, answerable option): its record, its consent entry, and the
+    /// header of the transaction it authorizes.
     pub fn of(matched: &'m Match<'m>, env: &Env) -> Result<Self, Fault> {
         let accepted = matched.accepted();
         let request = accepted.request();
@@ -110,7 +110,7 @@ impl<'m> Views<'m> {
                             option: *option,
                         },
                         record,
-                        entry_box: EntryBox::compose(card, bound.map(|bound| &bound.overlay)),
+                        entry: ConsentEntry::new(card, bound.map(|bound| bound.overlay.clone())),
                         header: bound.map(|bound| &bound.header),
                     });
                 }
@@ -144,20 +144,20 @@ impl<'m> Views<'m> {
     }
 }
 
-/// A box the wallet adds to every set, one per slot, first in every set.
+/// An entry the wallet adds to every set, one per slot, first in every set.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StaticBox {
-    /// Its id in Credential Manager.
+pub struct StaticEntry {
+    /// Its id, which the platform returns when the End-User picks it.
     pub id: String,
-    /// The box.
-    pub content: StandardBox,
+    /// What it shows.
+    pub card: Card,
 }
 
 /// One choice of a slot.
 #[derive(Debug, Clone, Copy)]
 pub enum Choice<'v> {
-    /// A static box.
-    Static(&'v StaticBox),
+    /// A static entry.
+    Static(&'v StaticEntry),
     /// The empty choice, "none".
     Nothing,
     /// A consent entry.
@@ -165,7 +165,7 @@ pub enum Choice<'v> {
 }
 
 impl Choice<'_> {
-    /// The choice's id in Credential Manager.
+    /// The choice's id, which the platform returns when the End-User picks it.
     #[must_use]
     pub fn id(&self) -> &str {
         match self {
@@ -176,18 +176,18 @@ impl Choice<'_> {
     }
 }
 
-/// The consent display: sets of slots of choices. Each set opens with one slot per static box,
+/// The consent display: sets of slots of choices. Each set opens with one slot per static entry,
 /// then holds the slots of the offer.
 #[derive(Debug, Clone)]
 pub struct Display<'v> {
     sets: Vec<Vec<Vec<Choice<'v>>>>,
 }
 
-/// The display of an offer, with the wallet's static boxes.
+/// The display of an offer, with the wallet's static entries.
 pub fn display<'v>(
     sets: &[OfferSet],
     views: &'v Views<'v>,
-    statics: &'v [StaticBox],
+    statics: &'v [StaticEntry],
 ) -> Result<Display<'v>, Fault> {
     let head = || statics.iter().map(|content| vec![Choice::Static(content)]);
     let sets = sets
@@ -258,8 +258,8 @@ impl<'v> Display<'v> {
         &self.sets
     }
 
-    /// The selection Credential Manager returned: the set's index and the chosen entry's id per
-    /// slot. An id that is not one of its slot's choices is refused.
+    /// The selection the platform returned: the set's index and the chosen entry's id per slot.
+    /// An id that is not one of its slot's choices is refused.
     pub fn select(&self, set: usize, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
         let slots = self.sets.get(set).ok_or(SelectionError::NoSet {
             set,

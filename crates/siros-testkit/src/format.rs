@@ -6,7 +6,7 @@
 //! `vp_formats_supported` value for "test": `{"algs"?: [...]}`.
 
 use siros_explain::AllOf;
-use siros_openid4vp::boxes::Card;
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredOption, AnsweredQuery, FormatHost, PresentError, Presentation, Usable,

@@ -4,9 +4,10 @@
 
 use crate::common::HaipHost;
 use serde_json::Value;
-use siros_openid4vp::boxes::{Card, EntryBox, StandardBox};
+use siros_credman::{CredmanEntry, StandardEntry};
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
-use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticBox, Views, option_items};
+use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
 use siros_openid4vp::plugins::{FormatQuery, NoCandidate, Profile, Registry, Shown};
 use siros_openid4vp::request::{
     ClientMetadata, EntryIndex, HolderBinding, Query, QueryIndex, Request,
@@ -25,7 +26,7 @@ use crate::tally::Tally;
 use crate::{display, outcome};
 
 /// A dressed case as the checks read it: the request, the real registry, the wallet, its
-/// configuration and static boxes, the Verifier's metadata, each query as its format parsed it.
+/// configuration and static entries, the Verifier's metadata, each query as its format parsed it.
 pub struct Case<'c> {
     /// The request.
     pub request: &'c Request<'c>,
@@ -35,8 +36,8 @@ pub struct Case<'c> {
     pub wallet: &'c Wallet<'c>,
     /// The wallet's configuration.
     pub env: &'c Env,
-    /// The wallet's static boxes.
-    pub statics: &'c [StaticBox],
+    /// The wallet's static entries.
+    pub statics: &'c [StaticEntry],
     /// The credentials as the wallet registers them.
     pub held: &'c [Held],
     /// The credentials the host says can no longer be presented.
@@ -478,8 +479,8 @@ fn boxes(
         let Some(bound) = &candidate.bound else {
             assert!(view.record.entries.is_empty(), "P-record without entries");
             assert_eq!(
-                view.entry_box,
-                EntryBox::Standard(StandardBox {
+                CredmanEntry::of(&view.entry),
+                CredmanEntry::Standard(StandardEntry {
                     icon: card.icon,
                     title: card.title,
                     subtitle: card.subtitle,
@@ -501,8 +502,8 @@ fn boxes(
             let mut rows = bound.overlay.rows.clone();
             rows.extend(card.rows.iter().cloned());
             assert_eq!(
-                view.entry_box,
-                EntryBox::Standard(StandardBox {
+                CredmanEntry::of(&view.entry),
+                CredmanEntry::Standard(StandardEntry {
                     icon: card.icon,
                     title: card.title,
                     subtitle: card.subtitle,
@@ -536,8 +537,8 @@ fn boxes(
             "P-header"
         );
         let shown: Vec<_> = t.rows.iter().map(|row| row.row.clone()).collect();
-        match &view.entry_box {
-            EntryBox::Payment(payment) => {
+        match CredmanEntry::of(&view.entry) {
+            CredmanEntry::Payment(payment) => {
                 // View §2: merchant and amount show once, in the payment entry; every other
                 // transaction row stays a row, then the card's; the hint is the additional
                 // information.
@@ -573,7 +574,7 @@ fn boxes(
                 );
                 tally.add("payment boxes");
             }
-            EntryBox::Standard(standard) => {
+            CredmanEntry::Standard(standard) => {
                 // The card stays the box's identity; the transaction's rows come first.
                 assert!(t.payment_texts().is_none(), "P-standard box");
                 let mut want = shown;

@@ -1,0 +1,21 @@
+[package]
+name = "siros-credman"
+version = "0.1.0"
+description = "Android Credential Manager's entries for the SIROS wallet core's matcher: the Standard and Payment entries of a consent entry, and the delegation of a set (A9, K4)"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+siros-openid4vp = { workspace = true, features = ["match"] }
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+siros-testkit = { workspace = true }
+
+[lints]
+workspace = true

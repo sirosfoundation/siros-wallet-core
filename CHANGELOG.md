@@ -18,6 +18,11 @@ released version yet.
   digests, the MSO, `issuerAuth`, and the data the device key signs.
   ISO/IEC 18013-5 Annex D's DeviceResponse is its known answer, and each
   construction rule refuses its fixture.
+- `siros-credman` lays out the core's consent entries as Android Credential
+  Manager's Standard and Payment entries, and decides each set's delegation:
+  `Full` when the set needs no wallet display (A9, K4). `siros-openid4vp`
+  composes the consent entry as platform-neutral data (`consent`), its
+  transaction header filled by the profile.
 
 ### Changed
 

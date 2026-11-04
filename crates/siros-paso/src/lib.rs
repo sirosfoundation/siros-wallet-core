@@ -69,7 +69,7 @@ mod template;
 pub use conform::{ClaimIndex, Placement};
 
 use siros_explain::{Message, Messages};
-use siros_openid4vp::boxes::{Header, Overlay, PaymentHeader};
+use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
@@ -415,7 +415,7 @@ impl PasoProfile {
 /// What a rendering gives the core: the entry it authorizes, the header, what the response
 /// attests (the locale shown, Core §7.2, and the stored metadata's integrity, Core §6.1), and
 /// the overlay: the transaction's rows before the card's, the hint, and for a payment its
-/// header, whose merchant and amount rows leave the box's rows.
+/// transaction header, whose payee and amount rows leave the entry's rows.
 fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Result<Bound, Fault> {
     let Rendered { view, source } = rendered;
     let payment = view
@@ -446,8 +446,8 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
                     .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
                     .map(|(_, row)| row.row)
                     .collect(),
-                payment: Some(PaymentHeader {
-                    merchant,
+                header: Some(TransactionHeader {
+                    counterparty: merchant,
                     amount,
                     rows: header_rows,
                 }),
@@ -456,7 +456,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         }
         _ => Overlay {
             rows: rows.into_iter().map(|row| row.row).collect(),
-            payment: None,
+            header: None,
             hint: actions.hint,
         },
     };

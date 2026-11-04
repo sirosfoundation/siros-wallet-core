@@ -4,16 +4,12 @@
 //! cause (`phase2`), Core §6.1 and Risk Signals §4-7 on the response members (`members`,
 //! `signals`).
 
-use std::borrow::Cow;
-use std::num::NonZeroU32;
-
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
-use siros_openid4vp::boxes::{Card as CardBox, EntryBox};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::plugins::{Binding, Carriage, NoCandidate, Profile};
-use siros_openid4vp::rows::{Amounts, Icon, IconMedia, Label, Row};
+use siros_openid4vp::rows::{Amounts, Row};
 use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Source};
 use siros_testkit::verifier::ISSUER;
@@ -248,24 +244,6 @@ fn at<'v>(payload: &'v Value, path: &[Value]) -> &'v Value {
     })
 }
 
-/// The card a format plug-in draws, which the overlay composes over.
-fn drawn() -> CardBox {
-    CardBox {
-        icon: Icon {
-            reference: Cow::Borrowed("asset:card"),
-            media: IconMedia::Png,
-            size: NonZeroU32::MIN,
-        },
-        title: "Card".to_owned(),
-        subtitle: Some("Bank".to_owned()),
-        rows: vec![Row {
-            label: Label::text("Holder"),
-            value: None,
-            section: None,
-        }],
-    }
-}
-
 /// One case: each entry rendered for the card, the binding rule (Core §7.4.2: the first entry
 /// that renders binds, a locale failure excludes, no entry excludes), the box the bound entry's
 /// overlay composes, phase 2's findings, and the response members.
@@ -334,12 +312,11 @@ pub fn case(case: &Case, tally: &mut Tally) {
         (&view.title, &view.actions.confirm, &view.actions.deny),
         "P-header"
     );
-    let card_box = drawn();
     let rows: Vec<Row> = view.rows.iter().map(|row| row.row.clone()).collect();
-    match EntryBox::compose(card_box.clone(), Some(&bound.overlay)) {
-        EntryBox::Payment(entry_box) => {
-            // Merchant and amount show once, in the payment entry; every other row stays a row,
-            // then the card's; the hint is the additional information.
+    match &bound.overlay.header {
+        Some(header) => {
+            // Merchant and amount show once, in the transaction header; every other row stays
+            // an overlay row.
             let heads = view.payment.expect("P-payment rows");
             let texts = view.payment_texts().expect("P-payment rows");
             let rest: Vec<Row> = rows
@@ -349,43 +326,26 @@ pub fn case(case: &Case, tally: &mut Tally) {
                 .map(|(_, row)| row.clone())
                 .collect();
             assert_eq!(rest.len() + 2, rows.len(), "P-proxy rows");
-            let mut want = rest;
-            want.extend(card_box.rows.iter().cloned());
-            assert_eq!(entry_box.rows, want, "P-proxy rows");
+            assert_eq!(bound.overlay.rows, rest, "P-proxy rows");
             assert_eq!(
-                (entry_box.merchant.as_str(), entry_box.amount.as_str()),
+                (header.counterparty.as_str(), header.amount.as_str()),
                 texts,
-                "P-payment box"
+                "P-payment header"
             );
             assert_eq!(
-                (
-                    &entry_box.method_name,
-                    &entry_box.method_subtitle,
-                    &entry_box.method_icon
-                ),
-                (&card_box.title, &card_box.subtitle, &card_box.icon),
-                "P-payment method"
-            );
-            assert_eq!(
-                entry_box.additional_info, view.actions.hint,
-                "P-hint on the entry"
+                header.rows,
+                [rows[heads.merchant()].clone(), rows[heads.amount()].clone()],
+                "P-payment header rows"
             );
             tally.add("payment boxes");
         }
-        EntryBox::Standard(entry_box) => {
+        None => {
             assert!(view.payment_texts().is_none(), "P-standard box");
-            let mut want = rows;
-            want.extend(card_box.rows.iter().cloned());
-            assert_eq!(entry_box.rows, want, "P-proxy rows");
-            assert_eq!(
-                (&entry_box.icon, &entry_box.title, &entry_box.subtitle),
-                (&card_box.icon, &card_box.title, &card_box.subtitle),
-                "P-card is the identity"
-            );
-            assert_eq!(entry_box.warning, view.actions.hint, "P-hint on the entry");
+            assert_eq!(bound.overlay.rows, rows, "P-proxy rows");
             tally.add("standard boxes");
         }
     }
+    assert_eq!(bound.overlay.hint, view.actions.hint, "P-hint on the entry");
     // What the response attests: the locale shown (Core §7.2), the stored metadata's integrity.
     let mut attested = vec![("display_locale".to_owned(), view.locale.tag.to_string())];
     if let Source::Stored { integrity } = &rendered.source {

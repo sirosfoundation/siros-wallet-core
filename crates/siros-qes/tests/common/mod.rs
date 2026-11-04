@@ -8,7 +8,7 @@ pub mod fixtures;
 
 use serde_json::Value as Json;
 use siros_explain::AllOf;
-use siros_openid4vp::boxes::{Card, EntryBox, Header};
+use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::{Fetch, MediaType, Resource};
 use siros_openid4vp::envelope::Envelope;
@@ -465,9 +465,9 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
 /// A row as (section, label, value kind, value text).
 pub type ShownRow = (Option<String>, String, Option<&'static str>, Option<String>);
 
-/// The rows of a box.
-pub fn shown(rows: &[Row]) -> Vec<ShownRow> {
-    rows.iter()
+/// The rows of an entry.
+pub fn shown<'r>(rows: impl IntoIterator<Item = &'r Row>) -> Vec<ShownRow> {
+    rows.into_iter()
         .map(|row| {
             (
                 row.section.clone(),
@@ -492,11 +492,11 @@ pub struct Matched {
     pub excluded: Vec<(String, String, String)>,
 }
 
-/// One entry of the consent: its box, header and record id.
+/// One entry of the consent: what it shows, its header and record id.
 #[derive(Debug, Clone)]
 pub struct Viewed {
-    /// The box.
-    pub entry_box: EntryBox,
+    /// What it shows.
+    pub entry: ConsentEntry,
     /// The transaction's header.
     pub header: Option<Header>,
     /// The record's id.
@@ -549,7 +549,7 @@ pub fn phase_one(
     let viewed = views
         .iter()
         .map(|view| Viewed {
-            entry_box: view.entry_box.clone(),
+            entry: view.entry.clone(),
             header: view.header.cloned(),
             record: view.record.id().as_str().to_owned(),
         })

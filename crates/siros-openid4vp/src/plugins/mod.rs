@@ -34,7 +34,7 @@ pub use registry::{
     RegistryError,
 };
 
-use crate::boxes::{Card, Header, Overlay};
+use crate::consent::{Card, Header, Overlay};
 use crate::ids::FormatId;
 use crate::json::Node;
 use crate::refusal::Refusal;

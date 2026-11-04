@@ -5,7 +5,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::Value as Json;
 use siros_explain::AllOf;
-use siros_openid4vp::boxes::Card;
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredOption, AnsweredQuery, FormatHost, PresentError, Presentation, Usable,

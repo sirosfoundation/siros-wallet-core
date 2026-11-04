@@ -6,7 +6,7 @@ mod common;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use siros_openid4vp::boxes::{EntryBox, Header};
+use siros_openid4vp::consent::Header;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::resolve::{Finding, Outcome};
@@ -132,7 +132,7 @@ fn csc_7_1_2_is_rendered_by_6_4() {
     let doc = |n: u8| format!("Document {n}");
     let (d1, d2, d3) = (doc(1), doc(2), doc(3));
     assert_eq!(
-        shown(view.entry_box.rows()),
+        shown(view.entry.rows()),
         [
             row(
                 None,
@@ -160,10 +160,12 @@ fn csc_7_1_2_is_rendered_by_6_4() {
             row(None, "userName", Some("text"), Some("willeke")),
         ]
     );
-    let EntryBox::Standard(standard) = &view.entry_box else {
-        panic!("a standard entry: {:?}", view.entry_box)
-    };
-    assert_eq!(standard.warning, None, "the entry carries no warning");
+    let overlay = view.entry.overlay().expect("the approval's overlay");
+    assert_eq!(
+        (&overlay.header, &overlay.hint),
+        (&None, &None),
+        "no transaction header, no hint"
+    );
     assert_eq!(
         view.header,
         Some(header("Approve qualified signatures", "Approve", "Cancel"))
@@ -196,7 +198,7 @@ fn a_seal_a_nameless_document_and_an_embedded_link_are_rendered_by_6_4() {
     let view = viewed(&seal, &held, QesProfile::default(), "en");
     let (d1, d2) = (Some("Document 1"), Some("Document 2"));
     assert_eq!(
-        shown(view.entry_box.rows()),
+        shown(view.entry.rows()),
         [
             row(
                 None,
@@ -242,7 +244,7 @@ fn a_held_document_is_checked_against_its_checksum() {
             holding(HREFS[1], contract()),
             "en",
         )
-        .entry_box
+        .entry
         .rows(),
     );
     assert_eq!(
@@ -285,7 +287,7 @@ fn a_held_document_is_checked_against_its_checksum() {
         "en",
     );
     assert_eq!(
-        shown(nameless.entry_box.rows()).get(2),
+        shown(nameless.entry.rows()).get(2),
         Some(&row(
             Some("Document 1"),
             "This document has no name",

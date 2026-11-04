@@ -4,7 +4,7 @@
 //! A credential's `test` document: `{"supports": [types], "nonconforming": [entries], "stale"?:
 //! [entries phase 2 finds no longer hold]}`.
 
-use siros_openid4vp::boxes::{Header, Overlay, PaymentHeader};
+use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
@@ -192,8 +192,8 @@ impl Profile for TestProfile {
             )
             .in_section("Section"),
         ];
-        let payment = (first == Some(true)).then(|| PaymentHeader {
-            merchant: "Merchant".to_owned(),
+        let transaction = (first == Some(true)).then(|| TransactionHeader {
+            counterparty: "Merchant".to_owned(),
             amount: "1.00 EUR".to_owned(),
             rows: Vec::new(),
         });
@@ -208,7 +208,7 @@ impl Profile for TestProfile {
                 .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
             overlay: Overlay {
                 rows,
-                payment,
+                header: transaction,
                 hint: Some(format!("hint {reference}")),
             },
         })
