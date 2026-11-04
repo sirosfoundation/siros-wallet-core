@@ -39,8 +39,8 @@ pub enum PolicyRule {
     /// `nonce` is empty or holds a character outside the ASCII URL-safe ones (OpenID4VP 1.0,
     /// Section 5.2).
     NonceMalformed,
-    /// The Response Mode is not one the channel allows: `direct_post.cwt` or
-    /// `direct_post.jwt` over redirects, `dc_api.jwt` over the Digital Credentials API.
+    /// The Response Mode is not one the channel allows: `direct_post.jwt` over redirects,
+    /// `dc_api.jwt` over the Digital Credentials API.
     ResponseMode,
     /// A redirect request has no `response_uri`.
     ResponseUriMissing,
