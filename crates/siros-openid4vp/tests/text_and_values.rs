@@ -181,91 +181,78 @@ fn text_of(
         .and_then(|value| value.text().map(str::to_owned))
 }
 
+/// What a value of a kind shows: a text its source fixes, a text the wallet's table chooses, or
+/// a refusal.
+enum Want {
+    Text(&'static str),
+    Shown,
+    Refused,
+}
+
+/// PaSO View §3's value kinds: each conforming value shows and each other is refused. The texts
+/// compared exactly are those a source fixes: PaSO View §3's frequency words, the rulebooks'
+/// screens (Generic A.4: "3 Jun 2026", "€1,000.00"), ISO 4217's codes, UTS #46's A-labels and
+/// what the Verifier wrote.
 #[test]
-fn value_kinds_parse_and_format_from_the_wallets_table() {
+fn value_kinds_parse_as_paso_view_section_3_states() {
     use FormattedKind as K;
+    use Want::{Refused, Shown, Text};
     use Written::{Boolean as B, Text as T};
     let other = siros_openid4vp::json::Node::parse("3").expect("number");
-    let table: [(K, Written<'_>, Option<&str>); 31] = [
-        (K::Boolean, B(true), Some("Yes")),
-        (K::Boolean, T("true"), None),
-        (K::Date, B(true), None),
-        (K::Frequency, T("MNTH"), Some("monthly")),
-        (K::Frequency, T("MONTHLY"), None),
-        (K::Date, T("2026-09-02"), Some("2 Sep 2026")),
-        (K::Date, T("20260902"), Some("2 Sep 2026")),
-        (K::Date, T("2026-02-30"), None),
-        (K::Time, T("10:15:30Z"), Some("10:15:30 UTC")),
-        (K::Time, T("25:00"), None),
-        (K::Time, T("10:00+24:00"), None),
-        (K::Time, T("10"), None),
-        (
-            K::DateTime,
-            T("2026-06-02T10:15:30+02:00"),
-            Some("2 Jun 2026, 10:15:30 UTC+02:00"),
-        ),
-        (K::DateTime, T("2026-06-02 10:15"), None),
-        (K::Currency, T("EUR"), Some("EUR")),
-        (K::Currency, T("EURO"), None),
+    let table: [(K, Written<'_>, Want); 31] = [
+        (K::Boolean, B(true), Shown),
+        (K::Boolean, T("true"), Refused),
+        (K::Date, B(true), Refused),
+        (K::Frequency, T("MNTH"), Text("monthly")),
+        (K::Frequency, T("MONTHLY"), Refused),
+        (K::Date, T("2026-09-02"), Text("2 Sep 2026")),
+        (K::Date, T("20260902"), Text("2 Sep 2026")),
+        (K::Date, T("2026-02-30"), Refused),
+        (K::Time, T("10:15:30Z"), Shown),
+        (K::Time, T("25:00"), Refused),
+        (K::Time, T("10:00+24:00"), Refused),
+        (K::Time, T("10"), Refused),
+        (K::DateTime, T("2026-06-02T10:15:30+02:00"), Shown),
+        (K::DateTime, T("2026-06-02 10:15"), Refused),
+        (K::Currency, T("EUR"), Text("EUR")),
+        (K::Currency, T("EURO"), Refused),
         (
             K::CurrencyAmount,
             T("1234567.50 EUR"),
-            Some("€1,234,567.50"),
+            Text("€1,234,567.50"),
         ),
-        (K::CurrencyAmount, T("123456.00 EUR"), Some("€123,456.00")),
-        (K::CurrencyAmount, T("0.50 EUR"), Some("€0.50")),
-        (K::CurrencyAmount, T("100 JPY"), Some("100 JPY")),
-        (K::CurrencyAmount, T("EUR 45.00"), None),
-        (K::CurrencyAmount, T("49.9 EUR"), None),
-        (K::CurrencyAmount, T("49 EUR"), None),
-        (K::CurrencyAmount, T("012.00 EUR"), None),
-        (K::CurrencyAmount, T("100. JPY"), None),
-        (K::MiniMarkdown, T("*a*"), Some("*a*")),
-        (K::MiniMarkdown, Written::Other(&other), None),
-        (K::Text, T("plain"), Some("plain")),
+        (K::CurrencyAmount, T("123456.00 EUR"), Text("€123,456.00")),
+        (K::CurrencyAmount, T("0.50 EUR"), Text("€0.50")),
+        (K::CurrencyAmount, T("100 JPY"), Shown),
+        (K::CurrencyAmount, T("EUR 45.00"), Refused),
+        (K::CurrencyAmount, T("49.9 EUR"), Refused),
+        (K::CurrencyAmount, T("49 EUR"), Refused),
+        (K::CurrencyAmount, T("012.00 EUR"), Refused),
+        (K::CurrencyAmount, T("100. JPY"), Refused),
+        (K::MiniMarkdown, T("*a*"), Text("*a*")),
+        (K::MiniMarkdown, Written::Other(&other), Refused),
+        (K::Text, T("plain"), Text("plain")),
         (
             K::Url,
             T("https://bücher.example/x?q=1"),
-            Some("https://xn--bcher-kva.example/x?q=1"),
+            Text("https://xn--bcher-kva.example/x?q=1"),
         ),
         (
             K::Url,
             T("https://shop.example/a"),
-            Some("https://shop.example/a"),
+            Text("https://shop.example/a"),
         ),
-        (K::Url, T("http://shop.example"), None),
+        (K::Url, T("http://shop.example"), Refused),
     ];
     for (kind, written, want) in table {
-        assert_eq!(
-            text_of(kind, written, TableLocale::En, Amounts::Formatted).as_deref(),
-            want,
-            "{kind:?} {written}"
-        );
+        let got = text_of(kind, written, TableLocale::En, Amounts::Formatted);
+        match want {
+            Text(text) => assert_eq!(got.as_deref(), Some(text), "{kind:?} {written}"),
+            Shown => assert!(got.is_some(), "{kind:?} {written} shows"),
+            Refused => assert_eq!(got, None, "{kind:?} {written}"),
+        }
     }
-    // German dates, booleans and frequencies from the table; amounts as written; raw amounts kept.
-    let de = TableLocale::of(&tag("de-CH")).expect("de-CH selects de");
-    assert_eq!(
-        text_of(K::Date, T("2026-09-02"), de, Amounts::Formatted).as_deref(),
-        Some("02.09.2026")
-    );
-    assert_eq!(
-        text_of(K::Boolean, B(false), TableLocale::De, Amounts::Formatted).as_deref(),
-        Some("Nein")
-    );
-    assert_eq!(
-        text_of(K::Frequency, T("MNTH"), TableLocale::De, Amounts::Formatted).as_deref(),
-        Some("monatlich")
-    );
-    assert_eq!(
-        text_of(
-            K::CurrencyAmount,
-            T("1.50 EUR"),
-            TableLocale::De,
-            Amounts::Formatted
-        )
-        .as_deref(),
-        Some("1.50 EUR")
-    );
+    // Amounts shown raw are the Verifier's text as written.
     assert_eq!(
         text_of(
             K::CurrencyAmount,

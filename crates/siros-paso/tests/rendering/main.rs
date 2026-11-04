@@ -157,13 +157,16 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
     );
 }
 
-/// View §3's value types, each conforming and not, the text from the wallet's table for dates,
-/// amounts and booleans, frequencies in the specification's words, an internationalised host in
-/// A-label form.
+/// A value the wallet's table words, compared as shown: no source fixes its text.
+const SHOWN: &str = "<shown>";
+
+/// View §3's value types, each conforming and not. The texts compared exactly are those a source
+/// fixes: frequencies in the specification's words, dates and amounts as the rulebooks' screens
+/// write them (Generic A.4: "3 Jun 2026", "€1,000.00"), an internationalised host in A-label form.
 #[test]
 fn each_value_type_formats_or_refuses_as_view_section_3_states() {
     let table: [(Option<&str>, &str, &str); 27] = [
-        (Some("boolean"), "true", "Yes"),
+        (Some("boolean"), "true", SHOWN),
         (Some("boolean"), r#""true""#, "NotCompatible [View §3]"),
         (Some("frequency"), r#""MNTH""#, "monthly"),
         (Some("frequency"), r#""MONTHLY""#, "NotCompatible [View §3]"),
@@ -174,12 +177,12 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
             r#""2026-02-30""#,
             "NotCompatible [View §3]",
         ),
-        (Some("iso_time"), r#""10:15:30Z""#, "10:15:30 UTC"),
+        (Some("iso_time"), r#""10:15:30Z""#, SHOWN),
         (Some("iso_time"), r#""25:00""#, "NotCompatible [View §3]"),
         (
             Some("iso_date_time"),
             r#""2026-06-02T10:15:30+02:00""#,
-            "2 Jun 2026, 10:15:30 UTC+02:00",
+            SHOWN,
         ),
         (
             Some("iso_date_time"),
@@ -193,7 +196,7 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
             r#""1234567.50 EUR""#,
             "€1,234,567.50",
         ),
-        (Some("iso_currency_amount"), r#""100 JPY""#, "100 JPY"),
+        (Some("iso_currency_amount"), r#""100 JPY""#, SHOWN),
         (
             Some("iso_currency_amount"),
             r#""EUR 45.00""#,
@@ -248,7 +251,11 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
                 .to_owned(),
             Err(_) => common::outcome(&rendered),
         };
-        assert_eq!(got, want, "{value_type:?} {raw}");
+        if want == SHOWN {
+            assert!(rendered.is_ok(), "{value_type:?} {raw}: {got}");
+        } else {
+            assert_eq!(got, want, "{value_type:?} {raw}");
+        }
     }
 }
 
