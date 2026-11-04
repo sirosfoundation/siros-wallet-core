@@ -297,6 +297,21 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
 #[test]
 fn each_routing_conflict_is_refused_when_the_registry_builds() {
     use siros_openid4vp::hash::{HashAlgorithm, Sha2};
+    use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
+    use siros_testkit::fixtures::TestScope;
+
+    /// A scope value's query, given.
+    struct Scoped(&'static str, &'static str);
+
+    impl ScopeQuery for Scoped {
+        fn scope(&self) -> ScopeValue {
+            ScopeValue::new(self.0).expect("a scope value")
+        }
+
+        fn query(&self) -> &'static str {
+            self.1
+        }
+    }
     use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPostJwt};
     use siros_openid4vp::routing::{ChannelKind, Mode, ResponseType, VpToken};
 
@@ -343,6 +358,31 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     let profile = builder.profile(TestProfile::new(Binds::First));
     builder.exact(TransactionType::parse("t1").expect("t1"), profile);
     assert_eq!(builder.build().map(drop), Err(RegistryError::Sha256Absent));
+    // A scope value twice; a query the DCQL reader refuses; an id two scope values' queries
+    // share (§5.5: "MUST be unique").
+    let mut builder = Registry::<TestHost>::builder();
+    builder.scope(TestScope);
+    builder.scope(TestScope);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ScopeTwice(TestScope.scope()))
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.scope(Scoped("org.example.broken", r#"{"credentials":[]}"#));
+    assert!(matches!(
+        builder.build().map(drop),
+        Err(RegistryError::ScopeQuery(_))
+    ));
+    let mut builder = Registry::<TestHost>::builder();
+    builder.scope(TestScope);
+    builder.scope(Scoped(
+        "org.example.again",
+        r#"{"credentials":[{"id":"scoped","format":"test","meta":{}}]}"#,
+    ));
+    assert!(matches!(
+        builder.build().map(drop),
+        Err(RegistryError::ScopeIds { id, .. }) if id == "scoped"
+    ));
     // An error mode on the DC API, whose errors A.4 fixes.
     let mut builder = Registry::<TestHost>::builder();
     builder.error_mode(DcApi);

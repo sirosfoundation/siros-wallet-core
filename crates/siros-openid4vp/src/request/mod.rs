@@ -72,8 +72,10 @@ fn structure(rule: StructureRule) -> Refused {
 }
 
 impl<'a> Request<'a> {
-    /// The request an envelope holds, which it keeps. Refused in this order: S3 `scope` by URI;
-    /// DCQL's structure, `dcql_query` required (§5.1); `nonce` absent, or N1 not URL-safe ASCII;
+    /// The request an envelope holds, which it keeps. Refused in this order: S3 a `scope` value by
+    /// URI naming no registered scope query; S4 `dcql_query` beside a `scope` naming one (§5.1);
+    /// DCQL's structure, `dcql_query` or a `scope` naming a query required (§5.1), a `scope`'s
+    /// queries read as their union; `nonce` absent, or N1 not URL-safe ASCII;
     /// `expected_origins` and `transaction_data` breaking their structure; C0, every entry that
     /// does not decode; P7, a URI request with a query waiving holder binding and no `state`.
     ///
@@ -83,14 +85,42 @@ impl<'a> Request<'a> {
     pub fn parse(envelope: &Envelope<'a>) -> Result<Self, Refused> {
         let channel = envelope.channel();
         let parameters = envelope.parameters();
-        if matches!(channel, Channel::Uri) && parameters.holds("scope") {
-            return Err(Refused::one(Refusal::new(ParameterRule::Scope)));
+        let scoped = match (channel, parameters.text("scope")) {
+            (Channel::Uri, Some(scope)) => {
+                let scope = scope.unwrap_or_default();
+                let entries = scope
+                    .split(' ')
+                    .map(|value| {
+                        envelope.scopes().named(value).ok_or_else(|| {
+                            Refused::one(Refusal::new(ParameterRule::Scope(value.to_owned())))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if parameters.holds("dcql_query") {
+                    return Err(Refused::one(Refusal::new(ParameterRule::ScopeAndQuery)));
+                }
+                Some(entries)
+            }
+            _ => None,
+        };
+        let dcql = match scoped {
+            Some(entries) => {
+                let credentials = entries
+                    .iter()
+                    .flat_map(|entry| entry.credentials.iter().copied())
+                    .collect();
+                let sets: Vec<_> = entries
+                    .iter()
+                    .flat_map(|entry| entry.sets.iter().copied())
+                    .collect();
+                dcql::Dcql::of(credentials, (!sets.is_empty()).then_some(sets))
+            }
+            None => dcql::Dcql::parse(
+                parameters
+                    .raw("dcql_query")
+                    .ok_or_else(|| structure(StructureRule::DcqlAbsent))?,
+            ),
         }
-        let dcql = dcql::Dcql::parse(
-            parameters
-                .raw("dcql_query")
-                .ok_or_else(|| structure(StructureRule::DcqlAbsent))?,
-        )
         .map_err(Refused::one)?;
         let nonce = match parameters.text("nonce") {
             Some(Some(nonce)) if !nonce.is_empty() => {

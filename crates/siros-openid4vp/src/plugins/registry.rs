@@ -28,6 +28,9 @@ use crate::routing::{
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
 #[cfg(feature = "resolve")]
+use crate::scope::ScopeQuery;
+use crate::scope::{ScopeEntry, ScopeValue, Scopes};
+#[cfg(feature = "resolve")]
 use crate::uri::{EncryptedRequests, RequestPost};
 #[cfg(feature = "match")]
 use crate::{
@@ -80,6 +83,22 @@ pub enum RegistryError {
     /// A transaction data profile without `sha-256`, B.3.3.1's default.
     #[error("a transaction data profile is registered and sha-256 is not")]
     Sha256Absent,
+    /// Two queries of one scope value.
+    #[error("the scope value {0} is registered twice")]
+    ScopeTwice(#[explain(name = "scope")] ScopeValue),
+    /// A scope value's query that is no DCQL query the core reads.
+    #[error("the scope value {0} maps to no DCQL query")]
+    ScopeQuery(#[explain(name = "scope")] ScopeValue),
+    /// A Credential Query or claim id two scope values' queries share (§5.5: "MUST be unique").
+    #[error("the scope values {first} and {second} share the id {id}")]
+    ScopeIds {
+        /// The first scope value.
+        first: ScopeValue,
+        /// The second.
+        second: ScopeValue,
+        /// The id.
+        id: String,
+    },
     /// `EncryptedRequests` without `RequestPost`.
     #[error("encrypted Request Objects are registered without the request_uri POST")]
     DecryptionWithoutPost,
@@ -201,6 +220,7 @@ impl<H> Clone for RegisteredMode<H> {
 /// [`ProfileHost<H>`](crate::host::ProfileHost).
 pub struct Registry<H = NoHost> {
     hashes: Vec<Box<dyn HostedHash>>,
+    scopes: Vec<ScopeEntry>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
@@ -237,6 +257,8 @@ impl<H> fmt::Debug for Registry<H> {
 /// Collects the plug-ins of a [`Registry`].
 pub struct RegistryBuilder<H = NoHost> {
     hashes: Vec<Box<dyn HostedHash>>,
+    #[cfg(feature = "resolve")]
+    scopes: Vec<Box<dyn ScopeQuery>>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
@@ -253,6 +275,8 @@ impl<H> Default for RegistryBuilder<H> {
     fn default() -> Self {
         Self {
             hashes: Vec::new(),
+            #[cfg(feature = "resolve")]
+            scopes: Vec::new(),
             response_types: Vec::new(),
             modes: Vec::new(),
             formats: Vec::new(),
@@ -272,6 +296,14 @@ impl<H> RegistryBuilder<H> {
     /// registered twice, and a registry with a transaction data profile and without `sha-256`.
     pub fn hash(&mut self, algorithm: impl HostedHash + 'static) {
         self.hashes.push(Box::new(algorithm));
+    }
+
+    /// A scope value's DCQL query (§5.5), keyed by its scope value; `build` refuses a value
+    /// twice, a query the DCQL reader refuses, and a Credential Query or claim id two queries
+    /// share.
+    #[cfg(feature = "resolve")]
+    pub fn scope(&mut self, query: impl ScopeQuery + 'static) {
+        self.scopes.push(Box::new(query));
     }
 
     /// A response type (RFC 6749 §3.1.1), keyed by its name (P1); `build` refuses a name
@@ -450,6 +482,8 @@ impl<H> RegistryBuilder<H> {
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
             hashes,
+            #[cfg(feature = "resolve")]
+            scopes,
             response_types,
             modes,
             formats,
@@ -469,6 +503,10 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::HashTwice(algorithm.name()));
             }
         }
+        #[cfg(feature = "resolve")]
+        let scopes = read_scopes(&scopes)?;
+        #[cfg(not(feature = "resolve"))]
+        let scopes = Vec::new();
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
                 .get(..k)
@@ -569,6 +607,7 @@ impl<H> RegistryBuilder<H> {
         }
         Ok(Registry {
             hashes,
+            scopes,
             response_types,
             modes,
             formats,
@@ -709,6 +748,7 @@ impl<H> Registry<H> {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             hashes: self.hashes.clone(),
+            scopes: self.scopes.clone(),
             response_types: self.response_types.clone(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
@@ -812,6 +852,8 @@ pub(crate) trait Routes {
     fn routed(&self, channel: ChannelKind, name: &str) -> Option<(RoutedMode, &dyn Mode)>;
     /// The registered hash algorithms.
     fn hashes(&self) -> Hashes<'_>;
+    /// The registered scope queries.
+    fn scopes(&self) -> Scopes<'_>;
 }
 
 impl<H> Routes for Registry<H> {
@@ -851,6 +893,35 @@ impl<H> Routes for Registry<H> {
     fn hashes(&self) -> Hashes<'_> {
         Hashes::of(&self.hashes)
     }
+
+    fn scopes(&self) -> Scopes<'_> {
+        Scopes::of(&self.scopes)
+    }
+}
+
+/// The registered scope queries as read: refused per [`RegistryError::ScopeTwice`],
+/// [`RegistryError::ScopeQuery`] and [`RegistryError::ScopeIds`].
+#[cfg(feature = "resolve")]
+fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, RegistryError> {
+    let mut entries: Vec<ScopeEntry> = Vec::new();
+    for query in queries {
+        let (value, entry) = (query.scope(), ScopeEntry::read(query.as_ref()));
+        if entries.iter().any(|entry| entry.value == value) {
+            return Err(RegistryError::ScopeTwice(value));
+        }
+        let entry = entry.ok_or(RegistryError::ScopeQuery(value))?;
+        for earlier in &entries {
+            if let Some(id) = entry.ids.iter().find(|id| earlier.ids.contains(id)) {
+                return Err(RegistryError::ScopeIds {
+                    first: earlier.value,
+                    second: value,
+                    id: id.clone(),
+                });
+            }
+        }
+        entries.push(entry);
+    }
+    Ok(entries)
 }
 
 /// The plug-ins as phase 1 reads them, whatever the build's host.

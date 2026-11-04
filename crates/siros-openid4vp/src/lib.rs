@@ -63,6 +63,7 @@ pub mod refusal;
 pub mod request;
 pub mod routing;
 pub mod rows;
+pub mod scope;
 pub mod sri;
 pub mod text;
 pub mod wallet;

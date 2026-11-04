@@ -33,14 +33,17 @@ impl RequestRule for StructureRule {
 }
 
 /// A rule on a parameter's presence or form, beside its structure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.parameters")]
 pub enum ParameterRule {
-    /// S3: `scope` in a URI request; the wallet maps no scope value to a DCQL query (§5.5,
-    /// reading 12).
-    #[error("S3 scope is present; the wallet maps no scope value to a DCQL query")]
+    /// S3: a `scope` value by URI that names no registered scope query (§5.5, §8.5).
+    #[error("S3 scope value {0} names no DCQL query the wallet registers")]
     #[explain(id = "s3")]
-    Scope,
+    Scope(#[explain(name = "scope")] String),
+    /// S4: `dcql_query` beside a `scope` naming a query (§5.1: "but not both").
+    #[error("S4 dcql_query and a scope naming a DCQL query are both present")]
+    #[explain(id = "s4")]
+    ScopeAndQuery,
     /// N1: `nonce` not URL-safe ASCII (§5.2).
     #[error("N1 nonce is not URL-safe ASCII")]
     #[explain(id = "n1")]
@@ -54,8 +57,8 @@ pub enum ParameterRule {
 impl RequestRule for ParameterRule {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Scope => ErrorCode::INVALID_SCOPE,
-            Self::Nonce | Self::StateRequired => ErrorCode::INVALID_REQUEST,
+            Self::Scope(_) => ErrorCode::INVALID_SCOPE,
+            Self::ScopeAndQuery | Self::Nonce | Self::StateRequired => ErrorCode::INVALID_REQUEST,
         }
     }
 }

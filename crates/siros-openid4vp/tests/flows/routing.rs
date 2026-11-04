@@ -47,7 +47,7 @@ fn each_routed_rule_refuses_with_its_code() {
     assert_eq!(refusals(&uri_payload("")), []);
     let p1 = r#""response_type":"vp_token","#;
     let mode = r#""response_mode":"direct_post.jwt""#;
-    let cases: [(String, &str, ErrorCode); 12] = [
+    let cases: [(String, &str, ErrorCode); 13] = [
         // P1: absent, another type.
         (
             with(p1, ""),
@@ -102,8 +102,14 @@ fn each_routed_rule_refuses_with_its_code() {
         ),
         (
             uri_payload(r#","scope":"openid""#),
-            "S3 scope is present; the wallet maps no scope value to a DCQL query",
+            "S3 scope value openid names no DCQL query the wallet registers",
             ErrorCode::INVALID_SCOPE,
+        ),
+        // S4: dcql_query beside a scope naming a query (§5.1: "but not both").
+        (
+            uri_payload(r#","scope":"org.example.test""#),
+            "S4 dcql_query and a scope naming a DCQL query are both present",
+            ErrorCode::INVALID_REQUEST,
         ),
         // C7: no key the rule accepts (alg absent), no enc it accepts.
         (
@@ -229,4 +235,26 @@ fn section_5_2s_nonce_and_state_are_url_safe() {
         Some("eyJhb...6-sVA".to_owned())
     );
     assert!(State::parse("a/b".into()).is_none());
+}
+
+#[test]
+fn a_registered_scope_value_reads_as_its_dcql_query() {
+    // §5.5: the scope value stands for its query; testkit's `TestScope` registers
+    // `org.example.test` for the query `scoped`.
+    let payload = uri_payload("").replace(
+        &format!(r#","dcql_query":{}"#, super::test_queries(&["q"])),
+        r#","scope":"org.example.test""#,
+    );
+    let uri = link("test%3Averifier", "");
+    let object = request_object(&payload);
+    let received = fetched(&uri, &object).expect("fetched");
+    let registry = registry();
+    let envelope = Envelope::parse(&received, &registry).expect("an envelope");
+    let request = Request::parse(&envelope).expect("a request");
+    let ids: Vec<&str> = request
+        .queries()
+        .iter()
+        .map(|query| query.id.as_str())
+        .collect();
+    assert_eq!(ids, ["scoped"]);
 }

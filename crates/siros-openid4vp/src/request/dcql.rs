@@ -84,6 +84,24 @@ impl<'a> Dcql<'a> {
             .and_then(|credentials| serde_json::from_str(credentials.get()).ok())
             .filter(|credentials: &Vec<&RawValue>| !credentials.is_empty())
             .ok_or_else(|| refuse(DcqlRule::Credentials))?;
+        let sets = object
+            .get("credential_sets")
+            .map(|sets| {
+                serde_json::from_str(sets.get())
+                    .ok()
+                    .filter(|sets: &Vec<&RawValue>| !sets.is_empty())
+                    .ok_or_else(|| refuse(DcqlRule::Sets))
+            })
+            .transpose()?;
+        Self::of(credentials, sets)
+    }
+
+    /// The query of its Credential Queries and its Credential Sets, each as written: one query of
+    /// a `dcql_query`, or the union of the queries registered scope values stand for.
+    pub(crate) fn of(
+        credentials: Vec<&'a RawValue>,
+        sets: Option<Vec<&'a RawValue>>,
+    ) -> Result<Self, Refusal> {
         if credentials.len() > MAX_POSITIONS {
             return Err(refuse(DcqlRule::TooMany));
         }
@@ -100,9 +118,12 @@ impl<'a> Dcql<'a> {
                 id: twice.id.to_string(),
             }));
         }
-        let sets = object
-            .get("credential_sets")
-            .map(|sets| CredentialSet::parse_all(sets, &queries))
+        let sets = sets
+            .map(|sets| {
+                sets.into_iter()
+                    .map(|set| CredentialSet::parse(set, &queries))
+                    .collect::<Result<Vec<_>, _>>()
+            })
             .transpose()?;
         Ok(Self { queries, sets })
     }
@@ -210,16 +231,6 @@ impl<'a> TrustedAuthority<'a> {
 }
 
 impl CredentialSet {
-    fn parse_all(raw: &RawValue, queries: &[Query<'_>]) -> Result<Vec<Self>, Refusal> {
-        let sets: Vec<&RawValue> = serde_json::from_str(raw.get())
-            .ok()
-            .filter(|sets: &Vec<&RawValue>| !sets.is_empty())
-            .ok_or_else(|| refuse(DcqlRule::Sets))?;
-        sets.into_iter()
-            .map(|set| Self::parse(set, queries))
-            .collect()
-    }
-
     fn parse(raw: &RawValue, queries: &[Query<'_>]) -> Result<Self, Refusal> {
         let malformed = || refuse(DcqlRule::Set);
         let object = RawObject::parse(raw.get()).map_err(|_| malformed())?;

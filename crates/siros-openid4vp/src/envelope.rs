@@ -16,6 +16,7 @@ use crate::json::{JsonError, Member, Node, Object, RawObject};
 use crate::plugins::Registry;
 use crate::plugins::registry::Routes;
 use crate::routing::{ChannelKind, Routing};
+use crate::scope::Scopes;
 
 /// The request's parameters: DC API `data` or the Request Object's payload, a JSON object with
 /// unique member names at every level. `client_metadata` is kept as received: its own levels are
@@ -193,6 +194,7 @@ impl<'r> Signer<'r> {
 #[derive(Debug, Clone)]
 pub struct Envelope<'r> {
     hashes: Hashes<'r>,
+    scopes: Scopes<'r>,
     received: &'r Received<'r>,
     parameters: Parameters<'r>,
     signatures: Signatures<'r>,
@@ -258,6 +260,7 @@ impl<'r> Envelope<'r> {
         let routing = Routing::read(&parameters, &channel(received), routes);
         Ok(Self {
             hashes: routes.hashes(),
+            scopes: routes.scopes(),
             received,
             parameters,
             signatures,
@@ -269,6 +272,12 @@ impl<'r> Envelope<'r> {
     #[must_use]
     pub const fn hashes(&self) -> Hashes<'r> {
         self.hashes
+    }
+
+    /// The scope queries of the registry the envelope was read with (§5.5).
+    #[must_use]
+    pub const fn scopes(&self) -> Scopes<'r> {
+        self.scopes
     }
 
     /// What the request asks of its answer: every later step reads it here.

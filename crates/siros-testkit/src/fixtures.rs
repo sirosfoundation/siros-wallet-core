@@ -22,6 +22,7 @@ use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
 use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, IconMedia};
+use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
 use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::{
     Credential, Document, Facts, HeldAuthority, Holder, RegistrationError,
@@ -173,7 +174,7 @@ pub fn data_of<'a>(
 }
 
 /// Registers the hash algorithms ([`hashes`]) and OpenID4VP's response type, response modes and
-/// Request Object POST, as the flows' tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
+/// Request Object POST and the scope query double ([`TestScope`]), as the flows' tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
 /// through the host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`; the POST of
 /// `wallet_metadata` with encrypted Request Objects through the host's `RequestDecryption`.
 pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut RegistryBuilder<H>) {
@@ -186,6 +187,22 @@ pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut Re
     builder.error_mode(DirectPost);
     builder.request_post(RequestPost);
     builder.request_encryption(EncryptedRequests);
+    builder.scope(TestScope);
+}
+
+/// The scope query double (§5.5): `org.example.test` stands for one Credential Query of the test
+/// format, `scoped`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TestScope;
+
+impl ScopeQuery for TestScope {
+    fn scope(&self) -> ScopeValue {
+        siros_explain::checked!(ScopeValue, "org.example.test")
+    }
+
+    fn query(&self) -> &'static str {
+        r#"{"credentials":[{"id":"scoped","format":"test","meta":{}}]}"#
+    }
 }
 
 /// Registers the seventeen hash algorithms of the IANA registry B.3.3.1 names, as the
