@@ -84,7 +84,11 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     let received = fetch
         .resume(FetchAnswer::Body(&body), &host)
         .expect("R-uri: the Request Object reads");
-    let envelope = Envelope::parse(&received).expect("R-uri: an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("R-uri: an envelope");
     let config = TrustConfig {
         skew: Skew::new(Seconds(60)).expect("a skew"),
         origins: OriginPolicy::Accept,

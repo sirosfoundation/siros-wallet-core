@@ -41,6 +41,7 @@ fn hex8(bytes: &[u8]) -> String {
 
 fn registry(binds: Binds) -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(SdJwtVc::new().expect("format"));
     let profile = builder.profile(TestProfile::new(binds));
     builder.exact(TransactionType::parse("t1").expect("type"), profile);
@@ -562,6 +563,7 @@ fn no_profile_writes_a_key_binding_jwts_own_claim() {
     // sd_hash; the registry refuses a profile that would write one into an SD-JWT VC.
     let registered = |name: &'static str| {
         let mut builder = Registry::<TestHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
         builder.format(SdJwtVc::new().expect("format"));
         let profile = builder.profile(Writes(vec![Member::claim(name)]));
         builder.exact(TransactionType::parse("t1").expect("type"), profile);

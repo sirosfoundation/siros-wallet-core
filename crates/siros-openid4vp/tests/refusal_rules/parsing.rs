@@ -161,6 +161,7 @@ fn a_dcql_query_breaking_section_6_is_refused() {
     );
     // Two formats with one identifier make no registry.
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     builder.format(TestFormat::new().expect("format"));
     assert!(matches!(

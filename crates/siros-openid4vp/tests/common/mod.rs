@@ -51,6 +51,7 @@ pub fn test_queries(ids: &[&str]) -> String {
 /// The test format, and a test profile binding as told under the type `t1`.
 pub fn registry(binds: Binds) -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("test format"));
     let profile = builder.profile(TestProfile::new(binds));
     builder.exact(TransactionType::parse("t1").expect("type"), profile);

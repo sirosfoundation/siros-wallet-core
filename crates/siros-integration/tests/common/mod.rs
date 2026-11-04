@@ -42,6 +42,7 @@ impl HaipHost {
 /// for its type, the test Verifier's Client Identifier Prefix and siros-x509's two.
 pub fn registry() -> Result<Registry<HaipHost>, String> {
     let mut builder = Registry::<HaipHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(SdJwtVc::new().map_err(|e| e.to_string())?);
     builder.format(Mdoc::new().map_err(|e| e.to_string())?);
     PasoProfile::default()

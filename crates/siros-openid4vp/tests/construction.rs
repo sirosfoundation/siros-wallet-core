@@ -255,6 +255,7 @@ fn error_codes_are_the_specifications_names_in_appendix_a_7s_syntax() {
 fn profiles_are_found_by_exact_type_then_longest_prefix() {
     use siros_openid4vp::ids::TypePrefix;
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     let profiles: Vec<_> = (0..4)
         .map(|_| builder.profile(TestProfile::new(Binds::First)))
@@ -290,6 +291,50 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
     twice.exact(kind("t1"), profile);
     twice.exact(kind("t1"), profile);
     assert!(matches!(twice.build(), Err(RegistryError::TypeTwice(_))));
+}
+
+#[test]
+fn each_routing_conflict_is_refused_when_the_registry_builds() {
+    use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPostJwt};
+    use siros_openid4vp::routing::{ChannelKind, Mode, ResponseType, VpToken};
+
+    // A response type twice (RFC 6749 §3.1.1 keys it by its name).
+    let mut builder = Registry::<TestHost>::builder();
+    builder.response_type(VpToken);
+    builder.response_type(VpToken);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ResponseTypeTwice(VpToken.name()))
+    );
+    // A mode twice on one channel, whatever its sealing.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.mode(DcApiJwt);
+    builder.jwe_mode(DcApiJwt);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ModeTwice {
+            name: DcApiJwt.name(),
+            channel: ChannelKind::DcApi
+        })
+    );
+    // An error mode twice.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.error_mode(DirectPostJwt);
+    builder.error_mode(DirectPostJwt);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ModeTwice {
+            name: DirectPostJwt.name(),
+            channel: ChannelKind::Uri
+        })
+    );
+    // An error mode on the DC API, whose errors A.4 fixes.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.error_mode(DcApi);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ErrorModeChannel(DcApi.name()))
+    );
 }
 
 #[test]

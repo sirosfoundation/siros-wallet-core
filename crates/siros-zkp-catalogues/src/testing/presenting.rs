@@ -131,6 +131,7 @@ impl SignedRequest {
     /// service's permit.
     pub fn authenticated<R>(&self, with: impl FnOnce(&Authenticated<'_>) -> R) -> R {
         let mut builder = Registry::<TestHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
         builder.format(TestFormat::new().unwrap());
         builder.client_prefix(X509SanDns);
         let registry = builder.build().unwrap();
@@ -144,7 +145,7 @@ impl SignedRequest {
         let received = fetch
             .resume(FetchAnswer::Body(&self.object), &host)
             .unwrap();
-        let envelope = Envelope::parse(&received).unwrap();
+        let envelope = Envelope::parse(&received, &registry).unwrap();
         let trust = TestTrust::default();
         let authenticated = envelope
             .questions(&registry, &config, &host)

@@ -68,6 +68,7 @@ fn registry() -> Registry<TestHost> {
 
 fn registry_with(prefix: TestPrefix) -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     let profile = builder.profile(TestProfile::new(Binds::First));
     builder.exact(
@@ -113,7 +114,11 @@ fn authenticated<'e>(
 
 /// The envelope of a URI request in the test host's modes.
 fn envelope<'r>(received: &'r Received<'r>) -> Envelope<'r> {
-    Envelope::parse(received).expect("an envelope")
+    Envelope::parse(
+        received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope")
 }
 
 /// I4: two received forms never share a digest. The forms are drawn so that their parts coincide

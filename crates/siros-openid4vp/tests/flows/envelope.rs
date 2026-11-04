@@ -16,7 +16,12 @@ use super::{RESPONSE_URI, b64, fetched, link, request_object, uri_payload};
 fn refused(object: &str) -> (Unreadable, Option<ErrorTarget>) {
     let uri = link("test%3Averifier", "");
     let received = fetched(&uri, object).expect("fetched");
-    let cause = Envelope::parse(&received).map(drop).expect_err("refused");
+    let cause = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .map(drop)
+    .expect_err("refused");
     let rejected = Rejected::unreadable(&received, cause.clone());
     (cause, rejected.route().map(|route| route.target().clone()))
 }
@@ -44,7 +49,13 @@ fn a_request_object_names_its_type_and_nests_no_request() {
     .expect("signs");
     let uri = link("test%3Averifier", "");
     let received = fetched(&uri, &full).expect("fetched");
-    assert!(Envelope::parse(&received).is_ok());
+    assert!(
+        Envelope::parse(
+            &received,
+            siros_testkit::fixtures::routing().expect("the routing registry")
+        )
+        .is_ok()
+    );
     // U13: a Request Object holding request_uri.
     let (cause, target) = refused(&request_object(&uri_payload(
         r#","request_uri":"https://verifier.example/r""#,
@@ -124,7 +135,11 @@ fn a_multisigned_request_names_client_id_in_its_protected_headers_alone() {
         &DcApiProtocols::ALL,
     )
     .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     assert!(matches!(envelope.signatures(), Signatures::Many(_)));
     assert!(
         envelope.client_id().is_none(),
@@ -147,7 +162,12 @@ fn a_multisigned_request_names_client_id_in_its_protected_headers_alone() {
             &DcApiProtocols::ALL,
         )
         .expect("received");
-        let cause = Envelope::parse(&received).map(drop).expect_err("U17");
+        let cause = Envelope::parse(
+            &received,
+            siros_testkit::fixtures::routing().expect("the routing registry"),
+        )
+        .map(drop)
+        .expect_err("U17");
         assert_eq!(cause, Unreadable::Placement(member));
         let rejected = Rejected::unreadable(&received, cause);
         assert_eq!(
@@ -176,7 +196,12 @@ fn a_multisigned_request_names_client_id_in_its_protected_headers_alone() {
             &DcApiProtocols::ALL,
         )
         .expect("received");
-        let cause = Envelope::parse(&received).map(drop).expect_err("U3");
+        let cause = Envelope::parse(
+            &received,
+            siros_testkit::fixtures::routing().expect("the routing registry"),
+        )
+        .map(drop)
+        .expect_err("U3");
         assert_eq!(cause, Unreadable::ClientId(named.to_owned()));
     }
 }

@@ -263,6 +263,7 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
     let (text, held) = fixture();
     let ids = offered(&text, &held);
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     let profile = builder.profile(Strong(TestProfile::new(Binds::First)));
     builder.exact(TransactionType::parse("t1").expect("type"), profile);
@@ -341,6 +342,7 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let (text, held) = fixture();
     let ids = offered(&text, &held);
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     let profile = builder.profile(Undeclared(TestProfile::new(Binds::First)));
     builder.exact(TransactionType::parse("t1").expect("type"), profile);
@@ -390,12 +392,53 @@ impl Haip for FailingHaip {
     }
 }
 
+/// HAIP's keystore stand-in, stating no key agreement.
+struct SealerlessHaip;
+
+impl Haip for SealerlessHaip {
+    fn verifies(&self) -> JwsAlgorithms {
+        TestHaip.verifies()
+    }
+
+    fn agreements(&self) -> Agreements {
+        Agreements::NONE
+    }
+
+    fn verify(&self, key: &VerificationKey, signed: &Signed<'_>) -> Result<(), SignatureInvalid> {
+        TestHaip.verify(key, signed)
+    }
+
+    fn sign(&self, credential: &CredentialId<'_>, data: &[u8]) -> Result<Signature, SignFailed> {
+        TestHaip.sign(credential, data)
+    }
+
+    fn encrypt_jwe(
+        &self,
+        key: &AgreeableKey<'_>,
+        enc: ContentEncryption<'_>,
+        plaintext: &[u8],
+    ) -> Result<SealedJwe, Fault> {
+        TestHaip.encrypt_jwe(key, enc, plaintext)
+    }
+}
+
 siros_testkit::test_host! {
     /// The test host, its encryption failing.
     #[derive(Default)]
     struct Failing {
         handles { platform: TestPlatform => Platform }
         zero_sized { FailingHaip => Haip, TestRequestDecryption => RequestDecryption }
+        optional { TestCoseEncrypt => CoseEncrypt }
+        lacks {}
+    }
+}
+
+siros_testkit::test_host! {
+    /// The test host, its HAIP module stating no key agreement.
+    #[derive(Default)]
+    struct Sealerless {
+        handles { platform: TestPlatform => Platform }
+        zero_sized { SealerlessHaip => Haip, TestRequestDecryption => RequestDecryption }
         optional { TestCoseEncrypt => CoseEncrypt }
         lacks {}
     }
@@ -436,10 +479,34 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
         })
     ));
     let mut failing = Registry::<Failing>::builder();
+    siros_testkit::fixtures::openid4vp(&mut failing);
     failing.format(TestFormat::new().expect("format"));
     let failing = failing.build().expect("registry");
     assert!(matches!(
         sealed(&request, &ids[0], &wallet, &failing, &Failing::default()),
         Err(Outcome::Fault(_))
     ));
+    // A module that states no agreement admits no key under the key rule: C7, refused before
+    // the End-User authenticates, and no plaintext reaches the module.
+    let mut sealerless = Registry::<Sealerless>::builder();
+    siros_testkit::fixtures::openid4vp(&mut sealerless);
+    sealerless.format(TestFormat::new().expect("format"));
+    let sealerless = sealerless.build().expect("registry");
+    let host = Sealerless::default();
+    let Err(Outcome::Refused(refused)) = sealed(&request, &ids[0], &wallet, &sealerless, &host)
+    else {
+        panic!("C7 under the module's statement");
+    };
+    let refusals = refused.into_refusals();
+    assert_eq!(
+        refusals
+            .iter()
+            .map(|refusal| refusal.rule().id())
+            .collect::<Vec<_>>(),
+        [siros_explain::checked!(
+            siros_explain::MessageId,
+            "openid4vp.modes.c7_key"
+        )]
+    );
+    assert_eq!(host.platform.authentications(), 0);
 }

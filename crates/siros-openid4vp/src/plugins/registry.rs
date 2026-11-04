@@ -16,7 +16,14 @@ use super::{Format, Member, Profile};
 use crate::authenticate::ClientPrefix;
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
+#[cfg(feature = "resolve")]
+use crate::host::{Haip, Has};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
+#[cfg(feature = "resolve")]
+use crate::routing::ModeHost;
+use crate::routing::{
+    Carries, ChannelKind, Mode, ModeHandle, ModeName, ResponseType, ResponseTypeName, RoutedMode,
+};
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
 #[cfg(feature = "match")]
@@ -46,6 +53,21 @@ pub enum RegistryError {
     /// A registration names a profile the builder does not hold.
     #[error("{0} names a profile the registry does not hold")]
     UnknownProfile(#[explain(name = "registration")] String),
+    /// Two modes of one name on one channel, or two error modes of one name.
+    #[error("the response mode {name} is registered twice on one channel")]
+    ModeTwice {
+        /// The name.
+        name: ModeName,
+        /// The channel.
+        #[explain(skip)]
+        channel: ChannelKind,
+    },
+    /// An error mode on the DC API, whose errors are A.4's and the core's.
+    #[error("the response mode {0} writes DC API errors, which A.4 fixes")]
+    ErrorModeChannel(#[explain(name = "mode")] ModeName),
+    /// Two response types of one name.
+    #[error("the response type {0} is registered twice")]
+    ResponseTypeTwice(#[explain(name = "response_type")] ResponseTypeName),
     /// A profile would write a member twice into one presentation: one of the format's own, or
     /// one it declares twice.
     #[error("the profile registered for {registration} writes {} twice in a {format} presentation", .members.items().join(", "))]
@@ -97,11 +119,74 @@ pub trait HostedProfile<H>: Profile {}
 #[cfg(not(feature = "resolve"))]
 impl<H, P: Profile> HostedProfile<H> for P {}
 
+/// A response mode of a registry: phase 1's [`Mode`] under `match`; under `resolve`, a mode whose
+/// phase 2 runs over the build's host `H` ([`ModeHost`]).
+#[cfg(feature = "resolve")]
+pub trait HostedMode<H>: ModeHost<H> {}
+
+#[cfg(feature = "resolve")]
+impl<H, M: ModeHost<H>> HostedMode<H> for M {}
+
+/// A response mode of a registry: phase 1's [`Mode`] under `match`; under `resolve`, a mode whose
+/// phase 2 runs over the build's host `H`.
+#[cfg(not(feature = "resolve"))]
+pub trait HostedMode<H>: Mode {}
+
+#[cfg(not(feature = "resolve"))]
+impl<H, M: Mode> HostedMode<H> for M {}
+
+dyn_clone::clone_trait_object!(<H> HostedMode<H>);
+
+/// The host's `Haip`, as the registration of a JWE mode keeps its accessor.
+#[cfg(feature = "resolve")]
+pub(crate) type HaipAccess<H> = fn(&H) -> &dyn Haip;
+
+/// A JWE mode's registration in the match build, which holds no module.
+#[cfg(not(feature = "resolve"))]
+pub(crate) type HaipAccess<H> = std::marker::PhantomData<fn(&H)>;
+
+/// What a registered mode carries and how its answers are sealed.
+pub(crate) enum Role<H> {
+    /// Answers in the clear (`mode`).
+    Clear,
+    /// Answers the core seals as JWEs through the host's `Haip` (`jwe_mode`).
+    Jwe(HaipAccess<H>),
+    /// A URI mode's errors alone (`error_mode`).
+    Errors,
+}
+
+impl<H> Clone for Role<H> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Clear => Self::Clear,
+            Self::Jwe(access) => Self::Jwe(*access),
+            Self::Errors => Self::Errors,
+        }
+    }
+}
+
+/// A registered mode with its role.
+pub(crate) struct RegisteredMode<H> {
+    pub(crate) mode: Box<dyn HostedMode<H>>,
+    pub(crate) role: Role<H>,
+}
+
+impl<H> Clone for RegisteredMode<H> {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode.clone(),
+            role: self.role.clone(),
+        }
+    }
+}
+
 /// The plug-ins: formats by identifier, profiles by exact type identifier and by type prefix.
 /// `H` is the build's host: [`NoHost`] in the matcher's build; under `resolve` a format enters
 /// only as a [`FormatHost<H>`](crate::host::FormatHost), a profile as a
 /// [`ProfileHost<H>`](crate::host::ProfileHost).
 pub struct Registry<H = NoHost> {
+    response_types: Vec<Box<dyn ResponseType>>,
+    modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
     #[cfg_attr(
         not(feature = "match"),
@@ -133,6 +218,8 @@ impl<H> fmt::Debug for Registry<H> {
 
 /// Collects the plug-ins of a [`Registry`].
 pub struct RegistryBuilder<H = NoHost> {
+    response_types: Vec<Box<dyn ResponseType>>,
+    modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<dyn HostedFormat<H>>>,
     profiles: Vec<Box<dyn DynProfile<H>>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
@@ -144,6 +231,8 @@ pub struct RegistryBuilder<H = NoHost> {
 impl<H> Default for RegistryBuilder<H> {
     fn default() -> Self {
         Self {
+            response_types: Vec::new(),
+            modes: Vec::new(),
             formats: Vec::new(),
             profiles: Vec::new(),
             exact: Vec::new(),
@@ -155,6 +244,52 @@ impl<H> Default for RegistryBuilder<H> {
 }
 
 impl<H> RegistryBuilder<H> {
+    /// A response type (RFC 6749 §3.1.1), keyed by its name (P1); `build` refuses a name
+    /// registered twice.
+    pub fn response_type(&mut self, response_type: impl ResponseType + 'static) {
+        self.response_types.push(Box::new(response_type));
+    }
+
+    /// A response mode whose answers are in the clear, keyed by its name and channel.
+    pub fn mode(&mut self, mode: impl HostedMode<H> + 'static) {
+        self.modes.push(RegisteredMode {
+            mode: Box::new(mode),
+            role: Role::Clear,
+        });
+    }
+
+    /// A response mode whose answers the core seals as JWEs (§8.3) through the host's `Haip`,
+    /// keyed by its name and channel.
+    #[cfg(feature = "resolve")]
+    pub fn jwe_mode(&mut self, mode: impl HostedMode<H> + 'static)
+    where
+        H: Has<dyn Haip>,
+    {
+        self.modes.push(RegisteredMode {
+            mode: Box::new(mode),
+            role: Role::Jwe(|host| Has::<dyn Haip>::module(host)),
+        });
+    }
+
+    /// A response mode whose answers are sealed as JWEs (§8.3), keyed by its name and channel.
+    #[cfg(not(feature = "resolve"))]
+    pub fn jwe_mode(&mut self, mode: impl HostedMode<H> + 'static) {
+        self.modes.push(RegisteredMode {
+            mode: Box::new(mode),
+            role: Role::Jwe(std::marker::PhantomData),
+        });
+    }
+
+    /// A URI response mode's error responses (§8.2, §8.3.1), keyed by its name: a mode
+    /// registered here alone carries errors alone (C5 refuses a request naming it). Over the DC
+    /// API the core writes A.4's error itself, so `build` refuses a DC API mode registered here.
+    pub fn error_mode(&mut self, mode: impl HostedMode<H> + 'static) {
+        self.modes.push(RegisteredMode {
+            mode: Box::new(mode),
+            role: Role::Errors,
+        });
+    }
+
     /// Adds a format whose phase 2 the build's host can run.
     pub fn format(&mut self, format: impl HostedFormat<H> + 'static) {
         self.formats.push(Box::new(format));
@@ -183,11 +318,14 @@ impl<H> RegistryBuilder<H> {
         self.clients.push(Box::new(prefix));
     }
 
-    /// The registry. Refused when two formats share an identifier, a type or prefix is
-    /// registered twice, a registration names no profile, or a profile would write a member
-    /// twice into one presentation.
+    /// The registry. Refused when a response type is registered twice, a mode twice on one
+    /// channel, an error mode twice or on the DC API, two formats share an identifier, a type or
+    /// prefix is registered twice, a registration names no profile, or a profile would write a
+    /// member twice into one presentation.
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
+            response_types,
+            modes,
             formats,
             profiles,
             exact,
@@ -195,6 +333,30 @@ impl<H> RegistryBuilder<H> {
             #[cfg(feature = "resolve")]
             clients,
         } = self;
+        for (k, kind) in response_types.iter().enumerate() {
+            if response_types
+                .get(..k)
+                .is_some_and(|before| before.iter().any(|other| other.name() == kind.name()))
+            {
+                return Err(RegistryError::ResponseTypeTwice(kind.name()));
+            }
+        }
+        for (k, registered) in modes.iter().enumerate() {
+            let (name, channel) = (registered.mode.name(), registered.mode.channel());
+            let errors = matches!(registered.role, Role::Errors);
+            if errors && channel == ChannelKind::DcApi {
+                return Err(RegistryError::ErrorModeChannel(name));
+            }
+            if modes.get(..k).is_some_and(|before| {
+                before.iter().any(|other| {
+                    other.mode.name() == name
+                        && other.mode.channel() == channel
+                        && matches!(other.role, Role::Errors) == errors
+                })
+            }) {
+                return Err(RegistryError::ModeTwice { name, channel });
+            }
+        }
         #[cfg(feature = "resolve")]
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, prefix)| {
             clients
@@ -259,6 +421,8 @@ impl<H> RegistryBuilder<H> {
             }
         }
         Ok(Registry {
+            response_types,
+            modes,
             formats,
             profiles,
             exact,
@@ -363,12 +527,67 @@ impl<H> Registry<H> {
             .map(|(profile, own)| profile.read(own))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
+            response_types: self.response_types.clone(),
+            modes: self.modes.clone(),
             formats: self.formats.clone(),
             profiles: read.into_iter().map(|informed| informed()).collect(),
             exact: self.exact.clone(),
             prefixes: self.prefixes.clone(),
             clients: self.clients.clone(),
         })
+    }
+}
+
+impl<H> Registry<H> {
+    /// The registered mode a handle names, with its role.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn mode_host(&self, handle: ModeHandle) -> Option<&RegisteredMode<H>> {
+        self.modes.get(handle.place())
+    }
+}
+
+/// The registry's response types and modes, as the envelope reads them whatever the build's
+/// host.
+pub(crate) trait Routes {
+    /// The registered response type of a name.
+    fn response_type(&self, name: &str) -> Option<ResponseTypeName>;
+    /// The registered mode of a name on a channel: the mode that carries answers, else the one
+    /// that carries errors alone.
+    fn routed(&self, channel: ChannelKind, name: &str) -> Option<(RoutedMode, &dyn Mode)>;
+}
+
+impl<H> Routes for Registry<H> {
+    fn response_type(&self, name: &str) -> Option<ResponseTypeName> {
+        self.response_types
+            .iter()
+            .map(|kind| kind.name())
+            .find(|kind| kind.as_str() == name)
+    }
+
+    fn routed(&self, channel: ChannelKind, name: &str) -> Option<(RoutedMode, &dyn Mode)> {
+        let find = |errors: bool| {
+            self.modes
+                .iter()
+                .enumerate()
+                .find_map(|(place, registered)| {
+                    let mode = &registered.mode;
+                    (mode.channel() == channel
+                        && mode.name().as_str() == name
+                        && matches!(registered.role, Role::Errors) == errors)
+                        .then(|| {
+                            let carries = if errors {
+                                Carries::Errors
+                            } else {
+                                Carries::Answers
+                            };
+                            let routed =
+                                RoutedMode::of(ModeHandle::at(place), mode.name(), carries);
+                            let mode: &dyn Mode = mode.as_ref();
+                            (routed, mode)
+                        })
+                })
+        };
+        find(false).or_else(|| find(true))
     }
 }
 

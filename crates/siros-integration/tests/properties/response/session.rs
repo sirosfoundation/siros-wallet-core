@@ -8,7 +8,6 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::EntryView;
 use siros_openid4vp::request::HolderBinding;
-use siros_openid4vp::routing::ModeChoice;
 use siros_openid4vp::wallet::{Credential, Holder};
 use siros_testkit::fixtures::{NONCE, ORIGIN};
 use siros_testkit::reading::model_shape;
@@ -27,9 +26,9 @@ pub(super) fn read_mdoc(presentation: &Value) -> Value {
 }
 
 pub(super) fn mode(case: &Case<'_>) -> String {
-    match case.request.envelope().routing().mode() {
-        ModeChoice::Answer(mode) => mode.as_str().to_owned(),
-        other => panic!("R-mode: an accepted request answers in a mode, not {other:?}"),
+    match siros_testkit::fixtures::mode_of(case.request) {
+        Some(mode) => mode.as_str().to_owned(),
+        None => panic!("R-mode: an accepted request answers in a mode"),
     }
 }
 

@@ -3,9 +3,10 @@
 
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::matching::Accepted;
+use siros_openid4vp::modes::{DcApi, DirectPost, DirectPostJwt, KeyChoice};
 use siros_openid4vp::refusal::{ErrorCode, Refused};
-use siros_openid4vp::request::{ClientMetadata, Encryption, Request, ResponseEnc};
-use siros_openid4vp::routing::{DcApiMode, ModeChoice, ResponseMode, State};
+use siros_openid4vp::request::{ClientMetadata, ContentEncryption, Request};
+use siros_openid4vp::routing::{Carries, Mode, ModeName, State};
 use siros_testkit::fixtures;
 
 use super::{KEY, fetched, link, registry, request_object, uri_payload};
@@ -16,7 +17,11 @@ fn refusals(payload: &str) -> Vec<(String, ErrorCode)> {
     let uri = link("test%3Averifier", "");
     let object = request_object(payload);
     let received = fetched(&uri, &object).expect("fetched");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let refused: Option<Refused> = match Request::parse(&envelope) {
         Err(refused) => Some(refused),
         Ok(request) => Accepted::new(&request, &registry()).err(),
@@ -51,7 +56,7 @@ fn each_routed_rule_refuses_with_its_code() {
         ),
         (
             with(p1, r#""response_type":"code","#),
-            "P1 response_type 'code' is not vp_token",
+            "P1 response_type 'code' names no response type the wallet answers",
             ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
         ),
         // C5: absent; off the channel; direct_post.
@@ -127,21 +132,29 @@ fn a_mode_c5_refuses_names_its_choice() {
         let uri = link("test%3Averifier", "");
         let object = request_object(payload);
         let received = fetched(&uri, &object).expect("fetched");
-        let envelope = Envelope::parse(&received).expect("an envelope");
-        envelope.routing().mode()
+        let envelope = Envelope::parse(
+            &received,
+            siros_testkit::fixtures::routing().expect("the routing registry"),
+        )
+        .expect("an envelope");
+        envelope
+            .routing()
+            .mode()
+            .map(|mode| (mode.name(), mode.carries()))
     };
     let mode = r#""response_mode":"direct_post.jwt""#;
+    let named = |mode: &dyn Mode, carries| Some((mode.name(), carries));
     assert_eq!(
         routing(&uri_payload("")),
-        ModeChoice::Answer(ResponseMode::DirectPostJwt)
+        named(&DirectPostJwt, Carries::Answers)
     );
     assert_eq!(
         routing(&with(mode, r#""response_mode":"direct_post""#)),
-        ModeChoice::DirectPost
+        named(&DirectPost, Carries::Errors)
     );
     assert_eq!(
         routing(&with(mode, r#""response_mode":"fragment""#)),
-        ModeChoice::Unsupported
+        None::<(ModeName, Carries)>
     );
     // Over the DC API, dc_api and dc_api.jwt; state and redirect_uri are unrecognized (A.2).
     let parameters = fixtures::parameters(
@@ -149,10 +162,17 @@ fn a_mode_c5_refuses_names_its_choice() {
         r#""state":"a b","redirect_uri":"x""#,
     );
     let received = fixtures::unsigned(&parameters).expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     assert_eq!(
-        envelope.routing().mode(),
-        ModeChoice::Answer(ResponseMode::DcApi(DcApiMode::DcApi))
+        envelope
+            .routing()
+            .mode()
+            .map(|mode| (mode.name(), mode.carries())),
+        Some((DcApi.name(), Carries::Answers))
     );
     assert!(envelope.routing().refusals().is_empty());
     assert!(envelope.routing().echo().is_none());
@@ -169,14 +189,10 @@ fn the_key_rule_picks_section_8_3s_key_and_enc() {
         "encrypted_response_enc_values_supported":["A128GCM","A128CBC-HS256"]}"#;
     let raw = serde_json::value::RawValue::from_string(metadata.to_owned()).expect("JSON");
     let metadata = ClientMetadata::parse(Some(&raw)).expect("metadata");
-    let chosen = Encryption::choose(&metadata).expect("a key and an enc");
+    let chosen = KeyChoice::of(DirectPostJwt.name(), &metadata).expect("a key and an enc");
     assert_eq!(
-        (
-            chosen.key().key().kid(),
-            chosen.key().key().alg().map(|alg| alg.as_str()),
-            chosen.enc()
-        ),
-        ("ac", Some("ECDH-ES"), ResponseEnc::A128Gcm)
+        (chosen.kid(), chosen.enc()),
+        ("ac", ContentEncryption::A128GCM)
     );
     // A256GCM when listed, after another value.
     let listed = format!(
@@ -185,8 +201,8 @@ fn the_key_rule_picks_section_8_3s_key_and_enc() {
     let raw = serde_json::value::RawValue::from_string(listed).expect("JSON");
     let metadata = ClientMetadata::parse(Some(&raw)).expect("metadata");
     assert_eq!(
-        Encryption::choose(&metadata).map(|chosen| chosen.enc()),
-        Some(ResponseEnc::A256Gcm)
+        KeyChoice::of(DirectPostJwt.name(), &metadata).map(|chosen| chosen.enc()),
+        Ok(ContentEncryption::A256GCM)
     );
 }
 
@@ -198,7 +214,11 @@ fn section_5_2s_nonce_and_state_are_url_safe() {
     let uri = link("test%3Averifier", "");
     let object = request_object(&payload);
     let received = fetched(&uri, &object).expect("fetched");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let request = Request::parse(&envelope).expect("a request");
     assert_eq!(request.nonce().as_str(), "n-0S6_WzA2Mj");
     assert_eq!(

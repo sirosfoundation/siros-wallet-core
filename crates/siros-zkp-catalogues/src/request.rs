@@ -4,7 +4,9 @@
 use siros_openid4vp::arrival::ReceivedForm;
 use siros_openid4vp::authenticate::{Authenticated, BoundEndpoint};
 use siros_openid4vp::ids::Nonce;
-use siros_openid4vp::request::{ClientMetadata, Encryption};
+use siros_openid4vp::modes::{DcApiJwt, DirectPostJwt, KeyChoice};
+use siros_openid4vp::request::ClientMetadata;
+use siros_openid4vp::routing::Mode;
 use siros_openid4vp::session::{Endpoint, Handover, SessionTranscript, Thumbprint};
 
 use crate::policy::{admitted, PolicyRequest, PolicyRule, RequestRefusal};
@@ -30,7 +32,7 @@ impl<'r> NymAuthRequest<'r> {
     /// Mode, and without a registration certificate. The core authenticated it: its Verifier is
     /// trusted, and over the Digital Credentials API the calling origin is one it expects. The
     /// session's SessionTranscript binds the thumbprint of the key the core encrypts the
-    /// response to: [`Encryption::choose`] over `client_metadata` (OpenID4VP 1.0, Section 8.3).
+    /// response to: [`KeyChoice::of`] over `client_metadata` (OpenID4VP 1.0, Section 8.3).
     ///
     /// The `verifier_id` derives from the request: the Client Identifier in the `x509_san_dns`
     /// form, `"semantic_id:"` and the semantics identifier the trust service states in the
@@ -75,9 +77,15 @@ fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestR
     let parameters = request.envelope().parameters();
     let metadata = ClientMetadata::parse(parameters.raw("client_metadata"))
         .map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?;
-    let encryption =
-        Encryption::choose(&metadata).ok_or(policy(PolicyRule::EncryptionKeyMissing))?;
-    let encryption_key = Thumbprint(encryption.key().key().thumbprint());
+    let mode = match request.envelope().received().form() {
+        ReceivedForm::DcApi { .. } => DcApiJwt.name(),
+        ReceivedForm::Uri { .. } => DirectPostJwt.name(),
+    };
+    let encryption_key = Thumbprint(
+        KeyChoice::of(mode, &metadata)
+            .map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?
+            .thumbprint(),
+    );
     let nonce = parameters
         .text("nonce")
         .flatten()

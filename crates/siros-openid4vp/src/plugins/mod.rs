@@ -30,7 +30,8 @@ pub use members::{JsonText, Member, MemberTwice, MemberValue, Members};
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};
 pub use registry::{
-    HostedFormat, HostedProfile, NoHost, ProfileHandle, Registry, RegistryBuilder, RegistryError,
+    HostedFormat, HostedMode, HostedProfile, NoHost, ProfileHandle, Registry, RegistryBuilder,
+    RegistryError,
 };
 
 use crate::boxes::{Card, Header, Overlay};

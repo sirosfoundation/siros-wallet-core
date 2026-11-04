@@ -7,20 +7,25 @@ use std::num::NonZeroU32;
 use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::envelope::Envelope;
+use siros_openid4vp::host::{Haip, Has};
 use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
     Origin,
 };
 use siros_openid4vp::json::quote;
 use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
 use siros_openid4vp::plugins::Fault;
+use siros_openid4vp::plugins::{Registry, RegistryBuilder, RegistryError};
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
+use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
 use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, IconMedia};
 use siros_openid4vp::wallet::{
     Credential, Document, Facts, HeldAuthority, Holder, RegistrationError,
 };
 
+use crate::TestHost;
 use crate::issuer::{DOCUMENT, IssueError, issue};
 
 /// The Origin of the model's requests.
@@ -71,6 +76,9 @@ pub enum FixtureError {
     /// A double failed.
     #[error(transparent)]
     Fault(#[from] Fault),
+    /// The kit's registry cannot exist.
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
 }
 
 /// Request parameters: `dc_api`, the model's nonce, the DCQL query, then `extra` members.
@@ -162,13 +170,61 @@ pub fn data_of<'a>(
     }
 }
 
-/// The request a DC API arrival's envelope holds.
+/// Registers OpenID4VP's response type and response modes, as a HAIP build registers them:
+/// `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed through the
+/// host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`.
+pub fn openid4vp<H: Has<dyn Haip>>(builder: &mut RegistryBuilder<H>) {
+    builder.response_type(VpToken);
+    builder.mode(DcApi);
+    builder.jwe_mode(DcApiJwt);
+    builder.jwe_mode(DirectPostJwt);
+    builder.error_mode(DirectPostJwt);
+    builder.error_mode(DirectPost);
+}
+
+/// Registers OpenID4VP's response type and the modes a build without `Haip` answers in:
+/// `vp_token`, `dc_api`, and the errors of `direct_post`.
+pub fn openid4vp_clear<H>(builder: &mut RegistryBuilder<H>) {
+    builder.response_type(VpToken);
+    builder.mode(DcApi);
+    builder.error_mode(DirectPost);
+}
+
+/// A registry of OpenID4VP's response type and modes alone ([`openid4vp`]) over the test host.
+///
+/// # Errors
+///
+/// The registry refuses the registrations, a bug of the kit.
+pub fn routing_registry() -> Result<Registry<TestHost>, RegistryError> {
+    let mut builder = Registry::<TestHost>::builder();
+    openid4vp(&mut builder);
+    builder.build()
+}
+
+thread_local! {
+    /// The registry [`request_of`] reads a request's routing with, made once per thread.
+    static ROUTING: Result<&'static Registry<TestHost>, RegistryError> =
+        routing_registry().map(|registry| &*Box::leak(Box::new(registry)));
+}
+
+/// The registry of OpenID4VP's response type and modes alone ([`routing_registry`]), made once
+/// per thread, which an envelope reads a request's routing with.
+///
+/// # Errors
+///
+/// The registry refuses the registrations, a bug of the kit.
+pub fn routing() -> Result<&'static Registry<TestHost>, RegistryError> {
+    ROUTING.with(Clone::clone)
+}
+
+/// The request a DC API arrival's envelope holds, its routing read over OpenID4VP's response type
+/// and modes ([`openid4vp`]).
 ///
 /// # Errors
 ///
 /// The envelope breaks a U rule, or the request a rule of its parsing.
 pub fn request_of<'r>(received: &'r Received<'r>) -> Result<Request<'r>, FixtureError> {
-    let envelope = Envelope::parse(received)?;
+    let envelope = Envelope::parse(received, routing()?)?;
     Ok(Request::parse(&envelope)?)
 }
 
@@ -361,12 +417,7 @@ pub fn dc_api_context<'q>(
     request: &'q Request<'q>,
     supported: Option<siros_openid4vp::json::Node<'q>>,
 ) -> siros_openid4vp::host::AnsweredContext<'q> {
-    siros_openid4vp::host::AnsweredContext::new(
-        request,
-        siros_openid4vp::routing::ResponseMode::DcApi(siros_openid4vp::routing::DcApiMode::DcApi),
-        false,
-        supported,
-    )
+    siros_openid4vp::host::AnsweredContext::new(request, DcApi.name(), false, supported)
 }
 
 /// `let $name = $parameters;` as a signed DC API request over the parameters, the test Verifier's
@@ -389,24 +440,19 @@ pub fn query_context<'q>(
     named: bool,
     supported: Option<siros_openid4vp::json::Node<'q>>,
 ) -> siros_openid4vp::routing::QueryContext<'q> {
-    siros_openid4vp::routing::QueryContext::new(
-        request,
-        Some(siros_openid4vp::routing::ResponseMode::DcApi(
-            siros_openid4vp::routing::DcApiMode::DcApi,
-        )),
-        named,
-        supported,
-    )
+    siros_openid4vp::routing::QueryContext::new(request, Some(DcApi.name()), named, supported)
 }
 
-/// The response mode a request's routing answers in; `None` when C5 refuses its mode.
+/// The name of the response mode a request's routing answers in; `None` when C5 refuses its
+/// mode.
 #[must_use]
-pub fn mode_of(request: &Request<'_>) -> Option<siros_openid4vp::routing::ResponseMode> {
-    match request.envelope().routing().mode() {
-        siros_openid4vp::routing::ModeChoice::Answer(mode) => Some(mode),
-        siros_openid4vp::routing::ModeChoice::DirectPost
-        | siros_openid4vp::routing::ModeChoice::Unsupported => None,
-    }
+pub fn mode_of(request: &Request<'_>) -> Option<ModeName> {
+    request
+        .envelope()
+        .routing()
+        .mode()
+        .filter(|mode| mode.carries() == Carries::Answers)
+        .map(RoutedMode::name)
 }
 
 /// `let $name = $parameters;` as an unsigned DC API request of the parameters from the model's

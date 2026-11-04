@@ -12,7 +12,9 @@ use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
 use crate::ids::{ClientId, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
-use crate::routing::Routing;
+use crate::plugins::Registry;
+use crate::plugins::registry::Routes;
+use crate::routing::{ChannelKind, Routing};
 
 /// The request's parameters: DC API `data` or the Request Object's payload, a JSON object with
 /// unique member names at every level. `client_metadata` is kept as received: its own levels are
@@ -83,6 +85,17 @@ pub enum Channel<'r> {
     DcApi(&'r Origin<'r>),
     /// A URI, its Request Object fetched.
     Uri,
+}
+
+impl Channel<'_> {
+    /// The channel's kind.
+    #[must_use]
+    pub const fn kind(&self) -> ChannelKind {
+        match self {
+            Self::DcApi(_) => ChannelKind::DcApi,
+            Self::Uri => ChannelKind::Uri,
+        }
+    }
 }
 
 /// The request's signatures, each the JWS the request arrived in, whose parse holds its
@@ -174,7 +187,8 @@ impl<'r> Signer<'r> {
     }
 }
 
-/// The request's parameters, signatures and routing. The channel is the received form's.
+/// The request's parameters, signatures and routing, its mode the registry's it was read with,
+/// which every later step reads. The channel is the received form's.
 #[derive(Debug, Clone)]
 pub struct Envelope<'r> {
     received: &'r Received<'r>,
@@ -187,13 +201,19 @@ pub struct Envelope<'r> {
 const REQUEST_OBJECT: &str = "oauth-authz-req+jwt";
 
 impl<'r> Envelope<'r> {
-    /// The envelope of a received request, with its routing. Refused per U3, U10,
-    /// U12, U13, U14, U16 and U17; the routing's rules are refusals it holds.
+    /// The envelope of a received request, its routing read over the registry's response types
+    /// and modes: the type and the mode the request names on its channel. The envelope keeps the
+    /// registry's. Refused per U3, U10, U12, U13, U14, U16 and U17; the routing's rules are
+    /// refusals it holds.
     ///
     /// # Errors
     ///
     /// The U rule the request breaks.
-    pub fn parse(received: &'r Received<'r>) -> Result<Self, Unreadable> {
+    pub fn parse<H>(
+        received: &'r Received<'r>,
+        registry: &'r Registry<H>,
+    ) -> Result<Self, Unreadable> {
+        let routes: &'r dyn Routes = registry;
         let (parameters, signatures) = match received.form() {
             ReceivedForm::DcApi { request, .. } => match request {
                 DcApiRequest::Unsigned(parameters) => (parameters.clone(), Signatures::Unsigned),
@@ -233,7 +253,7 @@ impl<'r> Envelope<'r> {
                 (parameters, Signatures::One { jws, client_id })
             }
         };
-        let routing = Routing::read(&parameters, &channel(received));
+        let routing = Routing::read(&parameters, &channel(received), routes);
         Ok(Self {
             received,
             parameters,

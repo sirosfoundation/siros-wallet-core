@@ -112,6 +112,7 @@ where
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let mut builder = Registry::<H>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(Mdoc::new().expect("format"));
     let registry = builder.build().expect("registry");
     let wallet = Wallet::new(vec![held.credential().expect("credential")]).expect("wallet");

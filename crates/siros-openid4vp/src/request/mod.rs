@@ -25,8 +25,8 @@ pub use entry::{Entry, Malformed};
 pub use factor::{factor, project, splits};
 pub(crate) use metadata::jose_name;
 pub use metadata::{
-    AgreeableKey, Agreements, ClientMetadata, ContentEncryption, Curve, Encryption, KeyAgreement,
-    MetadataError, Point, ResponseEnc, ResponseKey, thumbprint,
+    AgreeableKey, Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement,
+    MetadataError, Point, thumbprint,
 };
 pub use rules::{DcqlRule, ParameterRule, StructureRule, UndecodedEntry};
 pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set};

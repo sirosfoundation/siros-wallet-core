@@ -8,7 +8,8 @@ use siros_openid4vp::arrival::{DcApiRequest, ReceivedForm};
 use siros_openid4vp::authenticate::{Authenticated, VerifierId as AuthenticatedId};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::ids::ClientId;
-use siros_openid4vp::routing::{DcApiMode, ModeChoice, ResponseMode};
+use siros_openid4vp::modes::{DcApiJwt, DirectPostJwt};
+use siros_openid4vp::routing::{Carries, Mode, ModeName};
 
 use crate::verifier_id::{prefix, Intermediary, VerifierId, VerifierIdForm, VerifierIdRule};
 
@@ -131,8 +132,9 @@ pub trait PolicyRequest {
     /// The `data` form of a DC API request; `None` by URI.
     fn dc_api_request(&self) -> Option<DcApiProtocol>;
 
-    /// The Response Mode the core routed the request to.
-    fn response_mode(&self) -> ModeChoice;
+    /// The name of the Response Mode the core routed the request to and answers in; `None` when
+    /// the core refuses the request's mode (C5).
+    fn response_mode(&self) -> Option<ModeName>;
 
     /// `verifier_info` as received.
     fn verifier_info(&self) -> Option<&RawValue>;
@@ -171,14 +173,10 @@ pub fn signed_and_encrypted<R: PolicyRequest>(
     if request.dc_api_request() == Some(DcApiProtocol::Multisigned) {
         return Err(policy(PolicyRule::Multisigned));
     }
-    let encrypted = matches!(
-        (request.dc_api_request(), request.response_mode()),
-        (None, ModeChoice::Answer(ResponseMode::DirectPostJwt))
-            | (
-                Some(_),
-                ModeChoice::Answer(ResponseMode::DcApi(DcApiMode::DcApiJwt))
-            )
-    );
+    let encrypted = match request.dc_api_request() {
+        None => request.response_mode() == Some(DirectPostJwt.name()),
+        Some(_) => request.response_mode() == Some(DcApiJwt.name()),
+    };
     if !encrypted {
         return Err(policy(PolicyRule::ResponseMode));
     }
@@ -247,6 +245,15 @@ fn protocol(envelope: &Envelope<'_>) -> Option<DcApiProtocol> {
     }
 }
 
+/// The name of the mode the envelope's routing answers in.
+fn answered(envelope: &Envelope<'_>) -> Option<ModeName> {
+    envelope
+        .routing()
+        .mode()
+        .filter(|mode| mode.carries() == Carries::Answers)
+        .map(|mode| mode.name())
+}
+
 /// The request as the credential picker reads it, before the wallet authenticates it.
 impl PolicyRequest for Envelope<'_> {
     fn client(&self) -> Option<&ClientId<'_>> {
@@ -257,8 +264,8 @@ impl PolicyRequest for Envelope<'_> {
         protocol(self)
     }
 
-    fn response_mode(&self) -> ModeChoice {
-        self.routing().mode()
+    fn response_mode(&self) -> Option<ModeName> {
+        answered(self)
     }
 
     fn verifier_info(&self) -> Option<&RawValue> {
@@ -280,8 +287,8 @@ impl PolicyRequest for Authenticated<'_> {
         protocol(self.envelope())
     }
 
-    fn response_mode(&self) -> ModeChoice {
-        self.envelope().routing().mode()
+    fn response_mode(&self) -> Option<ModeName> {
+        answered(self.envelope())
     }
 
     fn verifier_info(&self) -> Option<&RawValue> {

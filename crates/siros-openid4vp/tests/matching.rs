@@ -194,6 +194,7 @@ impl<H> FormatHost<H> for Scripted {
 /// The scripted format, and the test profile under the type `t1`.
 fn scripted(script: Script) -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(Scripted(TestFormat::new().expect("format"), script));
     let profile = builder.profile(TestProfile::new(Binds::First));
     builder.exact(TransactionType::parse("t1").expect("type"), profile);

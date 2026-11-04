@@ -179,6 +179,7 @@ impl Abstract {
         };
         let by_prefix = rng.random_bool(0.5);
         let mut builder = Registry::<HaipHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
         builder.format(TestFormat::new().expect("the test format"));
         let first = builder.profile(one);
         let second = if shared {

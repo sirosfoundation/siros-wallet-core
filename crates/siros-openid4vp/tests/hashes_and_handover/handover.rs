@@ -172,6 +172,7 @@ fn cbor(value: &Value) -> String {
 fn the_dc_api_handover_reproduces_the_b_2_6_2_example() {
     let jwk = r#"{"kty": "EC", "crv": "P-256", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES", "kid": "1"}"#;
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(Recorder(TestFormat::new().expect("format")));
     let registry = builder.build().expect("registry");
     let holder = Held::answering("c", &["q"], &[]);

@@ -32,6 +32,7 @@ const RESPONSE_URI: &str = "https://rp.example.com/post";
 
 fn registry() -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(TestFormat::new().expect("format"));
     builder.client_prefix(X509Hash);
     builder.client_prefix(X509SanDns);
@@ -89,7 +90,11 @@ fn refusal(header: &str, client_id: &str) -> X509Refusal {
     let origin = Origin::parse(ORIGIN).expect("origin");
     let received = Received::dc_api("openid4vp-v1-signed", &data, origin, &DcApiProtocols::ALL)
         .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let registry = registry();
     let rejected = outcome(&envelope, &registry)
         .map(drop)
@@ -183,7 +188,11 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     let origin = Origin::parse("https://origin1.example.com").expect("origin");
     let received = Received::dc_api("openid4vp-v1-signed", &data, origin, &DcApiProtocols::ALL)
         .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     assert_eq!(envelope.client_id().map(|id| id.as_str()), Some(san));
     let request = Request::parse(&envelope).expect("a request");
     assert_eq!(request.expected_origins().len(), 2);
@@ -200,7 +209,11 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     let origin = Origin::parse(ORIGIN).expect("origin");
     let received = Received::dc_api("openid4vp-v1-signed", &data, origin, &DcApiProtocols::ALL)
         .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     assert!(outcome(&envelope, &registry).is_ok());
 }
 
@@ -232,7 +245,11 @@ fn a_uri_request_binds_its_endpoint_as_the_prefix_says() {
         let received = fetch
             .resume(FetchAnswer::Body(&object), &host)
             .expect("received");
-        let envelope = Envelope::parse(&received).expect("an envelope");
+        let envelope = Envelope::parse(
+            &received,
+            siros_testkit::fixtures::routing().expect("the routing registry"),
+        )
+        .expect("an envelope");
         let config = config();
         let outcome = envelope
             .questions(&registry, &config, &host)

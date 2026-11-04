@@ -6,7 +6,7 @@ use super::{Attested, BoundEntries};
 use crate::effects::Resources;
 use crate::ids::FormatId;
 use crate::request::Request;
-use crate::routing::ResponseMode;
+use crate::routing::ModeName;
 use crate::wallet::Credential;
 
 /// A record phase 2 answers, as a profile reads it.
@@ -17,7 +17,7 @@ pub struct Answered<'r> {
     entries: &'r BoundEntries,
     attested: &'r Attested,
     format: &'r FormatId<'r>,
-    mode: ResponseMode,
+    mode: ModeName,
 }
 
 impl<'r> Answered<'r> {
@@ -27,7 +27,7 @@ impl<'r> Answered<'r> {
         entries: &'r BoundEntries,
         attested: &'r Attested,
         format: &'r FormatId<'r>,
-        mode: ResponseMode,
+        mode: ModeName,
     ) -> Self {
         Self {
             request,
@@ -41,7 +41,7 @@ impl<'r> Answered<'r> {
 
     /// The response mode the answer goes in, which the request's rules accepted.
     #[must_use]
-    pub const fn mode(&self) -> ResponseMode {
+    pub const fn mode(&self) -> ModeName {
         self.mode
     }
 
@@ -104,8 +104,7 @@ impl<'r> FetchedRecord<'r> {
 #[cfg(feature = "test-util")]
 mod test_util {
     use super::{
-        Answered, Attested, BoundEntries, Credential, FetchedRecord, FormatId, Request,
-        ResponseMode,
+        Answered, Attested, BoundEntries, Credential, FetchedRecord, FormatId, ModeName, Request,
     };
     use crate::effects::{Fetch, Resource, Resources, Slots};
     use crate::host::ProfileHost;
@@ -120,7 +119,7 @@ mod test_util {
             entries: &'r BoundEntries,
             attested: &'r Attested,
             format: &'r FormatId<'r>,
-            mode: ResponseMode,
+            mode: ModeName,
         ) -> Self {
             Self::of(request, credential, entries, attested, format, mode)
         }

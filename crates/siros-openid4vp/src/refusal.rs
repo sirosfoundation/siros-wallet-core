@@ -46,29 +46,37 @@ impl ErrorCode {
     /// `access_denied` (RFC 6749 §4.1.2.1).
     pub const ACCESS_DENIED: Self = siros_explain::checked!(ErrorCode, "access_denied");
     /// `unsupported_response_type` (RFC 6749 §4.1.2.1).
-    pub const UNSUPPORTED_RESPONSE_TYPE: Self = siros_explain::checked!(ErrorCode, "unsupported_response_type");
+    pub const UNSUPPORTED_RESPONSE_TYPE: Self =
+        siros_explain::checked!(ErrorCode, "unsupported_response_type");
     /// `invalid_scope` (RFC 6749 §4.1.2.1).
     pub const INVALID_SCOPE: Self = siros_explain::checked!(ErrorCode, "invalid_scope");
     /// `server_error` (RFC 6749 §4.1.2.1).
     pub const SERVER_ERROR: Self = siros_explain::checked!(ErrorCode, "server_error");
     /// `temporarily_unavailable` (RFC 6749 §4.1.2.1).
-    pub const TEMPORARILY_UNAVAILABLE: Self = siros_explain::checked!(ErrorCode, "temporarily_unavailable");
+    pub const TEMPORARILY_UNAVAILABLE: Self =
+        siros_explain::checked!(ErrorCode, "temporarily_unavailable");
     /// `invalid_request_uri` (RFC 9101 §7).
     pub const INVALID_REQUEST_URI: Self = siros_explain::checked!(ErrorCode, "invalid_request_uri");
     /// `invalid_request_object` (RFC 9101 §7).
-    pub const INVALID_REQUEST_OBJECT: Self = siros_explain::checked!(ErrorCode, "invalid_request_object");
+    pub const INVALID_REQUEST_OBJECT: Self =
+        siros_explain::checked!(ErrorCode, "invalid_request_object");
     /// `request_not_supported` (RFC 9101 §7).
-    pub const REQUEST_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "request_not_supported");
+    pub const REQUEST_NOT_SUPPORTED: Self =
+        siros_explain::checked!(ErrorCode, "request_not_supported");
     /// `request_uri_not_supported` (RFC 9101 §7).
-    pub const REQUEST_URI_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "request_uri_not_supported");
+    pub const REQUEST_URI_NOT_SUPPORTED: Self =
+        siros_explain::checked!(ErrorCode, "request_uri_not_supported");
     /// `invalid_client` (OpenID4VP 1.0 §8.5); no rule of the core returns it.
     pub const INVALID_CLIENT: Self = siros_explain::checked!(ErrorCode, "invalid_client");
     /// `vp_formats_not_supported` (OpenID4VP 1.0 §8.5).
-    pub const VP_FORMATS_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "vp_formats_not_supported");
+    pub const VP_FORMATS_NOT_SUPPORTED: Self =
+        siros_explain::checked!(ErrorCode, "vp_formats_not_supported");
     /// `invalid_request_uri_method` (OpenID4VP 1.0 §8.5).
-    pub const INVALID_REQUEST_URI_METHOD: Self = siros_explain::checked!(ErrorCode, "invalid_request_uri_method");
+    pub const INVALID_REQUEST_URI_METHOD: Self =
+        siros_explain::checked!(ErrorCode, "invalid_request_uri_method");
     /// `invalid_transaction_data` (OpenID4VP 1.0 §8.5).
-    pub const INVALID_TRANSACTION_DATA: Self = siros_explain::checked!(ErrorCode, "invalid_transaction_data");
+    pub const INVALID_TRANSACTION_DATA: Self =
+        siros_explain::checked!(ErrorCode, "invalid_transaction_data");
     /// `wallet_unavailable` (OpenID4VP 1.0 §8.5).
     pub const WALLET_UNAVAILABLE: Self = siros_explain::checked!(ErrorCode, "wallet_unavailable");
 

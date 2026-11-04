@@ -14,7 +14,7 @@ use siros_openid4vp::host::{
     Authentication, CoseEnc, CoseEncrypt, Haip, Has, MayHave, Platform, Seconds, Timestamp,
 };
 use siros_openid4vp::request::{ContentEncryption, Request};
-use siros_openid4vp::routing::ResponseMode;
+use siros_openid4vp::routing::ModeName;
 use siros_openid4vp::sri;
 
 use crate::FAULT;
@@ -159,7 +159,7 @@ pub(crate) struct Answer<'a> {
     pub(crate) signals: Effective,
     pub(crate) attested: &'a Attested,
     pub(crate) proof: Proof,
-    pub(crate) mode: ResponseMode,
+    pub(crate) mode: ModeName,
 }
 
 impl Answer<'_> {

@@ -166,6 +166,7 @@ pub fn env(locale: &'static str) -> Env {
 /// The stand-ins for `mso_mdoc` and `dc+sd-jwt`, and the profile when given.
 pub fn registry(profile: Option<QesProfile>) -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(StandIn::new("mso_mdoc"));
     builder.format(StandIn::new("dc+sd-jwt"));
     if let Some(profile) = profile {
@@ -506,7 +507,7 @@ pub fn phase_one(
     env: &Env,
 ) -> Result<(Matched, Vec<Viewed>), Refused> {
     let received = unsigned(parameters).expect("received");
-    let envelope = Envelope::parse(&received).expect("the envelope");
+    let envelope = Envelope::parse(&received, registry).expect("the envelope");
     let request = Request::parse(&envelope)?;
     let wallet = wallet(held);
     let accepted = Accepted::new(&request, registry)?;

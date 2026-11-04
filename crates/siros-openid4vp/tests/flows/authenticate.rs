@@ -327,7 +327,11 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     .expect("signs");
     let data = format!(r#"{{"request":"{jws}"}}"#);
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let rejected = envelope
         .questions(&registry, &checked, &TestHost::default())
         .map(drop)
@@ -337,7 +341,11 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     // Signed by the test Verifier: authenticated, endpoint the platform's.
     let data = fixtures::signed_data(&parameters).expect("signs");
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let done = authenticated(&envelope, &registry, &trust, &checked).expect("authenticated");
     assert_eq!(done.verifier().endpoint(), &BoundEndpoint::DcApi);
     // Tamper: verified expected_origins that lack the Origin is C8.
@@ -347,7 +355,11 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     );
     let data = fixtures::signed_data(&elsewhere).expect("signs");
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     assert!(authenticated(&envelope, &registry, &trust, &checked).is_ok());
     let request = Request::parse(&envelope).expect("a request");
     let refused = Accepted::new(&request, &registry)
@@ -362,7 +374,11 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     // An unsigned request under OriginPolicy::Evaluate: the Origin's evaluation, A6 on a Deny.
     let parameters = fixtures::parameters(&super::test_queries(&["q"]), "");
     let received = fixtures::unsigned(&parameters).expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let evaluate = TrustConfig {
         origins: OriginPolicy::Evaluate,
         ..checked
@@ -419,7 +435,11 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
         &DcApiProtocols::ALL,
     )
     .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let done = authenticated(&envelope, &registry, &TestTrust::default(), &checked)
         .expect("authenticated");
     assert!(
@@ -437,7 +457,11 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
         &DcApiProtocols::ALL,
     )
     .expect("received");
-    let envelope = Envelope::parse(&received).expect("an envelope");
+    let envelope = Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .expect("an envelope");
     let rejected = authenticated(&envelope, &registry, &TestTrust::default(), &checked)
         .map(drop)
         .expect_err("A11");
@@ -462,6 +486,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
 fn the_registry_and_the_configuration_refuse_what_their_rule_excludes() {
     // A prefix registered twice; `origin` is no prefix name.
     let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.client_prefix(TestPrefix::Request);
     builder.client_prefix(TestPrefix::Framework("verifier.example".to_owned()));
     assert!(matches!(builder.build(), Err(RegistryError::PrefixTwice(name)) if name == "test"));

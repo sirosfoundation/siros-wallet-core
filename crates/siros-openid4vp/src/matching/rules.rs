@@ -1,8 +1,7 @@
 //! The request rules that need the plug-ins, in the order they run: the core's C1-C4 and C8, the
-//! routing's rules at C5's place, C6 and C7 (§8.3: client metadata that is a JSON object, and for
-//! an encrypting mode a key and content encryption the key rule accepts), each format's rules per
-//! query, each profile's over its entries; and the request they accept. C0 runs when the request
-//! is parsed.
+//! routing's rules at C5's place, C6 (client metadata that is a JSON object), the named mode's
+//! own rules (a JWE mode's C7), each format's rules per query, each profile's over its entries;
+//! and the request they accept. C0 runs when the request is parsed.
 
 use siros_explain::{AllOf, Explain};
 
@@ -10,8 +9,8 @@ use crate::envelope::Channel;
 use crate::plugins::registry::Catalog;
 use crate::plugins::{Format, FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
-use crate::request::{ClientMetadata, Encryption, EntryIndex, MetadataError, QueryIndex, Request};
-use crate::routing::{Protection, QueryContext, ResponseMode};
+use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
+use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
 
 /// The core's rules C1 to C8, each with its code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -50,13 +49,6 @@ pub enum CoreRule {
     #[error("C6 client_metadata: {0}")]
     #[explain(id = "c6")]
     ClientMetadata(#[explain(name = "cause")] MetadataError),
-    /// C7: an encrypting mode without a key and a content encryption the key rule accepts.
-    #[error("C7 {mode}: client_metadata offers no key and content encryption the wallet supports")]
-    #[explain(id = "c7")]
-    Encryption {
-        /// The mode.
-        mode: &'static str,
-    },
     /// C8: a signed request whose `expected_origins` lack the Origin.
     #[error("C8 a signed request whose expected_origins {expected} lack the Origin {origin}")]
     #[explain(id = "c8")]
@@ -75,9 +67,7 @@ impl RequestRule for CoreRule {
             | Self::CredentialIds { .. }
             | Self::TwoTransactions
             | Self::TwoProfiles { .. } => ErrorCode::INVALID_TRANSACTION_DATA,
-            Self::ClientMetadata(_) | Self::Encryption { .. } | Self::ExpectedOrigins { .. } => {
-                ErrorCode::INVALID_REQUEST
-            }
+            Self::ClientMetadata(_) | Self::ExpectedOrigins { .. } => ErrorCode::INVALID_REQUEST,
         }
     }
 }
@@ -108,13 +98,14 @@ pub struct Accepted<'q> {
     request: &'q Request<'q>,
     registry: &'q dyn Catalog,
     metadata: ClientMetadata<'q>,
-    mode: ResponseMode,
+    mode: RoutedMode,
     plans: Vec<Plan<'q>>,
 }
 
 impl<'q> Accepted<'q> {
     /// Runs the rules; refused with every rule the request breaks, in order: C1 to C4, C8, the
-    /// routing's rules at C5's place, C6, C7 under the key rule, each format's, each profile's.
+    /// routing's rules at C5's place, C6, the named mode's own rules (a JWE mode's C7), each
+    /// format's, each profile's. The mode is the one the request's envelope routed it to.
     pub fn new<H>(request: &'q Request<'q>, registry: &'q Registry<H>) -> Result<Self, Refused> {
         let registry: &'q dyn Catalog = registry;
         let mut refusals = entry_rules(request, registry);
@@ -132,21 +123,17 @@ impl<'q> Accepted<'q> {
                 return Err(Refused::adding(refusals, c6));
             }
         };
-        if let Ok(mode) = mode
-            && mode.protection() == Protection::Encrypted
-            && Encryption::choose(&metadata).is_none()
-        {
-            refusals.push(Refusal::new(CoreRule::Encryption {
-                mode: mode.as_str(),
-            }));
+        if let Ok((_, registered)) = &mode {
+            refusals.extend(registered.rules(request, &VerifierMetadata::of(&metadata)));
         }
+        let mode = mode.map(|(mode, _)| mode);
         let mut plans = Vec::new();
         for ((index, query), transaction) in request.indexed_queries().zip(transactions) {
             let formatted = match Formatted::of(
                 request,
                 registry,
                 &metadata,
-                mode.as_ref().ok().copied(),
+                mode.as_ref().ok().map(RoutedMode::name),
                 index,
                 query,
             ) {
@@ -194,8 +181,8 @@ impl<'q> Accepted<'q> {
 
     /// The response mode the routing's rules accepted.
     #[must_use]
-    pub const fn mode(&self) -> ResponseMode {
-        self.mode
+    pub const fn mode(&self) -> &RoutedMode {
+        &self.mode
     }
 
     pub(crate) fn plan(&self, query: QueryIndex) -> Option<&Plan<'q>> {
@@ -224,7 +211,7 @@ impl<'q> Formatted<'q> {
         request: &'q Request<'q>,
         registry: &'q dyn Catalog,
         metadata: &ClientMetadata<'q>,
-        mode: Option<ResponseMode>,
+        mode: Option<crate::routing::ModeName>,
         index: QueryIndex,
         query: &'q crate::request::Query<'q>,
     ) -> Option<Result<Self, AllOf<Refusal>>> {

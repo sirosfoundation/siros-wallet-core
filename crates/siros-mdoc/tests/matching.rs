@@ -46,6 +46,7 @@ siros_testkit::test_host! {
 
 fn registry() -> Registry<MdocHost> {
     let mut builder = Registry::<MdocHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(Mdoc::new().expect("format"));
     builder.build().expect("registry")
 }

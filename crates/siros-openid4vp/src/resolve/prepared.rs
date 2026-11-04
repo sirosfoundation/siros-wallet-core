@@ -15,14 +15,16 @@ use crate::host::{
 };
 use crate::ids::FormatId;
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
-use crate::plugins::registry::DynProfile;
+use crate::plugins::registry::{DynProfile, Role};
 use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
     ProfileHandle, Registry,
 };
 use crate::refusal::Refused;
-use crate::request::{Encryption, Query, Request};
-use crate::routing::{AnsweredContext, Protection, QueryContext, ResponseMode};
+use crate::request::{Agreements, ContentEncryption, Query, Request};
+use crate::routing::{
+    AnsweredContext, Encrypting, ModeName, QueryContext, VerifierKey, VerifierMetadata,
+};
 use crate::rows::Env;
 use crate::session::{Handover, Session, Thumbprint};
 use crate::wallet::{Credential, Wallet};
@@ -34,6 +36,7 @@ use crate::{FAULT, detail};
 #[must_use]
 pub struct Prepared<'p, H> {
     accepted: Accepted<'p>,
+    registry: &'p Registry<H>,
     env: &'p Env,
     records: Vec<Chosen<'p, H>>,
     resources: Slots<Resource>,
@@ -67,7 +70,7 @@ impl<H> Transacted<'_, H> {
         &'a self,
         request: &'a Request<'a>,
         credential: &'a Credential<'a>,
-        mode: ResponseMode,
+        mode: ModeName,
     ) -> Answered<'a> {
         Answered::of(
             request,
@@ -126,6 +129,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         };
         Ok(Self {
             accepted,
+            registry,
             env,
             records,
             resources: Slots::of(questions),
@@ -155,28 +159,20 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     ) -> Result<Response, Outcome> {
         let Self {
             accepted,
+            registry,
             env,
             records,
             resources,
         } = self;
-        let filled = resources.fill(fetch);
         let request = accepted.request();
         let keys = accepted.metadata().agreeable_keys();
-        let mode = accepted.mode();
-        let encryption = match mode.protection() {
-            Protection::Plain => None,
-            Protection::Encrypted => {
-                Some(Encryption::choose(accepted.metadata()).ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!("an encrypting mode without the encryption rule C7 found"),
-                    )
-                })?)
-            }
-        };
-        let thumbprint = encryption
+        let metadata = VerifierMetadata::of(accepted.metadata());
+        let mode = accepted.mode().name();
+        let sealing = seal(registry, &accepted, &metadata, host)?;
+        let thumbprint = sealing
             .as_ref()
-            .map(|encryption| Thumbprint(encryption.key().key().thumbprint()));
+            .map(|sealing| Thumbprint(sealing.key.key().thumbprint()));
+        let filled = resources.fill(fetch);
         let handover = match request.envelope().channel() {
             Channel::DcApi(origin) => Handover::DcApi {
                 origin,
@@ -216,25 +212,86 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             vp_token.push(&record.query.id, presentation);
         }
         let plaintext = vp_token.data();
-        let data = match encryption {
+        let data = match sealing {
             None => ResponseData::Plain(plaintext),
-            Some(encryption) => {
-                let haip = host.get::<dyn Haip>();
-                let key = encryption.key().key();
-                let enc = encryption.enc().content();
-                let stated = key
-                    .alg()
-                    .is_some_and(|alg| haip.agreements().admits(key.curve(), alg, enc));
-                if !stated {
-                    return Err(Outcome::Fault(Fault::new(
-                        FAULT,
-                        detail!("the encrypting module states no agreement the key rule chose"),
-                    )));
-                }
-                ResponseData::Encrypted(haip.encrypt_jwe(key, enc, plaintext.as_bytes())?)
+            Some(Sealing { haip, key, enc }) => {
+                ResponseData::Encrypted(haip.encrypt_jwe(key.key(), enc, plaintext.as_bytes())?)
             }
         };
         Ok(Response { vp_token, data })
+    }
+}
+
+/// What a JWE mode's route seals the answer with: the host's `Haip`, the key the mode chose
+/// among the request's, and the content encryption.
+struct Sealing<'k, 'h> {
+    haip: &'h dyn Haip,
+    key: VerifierKey<'k>,
+    enc: ContentEncryption<'static>,
+}
+
+/// The route of the mode the request's routing accepted, as its registration seals it: `None`
+/// in the clear; for a JWE mode, the key and `enc` the mode's key rule chooses under the host's
+/// `Haip::agreements`, refused with the mode's rule when the statement admits none. A route
+/// that breaks its registration (a key in the clear, no key for a JWE mode, a key or `enc` the
+/// statement does not admit, an error mode routing an answer) is a `Fault`.
+fn seal<'k, 'h, H>(
+    registry: &Registry<H>,
+    accepted: &Accepted<'_>,
+    metadata: &'k VerifierMetadata<'k>,
+    host: &'h H,
+) -> Result<Option<Sealing<'k, 'h>>, Outcome> {
+    let routed = accepted.mode();
+    let registered = registry
+        .mode_host(routed.handle())
+        .filter(|registered| registered.mode.name() == routed.name())
+        .ok_or_else(|| {
+            Fault::new(
+                FAULT,
+                detail!("the request's mode is none the registry holds"),
+            )
+        })?;
+    let (sealer, haip) = match &registered.role {
+        Role::Clear => (Agreements::NONE, None),
+        Role::Jwe(access) => {
+            let haip = access(host);
+            (haip.agreements(), Some(haip))
+        }
+        Role::Errors => {
+            return Err(Fault::new(
+                FAULT,
+                detail!("a mode that carries errors routed an answer"),
+            )
+            .into());
+        }
+    };
+    let encrypting = registered
+        .mode
+        .encryption(metadata, &sealer, host)
+        .map_err(|refusal| Outcome::Refused(Refused::one(refusal)))?;
+    match (encrypting, haip) {
+        (Encrypting::Plain, None) => Ok(None),
+        (Encrypting::Jwe { key, enc }, Some(haip)) => {
+            let stated = key
+                .key()
+                .alg()
+                .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
+            if stated {
+                Ok(Some(Sealing { haip, key, enc }))
+            } else {
+                Err(Fault::new(
+                    FAULT,
+                    detail!("a mode chose a key or an enc the sealing module does not state"),
+                )
+                .into())
+            }
+        }
+        (Encrypting::Jwe { .. }, None) => {
+            Err(Fault::new(FAULT, detail!("a mode in the clear chose a key")).into())
+        }
+        (Encrypting::Plain, Some(_)) => {
+            Err(Fault::new(FAULT, detail!("a JWE mode chose no key")).into())
+        }
     }
 }
 
@@ -267,11 +324,11 @@ fn chosen<'p, H>(
     let context = AnsweredContext::of(
         QueryContext::of(
             request,
-            Some(accepted.mode()),
+            Some(accepted.mode().name()),
             request.entry_named().contains(view.pick.query),
             accepted.metadata().vp_formats(&query.format).cloned(),
         ),
-        accepted.mode(),
+        accepted.mode().name(),
     );
     let answered = format
         .answer(query, context)
@@ -288,7 +345,7 @@ fn chosen<'p, H>(
                 &bound.entries,
                 &bound.attested,
                 &format,
-                accepted.mode(),
+                accepted.mode().name(),
             ))?;
             let start = questions.len();
             questions.extend(Resource::distinct(wanted));
@@ -317,7 +374,7 @@ struct Phase<'a, 'p, H> {
     request: &'p Request<'p>,
     env: &'p Env,
     host: &'a H,
-    mode: ResponseMode,
+    mode: ModeName,
 }
 
 impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {

@@ -12,9 +12,9 @@
 //!   with their error codes.
 //! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them.
 //! - [`txhash`], [`sri`]: OpenID4VP B.3.3.1 hashes, W3C SRI.
-//! - [`arrival`], [`jose`], [`envelope`], [`routing`]: the request as received over the DC API or
-//!   by URI, the JWS and JWE it arrives in, its parameters and signatures as read, and what it
-//!   asks of its answer.
+//! - [`arrival`], [`jose`], [`envelope`], [`routing`], [`modes`]: the request as received over the
+//!   DC API or by URI, the JWS and JWE it arrives in, its parameters and signatures as read, what
+//!   it asks of its answer, and OpenID4VP's response modes.
 //! - [`matching`] (feature `match`): phase 1, the request rules, matching, consent, the display
 //!   and the records its entries carry.
 //! - [`uri`], [`authenticate`], [`recourse`] (feature `resolve`): a request by URI and the fetch
@@ -55,6 +55,7 @@ pub mod envelope;
 pub mod ids;
 pub mod jose;
 pub mod json;
+pub mod modes;
 pub mod plugins;
 mod product;
 pub mod refusal;
@@ -114,6 +115,7 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             jose::TimeError::messages,
             routing::RoutingRule::messages,
+            modes::KeyRule::messages,
             #[cfg(feature = "match")]
             matching::CoreRule::messages,
             #[cfg(feature = "match")]

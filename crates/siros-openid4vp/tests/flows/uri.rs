@@ -273,9 +273,12 @@ fn the_by_reference_example_of_section_8_2_terminates_by_u14() {
     );
     let object = request_object(&payload);
     let received = fetched(uri, &object).expect("fetched");
-    let cause = siros_openid4vp::envelope::Envelope::parse(&received)
-        .map(drop)
-        .expect_err("U14");
+    let cause = siros_openid4vp::envelope::Envelope::parse(
+        &received,
+        siros_testkit::fixtures::routing().expect("the routing registry"),
+    )
+    .map(drop)
+    .expect_err("U14");
     assert_eq!(
         cause,
         Unreadable::ClientIdMismatch {

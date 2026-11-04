@@ -1,6 +1,5 @@
-//! The Verifier's `client_metadata` (OpenID4VP 1.0 §5.1): its `vp_formats_supported`, the public
-//! keys of its `jwks`, and the response encryption the key rule chooses from them (§8.3, HAIP
-//! §5).
+//! The Verifier's `client_metadata` (OpenID4VP 1.0 §5.1): its `vp_formats_supported` and the
+//! public keys of its `jwks`, with the vocabulary of the algorithms a key agrees with.
 
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
@@ -65,6 +64,12 @@ impl<'a> ClientMetadata<'a> {
         self.object
             .get("vp_formats_supported")
             .and_then(|formats| formats.get(format.as_str()))
+    }
+
+    /// A member of `client_metadata`.
+    #[must_use]
+    pub fn member(&self, name: &str) -> Option<&Node<'a>> {
+        self.object.get(name)
     }
 
     /// The `jwks` keys the wallet can agree a key with, in the Verifier's order.
@@ -181,6 +186,22 @@ impl Agreements {
         }
     }
 
+    /// Whether it states a key of this curve and this agreement.
+    #[must_use]
+    pub fn agrees(&self, curve: Curve<'_>, agreement: KeyAgreement<'_>) -> bool {
+        self.curves.iter().any(|c| c.as_str() == curve.as_str())
+            && self
+                .agreements
+                .iter()
+                .any(|a| a.as_str() == agreement.as_str())
+    }
+
+    /// Whether it states the content encryption.
+    #[must_use]
+    pub fn encrypts(&self, enc: ContentEncryption<'_>) -> bool {
+        self.encryptions.iter().any(|e| e.as_str() == enc.as_str())
+    }
+
     /// Whether it states a key of this curve, this agreement and this content encryption.
     #[must_use]
     pub fn admits(
@@ -294,6 +315,12 @@ impl<'k> AgreeableKey<'k> {
         self.jwk
     }
 
+    /// The key type, `kty`.
+    #[must_use]
+    pub const fn kty(&self) -> &'k str {
+        self.kty
+    }
+
     /// The `kid`.
     #[must_use]
     pub const fn kid(&self) -> &'k str {
@@ -343,96 +370,4 @@ pub fn thumbprint(kty: &str, crv: &str, x: &str, y: Option<&str>) -> [u8; 32] {
         .join(",");
     let canonical = format!("{{{canonical}}}");
     Sha256::digest(canonical.as_bytes()).into()
-}
-
-/// A Verifier key the wallet encrypts responses to (§8.3, HAIP §5): an [`AgreeableKey`] of
-/// `client_metadata.jwks` with `kty` EC, `crv` P-256, `alg` present and `ECDH-ES`, `use` `enc`
-/// when present, each coordinate 32 octets (RFC 7518 §6.2.1.2, §6.2.1.3).
-#[derive(Debug, Clone)]
-pub struct ResponseKey<'k>(AgreeableKey<'k>);
-
-impl<'k> ResponseKey<'k> {
-    /// The key, when the key rule accepts it.
-    fn of(key: AgreeableKey<'k>) -> Option<Self> {
-        (key.kty == "EC"
-            && key.curve == Curve::P_256
-            && key.alg == Some(KeyAgreement::ECDH_ES)
-            && key.point.x.len() == 32
-            && key.point.y.as_ref().is_some_and(|y| y.len() == 32))
-        .then_some(Self(key))
-    }
-
-    /// The key as the wallet agrees with it.
-    #[must_use]
-    pub const fn key(&self) -> &AgreeableKey<'k> {
-        &self.0
-    }
-}
-
-/// A content encryption the wallet encrypts responses with (HAIP §5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResponseEnc {
-    /// `A128GCM`.
-    A128Gcm,
-    /// `A256GCM`.
-    A256Gcm,
-}
-
-impl ResponseEnc {
-    /// The content encryption as the JWE's `enc` names it.
-    #[must_use]
-    pub const fn content(self) -> ContentEncryption<'static> {
-        match self {
-            Self::A128Gcm => ContentEncryption::A128GCM,
-            Self::A256Gcm => ContentEncryption::A256GCM,
-        }
-    }
-}
-
-/// The encryption chosen for a response: the Verifier's first [`ResponseKey`] in its order, and
-/// `A256GCM` when `encrypted_response_enc_values_supported` lists it, else `A128GCM` when it lists
-/// it or the member is absent (§5.1's default). Only [`Encryption::choose`] makes one.
-#[derive(Debug, Clone)]
-pub struct Encryption<'k> {
-    key: ResponseKey<'k>,
-    enc: ResponseEnc,
-}
-
-impl<'k> Encryption<'k> {
-    /// The key rule (§8.3, HAIP §5; reading 25); `None` makes C7.
-    #[must_use]
-    pub fn choose(metadata: &'k ClientMetadata<'k>) -> Option<Self> {
-        let key = metadata
-            .agreeable_keys()
-            .into_iter()
-            .find_map(ResponseKey::of)?;
-        let listed = |name: &str| {
-            metadata
-                .object
-                .get("encrypted_response_enc_values_supported")
-                .map(|values| {
-                    values.as_array().is_some_and(|values| {
-                        values.iter().any(|value| value.as_str() == Some(name))
-                    })
-                })
-        };
-        let enc = match (listed("A256GCM"), listed("A128GCM")) {
-            (Some(true), _) => ResponseEnc::A256Gcm,
-            (None, _) | (_, Some(true)) => ResponseEnc::A128Gcm,
-            (Some(false), _) => return None,
-        };
-        Some(Self { key, enc })
-    }
-
-    /// The key.
-    #[must_use]
-    pub const fn key(&self) -> &ResponseKey<'k> {
-        &self.key
-    }
-
-    /// The content encryption.
-    #[must_use]
-    pub const fn enc(&self) -> ResponseEnc {
-        self.enc
-    }
 }
