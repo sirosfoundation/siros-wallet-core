@@ -55,13 +55,14 @@ impl FlowHandler for Oid4vpFlow {
         let request_params = serde_json::from_str::<serde_json::Value>(raw_params)
             .unwrap_or(serde_json::Value::Null);
 
-        // The outer request URI, when the flow start carried one (the raw
-        // params are the URL the QR code / link named). The §5 validations
-        // compare the request object against it.
-        let outer_request_uri = if raw_params.starts_with('{') {
-            String::new()
-        } else {
-            raw_params.to_owned()
+        // The outer request URI, when the flow start carried one (the
+        // params value is the URL the QR code / link named). The §5
+        // validations compare the request object against it. The raw
+        // params member is the JSON text — the URL form arrives as a
+        // JSON string, its quotes the RawValue's, not the URL's.
+        let outer_request_uri = match &request_params {
+            serde_json::Value::String(url) => url.clone(),
+            _ => String::new(),
         };
 
         let mut auth_req = request::parse_request(ctx.http().as_ref(), &request_params)
@@ -270,7 +271,7 @@ impl FlowHandler for Oid4vpFlow {
 
         // Submit the response per the request's response mode. The
         // Clock port supplies the JARM `iat`/`exp`.
-        let _ = response::submit_response(
+        let submission = response::submit_response(
             ctx.http().as_ref(),
             &auth_req,
             &vp_token,
@@ -278,6 +279,32 @@ impl FlowHandler for Oid4vpFlow {
         )
         .await
         .map_err(|err| flow_error(err.to_string()))?;
+
+        // The direct_post answer's `redirect_uri` (OID4VP §8.2): a
+        // user-agent step — the wallet opens it in the end-user's
+        // browser, never as a back-channel fetch. The open_authorization
+        // port is exactly that navigation.
+        let redirect_uri = serde_json::from_str::<serde_json::Value>(&submission)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("redirect_uri")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+            })
+            .filter(|uri| !uri.is_empty());
+        if let Some(uri) = redirect_uri {
+            let _ = ctx
+                .host()
+                .open_authorization(&params.flow_id, &uri)
+                .await;
+            let _ = ctx
+                .progress(
+                    "redirect_opened",
+                    &serde_json::json!({ "redirect_uri": uri }),
+                )
+                .await;
+        }
 
         let _ = ctx
             .complete(&serde_json::json!({

@@ -31,6 +31,15 @@ pub async fn parse_request(
     http: &dyn HttpClient,
     params: &serde_json::Value,
 ) -> Result<AuthorizationRequest, RequestError> {
+    // The URL forms resolve to their params object first: the string
+    // the QR code / link named — `openid4vp://`, `haip://`,
+    // `haip-vp://`, `mdoc-openid4vp://` with its query, a raw query
+    // string, or a bare request_uri reference.
+    let params = match params.as_str() {
+        Some(text) => url_to_params(text)?,
+        None => params.clone(),
+    };
+
     // Check for a `request_uri` (by reference).
     if let Some(uri) = params.get("request_uri").and_then(|v| v.as_str()) {
         if !uri.is_empty() {
@@ -44,7 +53,70 @@ pub async fn parse_request(
     }
 
     // The params are the request itself (by value).
-    parse_request_value(params)
+    parse_request_value(&params)
+}
+
+/// Turns the URL form into the params object: the authorization
+/// request URL's query members, a raw query string, or a bare
+/// reference taken as the request_uri.
+fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
+    // The scheme forms: everything after `://` (the `?` optional).
+    let query = match text.split_once("://") {
+        Some((scheme, rest)) => {
+            if !matches!(
+                scheme,
+                "openid4vp" | "haip" | "haip-vp" | "mdoc-openid4vp"
+            ) {
+                return Err(RequestError::NotRecognized);
+            }
+            rest.strip_prefix('?').unwrap_or(rest)
+        }
+        None => text.strip_prefix('?').unwrap_or(text),
+    };
+    // A query string: the `name=value` members.
+    if query.contains('=') {
+        let mut object = serde_json::Map::new();
+        for pair in query.split('&') {
+            let Some((name, value)) = pair.split_once('=') else {
+                continue;
+            };
+            object.insert(
+                percent_decode(name),
+                serde_json::Value::String(percent_decode(value)),
+            );
+        }
+        return Ok(serde_json::Value::Object(object));
+    }
+    // A bare reference: the request_uri itself.
+    Ok(serde_json::json!({ "request_uri": text }))
+}
+
+/// Percent-decodes a query member (RFC 3986 §2.1; the `+` form is not
+/// used in these URLs).
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = |v: u8| match v {
+                b'0'..=b'9' => v - b'0',
+                b'a'..=b'f' => v - b'a' + 10,
+                b'A'..=b'F' => v - b'A' + 10,
+                _ => 0xff,
+            };
+            let high = hex(bytes[index + 1]);
+            let low = hex(bytes[index + 2]);
+            if high != 0xff && low != 0xff {
+                out.push(high * 16 + low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Fetches the request object from a `request_uri`, through the HttpClient
@@ -92,7 +164,37 @@ async fn fetch_request_object(
 fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError> {
     let parts: Vec<&str> = text.split('.').collect();
     if parts.len() >= 3 && !text.starts_with('{') {
-        // A JWT: the payload is the second segment.
+        // A signed request object (RFC 9101 §5.2): the JOSE header
+        // must name the type, and the signature must verify under the
+        // key the header's `x5c` chain carries — the parser's own
+        // checks; the trust evaluation's PDP step is the policy, not
+        // the cryptography.
+        let header_bytes = parts
+            .first()
+            .and_then(|segment| decode_base64url(segment))
+            .ok_or(RequestError::NotRecognized)?;
+        let header: serde_json::Value =
+            serde_json::from_slice(&header_bytes).map_err(|_| RequestError::NotRecognized)?;
+        if header.get("typ").and_then(|v| v.as_str()) != Some("oauth-authz-req+jwt") {
+            return Err(RequestError::RequestObjectTyp);
+        }
+        // The signature, when the header carries the certificate chain:
+        // the first certificate holds the signer's public key. The x5c
+        // entries are base64-encoded DER (RFC 7515 §4.1.6 — the
+        // standard alphabet, unlike the JOSE segments' base64url).
+        if let Some(cert) = header
+            .get("x5c")
+            .and_then(|v| v.as_array())
+            .and_then(|chain| chain.first())
+            .and_then(|v| v.as_str())
+        {
+            let der = decode_base64(cert).ok_or(RequestError::NotRecognized)?;
+            let jwk = jose_rs::jwk::cert::public_jwk_from_certificate_der(&der)
+                .map_err(|_| RequestError::RequestObjectSignature)?;
+            jose_rs::jws::compact::verify_with_jwk(&jwk, text)
+                .map_err(|_| RequestError::RequestObjectSignature)?;
+        }
+        // The payload is the second segment.
         let payload = parts
             .get(1)
             .and_then(|segment| decode_base64url(segment))
@@ -184,6 +286,23 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         return Err(RequestError::NotRecognized);
     }
 
+    // The direct_post channel requires a response_uri and forbids a
+    // redirect_uri (OpenID4VP §5: the redirect_uri belongs to the
+    // query/fragment channel).
+    if matches!(response_mode, ResponseMode::DirectPost | ResponseMode::DirectPostJwt)
+        && (response_uri.is_empty() || !redirect_uri.is_empty())
+    {
+        return Err(RequestError::DirectPostWithoutResponseUri {
+            mode: response_mode_str.to_owned(),
+        });
+    }
+
+    // The client_id scheme must be a recognized one — an unknown
+    // prefix is not the redirect_uri scheme's fallback but a refusal.
+    if matches!(inferred_scheme, ClientIdScheme::Unknown(_)) {
+        return Err(RequestError::UnknownClientIdScheme);
+    }
+
     // The state.
     let state = obj
         .get("state")
@@ -242,6 +361,39 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
 }
 
 /// Minimal base64url decoding.
+/// Decodes a base64-encoded value (the standard alphabet, RFC 4648
+/// §4) — the x5c entries' DER (RFC 7515 §4.1.6), padding tolerated.
+fn decode_base64(encoded: &str) -> Option<Vec<u8>> {
+    fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let trimmed = encoded.trim_end_matches('=');
+    let bytes = trimmed.as_bytes();
+    if bytes.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    let mut buffer = 0u32;
+    let mut bits = 0u32;
+    for &b in bytes {
+        let v = value(b)?;
+        buffer = (buffer << 6) | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buffer >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
     fn value(b: u8) -> Option<u8> {
         match b {
@@ -403,5 +555,87 @@ mod tests {
         });
         let request = parse_request(&http, &req).await.expect("parse");
         assert_eq!(request.response_mode, ResponseMode::DirectPost);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_client_id_scheme_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let req = serde_json::json!({
+            "client_id": "x509_san_bogus:verifier.example",
+            "nonce": "n",
+            "response_uri": "https://v.example/r"
+        });
+        assert!(matches!(
+            parse_request(&http, &req).await,
+            Err(RequestError::UnknownClientIdScheme)
+        ));
+    }
+
+    #[tokio::test]
+    async fn direct_post_without_a_response_uri_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let req = serde_json::json!({
+            "client_id": "x509_san_dns:verifier.example",
+            "nonce": "n",
+            "response_mode": "direct_post",
+            "redirect_uri": "https://v.example/cb"
+        });
+        assert!(matches!(
+            parse_request(&http, &req).await,
+            Err(RequestError::DirectPostWithoutResponseUri { .. })
+        ));
+    }
+
+    /// A compact-serialization JWT with the given header, for the
+    /// request-object checks: the signature is irrelevant bytes.
+    fn request_object_jwt(header: &serde_json::Value) -> String {
+        let header_text = crate::oid4vp::test_util::base64url(
+            header.to_string().as_bytes().to_vec().as_slice(),
+        );
+        let payload_text = crate::oid4vp::test_util::base64url(
+            request_json().to_string().as_bytes().to_vec().as_slice(),
+        );
+        format!("{header_text}.{payload_text}.c2ln")
+    }
+
+    #[tokio::test]
+    async fn a_signed_request_object_without_the_oauth_typ_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let params = serde_json::json!({
+            "request": request_object_jwt(&serde_json::json!({
+                "alg": "ES256",
+                "typ": "jwt"
+            }))
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::RequestObjectTyp)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_signed_request_object_with_a_missing_typ_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let params = serde_json::json!({
+            "request": request_object_jwt(&serde_json::json!({
+                "alg": "ES256"
+            }))
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::RequestObjectTyp)
+        ));
     }
 }

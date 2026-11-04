@@ -117,6 +117,25 @@ pub enum RequestError {
     /// The request object fetch failed.
     #[error("oid4vp: request object fetch failed: {0}")]
     Fetch(String),
+    /// The client_id's scheme prefix is not a recognized scheme.
+    #[error("oid4vp: the client_id scheme is not recognized")]
+    UnknownClientIdScheme,
+    /// The `direct_post`/`direct_post.jwt` response mode requires a
+    /// `response_uri` (OpenID4VP §5: the redirect_uri belongs to the
+    /// `query`/`fragment` channel).
+    #[error("oid4vp: response_mode {mode:?} requires a response_uri")]
+    DirectPostWithoutResponseUri {
+        /// The mode the request named.
+        mode: String,
+    },
+    /// The signed request object's JOSE header does not name the
+    /// OAuth request-object type (RFC 9101 §5.2: `typ` MUST be
+    /// `oauth-authz-req+jwt`).
+    #[error("oid4vp: the request object's typ is not oauth-authz-req+jwt")]
+    RequestObjectTyp,
+    /// The signed request object's signature does not verify.
+    #[error("oid4vp: the request object's signature does not verify")]
+    RequestObjectSignature,
 }
 
 // ─── Transaction Data (OpenID4VP §5.1) ────────────────────────────────────

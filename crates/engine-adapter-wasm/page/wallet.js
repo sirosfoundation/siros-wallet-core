@@ -91,6 +91,9 @@ async function engineConfig() {
     fetch: fetchImpl,
     host: 'mini',
     txCode: endpoints.txCode,
+    // The user-agent navigations: the authorization-code flow's AS
+    // login, and the direct_post answer's redirect_uri (OID4VP §8.2).
+    openAuthorization,
     // The registered client key (private_key_jwt's signing key) — the
     // mini host parses the JWK and routes its sign asks by the kid, so
     // the client assertion is signed by the key the plan registered.
@@ -234,8 +237,10 @@ async function startRequest(requestUrl) {
     wmp: { session_id: sessionId, version: '0.1' },
     flow_id: flowId,
     flow_type: 'oid4vp',
-    // The engine's request parser: the by-reference form.
-    params: { request_uri: requestUrl },
+    // The engine's request parser: the raw openid4vp:// URL — the
+    // by-reference form extracts its request_uri itself, and the §5
+    // validations compare the request object against the outer URL.
+    params: requestUrl,
   });
   window.__last_result = result;
   document.body.setAttribute('data-flow-state', 'presented');
@@ -253,6 +258,12 @@ window.addEventListener('load', async () => {
     }
   } catch (err) {
     window.__boot_error = String(err && (err.message || err));
+    // The full error shape (the code, the data.reason) for debugging.
+    try {
+      window.__boot_error_detail = JSON.parse(JSON.stringify(err));
+    } catch (_) {
+      window.__boot_error_detail = { message: String(err && (err.message || err)) };
+    }
     document.body.setAttribute('data-flow-state', 'error');
   }
 });

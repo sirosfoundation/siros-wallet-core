@@ -38,6 +38,11 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 # the engine core pins them.
 jose-rs = { version = "0.10", default-features = false }
 kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }
+# The mini host's held credential and its presentations: the SD-JWT
+# parse/select/key-binding, and the claims paths the DCQL names.
+siros-sdjwt = { path = "../siros-sdjwt" }
+siros-dcql = { path = "../siros-dcql" }
+siros-codec = { path = "../siros-codec" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
