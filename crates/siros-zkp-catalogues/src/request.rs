@@ -1,15 +1,14 @@
 //! An authenticated request that meets the nym_auth policy (N2; nym_auth catalogue, "Binding",
 //! "Response confidentiality" and "Verifier identity").
 
-use serde_json::Value;
 use siros_openid4vp::arrival::ReceivedForm;
 use siros_openid4vp::authenticate::{Authenticated, BoundEndpoint};
 use siros_openid4vp::ids::Nonce;
+use siros_openid4vp::request::{ClientMetadata, Encryption};
 use siros_openid4vp::session::{Endpoint, Handover, SessionTranscript, Thumbprint};
 
 use crate::policy::{admitted, PolicyRequest, PolicyRule, RequestRefusal};
 use crate::presenter::Session;
-use crate::request_object::ec_jwk_thumbprint;
 use crate::semantic::SemanticIdentifier;
 use crate::verifier_id::{VerifierId, VerifierIdForm, VerifierIdRule};
 
@@ -25,14 +24,13 @@ pub struct NymAuthRequest<'r> {
 }
 
 impl<'r> NymAuthRequest<'r> {
-    /// The nym_auth request of `request`, its `verifier_id` in the form `verifier_id`, its
-    /// response sealed to the key of `client_metadata.jwks` whose JWK SHA-256 Thumbprint is
-    /// `encryption_key`.
+    /// The nym_auth request of `request`, its `verifier_id` in the form `verifier_id`.
     ///
     /// The request meets the policy ([`admitted`]): signed, answered in an encrypted Response
     /// Mode, and without a registration certificate. The core authenticated it: its Verifier is
     /// trusted, and over the Digital Credentials API the calling origin is one it expects. The
-    /// session's SessionTranscript binds the encryption key's thumbprint.
+    /// session's SessionTranscript binds the thumbprint of the key the core encrypts the
+    /// response to: [`Encryption::choose`] over `client_metadata` (OpenID4VP 1.0, Section 8.3).
     ///
     /// The `verifier_id` derives from the request: the Client Identifier in the `x509_san_dns`
     /// form, `"semantic_id:"` and the semantics identifier the trust service states in the
@@ -44,13 +42,12 @@ impl<'r> NymAuthRequest<'r> {
     pub fn new(
         request: &'r Authenticated<'r>,
         verifier_id: VerifierIdForm,
-        encryption_key: Thumbprint,
     ) -> Result<Self, RequestRefusal> {
         let verifier_id = match admitted(request, verifier_id)? {
             Some(verifier_id) => verifier_id,
             None => semantic_id(request).map_err(RequestRefusal::VerifierId)?,
         };
-        let transcript = transcript(request, encryption_key)?;
+        let transcript = transcript(request)?;
         Ok(Self {
             request,
             session: Session {
@@ -72,24 +69,15 @@ impl<'r> NymAuthRequest<'r> {
 }
 
 /// The SessionTranscript of `request`'s `Handover` (OpenID4VP 1.0, B.2.6), for the
-/// response-encryption key whose thumbprint is `encryption_key`, one of `client_metadata.jwks`.
-fn transcript(
-    request: &Authenticated<'_>,
-    encryption_key: Thumbprint,
-) -> Result<SessionTranscript, RequestRefusal> {
+/// response-encryption key the key rule chooses from `client_metadata.jwks`.
+fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestRefusal> {
     let policy = RequestRefusal::Policy;
     let parameters = request.envelope().parameters();
-    let keys: Vec<Value> = parameters
-        .raw("client_metadata")
-        .and_then(|metadata| serde_json::from_str::<Value>(metadata.get()).ok())
-        .and_then(|metadata| metadata.get("jwks")?.get("keys")?.as_array().cloned())
-        .ok_or(policy(PolicyRule::EncryptionKeyMissing))?;
-    if !keys
-        .iter()
-        .any(|key| ec_jwk_thumbprint(key) == Some(encryption_key))
-    {
-        return Err(policy(PolicyRule::EncryptionKeyMissing));
-    }
+    let metadata = ClientMetadata::parse(parameters.raw("client_metadata"))
+        .map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?;
+    let encryption =
+        Encryption::choose(&metadata).ok_or(policy(PolicyRule::EncryptionKeyMissing))?;
+    let encryption_key = Thumbprint(encryption.key().key().thumbprint());
     let nonce = parameters
         .text("nonce")
         .flatten()

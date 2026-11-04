@@ -39,16 +39,13 @@ use x509_cert::spki::SubjectPublicKeyInfoOwned;
 use x509_cert::time::{Time, Validity};
 use zeroize::Zeroizing;
 
-use super::{
-    client_metadata, device_signature, encryption_jwk, key, request_object, CLIENT_ID, NOW,
-};
+use super::{client_metadata, device_signature, key, request_object, CLIENT_ID, NOW};
 use crate::attestation::{OtherIssuer, SecretSeed, TestedAttestation, Unusable, UsableAttestation};
 use crate::catalogue::NymAuthQuery;
 use crate::policy::RequestRefusal;
 use crate::presenter::{Answer, Prepared, ProveError, Unanswerable};
 use crate::prover::NymAuthProver;
 use crate::request::NymAuthRequest;
-use crate::request_object::ec_jwk_thumbprint;
 use crate::system::{NymAuthSystem, Unsupported};
 use crate::verifier_id::VerifierIdForm;
 
@@ -246,9 +243,8 @@ pub fn prepared(
     let usable = usable(query, &nym, data, now)?;
     let answer = Answer::new(pair, usable, &SecretSeed::new(Zeroizing::new(*seed)))
         .map_err(Presenting::Unanswerable)?;
-    let encryption_key = ec_jwk_thumbprint(&encryption_jwk()).unwrap();
-    let request = NymAuthRequest::new(request, VerifierIdForm::X509SanDns, encryption_key)
-        .map_err(Presenting::Request)?;
+    let request =
+        NymAuthRequest::new(request, VerifierIdForm::X509SanDns).map_err(Presenting::Request)?;
     Prepared::new(answer, &request).map_err(Presenting::Prove)
 }
 
