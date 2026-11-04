@@ -59,7 +59,7 @@ pub(super) fn image(value: &str, profile: &PasoProfile) -> ImageShown {
         .render(
             &entry(&entry_json),
             &card.credential(),
-            siros_testkit::fixtures::placement(&card.credential().format),
+            crate::common::placement(&card.credential().format),
             &en(),
         )
         .expect("no fault")
@@ -317,7 +317,7 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
         .render(
             &entry(&entry_json),
             &card.credential(),
-            siros_testkit::fixtures::placement(&card.credential().format),
+            crate::common::placement(&card.credential().format),
             &en(),
         )
         .expect("no fault")

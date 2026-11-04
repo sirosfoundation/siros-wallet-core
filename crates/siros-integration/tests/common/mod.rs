@@ -67,3 +67,14 @@ pub fn registry() -> Result<Registry<HaipHost>, String> {
 pub fn sri(content: &[u8]) -> String {
     format!("sha256-{}", STANDARD.encode(Sha256::digest(content)))
 }
+
+/// The placement the plug-in of `format` states: siros-mdoc's, siros-sdjwt's or the test
+/// format's; `None` for another format.
+pub fn placement(
+    format: &siros_openid4vp::ids::FormatId<'_>,
+) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+    let mdoc = siros_mdoc::Mdoc::new().expect("the mdoc plug-in");
+    let sd_jwt = siros_sdjwt::SdJwtVc::new().expect("the SD-JWT VC plug-in");
+    let test = siros_testkit::TestFormat::new().expect("the test format");
+    siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
+}

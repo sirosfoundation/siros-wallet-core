@@ -315,3 +315,14 @@ pub fn outcome(rendered: &Result<Rendered, Outcome>) -> String {
 pub fn value(row: &Row) -> Option<&Value> {
     row.value.as_ref()
 }
+
+/// The placement the plug-in of `format` states: siros-mdoc's, siros-sdjwt's or the test
+/// format's; `None` for another format.
+pub fn placement(
+    format: &siros_openid4vp::ids::FormatId<'_>,
+) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+    let mdoc = siros_mdoc::Mdoc::new().expect("the mdoc plug-in");
+    let sd_jwt = siros_sdjwt::SdJwtVc::new().expect("the SD-JWT VC plug-in");
+    let test = siros_testkit::TestFormat::new().expect("the test format");
+    siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
+}

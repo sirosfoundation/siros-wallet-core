@@ -33,6 +33,9 @@ uuid = { workspace = true, optional = true }
 siros-paso = { path = ".", features = ["test-util"] }
 siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
 siros-testkit = { workspace = true }
+# The placements the tests' credentials take from their formats' plug-ins.
+siros-mdoc = { workspace = true }
+siros-sdjwt = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 

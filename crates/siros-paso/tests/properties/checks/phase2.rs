@@ -169,7 +169,7 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         &credential,
         &answer.bound.entries,
         &answer.bound.attested,
-        siros_testkit::fixtures::placement(&format),
+        crate::common::placement(&format),
         siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
     )
     .revalidate(&profile, |resource| published.answer(resource), &host)
@@ -204,7 +204,7 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         query: &answer.request.queries()[0],
         credential: &credential,
         entries: &offered,
-        placement: siros_testkit::fixtures::placement(&credential.format),
+        placement: crate::common::placement(&credential.format),
         carriage: Carriage::Carried,
     };
     match informed.bind(binding, env) {

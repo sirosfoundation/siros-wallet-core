@@ -213,7 +213,7 @@ impl Format for StandIn {
 
     /// The placement of the format it stands in for.
     fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
-        siros_testkit::fixtures::placement(&self.id)
+        crate::common::placement(&self.id)
     }
 
     fn query<'q>(
@@ -590,4 +590,15 @@ pub fn approve(
         .respond(fetch, &TestHost::default())?;
     let vp_token: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
     Ok(vp_token["xyz123"][0]["members"].clone())
+}
+
+/// The placement the plug-in of `format` states: siros-mdoc's, siros-sdjwt's or the test
+/// format's; `None` for another format.
+pub fn placement(
+    format: &siros_openid4vp::ids::FormatId<'_>,
+) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+    let mdoc = siros_mdoc::Mdoc::new().expect("the mdoc plug-in");
+    let sd_jwt = siros_sdjwt::SdJwtVc::new().expect("the SD-JWT VC plug-in");
+    let test = siros_testkit::TestFormat::new().expect("the test format");
+    siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
 }

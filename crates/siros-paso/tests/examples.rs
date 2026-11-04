@@ -28,7 +28,7 @@ fn render(
         .render(
             &entry(entry_json),
             &card.credential(),
-            siros_testkit::fixtures::placement(&card.credential().format),
+            crate::common::placement(&card.credential().format),
             env,
         )
         .expect("no fault")

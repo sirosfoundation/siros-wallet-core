@@ -290,7 +290,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
             .render(
                 entry,
                 &credential,
-                siros_testkit::fixtures::placement(&credential.format),
+                crate::common::placement(&credential.format),
                 &env,
             )
             .expect("no fault");
@@ -305,7 +305,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         query: &request.queries()[0],
         credential: &credential,
         entries: &offered,
-        placement: siros_testkit::fixtures::placement(&credential.format),
+        placement: crate::common::placement(&credential.format),
         carriage: Carriage::Carried,
     };
     let (bound, entry, rendered) = match (profile.bind(binding, &env), first) {

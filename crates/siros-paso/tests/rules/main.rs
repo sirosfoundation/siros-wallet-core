@@ -29,7 +29,7 @@ fn render_with(
         .render(
             &entry(&entry_json),
             &card.credential(),
-            siros_testkit::fixtures::placement(&card.credential().format),
+            crate::common::placement(&card.credential().format),
             env,
         )
         .expect("no fault")
@@ -277,7 +277,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             .render(
                 &entry(&entry_json),
                 &card.credential(),
-                siros_testkit::fixtures::placement(&card.credential().format),
+                crate::common::placement(&card.credential().format),
                 &en()
             )
             .expect("no fault"),
@@ -297,7 +297,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             .render(
                 &entry(&entry_json),
                 &bare,
-                siros_testkit::fixtures::placement(&bare.format),
+                crate::common::placement(&bare.format),
                 &en()
             )
             .expect("no fault"),

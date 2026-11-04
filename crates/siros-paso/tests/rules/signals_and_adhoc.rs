@@ -100,7 +100,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
             .render(
                 &entry(&entry_json),
                 &card.credential(),
-                siros_testkit::fixtures::placement(&card.credential().format),
+                crate::common::placement(&card.credential().format),
                 &en()
             )
             .expect("no fault"),
@@ -129,7 +129,7 @@ pub(super) fn render_adhoc(
         .render(
             &entry(&entry_json),
             &card.credential(),
-            siros_testkit::fixtures::placement(&card.credential().format),
+            crate::common::placement(&card.credential().format),
             &en(),
         )
         .expect("no fault")

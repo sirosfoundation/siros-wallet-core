@@ -22,7 +22,7 @@ pub(super) fn bind(
         query,
         credential: &credential,
         entries: &offered,
-        placement: siros_testkit::fixtures::placement(&credential.format),
+        placement: crate::common::placement(&credential.format),
         carriage,
     };
     match PasoProfile::default().bind(binding, &en()) {
@@ -120,7 +120,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     query,
                     credential: &credential,
                     entries: &naming,
-                    placement: siros_testkit::fixtures::placement(&credential.format),
+                    placement: crate::common::placement(&credential.format),
                     carriage: Carriage::Carried,
                 },
                 &en(),
@@ -183,7 +183,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     query: &request.queries()[0],
                     credential: &credential,
                     entries: &offered,
-                    placement: siros_testkit::fixtures::placement(&credential.format),
+                    placement: crate::common::placement(&credential.format),
                     carriage: Carriage::Carried,
                 },
                 &en(),
