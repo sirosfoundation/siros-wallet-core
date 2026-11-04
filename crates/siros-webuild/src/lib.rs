@@ -37,7 +37,7 @@
 use siros_explain::{Explain, Explained, IntoArg, Message, Messages, kind};
 use siros_openid4vp::authenticate::ObjectRule;
 use siros_openid4vp::json::{Node, Object};
-use siros_openid4vp::refusal::{ErrorCode, ErrorDescription, Refusal, RequestRule};
+use siros_openid4vp::refusal::{ErrorCode, ErrorDescription, Refusal, RequestRule, is_nqschars};
 use siros_openid4vp::uri::{AnswerMembers, AnswerReader};
 use siros_openid4vp::wallet_metadata::ParameterName;
 
@@ -61,11 +61,25 @@ impl Messages for CrateMessages {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Cs02Claims;
 
-/// A claim CS-02 §8.2 requires that the Request Object lacks.
+/// A claim CS-02 §8.2 requires that the Request Object lacks. Only [`Cs02Claims`] makes one:
+///
+/// ```compile_fail,E0423
+/// use siros_webuild::ClaimAbsent;
+///
+/// const FORGED: ClaimAbsent = ClaimAbsent("nbf");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "webuild")]
 #[error("the Request Object holds no {0}, which CS-02 §8.2 requires")]
-pub struct ClaimAbsent(#[explain(name = "claim")] pub &'static str);
+pub struct ClaimAbsent(#[explain(name = "claim")] &'static str);
+
+impl ClaimAbsent {
+    /// The claim.
+    #[must_use]
+    pub const fn claim(self) -> &'static str {
+        self.0
+    }
+}
 
 impl RequestRule for ClaimAbsent {
     /// RFC 9101 §6.2: the Request Object breaks a rule.
@@ -104,11 +118,7 @@ impl VerifierCode {
     /// The code; `None` for a text outside Appendix A.7.
     #[must_use]
     pub fn parse(text: String) -> Option<Self> {
-        (!text.is_empty()
-            && text
-                .bytes()
-                .all(|byte| matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E)))
-        .then_some(Self(text))
+        is_nqschars(&text).then_some(Self(text))
     }
 
     /// Its text.

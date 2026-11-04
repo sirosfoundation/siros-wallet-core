@@ -21,11 +21,11 @@ fn a_request_object_holds_exp_and_aud() {
         let refusal = Cs02Claims.check(node.as_object().expect("an object"));
         let rule = refusal.as_ref().map(|refusal| {
             let rule = (refusal.rule() as &dyn std::error::Error).downcast_ref::<ClaimAbsent>();
-            (rule.copied(), refusal.code())
+            (rule.map(|rule| rule.claim()), refusal.code())
         });
         assert_eq!(
             rule,
-            absent.map(|claim| (Some(ClaimAbsent(claim)), ErrorCode::INVALID_REQUEST_OBJECT)),
+            absent.map(|claim| (Some(claim), ErrorCode::INVALID_REQUEST_OBJECT)),
             "{claims}"
         );
     }
@@ -73,9 +73,11 @@ fn the_verifiers_error_answer_reads_as_rfc_6749_writes_it() {
         r#"{"error_description": "Declined"}"#,
     ] {
         match ResponseUriAnswer::parse(body, &registry) {
-            Err(AnswerError::Reader(rule)) => {
-                assert_eq!(rule.to_string(), ErrorAnswerForm.to_string(), "{body}")
-            }
+            Err(AnswerError::Reader(rule)) => assert_eq!(
+                (rule.as_ref() as &dyn std::error::Error).downcast_ref::<ErrorAnswerForm>(),
+                Some(&ErrorAnswerForm),
+                "{body}"
+            ),
             other => panic!("{body}: {other:?}"),
         }
     }

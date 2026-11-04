@@ -13,6 +13,23 @@ use unicode_general_category::{GeneralCategory, get_general_category};
 
 use crate::json::Node;
 
+/// Whether `text` is `1*NQSCHAR` (RFC 6749 Appendix A.7, A.8), the syntax of `error` and
+/// `error_description`: one or more of `%x20-21`, `%x23-5B`, `%x5D-7E`.
+#[must_use]
+pub const fn is_nqschars(text: &str) -> bool {
+    let mut rest = text.as_bytes();
+    if rest.is_empty() {
+        return false;
+    }
+    while let [byte, tail @ ..] = rest {
+        if !matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E) {
+            return false;
+        }
+        rest = tail;
+    }
+    true
+}
+
 /// An error code a wallet returns to a Verifier (RFC 6749 §4.1.2.1, §8.5: extensions' codes "MAY
 /// be defined"): one or more of RFC 6749 Appendix A.7's `NQSCHAR`. The constants are RFC 6749's,
 /// RFC 9101 §7's and OpenID4VP 1.0 §8.5's codes; a plug-in makes its own specification's with
@@ -84,17 +101,11 @@ impl ErrorCode {
     /// `%x23-5B`, `%x5D-7E`).
     #[must_use]
     pub const fn new(code: &'static str) -> Option<Self> {
-        let mut rest = code.as_bytes();
-        if rest.is_empty() {
-            return None;
+        if is_nqschars(code) {
+            Some(Self(code))
+        } else {
+            None
         }
-        while let [byte, tail @ ..] = rest {
-            if !matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E) {
-                return None;
-            }
-            rest = tail;
-        }
-        Some(Self(code))
     }
 
     /// The code as the error response writes it.
@@ -121,11 +132,7 @@ impl ErrorDescription {
     /// Appendix A.8.
     #[must_use]
     pub fn parse(text: String) -> Option<Self> {
-        (!text.is_empty()
-            && text
-                .bytes()
-                .all(|byte| matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E)))
-        .then_some(Self(text))
+        is_nqschars(&text).then_some(Self(text))
     }
 
     /// Its text.
