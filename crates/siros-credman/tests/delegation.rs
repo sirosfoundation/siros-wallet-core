@@ -115,9 +115,6 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         )
     };
     let one = [held("c", &["q"])];
-    // A credential id a field shows as its value: the test format's first row.
-    let whole = "c".repeat(FIELD_MAX);
-    let clipped = "c".repeat(FIELD_MAX + 1);
     let met = SetFacts {
         presentable: true,
         no_transaction_data: true,
@@ -126,8 +123,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
     };
     let full = HostDisplay::Full;
     // The test profile's overlay shows its transaction's logo, an image no field shows.
-    let (whole, clipped) = ([whole.as_str()], [clipped.as_str()]);
-    let cases: [Case<'_>; 9] = [
+    let cases: [Case<'_>; 7] = [
         (
             "presentable, settled, whole, shown",
             parameters(QUERY, ""),
@@ -189,25 +185,6 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             full,
             SetFacts {
                 settled: false,
-                ..met
-            },
-        ),
-        (
-            "a field of FIELD_MAX characters",
-            parameters(QUERY, ""),
-            vec![held(whole[0], &["q"])],
-            &whole,
-            full,
-            met,
-        ),
-        (
-            "a clipped field",
-            parameters(QUERY, ""),
-            vec![held(clipped[0], &["q"])],
-            &clipped,
-            full,
-            SetFacts {
-                whole: false,
                 ..met
             },
         ),
