@@ -97,7 +97,12 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
         format!(r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": {payload}}}"#);
     decided!(
         PasoProfile::default()
-            .render(&entry(&entry_json), &card.credential(), &en())
+            .render(
+                &entry(&entry_json),
+                &card.credential(),
+                siros_testkit::fixtures::placement(&card.credential().format),
+                &en()
+            )
             .expect("no fault"),
         Outcome::NotCompatible(NotCompatible::NoEncryptionKey),
         "Risk Signals §7.3"
@@ -121,7 +126,12 @@ pub(super) fn render_adhoc(
         r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": {{"transaction_id": "t", "amount": "1.00 EUR", "payee": {{"name": "P", "id": "D"}}}}, "metadata": "{jwt}"}}"#
     );
     profile
-        .render(&entry(&entry_json), &card.credential(), &en())
+        .render(
+            &entry(&entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            &en(),
+        )
         .expect("no fault")
 }
 

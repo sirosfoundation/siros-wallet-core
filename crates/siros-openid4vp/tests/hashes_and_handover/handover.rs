@@ -57,6 +57,10 @@ impl Format for Recorder {
         ))
     }
 
+    fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+        self.0.placement()
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,

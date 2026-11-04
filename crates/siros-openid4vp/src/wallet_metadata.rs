@@ -19,6 +19,18 @@ use crate::request::{Agreements, ContentEncryption, Curve, KeyAgreement};
 #[cfg(feature = "resolve")]
 use crate::{FAULT, detail};
 
+/// How a format's proof carries a profile's response members (B.3.3.1, PaSO Core §6.2, §6.3, CSC
+/// §7.2.1): claims of a JSON proof (an SD-JWT VC's Key Binding JWT), or elements of a name space
+/// (an mdoc's `DeviceSigned`). A profile places its members by it and names no format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Placement {
+    /// Members as claims ([`Member::claim`](crate::plugins::Member::claim)).
+    Claims,
+    /// Members as elements of a name space
+    /// ([`Member::element`](crate::plugins::Member::element)).
+    NameSpaces,
+}
+
 /// A parameter or metadata name (RFC 6749 §8.2's `param-name`: one or more of ASCII letters,
 /// digits, `-`, `.` and `_`), the names RFC 8414 metadata and OAuth parameters take. A plug-in
 /// makes its own with `siros_explain::checked!`.

@@ -211,6 +211,11 @@ impl Format for StandIn {
         ))
     }
 
+    /// The placement of the format it stands in for.
+    fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+        siros_testkit::fixtures::placement(&self.id)
+    }
+
     fn query<'q>(
         &'q self,
         _query: &'q Query<'q>,

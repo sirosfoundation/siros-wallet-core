@@ -59,6 +59,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member};
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
+use siros_openid4vp::wallet_metadata::Placement;
 
 use cose::Signer;
 use view::MdocMembers;
@@ -144,6 +145,12 @@ impl Format for Mdoc {
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
         Node::parse(r#"{"issuerauth_alg_values":[-7],"deviceauth_alg_values":[-7]}"#)
             .map_err(|e| Fault::caused(FAULT, siros_openid4vp::detail!("the formats member"), e))
+    }
+
+    /// `DeviceSigned` carries a profile's members as elements of its name spaces (ISO/IEC 18013-5
+    /// §8.3.2.1.2.2).
+    fn placement(&self) -> Option<Placement> {
+        Some(Placement::NameSpaces)
     }
 
     fn query<'q>(

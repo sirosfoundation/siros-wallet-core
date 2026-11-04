@@ -13,7 +13,6 @@ use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Haip,
     Host, Platform, PresentError, Usable,
 };
-use crate::ids::FormatId;
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
 use crate::plugins::registry::{DynProfile, Role};
 use crate::plugins::{
@@ -26,6 +25,7 @@ use crate::routing::{AnsweredContext, Encrypting, ModeName, QueryContext, Verifi
 use crate::rows::Env;
 use crate::session::{Session, SessionBinding};
 use crate::wallet::{Credential, Wallet};
+use crate::wallet_metadata::Placement;
 use crate::{FAULT, detail};
 
 /// A selection read, its records derived and checked, each record's query read for phase 2,
@@ -51,14 +51,14 @@ struct Chosen<'p, H> {
 }
 
 /// A record's transaction: its profile with the profile's handle, the entries and display facts
-/// the profile bound, the presentation's format, and the slots of the resources the profile
-/// wanted.
+/// the profile bound, how the presentation's format places the profile's members, and the slots
+/// of the resources the profile wanted.
 struct Transacted<'p, H> {
     handle: ProfileHandle,
     profile: &'p dyn DynProfile<H>,
     entries: BoundEntries,
     attested: Attested,
-    format: FormatId<'p>,
+    placement: Option<Placement>,
     slots: Range<usize>,
 }
 
@@ -75,7 +75,7 @@ impl<H> Transacted<'_, H> {
             credential,
             &self.entries,
             &self.attested,
-            &self.format,
+            self.placement,
             mode,
         )
     }
@@ -334,13 +334,13 @@ fn chosen<'p, H>(
             let profile = registry
                 .profile_host(transaction.profile)
                 .ok_or_else(|| Fault::new(FAULT, detail!("a transaction has no profile")))?;
-            let format = query.format.borrowed();
+            let placement = format.placement();
             let wanted = profile.wanted(Answered::of(
                 request,
                 credential,
                 &bound.entries,
                 &bound.attested,
-                &format,
+                placement,
                 accepted.mode().name(),
             ))?;
             let start = questions.len();
@@ -350,7 +350,7 @@ fn chosen<'p, H>(
                 profile,
                 entries: bound.entries.clone(),
                 attested: bound.attested.clone(),
-                format,
+                placement,
                 slots: start..questions.len(),
             })
         }
@@ -440,8 +440,8 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
     ) -> Result<Box<dyn AnsweredOption<H> + 'a>, Fault> {
         let provided: Vec<Member> = match &record.transacted {
             Some(transacted) => transacted
-                .profile
-                .members(&transacted.format)
+                .placement
+                .and_then(|placement| transacted.profile.members(placement))
                 .unwrap_or(&[])
                 .to_vec(),
             None => Vec::new(),
@@ -509,7 +509,10 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
             self.host,
             authentication,
         )?;
-        let declared = profile.members(&transacted.format).unwrap_or(&[]);
+        let declared = transacted
+            .placement
+            .and_then(|placement| profile.members(placement))
+            .unwrap_or(&[]);
         if let Some(extra) = members.names().find(|member| !declared.contains(member)) {
             return Err(Fault::new(
                 FAULT,

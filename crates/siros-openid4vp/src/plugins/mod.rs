@@ -42,6 +42,7 @@ use crate::request::{AgreeableKey, EntryIndex, Item, ItemSet, Query, Request};
 use crate::routing::QueryContext;
 use crate::rows::Env;
 use crate::wallet::Credential;
+use crate::wallet_metadata::Placement;
 #[cfg(feature = "resolve")]
 use crate::{host::AuthenticationNeed, rows::HttpsUrl};
 
@@ -311,6 +312,9 @@ pub trait Format: DynClone + Send + Sync {
     ///
     /// The member is no JSON value with unique member names, a plug-in's bug.
     fn wallet_formats(&self) -> Result<Node<'static>, Fault>;
+
+    /// How its proof carries a profile's members; `None` for a proof that carries none.
+    fn placement(&self) -> Option<Placement>;
 }
 
 dyn_clone::clone_trait_object!(Format);
@@ -451,6 +455,9 @@ pub struct Binding<'b> {
     pub credential: &'b Credential<'b>,
     /// The profile's entries naming the query, in array order.
     pub entries: &'b [EntryIndex],
+    /// How the query's format places the profile's members; `None` for a proof that carries
+    /// none.
+    pub placement: Option<Placement>,
     /// Whether the presentation can carry the profile's members.
     pub carriage: Carriage,
 }
@@ -463,9 +470,9 @@ pub trait Profile: Clone + Send + Sync + 'static {
     /// The profile's request rules over its own entries.
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
 
-    /// The response members its transactions write in a presentation of a format; `None` when
-    /// it defines no binding for the format.
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]>;
+    /// The response members its transactions write in a proof of this placement; `None` when it
+    /// defines no binding for it. A profile names no format.
+    fn members(&self, placement: Placement) -> Option<&[Member]>;
 
     /// The entries of `binding.entries` the credential authorizes, rendered.
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;

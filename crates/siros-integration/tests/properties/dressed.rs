@@ -104,7 +104,14 @@ fn renders(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env) -> Vec<Renderi
                 out.push(Rendering {
                     entry: index,
                     credential: credential.id.to_string(),
-                    outcome: paso.render(entry, credential, env).expect("no fault"),
+                    outcome: paso
+                        .render(
+                            entry,
+                            credential,
+                            siros_testkit::fixtures::placement(&credential.format),
+                            env,
+                        )
+                        .expect("no fault"),
                 });
             }
         }
@@ -281,7 +288,8 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                 qes_binding(case, matched, index, entry, credential, parsed, tally);
                 continue;
             }
-            let members = paso.members(&case.format_id(index));
+            let members = siros_testkit::fixtures::placement(&case.format_id(index))
+                .and_then(|placement| paso.members(placement));
             let carried = !own.is_empty()
                 && members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
             let mut want = Want::Nothing;
@@ -408,7 +416,8 @@ fn qes_binding(
             .is_some_and(|qualifiers| qualifiers.contains(&qualifier))
     });
     let qes = QesProfile::default();
-    let members = qes.members(&case.format_id(query));
+    let members = siros_testkit::fixtures::placement(&case.format_id(query))
+        .and_then(|placement| qes.members(placement));
     let carried = members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
     if approves && carried {
         let provided = members.expect("QES's members for the format");

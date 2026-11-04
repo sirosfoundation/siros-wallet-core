@@ -183,7 +183,12 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 .profile_ref(t.profile)
                 .map(|profile| (t, profile))
         });
-        let members = transaction.and_then(|(_, profile)| profile.members(&formatted.format.id()));
+        let members = transaction.and_then(|(_, profile)| {
+            formatted
+                .format
+                .placement()
+                .and_then(|placement| profile.members(placement))
+        });
         Some(Self {
             query,
             request: accepted.request(),
@@ -264,6 +269,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             query: self.query,
             credential,
             entries: &transaction.entries,
+            placement: self.formatted.format.placement(),
             carriage,
         };
         let bound = profile.bind(binding, self.env)?;

@@ -56,7 +56,12 @@ pub(super) fn image(value: &str, profile: &PasoProfile) -> ImageShown {
         r#"{{"type": "{CUSTOM}", "credential_ids": ["q"], "payload": {{"transaction_id": "t", "logo": "{value}"}}}}"#
     );
     match profile
-        .render(&entry(&entry_json), &card.credential(), &en())
+        .render(
+            &entry(&entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            &en(),
+        )
         .expect("no fault")
     {
         Ok(rendered) => match &rendered.view.rows[0].row.value {
@@ -309,7 +314,12 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
         sri(&content)
     );
     let rendered = fetched
-        .render(&entry(&entry_json), &card.credential(), &en())
+        .render(
+            &entry(&entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            &en(),
+        )
         .expect("no fault")
         .expect("renders");
     assert!(matches!(

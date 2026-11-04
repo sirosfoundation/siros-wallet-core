@@ -48,7 +48,7 @@ use rustc_hash::FxHashMap;
 use siros_explain::{AllOf, Message, Messages};
 use siros_openid4vp::boxes::Overlay;
 use siros_openid4vp::detail;
-use siros_openid4vp::ids::{FormatId, InvalidId, TransactionType};
+use siros_openid4vp::ids::{InvalidId, TransactionType};
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FaultDomain, HostedProfile,
     Member, NoCandidate, Profile, RegistryBuilder,
@@ -56,6 +56,7 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Entry, EntryIndex, Request};
 use siros_openid4vp::rows::Env;
+use siros_openid4vp::wallet_metadata::Placement;
 siros_openid4vp::with_resolve! {
     use siros_openid4vp::{
         effects::Fetch,
@@ -232,8 +233,9 @@ impl Profile for QesProfile {
         refusals
     }
 
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        Encoding::of(format).map(Encoding::members)
+    /// §7.2.1: `qesApproval` as a claim or as a name space's element.
+    fn members(&self, placement: Placement) -> Option<&[Member]> {
+        Some(Encoding::of(placement).members())
     }
 
     /// Binds the query's entry when the credential's rulebook lets it approve the entry's
@@ -372,13 +374,10 @@ siros_openid4vp::with_resolve! {
             _authentication: &Authentication,
         ) -> Result<Members, Fault> {
             let (_, entry, approval) = approval_of(record.request(), record.entries().entries())?;
-            let encoding = Encoding::of(record.format()).ok_or_else(|| {
+            let encoding = record.placement().map(Encoding::of).ok_or_else(|| {
                 Fault::new(
                     FAULT,
-                    detail!(
-                        "QES defines no binding for the format {format}",
-                        format = record.format().to_string()
-                    ),
+                    detail!("QES binds no presentation whose proof carries no members"),
                 )
             })?;
             encoding

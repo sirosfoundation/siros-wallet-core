@@ -53,6 +53,19 @@ pub fn b26_metadata() -> Result<Box<serde_json::value::RawValue>, serde_json::Er
     serde_json::value::RawValue::from_string(format!(r#"{{"jwks": {{"keys": [{B26_KEY}]}}}}"#))
 }
 
+/// How the format a test credential names places a profile's members, as its plug-in states it:
+/// name spaces for `mso_mdoc` (siros-mdoc), claims for `dc+sd-jwt` (siros-sdjwt) and the test
+/// format; `None` for a format no plug-in of the tests registers.
+#[must_use]
+pub fn placement(format: &FormatId<'_>) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+    use siros_openid4vp::wallet_metadata::Placement;
+    match format.as_str() {
+        crate::issuer::DOCUMENT => Some(Placement::NameSpaces),
+        "dc+sd-jwt" | "test" => Some(Placement::Claims),
+        _ => None,
+    }
+}
+
 /// The Client Identifier of the test Verifier's signed requests: the test prefix's.
 pub const CLIENT_ID: &str = "test:verifier";
 

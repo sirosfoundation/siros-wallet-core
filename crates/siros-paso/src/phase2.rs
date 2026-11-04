@@ -3,12 +3,11 @@
 //! the caller fetches, View §3 and Core §7.4.2 step 3), and the SCA response claims (Core §6).
 
 use siros_explain::{IntoArg, kind};
-use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::request::Agreements;
 
 use crate::image::ImageFailure;
 use crate::risk::{Effective, Sealing};
-use crate::sca::Proof;
+use siros_openid4vp::wallet_metadata::Placement;
 
 /// A module the build may lack that an entry's response needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -19,10 +18,11 @@ pub enum OptionalModule {
 }
 
 impl OptionalModule {
-    /// The module the response of an entry with these signals needs, in the presentation's
-    /// format: `COSE_Encrypt` for an mdoc's encrypted risk signals (Risk Signals §7.6).
-    pub(crate) fn needed(signals: &Effective, format: &FormatId<'_>) -> Option<Self> {
-        (signals.sealing == Sealing::Encrypted && Proof::of(format) == Some(Proof::DeviceSigned))
+    /// The module the response of an entry with these signals needs, by how the presentation's
+    /// format places the members: `COSE_Encrypt` for encrypted risk signals in a name space
+    /// (Risk Signals §7.6).
+    pub(crate) fn needed(signals: &Effective, placement: Option<Placement>) -> Option<Self> {
+        (signals.sealing == Sealing::Encrypted && placement == Some(Placement::NameSpaces))
             .then_some(Self::CoseEncrypt)
     }
 
@@ -279,11 +279,11 @@ siros_openid4vp::with_resolve! {
         read(&record, |read| {
             let signals = Effective::resolve(read.given, &profile.catalogue)
                 .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
-            let lacks = OptionalModule::needed(&signals, record.format()).filter(|module| match module {
+            let lacks = OptionalModule::needed(&signals, record.placement()).filter(|module| match module {
                 OptionalModule::CoseEncrypt => !cose_held,
             });
             let unsealable = (signals.sealing == Sealing::Encrypted
-                && Proof::of(record.format()) == Some(Proof::KeyBinding)
+                && record.placement() == Some(Placement::Claims)
                 && read.document.encryption_key(Some(&sealer)).is_none())
             .then_some(sealer);
             let expired = match read.adhoc {
@@ -348,16 +348,12 @@ siros_openid4vp::with_resolve! {
         authentication: &Authentication,
     ) -> Result<Members, Fault> {
         read(record, |read| {
-            let proof = Proof::of(record.format())
-                .ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!(
-                            "PaSO binds no {format} presentation",
-                            format = record.format().to_string()
-                        ),
-                    )
-                })?;
+            let placement = record.placement().ok_or_else(|| {
+                Fault::new(
+                    FAULT,
+                    detail!("PaSO binds no presentation whose proof carries no members"),
+                )
+            })?;
             let signals = Effective::resolve(read.given, &profile.catalogue)
                 .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
             Answer {
@@ -366,7 +362,7 @@ siros_openid4vp::with_resolve! {
                 document: read.document,
                 signals,
                 attested: record.attested(),
-                proof,
+                placement,
                 mode: record.mode(),
             }
             .members(modules, authentication)

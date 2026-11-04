@@ -286,7 +286,14 @@ pub fn case(case: &Case, tally: &mut Tally) {
     let mut first = None;
     for ((index, entry), text) in request.indexed_entries().zip(&case.entries) {
         let json: Value = serde_json::from_str(text).expect("entry");
-        let rendered = profile.render(entry, &credential, &env).expect("no fault");
+        let rendered = profile
+            .render(
+                entry,
+                &credential,
+                siros_testkit::fixtures::placement(&credential.format),
+                &env,
+            )
+            .expect("no fault");
         outcome(case.kind, &json, &types, &rendered, &case.locales, tally);
         if first.is_none() && matches!(rendered, Ok(_) | Err(Outcome::Excluded(_))) {
             first = Some((index, json, rendered));
@@ -298,6 +305,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         query: &request.queries()[0],
         credential: &credential,
         entries: &offered,
+        placement: siros_testkit::fixtures::placement(&credential.format),
         carriage: Carriage::Carried,
     };
     let (bound, entry, rendered) = match (profile.bind(binding, &env), first) {

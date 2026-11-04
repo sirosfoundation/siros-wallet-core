@@ -30,6 +30,7 @@ fn render_typed(
         .render(
             &entry(&entry_json),
             &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
             &env(locales, Amounts::Formatted),
         )
         .expect("no fault")
@@ -302,7 +303,12 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
         },
     );
     let rendered = fetched
-        .render(&entry(&entry_json), &card.credential(), &en())
+        .render(
+            &entry(&entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            &en(),
+        )
         .expect("no fault")
         .expect("renders");
     assert!(

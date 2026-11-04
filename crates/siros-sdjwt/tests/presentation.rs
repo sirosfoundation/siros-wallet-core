@@ -498,7 +498,10 @@ impl siros_openid4vp::plugins::Profile for Writes {
         Vec::new()
     }
 
-    fn members(&self, _format: &siros_openid4vp::ids::FormatId<'_>) -> Option<&[Member]> {
+    fn members(
+        &self,
+        _placement: siros_openid4vp::wallet_metadata::Placement,
+    ) -> Option<&[Member]> {
         Some(&self.0)
     }
 

@@ -50,6 +50,7 @@ use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member};
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
 use siros_openid4vp::wallet::Holder;
+use siros_openid4vp::wallet_metadata::Placement;
 
 use view::SdJwtMembers;
 
@@ -138,6 +139,11 @@ impl Format for SdJwtVc {
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
         Node::parse(r#"{"sd-jwt_alg_values":["ES256"],"kb-jwt_alg_values":["ES256"]}"#)
             .map_err(|e| Fault::caused(FAULT, siros_openid4vp::detail!("the formats member"), e))
+    }
+
+    /// The Key Binding JWT carries a profile's members as claims (B.3.3.1).
+    fn placement(&self) -> Option<Placement> {
+        Some(Placement::Claims)
     }
 
     fn query<'q>(

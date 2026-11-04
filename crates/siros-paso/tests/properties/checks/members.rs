@@ -44,7 +44,7 @@ pub(super) fn members(case: &Case, answer: &Answer<'_>, meta: &Value, tally: &mu
         &credential,
         &answer.bound.entries,
         &answer.bound.attested,
-        &format,
+        siros_testkit::fixtures::placement(&format),
         siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
     );
     let members = PasoProfile::default()

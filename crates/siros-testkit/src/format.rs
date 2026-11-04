@@ -22,6 +22,7 @@ use siros_openid4vp::request::{AgreeableKey, Item, Query};
 use siros_openid4vp::rows::{Env, FormattedKind, Label, Row, Value, Written};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
+use siros_openid4vp::wallet_metadata::Placement;
 
 use crate::FAULT;
 use crate::rules::{Excluded, FormatRule};
@@ -77,6 +78,11 @@ impl Format for TestFormat {
     /// No member: the test format states no algorithm.
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
         Ok(Node::Object(siros_openid4vp::json::Object::default()))
+    }
+
+    /// The proof holds the members as claims.
+    fn placement(&self) -> Option<Placement> {
+        Some(Placement::Claims)
     }
 
     fn query<'q>(

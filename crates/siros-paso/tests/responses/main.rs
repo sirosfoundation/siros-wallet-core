@@ -70,6 +70,11 @@ impl Format for Standing {
         ))
     }
 
+    /// The placement of the format it stands in for.
+    fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+        siros_testkit::fixtures::placement(&self.id)
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,
@@ -229,7 +234,7 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
         &credential,
         &entries,
         &attested,
-        &format,
+        siros_testkit::fixtures::placement(&format),
         siros_testkit::fixtures::mode_of(&request).expect("a mode"),
     );
     let host = PasoHost::at(Timestamp(NOW));
@@ -399,7 +404,12 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
     let holding = PasoProfile::default().with_catalogue(catalogue);
     let rendered = |profile: &PasoProfile| {
         profile
-            .render(&entry, &card.credential(), &en())
+            .render(
+                &entry,
+                &card.credential(),
+                siros_testkit::fixtures::placement(&card.credential().format),
+                &en(),
+            )
             .expect("no fault")
             .map(|_| ())
             .map_err(|outcome| outcome.clause())

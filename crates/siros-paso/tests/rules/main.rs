@@ -26,7 +26,12 @@ fn render_with(
     let entry_json =
         format!(r#"{{"type": "{kind}", "credential_ids": ["q"], "payload": {payload}}}"#);
     profile
-        .render(&entry(&entry_json), &card.credential(), env)
+        .render(
+            &entry(&entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            env,
+        )
         .expect("no fault")
 }
 
@@ -269,7 +274,12 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
         format!(r#"{{"type": "{CUSTOM}", "credential_ids": ["q"], "payload": {payload}}}"#);
     decided!(
         PasoProfile::default()
-            .render(&entry(&entry_json), &card.credential(), &en())
+            .render(
+                &entry(&entry_json),
+                &card.credential(),
+                siros_testkit::fixtures::placement(&card.credential().format),
+                &en()
+            )
             .expect("no fault"),
         Outcome::Unsupported(Unsupported::NotListed(_)),
         "Core §7.4.2 step 2"
@@ -284,7 +294,12 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
     .expect("credential");
     decided!(
         PasoProfile::default()
-            .render(&entry(&entry_json), &bare, &en())
+            .render(
+                &entry(&entry_json),
+                &bare,
+                siros_testkit::fixtures::placement(&bare.format),
+                &en()
+            )
             .expect("no fault"),
         Outcome::Unsupported(Unsupported::NoPasoMetadata),
         "Core §7.4.2 step 2"

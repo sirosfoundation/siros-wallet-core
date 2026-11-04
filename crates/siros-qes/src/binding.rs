@@ -2,10 +2,10 @@
 //! carries, and `qesApproval`, the digest of the entry by its `hashAlgorithmOID`.
 
 use siros_openid4vp::detail;
-use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member};
 use siros_openid4vp::wallet::Credential;
+use siros_openid4vp::wallet_metadata::Placement;
 siros_openid4vp::with_resolve! {
     use siros_openid4vp::{
         plugins::{MemberTwice, MemberValue, Members},
@@ -88,24 +88,23 @@ impl ApprovalHash {
 static DEVICE_SIGNED: [Member; 1] = [Member::element(NAMESPACE, "qesApproval")];
 static KEY_BINDING: [Member; 1] = [Member::claim(CLAIM)];
 
-/// How a format carries `qesApproval` (CSC §7.2.1).
+/// How a proof carries `qesApproval` (CSC §7.2.1), by its format's placement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Encoding {
-    /// §7.2.1.1, `mso_mdoc`: the `DeviceSigned` element `qesApproval` of [`NAMESPACE`], a bstr
-    /// of the digest of the entry's decoded UTF-8 bytes.
+    /// §7.2.1.1, an element of a name space: the `DeviceSigned` element `qesApproval` of
+    /// [`NAMESPACE`], a bstr of the digest of the entry's decoded UTF-8 bytes.
     DeviceSigned,
-    /// §7.2.1.2, `dc+sd-jwt`: the Key Binding JWT claim [`CLAIM`], the base64 digest of the
-    /// entry as received.
+    /// §7.2.1.2, a claim: the Key Binding JWT claim [`CLAIM`], the base64 digest of the entry as
+    /// received.
     KeyBinding,
 }
 
 impl Encoding {
-    /// The encoding of a format; `None` for a format §7.2.1 does not bind.
-    pub(crate) fn of(format: &FormatId<'_>) -> Option<Self> {
-        match format.as_str() {
-            "mso_mdoc" => Some(Self::DeviceSigned),
-            "dc+sd-jwt" => Some(Self::KeyBinding),
-            _ => None,
+    /// The encoding of a placement.
+    pub(crate) const fn of(placement: Placement) -> Self {
+        match placement {
+            Placement::NameSpaces => Self::DeviceSigned,
+            Placement::Claims => Self::KeyBinding,
         }
     }
 

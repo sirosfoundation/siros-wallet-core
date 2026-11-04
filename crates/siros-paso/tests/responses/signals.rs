@@ -170,6 +170,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
                 query: &request.queries()[0],
                 credential: &credential,
                 entries: &offered,
+                placement: siros_testkit::fixtures::placement(&credential.format),
                 carriage: Carriage::Carried,
             },
             &en(),
@@ -210,6 +211,7 @@ pub(super) fn versioned(card: &Card) -> Result<usize, String> {
             query: &request.queries()[0],
             credential: &credential,
             entries: &offered,
+            placement: siros_testkit::fixtures::placement(&credential.format),
             carriage: Carriage::Carried,
         },
         &en(),
@@ -410,7 +412,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
                 &credential,
                 &entries,
                 &attested,
-                &format_id,
+                siros_testkit::fixtures::placement(&format_id),
                 siros_testkit::fixtures::mode_of(&request).expect("a mode"),
             )
         };
@@ -444,7 +446,12 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let entry = request.entries().first().expect("an entry");
         let rendered = PasoProfile::default()
             .informed(&[data])
-            .render(entry, &card.credential(), &en())
+            .render(
+                entry,
+                &card.credential(),
+                siros_testkit::fixtures::placement(&card.credential().format),
+                &en(),
+            )
             .expect("no fault");
         assert_eq!(
             rendered.err(),

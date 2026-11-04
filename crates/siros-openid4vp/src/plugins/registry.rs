@@ -32,7 +32,7 @@ use crate::scope::ScopeQuery;
 use crate::scope::{ScopeEntry, ScopeValue, Scopes};
 #[cfg(feature = "resolve")]
 use crate::uri::{EncryptedRequests, RequestPost};
-use crate::wallet_metadata::{CORE_METADATA, NamePlace, ParameterName};
+use crate::wallet_metadata::{CORE_METADATA, NamePlace, ParameterName, Placement};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
@@ -609,7 +609,10 @@ impl<H> RegistryBuilder<H> {
                 .get(handle.0)
                 .ok_or_else(|| RegistryError::UnknownProfile(name.clone()))?;
             for format in &formats {
-                let Some(members) = profile.members(&format.id()) else {
+                let Some(members) = format
+                    .placement()
+                    .and_then(|placement| profile.members(placement))
+                else {
                     continue;
                 };
                 let mut twice: Vec<String> = members
@@ -1060,7 +1063,7 @@ type Informed<'f, H> = Box<dyn FnOnce() -> Box<dyn DynProfile<H>> + 'f>;
 pub(crate) trait ErasedProfile: Send + Sync {
     #[cfg(feature = "match")]
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]>;
+    fn members(&self, placement: Placement) -> Option<&[Member]>;
     #[cfg(feature = "match")]
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
     #[cfg(feature = "resolve")]
@@ -1075,8 +1078,8 @@ impl<P: Profile> ErasedProfile for P {
         Profile::refusals(self, request, entries)
     }
 
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        Profile::members(self, format)
+    fn members(&self, placement: Placement) -> Option<&[Member]> {
+        Profile::members(self, placement)
     }
 
     #[cfg(feature = "match")]

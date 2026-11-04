@@ -25,7 +25,12 @@ fn render(
     let kind = member(entry_json, "type");
     let card = Card::new("mso_mdoc", &format!("{{{kind}: {meta}}}"), None, ISSUER);
     profile
-        .render(&entry(entry_json), &card.credential(), env)
+        .render(
+            &entry(entry_json),
+            &card.credential(),
+            siros_testkit::fixtures::placement(&card.credential().format),
+            env,
+        )
         .expect("no fault")
 }
 

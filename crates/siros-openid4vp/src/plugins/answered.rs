@@ -4,10 +4,10 @@
 
 use super::{Attested, BoundEntries};
 use crate::effects::Resources;
-use crate::ids::FormatId;
 use crate::request::Request;
 use crate::routing::ModeName;
 use crate::wallet::Credential;
+use crate::wallet_metadata::Placement;
 
 /// A record phase 2 answers, as a profile reads it.
 #[derive(Debug, Clone, Copy)]
@@ -16,7 +16,7 @@ pub struct Answered<'r> {
     credential: &'r Credential<'r>,
     entries: &'r BoundEntries,
     attested: &'r Attested,
-    format: &'r FormatId<'r>,
+    placement: Option<Placement>,
     mode: ModeName,
 }
 
@@ -26,7 +26,7 @@ impl<'r> Answered<'r> {
         credential: &'r Credential<'r>,
         entries: &'r BoundEntries,
         attested: &'r Attested,
-        format: &'r FormatId<'r>,
+        placement: Option<Placement>,
         mode: ModeName,
     ) -> Self {
         Self {
@@ -34,7 +34,7 @@ impl<'r> Answered<'r> {
             credential,
             entries,
             attested,
-            format,
+            placement,
             mode,
         }
     }
@@ -69,10 +69,11 @@ impl<'r> Answered<'r> {
         self.attested
     }
 
-    /// The format of the presentation.
+    /// How the presentation's format places the profile's members; `None` for a proof that
+    /// carries none.
     #[must_use]
-    pub const fn format(&self) -> &'r FormatId<'r> {
-        self.format
+    pub const fn placement(&self) -> Option<Placement> {
+        self.placement
     }
 }
 
@@ -104,7 +105,7 @@ impl<'r> FetchedRecord<'r> {
 #[cfg(feature = "test-util")]
 mod test_util {
     use super::{
-        Answered, Attested, BoundEntries, Credential, FetchedRecord, FormatId, ModeName, Request,
+        Answered, Attested, BoundEntries, Credential, FetchedRecord, ModeName, Placement, Request,
     };
     use crate::effects::{Fetch, Resource, Resources, Slots};
     use crate::host::ProfileHost;
@@ -118,10 +119,10 @@ mod test_util {
             credential: &'r Credential<'r>,
             entries: &'r BoundEntries,
             attested: &'r Attested,
-            format: &'r FormatId<'r>,
+            placement: Option<Placement>,
             mode: ModeName,
         ) -> Self {
-            Self::of(request, credential, entries, attested, format, mode)
+            Self::of(request, credential, entries, attested, placement, mode)
         }
 
         /// The profile's revalidation of the record as phase 2 runs it: the resources the

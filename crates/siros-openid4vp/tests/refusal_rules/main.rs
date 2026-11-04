@@ -11,7 +11,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::arrival::Unreadable;
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
-use siros_openid4vp::ids::{FormatId, TransactionType};
+use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::plugins::{
     Answered, Binding, Bound, Exclude, Fault, FetchedRecord, Member, Members, NoCandidate, Profile,
@@ -141,7 +141,10 @@ impl Profile for Counts {
             entries.len()
         )))]
     }
-    fn members(&self, _: &FormatId<'_>) -> Option<&[Member]> {
+    fn members(
+        &self,
+        _placement: siros_openid4vp::wallet_metadata::Placement,
+    ) -> Option<&[Member]> {
         None
     }
     fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {

@@ -9,7 +9,7 @@ use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredQuery, Authentication, AuthenticationNeed, FormatHost, ProfileHost,
 };
-use siros_openid4vp::ids::{FormatId, TransactionType};
+use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views};
 use siros_openid4vp::plugins::{
     Answered, Binding, Bound, BoundEntries, Fault, FetchedRecord, Member, Members, NoCandidate,
@@ -119,6 +119,10 @@ impl siros_openid4vp::plugins::Format for Scripted {
         Ok(siros_openid4vp::json::Node::Object(
             siros_openid4vp::json::Object::default(),
         ))
+    }
+
+    fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
+        self.0.placement()
     }
     fn query<'q>(
         &'q self,
@@ -247,8 +251,8 @@ impl Profile for Foreign {
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
         self.0.refusals(request, entries)
     }
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        self.0.members(format)
+    fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
+        self.0.members(placement)
     }
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         let bound = self.0.bind(binding, env)?;

@@ -13,7 +13,7 @@ use siros_openid4vp::host::{
     Authentication, AuthenticationNeed, CoreHost, Factor, Haip, Knowledge, Platform, ProfileHost,
     RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid,
 };
-use siros_openid4vp::ids::{CredentialId, FormatId, TransactionType};
+use siros_openid4vp::ids::{CredentialId, TransactionType};
 use siros_openid4vp::jose::JwsAlgorithms;
 use siros_openid4vp::jose::{Signed, VerificationKey};
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
@@ -227,8 +227,8 @@ impl Profile for Strong {
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
         self.0.refusals(request, entries)
     }
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        self.0.members(format)
+    fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
+        self.0.members(placement)
     }
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         self.0.bind(binding, env)
@@ -298,8 +298,8 @@ impl Profile for Undeclared {
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
         self.0.refusals(request, entries)
     }
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        self.0.members(format)
+    fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
+        self.0.members(placement)
     }
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         self.0.bind(binding, env)

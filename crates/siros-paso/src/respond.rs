@@ -15,6 +15,7 @@ use siros_openid4vp::host::{
 use siros_openid4vp::request::{ContentEncryption, Request};
 use siros_openid4vp::routing::ModeName;
 use siros_openid4vp::sri;
+use siros_openid4vp::wallet_metadata::Placement;
 
 use crate::FAULT;
 use crate::document::PasoDocument;
@@ -23,7 +24,7 @@ use crate::measure::{Paso, Reading};
 use crate::modules::{CoseEnc, CoseEncrypt, RandomIds, SealedCose};
 use crate::amr;
 use crate::risk::{Effective, RiskSignal, Sealing, SignalSpec};
-use crate::sca::{Proof, Sca};
+use crate::sca::{self, Sca};
 
 /// An instant as Risk Signals §2.2's `collected_at` writes it: `YYYY-MM-DDTHH:MM:SSZ` in UTC;
 /// `None` past the year 9999.
@@ -157,14 +158,14 @@ impl<'h> Modules<'h> {
 
 /// What answering a record reads: the request, the entry it authorizes, the credential's
 /// document, the signal set of the metadata that rendered the entry, what the record attests,
-/// the proof, and the response mode the answer goes in.
+/// how the proof places the members, and the response mode the answer goes in.
 pub(crate) struct Answer<'a> {
     pub(crate) request: &'a Request<'a>,
     pub(crate) entry: PasoEntry<'a>,
     pub(crate) document: &'a PasoDocument<'a>,
     pub(crate) signals: Effective,
     pub(crate) attested: &'a Attested,
-    pub(crate) proof: Proof,
+    pub(crate) placement: Placement,
     pub(crate) mode: ModeName,
 }
 
@@ -177,7 +178,7 @@ impl Answer<'_> {
         modules: Modules<'_>,
         authentication: &Authentication,
     ) -> Result<Members, Fault> {
-        let proof = self.proof;
+        let placement = self.placement;
         let attested = |name: &str| {
             self.attested
                 .get(name)
@@ -191,28 +192,28 @@ impl Answer<'_> {
         let digest = Sha256::digest(self.entry.entry.raw().as_bytes()).to_vec();
         let mut out = vec![
             (
-                proof.member(Sca::Jti),
+                sca::member(placement, Sca::Jti),
                 MemberValue::Text(modules.random_ids.random_id().to_string()),
             ),
             (
-                proof.member(Sca::DisplayLocale),
+                sca::member(placement, Sca::DisplayLocale),
                 MemberValue::Text(attested("display_locale")?.to_owned()),
             ),
             (
-                proof.member(Sca::TransactionDataHash),
-                match proof {
-                    Proof::KeyBinding => MemberValue::Text(URL_SAFE_NO_PAD.encode(&digest)),
-                    Proof::DeviceSigned => MemberValue::Bytes(digest),
+                sca::member(placement, Sca::TransactionDataHash),
+                match placement {
+                    Placement::Claims => MemberValue::Text(URL_SAFE_NO_PAD.encode(&digest)),
+                    Placement::NameSpaces => MemberValue::Bytes(digest),
                 },
             ),
             (
-                proof.member(Sca::TransactionDataHashAlg),
+                sca::member(placement, Sca::TransactionDataHashAlg),
                 MemberValue::Text("sha-256".to_owned()),
             ),
         ];
         if let Some(integrity) = self.attested.get("metadata_integrity") {
             out.push((
-                proof.member(Sca::MetadataIntegrity),
+                sca::member(placement, Sca::MetadataIntegrity),
                 MemberValue::Text(integrity.to_owned()),
             ));
         }
@@ -221,11 +222,11 @@ impl Answer<'_> {
             .request_object()
             .ok_or_else(|| Fault::new(FAULT, detail!("PaSO answers a signed request only (Core §3)")))?;
         out.push((
-            proof.member(Sca::RequestIntegrity),
+            sca::member(placement, Sca::RequestIntegrity),
             MemberValue::Text(sri::integrity(request_object.as_bytes())),
         ));
         out.push((
-            proof.member(Sca::WalletInstanceVersion),
+            sca::member(placement, Sca::WalletInstanceVersion),
             MemberValue::Text(modules.paso.version().to_owned()),
         ));
         let envelopes = self.envelopes(modules, authentication)?;
@@ -235,7 +236,7 @@ impl Answer<'_> {
                 Sealing::Plain => MemberValue::Json(JsonText::from(&array)),
                 Sealing::Encrypted => self.sealed(&array, modules)?,
             };
-            out.push((proof.member(Sca::RiskSignals), value));
+            out.push((sca::member(placement, Sca::RiskSignals), value));
         }
         Members::new(out).map_err(|twice| Fault::caused(FAULT, detail!("the SCA response claims"), twice))
     }
@@ -244,9 +245,9 @@ impl Answer<'_> {
     /// issuer's key with §7.6's A256GCM: a JWE for an SD-JWT VC, a `COSE_Encrypt` for an mdoc,
     /// which needs the build's `COSE_Encrypt` module.
     fn sealed(&self, envelopes: &Node<'_>, modules: Modules<'_>) -> Result<MemberValue, Fault> {
-        let sealer = match self.proof {
-            Proof::KeyBinding => Some(modules.haip.agreements()),
-            Proof::DeviceSigned => None,
+        let sealer = match self.placement {
+            Placement::Claims => Some(modules.haip.agreements()),
+            Placement::NameSpaces => None,
         };
         let key = self.document.encryption_key(sealer.as_ref()).ok_or_else(|| {
             Fault::new(FAULT, detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
@@ -254,14 +255,14 @@ impl Answer<'_> {
         let plaintext = envelopes
             .python_ascii()
             .to_string();
-        Ok(match self.proof {
-            Proof::KeyBinding => MemberValue::Text(
+        Ok(match self.placement {
+            Placement::Claims => MemberValue::Text(
                 modules
                     .haip
                     .encrypt_jwe(&key, ContentEncryption::A256GCM, plaintext.as_bytes())?
                     .into_string(),
             ),
-            Proof::DeviceSigned => {
+            Placement::NameSpaces => {
                 let cose = modules.cose.ok_or_else(|| {
                     Fault::new(
                         FAULT,
@@ -301,9 +302,9 @@ impl Answer<'_> {
                 member("status", Node::String(Cow::Borrowed(status.name()))),
             ];
             if let Status::Ok(value) = &status {
-                let value = match self.proof {
-                    Proof::KeyBinding => value.clone(),
-                    Proof::DeviceSigned => floats(value)?,
+                let value = match self.placement {
+                    Placement::Claims => value.clone(),
+                    Placement::NameSpaces => floats(value)?,
                 };
                 members.push(member("value", value));
             }

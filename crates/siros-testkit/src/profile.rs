@@ -8,7 +8,6 @@ use siros_openid4vp::boxes::{Header, Overlay, PaymentHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
-use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Answered, Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FetchedRecord,
@@ -120,7 +119,10 @@ impl Profile for TestProfile {
             .collect()
     }
 
-    fn members(&self, _format: &FormatId<'_>) -> Option<&[Member]> {
+    fn members(
+        &self,
+        _placement: siros_openid4vp::wallet_metadata::Placement,
+    ) -> Option<&[Member]> {
         Some(match self.binds {
             Binds::Every => &hash::MEMBERS,
             Binds::First => &BINDING,

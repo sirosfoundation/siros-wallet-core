@@ -39,7 +39,10 @@ impl Profile for Writes {
     fn refusals(&self, _: &Request<'_>, _: &[EntryIndex]) -> Vec<Refusal> {
         Vec::new()
     }
-    fn members(&self, _: &FormatId<'_>) -> Option<&[Member]> {
+    fn members(
+        &self,
+        _placement: siros_openid4vp::wallet_metadata::Placement,
+    ) -> Option<&[Member]> {
         (!self.0.is_empty()).then_some(self.0.as_slice())
     }
     fn bind(&self, _: Binding<'_>, _: &Env) -> Result<Bound, NoCandidate> {

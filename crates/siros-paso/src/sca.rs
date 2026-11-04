@@ -1,8 +1,8 @@
-//! Core §6: the SCA response claims (§6.1) and where each format carries them: Key Binding JWT
-//! claims of an SD-JWT VC (§6.2), device-signed elements of `urn:paso:sca:1` in an mdoc (§6.3).
+//! Core §6: the SCA response claims (§6.1) and where a proof carries them, by its format's
+//! placement: Key Binding JWT claims (§6.2), or device-signed elements of `urn:paso:sca:1` (§6.3).
 
-use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::plugins::Member;
+use siros_openid4vp::wallet_metadata::Placement;
 
 /// The SCA response claims (§6.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,42 +59,22 @@ pub static DEVICE_SIGNED: [Member; 8] = [
     Member::element(NAMESPACE, Sca::RiskSignals.name()),
 ];
 
-/// Where a presentation carries the SCA response claims.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Proof {
-    /// An SD-JWT VC's Key Binding JWT (`dc+sd-jwt`).
-    KeyBinding,
-    /// An mdoc's device-signed data elements (`mso_mdoc`).
-    DeviceSigned,
+/// The SCA response claims as members of a proof that places them so: Key Binding JWT claims
+/// (§6.2), or elements of [`NAMESPACE`] (§6.3).
+#[must_use]
+pub const fn members(placement: Placement) -> &'static [Member] {
+    match placement {
+        Placement::Claims => &KEY_BINDING,
+        Placement::NameSpaces => &DEVICE_SIGNED,
+    }
 }
 
-impl Proof {
-    /// The proof of a format PaSO defines a binding for.
-    #[must_use]
-    pub fn of(format: &FormatId<'_>) -> Option<Self> {
-        match format.as_str() {
-            "dc+sd-jwt" => Some(Self::KeyBinding),
-            "mso_mdoc" => Some(Self::DeviceSigned),
-            _ => None,
-        }
-    }
-
-    /// The SCA response claims as members of this proof.
-    #[must_use]
-    pub fn members(self) -> &'static [Member] {
-        match self {
-            Self::KeyBinding => &KEY_BINDING,
-            Self::DeviceSigned => &DEVICE_SIGNED,
-        }
-    }
-
-    siros_openid4vp::with_resolve! {
-        /// A claim as a member of this proof.
-        pub(crate) const fn member(self, claim: Sca) -> Member {
-            match self {
-                Self::KeyBinding => Member::claim(claim.name()),
-                Self::DeviceSigned => Member::element(NAMESPACE, claim.name()),
-            }
+siros_openid4vp::with_resolve! {
+    /// A claim as a member of a proof that places members so.
+    pub(crate) const fn member(placement: Placement, claim: Sca) -> Member {
+        match placement {
+            Placement::Claims => Member::claim(claim.name()),
+            Placement::NameSpaces => Member::element(NAMESPACE, claim.name()),
         }
     }
 }

@@ -98,7 +98,7 @@ use crate::render::{ItemBound, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
 use crate::rulebook::{Family, PASO};
 use crate::rules::BindExcluded;
-use crate::sca::Proof;
+use siros_openid4vp::wallet_metadata;
 
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "paso.fault");
@@ -316,15 +316,16 @@ impl PasoProfile {
         }
     }
 
-    /// One entry rendered for one credential: its metadata (the verified ad-hoc metadata JWT,
-    /// else the credential's stored metadata for the type), View's rendering, then whether the
-    /// wallet can send its risk signals (Risk Signals §7.3, and §7.6 in a build phase 2 found
-    /// without a module they need). The outer error is the wallet's own failure: a document or
-    /// an entry it cannot read.
+    /// One entry rendered for one credential whose proof places members by `placement`: its
+    /// metadata (the verified ad-hoc metadata JWT, else the credential's stored metadata for the
+    /// type), View's rendering, then whether the wallet can send its risk signals (Risk Signals
+    /// §7.3, and §7.6 in a build phase 2 found without a module they need). The outer error is
+    /// the wallet's own failure: a document or an entry it cannot read.
     pub fn render(
         &self,
         entry: &Entry<'_>,
         credential: &Credential<'_>,
+        placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Result<Rendered, Outcome>, Fault> {
         let kind = entry.kind().as_str();
@@ -345,7 +346,7 @@ impl PasoProfile {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
         };
-        Ok(self.rendered(&paso, family, &document, &credential.format, env))
+        Ok(self.rendered(&paso, family, &document, &credential.format, placement, env))
     }
 
     fn rendered(
@@ -354,6 +355,7 @@ impl PasoProfile {
         family: Family,
         document: &PasoDocument<'_>,
         format: &FormatId<'_>,
+        placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Rendered, Outcome> {
         let kind = paso.kind.as_str();
@@ -397,11 +399,11 @@ impl PasoProfile {
         let sealer = self
             .sealer
             .as_ref()
-            .filter(|_| Proof::of(format) == Some(Proof::KeyBinding));
+            .filter(|_| placement == Some(wallet_metadata::Placement::Claims));
         if signals.sealing == Sealing::Encrypted && document.encryption_key(sealer).is_none() {
             return Err(NotCompatible::NoEncryptionKey.into());
         }
-        if let Some(module) = OptionalModule::needed(&signals, format)
+        if let Some(module) = OptionalModule::needed(&signals, placement)
             && self.lacking.contains(&module)
         {
             return Err(NotCompatible::Lacks(module).into());
@@ -479,10 +481,10 @@ impl Profile for PasoProfile {
         entry::refusals(request, entries)
     }
 
-    /// Core §6.2-6.3: the SCA response claims as Key Binding JWT claims of `dc+sd-jwt`, as
-    /// device-signed elements of `mso_mdoc`; no binding for another format.
-    fn members(&self, format: &FormatId<'_>) -> Option<&[Member]> {
-        Proof::of(format).map(Proof::members)
+    /// Core §6.2-6.3: the SCA response claims as Key Binding JWT claims, or as device-signed
+    /// elements of `urn:paso:sca:1`.
+    fn members(&self, placement: wallet_metadata::Placement) -> Option<&[Member]> {
+        Some(sca::members(placement))
     }
 
     /// Core §7.4.2 steps 2-3: the first entry in array order that renders for the credential;
@@ -497,7 +499,7 @@ impl Profile for PasoProfile {
                 .request
                 .entry(*index)
                 .ok_or_else(|| Fault::new(FAULT, detail!("an offered entry the request lacks")))?;
-            match self.render(entry, binding.credential, env)? {
+            match self.render(entry, binding.credential, binding.placement, env)? {
                 Ok(rendered) => return Ok(bound(rendered, binding.entries, *index)?),
                 Err(Outcome::Excluded(excluded)) => {
                     return Err(Exclude::new(excluded).into());
