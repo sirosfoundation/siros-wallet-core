@@ -15,7 +15,10 @@ WORKDIR /build
 # The vendored dependency set: reproducible builds need it copied before
 # the source. Copy the manifests and fetch first so a source change does
 # not re-download the world.
+# cc-rs compiles the C dependencies for musl with musl-gcc.
+RUN apt-get update && apt-get install -y musl-tools && rm -rf /var/lib/apt/lists/*
 RUN rustup target add x86_64-unknown-linux-musl
+ENV CC_x86_64_unknown_linux_musl=musl-gcc
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/
