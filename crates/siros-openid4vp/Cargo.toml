@@ -22,7 +22,6 @@ resolve = [
     "dep:uuid",
     "dep:ciborium",
     "dep:coset",
-    "dep:p256",
     "dep:serde_urlencoded",
     "fluent-uri/net",
 ]
@@ -40,7 +39,6 @@ k12 = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 ciborium = { workspace = true, optional = true }
 coset = { workspace = true, optional = true }
-p256 = { workspace = true, optional = true }
 serde_urlencoded = { workspace = true, optional = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }

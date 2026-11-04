@@ -70,14 +70,15 @@ impl Curve {
 }
 
 /// B.2.4: the identifier of HMAC 256/256 with its key agreed by ECDH (ISO/IEC 18013-5 §9.1.3.5)
-/// on a curve the wallet agrees keys on.
-pub(crate) const fn mac(curve: Agreed) -> i64 {
-    match curve {
-        Agreed::P256 => -65537,
-        Agreed::P384 => -65538,
-        Agreed::P521 => -65539,
-        Agreed::X25519 => -65540,
-        Agreed::X448 => -65541,
+/// on the reader key's curve; `None` for a curve B.2.4's table does not name.
+pub(crate) fn mac(curve: Agreed<'_>) -> Option<i64> {
+    match curve.as_str() {
+        "P-256" => Some(-65537),
+        "P-384" => Some(-65538),
+        "P-521" => Some(-65539),
+        "X25519" => Some(-65540),
+        "X448" => Some(-65541),
+        _ => None,
     }
 }
 

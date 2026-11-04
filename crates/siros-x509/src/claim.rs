@@ -143,7 +143,7 @@ impl PrefixClaim for X509Claim<'_> {
         }
         let vocabulary = Vocabulary::read(&decided)?;
         Ok(ClientBinding {
-            key: self.key,
+            key: self.key.clone(),
             name: vocabulary.name.map(str::to_owned),
             facts: vocabulary.facts.cloned(),
         })

@@ -76,7 +76,7 @@ mod test_util {
             Ok(Mac::new(
                 format!(
                     "mac:{credential}:{}:{}",
-                    reader.kid,
+                    reader.kid(),
                     digest_prefix(&[transcript.as_bytes(), data].concat())
                 )
                 .into_bytes(),

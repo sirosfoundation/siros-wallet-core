@@ -24,16 +24,16 @@ pub use authentication::{
     Possession, Sensor, Strength,
 };
 pub use ciphertext::{CoseEnc, NotSealed, SealedCose, SealedJwe};
-pub use ephemeral::EphemeralKey;
+pub use ephemeral::{EphemeralKey, KeyHandle};
 pub use phase2::{AnsweredOption, AnsweredQuery, FormatHost, PresentError, ProfileHost};
 pub use values::{NotRandomId, Presentation, RandomId, Seconds, Signature, Timestamp, Usable};
 
 use siros_explain::Explain;
 
 use crate::ids::CredentialId;
-use crate::jose::{CompactJwe, Signed, VerificationKey};
+use crate::jose::{CompactJwe, JweAlgorithms, JwsAlgorithms, Signed, VerificationKey};
 use crate::plugins::Fault;
-use crate::request::{AgreeableKey, ContentEncryption};
+use crate::request::{AgreeableKey, Agreements, ContentEncryption};
 use crate::wallet::Credential;
 
 /// The wallet app: its clock, its credentials' status, the End-User's prompt, fresh ids.
@@ -49,9 +49,16 @@ pub trait Platform {
     fn random_id(&self) -> RandomId;
 }
 
-/// HAIP's cryptography (HAIP §5, §7); the credentials' keys sit in the platform's keystore.
+/// HAIP's cryptography (HAIP §5, §7), one family (decision 13); the credentials' keys sit in the
+/// platform's keystore. The module states what it implements, and the core accepts exactly that:
+/// a module without a capability states none ([`JwsAlgorithms::NONE`], [`Agreements::NONE`]),
+/// and the core never calls the method that would serve it.
 pub trait Haip {
-    /// ES256 over the signing input, under the key (RFC 7518 §3.4).
+    /// The JWS algorithms `verify` verifies; HAIP's module states ES256 (§7).
+    fn verifies(&self) -> JwsAlgorithms;
+    /// The signature over the signing input under the key, by the signature's `alg`, called for
+    /// a stated `alg` alone; a key that does not fit the `alg`, a point off its curve included,
+    /// is `SignatureInvalid`.
     ///
     /// # Errors
     ///
@@ -63,8 +70,12 @@ pub trait Haip {
     ///
     /// The End-User cancelled the key prompt, or the keystore broke its contract.
     fn sign(&self, credential: &CredentialId<'_>, data: &[u8]) -> Result<Signature, SignFailed>;
-    /// The plaintext encrypted to a public key under the key's own agreement (`key.alg`) and
-    /// `enc`, as a compact JWE.
+    /// The curves, key agreements and content encryptions `encrypt_jwe` implements, in the
+    /// module's order of preference; HAIP's module states ECDH-ES on P-256 with A256GCM and
+    /// A128GCM (§5).
+    fn agreements(&self) -> Agreements;
+    /// The plaintext encrypted to the key under its agreement and `enc`, as a compact JWE; the
+    /// core calls it for a key and an `enc` its `agreements` state alone.
     ///
     /// # Errors
     ///
@@ -72,7 +83,7 @@ pub trait Haip {
     fn encrypt_jwe(
         &self,
         key: &AgreeableKey<'_>,
-        enc: ContentEncryption,
+        enc: ContentEncryption<'_>,
         plaintext: &[u8],
     ) -> Result<SealedJwe, Fault>;
 }
@@ -85,7 +96,12 @@ pub struct SignatureInvalid;
 
 /// An encrypted Request Object (OpenID4VP §5.10, RFC 9101 §6.1); the key travels in the value.
 pub trait RequestDecryption {
-    /// A fresh P-256 key pair.
+    /// The curves of the keys it draws and the JWE `alg` and `enc` values `decrypt` implements;
+    /// HAIP's module states P-256, ECDH-ES, A256GCM and A128GCM.
+    fn decrypts(&self) -> JweAlgorithms;
+
+    /// A fresh key: its public JWK, on a stated curve, and the handle to the secret the module
+    /// keeps.
     ///
     /// # Errors
     ///
@@ -94,7 +110,7 @@ pub trait RequestDecryption {
 
     /// The plaintext of a JWE encrypted to the key, as RFC 7516 §5.2 decrypts it: a `zip` of
     /// DEF uncompressed (step 17; §4.1.3: "MUST be understood and processed"). The key is
-    /// consumed.
+    /// consumed and its secret forgotten.
     ///
     /// # Errors
     ///

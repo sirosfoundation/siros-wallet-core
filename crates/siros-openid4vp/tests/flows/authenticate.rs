@@ -19,6 +19,7 @@ use siros_openid4vp::recourse::{ErrorTarget, Failure, Rejected};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 use siros_testkit::fixtures;
+use siros_testkit::fixtures::REQUEST_OBJECT_HEADER;
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestHost, TestPrefix, TestTrust};
 
@@ -74,7 +75,9 @@ fn a_uri_request_authenticates_under_its_prefix() {
         name: Some("Example Verifier".to_owned()),
         ..TestTrust::default()
     };
-    let pending = envelope.questions(&registry, &config()).expect("questions");
+    let pending = envelope
+        .questions(&registry, &config(), &TestHost::default())
+        .expect("questions");
     assert_eq!(pending.questions().count(), 1);
     let authenticated = pending
         .authenticate(
@@ -107,7 +110,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         let envelope: &'static Envelope<'static> = Box::leak(Box::new(envelope(received)));
         let registry: &'static Registry<TestHost> = Box::leak(Box::new(registry()));
         envelope
-            .questions(registry, &checked)
+            .questions(registry, &checked, &TestHost::default())
             .map(drop)
             .expect_err(id)
     };
@@ -126,6 +129,29 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         assert_eq!(target(&rejected), unverified(), "{id}: unverified");
         assert_eq!(rejected.failure().code(), Some(ErrorCode::INVALID_REQUEST));
     }
+    // A7: an alg the verifying module does not state (RFC 8725 §3.1), refused before the
+    // trust service is asked.
+    let header = REQUEST_OBJECT_HEADER.replace("ES256", "ES384");
+    let uri: &'static str = Box::leak(link("test%3Averifier", "").into_boxed_str());
+    let object: &'static str = Box::leak(
+        compact_jws(&VERIFIER_SECRET, &header, &uri_payload(""))
+            .expect("signs")
+            .into_boxed_str(),
+    );
+    let received: &'static Received<'static> =
+        Box::leak(Box::new(fetched(uri, object).expect("fetched")));
+    let read: &'static Envelope<'static> = Box::leak(Box::new(envelope(received)));
+    let prefixes: &'static Registry<TestHost> = Box::leak(Box::new(registry()));
+    let rejected = read
+        .questions(prefixes, &checked, &TestHost::default())
+        .map(drop)
+        .expect_err("A7");
+    assert!(matches!(cause(&rejected), Unauthenticated::Algorithm(alg) if alg == "ES384"));
+    assert_eq!(target(&rejected), unverified());
+    assert_eq!(
+        rejected.failure().code(),
+        Some(ErrorCode::INVALID_REQUEST_OBJECT)
+    );
     // A6: the trust service denies.
     let denied = TestTrust {
         verdict: Verdict::Deny,
@@ -226,7 +252,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
     let received = fetched(&uri, &object).expect("fetched");
     let envelope = super::envelope(&received);
     let rejected = envelope
-        .questions(&registry, &checked)
+        .questions(&registry, &checked, &TestHost::default())
         .map(drop)
         .expect_err("A13");
     assert!(matches!(
@@ -303,7 +329,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     let received = fixtures::signed(&data).expect("received");
     let envelope = Envelope::parse(&received).expect("an envelope");
     let rejected = envelope
-        .questions(&registry, &checked)
+        .questions(&registry, &checked, &TestHost::default())
         .map(drop)
         .expect_err("A3");
     assert!(matches!(cause(&rejected), Unauthenticated::ClientIdAbsent));

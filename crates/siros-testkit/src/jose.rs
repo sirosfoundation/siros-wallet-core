@@ -15,10 +15,11 @@ use p256::elliptic_curve::sec1::{Coordinates, ToSec1Point};
 use p256::{PublicKey, SecretKey};
 use sha2::{Digest, Sha256};
 use siros_openid4vp::detail;
-use siros_openid4vp::host::{DecryptFailed, EphemeralKey, RequestDecryption};
-use siros_openid4vp::jose::{CompactJwe, VerificationKey};
+use siros_openid4vp::host::{DecryptFailed, EphemeralKey, KeyHandle, RequestDecryption};
+use siros_openid4vp::jose::{CompactJwe, JweAlgorithms, PublicJwk, VerificationKey};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
+use siros_openid4vp::request::{ContentEncryption, Curve, KeyAgreement};
 
 use crate::FAULT;
 
@@ -46,13 +47,74 @@ fn secret(bytes: &[u8; 32]) -> Result<SecretKey, Fault> {
     SecretKey::from_slice(bytes).map_err(|e| Fault::caused(FAULT, detail!("a test scalar"), e))
 }
 
+/// The public JWK of a P-256 key: `kty` `EC`, `crv` `P-256`, `x`, `y` (RFC 7518 §6.2.1).
+///
+/// # Errors
+///
+/// The point is the identity, which no key of a scalar is.
+pub fn p256_jwk(public: &PublicKey) -> Result<PublicJwk, Fault> {
+    let point = public.to_sec1_point(false);
+    let Coordinates::Uncompressed { x, y } = point.coordinates() else {
+        return Err(Fault::new(
+            FAULT,
+            detail!("the key's point has no coordinates"),
+        ));
+    };
+    let text = |value: String| Node::String(Cow::Owned(value));
+    let jwk = Node::object([
+        (Cow::Borrowed("kty"), text("EC".to_owned())),
+        (Cow::Borrowed("crv"), text("P-256".to_owned())),
+        (Cow::Borrowed("x"), text(URL_SAFE_NO_PAD.encode(x))),
+        (Cow::Borrowed("y"), text(URL_SAFE_NO_PAD.encode(y))),
+    ])
+    .map_err(|e| Fault::caused(FAULT, detail!("a P-256 JWK"), e))?;
+    PublicJwk::parse(jwk).map_err(|e| Fault::caused(FAULT, detail!("a P-256 JWK"), e))
+}
+
+/// The public JWK of the P-256 scalar of 32 octets of one value: a key the tests did not post.
+///
+/// # Errors
+///
+/// The octets are no scalar of P-256.
+pub fn scalar_jwk(octet: u8) -> Result<Node<'static>, Fault> {
+    let public = p256_jwk(&secret(&[octet; 32])?.public_key())?;
+    Ok(Node::Object(public.object().clone()))
+}
+
+/// The P-256 point of a JWK's `x` and `y`, 32 octets each (RFC 7518 §6.2.1.2, §6.2.1.3): SEC 1
+/// §2.3.4's uncompressed point, which p256 refuses off the curve.
+#[must_use]
+pub fn p256_point(jwk: &Node<'_>) -> Option<PublicKey> {
+    let member = |name: &str| jwk.get(name).and_then(Node::as_str);
+    if member("kty") != Some("EC") || member("crv") != Some("P-256") {
+        return None;
+    }
+    let coordinate = |name: &str| -> Option<[u8; 32]> {
+        URL_SAFE_NO_PAD.decode(member(name)?).ok()?.try_into().ok()
+    };
+    let point: Vec<u8> = [4u8]
+        .iter()
+        .chain(&coordinate("x")?)
+        .chain(&coordinate("y")?)
+        .copied()
+        .collect();
+    PublicKey::from_sec1_bytes(&point).ok()
+}
+
+/// The P-256 point of a public JWK.
+fn jwk_point(jwk: &PublicJwk) -> Option<PublicKey> {
+    p256_point(&Node::Object(jwk.object().clone()))
+}
+
 /// The test Verifier's public key.
 ///
 /// # Errors
 ///
 /// The constant is no scalar of P-256, a bug of the kit.
 pub fn verifier_key() -> Result<VerificationKey, Fault> {
-    Ok(VerificationKey::of(secret(&VERIFIER_SECRET)?.public_key()))
+    Ok(VerificationKey::of(p256_jwk(
+        &secret(&VERIFIER_SECRET)?.public_key(),
+    )?))
 }
 
 /// The ES256 signature of the signing input under a key: R and S, base64url.
@@ -81,15 +143,34 @@ pub fn compact_jws(key: &[u8; 32], header: &str, payload: &str) -> Result<String
     Ok(format!("{input}.{signature}"))
 }
 
-/// Whether the signature verifies, as HAIP's `verify` checks it.
+/// Whether an ES256 signature verifies under a P-256 JWK, as HAIP's `verify` checks it: a key
+/// of another curve, or a point off P-256, verifies nothing.
 #[must_use]
-pub fn verifies(key: &VerificationKey, signing_input: &[u8], signature: &[u8; 64]) -> bool {
-    Signature::from_slice(signature).is_ok_and(|signature| {
-        VerifyingKey::from(*key.key())
+pub fn verifies(key: &VerificationKey, signing_input: &[u8], signature: &[u8]) -> bool {
+    match (jwk_point(key.jwk()), Signature::from_slice(signature)) {
+        (Some(public), Ok(signature)) => VerifyingKey::from(public)
             .verify(signing_input, &signature)
-            .is_ok()
-    })
+            .is_ok(),
+        _ => false,
+    }
 }
+
+/// What the decryption double decrypts: keys on P-256, ECDH-ES, A256GCM and A128GCM (HAIP §5).
+pub const DECRYPTS: JweAlgorithms = match JweAlgorithms::new(
+    &[Curve::P_256],
+    &[KeyAgreement::ECDH_ES],
+    &[ContentEncryption::A256GCM, ContentEncryption::A128GCM],
+) {
+    Some(stated) => stated,
+    #[allow(
+        clippy::panic,
+        reason = "a panic in a constant fails the build (E0080)"
+    )]
+    None => panic!("each list states one or more"),
+};
+
+/// The handle of the one key the decryption double draws.
+const EPHEMERAL_HANDLE: u64 = 1;
 
 /// The decryption double: a fixed ephemeral key, and RFC 7516 §5.2's decryption of an ECDH-ES
 /// JWE under it.
@@ -97,12 +178,21 @@ pub fn verifies(key: &VerificationKey, signing_input: &[u8], signature: &[u8; 64
 pub struct TestRequestDecryption;
 
 impl RequestDecryption for TestRequestDecryption {
+    fn decrypts(&self) -> JweAlgorithms {
+        DECRYPTS
+    }
+
     fn ephemeral_key(&self) -> Result<EphemeralKey, Fault> {
-        Ok(EphemeralKey::new(secret(&WALLET_EPHEMERAL)?))
+        let public = p256_jwk(&secret(&WALLET_EPHEMERAL)?.public_key())?;
+        Ok(EphemeralKey::new(public, KeyHandle::new(EPHEMERAL_HANDLE)))
     }
 
     fn decrypt(&self, key: EphemeralKey, jwe: &CompactJwe<'_>) -> Result<Vec<u8>, DecryptFailed> {
-        decrypt(key.secret(), jwe).ok_or(DecryptFailed)
+        if key.handle().id() != EPHEMERAL_HANDLE {
+            return Err(DecryptFailed);
+        }
+        let secret = secret(&WALLET_EPHEMERAL).map_err(|_| DecryptFailed)?;
+        decrypt(&secret, jwe).ok_or(DecryptFailed)
     }
 }
 
@@ -118,21 +208,13 @@ fn decrypt(secret: &SecretKey, jwe: &CompactJwe<'_>) -> Option<Vec<u8>> {
         return None;
     }
     let header = jwe.header();
-    let epk = header.get("epk")?;
-    let coordinate = |name: &str| -> Option<[u8; 32]> {
-        URL_SAFE_NO_PAD
-            .decode(epk.get(name)?.as_str()?)
-            .ok()?
-            .try_into()
-            .ok()
-    };
-    let point = VerificationKey::p256(coordinate("x")?, coordinate("y")?).ok()?;
+    let point = p256_point(header.get("epk")?)?;
     let enc = header.get("enc")?.as_str()?;
     let party = |name: &str| match header.get(name) {
         None => Some(Vec::new()),
         Some(value) => URL_SAFE_NO_PAD.decode(value.as_str()?).ok(),
     };
-    let content_key = concat_kdf(secret, point.key(), enc, &party("apu")?, &party("apv")?)?;
+    let content_key = concat_kdf(secret, &point, enc, &party("apu")?, &party("apv")?)?;
     let mut sealed = URL_SAFE_NO_PAD.decode(ciphertext).ok()?;
     sealed.extend(URL_SAFE_NO_PAD.decode(tag).ok()?);
     let iv = URL_SAFE_NO_PAD.decode(iv).ok()?;
@@ -199,19 +281,7 @@ pub fn concat_kdf(
 /// The JWK is no P-256 key, or `enc` neither A128GCM nor A256GCM.
 pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: bool, plaintext: &[u8]) -> Result<String, Fault> {
     let fault = |what: &'static str| Fault::new(FAULT, detail!("the JWE's {what}", what = what));
-    let coordinate = |name: &str| -> Result<[u8; 32], Fault> {
-        URL_SAFE_NO_PAD
-            .decode(
-                jwk.get(name)
-                    .and_then(Node::as_str)
-                    .ok_or_else(|| fault("key"))?,
-            )
-            .map_err(|_| fault("key"))?
-            .try_into()
-            .map_err(|_| fault("key"))
-    };
-    let recipient =
-        VerificationKey::p256(coordinate("x")?, coordinate("y")?).map_err(|_| fault("key"))?;
+    let recipient = p256_point(jwk).ok_or_else(|| fault("key"))?;
     let ephemeral = secret(&VERIFIER_EPHEMERAL)?;
     let point = ephemeral.public_key().to_sec1_point(false);
     let Coordinates::Uncompressed { x, y } = point.coordinates() else {
@@ -235,8 +305,8 @@ pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: bool, plaintext: &[u8]) -> Res
     }
     let header = Node::object(members).map_err(|_| fault("header"))?;
     let protected = URL_SAFE_NO_PAD.encode(header.python_compact().to_string());
-    let content_key = concat_kdf(&ephemeral, recipient.key(), enc, &[], &[])
-        .ok_or_else(|| fault("content key"))?;
+    let content_key =
+        concat_kdf(&ephemeral, &recipient, enc, &[], &[]).ok_or_else(|| fault("content key"))?;
     let compressed;
     let message = if zip {
         compressed = miniz_oxide::deflate::compress_to_vec(plaintext, 6);

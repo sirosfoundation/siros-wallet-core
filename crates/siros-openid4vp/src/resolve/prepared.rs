@@ -174,8 +174,9 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                 })?)
             }
         };
-        let thumbprint =
-            encryption.map(|encryption| Thumbprint(encryption.key().key().thumbprint()));
+        let thumbprint = encryption
+            .as_ref()
+            .map(|encryption| Thumbprint(encryption.key().key().thumbprint()));
         let handover = match request.envelope().channel() {
             Channel::DcApi(origin) => Handover::DcApi {
                 origin,
@@ -217,11 +218,21 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let plaintext = vp_token.data();
         let data = match encryption {
             None => ResponseData::Plain(plaintext),
-            Some(encryption) => ResponseData::Encrypted(host.get::<dyn Haip>().encrypt_jwe(
-                encryption.key().key(),
-                encryption.enc().content(),
-                plaintext.as_bytes(),
-            )?),
+            Some(encryption) => {
+                let haip = host.get::<dyn Haip>();
+                let key = encryption.key().key();
+                let enc = encryption.enc().content();
+                let stated = key
+                    .alg()
+                    .is_some_and(|alg| haip.agreements().admits(key.curve(), alg, enc));
+                if !stated {
+                    return Err(Outcome::Fault(Fault::new(
+                        FAULT,
+                        detail!("the encrypting module states no agreement the key rule chose"),
+                    )));
+                }
+                ResponseData::Encrypted(haip.encrypt_jwe(key, enc, plaintext.as_bytes())?)
+            }
         };
         Ok(Response { vp_token, data })
     }

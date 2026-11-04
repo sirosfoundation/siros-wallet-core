@@ -92,7 +92,7 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     };
     let trust = TestTrust::default();
     let pending = envelope
-        .questions(&registry, &config)
+        .questions(&registry, &config, &host)
         .expect("R-uri: the questions");
     let authenticated = pending
         .authenticate(|evaluation| trust.decide(evaluation), &config, &host)

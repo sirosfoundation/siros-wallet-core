@@ -17,7 +17,7 @@ use crate::effects::{
 use crate::envelope::{Channel, Envelope, Signatures, Signer};
 use crate::host::{Haip, Has, Host, Platform};
 use crate::ids::{ClientId, Origin};
-use crate::jose::{Signed, Validity};
+use crate::jose::{JwsAlgorithms, Signed, Validity};
 use crate::json::{Node, Object};
 use crate::plugins::Registry;
 use crate::recourse::{self, ErrorRoute, Rejected};
@@ -119,7 +119,9 @@ impl<'e> Envelope<'e> {
         &'e self,
         registry: &'e Registry<H>,
         config: &TrustConfig,
+        host: &impl Has<dyn Haip>,
     ) -> Result<Pending<'e>, Box<Rejected<'e>>> {
+        let verifies = host.get::<dyn Haip>().verifies();
         let reject = |cause: Unauthenticated, route| Box::new(Rejected::of(cause, route));
         let response_uri = match (self.channel(), self.routing().response_uri()) {
             (Channel::Uri, Some(text)) => Some(
@@ -154,6 +156,7 @@ impl<'e> Envelope<'e> {
                 let claimed = self
                     .claim(
                         registry,
+                        &verifies,
                         client_id.clone(),
                         jws.signed(),
                         response_uri.as_ref(),
@@ -166,6 +169,7 @@ impl<'e> Envelope<'e> {
                     let client_id = signer.client_id().ok_or(Unauthenticated::ClientIdAbsent)?;
                     self.claim(
                         registry,
+                        &verifies,
                         client_id.clone(),
                         signer.signed(),
                         response_uri.as_ref(),
@@ -198,10 +202,11 @@ impl<'e> Envelope<'e> {
 
     /// A signature's claim, read by the prefix its Client Identifier names (§5.9.1): A1 for
     /// `origin`, A2 for an unregistered prefix or none (a pre-registered client, §5.9.2), A5 for
-    /// the prefix's rule.
+    /// the prefix's rule, A7 for an `alg` the verifying module does not state.
     fn claim<H>(
         &'e self,
         registry: &'e Registry<H>,
+        verifies: &JwsAlgorithms,
         client_id: ClientId<'e>,
         signed: Signed<'e>,
         response_uri: Option<&ResponseUri>,
@@ -233,6 +238,10 @@ impl<'e> Envelope<'e> {
                 rule,
             })
         })?;
+        let alg = signed.header().alg();
+        if !verifies.states(alg) {
+            return Err(Unauthenticated::Algorithm(alg.to_owned()));
+        }
         Ok(Pieces {
             client_id,
             signed,

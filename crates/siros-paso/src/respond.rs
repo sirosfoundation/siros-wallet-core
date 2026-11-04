@@ -248,7 +248,7 @@ impl Answer<'_> {
             Proof::KeyBinding => MemberValue::Text(
                 modules
                     .haip
-                    .encrypt_jwe(&key, ContentEncryption::A256Gcm, plaintext.as_bytes())?
+                    .encrypt_jwe(&key, ContentEncryption::A256GCM, plaintext.as_bytes())?
                     .into_string(),
             ),
             Proof::DeviceSigned => {

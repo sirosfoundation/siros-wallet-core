@@ -8,8 +8,9 @@ use siros_openid4vp::arrival::{
     DataShape, DcApiProtocol, DcApiProtocols, FailedStatus, Received, Unreadable,
 };
 use siros_openid4vp::ids::Origin;
-use siros_openid4vp::jose::{CompactJwe, JsonJws, JweError, JwsError, NotOnCurve, VerificationKey};
-use siros_openid4vp::json::JsonError;
+use siros_openid4vp::jose::{CompactJwe, JsonJws, JweError, JwsError, NotPublicJwk, PublicJwk};
+use siros_openid4vp::json::{JsonError, Node};
+use siros_testkit::jose::DECRYPTS;
 
 const ORIGIN: &str = "https://verifier.example";
 const PARAMETERS: &str = r#"{"response_type":"vp_token","nonce":"n"}"#;
@@ -99,7 +100,7 @@ fn signed(jws: &str) -> Unreadable {
 }
 
 #[test]
-fn a_compact_jws_is_es256_in_three_base64url_parts() {
+fn a_compact_jws_names_its_alg_in_three_base64url_parts() {
     let payload = b64(PARAMETERS);
     let signature = URL_SAFE_NO_PAD.encode([7u8; 64]);
     let cases = [
@@ -119,7 +120,7 @@ fn a_compact_jws_is_es256_in_three_base64url_parts() {
             compact(r#"{"alg":"ES256","kid":"a","kid":"b"}"#, PARAMETERS),
             JwsError::Json(JsonError::DuplicateMember("kid".to_owned())),
         ),
-        // An alg other than ES256 (RFC 8725 §3.1).
+        // An alg that is none (RFC 8725 §3.2), absent, no string, or no registry name.
         (
             compact(r#"{"alg":"none"}"#, PARAMETERS),
             JwsError::Algorithm(Some("none".to_owned())),
@@ -128,14 +129,13 @@ fn a_compact_jws_is_es256_in_three_base64url_parts() {
             compact(r#"{"typ":"JWT"}"#, PARAMETERS),
             JwsError::Algorithm(None),
         ),
-        // A signature of another length.
         (
-            format!(
-                "{}.{payload}.{}",
-                b64(HEADER),
-                URL_SAFE_NO_PAD.encode([7u8; 63])
-            ),
-            JwsError::SignatureLength(63),
+            compact(r#"{"alg":7}"#, PARAMETERS),
+            JwsError::Algorithm(Some("7".to_owned())),
+        ),
+        (
+            compact(r#"{"alg":"ES 256"}"#, PARAMETERS),
+            JwsError::Algorithm(Some("ES 256".to_owned())),
         ),
         // U16: crit naming a header, and crit empty.
         (
@@ -239,7 +239,7 @@ fn a_jws_json_serialization_keeps_each_name_once_and_its_headers_disjoint() {
 }
 
 #[test]
-fn a_jwe_request_object_is_ecdh_es_with_an_aes_gcm_encryption() {
+fn a_jwe_request_object_names_an_alg_and_enc_the_module_decrypts() {
     let jwe = |header: &str| {
         format!(
             "{}..{}.{}.{}",
@@ -250,7 +250,7 @@ fn a_jwe_request_object_is_ecdh_es_with_an_aes_gcm_encryption() {
         )
     };
     let ok = jwe(r#"{"alg":"ECDH-ES","enc":"A128GCM","epk":{}}"#);
-    assert!(CompactJwe::parse(&ok).is_ok());
+    assert!(CompactJwe::parse(&ok, &DECRYPTS).is_ok());
     let cases = [
         ("a.b.c".to_owned(), JweError::Structure),
         (format!("{ok}="), JweError::Base64),
@@ -272,7 +272,11 @@ fn a_jwe_request_object_is_ecdh_es_with_an_aes_gcm_encryption() {
         ),
     ];
     for (text, error) in cases {
-        assert_eq!(CompactJwe::parse(&text).map(drop), Err(error), "{text}");
+        assert_eq!(
+            CompactJwe::parse(&text, &DECRYPTS).map(drop),
+            Err(error),
+            "{text}"
+        );
     }
 }
 
@@ -281,19 +285,23 @@ fn constructors_refuse_what_their_rule_excludes() {
     assert_eq!(FailedStatus::new(200), None);
     assert_eq!(FailedStatus::new(99), None);
     assert_eq!(FailedStatus::new(404).map(FailedStatus::code), Some(404));
-    // SEC 2 §2.4.2's base point is a key; one above it on the y axis is none.
-    let hex = |text: &str| -> [u8; 32] {
-        let bytes: Vec<u8> = (0..32)
-            .map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).expect("hex"))
-            .collect();
-        bytes.try_into().expect("32 octets")
-    };
-    let gx = hex("6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296");
-    let gy = hex("4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5");
-    let mut above = gy;
-    above[31] += 1;
-    assert!(VerificationKey::p256(gx, gy).is_ok());
-    assert_eq!(VerificationKey::p256(gx, above), Err(NotOnCurve));
+    // RFC 7517 §4.1 and RFC 7518 §6.2.2, §6.3.2, §6.4: a public JWK names its kty and holds no
+    // private member.
+    let jwk = |text: &str| PublicJwk::parse(Node::parse(text).expect("json")).map(drop);
+    assert_eq!(
+        jwk(r#"{"kty":"EC","crv":"P-256","x":"AA","y":"AQ"}"#),
+        Ok(())
+    );
+    assert_eq!(jwk(r#"["EC"]"#), Err(NotPublicJwk::Object));
+    assert_eq!(jwk(r#"{"crv":"P-256"}"#), Err(NotPublicJwk::KeyType));
+    assert_eq!(
+        jwk(r#"{"kty":"EC","crv":"P-256","x":"AA","y":"AQ","d":"AA"}"#),
+        Err(NotPublicJwk::Private("d".to_owned()))
+    );
+    assert_eq!(
+        jwk(r#"{"kty":"oct","k":"AA"}"#),
+        Err(NotPublicJwk::Private("k".to_owned()))
+    );
 }
 
 #[test]

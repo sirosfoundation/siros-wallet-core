@@ -6,7 +6,6 @@ use serde_json::Value;
 use siros_openid4vp::cbor::Item;
 use siros_openid4vp::host::CoseEnc;
 use siros_openid4vp::plugins::{JsonText, Member, MemberValue};
-use siros_openid4vp::request::KeyAgreement;
 
 use super::OracleError;
 use crate::cose::cose_encrypt;
@@ -78,15 +77,11 @@ fn sealed(stand_in: &str) -> Result<Item, OracleError> {
     let sealed = field(&written, "COSE_Encrypt")?;
     let protected = field(sealed, "protected")?;
     let alg = text(protected, "alg")?;
-    let alg = [
-        KeyAgreement::EcdhEs,
-        KeyAgreement::EcdhEsA128Kw,
-        KeyAgreement::EcdhEsA192Kw,
-        KeyAgreement::EcdhEsA256Kw,
-    ]
-    .into_iter()
-    .find(|known| known.as_str() == alg)
-    .ok_or_else(|| missing("COSE_Encrypt alg"))?;
+    let alg = crate::cose::AGREEMENTS
+        .iter()
+        .map(|(known, _)| *known)
+        .find(|known| known.as_str() == alg)
+        .ok_or_else(|| missing("COSE_Encrypt alg"))?;
     let enc = text(protected, "enc")?;
     let enc = [CoseEnc::A128Gcm, CoseEnc::A192Gcm, CoseEnc::A256Gcm]
         .into_iter()

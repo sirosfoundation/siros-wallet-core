@@ -14,6 +14,7 @@ use siros_openid4vp::host::{
     ProfileHost, RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid,
 };
 use siros_openid4vp::ids::{CredentialId, FormatId, TransactionType};
+use siros_openid4vp::jose::JwsAlgorithms;
 use siros_openid4vp::jose::{Signed, VerificationKey};
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::{
@@ -21,7 +22,7 @@ use siros_openid4vp::plugins::{
     NoCandidate, Profile, Registry,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{AgreeableKey, ContentEncryption, EntryIndex, Request};
+use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, EntryIndex, Request};
 use siros_openid4vp::resolve::Response;
 use siros_openid4vp::resolve::{Finding, Outcome, Prepared, Rejection, ResponseData};
 use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
@@ -363,6 +364,14 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
 struct FailingHaip;
 
 impl Haip for FailingHaip {
+    fn verifies(&self) -> JwsAlgorithms {
+        TestHaip.verifies()
+    }
+
+    fn agreements(&self) -> Agreements {
+        TestHaip.agreements()
+    }
+
     fn verify(&self, key: &VerificationKey, signed: &Signed<'_>) -> Result<(), SignatureInvalid> {
         TestHaip.verify(key, signed)
     }
@@ -373,7 +382,7 @@ impl Haip for FailingHaip {
     fn encrypt_jwe(
         &self,
         _: &AgreeableKey<'_>,
-        _: ContentEncryption,
+        _: ContentEncryption<'_>,
         _: &[u8],
     ) -> Result<SealedJwe, Fault> {
         Err(Fault::new(FAULT, detail!("no key agreement")))

@@ -82,7 +82,9 @@ impl<'k, M> DeviceAuth<'k, M> {
         };
         let lists = |id: i64| allowed.is_some_and(|allowed| allowed.contains(&Node::integer(id.into())));
         let reader = reader_key(device, keys);
-        let mac = reader.is_some_and(|reader| lists(crate::cose::mac(reader.curve)));
+        let mac = reader
+            .and_then(|reader| crate::cose::mac(reader.curve()))
+            .is_some_and(lists);
         let signature = allowed.is_none() || device.identifiers().into_iter().any(lists);
         Ok(Ok(match (reader, module) {
             (Some(reader), Some(module)) if mac && (!signature || !transaction) => {

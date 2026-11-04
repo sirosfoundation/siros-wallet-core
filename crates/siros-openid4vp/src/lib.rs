@@ -108,7 +108,7 @@ impl siros_explain::Messages for CrateMessages {
             jose::JwsError::messages,
             jose::JweError::messages,
             #[cfg(feature = "resolve")]
-            jose::NotOnCurve::messages,
+            jose::NotPublicJwk::messages,
             #[cfg(feature = "resolve")]
             jose::SkewTooLarge::messages,
             #[cfg(feature = "resolve")]

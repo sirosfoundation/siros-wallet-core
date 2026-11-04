@@ -1,74 +1,55 @@
 //! The wallet's ephemeral key for an encrypted Request Object (OpenID4VP §5.10, CS-12 §7.3 item
 //! 9): fresh for each POST, posted in `wallet_metadata`'s `jwks`, consumed by the decryption.
 
-use std::borrow::Cow;
+use crate::jose::PublicJwk;
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use p256::elliptic_curve::sec1::{Coordinates, ToSec1Point};
+/// The decrypting module's reference to the secret of a key it drew; the core holds it and reads
+/// nothing of it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct KeyHandle(u64);
 
-use crate::json::{JsonError, Node};
+impl KeyHandle {
+    /// The module's identifier.
+    #[must_use]
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
 
-/// A fresh P-256 key pair: p256's secret scalar, non-zero and below the group order, and the
-/// public point it derives, which `jwks` holds with `use` `enc`. Only [`EphemeralKey::new`]
-/// makes one, from the scalar, so the point is the scalar's; a pair assembled from parts does
-/// not compile:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::host::EphemeralKey;
-///
-/// fn pair(secret: p256::SecretKey, public: p256::PublicKey) -> EphemeralKey {
-///     EphemeralKey { secret, public }
-/// }
-/// ```
-///
-/// The `Fetch` owns it until `resume` hands it to `RequestDecryption::decrypt`.
+    /// The identifier.
+    #[must_use]
+    pub const fn id(&self) -> u64 {
+        self.0
+    }
+}
+
+/// A fresh key the wallet posts: its public JWK, which `jwks` holds with `use` `enc`, and the
+/// handle to the secret the decrypting module keeps. The core links no curve arithmetic: it
+/// checks that the JWK is public ([`PublicJwk`]) and that its `crv` is one
+/// `RequestDecryption::decrypts` states, a `Fault` otherwise. The `Fetch` owns it until `resume`
+/// hands it to `RequestDecryption::decrypt`.
 #[derive(Debug)]
 pub struct EphemeralKey {
-    secret: p256::SecretKey,
-    public: p256::PublicKey,
+    public: PublicJwk,
+    handle: KeyHandle,
 }
 
 impl EphemeralKey {
-    /// The key pair of the scalar `RequestDecryption::ephemeral_key` drew.
+    /// The key `RequestDecryption::ephemeral_key` drew: its public JWK and the handle to its
+    /// secret.
     #[must_use]
-    pub fn new(secret: p256::SecretKey) -> Self {
-        let public = secret.public_key();
-        Self { secret, public }
+    pub const fn new(public: PublicJwk, handle: KeyHandle) -> Self {
+        Self { public, handle }
     }
 
-    /// The secret scalar, which `decrypt` agrees the content key with.
+    /// The public JWK.
     #[must_use]
-    pub const fn secret(&self) -> &p256::SecretKey {
-        &self.secret
-    }
-
-    /// The public point.
-    #[must_use]
-    pub const fn public(&self) -> &p256::PublicKey {
+    pub const fn public(&self) -> &PublicJwk {
         &self.public
     }
 
-    /// The public JWK `wallet_metadata`'s `jwks` holds: `kty` `EC`, `crv` `P-256`, `x`, `y`
-    /// (RFC 7518 §6.2.1), `use` `enc`, by which WE BUILD's test bed selects it.
-    ///
-    /// # Errors
-    ///
-    /// The point is the identity, which a key derived from a scalar of the group never is.
-    pub fn jwk(&self) -> Result<Node<'static>, JsonError> {
-        let point = self.public.to_sec1_point(false);
-        let Coordinates::Uncompressed { x, y } = point.coordinates() else {
-            return Err(JsonError::Syntax(
-                "the key's point has no coordinates".to_owned(),
-            ));
-        };
-        let text = |value: &str| Node::String(Cow::Owned(value.to_owned()));
-        Node::object([
-            (Cow::Borrowed("kty"), text("EC")),
-            (Cow::Borrowed("crv"), text("P-256")),
-            (Cow::Borrowed("x"), text(&URL_SAFE_NO_PAD.encode(x))),
-            (Cow::Borrowed("y"), text(&URL_SAFE_NO_PAD.encode(y))),
-            (Cow::Borrowed("use"), text("enc")),
-        ])
+    /// The handle to the secret.
+    #[must_use]
+    pub const fn handle(&self) -> &KeyHandle {
+        &self.handle
     }
 }

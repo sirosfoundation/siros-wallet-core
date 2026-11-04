@@ -74,11 +74,13 @@ fn outcome<'e>(
     registry: &'e Registry<TestHost>,
 ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
     let trust = TestTrust::default();
-    envelope.questions(registry, &config())?.authenticate(
-        |evaluation| trust.decide(evaluation),
-        &config(),
-        &TestHost::default(),
-    )
+    envelope
+        .questions(registry, &config(), &TestHost::default())?
+        .authenticate(
+            |evaluation| trust.decide(evaluation),
+            &config(),
+            &TestHost::default(),
+        )
 }
 
 /// The X.509 rule a signed DC API request breaks.
@@ -233,7 +235,7 @@ fn a_uri_request_binds_its_endpoint_as_the_prefix_says() {
         let envelope = Envelope::parse(&received).expect("an envelope");
         let config = config();
         let outcome = envelope
-            .questions(&registry, &config)
+            .questions(&registry, &config, &host)
             .and_then(|pending| pending.authenticate(decide, &config, &host));
         match outcome {
             Ok(done) => match done.verifier().endpoint() {

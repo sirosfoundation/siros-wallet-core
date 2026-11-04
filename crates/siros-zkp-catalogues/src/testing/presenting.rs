@@ -147,7 +147,7 @@ impl SignedRequest {
         let envelope = Envelope::parse(&received).unwrap();
         let trust = TestTrust::default();
         let authenticated = envelope
-            .questions(&registry, &config)
+            .questions(&registry, &config, &host)
             .unwrap()
             .authenticate(|evaluation| trust.decide(evaluation), &config, &host)
             .unwrap();

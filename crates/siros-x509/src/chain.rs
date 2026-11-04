@@ -1,12 +1,14 @@
 //! The `x5c` header (RFC 7515 §4.1.6): base64 DER certificates, the leaf first, each parsed by
 //! x509-cert with the DER as received; and the leaf's key (RFC 5480 §2.1.1, §2.2).
 
+use std::borrow::Cow;
+
 use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use der::Decode;
 use der::asn1::ObjectIdentifier;
 use sha2::{Digest, Sha256};
-use siros_openid4vp::jose::{ProtectedHeader, VerificationKey};
+use siros_openid4vp::jose::{ProtectedHeader, PublicJwk, VerificationKey};
 use siros_openid4vp::json::Node;
 use spki::SubjectPublicKeyInfoOwned;
 use x509_cert::Certificate;
@@ -131,13 +133,13 @@ impl ChainCertificate {
 
 /// The key of a SubjectPublicKeyInfo (spki's type, which x509-cert's certificates hold).
 pub trait SpkiKey {
-    /// The P-256 key: id-ecPublicKey on the named curve secp256r1, an uncompressed point (RFC
-    /// 5480 §2.1.1, §2.2), on the curve (`VerificationKey::p256`).
+    /// The P-256 key as a public JWK (RFC 7518 §6.2.1): id-ecPublicKey on the named curve
+    /// secp256r1, an uncompressed point of two 32-octet coordinates (RFC 5480 §2.1.1, §2.2). The
+    /// verifying module checks the point's place on the curve.
     ///
     /// # Errors
     ///
-    /// [`X509Refusal::Key`]: another algorithm or curve, another encoding of the point, or a
-    /// point off the curve.
+    /// [`X509Refusal::Key`]: another algorithm or curve, or another encoding of the point.
     fn key(&self) -> Result<VerificationKey, X509Refusal>;
 }
 
@@ -156,8 +158,19 @@ impl SpkiKey for SubjectPublicKeyInfoOwned {
             return Err(X509Refusal::Key);
         };
         let (x, y) = coordinates.split_at_checked(32).ok_or(X509Refusal::Key)?;
-        let x = <[u8; 32]>::try_from(x).map_err(|_| X509Refusal::Key)?;
-        let y = <[u8; 32]>::try_from(y).map_err(|_| X509Refusal::Key)?;
-        VerificationKey::p256(x, y).map_err(|_| X509Refusal::Key)
+        if x.len() != 32 || y.len() != 32 {
+            return Err(X509Refusal::Key);
+        }
+        let text = |value: String| Node::String(Cow::Owned(value));
+        let jwk = Node::object([
+            (Cow::Borrowed("kty"), text("EC".to_owned())),
+            (Cow::Borrowed("crv"), text("P-256".to_owned())),
+            (Cow::Borrowed("x"), text(URL_SAFE_NO_PAD.encode(x))),
+            (Cow::Borrowed("y"), text(URL_SAFE_NO_PAD.encode(y))),
+        ])
+        .map_err(|_| X509Refusal::Key)?;
+        PublicJwk::parse(jwk)
+            .map(VerificationKey::of)
+            .map_err(|_| X509Refusal::Key)
     }
 }

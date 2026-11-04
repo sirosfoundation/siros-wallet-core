@@ -137,13 +137,45 @@ impl<'d> PasoDocument<'d> {
     }
 
     /// Risk Signals §7.3: the first published key, `use` `enc` with a `kid` and an `alg`, that
-    /// the wallet can agree a key with.
+    /// the wallet can agree a key with: an ECDH-ES agreement (RFC 7518 §4.6) on an `EC` curve
+    /// of RFC 7518 §6.2.1.1 or an `OKP` curve of RFC 8037 §2.
     #[must_use]
     pub fn encryption_key(&self) -> Option<AgreeableKey<'d>> {
         self.keys.iter().find_map(|key| {
             let usable =
                 key.get("use") == Some(&Node::String("enc".into())) && key.get("alg").is_some();
-            usable.then(|| AgreeableKey::of(key)).flatten()
+            usable
+                .then(|| AgreeableKey::of(key))
+                .flatten()
+                .filter(|agreeable| agrees(key, agreeable))
         })
     }
+}
+
+/// The ECDH-ES key agreements of RFC 7518 §4.6.
+const AGREEMENTS: [&str; 4] = [
+    "ECDH-ES",
+    "ECDH-ES+A128KW",
+    "ECDH-ES+A192KW",
+    "ECDH-ES+A256KW",
+];
+
+/// The curves of RFC 7518 §6.2.1.1 (`EC`) and RFC 8037 §2's ECDH curves (`OKP`).
+const CURVES: [(&str, &str); 5] = [
+    ("EC", "P-256"),
+    ("EC", "P-384"),
+    ("EC", "P-521"),
+    ("OKP", "X25519"),
+    ("OKP", "X448"),
+];
+
+/// Whether the wallet agrees a key with the JWK: its `alg` an ECDH-ES agreement and its key type
+/// and curve one of [`CURVES`].
+fn agrees(jwk: &Node<'_>, key: &AgreeableKey<'_>) -> bool {
+    let kty = jwk.get("kty").and_then(Node::as_str);
+    key.alg()
+        .is_some_and(|alg| AGREEMENTS.contains(&alg.as_str()))
+        && CURVES
+            .iter()
+            .any(|(t, crv)| kty == Some(*t) && key.curve().as_str() == *crv)
 }

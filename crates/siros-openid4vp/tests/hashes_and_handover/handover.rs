@@ -318,65 +318,59 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     );
 }
 
+/// RFC 7517 §4 and RFC 7518 §6.2, RFC 8037 §2: a JWK names its key type, curve and
+/// coordinates, base64url; an EC key carries `y`; `use`, when present, is `enc` for a key the
+/// wallet agrees with; `crv` and `alg` are registry names, which the agreeing module and the key
+/// rule judge. One fixture per refusal.
 #[test]
-fn the_wallet_agrees_keys_on_every_curve_it_implements() {
-    use siros_openid4vp::request::{Curve, KeyAgreement};
-    // RFC 7518 §6.2 and RFC 8037: EC keys carry x and y, OKP keys x; use and alg, when present,
-    // are enc and an ECDH-ES key agreement.
-    let cases: [(&str, Option<(Curve, KeyAgreement)>); 10] = [
+fn an_agreeable_key_reads_its_jwk_members() {
+    use siros_openid4vp::request::KeyAgreement;
+    let accepted: [(&str, &str, Option<&str>); 4] = [
         (
-            r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "x", "y": "y"}"#,
-            Some((Curve::P256, KeyAgreement::EcdhEs)),
-        ),
-        (
-            r#"{"kty": "EC", "crv": "P-384", "kid": "k", "x": "x", "y": "y", "alg": "ECDH-ES+A192KW"}"#,
-            Some((Curve::P384, KeyAgreement::EcdhEsA192Kw)),
-        ),
-        (
-            r#"{"kty": "EC", "crv": "P-521", "kid": "k", "x": "x", "y": "y", "alg": "ECDH-ES+A256KW"}"#,
-            Some((Curve::P521, KeyAgreement::EcdhEsA256Kw)),
-        ),
-        (
-            r#"{"kty": "OKP", "crv": "X25519", "kid": "k", "x": "x"}"#,
-            Some((Curve::X25519, KeyAgreement::EcdhEs)),
-        ),
-        (
-            r#"{"kty": "OKP", "crv": "X448", "kid": "k", "x": "x", "use": "enc"}"#,
-            Some((Curve::X448, KeyAgreement::EcdhEs)),
-        ),
-        (
-            r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "x"}"#,
+            r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "AA", "y": "AQ"}"#,
+            "P-256",
             None,
         ),
         (
-            r#"{"kty": "EC", "crv": "X25519", "kid": "k", "x": "x", "y": "y"}"#,
+            r#"{"kty": "EC", "crv": "P-384", "kid": "k", "x": "AA", "y": "AQ", "alg": "ECDH-ES+A192KW"}"#,
+            "P-384",
+            Some("ECDH-ES+A192KW"),
+        ),
+        (
+            r#"{"kty": "OKP", "crv": "X25519", "kid": "k", "x": "AA", "use": "enc"}"#,
+            "X25519",
             None,
         ),
         (
-            r#"{"kty": "OKP", "crv": "Ed25519", "kid": "k", "x": "x"}"#,
-            None,
-        ),
-        (
-            r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "x", "y": "y", "use": "sig"}"#,
-            None,
-        ),
-        (
-            r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "x", "y": "y", "alg": "RSA-OAEP"}"#,
+            r#"{"kty": "OKP", "crv": "Ed25519", "kid": "k", "x": "AA"}"#,
+            "Ed25519",
             None,
         ),
     ];
-    for (jwk, want) in cases {
+    for (jwk, curve, alg) in accepted {
         let node = Node::parse(jwk).expect("jwk");
-        let key = AgreeableKey::of(&node);
-        assert_eq!(key.map(|key| (key.curve, key.alg)), want, "{jwk}");
-        // The thumbprint covers the curve by the crv the key states.
-        if let Some(key) = key {
-            assert_eq!(
-                Some(key.curve.name()),
-                node.get("crv").and_then(Node::as_str),
-                "{jwk}"
-            );
-        }
+        let key = AgreeableKey::of(&node).expect(jwk);
+        assert_eq!(
+            (key.curve().as_str(), key.alg().map(KeyAgreement::as_str)),
+            (curve, alg),
+            "{jwk}"
+        );
+        assert_eq!(key.point().x(), [0], "{jwk}");
+    }
+    let refused = [
+        r#"{"crv": "P-256", "kid": "k", "x": "AA", "y": "AQ"}"#,
+        r#"{"kty": "EC", "kid": "k", "x": "AA", "y": "AQ"}"#,
+        r#"{"kty": "EC", "crv": "P 256", "kid": "k", "x": "AA", "y": "AQ"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "kid": "k", "y": "AQ"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "A", "y": "AQ"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "AA"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "x": "AA", "y": "AQ"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "AA", "y": "AQ", "use": "sig"}"#,
+        r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "AA", "y": "AQ", "alg": ""}"#,
+    ];
+    for jwk in refused {
+        let node = Node::parse(jwk).expect("jwk");
+        assert!(AgreeableKey::of(&node).is_none(), "{jwk}");
     }
     // An OKP key's thumbprint covers crv, kty and x alone.
     let x25519 = Node::parse(r#"{"kty": "OKP", "crv": "X25519", "kid": "k", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#).expect("jwk");

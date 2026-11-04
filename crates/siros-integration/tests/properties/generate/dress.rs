@@ -341,7 +341,7 @@ pub(super) fn client_metadata(rng: &mut ChaCha8Rng) -> Value {
         p384["alg"] = json!("ECDH-ES+A128KW");
         let keys = [
             json!({"kty": "RSA", "kid": "r", "n": "n", "e": "AQAB"}),
-            json!({"kty": "OKP", "crv": "X25519", "kid": "x", "x": "x"}),
+            json!({"kty": "OKP", "crv": "X25519", "kid": "x", "x": "AA"}),
             verifier_enc,
             p384,
         ];

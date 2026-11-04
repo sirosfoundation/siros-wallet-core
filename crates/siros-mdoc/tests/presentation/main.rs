@@ -49,8 +49,8 @@ siros_testkit::test_host! {
 
 mod device_auth;
 
-const P256: &str = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "x", "y": "y", "use": "enc", "alg": "ECDH-ES"}"#;
-const P384: &str = r#"{"kty": "EC", "crv": "P-384", "kid": "reader-p384", "x": "x", "y": "y"}"#;
+const P256: &str = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "AA", "y": "AQ", "use": "enc", "alg": "ECDH-ES"}"#;
+const P384: &str = r#"{"kty": "EC", "crv": "P-384", "kid": "reader-p384", "x": "AA", "y": "AQ"}"#;
 
 /// The presentation of a registration for a query object, with the Verifier's client metadata,
 /// the members and the handover's thumbprint: the JSON string B.2.5 names.
@@ -411,7 +411,7 @@ fn the_document_holds_the_disclosed_elements_and_the_members() {
                     }
                     _ => MemberValue::Cbor(
                         Item::parse(
-                            cose_encrypt(KeyAgreement::EcdhEs, CoseEnc::A256Gcm, "k", &[k as u8])
+                            cose_encrypt(KeyAgreement::ECDH_ES, CoseEnc::A256Gcm, "k", &[k as u8])
                                 .expect("COSE_Encrypt"),
                         )
                         .expect("item"),

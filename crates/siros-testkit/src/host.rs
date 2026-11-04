@@ -19,10 +19,11 @@ use siros_openid4vp::host::{
     SignatureInvalid, Timestamp, Usable,
 };
 use siros_openid4vp::ids::CredentialId;
+use siros_openid4vp::jose::{JwsAlgorithm, JwsAlgorithms};
 use siros_openid4vp::jose::{Signed, VerificationKey};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
-use siros_openid4vp::request::{AgreeableKey, ContentEncryption};
+use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, Curve, KeyAgreement};
 use siros_openid4vp::wallet::Credential;
 
 use crate::FAULT;
@@ -141,11 +142,16 @@ impl Platform for TestPlatform {
 pub struct TestHaip;
 
 impl Haip for TestHaip {
-    /// ES256 under the key, by p256.
+    fn verifies(&self) -> JwsAlgorithms {
+        JwsAlgorithms::new(&[JwsAlgorithm::ES256])
+    }
+
+    /// ES256 under a P-256 JWK, by p256.
     fn verify(&self, key: &VerificationKey, signed: &Signed<'_>) -> Result<(), SignatureInvalid> {
-        crate::jose::verifies(key, signed.signing_input(), signed.signature().as_bytes())
-            .then_some(())
-            .ok_or(SignatureInvalid)
+        (signed.header().alg() == JwsAlgorithm::ES256.as_str()
+            && crate::jose::verifies(key, signed.signing_input(), signed.signature().as_bytes()))
+        .then_some(())
+        .ok_or(SignatureInvalid)
     }
 
     /// `sig:{credential}:{digest of the data}`.
@@ -155,24 +161,36 @@ impl Haip for TestHaip {
         ))
     }
 
-    /// A JWE in compact serialization with the key's agreement as `alg`, and the plaintext,
-    /// base64url-encoded, where the ciphertext goes.
+    fn agreements(&self) -> Agreements {
+        Agreements::new(
+            &[Curve::P_256],
+            &[KeyAgreement::ECDH_ES],
+            &[ContentEncryption::A256GCM, ContentEncryption::A128GCM],
+        )
+    }
+
+    /// A JWE in compact serialization with the key's agreement as `alg`, ECDH-ES for a key
+    /// without one, and the plaintext, base64url-encoded, where the ciphertext goes.
     fn encrypt_jwe(
         &self,
         key: &AgreeableKey<'_>,
-        enc: ContentEncryption,
+        enc: ContentEncryption<'_>,
         plaintext: &[u8],
     ) -> Result<SealedJwe, Fault> {
+        let alg = key.alg().unwrap_or(KeyAgreement::ECDH_ES);
         let header = Node::object([
             (
                 Cow::Borrowed("alg"),
-                Node::String(Cow::Borrowed(key.alg.as_str())),
+                Node::String(Cow::Owned(alg.as_str().to_owned())),
             ),
             (
                 Cow::Borrowed("enc"),
-                Node::String(Cow::Borrowed(enc.as_str())),
+                Node::String(Cow::Owned(enc.as_str().to_owned())),
             ),
-            (Cow::Borrowed("kid"), Node::String(Cow::Borrowed(key.kid))),
+            (
+                Cow::Borrowed("kid"),
+                Node::String(Cow::Owned(key.kid().to_owned())),
+            ),
         ])
         .map_err(|e| Fault::caused(FAULT, detail!("a JWE header"), e))?;
         SealedJwe::parse(format!(
@@ -190,14 +208,15 @@ pub struct TestCoseEncrypt;
 
 impl CoseEncrypt for TestCoseEncrypt {
     /// A tagged COSE_Encrypt whose ciphertext is the plaintext ([`cose_encrypt`]), under the
-    /// key's agreement.
+    /// key's agreement, ECDH-ES for a key without one.
     fn encrypt_cose(
         &self,
         key: &AgreeableKey<'_>,
         enc: CoseEnc,
         plaintext: &[u8],
     ) -> Result<SealedCose, Fault> {
-        SealedCose::parse(cose_encrypt(key.alg, enc, key.kid, plaintext)?)
+        let alg = key.alg().unwrap_or(KeyAgreement::ECDH_ES);
+        SealedCose::parse(cose_encrypt(alg, enc, key.kid(), plaintext)?)
             .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt stand-in"), e))
     }
 }

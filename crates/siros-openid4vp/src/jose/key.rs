@@ -1,42 +1,82 @@
-//! The P-256 public key an ES256 signature verifies under (RFC 7518 §3.4), as p256 holds it.
+//! Public keys as RFC 7517 writes them: the key a prefix binds and a signature verifies under, and
+//! the wallet's ephemeral key. The core holds no curve arithmetic: the verifying and decrypting
+//! modules check a key's fit to their algorithm, a point off its curve included.
 
 use siros_explain::Explain;
 
-/// A P-256 public key: a point of the curve other than the identity, as p256's `PublicKey` holds
-/// it (feature `resolve`, which the matcher does not build). A prefix binding makes it from the
-/// key its framework names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VerificationKey(p256::PublicKey);
+use crate::json::{Node, Object};
 
-/// Coordinates that are no point of P-256, or the identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+/// A public key as RFC 7517 writes it: a JSON object with unique member names, `kty` a string,
+/// and no private member (RFC 7518 §6.2.2, §6.3.2, §6.4; RFC 8037 §2's `d`). Only
+/// [`PublicJwk::parse`] makes one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PublicJwk(Object<'static>);
+
+/// A JWK that is no public key.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.jose")]
-#[error("the coordinates are no point of P-256")]
-pub struct NotOnCurve;
+pub enum NotPublicJwk {
+    /// No JSON object.
+    #[error("the JWK is no JSON object")]
+    Object,
+    /// `kty` absent or no string.
+    #[error("the JWK holds no kty")]
+    KeyType,
+    /// A private member (RFC 7518 §6.2.2, §6.3.2, §6.4).
+    #[error("the JWK holds the private member {0}")]
+    Private(#[explain(name = "member")] String),
+}
 
-impl VerificationKey {
-    /// The key at these affine coordinates, 32 octets each, big-endian: SEC 1 §2.3.4's
-    /// uncompressed point, which p256 decodes and refuses off the curve.
+/// The members RFC 7518 §6.2.2, §6.3.2 and §6.4 and RFC 8037 §2 name for private keys.
+const PRIVATE: [&str; 8] = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"];
+
+impl PublicJwk {
+    /// The key, refused per [`NotPublicJwk`].
     ///
     /// # Errors
     ///
-    /// The coordinates are no point of P-256 other than the identity.
-    pub fn p256(x: [u8; 32], y: [u8; 32]) -> Result<Self, NotOnCurve> {
-        let point: Vec<u8> = [4u8].iter().chain(&x).chain(&y).copied().collect();
-        p256::PublicKey::from_sec1_bytes(&point)
-            .map(Self)
-            .map_err(|_| NotOnCurve)
+    /// The JWK is no object, holds no `kty`, or holds a private member.
+    pub fn parse(jwk: Node<'_>) -> Result<Self, NotPublicJwk> {
+        let Node::Object(object) = jwk else {
+            return Err(NotPublicJwk::Object);
+        };
+        if object.get("kty").and_then(Node::as_str).is_none() {
+            return Err(NotPublicJwk::KeyType);
+        }
+        if let Some(private) = PRIVATE.into_iter().find(|name| object.get(name).is_some()) {
+            return Err(NotPublicJwk::Private(private.to_owned()));
+        }
+        Ok(Self(object.into_owned()))
     }
 
-    /// The key p256 holds.
+    /// A member as the JWK writes it.
     #[must_use]
-    pub const fn of(key: p256::PublicKey) -> Self {
-        Self(key)
+    pub fn member(&self, name: &str) -> Option<&Node<'static>> {
+        self.0.get(name)
     }
 
+    /// The JWK's members.
+    #[must_use]
+    pub const fn object(&self) -> &Object<'static> {
+        &self.0
+    }
+}
+
+/// The key a prefix binds and a signature verifies under. `Haip::verify` checks that it fits the
+/// signature's `alg`, a point off its curve included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VerificationKey(PublicJwk);
+
+impl VerificationKey {
     /// The key.
     #[must_use]
-    pub const fn key(&self) -> &p256::PublicKey {
+    pub const fn of(jwk: PublicJwk) -> Self {
+        Self(jwk)
+    }
+
+    /// The JWK.
+    #[must_use]
+    pub const fn jwk(&self) -> &PublicJwk {
         &self.0
     }
 }

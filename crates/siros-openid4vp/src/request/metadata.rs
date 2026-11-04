@@ -79,192 +79,250 @@ impl<'a> ClientMetadata<'a> {
     }
 }
 
-/// An elliptic curve the wallet agrees keys on (RFC 7518 §6.2, RFC 8037).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Curve {
-    /// P-256.
-    P256,
-    /// P-384.
-    P384,
-    /// P-521.
-    P521,
-    /// X25519.
-    X25519,
-    /// X448.
-    X448,
+/// Whether a text is a JOSE name: one or more of the printable ASCII characters other than space
+/// and `"` (RFC 7518 §7.1's registry names).
+pub(crate) const fn jose_name(text: &str) -> bool {
+    let mut rest = text.as_bytes();
+    if rest.is_empty() {
+        return false;
+    }
+    while let [byte, tail @ ..] = rest {
+        if *byte <= 0x20 || *byte > 0x7e || *byte == b'"' {
+            return false;
+        }
+        rest = tail;
+    }
+    true
 }
 
-impl Curve {
-    fn of(kty: &str, crv: &str) -> Option<Self> {
-        match (kty, crv) {
-            ("EC", "P-256") => Some(Self::P256),
-            ("EC", "P-384") => Some(Self::P384),
-            ("EC", "P-521") => Some(Self::P521),
-            ("OKP", "X25519") => Some(Self::X25519),
-            ("OKP", "X448") => Some(Self::X448),
-            _ => None,
+macro_rules! jose_names {
+    ($($(#[$doc:meta])* $type:ident;)*) => {$(
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $type<'n>(&'n str);
+
+        impl<'n> $type<'n> {
+            /// The name; `None` for an empty text or a character outside printable ASCII, space
+            /// and `"`.
+            #[must_use]
+            pub const fn new(name: &'n str) -> Option<Self> {
+                if jose_name(name) { Some(Self(name)) } else { None }
+            }
+
+            /// The name as JOSE writes it.
+            #[must_use]
+            pub const fn as_str(self) -> &'n str {
+                self.0
+            }
+        }
+
+        impl std::fmt::Display for $type<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+    )*};
+}
+
+jose_names! {
+    /// A JWK's `crv` (IANA "JSON Web Key Elliptic Curve" registry; RFC 7518 §6.2.1.1, RFC 8037
+    /// §2): the vocabulary modules and key rules state keys in. A module names its own with
+    /// `checked!(Curve, "...")`.
+    Curve;
+    /// A JWE key agreement `alg` (RFC 7518 §4.6; IANA "JSON Web Signature and Encryption
+    /// Algorithms").
+    KeyAgreement;
+    /// A JWE content encryption `enc` (RFC 7518 §5.1; the same registry).
+    ContentEncryption;
+}
+
+impl Curve<'static> {
+    /// `P-256` (RFC 7518 §6.2.1.1).
+    pub const P_256: Self = Self("P-256");
+}
+
+impl KeyAgreement<'static> {
+    /// `ECDH-ES` (RFC 7518 §4.6).
+    pub const ECDH_ES: Self = Self("ECDH-ES");
+}
+
+impl ContentEncryption<'static> {
+    /// `A128GCM` (RFC 7518 §5.3).
+    pub const A128GCM: Self = Self("A128GCM");
+    /// `A256GCM` (RFC 7518 §5.3).
+    pub const A256GCM: Self = Self("A256GCM");
+}
+
+/// What a module agrees keys and encrypts with: curves, key agreements and content encryptions,
+/// each in the module's order of preference. [`Agreements::NONE`] is the statement of a module
+/// that encrypts nothing, whose `encrypt_jwe` the core never calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Agreements {
+    curves: &'static [Curve<'static>],
+    agreements: &'static [KeyAgreement<'static>],
+    encryptions: &'static [ContentEncryption<'static>],
+}
+
+impl Agreements {
+    /// No curve, no key agreement, no content encryption.
+    pub const NONE: Self = Self::new(&[], &[], &[]);
+
+    /// The statement.
+    #[must_use]
+    pub const fn new(
+        curves: &'static [Curve<'static>],
+        agreements: &'static [KeyAgreement<'static>],
+        encryptions: &'static [ContentEncryption<'static>],
+    ) -> Self {
+        Self {
+            curves,
+            agreements,
+            encryptions,
         }
     }
 
-    /// The curve's `crv` name.
+    /// Whether it states a key of this curve, this agreement and this content encryption.
     #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::P256 => "P-256",
-            Self::P384 => "P-384",
-            Self::P521 => "P-521",
-            Self::X25519 => "X25519",
-            Self::X448 => "X448",
-        }
+    pub fn admits(
+        &self,
+        curve: Curve<'_>,
+        agreement: KeyAgreement<'_>,
+        enc: ContentEncryption<'_>,
+    ) -> bool {
+        self.curves.iter().any(|c| c.as_str() == curve.as_str())
+            && self
+                .agreements
+                .iter()
+                .any(|a| a.as_str() == agreement.as_str())
+            && self.encryptions.iter().any(|e| e.as_str() == enc.as_str())
     }
 
-    /// Whether the key type is `EC`, with a `y` coordinate.
+    /// The curves.
     #[must_use]
-    pub const fn is_ec(self) -> bool {
-        matches!(self, Self::P256 | Self::P384 | Self::P521)
+    pub const fn curves(&self) -> &'static [Curve<'static>] {
+        self.curves
+    }
+
+    /// The key agreements.
+    #[must_use]
+    pub const fn agreements(&self) -> &'static [KeyAgreement<'static>] {
+        self.agreements
+    }
+
+    /// The content encryptions, in the module's order of preference.
+    #[must_use]
+    pub const fn encryptions(&self) -> &'static [ContentEncryption<'static>] {
+        self.encryptions
     }
 }
 
-/// A key agreement the wallet implements (RFC 7518 §4.6): ECDH-ES, direct or with AES key wrap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum KeyAgreement {
-    /// `ECDH-ES`.
-    EcdhEs,
-    /// `ECDH-ES+A128KW`.
-    EcdhEsA128Kw,
-    /// `ECDH-ES+A192KW`.
-    EcdhEsA192Kw,
-    /// `ECDH-ES+A256KW`.
-    EcdhEsA256Kw,
+/// A key's public coordinates, base64url-decoded (RFC 7518 §6.2.1.2, §6.2.1.3; RFC 8037 §2): `y`
+/// for an `EC` key. Their lengths and the point's place on its curve are the agreeing party's
+/// rule: the key rule checks the lengths it accepts, the module checks the point.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Point {
+    x: Vec<u8>,
+    y: Option<Vec<u8>>,
 }
 
-impl KeyAgreement {
-    fn parse(name: &str) -> Option<Self> {
-        [
-            Self::EcdhEs,
-            Self::EcdhEsA128Kw,
-            Self::EcdhEsA192Kw,
-            Self::EcdhEsA256Kw,
-        ]
-        .into_iter()
-        .find(|alg| alg.as_str() == name)
-    }
-
-    /// The `alg` name.
+impl Point {
+    /// `x`.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::EcdhEs => "ECDH-ES",
-            Self::EcdhEsA128Kw => "ECDH-ES+A128KW",
-            Self::EcdhEsA192Kw => "ECDH-ES+A192KW",
-            Self::EcdhEsA256Kw => "ECDH-ES+A256KW",
-        }
+    pub fn x(&self) -> &[u8] {
+        &self.x
     }
-}
 
-/// A content encryption the wallet implements (RFC 7518 §5.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ContentEncryption {
-    /// `A128GCM`.
-    A128Gcm,
-    /// `A192GCM`.
-    A192Gcm,
-    /// `A256GCM`.
-    A256Gcm,
-    /// `A128CBC-HS256`.
-    A128CbcHs256,
-    /// `A192CBC-HS384`.
-    A192CbcHs384,
-    /// `A256CBC-HS512`.
-    A256CbcHs512,
-}
-
-impl ContentEncryption {
-    const ALL: [Self; 6] = [
-        Self::A128Gcm,
-        Self::A192Gcm,
-        Self::A256Gcm,
-        Self::A128CbcHs256,
-        Self::A192CbcHs384,
-        Self::A256CbcHs512,
-    ];
-
-    /// The content encryption of an `enc` name the wallet implements.
+    /// `y`, for an `EC` key.
     #[must_use]
-    pub fn parse(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|enc| enc.as_str() == name)
-    }
-
-    /// The `enc` name.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::A128Gcm => "A128GCM",
-            Self::A192Gcm => "A192GCM",
-            Self::A256Gcm => "A256GCM",
-            Self::A128CbcHs256 => "A128CBC-HS256",
-            Self::A192CbcHs384 => "A192CBC-HS384",
-            Self::A256CbcHs512 => "A256CBC-HS512",
-        }
+    pub fn y(&self) -> Option<&[u8]> {
+        self.y.as_deref()
     }
 }
 
-/// A public key the wallet can agree a key with: a curve it implements, the key's coordinates,
-/// a `kid`, and `use` and `alg`, when present, an encryption key and a key agreement it
-/// implements.
-#[derive(Debug, Clone, Copy)]
+/// A public key the wallet can agree a key with: the JWK, its `kid`, its curve, its point, and
+/// its `alg` when present. Only [`AgreeableKey::of`] makes one, from a JWK whose `use`, when
+/// present, is `enc`.
+#[derive(Debug, Clone)]
 pub struct AgreeableKey<'k> {
-    /// The whole JWK.
-    pub jwk: &'k Node<'k>,
-    /// The `kid`.
-    pub kid: &'k str,
-    /// The curve.
-    pub curve: Curve,
-    /// The `x` coordinate.
-    pub x: &'k str,
-    /// The `y` coordinate of an EC key.
-    pub y: Option<&'k str>,
-    /// The key agreement: the key's `alg`, else ECDH-ES.
-    pub alg: KeyAgreement,
+    jwk: &'k Node<'k>,
+    kty: &'k str,
+    written: (&'k str, Option<&'k str>),
+    kid: &'k str,
+    curve: Curve<'k>,
+    point: Point,
+    alg: Option<KeyAgreement<'k>>,
 }
 
 impl<'k> AgreeableKey<'k> {
-    /// The key, when the wallet can agree a key with it.
+    /// The key; `None` without `kty`, `crv`, `x` or `kid`, without `y` for an `EC` key, with a
+    /// `crv` or `alg` that is no JOSE name, with coordinates that are no base64url, or with a
+    /// `use` other than `enc`.
     #[must_use]
     pub fn of(jwk: &'k Node<'k>) -> Option<Self> {
         let member = |name: &str| jwk.get(name).and_then(Node::as_str);
-        let curve = Curve::of(member("kty")?, member("crv")?)?;
-        let y = if curve.is_ec() {
-            Some(member("y")?)
-        } else {
-            None
+        let coordinate =
+            |name: &str| member(name).and_then(|text| URL_SAFE_NO_PAD.decode(text).ok());
+        let kty = member("kty")?;
+        let curve = Curve::new(member("crv")?)?;
+        let x = coordinate("x")?;
+        let y = match (kty, jwk.get("y")) {
+            ("EC", _) => Some(coordinate("y")?),
+            (_, None) => None,
+            (_, Some(_)) => Some(coordinate("y")?),
         };
         let usable = jwk
             .get("use")
             .is_none_or(|value| value.as_str() == Some("enc"));
         let alg = match jwk.get("alg") {
-            None => KeyAgreement::EcdhEs,
-            Some(alg) => KeyAgreement::parse(alg.as_str()?)?,
+            None => None,
+            Some(alg) => Some(KeyAgreement::new(alg.as_str()?)?),
         };
         usable.then_some(Self {
             jwk,
+            kty,
+            written: (member("x")?, member("y")),
             kid: member("kid")?,
             curve,
-            x: member("x")?,
-            y,
+            point: Point { x, y },
             alg,
         })
     }
 
-    /// The JWK SHA-256 Thumbprint (RFC 7638).
+    /// The whole JWK.
+    #[must_use]
+    pub const fn jwk(&self) -> &'k Node<'k> {
+        self.jwk
+    }
+
+    /// The `kid`.
+    #[must_use]
+    pub const fn kid(&self) -> &'k str {
+        self.kid
+    }
+
+    /// The curve.
+    #[must_use]
+    pub const fn curve(&self) -> Curve<'k> {
+        self.curve
+    }
+
+    /// The point.
+    #[must_use]
+    pub const fn point(&self) -> &Point {
+        &self.point
+    }
+
+    /// The key's `alg`, when present.
+    #[must_use]
+    pub const fn alg(&self) -> Option<KeyAgreement<'k>> {
+        self.alg
+    }
+
+    /// The JWK SHA-256 Thumbprint (RFC 7638) over the members as the JWK writes them.
     #[must_use]
     pub fn thumbprint(&self) -> [u8; 32] {
-        thumbprint(
-            if self.curve.is_ec() { "EC" } else { "OKP" },
-            self.curve.name(),
-            self.x,
-            self.y,
-        )
+        let (x, y) = self.written;
+        thumbprint(self.kty, self.curve.as_str(), x, y)
     }
 }
 
@@ -290,22 +348,17 @@ pub fn thumbprint(kty: &str, crv: &str, x: &str, y: Option<&str>) -> [u8; 32] {
 /// A Verifier key the wallet encrypts responses to (§8.3, HAIP §5): an [`AgreeableKey`] of
 /// `client_metadata.jwks` with `kty` EC, `crv` P-256, `alg` present and `ECDH-ES`, `use` `enc`
 /// when present, each coordinate 32 octets (RFC 7518 §6.2.1.2, §6.2.1.3).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ResponseKey<'k>(AgreeableKey<'k>);
 
 impl<'k> ResponseKey<'k> {
     /// The key, when the key rule accepts it.
     fn of(key: AgreeableKey<'k>) -> Option<Self> {
-        let octets = |coordinate: &str| {
-            URL_SAFE_NO_PAD
-                .decode(coordinate)
-                .is_ok_and(|decoded| decoded.len() == 32)
-        };
-        (key.curve == Curve::P256
-            && key.alg == KeyAgreement::EcdhEs
-            && key.jwk.get("alg").is_some()
-            && octets(key.x)
-            && key.y.is_some_and(octets))
+        (key.kty == "EC"
+            && key.curve == Curve::P_256
+            && key.alg == Some(KeyAgreement::ECDH_ES)
+            && key.point.x.len() == 32
+            && key.point.y.as_ref().is_some_and(|y| y.len() == 32))
         .then_some(Self(key))
     }
 
@@ -328,10 +381,10 @@ pub enum ResponseEnc {
 impl ResponseEnc {
     /// The content encryption as the JWE's `enc` names it.
     #[must_use]
-    pub const fn content(self) -> ContentEncryption {
+    pub const fn content(self) -> ContentEncryption<'static> {
         match self {
-            Self::A128Gcm => ContentEncryption::A128Gcm,
-            Self::A256Gcm => ContentEncryption::A256Gcm,
+            Self::A128Gcm => ContentEncryption::A128GCM,
+            Self::A256Gcm => ContentEncryption::A256GCM,
         }
     }
 }
@@ -339,7 +392,7 @@ impl ResponseEnc {
 /// The encryption chosen for a response: the Verifier's first [`ResponseKey`] in its order, and
 /// `A256GCM` when `encrypted_response_enc_values_supported` lists it, else `A128GCM` when it lists
 /// it or the member is absent (§5.1's default). Only [`Encryption::choose`] makes one.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Encryption<'k> {
     key: ResponseKey<'k>,
     enc: ResponseEnc,

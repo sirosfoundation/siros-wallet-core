@@ -172,11 +172,11 @@ fn the_key_rule_picks_section_8_3s_key_and_enc() {
     let chosen = Encryption::choose(&metadata).expect("a key and an enc");
     assert_eq!(
         (
-            chosen.key().key().kid,
-            chosen.key().key().alg.as_str(),
+            chosen.key().key().kid(),
+            chosen.key().key().alg().map(|alg| alg.as_str()),
             chosen.enc()
         ),
-        ("ac", "ECDH-ES", ResponseEnc::A128Gcm)
+        ("ac", Some("ECDH-ES"), ResponseEnc::A128Gcm)
     );
     // A256GCM when listed, after another value.
     let listed = format!(

@@ -177,9 +177,10 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         metadata["authorization_encryption_alg_values_supported"],
         serde_json::json!(["ECDH-ES"])
     );
+    // The key rule's encryptions the module's `agreements` state, in the module's order.
     assert_eq!(
         metadata["authorization_encryption_enc_values_supported"],
-        serde_json::json!(["A128GCM", "A256GCM"])
+        serde_json::json!(["A256GCM", "A128GCM"])
     );
     assert!(metadata["vp_formats_supported"].get("test").is_some());
     let key = &metadata["jwks"]["keys"][0];
@@ -206,9 +207,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         Some(Some("n-0S6_WzA2Mj".into()))
     );
     // U11 tamper: a JWE to another key.
-    let other = siros_openid4vp::host::EphemeralKey::new(p256_key(9))
-        .jwk()
-        .expect("a JWK");
+    let other = siros_testkit::jose::scalar_jwk(9).expect("a JWK");
     let jwe = encrypt_to(&other, "A128GCM", false, object.as_bytes()).expect("encrypts");
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let rejected = fetch
@@ -261,11 +260,6 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         rejected.failure(),
         Failure::Unreadable(Unreadable::Jwe(JweError::Json(JsonError::DuplicateMember(m)))) if m == "alg"
     ));
-}
-
-/// A P-256 secret key of 32 octets of one value.
-fn p256_key(octet: u8) -> p256::SecretKey {
-    p256::SecretKey::from_slice(&[octet; 32]).expect("a scalar")
 }
 
 #[test]

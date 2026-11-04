@@ -7,11 +7,13 @@ use siros_explain::Explain;
 
 use super::{AuthorizationUri, FormBody, RequestUri, RequestUriMethod};
 use crate::arrival::{FetchFailure, Received, Unreadable};
-use crate::host::{EphemeralKey, Has, Host, RequestDecryption};
+use crate::host::{EphemeralKey, Haip, Has, Host, RequestDecryption};
 use crate::jose::{CompactJwe, CompactJws, JwsError};
 use crate::plugins::{Fault, Registry};
 use crate::recourse::{self, Rejected};
+use crate::request::Curve;
 use crate::wallet_metadata::{RequestUriPost, WalletMetadata};
+use crate::{FAULT, detail};
 
 /// What the caller fetches, with `Accept: application/oauth-authz-req+jwt` (RFC 9101 §5.2.3,
 /// §5.10): a GET of the `request_uri`, or a POST of this form body to it.
@@ -68,13 +70,14 @@ enum FetchMethod {
 impl<'a> Fetch<'a> {
     /// The request a URI holds: `client_id`, `request_uri` and `request_uri_method`
     /// ([`AuthorizationUri::parse`]). `get` gives a GET; `post` gives a POST of
-    /// `wallet_metadata`, whose `jwks` holds a fresh key (§5.1, §5.10; reading 21), and which
-    /// lists ES256 for the Request Object when the outer `client_id` names a registered prefix.
+    /// `wallet_metadata`, whose `jwks` holds a fresh key (§5.1, §5.10; reading 21), on a curve
+    /// the decrypting module states, and which lists the algorithms `Haip::verifies` states for
+    /// the Request Object when the outer `client_id` names a registered prefix.
     ///
     /// # Errors
     ///
     /// U3 to U8, U18, U19; or the host's module or a format's member broke its contract.
-    pub fn of<H: Has<dyn RequestDecryption>>(
+    pub fn of<H: Has<dyn RequestDecryption> + Has<dyn Haip>>(
         uri: &'a str,
         registry: &Registry<H>,
         host: &H,
@@ -83,13 +86,27 @@ impl<'a> Fetch<'a> {
         let method = match uri.method() {
             RequestUriMethod::Get => FetchMethod::Get,
             RequestUriMethod::Post => {
-                let key = host.get::<dyn RequestDecryption>().ephemeral_key()?;
+                let decryption = host.get::<dyn RequestDecryption>();
+                let key = decryption.ephemeral_key()?;
+                let curve = key
+                    .public()
+                    .member("crv")
+                    .and_then(|crv| crv.as_str())
+                    .and_then(Curve::new);
+                if !curve.is_some_and(|curve| decryption.decrypts().curve(curve)) {
+                    return Err(NoFetch::Fault(Fault::new(
+                        FAULT,
+                        detail!("the ephemeral key's crv is none the module states"),
+                    )));
+                }
                 let signed = uri
                     .client_id()
                     .as_str()
                     .split_once(':')
                     .is_some_and(|(prefix, _)| registry.client_prefix(prefix).is_some());
-                let metadata = WalletMetadata::of(registry, &key, signed)?;
+                let haip = host.get::<dyn Haip>();
+                let verifies = signed.then(|| haip.verifies());
+                let metadata = WalletMetadata::of(registry, &key, verifies, haip.agreements())?;
                 let body = FormBody::of(&RequestUriPost::of(&metadata))?;
                 FetchMethod::Post { body, key }
             }
@@ -132,9 +149,10 @@ impl<'a> Fetch<'a> {
             let FetchMethod::Post { key, .. } = method else {
                 return Err(end_user(Unreadable::Encrypted));
             };
-            let jwe = CompactJwe::parse(body).map_err(|e| end_user(Unreadable::Jwe(e)))?;
-            let plaintext = host
-                .get::<dyn RequestDecryption>()
+            let decryption = host.get::<dyn RequestDecryption>();
+            let jwe = CompactJwe::parse(body, &decryption.decrypts())
+                .map_err(|e| end_user(Unreadable::Jwe(e)))?;
+            let plaintext = decryption
                 .decrypt(key, &jwe)
                 .map_err(|_| end_user(Unreadable::Undecryptable))?;
             // A plaintext beyond ASCII holds no compact serialization (RFC 7515 §7.1).

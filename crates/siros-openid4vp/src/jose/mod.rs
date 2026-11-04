@@ -6,6 +6,7 @@
 
 #[cfg(feature = "resolve")]
 mod key;
+mod names;
 mod parts;
 #[cfg(feature = "resolve")]
 mod time;
@@ -15,10 +16,12 @@ use std::borrow::Cow;
 use siros_explain::Explain;
 
 use crate::json::{JsonError, Node, Object};
+use crate::request::{ContentEncryption, KeyAgreement};
 use parts::{decode, object, utf8};
 
 #[cfg(feature = "resolve")]
-pub use key::{NotOnCurve, VerificationKey};
+pub use key::{NotPublicJwk, PublicJwk, VerificationKey};
+pub use names::{JweAlgorithms, JwsAlgorithm, JwsAlgorithms};
 #[cfg(feature = "resolve")]
 pub use time::{NumericDate, Skew, SkewTooLarge, TimeError, Validity};
 
@@ -36,12 +39,9 @@ pub enum JwsError {
     /// names at every level, or no UTF-8.
     #[error("{0}")]
     Json(#[explain(name = "cause")] JsonError),
-    /// `alg` absent or other than ES256 (RFC 8725 §3.1, HAIP §7).
-    #[error("alg {0:?}: the wallet verifies ES256 alone")]
+    /// `alg` absent, no JOSE name, or `none` (RFC 8725 §3.2).
+    #[error("alg {0:?}: no signature algorithm")]
     Algorithm(#[explain(name = "alg")] Option<String>),
-    /// An ES256 signature of another length than 64 octets (RFC 7518 §3.4).
-    #[error("the signature holds {0} octets; ES256 holds 64")]
-    SignatureLength(#[explain(name = "octets")] usize),
     /// `crit` empty, outside the protected header, or naming a header the wallet does not
     /// process (RFC 7515 §4.1.11; U16).
     #[error("crit {0}: the wallet does not process it")]
@@ -57,29 +57,24 @@ impl From<JsonError> for JwsError {
     }
 }
 
-/// An ES256 signature: R and S, 32 octets each, big-endian (RFC 7518 §3.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Es256Signature([u8; 64]);
+/// A signature's octets; their length is the `alg`'s, which the verifying module checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JwsSignature(Vec<u8>);
 
-impl Es256Signature {
-    /// The signature of 64 octets; refused for another length.
-    fn of(bytes: &[u8]) -> Result<Self, JwsError> {
-        <[u8; 64]>::try_from(bytes)
-            .map(Self)
-            .map_err(|_| JwsError::SignatureLength(bytes.len()))
-    }
-
-    /// R then S.
+impl JwsSignature {
+    /// The octets.
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 64] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
-/// A protected header whose `alg` is ES256 (RFC 7515 §4): `typ` and `kid` read, `crit` refused,
-/// every member kept for the prefix plug-in, which reads its own (the certificate chain).
+/// A protected header (RFC 7515 §4): `alg` read as a name, `typ` and `kid` read, `crit` refused,
+/// every member kept for the prefix plug-in, which reads its own (the certificate chain). Which
+/// algorithms verify is the verifying module's statement (`Haip::verifies`, A7).
 #[derive(Debug, Clone)]
 pub struct ProtectedHeader {
+    alg: String,
     typ: Option<String>,
     kid: Option<String>,
     members: Object<'static>,
@@ -89,17 +84,26 @@ impl ProtectedHeader {
     /// The header of a decoded protected header part.
     fn parse(part: &[u8]) -> Result<Self, JwsError> {
         let members = object(&utf8(part)?)?;
-        match members.get("alg") {
-            Some(Node::String(alg)) if alg == "ES256" => {}
+        let alg = match members.get("alg") {
+            Some(Node::String(alg)) if alg != "none" && crate::request::jose_name(alg) => {
+                alg.to_string()
+            }
             other => return Err(JwsError::Algorithm(other.map(shown))),
-        }
+        };
         critical(&members)?;
         let member = |name: &str| members.get(name).and_then(Node::as_str).map(str::to_owned);
         Ok(Self {
+            alg,
             typ: member("typ"),
             kid: member("kid"),
             members,
         })
+    }
+
+    /// `alg`, a JOSE name other than `none`.
+    #[must_use]
+    pub fn alg(&self) -> &str {
+        &self.alg
     }
 
     /// `typ` as received.
@@ -161,7 +165,7 @@ pub struct CompactJws<'t> {
     header: ProtectedHeader,
     payload: String,
     signing_input: String,
-    signature: Es256Signature,
+    signature: JwsSignature,
 }
 
 impl<'t> CompactJws<'t> {
@@ -180,7 +184,7 @@ impl<'t> CompactJws<'t> {
         let signing_input = format!("{header}.{payload}");
         let header = ProtectedHeader::parse(&decode(header).map_err(|_| JwsError::Base64)?)?;
         let payload = utf8(&decode(payload).map_err(|_| JwsError::Base64)?)?.into_owned();
-        let signature = Es256Signature::of(&decode(signature).map_err(|_| JwsError::Base64)?)?;
+        let signature = JwsSignature(decode(signature).map_err(|_| JwsError::Base64)?);
         Ok(Self {
             header,
             payload,
@@ -237,7 +241,7 @@ pub struct JsonSignature {
     header: ProtectedHeader,
     unprotected: Option<Object<'static>>,
     signing_input: String,
-    signature: Es256Signature,
+    signature: JwsSignature,
 }
 
 impl JsonSignature {
@@ -272,7 +276,7 @@ impl JsonSignature {
             header,
             unprotected,
             signing_input: format!("{protected}.{payload}"),
-            signature: Es256Signature::of(&decode(signature).map_err(|_| JwsError::Base64)?)?,
+            signature: JwsSignature(decode(signature).map_err(|_| JwsError::Base64)?),
         })
     }
 
@@ -362,7 +366,7 @@ pub struct Signed<'s> {
     header: &'s ProtectedHeader,
     unprotected: Option<&'s Object<'static>>,
     signing_input: &'s [u8],
-    signature: &'s Es256Signature,
+    signature: &'s JwsSignature,
 }
 
 impl<'s> Signed<'s> {
@@ -386,7 +390,7 @@ impl<'s> Signed<'s> {
 
     /// The signature.
     #[must_use]
-    pub const fn signature(&self) -> &'s Es256Signature {
+    pub const fn signature(&self) -> &'s JwsSignature {
         self.signature
     }
 }
@@ -404,11 +408,12 @@ pub enum JweError {
     /// The protected header is no JSON object with unique member names at every level.
     #[error("{0}")]
     Json(#[explain(name = "cause")] JsonError),
-    /// `alg` absent or other than `ECDH-ES` (RFC 7518 §4.6; HAIP §5).
-    #[error("alg {0:?}: the wallet decrypts ECDH-ES alone")]
+    /// `alg` absent or none the decrypting module states (`RequestDecryption::decrypts`; RFC
+    /// 8725 §3.1).
+    #[error("alg {0:?}: none the wallet decrypts")]
     Algorithm(#[explain(name = "alg")] Option<String>),
-    /// `enc` absent or other than A128GCM and A256GCM (HAIP §5).
-    #[error("enc {0:?}: the wallet decrypts A128GCM and A256GCM alone")]
+    /// `enc` absent or none the decrypting module states.
+    #[error("enc {0:?}: none the wallet decrypts")]
     Encryption(#[explain(name = "enc")] Option<String>),
     /// `crit` naming a header the wallet does not process (RFC 7516 §4.1.13).
     #[error("crit {0}: the wallet does not process it")]
@@ -416,19 +421,13 @@ pub enum JweError {
 }
 
 /// A compact JWE Request Object (RFC 7516 §7.1): five base64url parts, its protected header read,
-/// with `alg` `ECDH-ES` and `enc` A128GCM or A256GCM, the algorithms the wallet accepts (RFC 8725
-/// §3.1; HAIP §5). `RequestDecryption::decrypt` decrypts it.
+/// with an `alg` and an `enc` the decrypting module states (`RequestDecryption::decrypts`; RFC
+/// 8725 §3.1). `RequestDecryption::decrypt` decrypts it.
 #[derive(Debug, Clone)]
 pub struct CompactJwe<'t> {
     text: &'t str,
     header: Object<'static>,
 }
-
-/// The `alg` values a [`CompactJwe`] Request Object may name (HAIP §5).
-const JWE_ALGORITHMS: &[&str] = &["ECDH-ES"];
-
-/// The `enc` values a [`CompactJwe`] Request Object may name (HAIP §5).
-const JWE_ENCRYPTIONS: &[&str] = &["A128GCM", "A256GCM"];
 
 impl<'t> CompactJwe<'t> {
     /// The JWE, refused per [`JweError`].
@@ -436,7 +435,7 @@ impl<'t> CompactJwe<'t> {
     /// # Errors
     ///
     /// The text breaks a rule of [`JweError`].
-    pub fn parse(text: &'t str) -> Result<Self, JweError> {
+    pub fn parse(text: &'t str, accepted: &JweAlgorithms) -> Result<Self, JweError> {
         let parts: Vec<&str> = text.split('.').collect();
         let [header, _, _, _, _] = parts.as_slice() else {
             return Err(JweError::Structure);
@@ -449,11 +448,13 @@ impl<'t> CompactJwe<'t> {
             .and_then(|text| object(&text))
             .map_err(JweError::Json)?;
         match header.get("alg") {
-            Some(Node::String(alg)) if JWE_ALGORITHMS.contains(&alg.as_ref()) => {}
+            Some(Node::String(alg))
+                if KeyAgreement::new(alg).is_some_and(|alg| accepted.agreement(alg)) => {}
             other => return Err(JweError::Algorithm(other.map(shown))),
         }
         match header.get("enc") {
-            Some(Node::String(enc)) if JWE_ENCRYPTIONS.contains(&enc.as_ref()) => {}
+            Some(Node::String(enc))
+                if ContentEncryption::new(enc).is_some_and(|enc| accepted.encryption(enc)) => {}
             other => return Err(JweError::Encryption(other.map(shown))),
         }
         match header.get("crit") {

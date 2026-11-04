@@ -42,6 +42,12 @@ struct Records {
 }
 
 impl Haip for Records {
+    fn verifies(&self) -> siros_openid4vp::jose::JwsAlgorithms {
+        TestHaip.verifies()
+    }
+    fn agreements(&self) -> siros_openid4vp::request::Agreements {
+        TestHaip.agreements()
+    }
     fn verify(
         &self,
         key: &siros_openid4vp::jose::VerificationKey,
@@ -56,7 +62,7 @@ impl Haip for Records {
     fn encrypt_jwe(
         &self,
         key: &AgreeableKey<'_>,
-        enc: ContentEncryption,
+        enc: ContentEncryption<'_>,
         plaintext: &[u8],
     ) -> Result<SealedJwe, Fault> {
         TestHaip.encrypt_jwe(key, enc, plaintext)
@@ -196,7 +202,7 @@ fn get<'v>(map: &'v Value, name: &str) -> &'v Value {
 
 const VIEW: &str = r#"{"type": "org.example.t", "metadata": {}, "values": {"ns": {"a": 1}}, "issuer_alg": -7, "issuer_curve": "P-256", "device_alg": -7, "device_curve": "P-256"}"#;
 const QUERY: &str = r#"{"id": "q", "format": "mso_mdoc", "meta": {"doctype_value": "org.example.t"}, "claims": [{"path": ["ns", "a"]}]}"#;
-const P256: &str = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "x", "y": "y"}"#;
+const P256: &str = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "AA", "y": "AQ"}"#;
 
 #[test]
 fn the_host_authenticates_rfc_9052s_structures() {

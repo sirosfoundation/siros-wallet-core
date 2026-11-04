@@ -289,11 +289,11 @@ fn each_format_rule_refuses_with_its_code() {
 #[test]
 fn the_verifiers_algorithms_admit_the_credentials_they_list() {
     let clause = "OpenID4VP B.2 vp_formats_supported";
-    let p256 = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "x", "y": "y", "use": "enc", "alg": "ECDH-ES"}"#;
-    let p384 = r#"{"kty": "EC", "crv": "P-384", "kid": "reader-p384", "x": "x", "y": "y"}"#;
-    let x25519 = r#"{"kty": "OKP", "crv": "X25519", "kid": "reader-x25519", "x": "x"}"#;
-    let p521 = r#"{"kty": "EC", "crv": "P-521", "kid": "reader-p521", "x": "x", "y": "y"}"#;
-    let x448 = r#"{"kty": "OKP", "crv": "X448", "kid": "reader-x448", "x": "x"}"#;
+    let p256 = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "AA", "y": "AQ", "use": "enc", "alg": "ECDH-ES"}"#;
+    let p384 = r#"{"kty": "EC", "crv": "P-384", "kid": "reader-p384", "x": "AA", "y": "AQ"}"#;
+    let x25519 = r#"{"kty": "OKP", "crv": "X25519", "kid": "reader-x25519", "x": "AA"}"#;
+    let p521 = r#"{"kty": "EC", "crv": "P-521", "kid": "reader-p521", "x": "AA", "y": "AQ"}"#;
+    let x448 = r#"{"kty": "OKP", "crv": "X448", "kid": "reader-x448", "x": "AA"}"#;
     // (supported, the Verifier's keys, IssuerAuth's alg and curve, the device key's).
     type Admission = (
         &'static str,

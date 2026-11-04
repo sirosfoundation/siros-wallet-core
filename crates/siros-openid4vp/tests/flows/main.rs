@@ -103,7 +103,7 @@ fn authenticated<'e>(
     trust: &TestTrust,
     config: &TrustConfig,
 ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
-    let pending: Pending<'_> = envelope.questions(registry, config)?;
+    let pending: Pending<'_> = envelope.questions(registry, config, &TestHost::default())?;
     pending.authenticate(
         |evaluation| trust.decide(evaluation),
         config,

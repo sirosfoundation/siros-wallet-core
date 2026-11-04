@@ -371,6 +371,10 @@ pub enum Unauthenticated {
     #[error("A5 {0}")]
     #[explain(id = "a5")]
     Prefix(#[explain(name = "rule")] PrefixRefusal),
+    /// A7: the JWS `alg` is none the verifying module states (`Haip::verifies`; RFC 8725 §3.1).
+    #[error("A7 alg {0} is none the wallet verifies")]
+    #[explain(id = "a7")]
+    Algorithm(#[explain(name = "alg")] String),
     /// A6: the trust framework denies the Verifier.
     #[error("A6 {0}: the trust framework does not bind the Verifier")]
     #[explain(id = "a6")]
@@ -409,9 +413,11 @@ impl Unauthenticated {
     #[must_use]
     pub const fn code(&self) -> ErrorCode {
         match self {
-            Self::Signature | Self::Validity(_) | Self::Audience(_) | Self::NoSignature(_) => {
-                ErrorCode::INVALID_REQUEST_OBJECT
-            }
+            Self::Algorithm(_)
+            | Self::Signature
+            | Self::Validity(_)
+            | Self::Audience(_)
+            | Self::NoSignature(_) => ErrorCode::INVALID_REQUEST_OBJECT,
             Self::Origin
             | Self::UnknownPrefix(_)
             | Self::ClientIdAbsent

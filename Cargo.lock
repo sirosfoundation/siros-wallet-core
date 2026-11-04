@@ -3425,7 +3425,6 @@ dependencies = [
  "fluent-uri",
  "idna",
  "k12",
- "p256 0.14.0",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
  "rustc-hash",

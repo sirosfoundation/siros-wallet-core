@@ -1906,7 +1906,6 @@ dependencies = [
  "fluent-uri",
  "idna",
  "k12",
- "p256 0.14.0",
  "rustc-hash",
  "serde",
  "serde_json",
