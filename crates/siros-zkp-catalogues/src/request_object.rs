@@ -3,12 +3,11 @@
 //! confidentiality"), and the session it gives.
 
 use serde_json::Value;
+use siros_mdoc::{Handover, SessionTranscript, Thumbprint};
 use siros_openid4vp::cbor::CborError;
 use siros_openid4vp::ids::{ClientId, Nonce, Origin};
-use siros_openid4vp::request::thumbprint;
-use siros_openid4vp::session::{
-    Endpoint as SessionEndpoint, Handover, SessionTranscript, Thumbprint,
-};
+use siros_openid4vp::json::Node;
+use siros_openid4vp::request::AgreeableKey;
 
 use crate::policy::{ClientIdFault, PolicyRule};
 use crate::verifier_id::prefix;
@@ -174,7 +173,7 @@ impl CheckedRequest {
                 client_id: &self.client_id,
                 nonce: &self.nonce,
                 thumbprint: Some(jwk_thumbprint),
-                endpoint: SessionEndpoint::ResponseUri(uri),
+                response_uri: uri,
             },
         };
         SessionTranscript::of(&handover).map_err(HandoverError::Cbor)
@@ -192,17 +191,14 @@ pub enum HandoverError {
     Cbor(#[source] CborError),
 }
 
-/// The JWK SHA-256 Thumbprint (RFC 7638) of an EC public key `jwk`: `None` for another key.
+/// The JWK SHA-256 Thumbprint (RFC 7638) of an EC public key `jwk` the wallet can agree a key
+/// with, its `kid` present (OpenID4VP 1.0, Section 5.1): `None` for another key.
 #[must_use]
 pub fn ec_jwk_thumbprint(jwk: &Value) -> Option<Thumbprint> {
-    let text = |name: &str| jwk.get(name).and_then(Value::as_str);
-    if text("kty") != Some("EC") {
+    if jwk.get("kty").and_then(Value::as_str) != Some("EC") {
         return None;
     }
-    Some(Thumbprint(thumbprint(
-        "EC",
-        text("crv")?,
-        text("x")?,
-        Some(text("y")?),
-    )))
+    let written = jwk.to_string();
+    let node = Node::parse(&written).ok()?;
+    Thumbprint::of(&AgreeableKey::of(&node)?)
 }

@@ -60,6 +60,8 @@ rand_core = { version = "0.6.4", optional = true }
 # presentations independently of this workspace's CBOR code.
 [dev-dependencies]
 siros-zkp-catalogues = { path = ".", features = ["test-fixtures"] }
+# `Thumbprint::stated`, for the session vectors' thumbprints of no key.
+siros-mdoc = { workspace = true, features = ["test-util"] }
 siros-zkp-req = { workspace = true, features = ["vp-token"] }
 ciborium = { workspace = true }
 serde_json = { workspace = true }

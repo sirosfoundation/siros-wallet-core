@@ -5,7 +5,7 @@ use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Item, Value, embedded};
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::MemberValue;
-use siros_openid4vp::session::SessionTranscript;
+use crate::transcript::SessionTranscript;
 
 /// A device-signed data element: its identifier and its value.
 pub(crate) struct Element<'a> {
@@ -100,11 +100,11 @@ pub(crate) fn device_authentication_bytes(
     doctype: &str,
     namespaces: &DeviceNameSpacesBytes,
 ) -> Result<Vec<u8>, CborError> {
-    let authentication = Value::Array(vec![
-        Value::Text("DeviceAuthentication".to_owned()),
-        transcript.value().clone(),
-        Value::Text(doctype.to_owned()),
-        namespaces.tagged(),
-    ]);
-    cbor::encode(&embedded(cbor::encode(&authentication)?))
+    // A four-item array (RFC 8949 §3.1, major type 4) holding the transcript's own encoding.
+    let mut authentication = vec![0x84];
+    authentication.extend(cbor::encode(&Value::Text("DeviceAuthentication".to_owned()))?);
+    authentication.extend_from_slice(transcript.as_bytes());
+    authentication.extend(cbor::encode(&Value::Text(doctype.to_owned()))?);
+    authentication.extend(cbor::encode(&namespaces.tagged())?);
+    cbor::encode(&embedded(authentication))
 }

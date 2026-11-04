@@ -232,6 +232,16 @@ impl<'k> VerifierMetadata<'k> {
     }
 }
 
+#[cfg(feature = "test-util")]
+impl<'k> VerifierMetadata<'k> {
+    /// The metadata a plug-in's tests read the Verifier's keys from, as the core reads the
+    /// request's `client_metadata`.
+    #[must_use]
+    pub fn new(metadata: &'k ClientMetadata<'k>) -> Self {
+        Self::of(metadata)
+    }
+}
+
 /// The keys of the Verifier's `client_metadata.jwks` that [`AgreeableKey`] reads, in the
 /// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's:
 ///

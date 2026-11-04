@@ -5,7 +5,7 @@ use std::fmt;
 
 use crate::signature::es256_verifies;
 use crate::signature::Es256Signature;
-use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SessionTranscript, SigStructure};
+use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SigStructure};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_zkp_req::{
     PairRefusal, ProofEnvelope, QueryOption, ReqSetIndex, ResultKey, ZkpPresentation,
@@ -115,11 +115,7 @@ impl Prepared {
 fn build(answer: Answer<'_>, session: &Session) -> Result<Prepared, ProveError> {
     let (pair, attestation, seed) = answer.into_parts();
     let pseudonym_item = pair.pseudonym().pseudonym;
-    let transcript = session
-        .transcript
-        .to_bytes()
-        .map_err(|_| ProveError::Encoding)?;
-    let session_transcript = SessionTranscript::new(transcript);
+    let session_transcript = session.transcript.clone();
     let data_to_sign = device_signing_input(
         &session_transcript,
         &siros_mdoc::stored::DocType::new(nym_auth_doc_type().as_str()),

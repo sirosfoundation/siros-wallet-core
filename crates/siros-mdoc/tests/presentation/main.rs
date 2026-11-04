@@ -6,11 +6,13 @@
 use std::borrow::Cow;
 use std::error::Error as _;
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
-use siros_mdoc::Mdoc;
 use siros_mdoc::issuer_signed::IssuedError;
+use siros_mdoc::{Handover, Mdoc, SessionTranscript, Thumbprint};
 use siros_openid4vp::cbor::{CborError, Item, Value, decode, encode};
 use siros_openid4vp::host::Usable;
 use siros_openid4vp::host::{FormatHost, PresentError};
@@ -19,11 +21,15 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Fault, Format, JsonText, Member, MemberValue, Members, OptionIndex,
 };
-use siros_openid4vp::request::{ClientMetadata, ContentEncryption, KeyAgreement};
-use siros_openid4vp::session::{Endpoint, Handover, Session, SessionTranscript, Thumbprint};
+use siros_openid4vp::request::{AgreeableKey, ClientMetadata, ContentEncryption, KeyAgreement};
+use siros_openid4vp::resolve::RouteKey;
+use siros_openid4vp::routing::VerifierMetadata;
+use siros_openid4vp::session::{Session, SessionBinding};
+use siros_openid4vp::uri::ResponseUri;
 use siros_testkit::cose::cose_encrypt;
 use siros_testkit::fixtures::{
-    Held, NONCE, ORIGIN, dc_api_context, parameters, present_option, request_of, unsigned,
+    B26_KEY, B26_THUMBPRINT, Held, NONCE, ORIGIN, b26_metadata, dc_api_context, parameters,
+    present_option, request_of, unsigned,
 };
 use siros_testkit::issuer::issue;
 use siros_testkit::reading::{
@@ -51,14 +57,15 @@ mod device_auth;
 const P256: &str = r#"{"kty": "EC", "crv": "P-256", "kid": "reader-p256", "x": "AA", "y": "AQ", "use": "enc", "alg": "ECDH-ES"}"#;
 const P384: &str = r#"{"kty": "EC", "crv": "P-384", "kid": "reader-p384", "x": "AA", "y": "AQ"}"#;
 
-/// The presentation of a registration for a query object, with the Verifier's client metadata,
-/// the members and the handover's thumbprint: the JSON string B.2.5 names.
+/// The presentation of a registration for a query object, with the Verifier's client metadata
+/// and the members, over a session sealed to B.2.6's key when `sealed`: the JSON string B.2.5
+/// names.
 fn present(
     query: &str,
     client_metadata: &str,
     held: &Held,
     members: Vec<(Member, MemberValue)>,
-    thumbprint: Option<[u8; 32]>,
+    sealed: bool,
 ) -> Result<Node<'static>, Fault> {
     present_over(
         &MdocHost::default(),
@@ -66,7 +73,7 @@ fn present(
         client_metadata,
         held,
         members,
-        thumbprint,
+        sealed,
     )
     .map_err(|failed| match failed {
         PresentError::Fault(fault) => fault,
@@ -81,7 +88,7 @@ fn present_over<H>(
     client_metadata: &str,
     held: &Held,
     members: Vec<(Member, MemberValue)>,
-    thumbprint: Option<[u8; 32]>,
+    sealed: bool,
 ) -> Result<Node<'static>, PresentError>
 where
     Mdoc: FormatHost<H>,
@@ -100,17 +107,24 @@ where
         dc_api_context(&request, metadata.vp_formats(&format.id()).cloned()),
     )
     .expect("query");
-    let keys = metadata.agreeable_keys();
+    let verifier = VerifierMetadata::new(&metadata);
+    let b26 = b26_metadata().expect("B.2.6's key");
+    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
+    let b26 = VerifierMetadata::new(&b26);
     let origin = Origin::parse(ORIGIN).expect("origin");
     let nonce = Nonce::parse(NONCE).expect("nonce");
-    let session = Session {
-        handover: Handover::DcApi {
-            origin: &origin,
-            nonce: &nonce,
-            thumbprint: thumbprint.map(Thumbprint),
-        },
-        keys: &keys,
-    };
+    let encrypted_to = b26
+        .keys()
+        .iter()
+        .next()
+        .filter(|_| sealed)
+        .map(|key| RouteKey::new(key, ContentEncryption::A128GCM));
+    let session = Session::new(
+        SessionBinding::DcApi { origin: &origin },
+        &nonce,
+        encrypted_to,
+        verifier.keys(),
+    );
     let credential = held.credential().expect("credential");
     let presentation = present_option(
         parsed.as_ref(),
@@ -212,25 +226,49 @@ ed494cefdd9d95240d254b046b11b68013722aad38ac";
 const KA5: &str = "83f6f682764f70656e4944345650444341504948616e646f7665725820fbece366f4
 212f9762c74cfdbf83b8c69e371d5d68cea09cb4c48ca6daab761a";
 
+/// The session B.2.6's examples bind: sealed to B.2.6's key, over `binding`.
+fn b26_transcript(binding: SessionBinding<'_>, nonce: &Nonce<'_>) -> SessionTranscript {
+    let b26 = b26_metadata().expect("B.2.6's key");
+    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
+    let b26 = VerifierMetadata::new(&b26);
+    let key = b26.keys().iter().next().expect("B.2.6's key");
+    let session = Session::new(
+        binding,
+        nonce,
+        Some(RouteKey::new(key, ContentEncryption::A128GCM)),
+        b26.keys(),
+    );
+    SessionTranscript::of(&Handover::of(&session).expect("handover")).expect("transcript")
+}
+
 #[test]
 fn the_session_transcript_reproduces_the_b_2_6_examples() {
-    let thumbprint: [u8; 32] = unhex(KA1).try_into().unwrap();
+    let key = Node::parse(B26_KEY).expect("jwk");
+    let key = AgreeableKey::of(&key).expect("agreeable");
+    assert_eq!(
+        Thumbprint::of(&key)
+            .expect("an EC key")
+            .as_bytes()
+            .as_slice(),
+        unhex(KA1),
+        "KA1"
+    );
+    assert_eq!(KA1, B26_THUMBPRINT);
     let client_id = ClientId::parse("x509_san_dns:example.com").unwrap();
+    let response_uri = ResponseUri::parse("https://example.com/response".to_owned()).unwrap();
     let nonce = Nonce::parse(KA_NONCE).unwrap();
-    let redirect = SessionTranscript::of(&Handover::Redirect {
-        client_id: &client_id,
-        nonce: &nonce,
-        thumbprint: Some(Thumbprint(thumbprint)),
-        endpoint: Endpoint::ResponseUri("https://example.com/response"),
-    })
-    .unwrap();
-    let Value::Array(items) = redirect.value() else {
+    let redirect = b26_transcript(
+        SessionBinding::Redirect {
+            client_id: &client_id,
+            response_uri: &response_uri,
+        },
+        &nonce,
+    );
+    let Value::Array(items) = decode(redirect.as_bytes()).unwrap() else {
         panic!("an array")
     };
-    let mut held = 0;
     // KA3: the handover; KA2: its hash is SHA-256 of B.2.6.1's OpenID4VPHandoverInfo.
     assert_eq!(encode(&items[2]).unwrap(), unhex(KA3), "KA3");
-    held += 1;
     let Value::Array(handover) = &items[2] else {
         panic!("an array")
     };
@@ -239,38 +277,42 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
         Value::Bytes(Sha256::digest(unhex(KA2)).to_vec()),
         "KA2"
     );
-    held += 1;
-    assert_eq!(redirect.to_bytes().unwrap(), unhex(KA4), "KA4");
-    held += 1;
+    assert_eq!(redirect.as_bytes(), unhex(KA4), "KA4");
     let origin = Origin::parse("https://example.com").unwrap();
-    let dc_api = SessionTranscript::of(&Handover::DcApi {
-        origin: &origin,
-        nonce: &nonce,
-        thumbprint: Some(Thumbprint(thumbprint)),
-    })
-    .unwrap();
-    assert_eq!(dc_api.to_bytes().unwrap(), unhex(KA5), "KA5");
-    held += 1;
+    let dc_api = b26_transcript(SessionBinding::DcApi { origin: &origin }, &nonce);
+    assert_eq!(dc_api.as_bytes(), unhex(KA5), "KA5");
     // The reading writes the transcript apart and reaches B.2.6.2's bytes too.
     let model = ModelHandover {
         origin: "https://example.com".into(),
         nonce: KA_NONCE.into(),
-        thumbprint: Some(thumbprint),
+        thumbprint: Some(unhex(KA1).try_into().unwrap()),
     };
     assert_eq!(
         encode(&transcript(&model).unwrap()).unwrap(),
         unhex(KA5),
         "KA5, the reading's"
     );
-    held += 1;
-    assert_eq!(held, 5);
+}
+
+/// RFC 8037 A.3: the thumbprint of an OKP key covers `crv`, `kty` and `x` alone.
+#[test]
+fn an_okp_thumbprint_follows_rfc_8037_a_3() {
+    let key = Node::parse(
+        r#"{"kty": "OKP", "crv": "Ed25519", "kid": "k", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#,
+    )
+    .expect("jwk");
+    let key = AgreeableKey::of(&key).expect("agreeable");
+    assert_eq!(
+        URL_SAFE_NO_PAD.encode(Thumbprint::of(&key).expect("an OKP key").as_bytes()),
+        "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k"
+    );
 }
 
 #[test]
 fn the_device_authenticates_the_rebuilt_device_authentication() {
     // A device signature and a device MAC, each read by a Verifier that rebuilds
-    // DeviceAuthentication from the handover; another thumbprint or nonce is refused.
-    let thumbprint: [u8; 32] = std::array::from_fn(|k| k as u8);
+    // DeviceAuthentication from the handover with B.2.6's thumbprint of the key the session is
+    // sealed to; another thumbprint or nonce is refused.
     let members = || {
         vec![(
             Member::element("urn:paso:sca:1", "jti"),
@@ -281,12 +323,11 @@ fn the_device_authenticates_the_rebuilt_device_authentication() {
         .replace("REPLACE", P256);
     let held = issued(&view(-7, "P-256"));
     for (metadata, expected) in [("{}", "deviceSignature"), (mac.as_str(), "deviceMac")] {
-        let presentation =
-            present(QUERY, metadata, &held, members(), Some(thumbprint)).expect("presentation");
+        let presentation = present(QUERY, metadata, &held, members(), true).expect("presentation");
         let handover = ModelHandover {
             origin: ORIGIN.to_owned(),
             nonce: NONCE.to_owned(),
-            thumbprint: Some(thumbprint),
+            thumbprint: Some(unhex(B26_THUMBPRINT).try_into().unwrap()),
         };
         let read = model_shape(&presentation, Some(rebuild(&handover))).expect("covered");
         assert_eq!(device_auth(&read).0, expected);
@@ -435,7 +476,7 @@ fn the_document_holds_the_disclosed_elements_and_the_members() {
             values.join(", ")
         );
         let presentation =
-            present(&query, "{}", &issued(&view), members.clone(), None).expect("presentation");
+            present(&query, "{}", &issued(&view), members.clone(), false).expect("presentation");
         let read = read(&presentation);
         assert_eq!(read.get("version").and_then(Node::as_str), Some("1.0"));
         let document = document(&read);
@@ -477,7 +518,7 @@ fn issued_error(fault: &Fault) -> Option<&IssuedError> {
 fn what_cannot_be_presented_is_a_fault() {
     let good = view(-7, "P-256");
     let text = |value: &str| MemberValue::Text(value.to_owned());
-    let refused = |held: &Held, members| present(QUERY, "{}", held, members, None).err();
+    let refused = |held: &Held, members| present(QUERY, "{}", held, members, false).err();
     // Each fixture beside the one it changes, which presents.
     assert!(refused(&issued(&good), Vec::new()).is_none());
     // The device key's algorithm is a COSE identifier of IANA's registry, its curve one of
@@ -501,15 +542,15 @@ fn what_cannot_be_presented_is_a_fault() {
     let with = |values: &str| good.replace("\"values\": {}", &format!("\"values\": {values}"));
     let claimed = r#"{"id": "q", "format": "mso_mdoc", "meta": {"doctype_value": "org.example.card"}, "claims": [{"path": ["ns", "a"]}]}"#;
     let shown = with(r#"{"ns": {"a": 1}}"#);
-    assert!(present(claimed, "{}", &issued(&shown), Vec::new(), None).is_ok());
+    assert!(present(claimed, "{}", &issued(&shown), Vec::new(), false).is_ok());
     let held = issued_for(&shown, &with(r#"{"ns": {"b": 1}}"#));
-    let fault = present(claimed, "{}", &held, Vec::new(), None).expect_err("not issued");
+    let fault = present(claimed, "{}", &held, Vec::new(), false).expect_err("not issued");
     assert!(matches!(
         issued_error(&fault),
         Some(IssuedError::Missing { .. })
     ));
     let held = issued_for(&shown, &with(r#"{"ns": {"a": 2}}"#));
-    let fault = present(claimed, "{}", &held, Vec::new(), None).expect_err("another value");
+    let fault = present(claimed, "{}", &held, Vec::new(), false).expect_err("another value");
     assert!(matches!(
         issued_error(&fault),
         Some(IssuedError::Differs { .. })

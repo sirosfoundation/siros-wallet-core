@@ -10,7 +10,7 @@ mod answer;
 #[cfg(feature = "request")]
 mod proving;
 
-use siros_openid4vp::session::SessionTranscript;
+use siros_mdoc::SessionTranscript;
 
 use crate::verifier_id::VerifierId;
 

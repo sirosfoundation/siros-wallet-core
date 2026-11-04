@@ -6,7 +6,7 @@ use std::ops::Range;
 use siros_explain::AllOf;
 
 use super::selection::{check, derived};
-use super::{Finding, Outcome, Rejection, Response, ResponseData, VpToken};
+use super::{Finding, Outcome, Rejection, Response, ResponseData, RouteKey, VpToken};
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::envelope::Channel;
 use crate::host::{
@@ -21,12 +21,10 @@ use crate::plugins::{
     ProfileHandle, Registry,
 };
 use crate::refusal::Refused;
-use crate::request::{Agreements, ContentEncryption, Query, Request};
-use crate::routing::{
-    AnsweredContext, Encrypting, ModeName, QueryContext, VerifierKey, VerifierMetadata,
-};
+use crate::request::{Agreements, Query, Request};
+use crate::routing::{AnsweredContext, Encrypting, ModeName, QueryContext, VerifierMetadata};
 use crate::rows::Env;
-use crate::session::{Handover, Session, Thumbprint};
+use crate::session::{Session, SessionBinding};
 use crate::wallet::{Credential, Wallet};
 use crate::{FAULT, detail};
 
@@ -165,20 +163,12 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             resources,
         } = self;
         let request = accepted.request();
-        let keys = accepted.metadata().agreeable_keys();
         let metadata = VerifierMetadata::of(accepted.metadata());
         let mode = accepted.mode().name();
         let sealing = seal(registry, &accepted, &metadata, host)?;
-        let thumbprint = sealing
-            .as_ref()
-            .map(|sealing| Thumbprint(sealing.key.key().thumbprint()));
         let filled = resources.fill(fetch);
-        let handover = match request.envelope().channel() {
-            Channel::DcApi(origin) => Handover::DcApi {
-                origin,
-                nonce: request.nonce(),
-                thumbprint,
-            },
+        let binding = match request.envelope().channel() {
+            Channel::DcApi(origin) => SessionBinding::DcApi { origin },
             Channel::Uri => {
                 return Err(Fault::new(
                     FAULT,
@@ -187,10 +177,12 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                 .into());
             }
         };
-        let session = Session {
-            handover,
-            keys: &keys,
-        };
+        let session = Session::of(
+            binding,
+            request.nonce(),
+            sealing.as_ref().map(|sealing| sealing.key),
+            metadata.keys(),
+        );
         let phase = Phase {
             request,
             env,
@@ -214,20 +206,21 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let plaintext = vp_token.data();
         let data = match sealing {
             None => ResponseData::Plain(plaintext),
-            Some(Sealing { haip, key, enc }) => {
-                ResponseData::Encrypted(haip.encrypt_jwe(key.key(), enc, plaintext.as_bytes())?)
-            }
+            Some(Sealing { haip, key }) => ResponseData::Encrypted(haip.encrypt_jwe(
+                key.key(),
+                key.enc(),
+                plaintext.as_bytes(),
+            )?),
         };
         Ok(Response { vp_token, data })
     }
 }
 
-/// What a JWE mode's route seals the answer with: the host's `Haip`, the key the mode chose
-/// among the request's, and the content encryption.
+/// What a JWE mode's route seals the answer with: the host's `Haip`, and the key the mode chose
+/// among the request's with the content encryption, as the core checked them.
 struct Sealing<'k, 'h> {
     haip: &'h dyn Haip,
-    key: VerifierKey<'k>,
-    enc: ContentEncryption<'static>,
+    key: RouteKey<'k>,
 }
 
 /// The route of the mode the request's routing accepted, as its registration seals it: `None`
@@ -277,7 +270,10 @@ fn seal<'k, 'h, H>(
                 .alg()
                 .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
             if stated {
-                Ok(Some(Sealing { haip, key, enc }))
+                Ok(Some(Sealing {
+                    haip,
+                    key: RouteKey::of(key, enc),
+                }))
             } else {
                 Err(Fault::new(
                     FAULT,

@@ -7,7 +7,7 @@ use crate::date::DateTime;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use siros_explain::{Explain, MessageId};
-use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SessionTranscript};
+use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::request::{DcqlRule, Query};
@@ -291,12 +291,7 @@ pub fn verify(
         .query
         .option_pseudonym(&checked.option)
         .ok_or(Rejection::Unsupported(Unsupported::NoPseudonym))?;
-    let transcript = input
-        .session
-        .transcript
-        .to_bytes()
-        .map_err(|_| Rejection::Transcript)?;
-    let session_transcript = SessionTranscript::new(transcript);
+    let session_transcript = input.session.transcript.clone();
     let challenge_digest = device_signing_input(
         &session_transcript,
         &siros_mdoc::stored::DocType::new(nym_auth_doc_type().as_str()),

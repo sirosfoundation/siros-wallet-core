@@ -1,7 +1,7 @@
 //! Known answers from the specifications: every hash B.3.3.1 names on its standard's examples,
 //! RFC 9861 §5's KT128 and KT256 values among them, W3C SRI §3's example digests, OpenID4VP
-//! B.3.3.1's hash rule, B.2.6.2's DC API handover example bytes and §5.9's audience, RFC 8037
-//! A.3's OKP thumbprint, and §8.3's choice of the response encryption.
+//! B.3.3.1's hash rule, the session phase 2 binds and §5.9's audience, and §8.3's choice of the
+//! response encryption.
 
 #[path = "../common/mod.rs"]
 mod common;

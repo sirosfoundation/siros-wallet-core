@@ -3,6 +3,59 @@
 use crate::host::{Presentation, SealedJwe};
 use crate::ids::QueryId;
 use crate::json::quote;
+use crate::request::{AgreeableKey, ContentEncryption};
+use crate::routing::VerifierKey;
+
+/// The key and `enc` a route bound: what the core seals to through `Haip::encrypt_jwe` and what
+/// the session holds. Only phase 2 makes one, from the mode's [`Encrypting::Jwe`] once it has
+/// checked it: the key is one of the request's (`VerifierKey`), its curve and `alg` and the `enc`
+/// are ones the sealing module states (`Haip::agreements`), and the `enc` is one the Verifier
+/// lists (A128GCM when it lists none, §5.1):
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::request::ContentEncryption;
+/// use siros_openid4vp::resolve::RouteKey;
+/// use siros_openid4vp::routing::VerifierKey;
+///
+/// fn forged<'k>(key: VerifierKey<'k>, enc: ContentEncryption<'static>) -> RouteKey<'k> {
+///     RouteKey { key, enc }
+/// }
+/// ```
+///
+/// [`Encrypting::Jwe`]: crate::routing::Encrypting::Jwe
+#[derive(Debug, Clone, Copy)]
+pub struct RouteKey<'k> {
+    key: VerifierKey<'k>,
+    enc: ContentEncryption<'static>,
+}
+
+impl<'k> RouteKey<'k> {
+    pub(crate) const fn of(key: VerifierKey<'k>, enc: ContentEncryption<'static>) -> Self {
+        Self { key, enc }
+    }
+
+    /// The key.
+    #[must_use]
+    pub const fn key(&self) -> &'k AgreeableKey<'k> {
+        self.key.key()
+    }
+
+    /// The content encryption.
+    #[must_use]
+    pub const fn enc(&self) -> ContentEncryption<'static> {
+        self.enc
+    }
+}
+
+#[cfg(feature = "test-util")]
+impl<'k> RouteKey<'k> {
+    /// The key and `enc` a plug-in's tests seal to, as phase 2 binds them once it has checked
+    /// them.
+    #[must_use]
+    pub const fn new(key: VerifierKey<'k>, enc: ContentEncryption<'static>) -> Self {
+        Self::of(key, enc)
+    }
+}
 
 /// `vp_token`: per Credential Query presented, its presentations in selection order; the queries
 /// in the order of their first record.

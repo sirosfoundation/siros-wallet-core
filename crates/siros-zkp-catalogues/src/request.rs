@@ -1,13 +1,13 @@
 //! An authenticated request that meets the nym_auth policy (N2; nym_auth catalogue, "Binding",
 //! "Response confidentiality" and "Verifier identity").
 
+use siros_mdoc::{Handover, SessionTranscript, Thumbprint};
 use siros_openid4vp::arrival::ReceivedForm;
 use siros_openid4vp::authenticate::{Authenticated, BoundEndpoint};
 use siros_openid4vp::ids::Nonce;
 use siros_openid4vp::modes::{DcApiJwt, DirectPostJwt, KeyChoice};
 use siros_openid4vp::request::ClientMetadata;
 use siros_openid4vp::routing::Mode;
-use siros_openid4vp::session::{Endpoint, Handover, SessionTranscript, Thumbprint};
 
 use crate::policy::{admitted, PolicyRequest, PolicyRule, RequestRefusal};
 use crate::presenter::Session;
@@ -81,11 +81,13 @@ fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestR
         ReceivedForm::DcApi { .. } => DcApiJwt.name(),
         ReceivedForm::Uri { .. } => DirectPostJwt.name(),
     };
-    let encryption_key = Thumbprint(
-        KeyChoice::of(mode, &metadata)
-            .map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?
-            .thumbprint(),
-    );
+    let chosen =
+        KeyChoice::of(mode, &metadata).map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?;
+    let encryption_key = metadata
+        .agreeable_keys()
+        .get(chosen.place())
+        .and_then(Thumbprint::of)
+        .ok_or(policy(PolicyRule::EncryptionKeyMissing))?;
     let nonce = parameters
         .text("nonce")
         .flatten()
@@ -105,7 +107,7 @@ fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestR
             client_id: request.client().ok_or(policy(PolicyRule::Unsigned))?,
             nonce: &nonce,
             thumbprint,
-            endpoint: Endpoint::ResponseUri(uri.as_str()),
+            response_uri: uri.as_str(),
         },
         (ReceivedForm::Uri { .. }, BoundEndpoint::DcApi) => {
             return Err(policy(PolicyRule::ResponseUriMissing));

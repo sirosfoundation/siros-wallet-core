@@ -37,6 +37,22 @@ pub const ORIGIN: &str = "https://verifier.example";
 /// The `nonce` of the model's requests.
 pub const NONCE: &str = "n-0S6_WzA2Mj";
 
+/// OpenID4VP B.2.6.1 and B.2.6.2's example key, to which the examples encrypt the response.
+pub const B26_KEY: &str = r#"{"kty": "EC", "crv": "P-256", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES", "kid": "1"}"#;
+
+/// The RFC 7638 thumbprint of [`B26_KEY`] as B.2.6.1 and B.2.6.2 print it (KA1).
+pub const B26_THUMBPRINT: &str = "4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047";
+
+/// `client_metadata` holding [`B26_KEY`] alone: the Verifier keys a test takes the key a
+/// session is sealed to from.
+///
+/// # Errors
+///
+/// serde_json refuses the text.
+pub fn b26_metadata() -> Result<Box<serde_json::value::RawValue>, serde_json::Error> {
+    serde_json::value::RawValue::from_string(format!(r#"{{"jwks": {{"keys": [{B26_KEY}]}}}}"#))
+}
+
 /// The Client Identifier of the test Verifier's signed requests: the test prefix's.
 pub const CLIENT_ID: &str = "test:verifier";
 

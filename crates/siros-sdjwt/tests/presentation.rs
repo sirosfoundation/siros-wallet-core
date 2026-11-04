@@ -16,7 +16,9 @@ use siros_openid4vp::host::{AuthenticationNeed, FormatHost, ProfileHost, Timesta
 use siros_openid4vp::ids::{Nonce, Origin, TransactionType};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, OptionIndex, Registry};
-use siros_openid4vp::session::{Handover, Session};
+use siros_openid4vp::request::ClientMetadata;
+use siros_openid4vp::routing::VerifierMetadata;
+use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::wallet::{Holder, Wallet};
 use siros_sdjwt::SdJwtVc;
 use siros_testkit::fixtures::{
@@ -262,14 +264,14 @@ fn every_presentation_binds_what_it_shows() {
         };
         let origin = Origin::parse(ORIGIN).expect("origin");
         let nonce = Nonce::parse(format!("n{case}")).expect("nonce");
-        let session = Session {
-            handover: Handover::DcApi {
-                origin: &origin,
-                nonce: &nonce,
-                thumbprint: None,
-            },
-            keys: &[],
-        };
+        let none = ClientMetadata::parse(None).expect("metadata");
+        let none = VerifierMetadata::new(&none);
+        let session = Session::new(
+            SessionBinding::DcApi { origin: &origin },
+            &nonce,
+            None,
+            none.keys(),
+        );
         let credential = held.credential().expect("credential");
         let now = Timestamp(1_785_000_000 + case);
         let presentation = present_option(
@@ -393,14 +395,14 @@ fn what_cannot_be_presented_is_a_fault() {
     .expect("query");
     let origin = Origin::parse(ORIGIN).expect("origin");
     let nonce = Nonce::parse(NONCE).expect("nonce");
-    let session = Session {
-        handover: Handover::DcApi {
-            origin: &origin,
-            nonce: &nonce,
-            thumbprint: None,
-        },
-        keys: &[],
-    };
+    let none = ClientMetadata::parse(None).expect("metadata");
+    let none = VerifierMetadata::new(&none);
+    let session = Session::new(
+        SessionBinding::DcApi { origin: &origin },
+        &nonce,
+        None,
+        none.keys(),
+    );
     let good = format!(r#"{{"type": "t", "values": {{"a": 1}}, {VIEW}}}"#);
     let jwt = |jwt: &str| good.replace("eyJhbGciOiJFUzI1NiJ9.c.sig", jwt);
     let claim = |name: &'static str, value: MemberValue| (Member::claim(name), value);

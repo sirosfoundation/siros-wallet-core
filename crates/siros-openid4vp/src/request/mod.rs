@@ -26,7 +26,7 @@ pub use factor::{factor, project, splits};
 pub(crate) use metadata::jose_name;
 pub use metadata::{
     AgreeableKey, Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement,
-    MetadataError, Point, thumbprint,
+    MetadataError, Point,
 };
 pub use rules::{DcqlRule, ParameterRule, StructureRule, UndecodedEntry};
 pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set};

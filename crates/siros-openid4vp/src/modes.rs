@@ -120,13 +120,13 @@ fn key_rule<'k>(
     Ok((key, enc))
 }
 
-/// What HAIP §5's key rule chooses under its own statement, as phase 1 reads it: the key's `kid`
-/// and RFC 7638 thumbprint, and the content encryption. Phase 2 chooses under the sealing
-/// module's statement, which can narrow it.
+/// What HAIP §5's key rule chooses under its own statement, as phase 1 reads it: the key's
+/// place among the request's agreeable keys and its `kid`, and the content encryption. Phase 2
+/// chooses under the sealing module's statement, which can narrow it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyChoice {
+    place: usize,
     kid: String,
-    thumbprint: [u8; 32],
     enc: ContentEncryption<'static>,
 }
 
@@ -140,22 +140,22 @@ impl KeyChoice {
     pub fn of(mode: ModeName, metadata: &ClientMetadata<'_>) -> Result<Self, KeyRule> {
         let metadata = VerifierMetadata::of(metadata);
         key_rule(mode, &metadata, &KEY_RULE).map(|(key, enc)| Self {
+            place: key.place(),
             kid: key.key().kid().to_owned(),
-            thumbprint: key.key().thumbprint(),
             enc,
         })
+    }
+
+    /// The key's place among `ClientMetadata::agreeable_keys`.
+    #[must_use]
+    pub const fn place(&self) -> usize {
+        self.place
     }
 
     /// The key's `kid`.
     #[must_use]
     pub fn kid(&self) -> &str {
         &self.kid
-    }
-
-    /// The key's JWK SHA-256 Thumbprint (RFC 7638).
-    #[must_use]
-    pub const fn thumbprint(&self) -> [u8; 32] {
-        self.thumbprint
     }
 
     /// The content encryption.

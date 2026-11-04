@@ -7,7 +7,8 @@
 
 use crate::date::{Date, DateTime};
 use crate::signature::Es256Signature;
-use siros_mdoc::stored::{MessageDigest, SessionTranscript};
+use siros_mdoc::stored::MessageDigest;
+use siros_mdoc::SessionTranscript;
 use siros_zkp_req::{InputName, ProofBackend, ZkProof};
 
 use crate::attestation::{DocumentSigner, OpenedSeed, UsableAttestation};

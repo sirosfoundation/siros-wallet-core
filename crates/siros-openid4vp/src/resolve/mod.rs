@@ -15,7 +15,7 @@ mod response;
 mod selection;
 
 pub use prepared::Prepared;
-pub use response::{Response, ResponseData, VpToken};
+pub use response::{Response, ResponseData, RouteKey, VpToken};
 
 use siros_explain::{AllOf, Explain, Explained};
 

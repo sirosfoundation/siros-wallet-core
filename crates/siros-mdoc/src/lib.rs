@@ -42,8 +42,10 @@ siros_openid4vp::with_resolve! {
     pub mod issuer_signed;
     mod presentation;
     pub mod stored;
+    mod transcript;
 
     pub use device_mac::{DeviceMac, Mac};
+    pub use transcript::{Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint};
     pub use presentation::DeviceAuthRefused;
     #[cfg(feature = "test-util")]
     pub use device_mac::TestDeviceMac;
@@ -299,7 +301,10 @@ siros_openid4vp::with_resolve! {
 /// The first Verifier key on the device key's curve: OpenID4VP §5.1 `jwks` holds the keys the
 /// wallet needs to make a presentation, here to agree the device MAC key (ISO/IEC 18013-5
 /// §9.1.3.5).
-fn reader_key<'k>(device: Signer, keys: &'k [AgreeableKey<'k>]) -> Option<&'k AgreeableKey<'k>> {
-    keys.iter()
+fn reader_key<'k>(
+    device: Signer,
+    keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
+) -> Option<&'k AgreeableKey<'k>> {
+    keys.into_iter()
         .find(|key| key.curve().as_str() == device.curve.name())
 }

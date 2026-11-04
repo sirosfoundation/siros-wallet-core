@@ -1,11 +1,9 @@
-//! B.2.6.2's DC API handover example bytes and §5.9's audience, RFC 8037 A.3's OKP thumbprint,
-//! and §8.3's choice of the response encryption.
+//! The session phase 2 binds (B.2.6.2's example request) and §5.9's audience, and §8.3's choice
+//! of the response encryption.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ciborium::Value;
 use serde_json::Value as Json;
-use sha2::{Digest, Sha256};
 use siros_explain::AllOf;
 use siros_openid4vp::boxes::Card;
 use siros_openid4vp::detail;
@@ -19,17 +17,19 @@ use siros_openid4vp::plugins::{
     OptionItems, Registry, Shown,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{AgreeableKey, Query, thumbprint};
+use siros_openid4vp::request::{AgreeableKey, ClientMetadata, Query};
 use siros_openid4vp::resolve::ResponseData;
+use siros_openid4vp::routing::VerifierMetadata;
 use siros_openid4vp::rows::Env;
-use siros_openid4vp::session::{Endpoint, Handover, Session};
+use siros_openid4vp::session::{Session, SessionBinding};
+use siros_openid4vp::uri::ResponseUri;
 use siros_openid4vp::wallet::{Credential, Wallet};
 use siros_testkit::FAULT;
 use siros_testkit::{Binds, TestFormat, TestHost};
 
 use crate::common::{Held, env, parameters, registry, request_of, test_queries, unsigned};
 
-use super::{answer, hex};
+use super::answer;
 
 /// A format whose presentation is the session phase 2 hands it.
 #[derive(Clone)]
@@ -147,25 +147,17 @@ impl<H> AnsweredOption<H> for RecorderOption {
         session: &Session<'_>,
         _: &H,
     ) -> Result<Presentation, PresentError> {
-        let Handover::DcApi {
-            origin,
-            nonce,
-            thumbprint,
-        } = session.handover
-        else {
-            return Err(Fault::new(FAULT, detail!("a redirect handover")).into());
+        let SessionBinding::DcApi { origin } = session.binding() else {
+            return Err(Fault::new(FAULT, detail!("a redirect binding")).into());
         };
-        let text = serde_json::json!({"aud": session.audience(), "handover": [origin.as_str(), nonce.as_str(), thumbprint.map(|t| hex(&t.0))]});
+        let sealed = session
+            .encrypted_to()
+            .map(|key| [key.key().kid(), key.enc().as_str()]);
+        let text = serde_json::json!({"aud": session.audience(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
         Ok(serde_json::value::to_raw_value(&text)
             .map(Presentation)
             .map_err(|e| Fault::caused(FAULT, detail!("recorded"), e))?)
     }
-}
-
-fn cbor(value: &Value) -> String {
-    let mut written = Vec::new();
-    ciborium::into_writer(value, &mut written).expect("cbor");
-    hex(&written)
 }
 
 #[test]
@@ -194,47 +186,15 @@ fn the_dc_api_handover_reproduces_the_b_2_6_2_example() {
     let response = answer(&encrypted, &wallet, &registry, &env);
     let recorded: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
     let session = &recorded["q"][0];
-    let (origin, nonce, key) = (
-        session["handover"][0].as_str().expect("origin"),
-        session["handover"][1].as_str().expect("nonce"),
-        session["handover"][2].as_str().expect("thumbprint"),
-    );
-    let key: Vec<u8> = (0..key.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&key[i..i + 2], 16).expect("hex"))
-        .collect();
-    let info = cbor(&Value::Array(vec![
-        Value::Text(origin.to_owned()),
-        Value::Text(nonce.to_owned()),
-        Value::Bytes(key),
-    ]));
-    let info_bytes: Vec<u8> = (0..info.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&info[i..i + 2], 16).expect("hex"))
-        .collect();
-    let digest = Sha256::digest(&info_bytes);
-    let handover = Value::Array(vec![
-        Value::Text("OpenID4VPDCAPIHandover".to_owned()),
-        Value::Bytes(digest.to_vec()),
-    ]);
-    let transcript = cbor(&Value::Array(vec![
-        Value::Null,
-        Value::Null,
-        handover.clone(),
-    ]));
-    // The spec's hex: OpenID4VPDCAPIHandoverInfo, OpenID4VPDCAPIHandover, SessionTranscript.
+    // The session binds the Origin, the nonce, and B.2.6.2's key, to which the core sealed with
+    // A128GCM, the Verifier listing no enc (§5.1).
     assert_eq!(
-        info,
-        "837368747470733a2f2f6578616d706c652e636f6d782b6578633767426b786a7831726463397564527276654b7653734a4971383061766c58654c486847777174415820\
-         4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047"
-    );
-    assert_eq!(
-        cbor(&handover),
-        "82764f70656e4944345650444341504948616e646f7665725820fbece366f4212f9762c74cfdbf83b8c69e371d5d68cea09cb4c48ca6daab761a"
-    );
-    assert_eq!(
-        transcript,
-        "83f6f682764f70656e4944345650444341504948616e646f7665725820fbece366f4212f9762c74cfdbf83b8c69e371d5d68cea09cb4c48ca6daab761a"
+        (&session["origin"], &session["nonce"], &session["sealed"]),
+        (
+            &Json::from("https://example.com"),
+            &Json::from("exc7gBkxjx1rdc9udRrveKvSsJIq80avlXeLHhGwqtA"),
+            &serde_json::json!(["1", "A128GCM"])
+        )
     );
     assert_eq!(
         session["aud"], "origin:https://example.com",
@@ -242,39 +202,29 @@ fn the_dc_api_handover_reproduces_the_b_2_6_2_example() {
     );
     // §5.9: a redirect-based request's audience is its Client Identifier, prefix included.
     let client_id = ClientId::parse("x509_san_dns:client.example.org").expect("client_id");
+    let response_uri =
+        ResponseUri::parse("https://client.example.org/post".to_owned()).expect("response_uri");
     let nonce = Nonce::parse("n-0S6_WzA2Mj").expect("nonce");
-    let redirect = Session {
-        handover: Handover::Redirect {
+    let none = ClientMetadata::parse(None).expect("metadata");
+    let none = VerifierMetadata::new(&none);
+    let redirect = Session::new(
+        SessionBinding::Redirect {
             client_id: &client_id,
-            nonce: &nonce,
-            thumbprint: None,
-            endpoint: Endpoint::ResponseUri("https://client.example.org/post"),
+            response_uri: &response_uri,
         },
-        keys: &[],
-    };
+        &nonce,
+        None,
+        none.keys(),
+    );
     assert_eq!(redirect.audience(), "x509_san_dns:client.example.org");
-    // dc_api: the handover holds no thumbprint.
+    // dc_api: the session is sealed to no key.
     let plain = parameters(&test_queries(&["q"]), "");
     let received = unsigned(&plain).expect("received");
     let request = request_of(&received).expect("request");
     let recorded: Json =
         serde_json::from_str(&answer(&request, &wallet, &registry, &env).vp_token.json())
             .expect("vp_token");
-    assert_eq!(recorded["q"][0]["handover"][2], Json::Null);
-}
-
-#[test]
-fn an_okp_thumbprint_follows_rfc_8037_a_3() {
-    let digest = thumbprint(
-        "OKP",
-        "Ed25519",
-        "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-        None,
-    );
-    assert_eq!(
-        URL_SAFE_NO_PAD.encode(digest),
-        "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k"
-    );
+    assert_eq!(recorded["q"][0]["sealed"], Json::Null);
 }
 
 #[test]
@@ -309,13 +259,6 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     assert!(
         response.data.json().starts_with(r#"{"response":"#),
         "data holds `response` alone"
-    );
-    // The B.2.6.2 key's thumbprint is the example's.
-    let jwk = format!("{{\"kty\": \"EC\", {p256}, \"kid\": \"1\"}}");
-    let key = Node::parse(&jwk).expect("jwk");
-    assert_eq!(
-        hex(&AgreeableKey::of(&key).expect("agreeable").thumbprint()),
-        "4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047"
     );
 }
 
@@ -373,22 +316,4 @@ fn an_agreeable_key_reads_its_jwk_members() {
         let node = Node::parse(jwk).expect("jwk");
         assert!(AgreeableKey::of(&node).is_none(), "{jwk}");
     }
-    // An OKP key's thumbprint covers crv, kty and x alone.
-    let x25519 = Node::parse(r#"{"kty": "OKP", "crv": "X25519", "kid": "k", "x": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#).expect("jwk");
-    let key = AgreeableKey::of(&x25519).expect("agreeable");
-    assert_eq!(
-        key.thumbprint(),
-        thumbprint(
-            "OKP",
-            "X25519",
-            "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-            None
-        )
-    );
-    assert_eq!(
-        hex(&key.thumbprint()),
-        hex(&Sha256::digest(
-            br#"{"crv":"X25519","kty":"OKP","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#
-        ))
-    );
 }

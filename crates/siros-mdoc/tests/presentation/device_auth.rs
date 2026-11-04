@@ -90,7 +90,7 @@ fn the_device_authenticates_by_signature_or_by_mac_as_check_respond_states() {
         });
         let metadata = format!(r#"{{"jwks":{{"keys":[{keys}]}}{supported}}}"#);
         let members = if carries { transaction() } else { Vec::new() };
-        let presentation = present(QUERY, &metadata, &held, members, None).expect("presentation");
+        let presentation = present(QUERY, &metadata, &held, members, false).expect("presentation");
         assert_eq!(
             device_auth(&read(&presentation)),
             (mode.to_owned(), reader.map(str::to_owned)),

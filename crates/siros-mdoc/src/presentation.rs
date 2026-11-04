@@ -20,7 +20,6 @@ use siros_openid4vp::request::AgreeableKey;
 use siros_openid4vp::host::{
     Haip, Has, Host, MayHave, PresentError, Presentation, Signature, Slot,
 };
-use siros_openid4vp::session::SessionTranscript;
 
 use crate::FAULT;
 use crate::cose::{Signer, device_mac, device_signature};
@@ -30,6 +29,7 @@ use crate::device_authentication::{
 };
 use crate::issuer_signed::{DOCUMENT, Disclosed, IssuerSigned};
 use crate::reader_key;
+use crate::transcript::{Handover, SessionTranscript};
 use crate::view::MdocMembers;
 
 /// Why the build makes no device authentication the Verifier accepts: the format's finding at
@@ -70,7 +70,7 @@ impl<'k, M> DeviceAuth<'k, M> {
     fn choose(
         device: Signer,
         supported: Option<&Node<'_>>,
-        keys: &'k [AgreeableKey<'k>],
+        keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
         transaction: bool,
         module: Option<M>,
     ) -> Result<Result<Self, DeviceAuthRefused>, Fault> {
@@ -116,7 +116,7 @@ pub(crate) fn revalidate<H: MayHave<dyn DeviceMac>>(
     Ok(DeviceAuth::choose(
         MdocMembers::of(revalidating.view).device_key()?,
         revalidating.query.supported.as_ref(),
-        revalidating.session.keys,
+        revalidating.session.keys().iter().map(|key| key.key()),
         !revalidating.provided.is_empty(),
         held.then_some(()),
     )?
@@ -225,7 +225,7 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
     let auth = DeviceAuth::choose(
         MdocMembers::of(view).device_key()?,
         presenting.query.supported.as_ref(),
-        presenting.session.keys,
+        presenting.session.keys().iter().map(|key| key.key()),
         !device.is_empty(),
         host.maybe::<dyn DeviceMac>(),
     )?
@@ -240,7 +240,7 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
         )
     })?;
     let namespaces = DeviceNameSpacesBytes::of(&device).map_err(caused(id, "DeviceNameSpaces"))?;
-    let transcript = SessionTranscript::of(&presenting.session.handover)
+    let transcript = SessionTranscript::of(&Handover::of(presenting.session)?)
         .map_err(caused(id, "SessionTranscript"))?;
     let detached = device_authentication_bytes(&transcript, doctype, &namespaces)
         .map_err(caused(id, "DeviceAuthentication"))?;

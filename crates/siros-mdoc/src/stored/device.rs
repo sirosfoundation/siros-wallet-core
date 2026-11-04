@@ -3,7 +3,8 @@
 use siros_openid4vp::cbor::{self, CborError, Value};
 
 use super::names::DocType;
-use super::signature::{SessionTranscript, SigStructure};
+use super::signature::SigStructure;
+use crate::transcript::SessionTranscript;
 
 /// The protected header of an ES256 `COSE_Sign1`: `{1: -7}`.
 pub(crate) const PROTECTED_ES256: [u8; 3] = [0xa1, 0x01, 0x26];

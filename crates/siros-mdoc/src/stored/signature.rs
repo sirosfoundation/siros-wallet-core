@@ -1,5 +1,5 @@
 //! The COSE structures a key signs and the ES256 signature over them (RFC 9052, Section 4.4;
-//! RFC 9053, Section 2.1), and the session they bind (ISO/IEC 18013-5, 9.1.5.1).
+//! RFC 9053, Section 2.1).
 
 use sha2::{Digest, Sha256};
 
@@ -54,24 +54,6 @@ impl MessageDigest {
     /// The digest.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-/// The encoded `SessionTranscript` of the session a device signature binds.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SessionTranscript(Vec<u8>);
-
-impl SessionTranscript {
-    /// The encoded `SessionTranscript` `encoded`.
-    #[must_use]
-    pub fn new(encoded: Vec<u8>) -> Self {
-        Self(encoded)
-    }
-
-    /// The encoding.
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }

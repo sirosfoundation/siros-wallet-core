@@ -2,11 +2,10 @@
 //! public keys of its `jwks`, with the vocabulary of the algorithms a key agrees with.
 
 use serde_json::value::RawValue;
-use sha2::{Digest, Sha256};
 use siros_explain::Explain;
 
 use crate::ids::FormatId;
-use crate::json::{JsonError, Node, Object, quote};
+use crate::json::{JsonError, Node, Object};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
@@ -267,7 +266,6 @@ impl Point {
 pub struct AgreeableKey<'k> {
     jwk: &'k Node<'k>,
     kty: &'k str,
-    written: (&'k str, Option<&'k str>),
     kid: &'k str,
     curve: Curve<'k>,
     point: Point,
@@ -301,7 +299,6 @@ impl<'k> AgreeableKey<'k> {
         usable.then_some(Self {
             jwk,
             kty,
-            written: (member("x")?, member("y")),
             kid: member("kid")?,
             curve,
             point: Point { x, y },
@@ -344,30 +341,4 @@ impl<'k> AgreeableKey<'k> {
     pub const fn alg(&self) -> Option<KeyAgreement<'k>> {
         self.alg
     }
-
-    /// The JWK SHA-256 Thumbprint (RFC 7638) over the members as the JWK writes them.
-    #[must_use]
-    pub fn thumbprint(&self) -> [u8; 32] {
-        let (x, y) = self.written;
-        thumbprint(self.kty, self.curve.as_str(), x, y)
-    }
-}
-
-/// RFC 7638 §3.2: SHA-256 over the key's required members, sorted, without whitespace: `crv`,
-/// `kty`, `x` and, for an EC key, `y` (RFC 7518 §6.2, RFC 8037 §2).
-#[must_use]
-pub fn thumbprint(kty: &str, crv: &str, x: &str, y: Option<&str>) -> [u8; 32] {
-    let members = [
-        ("crv", Some(crv)),
-        ("kty", Some(kty)),
-        ("x", Some(x)),
-        ("y", y),
-    ];
-    let canonical = members
-        .iter()
-        .filter_map(|(name, value)| value.map(|value| format!("{}:{}", quote(name), quote(value))))
-        .collect::<Vec<_>>()
-        .join(",");
-    let canonical = format!("{{{canonical}}}");
-    Sha256::digest(canonical.as_bytes()).into()
 }

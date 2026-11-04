@@ -101,4 +101,4 @@ pub use key_authorizations::KeyAuthorizations;
 pub use mdoc::{IssuerNameSpace, IssuerSignedItem, StoredMdoc};
 pub use mso::{DigestAlgorithm, ItemDigest, Mso, Validity};
 pub use names::{DigestId, DocType, ElementIdentifier, NameSpace};
-pub use signature::{CoseAlgorithm, MessageDigest, SessionTranscript, SigStructure};
+pub use signature::{CoseAlgorithm, MessageDigest, SigStructure};

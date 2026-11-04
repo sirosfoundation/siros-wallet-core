@@ -4,7 +4,7 @@
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::AgreeableKey;
-use siros_openid4vp::session::SessionTranscriptBytes;
+use crate::transcript::SessionTranscriptBytes;
 
 /// A MAC's tag (RFC 9052 §6) as the module made it.
 #[derive(Debug, Clone, PartialEq, Eq)]

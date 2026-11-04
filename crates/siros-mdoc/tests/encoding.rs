@@ -9,7 +9,7 @@ use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_mdoc::Mdoc;
 use siros_mdoc::issuer_signed::{Disclosed, IssuedError, IssuerSigned};
-use siros_mdoc::{DeviceMac, Mac, TestDeviceMac};
+use siros_mdoc::{DeviceMac, Mac, SessionTranscriptBytes, TestDeviceMac};
 use siros_openid4vp::cbor::cose::CoseShape;
 use siros_openid4vp::cbor::cose::coset::iana;
 use siros_openid4vp::cbor::cose::coset::{AsCborValue, CoseSign1, CoseSign1Builder, HeaderBuilder};
@@ -22,10 +22,12 @@ use siros_openid4vp::ids::{CredentialId, Nonce, Origin};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Format, Members, OptionIndex};
 use siros_openid4vp::request::{AgreeableKey, ClientMetadata, ContentEncryption};
-use siros_openid4vp::session::{Handover, Session, SessionTranscriptBytes, Thumbprint};
+use siros_openid4vp::resolve::RouteKey;
+use siros_openid4vp::routing::VerifierMetadata;
+use siros_openid4vp::session::{Session, SessionBinding};
 use siros_testkit::fixtures::{
-    Held as Registered, NONCE, ORIGIN, dc_api_context, parameters, present_option, request_of,
-    unsigned,
+    B26_THUMBPRINT, Held as Registered, NONCE, ORIGIN, b26_metadata, dc_api_context, parameters,
+    present_option, request_of, unsigned,
 };
 use siros_testkit::issuer::issue;
 use siros_testkit::oracle::member;
@@ -128,13 +130,13 @@ impl MayHave<dyn DeviceMac> for Recording {
 }
 
 /// The presentation of a registration for a query, the Verifier's client metadata and the
-/// members, over the DC API with the handover's thumbprint.
+/// members, over the DC API, the session sealed to B.2.6's key when `sealed`.
 fn present<H>(
     query: &str,
     client_metadata: &str,
     held: &Registered,
     members: Members,
-    thumbprint: Option<[u8; 32]>,
+    sealed: bool,
     host: &H,
 ) -> Node<'static>
 where
@@ -154,17 +156,24 @@ where
         dc_api_context(&request, metadata.vp_formats(&format.id()).cloned()),
     )
     .expect("query");
-    let keys = metadata.agreeable_keys();
+    let verifier = VerifierMetadata::new(&metadata);
+    let b26 = b26_metadata().expect("B.2.6's key");
+    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
+    let b26 = VerifierMetadata::new(&b26);
     let origin = Origin::parse(ORIGIN).expect("origin");
     let nonce = Nonce::parse(NONCE).expect("nonce");
-    let session = Session {
-        handover: Handover::DcApi {
-            origin: &origin,
-            nonce: &nonce,
-            thumbprint: thumbprint.map(Thumbprint),
-        },
-        keys: &keys,
-    };
+    let encrypted_to = b26
+        .keys()
+        .iter()
+        .next()
+        .filter(|_| sealed)
+        .map(|key| RouteKey::new(key, ContentEncryption::A128GCM));
+    let session = Session::new(
+        SessionBinding::DcApi { origin: &origin },
+        &nonce,
+        encrypted_to,
+        verifier.keys(),
+    );
     let credential = held.credential().expect("credential");
     let presentation = present_option(
         parsed.as_ref(),
@@ -211,7 +220,7 @@ fn the_host_authenticates_rfc_9052s_structures() {
         (mac.as_str(), "MAC0", "a10105"),
     ] {
         let host = Recording::new();
-        let presentation = present(QUERY, metadata, &held, Members::none(), None, &host);
+        let presentation = present(QUERY, metadata, &held, Members::none(), false, &host);
         let bytes = URL_SAFE_NO_PAD
             .decode(presentation.as_str().expect("text"))
             .expect("base64url");
@@ -434,9 +443,10 @@ fn the_reading_equals_the_frozen_models_presentations() {
                 .collect(),
         )
         .unwrap();
-        let thumbprint = case["handover"][2]
-            .as_str()
-            .map(|t| <[u8; 32]>::try_from(hex(t)).unwrap());
+        // The model binds a thumbprint of no key; the port's session is sealed to B.2.6's key in
+        // its place, which the rebuilt handover binds by B.2.6's thumbprint.
+        let sealed = case["handover"][2].is_string();
+        let thumbprint = sealed.then(|| <[u8; 32]>::try_from(hex(B26_THUMBPRINT)).unwrap());
         let held = Registered::new("c1", "mso_mdoc", view_text)
             .with_issued()
             .unwrap();
@@ -445,7 +455,7 @@ fn the_reading_equals_the_frozen_models_presentations() {
             case["metadata"].as_str().unwrap(),
             &held,
             members,
-            thumbprint,
+            sealed,
             &Recording::new(),
         );
         let device_alg = case["view"]
