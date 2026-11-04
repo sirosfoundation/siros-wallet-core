@@ -34,42 +34,43 @@ use crate::json::Node;
 ///
 /// const QUOTED: ErrorCode = checked!(ErrorCode, "a\"b");
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(transparent)]
 pub struct ErrorCode(&'static str);
 
 impl ErrorCode {
     /// `invalid_request` (RFC 6749 §4.1.2.1).
-    pub const INVALID_REQUEST: Self = Self("invalid_request");
+    pub const INVALID_REQUEST: Self = siros_explain::checked!(ErrorCode, "invalid_request");
     /// `unauthorized_client` (RFC 6749 §4.1.2.1).
-    pub const UNAUTHORIZED_CLIENT: Self = Self("unauthorized_client");
+    pub const UNAUTHORIZED_CLIENT: Self = siros_explain::checked!(ErrorCode, "unauthorized_client");
     /// `access_denied` (RFC 6749 §4.1.2.1).
-    pub const ACCESS_DENIED: Self = Self("access_denied");
+    pub const ACCESS_DENIED: Self = siros_explain::checked!(ErrorCode, "access_denied");
     /// `unsupported_response_type` (RFC 6749 §4.1.2.1).
-    pub const UNSUPPORTED_RESPONSE_TYPE: Self = Self("unsupported_response_type");
+    pub const UNSUPPORTED_RESPONSE_TYPE: Self = siros_explain::checked!(ErrorCode, "unsupported_response_type");
     /// `invalid_scope` (RFC 6749 §4.1.2.1).
-    pub const INVALID_SCOPE: Self = Self("invalid_scope");
+    pub const INVALID_SCOPE: Self = siros_explain::checked!(ErrorCode, "invalid_scope");
     /// `server_error` (RFC 6749 §4.1.2.1).
-    pub const SERVER_ERROR: Self = Self("server_error");
+    pub const SERVER_ERROR: Self = siros_explain::checked!(ErrorCode, "server_error");
     /// `temporarily_unavailable` (RFC 6749 §4.1.2.1).
-    pub const TEMPORARILY_UNAVAILABLE: Self = Self("temporarily_unavailable");
+    pub const TEMPORARILY_UNAVAILABLE: Self = siros_explain::checked!(ErrorCode, "temporarily_unavailable");
     /// `invalid_request_uri` (RFC 9101 §7).
-    pub const INVALID_REQUEST_URI: Self = Self("invalid_request_uri");
+    pub const INVALID_REQUEST_URI: Self = siros_explain::checked!(ErrorCode, "invalid_request_uri");
     /// `invalid_request_object` (RFC 9101 §7).
-    pub const INVALID_REQUEST_OBJECT: Self = Self("invalid_request_object");
+    pub const INVALID_REQUEST_OBJECT: Self = siros_explain::checked!(ErrorCode, "invalid_request_object");
     /// `request_not_supported` (RFC 9101 §7).
-    pub const REQUEST_NOT_SUPPORTED: Self = Self("request_not_supported");
+    pub const REQUEST_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "request_not_supported");
     /// `request_uri_not_supported` (RFC 9101 §7).
-    pub const REQUEST_URI_NOT_SUPPORTED: Self = Self("request_uri_not_supported");
+    pub const REQUEST_URI_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "request_uri_not_supported");
     /// `invalid_client` (OpenID4VP 1.0 §8.5); no rule of the core returns it.
-    pub const INVALID_CLIENT: Self = Self("invalid_client");
+    pub const INVALID_CLIENT: Self = siros_explain::checked!(ErrorCode, "invalid_client");
     /// `vp_formats_not_supported` (OpenID4VP 1.0 §8.5).
-    pub const VP_FORMATS_NOT_SUPPORTED: Self = Self("vp_formats_not_supported");
+    pub const VP_FORMATS_NOT_SUPPORTED: Self = siros_explain::checked!(ErrorCode, "vp_formats_not_supported");
     /// `invalid_request_uri_method` (OpenID4VP 1.0 §8.5).
-    pub const INVALID_REQUEST_URI_METHOD: Self = Self("invalid_request_uri_method");
+    pub const INVALID_REQUEST_URI_METHOD: Self = siros_explain::checked!(ErrorCode, "invalid_request_uri_method");
     /// `invalid_transaction_data` (OpenID4VP 1.0 §8.5).
-    pub const INVALID_TRANSACTION_DATA: Self = Self("invalid_transaction_data");
+    pub const INVALID_TRANSACTION_DATA: Self = siros_explain::checked!(ErrorCode, "invalid_transaction_data");
     /// `wallet_unavailable` (OpenID4VP 1.0 §8.5).
-    pub const WALLET_UNAVAILABLE: Self = Self("wallet_unavailable");
+    pub const WALLET_UNAVAILABLE: Self = siros_explain::checked!(ErrorCode, "wallet_unavailable");
 
     /// The code, when `code` is one or more of RFC 6749 Appendix A.7's `NQSCHAR` (`%x20-21`,
     /// `%x23-5B`, `%x5D-7E`).
