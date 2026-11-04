@@ -10,7 +10,8 @@ mod values;
 use crate::text::{Span, spans};
 
 pub use env::{
-    Amounts, Choice, DisplayLocale, Env, EnvError, Icon, IconMedia, TableLocale, WalletText,
+    Amounts, Choice, DisplayLocale, Env, EnvError, Icon, ImageMedia, NotImageMedia, TableLocale,
+    WalletText,
 };
 pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
 pub use values::{

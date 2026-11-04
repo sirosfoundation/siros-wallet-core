@@ -7,7 +7,7 @@ use siros_openid4vp::arrival::{DcApiProtocol, Received};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::StaticEntry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, IconMedia, Label, Row};
+use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, Label, Row};
 use siros_openid4vp::wallet::Holder;
 use siros_testkit::fixtures::{self, Held, ORIGIN};
 use siros_testkit::verifier::{self, ISSUER};
@@ -196,7 +196,7 @@ pub(super) fn icons() -> Vec<(String, Icon)> {
                 (*uri).to_owned(),
                 Icon {
                     reference: Cow::Borrowed(uri),
-                    media: IconMedia::Png,
+                    media: ImageMedia::PNG,
                     size: NonZeroU32::new(size).expect("a size"),
                 },
             )
@@ -211,7 +211,7 @@ pub(super) fn static_entry(k: usize) -> StaticEntry {
         card: Card {
             icon: Icon {
                 reference: Cow::Borrowed("wallet:warning"),
-                media: IconMedia::Png,
+                media: ImageMedia::PNG,
                 size: NonZeroU32::new(1024).expect("a size"),
             },
             title: format!("Notice {k}"),

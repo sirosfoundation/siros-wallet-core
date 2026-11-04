@@ -4,7 +4,7 @@
 
 use crate::common::HaipHost;
 use serde_json::Value;
-use siros_credman::{CredmanEntry, StandardEntry};
+use siros_credman::{CredmanEntry, EntryIcon, StandardEntry};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
@@ -481,7 +481,7 @@ fn boxes(
             assert_eq!(
                 CredmanEntry::of(&view.entry),
                 CredmanEntry::Standard(StandardEntry {
-                    icon: card.icon,
+                    icon: EntryIcon::of(&card.icon),
                     title: card.title,
                     subtitle: card.subtitle,
                     warning: None,
@@ -504,7 +504,7 @@ fn boxes(
             assert_eq!(
                 CredmanEntry::of(&view.entry),
                 CredmanEntry::Standard(StandardEntry {
-                    icon: card.icon,
+                    icon: EntryIcon::of(&card.icon),
                     title: card.title,
                     subtitle: card.subtitle,
                     warning: None,
@@ -563,7 +563,7 @@ fn boxes(
                     (
                         &payment.method_name,
                         &payment.method_subtitle,
-                        &payment.method_icon
+                        payment.method_icon.icon()
                     ),
                     (&card.title, &card.subtitle, &card.icon),
                     "P-payment method"
@@ -581,7 +581,7 @@ fn boxes(
                 want.extend(card.rows.iter().cloned());
                 assert_eq!(standard.rows, want, "P-proxy rows");
                 assert_eq!(
-                    (&standard.icon, &standard.title, &standard.subtitle),
+                    (standard.icon.icon(), &standard.title, &standard.subtitle),
                     (&card.icon, &card.title, &card.subtitle),
                     "P-card is the identity"
                 );

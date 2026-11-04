@@ -6,6 +6,7 @@ use std::num::NonZeroU32;
 use siros_explain::Explain;
 
 use crate::ids::LocaleTag;
+use crate::media::{MediaType, NotMediaType};
 use crate::text::lookup;
 
 /// The locales of the wallet's string table.
@@ -96,33 +97,63 @@ impl DisplayLocale {
     }
 }
 
-/// A media type Credential Manager draws as an icon.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IconMedia {
-    /// `image/png`.
-    Png,
-    /// `image/jpeg`.
-    Jpeg,
+/// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImageMedia(Cow<'static, str>);
+
+/// A media type that names no image.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.image_media")]
+pub enum NotImageMedia {
+    /// The text is no media type.
+    #[error(transparent)]
+    Media(#[from] NotMediaType),
+    /// The top-level type is another than `image` (RFC 6838 §4.2.3).
+    #[error("{0} is no image media type (RFC 6838 §4.2.3)")]
+    Type(#[explain(name = "media")] String),
 }
 
-impl IconMedia {
-    /// The media type.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Png => "image/png",
-            Self::Jpeg => "image/jpeg",
+impl ImageMedia {
+    /// `image/png`.
+    pub const PNG: Self = Self(Cow::Borrowed("image/png"));
+    /// `image/jpeg` (RFC 2046 §4.2).
+    pub const JPEG: Self = Self(Cow::Borrowed("image/jpeg"));
+
+    /// The image media type of a media type: its essence when its top-level type is `image`.
+    ///
+    /// # Errors
+    ///
+    /// [`NotImageMedia::Type`]: the top-level type is another.
+    pub fn of(media: &MediaType) -> Result<Self, NotImageMedia> {
+        match media.essence().split_once('/') {
+            Some(("image", _)) => Ok(Self(Cow::Owned(media.essence().to_owned()))),
+            _ => Err(NotImageMedia::Type(media.essence().to_owned())),
         }
+    }
+
+    /// The image media type a text names.
+    ///
+    /// # Errors
+    ///
+    /// [`NotImageMedia`]: the text is no media type, or names no image.
+    pub fn parse(text: &str) -> Result<Self, NotImageMedia> {
+        Self::of(&MediaType::parse(text)?)
+    }
+
+    /// `type/subtype`, lowercased.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
-/// An icon Credential Manager can draw: a PNG or JPEG of at least one byte.
+/// An icon of at least one byte: a wallet asset or a card's logo, with its image media type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Icon {
     /// The card's logo URI, or a wallet asset.
     pub reference: Cow<'static, str>,
     /// The media type.
-    pub media: IconMedia,
+    pub media: ImageMedia,
     /// The byte length.
     pub size: NonZeroU32,
 }
@@ -131,13 +162,13 @@ impl Icon {
     /// The wallet's icon for a card without a logo.
     pub const DEFAULT: Icon = Icon {
         reference: Cow::Borrowed("wallet:card"),
-        media: IconMedia::Png,
+        media: ImageMedia::PNG,
         size: NonZeroU32::MIN.saturating_add(4095),
     };
     /// The wallet's icon for the empty choice.
     pub const NONE: Icon = Icon {
         reference: Cow::Borrowed("wallet:none"),
-        media: IconMedia::Png,
+        media: ImageMedia::PNG,
         size: NonZeroU32::MIN.saturating_add(2047),
     };
 }

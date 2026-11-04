@@ -21,7 +21,7 @@ use siros_openid4vp::plugins::{Registry, RegistryBuilder, RegistryError};
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
-use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, IconMedia};
+use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, ImageMedia};
 use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
 use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::{
@@ -329,7 +329,7 @@ pub fn icon(uri: &str, size: u32) -> Option<(String, Icon)> {
         uri.to_owned(),
         Icon {
             reference: uri.to_owned().into(),
-            media: IconMedia::Png,
+            media: ImageMedia::PNG,
             size: NonZeroU32::new(size)?,
         },
     ))

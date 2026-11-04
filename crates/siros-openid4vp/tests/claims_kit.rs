@@ -14,7 +14,7 @@ use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, IconMedia};
+use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia};
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
 
@@ -56,7 +56,7 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
     let logo = "https://state.example.org/public/mdl.png";
     let icon = Icon {
         reference: logo.into(),
-        media: IconMedia::Png,
+        media: ImageMedia::PNG,
         size: NonZeroU32::new(800).expect("size"),
     };
     let items: Vec<Item> = (0..4).map(|k| Item::new(k).expect("item")).collect();

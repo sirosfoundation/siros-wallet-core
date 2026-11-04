@@ -7,12 +7,11 @@
 //! answers one question; the continuation calls it once per slot, in order.
 
 mod authzen;
-mod media;
 
+pub use crate::media::{MediaType, NotMediaType};
 pub use authzen::{
     Action, ActionName, Decided, Decision, Entity, EntityId, EntityType, Evaluation, Verdict,
 };
-pub use media::{MediaType, NotMediaType};
 
 use std::fmt;
 

@@ -2,13 +2,50 @@
 
 use siros_openid4vp::consent::{Card, ConsentEntry};
 use siros_openid4vp::matching::StaticEntry;
-use siros_openid4vp::rows::{Icon, Row};
+use siros_openid4vp::rows::{Icon, ImageMedia, Row};
+
+/// An icon of a media type Credential Manager draws. Only [`EntryIcon::of`] makes one:
+///
+/// ```compile_fail,E0423
+/// use siros_credman::EntryIcon;
+/// use siros_openid4vp::rows::Icon;
+///
+/// fn forged(icon: Icon) -> EntryIcon {
+///     EntryIcon(icon)
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryIcon(Icon);
+
+impl EntryIcon {
+    /// The media types the matcher hands Credential Manager, which decodes an entry's icon from
+    /// its bytes: PNG, which shows on a device (android-credman-sys ABI.md §5), and JPEG.
+    pub const DRAWN: [ImageMedia; 2] = [ImageMedia::PNG, ImageMedia::JPEG];
+
+    /// The card's icon when its media type is one of [`Self::DRAWN`]; the wallet's card icon
+    /// otherwise, as for a card without a logo, since Credential Manager drops an entry without
+    /// an icon (ABI.md §5).
+    #[must_use]
+    pub fn of(icon: &Icon) -> Self {
+        if Self::DRAWN.contains(&icon.media) {
+            Self(icon.clone())
+        } else {
+            Self(Icon::DEFAULT)
+        }
+    }
+
+    /// The icon.
+    #[must_use]
+    pub const fn icon(&self) -> &Icon {
+        &self.0
+    }
+}
 
 /// A Standard entry (`AddEntryToSet`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StandardEntry {
-    /// The icon.
-    pub icon: Icon,
+    /// The icon: the card's.
+    pub icon: EntryIcon,
     /// The title.
     pub title: String,
     /// The subtitle.
@@ -31,7 +68,7 @@ pub struct PaymentEntry {
     /// The payment method's subtitle: the card's subtitle.
     pub method_subtitle: Option<String>,
     /// The payment method's icon: the card's icon.
-    pub method_icon: Icon,
+    pub method_icon: EntryIcon,
     /// The free text: the security hint.
     pub additional_info: Option<String>,
     /// The fields.
@@ -59,6 +96,7 @@ impl CredmanEntry {
             subtitle,
             ..
         } = entry.card().clone();
+        let icon = EntryIcon::of(&icon);
         let rows = entry.rows().cloned().collect();
         let Some(overlay) = entry.overlay() else {
             return Self::Standard(StandardEntry {
@@ -99,7 +137,7 @@ impl CredmanEntry {
             rows,
         } = entry.card.clone();
         Self::Standard(StandardEntry {
-            icon,
+            icon: EntryIcon::of(&icon),
             title,
             subtitle,
             warning: None,
@@ -118,7 +156,7 @@ impl CredmanEntry {
 
     /// The card's icon on the entry.
     #[must_use]
-    pub fn icon(&self) -> &Icon {
+    pub const fn icon(&self) -> &EntryIcon {
         match self {
             Self::Standard(entry) => &entry.icon,
             Self::Payment(entry) => &entry.method_icon,

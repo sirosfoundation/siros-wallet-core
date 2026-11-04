@@ -9,8 +9,8 @@
 //! - [`wallet`]: the credentials as the wallet registers them.
 //! - [`rows`], [`text`], [`consent`]: what plug-ins render into, the text rules the core applies,
 //!   and the consent entry as platform-neutral data.
-//! - [`ids`], [`json`], [`refusal`]: the identifiers, JSON with unique member names, and refusals
-//!   with their error codes.
+//! - [`ids`], [`json`], [`media`], [`refusal`]: the identifiers, JSON with unique member names,
+//!   media types, and refusals with their error codes.
 //! - [`claims`]: DCQL claims and `claim_sets`, shared by the formats that use them.
 //! - [`hash`], [`sri`]: OpenID4VP B.3.3.1 hashes over the registered algorithms, W3C SRI.
 //! - [`arrival`], [`jose`], [`envelope`], [`routing`], [`modes`]: the request as received over the
@@ -57,6 +57,7 @@ pub mod hash;
 pub mod ids;
 pub mod jose;
 pub mod json;
+pub mod media;
 pub mod modes;
 pub mod plugins;
 mod product;
@@ -102,6 +103,8 @@ impl siros_explain::Messages for CrateMessages {
             plugins::AttestedTwice::messages,
             rows::BadValue::messages,
             rows::EnvError::messages,
+            rows::NotImageMedia::messages,
+            media::NotMediaType::messages,
             rows::NotHttpsUrl::messages,
             rows::NoALabel::messages,
             hash::HashesAlgRule::messages,
@@ -141,8 +144,6 @@ impl siros_explain::Messages for CrateMessages {
             host::DecryptFailed::messages,
             #[cfg(feature = "resolve")]
             host::PresentError::messages,
-            #[cfg(feature = "resolve")]
-            effects::NotMediaType::messages,
             #[cfg(feature = "resolve")]
             cbor::CborError::messages,
             #[cfg(feature = "resolve")]
