@@ -24,10 +24,9 @@ The engine should consume these before writing anything:
 
 | Crate | What it gives the engine |
 | --- | --- |
-| `siros-codec` | Strict JSON/CBOR (duplicate-key refusal, bounded reads), base64url, `x5c` chains, ES256 values — the decoding discipline the spec's "decoding policy is explicit" rule needs, already tested. |
-| `siros-oid4vp` (`crypto`) | JWE response encryption (ECDH-ES, Concat KDF, A128/A256GCM) and the `COSE_Encrypt` of `direct_post.cwt` (ECDH-ES + HKDF-256); EC JWK thumbprints; the verified-request encryption model (`Encryption`, `ContentEncryption`). Overlaps with the issuance side's response-encryption needs — the JWE *construction* lives here or in jose-rs, not both: prefer jose-rs for anything serialized as JOSE, this crate only for the COSE/CWT form. |
+| `siros-openid4vp` | Every OpenID4VP rule: arrival, authentication, DCQL, matching, the response and its sealing through the `Haip` module the engine implements; JSON and CBOR with distinct member names. |
 | `siros-trust` (`chain`) | Issuer chains from `x5c`/`x5chain`, path validation with the RFC 5280 rules, admission witnesses — the local-trust seam the engine's guarantee-level enum leaves open. |
-| `siros-dcql`, `siros-sdjwt`, `siros-mdoc`, `siros-credential` | The OpenID4VP payload side the engine's oid4vp flow family will drive once the flows land. |
+| `siros-sdjwt`, `siros-mdoc`, `siros-x509` | The plug-ins the engine's builds register with the core. |
 
 ## The jose-rs caveats the vectors must cover
 

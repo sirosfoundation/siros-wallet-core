@@ -58,19 +58,20 @@ siros-wallet-engine/
 ├── fuzz/                      # cargo-fuzz targets for offer/request parsing and metadata decoding
 ├── .github/workflows/         # ci.yml; docker-build-push + sbom via org reusable workflows
 └── crates/
-    ├── siros-codec/           # the presentation core, ported from dc-matcher #54/#55 (Nov 1):
-    ├── siros-dcql/            #   codec, dcql, sdjwt, mdoc, oid4vp, trust, wallet-state, credential,
-    ├── siros-sdjwt/           #   display, transaction-data, zkp-req, zkp-req-nym-auth, presentation —
-    ├── siros-mdoc/            #   with docs/wallet-core-architecture.md as their contract
-    ├── siros-oid4vp/
+    ├── siros-openid4vp/       # the presentation core, docs/wallet-core-design.md its contract:
+    ├── siros-x509/            #   the core, its plug-ins, i18n, the message contract, the doubles
+    ├── siros-mdoc/
+    ├── siros-sdjwt/
+    ├── siros-paso/
+    ├── siros-qes/
     ├── siros-trust/
     ├── siros-wallet-state/
-    ├── siros-credential/
-    ├── siros-display/
-    ├── siros-transaction-data/
+    ├── siros-i18n/
+    ├── siros-explain/
+    ├── siros-testkit/
+    ├── siros-integration/
     ├── siros-zkp-req/
     ├── siros-zkp-catalogues/
-    ├── siros-presentation/
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/
@@ -103,7 +104,7 @@ Status after the first working session (2026-11-01): **P0.1, P0.2, P0.3 and P0.9
 | P0.6 | Verify the spec's behavioural reference tables against `go-wallet-backend` code (the spec's own first task); correct `docs/engine-spec.md`; enumerate the OIDF wallet plans and write the plan mapping into the spec (Phase B §"Which plans") | Corrections PR per repo finding; issues in `go-wallet-backend` where Go is wrong (no patches) |
 | P0.7 | `engine-vectors` schema: `vector-schema.json` with `id`, `provenance` (`spec`/`oidf`/`policy`/`go-observed`), `generator {repo, commit, date}`, `review_by`, `spec_refs`, `config`, `setup`, `script` (steps: `wmp_in`/`wmp_out`/`http_out`/`host_ask`/`must_refuse`) — modeled on `wmp/vectors/vector-schema.json` | **Done 2026-11-02**: [sirosfoundation/engine-vectors](https://github.com/sirosfoundation/engine-vectors) — the schema, the runner contract, the provenance and sunset rules, CI validation |
 | P0.8 | Write the Phase A generator **design** (test-only `test/vectorgen` in go-wallet-backend) so it can land the day the gate opens | **Done 2026-11-02**: `docs/phase-a-generator-design.md` in the vectors repo, including the recorded purpose-inference problem |
-| P0.9 | Salvage from the closed wallet-core PRs (dc-matcher #54/#55, see §11): extract `docs/wallet-core-architecture.md` from the `wallet-core/phase-2` branch into `docs/presentation-core-reference.md`; inventory the format crates for reuse; decide the engine/wallet-core boundary in writing | **Done 2026-11-01, superseded by the better outcome**: the 13 crates, the contract (as `docs/wallet-core-architecture.md`, now authoritative in its home repo), the zkp_req docs and the `proving/` workspace were ported into `siros-wallet-core` outright; the boundary is written into its README and AGENTS.md |
+| P0.9 | Salvage from the closed wallet-core PRs (dc-matcher #54/#55, see §11): extract the presentation core's contract from the `wallet-core/phase-2` branch into `docs/presentation-core-reference.md`; inventory the format crates for reuse; decide the engine/wallet-core boundary in writing | **Done 2026-11-01, superseded by the better outcome**: the 13 crates, the contract (now `docs/wallet-core-design.md`), the zkp_req docs and the `proving/` workspace were ported into `siros-wallet-core` outright; the boundary is written into its README and AGENTS.md |
 
 Phase 0 needs no more than a small constant of days and is the only work that should be AI-pushed without the Go reference being still.
 
@@ -161,10 +162,10 @@ Two stacked PRs (closed 2026-11-01, "I won't put a wallet core in dc-matcher —
 
 What the engine work takes from them:
 
-1. **The architecture contract is reference material for post-spike OID4VP.** `docs/wallet-core-architecture.md` on `wallet-core/phase-2` decides presentation in more depth than the engine spec's OID4VP table: DCQL §6 enforcement-by-parsing, RFC 9901, mdoc handovers and `KeyAuthorizations`, transaction data (PaSO draft-2 + TS12), display/locale, response encryption (JWE and `direct_post.cwt`), trust with RFC 5280 path validation, the picker registration. Extract in P0.9; treat as the requirements source when full OID4VP starts.
+1. **The design is the contract for post-spike OID4VP.** `docs/wallet-core-design.md` decides presentation in more depth than the engine spec's OID4VP table: DCQL §6 enforcement-by-parsing, RFC 9901, mdoc handovers and `KeyAuthorizations`, transaction data (PaSO draft-2 + TS12), display/locale, response encryption (JWE and `direct_post.cwt`), trust with RFC 5280 path validation, the picker registration. Extract in P0.9; treat as the requirements source when full OID4VP starts.
 2. **Sans-I/O is validated in-org (decision D8).** The wallet core chose effects-in/results-out for the stated reason "one shape for UniFFI, the browser, the WASI module and the picker" — and it worked across all four bindings. This dissolves the async-over-UniFFI problem the engine spec worries about. P0.4 compares both shapes; the spike report cites this precedent.
 3. **wazero/WASI is a proven Go-integration seam.** "Go runs a WASI module under wazero because go-wallet-backend builds with CGO_ENABLED=0." During the two-engine overlap this lets the Go engine consume Rust components with no CGO — an overlap strategy the spec lacks.
-4. **Format crates to evaluate before rewriting anything.** `siros-codec` (strict CBOR/JSON, bounded inputs, one-sort duplicate detection), `siros-sdjwt`, `siros-mdoc`, `siros-oid4vp`, `siros-dcql` 0.12 overlap heavily with S2/S4; their constraints (deny `unwrap`/`expect`/indexing/`panic`, no interior mutability, construction-guards-validity witnesses) match engine-core's rules. P0.5 scores them alongside jose-rs/kryptering.
+4. **Format crates to evaluate before rewriting anything.** `siros-openid4vp` (JSON and CBOR with distinct member names, DCQL, the request and the response), `siros-sdjwt`, `siros-mdoc`, `siros-x509` overlap heavily with S2/S4; their constraints (deny `unwrap`/`expect`/indexing/`panic`, no interior mutability, construction-guards-validity witnesses) match engine-core's rules. P0.5 scores them alongside jose-rs/kryptering.
 5. **F5's HTTP rules upgrade `engine-ports::HttpClient` policy:** https-only, 10s timeout, no wallet-identifying headers, no redirects on request-object fetches (RFC 9101 §10.4.1) or submissions (307/308 body replay), media-type enforcement, 256 KiB request-object / 64 KiB reply caps, "the final URL is the URL that served it" for held metadata.
 6. **The boundary, in writing.** The wallet core is a candidate implementation of the engine's `Host` on the SDK side (it is what answers `request_match`/`request_consent`), not a competing engine. The engine core must not grow wallet responsibilities (credential storage, display, picker registration) — that scope creep is what put those PRs in the wrong repo. One tension to reconcile: wallet-core built local trust evaluation (TR1–TR5); the engine keeps trust remote — keep the guarantee-level enum extensible so both fit.
 7. **Verification patterns to adopt:** one vector suite asserted byte-identical through UniFFI, browser, WASI and picker (adapter parity); differential testing (picker offers equal wallet offers, 512 runs); zero-reference greps proving platform copies deleted; RFC example vectors; a panic-site checker.

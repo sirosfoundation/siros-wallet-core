@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    # The presentation core.
+    # The presentation core, docs/wallet-core-design.md.
     "crates/siros-openid4vp",
     "crates/siros-x509",
     "crates/siros-paso",
@@ -12,17 +12,13 @@ members = [
     "crates/siros-i18n",
     "crates/siros-cldr",
     "crates/siros-integration",
-    # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
-    "crates/siros-codec",
-    "crates/siros-dcql",
     "crates/siros-mdoc",
-    "crates/siros-oid4vp",
     "crates/siros-sdjwt",
     "crates/siros-trust",
     "crates/siros-wallet-state",
     "crates/siros-zkp-req",
     "crates/siros-zkp-catalogues",
-    # The WMP engine core — planned; stubs until the spike (S0) opens.
+    # The WMP engine core.
     "crates/wmp-core",
     "crates/engine-ports",
     "crates/engine-core",
@@ -41,10 +37,7 @@ authors = ["SIROS Foundation"]
 rust-version = "1.89"
 
 [workspace.dependencies]
-siros-codec = { path = "crates/siros-codec" }
-siros-dcql = { version = "0.12.0", path = "crates/siros-dcql" }
 siros-mdoc = { path = "crates/siros-mdoc" }
-siros-oid4vp = { path = "crates/siros-oid4vp" }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
 siros-trust = { path = "crates/siros-trust", default-features = false }
 siros-wallet-state = { path = "crates/siros-wallet-state" }

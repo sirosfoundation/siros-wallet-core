@@ -25,7 +25,7 @@
 //!
 //! Without the default feature `credential`, the crate holds the catalogue, the systems, the usable
 //! pairs and the policy: what the credential picker needs. The feature `request` adds
-//! [`request::NymAuthRequest`] over `siros-oid4vp`'s verified request, and the statement and
+//! [`request::NymAuthRequest`] over the core's authenticated request, and the statement and
 //! presentation of an answer in its session.
 
 #![deny(missing_docs)]

@@ -20,7 +20,7 @@ The Verifier's `client_metadata.vp_formats_supported.zkp_req` holds `proof_backe
 
 ## The protocol's rules (`zkp_req`, Sections 1.1, 1.2, 2, 2.1)
 
-`siros-dcql` parses the Credential Query first and refuses what OpenID4VP 1.0, Section 6 forbids,
+The core's DCQL reader parses the Credential Query first and refuses what OpenID4VP 1.0, Section 6 forbids,
 with its own codes (`dcql_malformed`, `query_id_empty`, `claim_sets_without_claims`, …): a query
 that is no object, an `id` outside Section 6.1, an absent or non-object `meta`, a member of DCQL's
 of the wrong type. `ZkpReqQuery::parse` reads the `CredentialQuery` DCQL gives; `_req` and
@@ -38,7 +38,7 @@ of the wrong type. `ZkpReqQuery::parse` reads the `CredentialQuery` DCQL gives; 
 | `req_sets_invalid`, `option_invalid` | `_req_sets` is a non-empty array of non-empty arrays of `_req` indexes, each once |
 | `formats_missing`, `proof_backend_values_invalid`, `system_id_values_invalid` | the Verifier sends both lists |
 
-`trusted_authorities` follows OpenID4VP 1.0, Section 6.1.1: `siros-dcql` parses it with the
+`trusted_authorities` follows OpenID4VP 1.0, Section 6.1.1: the core's DCQL reader parses it with the
 query, and `siros-trust` resolves it against the credential's issuer chain and the trust store.
 An issuer it does not admit matches nothing; a malformed `aki` value makes the request invalid.
 

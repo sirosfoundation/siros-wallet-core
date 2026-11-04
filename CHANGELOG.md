@@ -64,6 +64,12 @@ released version yet.
 
 ### Removed
 
+- `siros-codec`, `siros-dcql` and `siros-oid4vp`: `siros-openid4vp` reads
+  DCQL, CBOR, JSON and requests, and the crates that read them name it.
+  crates.io's `siros-dcql` stays as siros-dc-matcher published it.
+- `docs/wallet-core-architecture.md`: `docs/wallet-core-design.md` is the
+  contract of the presentation core.
+
 - `siros-credential`, `siros-display`, `siros-transaction-data` and
   `siros-presentation`: the presentation core's crates hold their
   capabilities. The generated

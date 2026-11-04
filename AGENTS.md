@@ -2,15 +2,19 @@
 
 ## Scope and invariants
 
-This workspace holds the Rust wallet core: the presentation-side crates ported
-from siros-dc-matcher PRs #54/#55, and the planned WMP engine core. Keep changes
-small and protocol-specific.
+This workspace holds the Rust wallet core: the presentation core and the WMP
+engine core. Keep changes small and protocol-specific.
 
-- **`docs/wallet-core-architecture.md` is the contract** for the presentation
-  crates: responsibilities, requirements (A/K/D/M/N/P/Q/S/T/TR/W rules), the
-  layer table and the boundary contracts. Read it before touching a crate; when
-  a change contradicts it, fix the document in the same pull request or raise
-  it with the owner.
+- **`docs/wallet-core-design.md` is the contract** of the presentation core's
+  crates: who owns what, the signatures, the rules, the acceptance gates and the
+  decisions. Read it before touching a crate; when a change contradicts it, fix
+  the document in the same pull request or raise it with the owner.
+- **The core is modular** (decision 20). Each mechanism a specification leaves
+  open is an extension point: its inputs are core-made, the core checks its
+  outputs. A build compiles what it uses. The core names no plug-in.
+- **Tests check behaviour an external source defines**: a specification,
+  published vectors, an independent implementation or a property. Delete a
+  test whose expected value comes from the code it tests.
 - **Logic lives in the core.** Every rule about requests, credentials, matching,
   disclosure, proof choice, transaction data, display content and response
   construction has its only implementation here. Platforms must not keep a copy.
@@ -49,20 +53,16 @@ small and protocol-specific.
   `scripts/check_panic_sites.py`.
 - **Multipaz is an oracle only.** See CONTRIBUTING.md §Provenance before
   writing matching code: no Apache-2.0 expression enters this tree.
-- **The engine crates are stubs.** Do not start them; the spike is gated on the
-  PR 163 rework landing on go-wallet-backend `main` (go-wmp v0.13.0 has
-  shipped). Library evaluation, spec verification and the UniFFI async
-  smoke test can proceed — see `docs/engine-spec.md` and the implementation
-  plan.
-- **Trust decisions.** The presentation core resolves `trusted_authorities`
-  locally (TR1–TR5); the engine core evaluates issuer and verifier trust through
-  the PDP. Keep both: the `Pdp` seam is shaped so a local evaluator can plug in
-  without a redesign.
+- **The engine performs the core's effects.** It keeps its runtime, ports and
+  transport; every OpenID4VP rule is the core's.
+- **Trust decisions.** The core matches `trusted_authorities` against
+  registered facts, which siros-trust computes locally at registration. A
+  Verifier's trust is an AuthZEN evaluation the caller answers.
 
 ## Read first
 
-- `docs/wallet-core-architecture.md` — the contract, especially §3
-  (cross-cutting requirements), §4 (components) and §5 (boundary contracts).
+- `docs/wallet-core-design.md` — the contract, especially §4 (design), §8
+  (acceptance gates) and §10 (the repository).
 - `docs/engine-spec.md` — the WMP engine specification and spike plan.
 - `docs/zkp_req_core.md`, `docs/zkp_req_request.md`, `docs/zkp_req_response.md`
   — the `zkp_req` specifications.
@@ -86,7 +86,7 @@ The toolchain itself is pinned exactly in `rust-toolchain.toml`.
 
 - Git over SSH only. Commits are signed. No force-push. No merges, tags or
   publishes without the owner's explicit go.
-- Every test must be shown to fail when its fix is reverted.
+- A test that guards a guarantee must fail when its fix is reverted.
 - Fix every review finding and every instance of the same class of bug.
 - Cite the spec, not the implementation: every non-obvious rule carries a doc
   comment naming its source (`OpenID4VP 1.0 §6.4.2`, `RFC 9901 §7.1`). An

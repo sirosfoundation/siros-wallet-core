@@ -4,3 +4,4 @@ Cargo.lock.orig
 .DS_Store
 /mutants.out*
 __pycache__/
+/proving/artifacts/

@@ -8,14 +8,12 @@
 The Rust wallet core of SIROS: one workspace for what a wallet computes, on
 both sides of the WMP engine seam.
 
-**The presentation core** answers OpenID4VP 1.0 presentation requests and the
-W3C Digital Credentials API, from request intake to the response: DCQL, SD-JWT
-VC and ISO mdoc, issuer trust, display, transaction data on the PaSO model,
-`zkp_req` — extensions to DCQL that let a verifier state a zero-knowledge
-request and a wallet answer it; the first capability defined on it is
-nym_auth, a normal credential that happens to carry the capability of doing
-pseudonyms — and the presentation component that plans a consent view and
-turns the user's selection into the response.
+**The presentation core** answers an OpenID4VP 1.0 request, received by the W3C
+Digital Credentials API or by a URI: DCQL, SD-JWT VC and ISO mdoc, issuer
+trust, transaction data on the PaSO model and CSC's QES, consent, and the
+response; the caller performs every network call and key operation. `zkp_req`
+extends DCQL so a verifier states a zero-knowledge request and a wallet
+answers it; nym_auth is its first capability.
 
 **The WMP engine core** implements OpenID4VCI issuance and OpenID4VP
 presentation behind the Wallet Messaging Protocol, in one core with three
@@ -42,21 +40,44 @@ a socket, a clock, or a keystore.
 
 ### The presentation core
 
-| Crate | Role |
+A wallet receives an OpenID4VP 1.0 request, by the W3C Digital Credentials API
+or by a URI, and answers it; the caller performs every network call and key
+operation. `docs/wallet-core-design.md` is the contract of these crates.
+
+| Crate | The problem it solves |
 | --- | --- |
-| `siros-codec` | Strict CBOR and JSON, base64url, the padded base64 of `x5c`, CBOR dates and shared types |
-| `siros-dcql` | The DCQL query model (OpenID4VP §6, construction by parsing only) and the shared request vocabulary |
-| `siros-sdjwt` | The stored SD-JWT VC (RFC 9901), disclosure selection, the KB-JWT signing input |
-| `siros-mdoc` | The stored mdoc, its MSO, disclosure, DeviceResponse and the DeviceAuthentication signing input |
-| `siros-oid4vp` | Request intake, client identifier prefixes, handovers, `vp_token`, response encryption and submissions |
-| `siros-trust` | The trust store, issuer chains, path validation, issuer admission |
+| `siros-openid4vp` | The core: a request in, a response built. Arrival, the envelope, routing, Verifier authentication, DCQL, matching and consent, phase 2, and every extension point's trait |
+| `siros-x509` | The `x509_hash` and `x509_san_dns` Client Identifier Prefixes |
+| `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, and the stored mdoc's reading (`stored`) |
+| `siros-sdjwt` | `dc+sd-jwt` |
+| `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules |
+| `siros-qes` | CSC's QES transaction data |
+| `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
 | `siros-wallet-state` | The decrypted wallet state of the private data container |
-| `siros-credential` | The format-independent credential with typed claims and validity |
-| `siros-display` | Display metadata, locale resolution, cards, claim rows, purpose lines |
-| `siros-transaction-data` | `transaction_data` on the PaSO model, definitions, projection, rendering, bindings |
+| `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
+| `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
+| `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
+| `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
+| `siros-testkit` | The core's test doubles |
+| `siros-integration` | The HAIP build end to end |
 | `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
 | `siros-zkp-catalogues` | The catalogue crate: every `zkp_req` rulebook lands here as modules and features — capability growth never adds a crate. Today it holds nym_auth, a normal credential (an mdoc, stored in the wallet state and consented like any other) that happens to carry the capability of doing pseudonyms: its rulebook defines the functions (`pseudonym`, `age_check`) and the Longfellow and Vega systems that prove them |
-| `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
+
+```text
+siros-openid4vp     the core: a request in, a response built
+├── siros-x509      x509_hash, x509_san_dns
+├── siros-mdoc      mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading
+├── siros-sdjwt     dc+sd-jwt
+├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt
+├── siros-qes       CSC's QES transaction data
+└── siros-trust     issuer trust at registration
+siros-i18n          the i18n engine
+siros-explain       the message contract
+siros-testkit       the core's test doubles
+siros-integration   the HAIP build end to end
+```
+
+Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 
 `proving/` is a second workspace — the `zkp_req` proof backends
 (`siros-zkp-backend-longfellow`, `siros-zkp-backend-vega`) and the browser
@@ -75,9 +96,9 @@ use). The gates CI holds:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-features -- -D warnings
-cargo test --workspace --all-features
-python3 scripts/check_panic_sites.py Cargo.toml
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-features
+python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 ```
 
 Nothing panics outside the tests: a type makes the impossible state
@@ -118,11 +139,9 @@ disagree and the disagreement is decided) live in that repository's
 
 ## Provenance
 
-The presentation crates are an independent implementation, ported from the
-dc-matcher workspace (closed for placement, not content). The
+The presentation crates are an independent implementation. The
 [OpenWallet Foundation's Multipaz](https://github.com/openwallet-foundation/multipaz)
 project is a **conformance oracle only** — see
 [CONTRIBUTING.md](CONTRIBUTING.md#provenance) for the rule in full.
 
-`siros-dcql` is on [crates.io](https://crates.io/crates/siros-dcql); the other
-crates are `publish = false` until their first release.
+Every crate is `publish = false` until its first release.

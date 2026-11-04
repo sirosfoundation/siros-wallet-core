@@ -57,7 +57,7 @@ Three pieces; the ports were built for exactly this:
 3. **The one real gap: `request_vp`.** The OID4VP wallet plans need a
    real VP the suite can verify, and VP construction is host-side by
    design. The presentation crates (`siros-sdjwt`, `siros-mdoc`,
-   `siros-presentation` — pure Rust, already in the workspace) build
+   `siros-openid4vp` — pure Rust, already in the workspace) build
    those; they are not yet exposed through the wasm adapter. Wiring them
    is the only substantive new work, and it is work the real SDK needs
    anyway.

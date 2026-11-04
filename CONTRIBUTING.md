@@ -63,10 +63,6 @@ The [README's build section](README.md#build-and-test) lists what CI checks.
 whose dependencies need Rust 1.95, above the root workspace's floor. Run its
 commands from there.
 
-`siros-dcql` is published to crates.io and therefore may not depend on any other
-crate in this workspace. CI enforces this with `cargo publish --dry-run`; please
-do not work around it.
-
 Rust 1.89 is the floor of every crate in this workspace. The MSRV job checks
 the workspace on 1.89, then each crate with its default features and with
 `--no-default-features`. If you raise a floor, raise it in the manifest that
@@ -81,17 +77,10 @@ root denies the panic lints outside the tests, as the other roots do.
 ## Changelog
 
 Changes that a user or a downstream consumer would notice go in
-[`CHANGELOG.md`](CHANGELOG.md), under `Unreleased`, in the same PR. Changes to
-`siros-dcql`'s public API also go in [its own
-changelog](crates/siros-dcql/CHANGELOG.md), which is versioned independently
-because the crate is released on crates.io on its own schedule.
+[`CHANGELOG.md`](CHANGELOG.md), under `Unreleased`, in the same PR.
 
 Releasing renames `Unreleased` to the version and dates it; that is the only
 time the heading changes.
-
-A breaking change to `siros-dcql` needs a minor bump — pre-1.0 that is what
-`cargo semver-checks` demands, and it will fail the build until the version
-admits to the change.
 
 ## Pull requests
 
