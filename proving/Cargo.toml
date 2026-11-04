@@ -18,7 +18,7 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 siros-openid4vp = { path = "../crates/siros-openid4vp", default-features = false }
-siros-trust = { path = "../crates/siros-trust", features = ["chain"] }
+siros-trust = { path = "../crates/siros-trust" }
 siros-zkp-req = { path = "../crates/siros-zkp-req" }
 siros-zkp-catalogues = { path = "../crates/siros-zkp-catalogues", default-features = false, features = ["credential"] }
 siros-zkp-backend-longfellow = { path = "siros-zkp-backend-longfellow" }

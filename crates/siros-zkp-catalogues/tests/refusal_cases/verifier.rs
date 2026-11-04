@@ -2,10 +2,17 @@
 
 use siros_trust::{CertificateError, ChainIndex, PathRefusal};
 use siros_zkp_catalogues::attestation::DocumentSignerError;
-use x509_cert::der::Decode;
 
 use super::Case;
 use crate::*;
+
+/// siros-trust's refusal of `bytes`, which are no DER certificate.
+fn der_refusal(bytes: &[u8]) -> CertificateError {
+    match Certificate::parse(bytes) {
+        Err(error @ CertificateError::Der(_)) => error,
+        other => panic!("{other:?} is no DER refusal"),
+    }
+}
 
 pub fn cases() -> Vec<Case> {
     let other_root = Issuer::root(0x22, "Another Root");
@@ -182,9 +189,7 @@ pub fn cases() -> Vec<Case> {
                 })
             }),
             Got::Verify(Rejection::IssuerKeySet(IssuerKeySetError::Certificate(
-                DocumentSignerError::Certificate(CertificateError::Der(
-                    x509_cert::Certificate::from_der(&[0x30, 0x00]).unwrap_err(),
-                )),
+                DocumentSignerError::Certificate(der_refusal(&[0x30, 0x00])),
             ))),
         ),
         (

@@ -7,35 +7,26 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-# Without `chain`: the admission rule over a credential's recorded facts, for the credential
-# picker, checked on 1.89 in CI.
 rust-version.workspace = true
 
-[features]
-# The trust store, issuer chains, path validation and the admission witness: X.509 and ECDSA.
-# The instants are the core's `Timestamp`, which its `resolve` holds.
-chain = ["dep:der", "dep:p256", "dep:p384", "dep:x509-cert", "siros-openid4vp/resolve"]
-
 [dependencies]
-# The core's DCQL queries and identifiers.
-siros-openid4vp = { workspace = true, features = ["match"] }
+# The core's DCQL queries and identifiers; the instants are the core's `Timestamp`, which its
+# `resolve` holds.
+siros-openid4vp = { workspace = true, features = ["match", "resolve"] }
 base64 = { workspace = true }
 thiserror = { workspace = true }
-der = { version = "0.7.10", optional = true }
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc"], optional = true }
-p384 = { version = "0.13.1", default-features = false, features = ["ecdsa", "alloc"], optional = true }
-x509-cert = { version = "0.2.5", default-features = false, features = ["std"], optional = true }
+der = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"] }
+p384 = { workspace = true, features = ["ecdsa"] }
+x509-cert = { workspace = true }
 
-# The tests build their certificates with x509-cert's builder; `hazmat` gives full control of
-# the extensions.
+# The tests build their certificates with x509-cert's builder.
 [dev-dependencies]
-siros-trust = { path = ".", features = ["chain"] }
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc", "pem"] }
-p384 = { version = "0.13.1", default-features = false, features = ["ecdsa", "alloc", "pem"] }
-x509-cert = { version = "0.2.5", default-features = false, features = ["std", "builder", "hazmat"] }
-sha2 = { version = "0.10.9", features = ["oid"] }
+p256 = { workspace = true, features = ["ecdsa", "alloc", "pkcs8"] }
+p384 = { workspace = true, features = ["ecdsa", "alloc", "pkcs8"] }
+x509-cert = { workspace = true, features = ["builder"] }
+sha2 = { workspace = true, features = ["oid"] }
 serde_json = { workspace = true }
-siros-openid4vp = { workspace = true, features = ["resolve"] }
 base64 = { workspace = true }
 
 [lints]

@@ -39,7 +39,7 @@ rust-version = "1.89"
 [workspace.dependencies]
 siros-mdoc = { path = "crates/siros-mdoc" }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
-siros-trust = { path = "crates/siros-trust", default-features = false }
+siros-trust = { path = "crates/siros-trust" }
 siros-wallet-state = { path = "crates/siros-wallet-state" }
 siros-zkp-req = { path = "crates/siros-zkp-req" }
 siros-zkp-catalogues = { path = "crates/siros-zkp-catalogues", default-features = false }
@@ -95,6 +95,8 @@ unicode-segmentation = "1.13.3"
 # P-256's checked points and scalars: the keys a Request Object verifies under and the wallet's
 # ephemeral key for an encrypted Request Object.
 p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic"] }
+# P-384's checked points: the issuer chains siros-trust verifies.
+p384 = { version = "=0.14.0", default-features = false, features = ["arithmetic"] }
 # Test-only: the doubles' AES-GCM (RFC 7518 §5.3) and DEFLATE (RFC 1951) for JWE.
 aes-gcm = "0.11.1"
 miniz_oxide = "0.8.9"

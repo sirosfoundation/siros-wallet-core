@@ -2009,7 +2009,7 @@ dependencies = [
  "hmac 0.13.0",
  "kryptering",
  "p256 0.14.0",
- "p384 0.14.0",
+ "p384",
  "p521",
  "pem-rfc7468 1.0.0",
  "pkcs8 0.11.0",
@@ -2109,7 +2109,7 @@ dependencies = [
  "ml-dsa",
  "ml-kem",
  "p256 0.14.0",
- "p384 0.14.0",
+ "p384",
  "p521",
  "pbkdf2",
  "pkcs8 0.11.0",
@@ -2401,18 +2401,6 @@ dependencies = [
  "primefield",
  "primeorder 0.14.0",
  "sha2 0.11.1",
-]
-
-[[package]]
-name = "p384"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe42f1670a52a47d448f14b6a5c61dd78fce51856e68edaa38f7ae3a46b8d6b6"
-dependencies = [
- "ecdsa 0.16.9",
- "elliptic-curve 0.13.8",
- "primeorder 0.13.6",
- "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3525,15 +3513,14 @@ name = "siros-trust"
 version = "0.11.0"
 dependencies = [
  "base64 0.23.1",
- "der 0.7.10",
- "p256 0.13.2",
- "p384 0.13.1",
+ "der 0.8.3",
+ "p256 0.14.0",
+ "p384",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "siros-openid4vp",
- "siros-trust",
  "thiserror 2.0.21",
- "x509-cert 0.2.5",
+ "x509-cert 0.3.0",
 ]
 
 [[package]]
@@ -4650,6 +4637,8 @@ checksum = "105ef4642d9cb137ef83d623d0e4bf08b8adf69e9918ca904a174adb6d3d038b"
 dependencies = [
  "const-oid 0.10.2",
  "der 0.8.3",
+ "sha1 0.11.0",
+ "signature 3.0.0",
  "spki 0.8.1",
  "tls_codec",
 ]

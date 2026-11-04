@@ -17,7 +17,6 @@ credential = [
     "dep:siros-mdoc",
     "dep:p256",
     "dep:siros-trust",
-    "siros-trust/chain",
     "dep:zeroize",
 ]
 # The nym_auth request of a verified request (N2), and the presentation of a usable answer.

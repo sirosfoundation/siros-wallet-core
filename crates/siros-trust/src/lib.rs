@@ -11,9 +11,6 @@
 //!
 //! One rule serves both sides: [`QueryAuthorities::admit`] over an [`Issuer`]. The wallet's
 //! issuer is the chain and the store at a time, the picker's the recorded [`IssuerFacts`].
-//!
-//! Without the feature `chain` the crate holds the rule, the authorities and the facts, for the
-//! credential picker (K2, TR5). It builds with Rust 1.89 and holds no X.509 or ECDSA code.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -46,47 +43,31 @@
 )]
 
 mod admission;
+mod admitted;
 mod authority;
+mod certificate;
+mod chain;
+pub mod extensions;
 mod facts;
 mod ids;
+mod path;
+mod position;
+mod store;
 
 pub use admission::{Admission, Ground, Issuer, Refusal, Unadmitted};
+pub use admitted::{AdmittedIssuer, ChainRefusal};
 pub use authority::{
     AkiError, Authority, AuthorityError, KeyIdentifier, KeyIdentifierError, QueryAuthorities,
     StoreAuthority, StoreType,
 };
-pub use facts::{FactRefusal, IssuerFacts};
-pub use ids::{AuthorityType, AuthorityValue, QueryId};
-
-#[cfg(feature = "chain")]
-mod admitted;
-#[cfg(feature = "chain")]
-mod certificate;
-#[cfg(feature = "chain")]
-mod chain;
-#[cfg(feature = "chain")]
-pub mod extensions;
-#[cfg(feature = "chain")]
-mod path;
-#[cfg(feature = "chain")]
-mod position;
-#[cfg(feature = "chain")]
-mod store;
-
-#[cfg(feature = "chain")]
-pub use admitted::{AdmittedIssuer, ChainRefusal};
-#[cfg(feature = "chain")]
 pub use certificate::{
     Certificate, CertificateError, DistinguishedName, IssuanceRefusal, KeyIdentifierFault,
     NameField, PublicKeyFault,
 };
-#[cfg(feature = "chain")]
 pub use chain::{ChainError, IssuerChain};
-#[cfg(feature = "chain")]
 pub use extensions::{CertSigning, CertificateRole, PathLength};
-#[cfg(feature = "chain")]
+pub use facts::{FactRefusal, IssuerFacts};
+pub use ids::{AuthorityType, AuthorityValue, QueryId};
 pub use path::{OnPath, PathRefusal};
-#[cfg(feature = "chain")]
 pub use position::{CertificateIndex, ChainIndex, EntryIndex};
-#[cfg(feature = "chain")]
 pub use store::{EntryError, MemberFault, StoreEntry, StoreError, TrustStore, Unanchored};

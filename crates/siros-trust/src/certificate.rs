@@ -199,11 +199,11 @@ impl Certificate {
     /// [`CertificateError`]: the first rule the bytes break.
     pub fn parse(der: &[u8]) -> Result<Self, CertificateError> {
         let certificate = x509_cert::Certificate::from_der(der).map_err(CertificateError::Der)?;
-        let tbs_certificate = &certificate.tbs_certificate;
-        if certificate.signature_algorithm != tbs_certificate.signature {
+        let tbs_certificate = certificate.tbs_certificate();
+        if certificate.signature_algorithm() != tbs_certificate.signature() {
             return Err(CertificateError::AlgorithmMismatch);
         }
-        let extensions = match &tbs_certificate.extensions {
+        let extensions = match tbs_certificate.extensions() {
             Some(extensions) => Extensions::read(extensions)?,
             None => Extensions::NONE,
         };
@@ -212,21 +212,21 @@ impl Certificate {
                 .map(DistinguishedName)
                 .map_err(|error| CertificateError::Name(field, error))
         };
-        let validity = &tbs_certificate.validity;
+        let validity = tbs_certificate.validity();
         Ok(Self {
             der: der.to_vec(),
             tbs: tbs_bytes(der).map_err(CertificateError::Der)?.to_vec(),
             signature: certificate
-                .signature
+                .signature()
                 .as_bytes()
                 .ok_or(CertificateError::Signature)?
                 .to_vec(),
-            algorithm: SignatureAlgorithm::of(&certificate.signature_algorithm),
-            issuer: name(NameField::Issuer, &tbs_certificate.issuer)?,
-            subject: name(NameField::Subject, &tbs_certificate.subject)?,
+            algorithm: SignatureAlgorithm::of(certificate.signature_algorithm()),
+            issuer: name(NameField::Issuer, tbs_certificate.issuer())?,
+            subject: name(NameField::Subject, tbs_certificate.subject())?,
             not_before: time(validity.not_before),
             not_after: time(validity.not_after),
-            key: SubjectKey::read(&tbs_certificate.subject_public_key_info)
+            key: SubjectKey::read(tbs_certificate.subject_public_key_info())
                 .map_err(CertificateError::PublicKey)?,
             authority_key_identifier: extensions.authority_key_identifier,
             subject_key_identifier: extensions.subject_key_identifier,
@@ -411,8 +411,8 @@ impl SubjectKey {
 fn tbs_bytes(der: &[u8]) -> Result<&[u8], der::Error> {
     let mut reader = SliceReader::new(der)?;
     let header = Header::decode(&mut reader)?;
-    if header.tag != Tag::Sequence {
-        return Err(header.tag.unexpected_error(Some(Tag::Sequence)));
+    if header.tag() != Tag::Sequence {
+        return Err(header.tag().unexpected_error(Some(Tag::Sequence)).into());
     }
     reader.tlv_bytes()
 }

@@ -9,7 +9,10 @@ use serde_json::value::RawValue;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::request::Query;
 use siros_trust::{IssuerChain, QueryAuthorities, TrustStore};
-use x509_cert::builder::{Builder, CertificateBuilder, Profile};
+use x509_cert::builder::profile::BuilderProfile;
+use x509_cert::builder::{Builder, CertificateBuilder};
+use x509_cert::certificate::TbsCertificate;
+use x509_cert::ext::Extension;
 use x509_cert::der::asn1::{AnyRef, GeneralizedTime, ObjectIdentifier, OctetString};
 use x509_cert::der::Encode;
 use x509_cert::ext::pkix::{AuthorityKeyIdentifier, BasicConstraints, InhibitAnyPolicy, KeyUsage};
@@ -18,6 +21,7 @@ use x509_cert::serial_number::SerialNumber;
 use x509_cert::spki::{
     AlgorithmIdentifier, DynSignatureAlgorithmIdentifier, EncodePublicKey,
     SignatureAlgorithmIdentifier, SignatureBitStringEncoding, SubjectPublicKeyInfoOwned,
+    SubjectPublicKeyInfoRef,
 };
 use x509_cert::time::{Time, Validity};
 
@@ -58,8 +62,8 @@ impl Key {
 
     fn spki(&self) -> SubjectPublicKeyInfoOwned {
         match self {
-            Self::P256(key) => SubjectPublicKeyInfoOwned::from_key(*key.verifying_key()).unwrap(),
-            Self::P384(key) => SubjectPublicKeyInfoOwned::from_key(*key.verifying_key()).unwrap(),
+            Self::P256(key) => SubjectPublicKeyInfoOwned::from_key(key.verifying_key()).unwrap(),
+            Self::P384(key) => SubjectPublicKeyInfoOwned::from_key(key.verifying_key()).unwrap(),
         }
     }
 }
@@ -218,10 +222,7 @@ impl Cert {
             let unix = Duration::from_secs(at(text).0);
             Time::GeneralTime(GeneralizedTime::from_unix_duration(unix).unwrap())
         };
-        let validity = Validity {
-            not_before: time(self.validity.0),
-            not_after: time(self.validity.1),
-        };
+        let validity = Validity::new(time(self.validity.0), time(self.validity.1));
         match (&self.signer, self.sha512_declared) {
             (Key::P256(key), true) => {
                 self.build::<_, p256::ecdsa::DerSignature>(validity, &Sha512Declared(key.clone()))
@@ -237,15 +238,15 @@ impl Cert {
         S::VerifyingKey: EncodePublicKey,
         Signature: SignatureBitStringEncoding,
     {
+        let profile = Names {
+            issuer: Name::from_str(&self.issuer).unwrap(),
+            subject: Name::from_str(&self.subject).unwrap(),
+        };
         let mut builder = CertificateBuilder::new(
-            Profile::Manual {
-                issuer: Some(Name::from_str(&self.issuer).unwrap()),
-            },
+            profile,
             SerialNumber::new(&[0x01, self.subject.len() as u8]).unwrap(),
             validity,
-            Name::from_str(&self.subject).unwrap(),
             self.key.spki(),
-            signer,
         )
         .unwrap();
         if let Some(ca) = self.ca {
@@ -271,7 +272,32 @@ impl Cert {
                 })
                 .unwrap();
         }
-        builder.build::<Signature>().unwrap().to_der().unwrap()
+        builder.build::<S, Signature>(signer).unwrap().to_der().unwrap()
+    }
+}
+
+/// The builder's profile: the names as given, and no extension beyond those a case adds.
+struct Names {
+    issuer: Name,
+    subject: Name,
+}
+
+impl BuilderProfile for Names {
+    fn get_issuer(&self, _subject: &Name) -> Name {
+        self.issuer.clone()
+    }
+
+    fn get_subject(&self) -> Name {
+        self.subject.clone()
+    }
+
+    fn build_extensions(
+        &self,
+        _spk: SubjectPublicKeyInfoRef<'_>,
+        _issuer_spk: SubjectPublicKeyInfoRef<'_>,
+        _tbs: &TbsCertificate,
+    ) -> x509_cert::builder::Result<Vec<Extension>> {
+        Ok(Vec::new())
     }
 }
 
@@ -345,11 +371,11 @@ fn explicit_false_critical(der: &[u8], signer: &Key) -> Vec<u8> {
     let signature = match signer {
         Key::P256(key) => {
             let signature: p256::ecdsa::DerSignature = key.sign(&tbs);
-            signature.to_bytes().to_vec()
+            signature.as_bytes().to_vec()
         }
         Key::P384(key) => {
             let signature: p384::ecdsa::DerSignature = key.sign(&tbs);
-            signature.to_bytes().to_vec()
+            signature.as_bytes().to_vec()
         }
     };
     let mut bits = vec![0x00];
