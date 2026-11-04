@@ -10,6 +10,7 @@ use crate::request::{Agreements, ClientMetadata, ContentEncryption, Curve, KeyAg
 use crate::routing::{ChannelKind, Mode, ModeName, VerifierKey, VerifierMetadata};
 #[cfg(feature = "resolve")]
 use crate::routing::{Encrypting, ModeHost};
+use crate::wallet_metadata::ParameterName;
 
 /// `dc_api` (A.2): the Authorization Response in the clear, as the DigitalCredential's `data`.
 #[derive(Debug, Clone, Copy, Default)]
@@ -62,6 +63,18 @@ const KEY_RULE: Agreements = Agreements::new(
     &[KeyAgreement::ECDH_ES],
     &[ContentEncryption::A256GCM, ContentEncryption::A128GCM],
 );
+
+/// The `wallet_metadata` members `direct_post.jwt` writes (JARM §4's names, as §5.10 uses them).
+const JWE_METADATA: &[ParameterName] = &[
+    siros_explain::checked!(
+        ParameterName,
+        "authorization_encryption_alg_values_supported"
+    ),
+    siros_explain::checked!(
+        ParameterName,
+        "authorization_encryption_enc_values_supported"
+    ),
+];
 
 /// The octets of each coordinate of a P-256 point (RFC 7518 §6.2.1.2, §6.2.1.3).
 const P_256_OCTETS: usize = 32;
@@ -184,6 +197,10 @@ impl Mode for DcApi {
     fn rules(&self, _request: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         Vec::new()
     }
+
+    fn metadata_names(&self) -> &'static [ParameterName] {
+        &[]
+    }
 }
 
 impl Mode for DcApiJwt {
@@ -197,6 +214,10 @@ impl Mode for DcApiJwt {
 
     fn rules(&self, _request: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         c7(self.name(), metadata)
+    }
+
+    fn metadata_names(&self) -> &'static [ParameterName] {
+        &[]
     }
 }
 
@@ -212,6 +233,10 @@ impl Mode for DirectPostJwt {
     fn rules(&self, _request: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         c7(self.name(), metadata)
     }
+
+    fn metadata_names(&self) -> &'static [ParameterName] {
+        JWE_METADATA
+    }
 }
 
 impl Mode for DirectPost {
@@ -225,6 +250,10 @@ impl Mode for DirectPost {
 
     fn rules(&self, _request: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         Vec::new()
+    }
+
+    fn metadata_names(&self) -> &'static [ParameterName] {
+        &[]
     }
 }
 

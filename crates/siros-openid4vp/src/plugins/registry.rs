@@ -32,6 +32,7 @@ use crate::scope::ScopeQuery;
 use crate::scope::{ScopeEntry, ScopeValue, Scopes};
 #[cfg(feature = "resolve")]
 use crate::uri::{EncryptedRequests, RequestPost};
+use crate::wallet_metadata::{CORE_METADATA, NamePlace, ParameterName};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
@@ -98,6 +99,27 @@ pub enum RegistryError {
         second: ScopeValue,
         /// The id.
         id: String,
+    },
+    /// A mode that writes `wallet_metadata` members over the DC API, whose requests post none.
+    #[error("the DC API response mode {0} writes wallet_metadata members")]
+    MetadataChannel(#[explain(name = "mode")] ModeName),
+    /// A name two registered parts write.
+    #[error("{name} is written by two registered parts")]
+    NameTwice {
+        /// Where.
+        #[explain(skip)]
+        place: NamePlace,
+        /// The name.
+        name: ParameterName,
+    },
+    /// A name the core writes itself, which a registered part declares.
+    #[error("{name} is the core's to write")]
+    NameReserved {
+        /// Where.
+        #[explain(skip)]
+        place: NamePlace,
+        /// The name.
+        name: ParameterName,
     },
     /// `EncryptedRequests` without `RequestPost`.
     #[error("encrypted Request Objects are registered without the request_uri POST")]
@@ -546,6 +568,7 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
         }
+        names(&modes)?;
         #[cfg(feature = "resolve")]
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
@@ -921,6 +944,32 @@ impl<H> Routes for Registry<H> {
     fn scopes(&self) -> Scopes<'_> {
         Scopes::of(&self.scopes)
     }
+}
+
+/// The names the registered modes that carry answers declare: a DC API mode declares none
+/// (`MetadataChannel`), no name twice (`NameTwice`), and none the core writes (`NameReserved`).
+fn names<H>(modes: &[RegisteredMode<H>]) -> Result<(), RegistryError> {
+    let place = NamePlace::WalletMetadata;
+    let mut declared: Vec<ParameterName> = Vec::new();
+    for registered in modes {
+        if matches!(registered.role, Role::Errors) {
+            continue;
+        }
+        let names = registered.mode.metadata_names();
+        if registered.mode.channel() == ChannelKind::DcApi && !names.is_empty() {
+            return Err(RegistryError::MetadataChannel(registered.mode.name()));
+        }
+        for name in names {
+            if CORE_METADATA.contains(name) {
+                return Err(RegistryError::NameReserved { place, name: *name });
+            }
+            if declared.contains(name) {
+                return Err(RegistryError::NameTwice { place, name: *name });
+            }
+            declared.push(*name);
+        }
+    }
+    Ok(())
 }
 
 /// The registered scope queries as read: refused per [`RegistryError::ScopeTwice`],

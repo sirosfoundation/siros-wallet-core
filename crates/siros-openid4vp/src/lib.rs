@@ -67,6 +67,7 @@ pub mod scope;
 pub mod sri;
 pub mod text;
 pub mod wallet;
+pub mod wallet_metadata;
 
 /// The core's domain, as its fault message.
 pub(crate) const FAULT: plugins::FaultDomain =
@@ -224,5 +225,3 @@ pub mod resolve;
 pub mod session;
 #[cfg(feature = "resolve")]
 pub mod uri;
-#[cfg(feature = "resolve")]
-pub mod wallet_metadata;

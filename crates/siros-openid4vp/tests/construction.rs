@@ -300,6 +300,53 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
     use siros_testkit::fixtures::TestScope;
 
+    /// A mode in the clear of a name and channel, declaring `wallet_metadata` members.
+    #[derive(Clone)]
+    struct Declares(&'static str, ChannelKind, &'static [&'static str]);
+
+    impl Mode for Declares {
+        fn name(&self) -> siros_openid4vp::routing::ModeName {
+            siros_openid4vp::routing::ModeName::new(self.0).expect("a mode name")
+        }
+
+        fn channel(&self) -> ChannelKind {
+            self.1
+        }
+
+        fn rules(
+            &self,
+            _request: &Request<'_>,
+            _metadata: &siros_openid4vp::routing::VerifierMetadata<'_>,
+        ) -> Vec<Refusal> {
+            Vec::new()
+        }
+
+        fn metadata_names(&self) -> &'static [siros_openid4vp::wallet_metadata::ParameterName] {
+            match self.2 {
+                ["test_member"] => &[siros_explain::checked!(
+                    siros_openid4vp::wallet_metadata::ParameterName,
+                    "test_member"
+                )],
+                ["jwks"] => &[siros_explain::checked!(
+                    siros_openid4vp::wallet_metadata::ParameterName,
+                    "jwks"
+                )],
+                _ => &[],
+            }
+        }
+    }
+
+    impl siros_openid4vp::routing::ModeHost<TestHost> for Declares {
+        fn encryption<'k>(
+            &self,
+            _metadata: &'k siros_openid4vp::routing::VerifierMetadata<'k>,
+            _sealer: &siros_openid4vp::request::Agreements,
+            _host: &TestHost,
+        ) -> Result<siros_openid4vp::routing::Encrypting<'k>, Refusal> {
+            Ok(siros_openid4vp::routing::Encrypting::Plain)
+        }
+    }
+
     /// A scope value's query, given.
     struct Scoped(&'static str, &'static str);
 
@@ -382,6 +429,31 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     assert!(matches!(
         builder.build().map(drop),
         Err(RegistryError::ScopeIds { id, .. }) if id == "scoped"
+    ));
+    // A DC API mode that declares wallet_metadata members; a name two modes declare; a name the
+    // core writes.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.mode(Declares(
+        "dc_api.test",
+        ChannelKind::DcApi,
+        &["test_member"],
+    ));
+    assert!(matches!(
+        builder.build().map(drop),
+        Err(RegistryError::MetadataChannel(_))
+    ));
+    let mut builder = Registry::<TestHost>::builder();
+    builder.mode(Declares("post.one", ChannelKind::Uri, &["test_member"]));
+    builder.mode(Declares("post.two", ChannelKind::Uri, &["test_member"]));
+    assert!(matches!(
+        builder.build().map(drop),
+        Err(RegistryError::NameTwice { name, .. }) if name.as_str() == "test_member"
+    ));
+    let mut builder = Registry::<TestHost>::builder();
+    builder.mode(Declares("post.one", ChannelKind::Uri, &["jwks"]));
+    assert!(matches!(
+        builder.build().map(drop),
+        Err(RegistryError::NameReserved { name, .. }) if name.as_str() == "jwks"
     ));
     // An error mode on the DC API, whose errors A.4 fixes.
     let mut builder = Registry::<TestHost>::builder();

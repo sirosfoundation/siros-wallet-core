@@ -1,21 +1,92 @@
 //! The wallet's metadata for one POST to a `request_uri` (OpenID4VP §5.10, §10.1; RFC 8414 §2),
-//! and the POST's form.
+//! and the POST's form; the names registered parts declare, which the registry checks when it
+//! builds.
 
+#[cfg(feature = "resolve")]
 use std::borrow::Cow;
+use std::fmt;
 
+#[cfg(feature = "resolve")]
 use crate::host::EphemeralKey;
+#[cfg(feature = "resolve")]
 use crate::jose::JwsAlgorithms;
+#[cfg(feature = "resolve")]
 use crate::json::Node;
+#[cfg(feature = "resolve")]
 use crate::plugins::{Fault, Registry};
+#[cfg(feature = "resolve")]
 use crate::request::{Agreements, ContentEncryption, Curve, KeyAgreement};
+#[cfg(feature = "resolve")]
 use crate::{FAULT, detail};
 
+/// A parameter or metadata name (RFC 6749 §8.2's `param-name`: one or more of ASCII letters,
+/// digits, `-`, `.` and `_`), the names RFC 8414 metadata and OAuth parameters take. A plug-in
+/// makes its own with `siros_explain::checked!`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ParameterName(&'static str);
+
+impl ParameterName {
+    /// The name; `None` for an empty text or another character.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Option<Self> {
+        let mut rest = name.as_bytes();
+        if rest.is_empty() {
+            return None;
+        }
+        while let [byte, tail @ ..] = rest {
+            if !(byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_')) {
+                return None;
+            }
+            rest = tail;
+        }
+        Some(Self(name))
+    }
+
+    /// The name as written.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl fmt::Display for ParameterName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// A name is named by its text in a message.
+impl siros_explain::IntoArg for ParameterName {
+    type Kind = siros_explain::kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.0
+    }
+}
+
+/// Where a registered name sits, for the name conflicts the registry refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NamePlace {
+    /// A member of `wallet_metadata` (§10.1).
+    WalletMetadata,
+}
+
+/// The `wallet_metadata` members the core writes itself (§5.10, §10.1): `vp_formats_supported`,
+/// `request_object_signing_alg_values_supported` and `jwks`.
+pub const CORE_METADATA: [ParameterName; 3] = [
+    siros_explain::checked!(ParameterName, "vp_formats_supported"),
+    siros_explain::checked!(ParameterName, "request_object_signing_alg_values_supported"),
+    siros_explain::checked!(ParameterName, "jwks"),
+];
+
+#[cfg(feature = "resolve")]
 /// `wallet_metadata`: a JSON object, as the POST carries it. Only [`WalletMetadata::of`] makes
 /// one.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(transparent)]
 pub struct WalletMetadata(String);
 
+#[cfg(feature = "resolve")]
 impl WalletMetadata {
     /// What §5.10 and CS-12 ask, and no more, each list from its one owner:
     /// `vp_formats_supported`, each registered format's member under its `Format::id` (§10.1:
@@ -109,10 +180,12 @@ impl WalletMetadata {
     }
 }
 
+#[cfg(feature = "resolve")]
 /// The content encryptions of the key rule the JWE modes answer under (§8.3, HAIP §5).
 const KEY_RULE_ENCRYPTIONS: [ContentEncryption<'static>; 2] =
     [ContentEncryption::A128GCM, ContentEncryption::A256GCM];
 
+#[cfg(feature = "resolve")]
 /// The key's public JWK as `jwks` holds it: its members, and `use` `enc`.
 fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
     let public = key.public().object();
@@ -135,6 +208,7 @@ fn jwk(key: &EphemeralKey) -> Result<Node<'static>, Fault> {
     Node::object(members).map_err(|e| Fault::caused(FAULT, detail!("the ephemeral key's JWK"), e))
 }
 
+#[cfg(feature = "resolve")]
 /// The `request_uri` POST's form (§5.10): `wallet_metadata`, a JSON string; §5.10's
 /// `wallet_nonce` stays out (decision 12).
 #[derive(Debug, serde::Serialize)]
@@ -142,6 +216,7 @@ pub struct RequestUriPost<'a> {
     wallet_metadata: &'a WalletMetadata,
 }
 
+#[cfg(feature = "resolve")]
 impl<'a> RequestUriPost<'a> {
     /// The form of the metadata.
     #[must_use]

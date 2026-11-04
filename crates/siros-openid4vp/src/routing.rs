@@ -17,6 +17,7 @@ use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::{AgreeableKey, ClientMetadata, Request};
 #[cfg(feature = "resolve")]
 use crate::request::{Agreements, ContentEncryption};
+use crate::wallet_metadata::ParameterName;
 
 /// A `response_mode` value (OAuth 2.0 Multiple Response Type Encoding Practices §2.1): one or
 /// more of ASCII letters, digits, `_`, `.` and `-`, the characters of the registered names. A
@@ -94,7 +95,9 @@ pub enum Carries {
 /// registered twice on one channel (`RegistryError::ModeTwice`). `rules` reads the request the
 /// core parsed and the Verifier's metadata, and returns the refusals of the mode's own rules (a
 /// JWE mode: a key and an `enc` its key rule accepts, C7); the core lists them after C6, each
-/// with its rule's code.
+/// with its rule's code. `metadata_names` are the `wallet_metadata` members (§10.1) the mode
+/// writes, a constant: the registry refuses a name another registered part declares or the core
+/// writes (`NameTwice`, `NameReserved`).
 pub trait Mode: DynClone + Send + Sync {
     /// The `response_mode` value it answers.
     fn name(&self) -> ModeName;
@@ -103,6 +106,8 @@ pub trait Mode: DynClone + Send + Sync {
     /// The mode's request rules over the request and the Verifier's metadata: the refusals of
     /// the rules they break, in order.
     fn rules(&self, request: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal>;
+    /// The `wallet_metadata` members it writes (§5.10, §10.1).
+    fn metadata_names(&self) -> &'static [ParameterName];
 }
 
 dyn_clone::clone_trait_object!(Mode);
