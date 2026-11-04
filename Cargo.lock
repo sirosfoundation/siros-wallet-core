@@ -3437,7 +3437,6 @@ dependencies = [
  "siros-testkit",
  "thiserror 2.0.21",
  "unicode-general-category",
- "uuid",
 ]
 
 [[package]]
@@ -3457,6 +3456,7 @@ dependencies = [
  "siros-testkit",
  "thiserror 2.0.21",
  "unicode-segmentation",
+ "uuid",
 ]
 
 [[package]]
