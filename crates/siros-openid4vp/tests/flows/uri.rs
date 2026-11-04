@@ -336,13 +336,15 @@ fn a_post_carries_each_contribution_by_the_names_it_declared() {
     let RequestObjectFetch::Post { body, .. } = fetch.request() else {
         panic!("a POST")
     };
-    let form: Vec<(String, String)> = serde_urlencoded::from_str(body.as_str()).expect("a form");
-    let [(first, metadata), (second, value)] = form.as_slice() else {
+    let mut form: Vec<(String, String)> =
+        serde_urlencoded::from_str(body.as_str()).expect("a form");
+    form.sort();
+    let [(parameter, value), (metadata_name, metadata)] = form.as_slice() else {
         panic!("two members: {form:?}")
     };
     assert_eq!(
-        (first.as_str(), second.as_str(), value.as_str()),
-        ("wallet_metadata", "test_parameter", "x y")
+        (parameter.as_str(), value.as_str(), metadata_name.as_str()),
+        ("test_parameter", "x y", "wallet_metadata")
     );
     let metadata: Value = serde_json::from_str(metadata).expect("JSON");
     assert_eq!(metadata["test_member"], serde_json::json!(true));
