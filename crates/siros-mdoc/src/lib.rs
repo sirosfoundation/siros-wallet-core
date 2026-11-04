@@ -45,7 +45,9 @@ siros_openid4vp::with_resolve! {
     mod transcript;
 
     pub use device_mac::{DeviceMac, Mac};
-    pub use transcript::{Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint};
+    pub use transcript::{
+        Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
+    };
     pub use presentation::DeviceAuthRefused;
     #[cfg(feature = "test-util")]
     pub use device_mac::TestDeviceMac;
@@ -89,6 +91,7 @@ siros_openid4vp::with_resolve! {
             issuer_signed::IssuedError::messages(),
             device_authentication::ValueError::messages(),
             presentation::DeviceAuthRefused::messages(),
+            transcript::TranscriptError::messages(),
         ]
         .concat()
     }

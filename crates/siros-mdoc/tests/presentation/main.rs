@@ -12,7 +12,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
 use siros_mdoc::issuer_signed::IssuedError;
-use siros_mdoc::{Handover, Mdoc, SessionTranscript, Thumbprint};
+use siros_mdoc::{Handover, Mdoc, SessionTranscript, Thumbprint, TranscriptError};
 use siros_openid4vp::cbor::{CborError, Item, Value, decode, encode};
 use siros_openid4vp::host::Usable;
 use siros_openid4vp::host::{FormatHost, PresentError};
@@ -292,6 +292,34 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
         unhex(KA5),
         "KA5, the reading's"
     );
+}
+
+/// A transcript a Verifier holds is one CBOR data item, an array of three (ISO/IEC 18013-5
+/// §9.1.5.1): B.2.6.2's is accepted, and one fixture per rule is refused (RFC 8949 §3).
+#[test]
+fn a_held_transcript_is_one_array_of_three() {
+    assert_eq!(
+        SessionTranscript::decode(unhex(KA5))
+            .ok()
+            .map(|held| held.as_bytes().to_vec()),
+        Some(unhex(KA5))
+    );
+    let mut trailing = unhex(KA5);
+    trailing.push(0xf6);
+    let refused = [
+        (trailing, "cbor"),
+        (vec![0x83, 0xf6, 0xf6], "cbor"),
+        (vec![0x82, 0xf6, 0xf6], "items"),
+        (vec![0xa0], "items"),
+    ];
+    for (bytes, rule) in refused {
+        let got = match SessionTranscript::decode(bytes.clone()) {
+            Err(TranscriptError::Cbor(_)) => "cbor",
+            Err(TranscriptError::Items) => "items",
+            Ok(_) => "accepted",
+        };
+        assert_eq!(got, rule, "{bytes:02x?}");
+    }
 }
 
 /// RFC 8037 A.3: the thumbprint of an OKP key covers `crv`, `kty` and `x` alone.

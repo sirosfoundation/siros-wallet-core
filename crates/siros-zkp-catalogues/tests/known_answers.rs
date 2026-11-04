@@ -41,7 +41,7 @@ fn hex(text: &str) -> Vec<u8> {
 /// e2: the digest of the data the device key signs, with no `DeviceSigned` element.
 fn challenge_digest(session_transcript: &[u8], doc_type: &str) -> [u8; 32] {
     *device_signing_input(
-        &SessionTranscript::new(session_transcript.to_vec()),
+        &SessionTranscript::decode(session_transcript.to_vec()).unwrap(),
         &DocType::new(doc_type),
         &DeviceNameSpaces::empty(),
     )

@@ -3,6 +3,7 @@
 //! SessionTranscript as B.2.6 profiles it.
 
 use sha2::{Digest, Sha256};
+use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Value, embedded};
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::{ClientId, Nonce, Origin};
@@ -121,7 +122,8 @@ impl<'s> Handover<'s> {
 }
 
 /// `SessionTranscript` (ISO/IEC 18013-5 §9.1.5.1) as its CBOR encodes it: B.2.6's
-/// `[null, null, Handover]` from [`SessionTranscript::of`], or a transcript a Verifier holds.
+/// `[null, null, Handover]` from [`SessionTranscript::of`], or a transcript a Verifier holds
+/// ([`SessionTranscript::decode`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SessionTranscript(Vec<u8>);
 
@@ -177,10 +179,18 @@ impl SessionTranscript {
         .map(Self)
     }
 
-    /// The encoded transcript a Verifier holds, `encoded`.
-    #[must_use]
-    pub const fn new(encoded: Vec<u8>) -> Self {
-        Self(encoded)
+    /// The transcript a Verifier holds, its CBOR `encoded`: one data item, an array of
+    /// DeviceEngagementBytes, EReaderKeyBytes and the Handover (ISO/IEC 18013-5 §9.1.5.1).
+    ///
+    /// # Errors
+    ///
+    /// [`TranscriptError::Cbor`] when `encoded` is no single CBOR data item the wallet reads,
+    /// [`TranscriptError::Items`] when the item is no array of three.
+    pub fn decode(encoded: Vec<u8>) -> Result<Self, TranscriptError> {
+        match cbor::decode(&encoded)? {
+            Value::Array(items) if items.len() == 3 => Ok(Self(encoded)),
+            _ => Err(TranscriptError::Items),
+        }
     }
 
     /// The encoding, as B.2.6's SessionTranscript examples print it.
@@ -197,6 +207,22 @@ impl SessionTranscript {
     pub fn tagged_bytes(&self) -> Result<SessionTranscriptBytes, CborError> {
         cbor::encode(&embedded(self.0.clone())).map(SessionTranscriptBytes)
     }
+}
+
+/// Why bytes are no SessionTranscript (ISO/IEC 18013-5 §9.1.5.1).
+#[derive(Debug, thiserror::Error, Explain)]
+#[explain(domain = "mdoc.transcript")]
+pub enum TranscriptError {
+    /// No single CBOR data item the wallet reads.
+    #[error("no CBOR data item the wallet reads")]
+    Cbor(
+        #[from]
+        #[explain(name = "cause")]
+        CborError,
+    ),
+    /// A data item other than an array of three items.
+    #[error("the data item is no array of three items")]
+    Items,
 }
 
 /// ISO/IEC 18013-5 §9.1.5.1 SessionTranscriptBytes, `#6.24(bstr .cbor SessionTranscript)`, whose
