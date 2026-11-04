@@ -15,7 +15,7 @@ use siros_openid4vp::ids::{FormatId, InvalidId, QueryId};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::plugins::{
     Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
-    OptionIndex, OptionItems, Shown,
+    OptionIndex, OptionItems, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
@@ -89,6 +89,14 @@ impl Format for TestFormat {
 
     fn placement(&self) -> Option<Placement> {
         Some(self.placement)
+    }
+
+    /// None: a test credential states no type.
+    fn additions<'c>(
+        &self,
+        _credential: &'c Credential<'c>,
+    ) -> Result<Box<dyn ViewAdditions + 'c>, Fault> {
+        Ok(Box::new(ViewTypes::new(Vec::new())))
     }
 
     fn query<'q>(
@@ -403,8 +411,7 @@ impl TestOption<'_> {
             self.option.0,
             proof.join(",")
         );
-        serde_json::value::RawValue::from_string(text)
-            .map(Presentation)
+        Presentation::object(&text)
             .map_err(|e| Fault::caused(FAULT, detail!("a test presentation"), e))
     }
 }

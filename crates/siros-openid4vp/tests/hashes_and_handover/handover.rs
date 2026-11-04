@@ -61,6 +61,13 @@ impl Format for Recorder {
         self.0.placement()
     }
 
+    fn additions<'c>(
+        &self,
+        credential: &'c siros_openid4vp::wallet::Credential<'c>,
+    ) -> Result<Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c>, Fault> {
+        self.0.additions(credential)
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,
@@ -158,8 +165,7 @@ impl<H> AnsweredOption<H> for RecorderOption {
             .encrypted_to()
             .map(|key| [key.key().kid(), key.enc().as_str()]);
         let text = serde_json::json!({"aud": session.audience(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
-        Ok(serde_json::value::to_raw_value(&text)
-            .map(Presentation)
+        Ok(Presentation::object(&text.to_string())
             .map_err(|e| Fault::caused(FAULT, detail!("recorded"), e))?)
     }
 }

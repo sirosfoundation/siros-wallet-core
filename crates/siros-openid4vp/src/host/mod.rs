@@ -28,7 +28,7 @@ pub use authentication::{
 pub use ciphertext::{NotSealed, SealedJwe};
 pub use ephemeral::{EphemeralKey, KeyHandle};
 pub use phase2::{AnsweredOption, AnsweredQuery, FormatHost, PresentError, ProfileHost};
-pub use values::{Presentation, Seconds, Signature, Timestamp, Usable};
+pub use values::{NotPresentation, Presentation, Seconds, Signature, Timestamp, Usable};
 
 use siros_explain::Explain;
 

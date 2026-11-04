@@ -10,8 +10,8 @@ use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, LocaleTag, TransactionType,
 };
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::Member;
 use siros_openid4vp::plugins::Registry;
+use siros_openid4vp::plugins::{Fault, Member};
 use siros_openid4vp::rows::{Amounts, Choice, Env};
 use siros_openid4vp::wallet::{Credential, Document, Facts, HeldAuthority, Holder};
 use siros_testkit::TestHost;
@@ -196,11 +196,19 @@ impl ClaimsFormat for ClaimsTest {
                 ))) as Box<dyn Explained>
             })
     }
-    fn meta_matches(&self, meta: &Node<'_>, view: &Node<'_>) -> bool {
-        match (meta.get(self.member), view.get("type")) {
-            (Some(Node::Array(values)), Some(kind)) => values.contains(kind),
-            (Some(value), Some(kind)) => value == kind,
-            _ => false,
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+        view.get("type")
+            .and_then(Node::as_str)
+            .map(|kind| vec![kind])
+            .ok_or_else(|| Fault::new(siros_testkit::FAULT, siros_openid4vp::detail!("no type")))
+    }
+    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+        match meta.get(self.member) {
+            Some(Node::Array(values)) => values
+                .iter()
+                .any(|value| value.as_str().is_some_and(|value| types.contains(&value))),
+            Some(value) => value.as_str().is_some_and(|value| types.contains(&value)),
+            None => false,
         }
     }
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool {

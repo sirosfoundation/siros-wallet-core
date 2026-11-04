@@ -132,6 +132,8 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             host::NotSealed::messages,
             #[cfg(feature = "resolve")]
+            host::NotPresentation::messages,
+            #[cfg(feature = "resolve")]
             host::SignFailed::messages,
             #[cfg(feature = "resolve")]
             host::SignatureInvalid::messages,

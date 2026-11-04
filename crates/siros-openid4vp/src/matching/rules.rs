@@ -7,7 +7,7 @@ use siros_explain::{AllOf, Explain};
 
 use crate::envelope::Channel;
 use crate::plugins::registry::{Catalog, Placed};
-use crate::plugins::{FormatQuery, ProfileHandle, Registry};
+use crate::plugins::{Format, FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
 use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
@@ -84,6 +84,8 @@ pub struct Transaction {
 
 /// A query's format, as its plug-in parsed it.
 pub(crate) struct Formatted<'q> {
+    /// The format.
+    pub(crate) format: &'q dyn Format,
     /// The placement the format stated at registration.
     pub(crate) placement: Option<Placement>,
     pub(crate) query: Box<dyn FormatQuery + 'q>,
@@ -225,6 +227,7 @@ impl<'q> Formatted<'q> {
             metadata.vp_formats(&query.format).cloned(),
         );
         Some(format.query(query, context).map(|parsed| Self {
+            format,
             placement,
             query: parsed,
         }))

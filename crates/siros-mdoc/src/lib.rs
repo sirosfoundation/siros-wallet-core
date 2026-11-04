@@ -58,9 +58,10 @@ use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView,
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member};
+use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
+use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
 use cose::Signer;
@@ -156,6 +157,14 @@ impl Format for Mdoc {
         Some(Placement::NameSpaces)
     }
 
+    /// The credential's doctype: ISO/IEC 18013-5 defines no inheritance.
+    fn additions<'c>(
+        &self,
+        credential: &'c Credential<'c>,
+    ) -> Result<Box<dyn ViewAdditions + 'c>, Fault> {
+        kit::additions(self, credential)
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,
@@ -199,9 +208,19 @@ impl ClaimsFormat for Mdoc {
     }
 
     /// B.2.3: the credential's docType is `doctype_value`.
-    fn meta_matches(&self, meta: &Node<'_>, view: &Node<'_>) -> bool {
+    /// The view's `type`, the doctype.
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+        view.get("type")
+            .and_then(Node::as_str)
+            .map(|doctype| vec![doctype])
+            .ok_or_else(|| Fault::new(FAULT, siros_openid4vp::detail!("a view without a doctype")))
+    }
+
+    /// B.2.3: `doctype_value` is the credential's doctype.
+    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
         meta.get("doctype_value")
-            .is_some_and(|doctype| view.get("type") == Some(doctype))
+            .and_then(Node::as_str)
+            .is_some_and(|doctype| types == [doctype])
     }
 
     /// A `DeviceSigned` data element the transaction writes answers a claim naming it, unless the

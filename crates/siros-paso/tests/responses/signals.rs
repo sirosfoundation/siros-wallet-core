@@ -162,6 +162,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
     );
     let card = card(&format!(r#"{{"{PAY}": {meta}}}"#), None, ISSUER);
     let credential = card.credential();
+    let additions = crate::common::additions(&credential);
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
     let bound = PasoProfile::default()
         .bind(
@@ -171,6 +172,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
                 credential: &credential,
                 entries: &offered,
                 placement: crate::common::placement(&credential.format),
+                additions: &*additions,
                 carriage: Carriage::Carried,
             },
             &en(),
@@ -204,6 +206,7 @@ pub(super) fn versioned(card: &Card) -> Result<usize, String> {
     );
     siros_testkit::signed_request!(let request = &parameters);
     let credential = card.credential();
+    let additions = crate::common::additions(&credential);
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
     match PasoProfile::default().bind(
         Binding {
@@ -212,6 +215,7 @@ pub(super) fn versioned(card: &Card) -> Result<usize, String> {
             credential: &credential,
             entries: &offered,
             placement: crate::common::placement(&credential.format),
+            additions: &*additions,
             carriage: Carriage::Carried,
         },
         &en(),

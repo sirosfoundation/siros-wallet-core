@@ -169,6 +169,7 @@ fn values_match_by_equal_json_of_one_type() {
         let view = format!(r#"{{"type": "t", "values": {{"c": {held}}}}}"#);
         let answered = !query
             .answerable(&format, &Node::parse(&view).expect("view"), &[])
+            .expect("the view's types")
             .is_empty();
         assert_eq!(answered, want, "values {values} against {held}");
     }
@@ -287,7 +288,10 @@ fn claims_path_pointers_follow_section_7() {
             .claims
             .claim(Item::new(0).expect("item"))
             .expect("claim");
-        let found = !query.answerable(&format, &view, &[]).is_empty();
+        let found = !query
+            .answerable(&format, &view, &[])
+            .expect("the view's types")
+            .is_empty();
         let selected = claim
             .path
             .select(values)

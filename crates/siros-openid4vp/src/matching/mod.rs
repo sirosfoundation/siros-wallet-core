@@ -263,12 +263,14 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             }
             _ => Carriage::Uncarried,
         };
+        let additions = self.formatted.format.additions(credential)?;
         let binding = Binding {
             request: self.request,
             query: self.query,
             credential,
             entries: &transaction.entries,
             placement: self.formatted.placement,
+            additions: &*additions,
             carriage,
         };
         let bound = profile.bind(binding, self.env)?;

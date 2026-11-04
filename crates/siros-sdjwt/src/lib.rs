@@ -5,7 +5,9 @@
 //!
 //! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `jwt`,
 //! the Issuer-signed JWT; `alg` and `curve`, its algorithm and key curve; `key_alg` and
-//! `key_curve`, the holder key's. The view holds values where an issued SD-JWT holds
+//! `key_curve`, the holder key's; `extends`, when its type extends another, each type the chain
+//! the wallet resolved at registration names, nearest first (§6.4). `vct_values` matches the
+//! credential's `vct` or one of them (B.3.5). The view holds values where an issued SD-JWT holds
 //! disclosures: a disclosure is the base64url JSON array `[salt, name, value]`, its salt a digest
 //! of the claim's path.
 //!
@@ -46,10 +48,10 @@ use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView,
 use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member};
+use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
-use siros_openid4vp::wallet::Holder;
+use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
 
 use view::SdJwtMembers;
@@ -146,6 +148,14 @@ impl Format for SdJwtVc {
         Some(Placement::Claims)
     }
 
+    /// The credential's `vct`, then the types it extends, nearest first (§6.4).
+    fn additions<'c>(
+        &self,
+        credential: &'c Credential<'c>,
+    ) -> Result<Box<dyn ViewAdditions + 'c>, Fault> {
+        kit::additions(self, credential)
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,
@@ -199,15 +209,34 @@ impl ClaimsFormat for SdJwtVc {
         .ok_or_else(|| Box::new(SdJwtRule::VctValues) as Box<dyn Explained>)
     }
 
-    /// B.3.5: the credential's type is one of `vct_values`.
-    fn meta_matches(&self, meta: &Node<'_>, view: &Node<'_>) -> bool {
-        match (
-            meta.get("vct_values").and_then(Node::as_array),
-            view.get("type"),
-        ) {
-            (Some(values), Some(kind)) => values.contains(kind),
-            _ => false,
-        }
+    /// The view's `type`, then each type of its `extends`, nearest first (§6.4).
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+        let fault = || {
+            Fault::new(
+                FAULT,
+                siros_openid4vp::detail!("a view whose type or extends is no text"),
+            )
+        };
+        let own = view.get("type").and_then(Node::as_str).ok_or_else(fault)?;
+        let extended = match view.get("extends") {
+            None => &[][..],
+            Some(extends) => extends.as_array().ok_or_else(fault)?,
+        };
+        std::iter::once(Some(own))
+            .chain(extended.iter().map(Node::as_str))
+            .map(|kind| kind.ok_or_else(fault))
+            .collect()
+    }
+
+    /// B.3.5: one of `vct_values` names the credential's type or a type it inherits from.
+    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+        meta.get("vct_values")
+            .and_then(Node::as_array)
+            .is_some_and(|values| {
+                values
+                    .iter()
+                    .any(|value| value.as_str().is_some_and(|value| types.contains(&value)))
+            })
     }
 
     /// A Key Binding JWT claim is no claim of the credential.

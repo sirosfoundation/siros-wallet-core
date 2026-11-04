@@ -8,7 +8,10 @@ use super::super::PathError;
 use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
 use crate::consent::Card;
 use crate::json::Node;
-use crate::plugins::{Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown};
+use crate::plugins::{
+    Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown, ViewAdditions,
+    ViewTypes,
+};
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, Query};
 use crate::routing::QueryContext;
@@ -122,6 +125,22 @@ pub fn query<'q, P: ClaimsPlugin>(
     )?))
 }
 
+/// `Format::additions` of a claims format: the types the format reads in the credential's view.
+///
+/// # Errors
+///
+/// The view is no claims view, or the format cannot read its types.
+pub fn additions<'c>(
+    format: &impl ClaimsFormat,
+    credential: &'c Credential<'c>,
+) -> Result<Box<dyn ViewAdditions + 'c>, Fault> {
+    let view = ClaimsView::read(credential)?;
+    let types = format.types(view.json())?;
+    Ok(Box::new(ViewTypes::new(
+        types.into_iter().map(str::to_owned).collect(),
+    )))
+}
+
 /// `FormatHost::answer` of a claims format: the query parsed as [`query`] parses it, with its
 /// phase 2 over the build's host.
 #[cfg(feature = "resolve")]
@@ -204,7 +223,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
         let view = ClaimsView::read(credential)?;
-        Ok(self.claims.answerable(self.plugin, view.json(), provided))
+        self.claims.answerable(self.plugin, view.json(), provided)
     }
 
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
@@ -236,7 +255,7 @@ impl<H, P: ClaimsPresent<H>> AnsweredQuery<H> for PluginQuery<'_, P> {
         let view = ClaimsView::read(credential.credential())?;
         Ok(self
             .claims
-            .answerable(self.plugin, view.json(), provided)
+            .answerable(self.plugin, view.json(), provided)?
             .into_iter()
             .map(|option| {
                 Box::new(PluginOption {

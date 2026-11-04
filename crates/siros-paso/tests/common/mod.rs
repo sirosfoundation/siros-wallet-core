@@ -316,6 +316,18 @@ pub fn value(row: &Row) -> Option<&Value> {
     row.value.as_ref()
 }
 
+/// What the registration view gains for a card: a [`Card`]'s view is the test format's, which
+/// states no type.
+pub fn additions<'c>(
+    credential: &'c siros_openid4vp::wallet::Credential<'c>,
+) -> Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c> {
+    use siros_openid4vp::plugins::Format;
+    siros_testkit::TestFormat::new()
+        .expect("the test format")
+        .additions(credential)
+        .expect("the view's additions")
+}
+
 /// The placement the plug-in of `format` states: siros-mdoc's, siros-sdjwt's or the test
 /// format's; `None` for another format.
 pub fn placement(

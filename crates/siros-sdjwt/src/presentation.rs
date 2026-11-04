@@ -10,7 +10,6 @@ use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use siros_openid4vp::claims::kit::Presenting;
 use siros_openid4vp::claims::{Concrete, ConcretePath};
@@ -86,9 +85,11 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
                 .map_err(fault)?
         }
     };
-    Ok(RawValue::from_string(presentation.python_compact().to_string())
-        .map(Presentation)
-        .map_err(|e| Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e))?)
+    Ok(
+        Presentation::object(&presentation.python_compact().to_string()).map_err(|e| {
+            Fault::caused(FAULT, detail!("{id}: the presentation", id = id()), e)
+        })?,
+    )
 }
 
 /// The Key Binding JWT's payload: its own claims, then the members, each name once.

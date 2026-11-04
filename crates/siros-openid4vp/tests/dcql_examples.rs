@@ -156,6 +156,7 @@ fn answered(
             let view = Node::parse(&view_text).expect("view");
             let options: Vec<usize> = query
                 .answerable(&format, &view, &[])
+                .expect("the view's types")
                 .into_iter()
                 .map(|o| o.0)
                 .collect();
@@ -276,7 +277,9 @@ fn a_json_boolean_is_no_integer() {
     let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
     let answers = |values: &str| {
         let view = format!(r#"{{"type": "t", "values": {values}}}"#);
-        query.answerable(&format, &Node::parse(&view).expect("view"), &[])
+        query
+            .answerable(&format, &Node::parse(&view).expect("view"), &[])
+            .expect("the view's types")
     };
     assert_eq!(
         answers(r#"{"age_over_18": true}"#),

@@ -199,12 +199,14 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         .indexed_entries()
         .map(|(index, _)| index)
         .collect();
+    let additions = crate::common::additions(&credential);
     let binding = Binding {
         request: answer.request,
         query: &answer.request.queries()[0],
         credential: &credential,
         entries: &offered,
         placement: crate::common::placement(&credential.format),
+        additions: &*additions,
         carriage: Carriage::Carried,
     };
     match informed.bind(binding, env) {

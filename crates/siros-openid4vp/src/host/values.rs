@@ -1,8 +1,9 @@
 //! The values the host's modules exchange with the core and the plug-ins: instants and
 //! durations, a credential's usability, signatures and presentations.
 
-use serde_json::value::RawValue;
+use siros_explain::Explain;
 
+use crate::json::{Node, quote};
 use crate::wallet::Credential;
 
 /// Seconds since the Unix epoch.
@@ -51,6 +52,48 @@ impl Signature {
     }
 }
 
-/// A presentation as a JSON value: what `vp_token` holds for one credential.
-#[derive(Debug, Clone)]
-pub struct Presentation(pub Box<RawValue>);
+/// A presentation in a VP Token (§8.1: "a string or a JSON object"), as its JSON text. Only
+/// [`Presentation::text`] and [`Presentation::object`] make one:
+///
+/// ```compile_fail,E0423
+/// use siros_openid4vp::host::Presentation;
+///
+/// fn forged(json: String) -> Presentation {
+///     Presentation(json)
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Presentation(String);
+
+/// A presentation's value that is no JSON object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.presentation")]
+#[error("the presentation is no JSON object")]
+pub struct NotPresentation;
+
+impl Presentation {
+    /// A presentation that is a string: an SD-JWT, a base64url DeviceResponse.
+    #[must_use]
+    pub fn text(text: &str) -> Self {
+        Self(quote(text))
+    }
+
+    /// A presentation that is a JSON object, its text kept as written.
+    ///
+    /// # Errors
+    ///
+    /// [`NotPresentation`]: another JSON value, or a text the core's `json` module refuses (a
+    /// member named twice included).
+    pub fn object(object: &str) -> Result<Self, NotPresentation> {
+        match Node::parse(object) {
+            Ok(Node::Object(_)) => Ok(Self(object.to_owned())),
+            _ => Err(NotPresentation),
+        }
+    }
+
+    /// The JSON text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}

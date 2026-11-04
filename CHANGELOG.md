@@ -38,6 +38,10 @@ released version yet.
   reader is part of the crate, without a feature, on the workspace's
   `x509-cert`, `der`, `p256` and `p384`.
 - `siros-wallet-state` holds its own errors and timestamp.
+- `siros-openid4vp`'s `Presentation` is made by `Presentation::text` or
+  `Presentation::object` alone (§8.1). A format states a credential's types
+  (`ViewAdditions`), which a profile reads in its `Binding`; `siros-sdjwt`'s
+  `vct_values` matches a type the credential's `extends` chain names (B.3.5).
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
   CBOR with definite lengths alone under a nesting bound, and reads a
   `dcql_query`'s Credential Queries alone (`Query::read_all`).

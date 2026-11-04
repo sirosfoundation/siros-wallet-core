@@ -17,12 +17,14 @@ pub(super) fn bind(
     let query = &request.queries()[0];
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
     let credential = card.credential();
+    let additions = crate::common::additions(&credential);
     let binding = Binding {
         request: &request,
         query,
         credential: &credential,
         entries: &offered,
         placement: crate::common::placement(&credential.format),
+        additions: &*additions,
         carriage,
     };
     match PasoProfile::default().bind(binding, &en()) {
@@ -113,6 +115,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
             .expect("query");
         let naming = request.entries_naming(index);
         let credential = card.credential();
+        let additions = crate::common::additions(&credential);
         let bound = PasoProfile::default()
             .bind(
                 Binding {
@@ -121,6 +124,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     credential: &credential,
                     entries: &naming,
                     placement: crate::common::placement(&credential.format),
+                    additions: &*additions,
                     carriage: Carriage::Carried,
                 },
                 &en(),
@@ -176,6 +180,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
         siros_testkit::signed_request!(let request = &parameters);
         let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
         let credential = card.credential();
+        let additions = crate::common::additions(&credential);
         PasoProfile::default()
             .bind(
                 Binding {
@@ -184,6 +189,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
                     credential: &credential,
                     entries: &offered,
                     placement: crate::common::placement(&credential.format),
+                    additions: &*additions,
                     carriage: Carriage::Carried,
                 },
                 &en(),

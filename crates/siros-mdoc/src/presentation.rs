@@ -5,14 +5,13 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde_json::value::RawValue;
 use siros_openid4vp::cbor::cose::coset::AsCborValue;
 use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
 use siros_openid4vp::cbor::{self, Value};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::claims::kit::{Presenting, Revalidating};
 use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::json::{Node, quote};
+use siros_openid4vp::json::Node;
 use siros_explain::Explain;
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Fault, FindingData, Member};
@@ -285,7 +284,5 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
         (text("status"), Value::Integer(0.into())),
     ]);
     let bytes = cbor::encode(&response).map_err(caused(id, "the DeviceResponse"))?;
-    Ok(RawValue::from_string(quote(&URL_SAFE_NO_PAD.encode(bytes)))
-        .map(Presentation)
-        .map_err(caused(id, "the presentation"))?)
+    Ok(Presentation::text(&URL_SAFE_NO_PAD.encode(bytes)))
 }

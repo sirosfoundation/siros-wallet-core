@@ -134,7 +134,7 @@ where
         &session,
         host,
     )?;
-    Ok(Node::parse(presentation.0.get())
+    Ok(Node::parse(presentation.as_str())
         .expect("JSON")
         .into_owned())
 }

@@ -315,6 +315,44 @@ pub trait Format: DynClone + Send + Sync {
 
     /// How its proof carries a profile's members; `None` for a proof that carries none.
     fn placement(&self) -> Option<Placement>;
+
+    /// What the core's registration view gains for one of its credentials: its types, which a
+    /// profile reads through [`Binding::additions`] and names no format.
+    ///
+    /// # Errors
+    ///
+    /// The credential's view is none the format reads, a fault of the wallet's data.
+    fn additions<'c>(
+        &self,
+        credential: &'c Credential<'c>,
+    ) -> Result<Box<dyn ViewAdditions + 'c>, Fault>;
+}
+
+/// What the core's registration view gains: a credential's types, which its format writes at
+/// registration and a profile reads (reading 26).
+pub trait ViewAdditions: fmt::Debug {
+    /// The credential's type, then each type its type metadata extends, nearest first, from the
+    /// chain the caller resolved at registration (SD-JWT VC §6.4 for `dc+sd-jwt`); empty for a
+    /// format whose credentials state no type.
+    fn types(&self) -> Vec<&str>;
+}
+
+/// A credential's types as its format read them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ViewTypes(Vec<String>);
+
+impl ViewTypes {
+    /// The types, the credential's own first, then those it extends, nearest first.
+    #[must_use]
+    pub const fn new(types: Vec<String>) -> Self {
+        Self(types)
+    }
+}
+
+impl ViewAdditions for ViewTypes {
+    fn types(&self) -> Vec<&str> {
+        self.0.iter().map(String::as_str).collect()
+    }
 }
 
 dyn_clone::clone_trait_object!(Format);
@@ -458,6 +496,8 @@ pub struct Binding<'b> {
     /// How the query's format places the profile's members; `None` for a proof that carries
     /// none.
     pub placement: Option<Placement>,
+    /// What the registration view gains for the credential: its types.
+    pub additions: &'b dyn ViewAdditions,
     /// Whether the presentation can carry the profile's members.
     pub carriage: Carriage,
 }

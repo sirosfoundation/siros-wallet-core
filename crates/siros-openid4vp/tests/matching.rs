@@ -124,6 +124,13 @@ impl siros_openid4vp::plugins::Format for Scripted {
     fn placement(&self) -> Option<siros_openid4vp::wallet_metadata::Placement> {
         self.0.placement()
     }
+
+    fn additions<'c>(
+        &self,
+        credential: &'c siros_openid4vp::wallet::Credential<'c>,
+    ) -> Result<Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c>, Fault> {
+        self.0.additions(credential)
+    }
     fn query<'q>(
         &'q self,
         query: &'q siros_openid4vp::request::Query<'q>,

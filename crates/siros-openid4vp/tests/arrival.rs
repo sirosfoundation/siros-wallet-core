@@ -7,6 +7,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::arrival::{
     DataShape, DcApiProtocol, DcApiProtocols, FailedStatus, Received, Unreadable,
 };
+use siros_openid4vp::host::{NotPresentation, Presentation};
 use siros_openid4vp::ids::Origin;
 use siros_openid4vp::jose::{CompactJwe, JsonJws, JweError, JwsError, NotPublicJwk, PublicJwk};
 use siros_openid4vp::json::{JsonError, Node};
@@ -302,6 +303,23 @@ fn constructors_refuse_what_their_rule_excludes() {
         jwk(r#"{"kty":"oct","k":"AA"}"#),
         Err(NotPublicJwk::Private("k".to_owned()))
     );
+    // §8.1: a presentation is "a string or a JSON object".
+    assert_eq!(
+        Presentation::text("eyJ0.e30.c2ln~").as_str(),
+        r#""eyJ0.e30.c2ln~""#
+    );
+    let object = r#"{"proof": {"nonce": "n"}}"#;
+    assert_eq!(
+        Presentation::object(object).map(|p| p.as_str().to_owned()),
+        Ok(object.to_owned())
+    );
+    for refused in [r#""eyJ0.e30.c2ln~""#, "[1]", r#"{"a": 1, "a": 2}"#] {
+        assert_eq!(
+            Presentation::object(refused),
+            Err(NotPresentation),
+            "{refused}"
+        );
+    }
 }
 
 #[test]

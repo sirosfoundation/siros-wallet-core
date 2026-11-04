@@ -66,6 +66,31 @@ pub fn placement(
         .and_then(|plugin| plugin.placement())
 }
 
+/// What the registration view gains for a credential, as the plug-in of its format reads it:
+/// the one of `plugins` whose identifier the credential's format is.
+///
+/// # Errors
+///
+/// None of them is the credential's format, or the plug-in cannot read the view.
+pub fn additions<'c>(
+    plugins: &[&dyn siros_openid4vp::plugins::Format],
+    credential: &'c Credential<'c>,
+) -> Result<Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c>, Fault> {
+    plugins
+        .iter()
+        .find(|plugin| plugin.id() == credential.format)
+        .ok_or_else(|| {
+            Fault::new(
+                crate::FAULT,
+                siros_openid4vp::detail!(
+                    "no plug-in of {format}",
+                    format = credential.format.to_string()
+                ),
+            )
+        })?
+        .additions(credential)
+}
+
 /// The Client Identifier of the test Verifier's signed requests: the test prefix's.
 pub const CLIENT_ID: &str = "test:verifier";
 

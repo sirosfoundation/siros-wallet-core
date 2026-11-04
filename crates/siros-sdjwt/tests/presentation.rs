@@ -283,7 +283,7 @@ fn every_presentation_binds_what_it_shows() {
             &TestHost::at(now),
         )
         .expect("presentation");
-        let presentation = Node::parse(presentation.0.get()).expect("json");
+        let presentation = Node::parse(presentation.as_str()).expect("json");
         let sd_jwt = presentation
             .get("sd_jwt")
             .and_then(Node::as_str)

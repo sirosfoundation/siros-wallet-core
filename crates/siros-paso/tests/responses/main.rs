@@ -75,6 +75,19 @@ impl Format for Standing {
         crate::common::placement(&self.id)
     }
 
+    /// None: a stand-in credential states no type.
+    fn additions<'c>(
+        &self,
+        _credential: &'c siros_openid4vp::wallet::Credential<'c>,
+    ) -> Result<
+        Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c>,
+        siros_openid4vp::plugins::Fault,
+    > {
+        Ok(Box::new(siros_openid4vp::plugins::ViewTypes::new(
+            Vec::new(),
+        )))
+    }
+
     fn query<'q>(
         &'q self,
         query: &'q Query<'q>,

@@ -77,10 +77,7 @@ impl VpToken {
             .0
             .iter()
             .map(|(query, presentations)| {
-                let items: Vec<&str> = presentations
-                    .iter()
-                    .map(|presentation| presentation.0.get())
-                    .collect();
+                let items: Vec<&str> = presentations.iter().map(Presentation::as_str).collect();
                 format!("{}:[{}]", quote(query), items.join(","))
             })
             .collect();

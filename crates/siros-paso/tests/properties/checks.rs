@@ -278,12 +278,14 @@ pub fn case(case: &Case, tally: &mut Tally) {
         }
     }
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
+    let additions = crate::common::additions(&credential);
     let binding = Binding {
         request: &request,
         query: &request.queries()[0],
         credential: &credential,
         entries: &offered,
         placement: crate::common::placement(&credential.format),
+        additions: &*additions,
         carriage: Carriage::Carried,
     };
     let (bound, entry, rendered) = match (profile.bind(binding, &env), first) {

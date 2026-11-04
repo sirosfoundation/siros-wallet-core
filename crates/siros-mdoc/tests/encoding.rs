@@ -184,7 +184,7 @@ where
         host,
     )
     .expect("presentation");
-    Node::parse(presentation.0.get())
+    Node::parse(presentation.as_str())
         .expect("JSON")
         .into_owned()
 }

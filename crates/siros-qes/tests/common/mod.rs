@@ -216,6 +216,16 @@ impl Format for StandIn {
         crate::common::placement(&self.id)
     }
 
+    /// None: a stand-in credential states no type.
+    fn additions<'c>(
+        &self,
+        _credential: &'c siros_openid4vp::wallet::Credential<'c>,
+    ) -> Result<Box<dyn siros_openid4vp::plugins::ViewAdditions + 'c>, Fault> {
+        Ok(Box::new(siros_openid4vp::plugins::ViewTypes::new(
+            Vec::new(),
+        )))
+    }
+
     fn query<'q>(
         &'q self,
         _query: &'q Query<'q>,
@@ -379,8 +389,7 @@ impl<H> AnsweredOption<H> for StandInOption<'_> {
             quote(self.credential.credential().id.as_str()),
             written.join(",")
         );
-        Ok(serde_json::value::RawValue::from_string(text)
-            .map(Presentation)
+        Ok(Presentation::object(&text)
             .map_err(|e| Fault::caused(FAULT, detail!("presentation"), e))?)
     }
 }

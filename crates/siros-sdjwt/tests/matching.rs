@@ -208,6 +208,42 @@ fn the_dcql_examples_match_the_credentials_their_values_satisfy() {
     assert_eq!(found[0].1, [("listed".to_owned(), vec![0])]);
 }
 
+#[test]
+fn vct_values_match_a_type_the_credential_inherits_from() {
+    // B.3.5: "The Wallet MAY return Credentials that inherit from any of the specified types";
+    // SD-JWT VC §6.4: a type's chain, the type it extends first.
+    let (own, parent, root) = (
+        "https://bank.example/sca/card",
+        "https://bank.example/sca",
+        "https://eudi.example/sca",
+    );
+    let mut card = sd_jwt("card", own, "{}");
+    card.view = card
+        .view
+        .replacen('{', &format!(r#"{{"extends": ["{parent}", "{root}"], "#), 1);
+    let format = SdJwtVc::new().expect("format");
+    let credential = card.credential().expect("credential");
+    let additions = format.additions(&credential).expect("additions");
+    assert_eq!(additions.types(), [own, parent, root]);
+    for (vct, want) in [(own, true), (root, true), ("https://other.example", false)] {
+        let text = parameters(
+            &format!(
+                r#"{{"credentials": [{{"id": "q", "format": "dc+sd-jwt", "meta": {{"vct_values": ["{vct}"]}}}}]}}"#
+            ),
+            "",
+        );
+        let received = unsigned(&text).expect("received");
+        let request = request_of(&received).expect("request");
+        let (found, _) = matched(&request, std::slice::from_ref(&card));
+        assert_eq!(!found[0].1.is_empty(), want, "{vct}");
+    }
+    // An `extends` that is no array of types is no view the format reads.
+    let mut broken = sd_jwt("broken", own, "{}");
+    broken.view = broken.view.replacen('{', r#"{"extends": "x", "#, 1);
+    let credential = broken.credential().expect("credential");
+    assert!(format.additions(&credential).is_err());
+}
+
 /// The rules the request breaks, as (text, code).
 fn refusals(dcql: &str, extra: &str) -> Vec<(String, ErrorCode)> {
     let text = parameters(dcql, extra);

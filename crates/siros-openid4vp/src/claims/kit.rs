@@ -16,7 +16,7 @@ use siros_explain::{AllOf, Explained};
 
 pub use display::format_entry;
 use display::{metadata, value_rows};
-pub use plugin::{ClaimsPlugin, query};
+pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
 pub use rules::{KitRule, NoAlgorithm, QueryRule};
@@ -54,8 +54,15 @@ pub trait ClaimsFormat {
         &self,
         meta: Option<&'n Node<'m>>,
     ) -> Result<&'n Node<'m>, Box<dyn Explained>>;
-    /// Whether the credential's view matches the query's `meta`.
-    fn meta_matches(&self, meta: &Node<'_>, view: &Node<'_>) -> bool;
+    /// The credential's types its view states: its `type`, then those a format's view adds
+    /// ([`crate::plugins::ViewAdditions`]).
+    ///
+    /// # Errors
+    ///
+    /// The view states them in a shape the format does not read, a fault of the wallet's data.
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault>;
+    /// Whether the credential's types match the query's `meta`.
+    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool;
     /// Whether the claim names a response member the bound transaction writes.
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool;
     /// The format's rule a claims path pointer breaks: it cannot address the format's
@@ -186,17 +193,20 @@ impl<'q> ClaimsQuery<'q> {
         Ok(())
     }
 
-    /// The options the credential answers: when its view matches `meta`, those whose every
+    /// The options the credential answers: when its types match `meta`, those whose every
     /// claim is found in its values or names a member the transaction writes.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// The format cannot read the view's types.
     pub fn answerable(
         &self,
         format: &impl ClaimsFormat,
         view: &Node<'_>,
         provided: &[Member],
-    ) -> Vec<OptionIndex> {
-        if !format.meta_matches(&self.meta, view) {
-            return Vec::new();
+    ) -> Result<Vec<OptionIndex>, Fault> {
+        if !format.meta_matches(&self.meta, &format.types(view)?) {
+            return Ok(Vec::new());
         }
         let values = view.get("values").unwrap_or(&NULL);
         let found: Vec<bool> = self
@@ -205,7 +215,8 @@ impl<'q> ClaimsQuery<'q> {
             .iter()
             .map(|claim| claim.found(values) || format.written(claim, provided))
             .collect();
-        self.claims
+        Ok(self
+            .claims
             .options()
             .iter()
             .enumerate()
@@ -216,7 +227,7 @@ impl<'q> ClaimsQuery<'q> {
                     .all(|item| found.get(item.get()) == Some(&true))
             })
             .map(|(k, _)| OptionIndex(k))
-            .collect()
+            .collect())
     }
 
     /// The credential's card: the display entry's name, else the wallet's "Credential"; the
