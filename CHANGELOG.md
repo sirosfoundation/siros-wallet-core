@@ -25,6 +25,10 @@ released version yet.
 
 ### Changed
 
+- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
+  1.89, then each crate with and without its default features. The workspace
+  resolves with resolver 3. Both container images build on Rust 1.99.1, the
+  pinned toolchain.
 - `siros-zkp-req-nym-auth` is renamed to `siros-zkp-catalogues` on import. The
   ZK stack is two crates permanently: `siros-zkp-req` (protocol) and
   `siros-zkp-catalogues` (every rulebook as modules and features). nym_auth is

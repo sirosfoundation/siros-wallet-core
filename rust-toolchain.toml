@@ -18,3 +18,5 @@
 channel = "1.99.1"
 profile = "minimal"
 components = ["rustfmt", "clippy"]
+# The DC API matcher's target.
+targets = ["wasm32-wasip1"]
