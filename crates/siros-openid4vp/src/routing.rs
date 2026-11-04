@@ -7,8 +7,6 @@ use std::borrow::Cow;
 use siros_explain::Explain;
 
 use crate::envelope::{Channel, Parameters};
-#[cfg(feature = "resolve")]
-use crate::host::{CoseEncrypt, MayHave, Slot};
 use crate::json::Node;
 use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::Request;
@@ -18,8 +16,6 @@ use crate::request::Request;
 pub enum ResponseMode {
     /// `direct_post.jwt` (§8.3.1), by URI.
     DirectPostJwt,
-    /// `direct_post.cwt` (zkp_req §6.2), by URI, in a build whose host holds `CoseEncrypt`.
-    DirectPostCwt,
     /// Over the DC API.
     DcApi(DcApiMode),
 }
@@ -30,9 +26,7 @@ impl ResponseMode {
     pub const fn protection(self) -> Protection {
         match self {
             Self::DcApi(DcApiMode::DcApi) => Protection::Plain,
-            Self::DcApi(DcApiMode::DcApiJwt) | Self::DirectPostJwt | Self::DirectPostCwt => {
-                Protection::Encrypted
-            }
+            Self::DcApi(DcApiMode::DcApiJwt) | Self::DirectPostJwt => Protection::Encrypted,
         }
     }
 
@@ -41,7 +35,6 @@ impl ResponseMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::DirectPostJwt => "direct_post.jwt",
-            Self::DirectPostCwt => "direct_post.cwt",
             Self::DcApi(DcApiMode::DcApiJwt) => "dc_api.jwt",
             Self::DcApi(DcApiMode::DcApi) => "dc_api",
         }
@@ -62,8 +55,7 @@ pub enum DcApiMode {
 pub enum Protection {
     /// In the clear: `dc_api`.
     Plain,
-    /// Encrypted to the Verifier (§8.3; zkp_req §6.2): `dc_api.jwt`, `direct_post.jwt`,
-    /// `direct_post.cwt`.
+    /// Encrypted to the Verifier (§8.3): `dc_api.jwt`, `direct_post.jwt`.
     Encrypted,
 }
 
@@ -72,35 +64,12 @@ pub enum Protection {
 pub enum ModeChoice {
     /// A mode the wallet answers in, on the request's channel.
     Answer(ResponseMode),
-    /// A mode by URI that C5 refuses and whose errors go plain to the `response_uri`:
-    /// `direct_post` (reading 24), and `direct_post.cwt` in a build whose host holds no
-    /// `CoseEncrypt` (zkp_req §6.2: "A Wallet that cannot encrypt MAY send the error as plain
-    /// `direct_post`").
+    /// `direct_post` by URI, which C5 refuses, its errors plain to the `response_uri` (reading
+    /// 24).
     DirectPost,
     /// Absent, or no mode the wallet answers in on the channel (C5): over the DC API its error
     /// goes in `dc_api`; by URI no endpoint receives it.
     Unsupported,
-}
-
-/// The modes a build answers in beside HAIP's: `direct_post.cwt` when its host holds
-/// `CoseEncrypt` (decision 14), a fact of the host's type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Modes {
-    cwt: bool,
-}
-
-impl Modes {
-    /// The matcher's build, which receives DC API requests alone.
-    pub const DC_API: Self = Self { cwt: false };
-
-    /// The modes of a build whose host is `H`.
-    #[cfg(feature = "resolve")]
-    #[must_use]
-    pub const fn of<H: MayHave<dyn CoseEncrypt>>() -> Self {
-        Self {
-            cwt: <H::Slot as Slot<dyn CoseEncrypt>>::HELD,
-        }
-    }
 }
 
 /// A `state` value (§5.2): non-empty, of ASCII letters, digits, `-`, `.`, `_` and `~` (P6).
@@ -224,10 +193,10 @@ pub struct Routing<'r> {
 }
 
 impl<'r> Routing<'r> {
-    /// The routing of the parameters on the channel, in `modes`; only `Envelope::parse` makes
+    /// The routing of the parameters on the channel; only `Envelope::parse` makes
     /// one, and the envelope holds it. Its refusals, in order: P1, C5, P5, P6. Over the DC API
     /// `state` and `redirect_uri` are unrecognized parameters (A.2), which P5 and P6 leave alone.
-    pub(crate) fn read(parameters: &Parameters<'r>, channel: &Channel<'_>, modes: Modes) -> Self {
+    pub(crate) fn read(parameters: &Parameters<'r>, channel: &Channel<'_>) -> Self {
         let mut refusals = Vec::new();
         match parameters.json("response_type") {
             None => refusals.push(RoutingRule::ResponseTypeAbsent),
@@ -244,10 +213,7 @@ impl<'r> Routing<'r> {
             },
             Channel::Uri => match name {
                 Some("direct_post.jwt") => ModeChoice::Answer(ResponseMode::DirectPostJwt),
-                Some("direct_post.cwt") if modes.cwt => {
-                    ModeChoice::Answer(ResponseMode::DirectPostCwt)
-                }
-                Some("direct_post" | "direct_post.cwt") => ModeChoice::DirectPost,
+                Some("direct_post") => ModeChoice::DirectPost,
                 _ => ModeChoice::Unsupported,
             },
         };

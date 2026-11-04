@@ -18,7 +18,6 @@ use siros_openid4vp::plugins::{Registry, RegistryError};
 use siros_openid4vp::recourse::{ErrorTarget, Failure, Rejected};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::routing::Modes;
 use siros_testkit::fixtures;
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestHost, TestPrefix, TestTrust};
@@ -302,7 +301,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     .expect("signs");
     let data = format!(r#"{{"request":"{jws}"}}"#);
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let rejected = envelope
         .questions(&registry, &checked)
         .map(drop)
@@ -312,7 +311,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     // Signed by the test Verifier: authenticated, endpoint the platform's.
     let data = fixtures::signed_data(&parameters).expect("signs");
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let done = authenticated(&envelope, &registry, &trust, &checked).expect("authenticated");
     assert_eq!(done.verifier().endpoint(), &BoundEndpoint::DcApi);
     // Tamper: verified expected_origins that lack the Origin is C8.
@@ -322,7 +321,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     );
     let data = fixtures::signed_data(&elsewhere).expect("signs");
     let received = fixtures::signed(&data).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     assert!(authenticated(&envelope, &registry, &trust, &checked).is_ok());
     let request = Request::parse(&envelope).expect("a request");
     let refused = Accepted::new(&request, &registry)
@@ -337,7 +336,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
     // An unsigned request under OriginPolicy::Evaluate: the Origin's evaluation, A6 on a Deny.
     let parameters = fixtures::parameters(&super::test_queries(&["q"]), "");
     let received = fixtures::unsigned(&parameters).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let evaluate = TrustConfig {
         origins: OriginPolicy::Evaluate,
         ..checked
@@ -394,7 +393,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
         &DcApiProtocols::ALL,
     )
     .expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let done = authenticated(&envelope, &registry, &TestTrust::default(), &checked)
         .expect("authenticated");
     assert!(
@@ -412,7 +411,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
         &DcApiProtocols::ALL,
     )
     .expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let rejected = authenticated(&envelope, &registry, &TestTrust::default(), &checked)
         .map(drop)
         .expect_err("A11");

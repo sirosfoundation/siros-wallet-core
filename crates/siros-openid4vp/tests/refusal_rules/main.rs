@@ -21,7 +21,6 @@ use siros_openid4vp::recourse::Failure;
 use siros_openid4vp::refusal::{ErrorCode, Refusal, Refused};
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::resolve::{Outcome, Prepared};
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures;
@@ -78,7 +77,7 @@ fn refusals(parameters: &str, signed: bool, registry: &Registry<TestHost>) -> Ve
         Err(siros_testkit::fixtures::FixtureError::Unreadable(cause)) => return unreadable(cause),
         Err(other) => panic!("the fixture: {other}"),
     };
-    let envelope = match Envelope::parse(&received, Modes::DC_API) {
+    let envelope = match Envelope::parse(&received) {
         Ok(envelope) => envelope,
         Err(cause) => return unreadable(cause),
     };

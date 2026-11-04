@@ -25,7 +25,6 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::{Refusal, Refused};
 use siros_openid4vp::request::{AgreeableKey, Query, Request};
 use siros_openid4vp::resolve::{Outcome, Prepared};
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::rows::{Amounts, Choice, Env, HttpsUrl, Label, Parsed, Row, Value};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder, Wallet};
@@ -507,7 +506,7 @@ pub fn phase_one(
     env: &Env,
 ) -> Result<(Matched, Vec<Viewed>), Refused> {
     let received = unsigned(parameters).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("the envelope");
+    let envelope = Envelope::parse(&received).expect("the envelope");
     let request = Request::parse(&envelope)?;
     let wallet = wallet(held);
     let accepted = Accepted::new(&request, registry)?;

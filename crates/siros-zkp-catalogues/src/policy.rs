@@ -151,7 +151,7 @@ pub enum DcApiProtocol {
 
 /// The Client Identifier of `request` when it meets the policy: signed under a prefix other
 /// than `redirect_uri`, over the Digital Credentials API as `openid4vp-v1-signed`, and answered
-/// in an encrypted Response Mode of its channel (`direct_post.cwt` or `direct_post.jwt` over
+/// in an encrypted Response Mode of its channel the core routes (`direct_post.jwt` over
 /// redirects, `dc_api.jwt` over the Digital Credentials API). The core authenticated a request
 /// before the wallet reads it: its Verifier is trusted. A request that carries a registration
 /// certificate in `verifier_info` is refused: the catalogue takes the semantic identifier from
@@ -173,13 +173,11 @@ pub fn signed_and_encrypted<R: PolicyRequest>(
     }
     let encrypted = matches!(
         (request.dc_api_request(), request.response_mode()),
-        (
-            None,
-            ModeChoice::Answer(ResponseMode::DirectPostCwt | ResponseMode::DirectPostJwt)
-        ) | (
-            Some(_),
-            ModeChoice::Answer(ResponseMode::DcApi(DcApiMode::DcApiJwt))
-        )
+        (None, ModeChoice::Answer(ResponseMode::DirectPostJwt))
+            | (
+                Some(_),
+                ModeChoice::Answer(ResponseMode::DcApi(DcApiMode::DcApiJwt))
+            )
     );
     if !encrypted {
         return Err(policy(PolicyRule::ResponseMode));

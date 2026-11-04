@@ -5,7 +5,7 @@ use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::refusal::{ErrorCode, Refused};
 use siros_openid4vp::request::{ClientMetadata, Encryption, Request, ResponseEnc};
-use siros_openid4vp::routing::{DcApiMode, ModeChoice, Modes, ResponseMode, State};
+use siros_openid4vp::routing::{DcApiMode, ModeChoice, ResponseMode, State};
 use siros_testkit::fixtures;
 
 use super::{KEY, fetched, link, registry, request_object, uri_payload};
@@ -16,7 +16,7 @@ fn refusals(payload: &str) -> Vec<(String, ErrorCode)> {
     let uri = link("test%3Averifier", "");
     let object = request_object(payload);
     let received = fetched(&uri, &object).expect("fetched");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let refused: Option<Refused> = match Request::parse(&envelope) {
         Err(refused) => Some(refused),
         Ok(request) => Accepted::new(&request, &registry()).err(),
@@ -127,7 +127,7 @@ fn a_mode_c5_refuses_names_its_choice() {
         let uri = link("test%3Averifier", "");
         let object = request_object(payload);
         let received = fetched(&uri, &object).expect("fetched");
-        let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+        let envelope = Envelope::parse(&received).expect("an envelope");
         envelope.routing().mode()
     };
     let mode = r#""response_mode":"direct_post.jwt""#;
@@ -137,11 +137,6 @@ fn a_mode_c5_refuses_names_its_choice() {
     );
     assert_eq!(
         routing(&with(mode, r#""response_mode":"direct_post""#)),
-        ModeChoice::DirectPost
-    );
-    // direct_post.cwt in a build without CoseEncrypt (Modes::DC_API): plain to the response_uri.
-    assert_eq!(
-        routing(&with(mode, r#""response_mode":"direct_post.cwt""#)),
         ModeChoice::DirectPost
     );
     assert_eq!(
@@ -154,7 +149,7 @@ fn a_mode_c5_refuses_names_its_choice() {
         r#""state":"a b","redirect_uri":"x""#,
     );
     let received = fixtures::unsigned(&parameters).expect("received");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     assert_eq!(
         envelope.routing().mode(),
         ModeChoice::Answer(ResponseMode::DcApi(DcApiMode::DcApi))
@@ -203,7 +198,7 @@ fn section_5_2s_nonce_and_state_are_url_safe() {
     let uri = link("test%3Averifier", "");
     let object = request_object(&payload);
     let received = fetched(&uri, &object).expect("fetched");
-    let envelope = Envelope::parse(&received, Modes::DC_API).expect("an envelope");
+    let envelope = Envelope::parse(&received).expect("an envelope");
     let request = Request::parse(&envelope).expect("a request");
     assert_eq!(request.nonce().as_str(), "n-0S6_WzA2Mj");
     assert_eq!(

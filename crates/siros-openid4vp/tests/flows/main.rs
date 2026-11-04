@@ -22,7 +22,6 @@ use siros_openid4vp::host::Seconds;
 use siros_openid4vp::jose::Skew;
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::recourse::Rejected;
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch};
 use siros_testkit::fixtures::REQUEST_OBJECT_HEADER;
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
@@ -114,7 +113,7 @@ fn authenticated<'e>(
 
 /// The envelope of a URI request in the test host's modes.
 fn envelope<'r>(received: &'r Received<'r>) -> Envelope<'r> {
-    Envelope::parse(received, Modes::of::<TestHost>()).expect("an envelope")
+    Envelope::parse(received).expect("an envelope")
 }
 
 /// I4: two received forms never share a digest. The forms are drawn so that their parts coincide

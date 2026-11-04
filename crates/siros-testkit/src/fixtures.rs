@@ -16,7 +16,6 @@ use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, IconMedia};
 use siros_openid4vp::wallet::{
     Credential, Document, Facts, HeldAuthority, Holder, RegistrationError,
@@ -169,7 +168,7 @@ pub fn data_of<'a>(
 ///
 /// The envelope breaks a U rule, or the request a rule of its parsing.
 pub fn request_of<'r>(received: &'r Received<'r>) -> Result<Request<'r>, FixtureError> {
-    let envelope = Envelope::parse(received, Modes::DC_API)?;
+    let envelope = Envelope::parse(received)?;
     Ok(Request::parse(&envelope)?)
 }
 

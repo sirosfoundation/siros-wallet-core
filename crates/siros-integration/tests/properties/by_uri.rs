@@ -11,7 +11,6 @@ use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Finding, Outcome, Prepared};
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::TestTrust;
@@ -85,7 +84,7 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     let received = fetch
         .resume(FetchAnswer::Body(&body), &host)
         .expect("R-uri: the Request Object reads");
-    let envelope = Envelope::parse(&received, Modes::of::<HaipHost>()).expect("R-uri: an envelope");
+    let envelope = Envelope::parse(&received).expect("R-uri: an envelope");
     let config = TrustConfig {
         skew: Skew::new(Seconds(60)).expect("a skew"),
         origins: OriginPolicy::Accept,

@@ -22,7 +22,6 @@ use siros_openid4vp::jose::Skew;
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::Query;
-use siros_openid4vp::routing::Modes;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_trust::{
@@ -145,7 +144,7 @@ impl SignedRequest {
         let received = fetch
             .resume(FetchAnswer::Body(&self.object), &host)
             .unwrap();
-        let envelope = Envelope::parse(&received, Modes::of::<TestHost>()).unwrap();
+        let envelope = Envelope::parse(&received).unwrap();
         let trust = TestTrust::default();
         let authenticated = envelope
             .questions(&registry, &config)

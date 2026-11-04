@@ -12,7 +12,7 @@ use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
 use crate::ids::{ClientId, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
-use crate::routing::{Modes, Routing};
+use crate::routing::Routing;
 
 /// The request's parameters: DC API `data` or the Request Object's payload, a JSON object with
 /// unique member names at every level. `client_metadata` is kept as received: its own levels are
@@ -187,13 +187,13 @@ pub struct Envelope<'r> {
 const REQUEST_OBJECT: &str = "oauth-authz-req+jwt";
 
 impl<'r> Envelope<'r> {
-    /// The envelope of a received request, its routing read in `modes`. Refused per U3, U10,
+    /// The envelope of a received request, with its routing. Refused per U3, U10,
     /// U12, U13, U14, U16 and U17; the routing's rules are refusals it holds.
     ///
     /// # Errors
     ///
     /// The U rule the request breaks.
-    pub fn parse(received: &'r Received<'r>, modes: Modes) -> Result<Self, Unreadable> {
+    pub fn parse(received: &'r Received<'r>) -> Result<Self, Unreadable> {
         let (parameters, signatures) = match received.form() {
             ReceivedForm::DcApi { request, .. } => match request {
                 DcApiRequest::Unsigned(parameters) => (parameters.clone(), Signatures::Unsigned),
@@ -233,7 +233,7 @@ impl<'r> Envelope<'r> {
                 (parameters, Signatures::One { jws, client_id })
             }
         };
-        let routing = Routing::read(&parameters, &channel(received), modes);
+        let routing = Routing::read(&parameters, &channel(received));
         Ok(Self {
             received,
             parameters,
