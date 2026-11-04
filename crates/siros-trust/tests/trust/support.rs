@@ -12,10 +12,10 @@ use siros_trust::{IssuerChain, QueryAuthorities, TrustStore};
 use x509_cert::builder::profile::BuilderProfile;
 use x509_cert::builder::{Builder, CertificateBuilder};
 use x509_cert::certificate::TbsCertificate;
-use x509_cert::ext::Extension;
 use x509_cert::der::asn1::{AnyRef, GeneralizedTime, ObjectIdentifier, OctetString};
 use x509_cert::der::Encode;
 use x509_cert::ext::pkix::{AuthorityKeyIdentifier, BasicConstraints, InhibitAnyPolicy, KeyUsage};
+use x509_cert::ext::Extension;
 use x509_cert::name::Name;
 use x509_cert::serial_number::SerialNumber;
 use x509_cert::spki::{
@@ -272,7 +272,11 @@ impl Cert {
                 })
                 .unwrap();
         }
-        builder.build::<S, Signature>(signer).unwrap().to_der().unwrap()
+        builder
+            .build::<S, Signature>(signer)
+            .unwrap()
+            .to_der()
+            .unwrap()
     }
 }
 
