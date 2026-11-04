@@ -1,6 +1,5 @@
 //! What binds every presentation of a response to its request (§7.1 item 10): the binding facts
-//! a format builds its own binding from, siros-mdoc B.2.6's handover, siros-sdjwt B.3.6's
-//! audience and nonce.
+//! each format builds its own binding from, as its Appendix B section defines it.
 
 use crate::ids::{ClientId, Nonce, Origin};
 use crate::resolve::RouteKey;
