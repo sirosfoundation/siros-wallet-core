@@ -1,13 +1,14 @@
 //! A9 and K4: whether a set of the consent display needs the wallet's display, and the delegation
-//! the matcher sends for its entries. An entry Credential Manager's own display shows whole, of a
-//! credential the wallet presents from its background service, with nothing left to choose and no
-//! transaction to confirm, needs no wallet display; the matcher then sends `Full` delegation, and
-//! the wallet fulfils from its background service.
+//! the matcher sends for its entries. A set of a request without `transaction_data`, whose entries
+//! Credential Manager's own display shows whole, of credentials the wallet presents from its
+//! background service, with nothing left to choose, needs no wallet display; the matcher then
+//! sends `Full` delegation, and the wallet fulfils from its background service.
 
 use siros_explain::Explain;
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::matching::{Choice, Display, SelectionError};
 use siros_openid4vp::refusal::ErrorCode;
+use siros_openid4vp::request::Request;
 
 use crate::field::{Extent, Field};
 
@@ -15,6 +16,28 @@ use crate::field::{Extent, Field};
 /// user interaction, and the wallet's background service answers.
 #[derive(Debug, Clone, Copy)]
 pub struct Presentable<'p>(pub &'p [CredentialId<'p>]);
+
+/// Whether the request carries `transaction_data`, which the End-User confirms on the wallet's
+/// display (T5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransactionData {
+    /// No `transaction_data`.
+    Absent,
+    /// `transaction_data` entries.
+    Carried,
+}
+
+impl TransactionData {
+    /// Whether the request carries `transaction_data`.
+    #[must_use]
+    pub fn of(request: &Request<'_>) -> Self {
+        if request.entries().is_empty() {
+            Self::Absent
+        } else {
+            Self::Carried
+        }
+    }
+}
 
 /// Whether Credential Manager showed everything a set's entries carry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,8 +53,8 @@ pub enum HostDisplay {
 pub struct SetFacts {
     /// Every entry's credential is presentable without the wallet's UI.
     pub presentable: bool,
-    /// No entry carries a transaction, which the End-User confirms on the wallet's display.
-    pub no_transaction: bool,
+    /// The request carries no `transaction_data`.
+    pub no_transaction_data: bool,
     /// Every slot holds one choice: the End-User chooses nothing, neither an addition nor a
     /// subset of a `multiple` query's candidates.
     pub settled: bool,
@@ -94,9 +117,14 @@ impl WalletDisplayNeeded {
 }
 
 impl SetFacts {
-    /// The facts of a set of the display, its static entries left out: they disclose nothing.
+    /// The facts of a set of the display of a request carrying `transactions`, its static entries
+    /// left out: they disclose nothing.
     #[must_use]
-    pub fn of(set: &[Vec<Choice<'_>>], presentable: Presentable<'_>) -> Self {
+    pub fn of(
+        set: &[Vec<Choice<'_>>],
+        presentable: Presentable<'_>,
+        transactions: TransactionData,
+    ) -> Self {
         let entries = || {
             set.iter().flatten().filter_map(|choice| match choice {
                 Choice::Entry(view) => Some(*view),
@@ -105,7 +133,7 @@ impl SetFacts {
         };
         Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential)),
-            no_transaction: entries().all(|view| view.entry.overlay().is_none()),
+            no_transaction_data: transactions == TransactionData::Absent,
             settled: set.iter().all(|slot| slot.len() == 1),
             whole: entries()
                 .flat_map(|view| view.entry.rows())
@@ -115,18 +143,23 @@ impl SetFacts {
 }
 
 impl WalletDisplay {
-    /// A9: none of the wallet's when every entry's credential is presentable without its UI, no
-    /// entry carries a transaction, nothing is left to choose, every row shows whole, and
-    /// Credential Manager showed everything.
+    /// A9: none of the wallet's when every entry's credential is presentable without its UI, the
+    /// request carries no `transaction_data`, nothing is left to choose, every row shows whole,
+    /// and Credential Manager showed everything.
     #[must_use]
     pub const fn of(facts: SetFacts, host: HostDisplay) -> Self {
         let SetFacts {
             presentable,
-            no_transaction,
+            no_transaction_data,
             settled,
             whole,
         } = facts;
-        if presentable && no_transaction && settled && whole && matches!(host, HostDisplay::Full) {
+        if presentable
+            && no_transaction_data
+            && settled
+            && whole
+            && matches!(host, HostDisplay::Full)
+        {
             Self::NotNeeded
         } else {
             Self::Needed
@@ -146,8 +179,9 @@ impl Delegation {
 }
 
 impl Fulfilment {
-    /// A9 in the wallet: a background fulfilment of a set that needs the wallet's display is
-    /// refused; on the wallet's display every set stands.
+    /// A9 in the wallet: a background fulfilment of a set of the display of a request carrying
+    /// `transactions` that needs the wallet's display is refused; on the wallet's display every
+    /// set stands.
     ///
     /// # Errors
     ///
@@ -158,6 +192,7 @@ impl Fulfilment {
         display: &Display<'_>,
         set: usize,
         presentable: Presentable<'_>,
+        transactions: TransactionData,
     ) -> Result<(), WalletDisplayNeeded> {
         let Self::Background(host) = self else {
             return Ok(());
@@ -167,7 +202,7 @@ impl Fulfilment {
             set,
             sets: sets.len(),
         })?;
-        match WalletDisplay::of(SetFacts::of(slots, presentable), host) {
+        match WalletDisplay::of(SetFacts::of(slots, presentable, transactions), host) {
             WalletDisplay::NotNeeded => Ok(()),
             WalletDisplay::Needed => Err(WalletDisplayNeeded::Needed { set }),
         }

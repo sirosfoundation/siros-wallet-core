@@ -4,7 +4,9 @@
 use siros_explain::Explain;
 use siros_openid4vp::rows::{Label, Row, Value};
 
-/// The most characters of a field's label or value the matcher writes.
+/// The most characters of a field's label or value the matcher writes: a picker row holds one short
+/// line. The bound is siros-credman's own; Credential Manager's ABI states no length for a field
+/// (android-credman-sys ABI.md §5).
 pub const FIELD_MAX: usize = 80;
 
 /// Whether a field's text holds what it shows whole.

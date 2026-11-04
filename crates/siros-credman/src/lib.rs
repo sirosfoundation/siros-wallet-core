@@ -38,7 +38,8 @@ mod field;
 use siros_explain::{Message, Messages};
 
 pub use delegation::{
-    Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, WalletDisplay, WalletDisplayNeeded,
+    Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
+    WalletDisplayNeeded,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};

@@ -1,11 +1,13 @@
 //! A9 and K4 over the core's display: a set needs the wallet's display unless every entry's
-//! credential is presentable without the wallet's UI, no entry carries a transaction, every row
-//! shows whole, nothing is left to choose and Credential Manager showed everything; the matcher
+//! credential is presentable without the wallet's UI, the request carries no `transaction_data`,
+//! every row shows whole, nothing is left to choose and Credential Manager showed everything; the
+//! matcher
 //! sends `Full` delegation for a set that needs none, and the wallet refuses a background
 //! fulfilment of a set that needs it with `access_denied`.
 
 use siros_credman::{
-    Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, WalletDisplay, WalletDisplayNeeded,
+    Delegation, FIELD_MAX, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData,
+    WalletDisplay, WalletDisplayNeeded,
 };
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::{CredentialId, TransactionType};
@@ -20,8 +22,6 @@ use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 const QUERY: &str = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
 const OPTIONAL: &str = r#"{"credentials":[{"id":"q","format":"test"},{"id":"r","format":"test"}],
     "credential_sets":[{"options":[["q"]]},{"options":[["r"]],"required":false}]}"#;
-const LONG: &str =
-    "c-that-holds-more-characters-than-one-field-shows-whole-on-credential-managers-entry";
 
 fn registry() -> Registry<TestHost> {
     let mut builder = Registry::<TestHost>::builder();
@@ -74,9 +74,7 @@ fn judged(
             icon: Icon::DEFAULT,
             title: "Notice".to_owned(),
             subtitle: None,
-            rows: vec![Row::full_text(Label::text(
-                "A wallet notice longer than any field Credential Manager shows whole, which discloses nothing",
-            ))],
+            rows: vec![Row::full_text(Label::text("n".repeat(FIELD_MAX + 1)))],
         },
     }];
     let shown = display(&sets, &views, &statics).expect("display");
@@ -85,10 +83,11 @@ fn judged(
         .map(|id| CredentialId::parse(*id).expect("id"))
         .collect();
     let presentable = Presentable(&presentable);
-    let facts = SetFacts::of(&shown.sets()[0], presentable);
+    let transactions = TransactionData::of(&request);
+    let facts = SetFacts::of(&shown.sets()[0], presentable, transactions);
     (
         facts,
-        Fulfilment::Background(host).check(&shown, 0, presentable),
+        Fulfilment::Background(host).check(&shown, 0, presentable, transactions),
     )
 }
 
@@ -105,24 +104,30 @@ type Case<'c> = (
 
 #[test]
 fn a_set_needs_the_wallet_display_unless_a9_holds() {
-    let transaction = parameters(
-        QUERY,
-        &format!(
-            r#""transaction_data":["{}"]"#,
-            siros_testkit::verifier::encode(r#"{"type":"t1","credential_ids":["q"]}"#)
-                .expect("entry")
-        ),
-    );
+    let transaction = |dcql: &str, query: &str| {
+        let entry = format!(r#"{{"type":"t1","credential_ids":["{query}"]}}"#);
+        parameters(
+            dcql,
+            &format!(
+                r#""transaction_data":["{}"]"#,
+                siros_testkit::verifier::encode(&entry).expect("entry")
+            ),
+        )
+    };
     let one = [held("c", &["q"])];
+    // A credential id a field shows as its value: the test format's first row.
+    let whole = "c".repeat(FIELD_MAX);
+    let clipped = "c".repeat(FIELD_MAX + 1);
     let met = SetFacts {
         presentable: true,
-        no_transaction: true,
+        no_transaction_data: true,
         settled: true,
         whole: true,
     };
     let full = HostDisplay::Full;
     // The test profile's overlay shows its transaction's logo, an image no field shows.
-    let cases: [Case<'_>; 7] = [
+    let (whole, clipped) = ([whole.as_str()], [clipped.as_str()]);
+    let cases: [Case<'_>; 9] = [
         (
             "presentable, settled, whole, shown",
             parameters(QUERY, ""),
@@ -144,13 +149,24 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         ),
         (
             "a transaction",
-            transaction,
+            transaction(QUERY, "q"),
             one.to_vec(),
             &["c"],
             full,
             SetFacts {
-                no_transaction: false,
+                no_transaction_data: false,
                 whole: false,
+                ..met
+            },
+        ),
+        (
+            "transaction_data binding a query the set does not answer",
+            transaction(OPTIONAL, "r"),
+            one.to_vec(),
+            &["c"],
+            full,
+            SetFacts {
+                no_transaction_data: false,
                 ..met
             },
         ),
@@ -177,10 +193,18 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             },
         ),
         (
+            "a field of FIELD_MAX characters",
+            parameters(QUERY, ""),
+            vec![held(whole[0], &["q"])],
+            &whole,
+            full,
+            met,
+        ),
+        (
             "a clipped field",
             parameters(QUERY, ""),
-            vec![held(LONG, &["q"])],
-            &[LONG],
+            vec![held(clipped[0], &["q"])],
+            &clipped,
             full,
             SetFacts {
                 whole: false,
