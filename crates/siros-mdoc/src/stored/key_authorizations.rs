@@ -43,10 +43,7 @@ impl KeyAuthorizations {
         })
     }
 
-    /// Whether the device key may sign `identifier` of `name_space`. [`Mdoc::disclose`]
-    /// refuses each `DeviceSigned` element this does not authorize.
-    ///
-    /// [`Mdoc::disclose`]: super::Mdoc::disclose
+    /// Whether the device key may sign `identifier` of `name_space` (ISO/IEC 18013-5, 9.1.2.4).
     #[must_use]
     pub fn authorizes(&self, name_space: &NameSpace, identifier: &ElementIdentifier) -> bool {
         self.name_spaces.contains(name_space)

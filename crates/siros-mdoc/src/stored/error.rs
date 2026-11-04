@@ -5,7 +5,7 @@ use siros_openid4vp::cbor::CborError as Core;
 
 use super::names::{DigestId, NameSpace};
 
-/// Why a stored credential is no mdoc [`Mdoc::parse`](super::Mdoc::parse) reads.
+/// Why a stored credential is no mdoc [`StoredMdoc::parse`](super::StoredMdoc::parse) reads.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("mso_mdoc: {}: {:?}", self.code(), self)]
 pub enum MdocError {
@@ -52,7 +52,7 @@ pub enum MdocError {
     ItemDigest,
 }
 
-/// Why the top level is no envelope [`Mdoc::parse`](super::Mdoc::parse) reads.
+/// Why the top level is no envelope [`StoredMdoc::parse`](super::StoredMdoc::parse) reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum EnvelopeFault {
     /// `documents` holds this many documents, where one is read.
