@@ -138,19 +138,19 @@ jose_names! {
 
 impl Curve<'static> {
     /// `P-256` (RFC 7518 §6.2.1.1).
-    pub const P_256: Self = Self("P-256");
+    pub const P_256: Self = siros_explain::checked!(Curve<'static>, "P-256");
 }
 
 impl KeyAgreement<'static> {
     /// `ECDH-ES` (RFC 7518 §4.6).
-    pub const ECDH_ES: Self = Self("ECDH-ES");
+    pub const ECDH_ES: Self = siros_explain::checked!(KeyAgreement<'static>, "ECDH-ES");
 }
 
 impl ContentEncryption<'static> {
     /// `A128GCM` (RFC 7518 §5.3).
-    pub const A128GCM: Self = Self("A128GCM");
+    pub const A128GCM: Self = siros_explain::checked!(ContentEncryption<'static>, "A128GCM");
     /// `A256GCM` (RFC 7518 §5.3).
-    pub const A256GCM: Self = Self("A256GCM");
+    pub const A256GCM: Self = siros_explain::checked!(ContentEncryption<'static>, "A256GCM");
 }
 
 /// What a module agrees keys and encrypts with: curves, key agreements and content encryptions,

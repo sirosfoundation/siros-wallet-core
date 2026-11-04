@@ -158,7 +158,7 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
     assert_eq!(
         adhoc_case(&late, &card("{}", None, ISSUER), PasoProfile::default()),
         Err(AdhocOutcome::Fallback(
-            PasoFinding::of(None, Some(late.clone()), Vec::new()).expect("a finding"),
+            PasoFinding::of(None, None, Some(late.clone()), Vec::new()).expect("a finding"),
             0
         ))
     );

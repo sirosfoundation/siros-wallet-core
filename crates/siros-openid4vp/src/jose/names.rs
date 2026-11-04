@@ -12,7 +12,7 @@ pub struct JwsAlgorithm(&'static str);
 
 impl JwsAlgorithm {
     /// `ES256` (RFC 7518 §3.4).
-    pub const ES256: Self = Self("ES256");
+    pub const ES256: Self = siros_explain::checked!(JwsAlgorithm, "ES256");
 
     /// The name; `None` for an empty text, a character outside printable ASCII, space and `"`,
     /// and `none`, which RFC 8725 §3.2 refuses.
@@ -49,7 +49,7 @@ impl JwsAlgorithms {
 
     /// Whether it states the `alg` a header names.
     #[must_use]
-    pub fn states(&self, alg: &str) -> bool {
+    pub fn accepts(&self, alg: &str) -> bool {
         self.0.iter().any(|stated| stated.as_str() == alg)
     }
 

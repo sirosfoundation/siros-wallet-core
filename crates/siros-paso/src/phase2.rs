@@ -4,6 +4,7 @@
 
 use siros_explain::{IntoArg, kind};
 use siros_openid4vp::ids::FormatId;
+use siros_openid4vp::request::Agreements;
 
 use crate::image::ImageFailure;
 use crate::risk::{Effective, Sealing};
@@ -58,11 +59,12 @@ pub struct FailedImage {
 }
 
 /// What phase 2 found no longer holds for a record, at least one of: the build lacks a module
-/// its response needs, its ad-hoc metadata JWT expired, an https image's fetch or verification
-/// failed.
+/// its response needs, the module that seals its risk signals as a JWE states no key the issuer
+/// publishes, its ad-hoc metadata JWT expired, an https image's fetch or verification failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasoFinding {
     lacks: Option<OptionalModule>,
+    unsealable: Option<Agreements>,
     expired: Option<String>,
     failed: Vec<FailedImage>,
 }
@@ -72,20 +74,30 @@ impl PasoFinding {
     #[must_use]
     pub fn of(
         lacks: Option<OptionalModule>,
+        unsealable: Option<Agreements>,
         expired: Option<String>,
         failed: Vec<FailedImage>,
     ) -> Option<Self> {
-        (lacks.is_some() || expired.is_some() || !failed.is_empty()).then_some(Self {
-            lacks,
-            expired,
-            failed,
-        })
+        (lacks.is_some() || unsealable.is_some() || expired.is_some() || !failed.is_empty())
+            .then_some(Self {
+                lacks,
+                unsealable,
+                expired,
+                failed,
+            })
     }
 
     /// The module the build lacks that the response needs.
     #[must_use]
     pub const fn lacks(&self) -> Option<OptionalModule> {
         self.lacks
+    }
+
+    /// The statement of the module that seals the risk signals as a JWE (`Haip::agreements`),
+    /// when it admits none of the issuer's keys (Risk Signals §7.3).
+    #[must_use]
+    pub const fn unsealable(&self) -> Option<Agreements> {
+        self.unsealable
     }
 
     /// The ad-hoc metadata JWT, expired.
@@ -249,14 +261,16 @@ siros_openid4vp::with_resolve! {
         })
     }
 
-    /// Revalidates a record: whether the build holds the modules its response needs, its ad-hoc
-    /// metadata JWT's `exp`, then each https image of the payload its metadata displays and the
-    /// matcher did not have, with what the caller fetched. `cose_held`: the host's type holds the
-    /// `COSE_Encrypt` module.
+    /// Revalidates a record: whether the build holds the modules its response needs, whether
+    /// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
+    /// a key the issuer publishes, its ad-hoc metadata JWT's `exp`, then each https image of the
+    /// payload its metadata displays and the matcher did not have, with what the caller fetched.
+    /// `cose_held`: the host's type holds the `COSE_Encrypt` module.
     pub(crate) fn revalidate(
         profile: &PasoProfile,
         fetched: &FetchedRecord<'_>,
         platform: &dyn Platform,
+        sealer: Agreements,
         cose_held: bool,
     ) -> Result<Option<PasoFinding>, Fault> {
         let resources = fetched.resources();
@@ -267,6 +281,10 @@ siros_openid4vp::with_resolve! {
             let lacks = OptionalModule::needed(&signals, record.format()).filter(|module| match module {
                 OptionalModule::CoseEncrypt => !cose_held,
             });
+            let unsealable = (signals.sealing == Sealing::Encrypted
+                && Proof::of(record.format()) == Some(Proof::KeyBinding)
+                && read.document.encryption_key(Some(&sealer)).is_none())
+            .then_some(sealer);
             let expired = match read.adhoc {
                 Some(jws) if passed(jws.exp(), platform.now())? => Some(jws.text.to_owned()),
                 _ => None,
@@ -299,7 +317,7 @@ siros_openid4vp::with_resolve! {
                     Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
                 }
             }
-            Ok(PasoFinding::of(lacks, expired, failed))
+            Ok(PasoFinding::of(lacks, unsealable, expired, failed))
         })
     }
 

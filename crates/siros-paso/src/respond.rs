@@ -238,8 +238,12 @@ impl Answer<'_> {
     /// issuer's key with §7.6's A256GCM: a JWE for an SD-JWT VC, a `COSE_Encrypt` for an mdoc,
     /// which needs the build's `COSE_Encrypt` module.
     fn sealed(&self, envelopes: &Node<'_>, modules: Modules<'_>) -> Result<MemberValue, Fault> {
-        let key = self.document.encryption_key().ok_or_else(|| {
-            Fault::new(FAULT, detail!("the entry rendered with a key to encrypt its risk signals to, now without"))
+        let sealer = match self.proof {
+            Proof::KeyBinding => Some(modules.haip.agreements()),
+            Proof::DeviceSigned => None,
+        };
+        let key = self.document.encryption_key(sealer.as_ref()).ok_or_else(|| {
+            Fault::new(FAULT, detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
         })?;
         let plaintext = envelopes
             .python_ascii()

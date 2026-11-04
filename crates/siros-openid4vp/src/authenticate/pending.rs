@@ -239,7 +239,7 @@ impl<'e> Envelope<'e> {
             })
         })?;
         let alg = signed.header().alg();
-        if !verifies.states(alg) {
+        if !verifies.accepts(alg) {
             return Err(Unauthenticated::Algorithm(alg.to_owned()));
         }
         Ok(Pieces {

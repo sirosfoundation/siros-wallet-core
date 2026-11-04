@@ -133,7 +133,7 @@ fn each_x509_rule_refuses_its_claim() {
         X509Refusal::San("rp.example.com".to_owned())
     );
     // Both: x5c absent; empty; an item no base64; no DER certificate; a trailing byte; the
-    // leaf's key no uncompressed P-256 point.
+    // leaf's key no EC or EdDSA key the wallet reads.
     let hash = x509_hash(&good);
     for client_id in [hash.as_str(), san] {
         assert_eq!(
@@ -322,5 +322,30 @@ fn section_5_9_3s_x509_hash_is_a_base64url_sha_256() {
         Err(X509Refusal::HashSyntax(
             "Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZsz".to_owned()
         ))
+    );
+}
+
+#[test]
+fn an_ed25519_key_reads_as_the_okp_jwk_of_rfc_8410_and_rfc_8037() {
+    use der::Decode;
+    use siros_x509::SpkiKey;
+    use spki::SubjectPublicKeyInfoOwned;
+
+    // RFC 8410 §10.1's public key, and its JWK per RFC 8037 §2.
+    let der = STANDARD
+        .decode("MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=")
+        .expect("base64");
+    let spki = SubjectPublicKeyInfoOwned::from_der(&der).expect("SubjectPublicKeyInfo");
+    let key = spki.key().expect("a key");
+    let jwk = key.jwk();
+    let text = |name: &str| jwk.member(name).and_then(Node::as_str);
+    assert_eq!(
+        (text("kty"), text("crv"), text("x"), text("y")),
+        (
+            Some("OKP"),
+            Some("Ed25519"),
+            Some("Gb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE"),
+            None
+        )
     );
 }

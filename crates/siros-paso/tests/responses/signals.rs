@@ -453,3 +453,68 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         );
     }
 }
+
+#[test]
+pub(super) fn an_sd_jwts_signals_are_sealed_to_the_first_issuer_key_the_haip_module_states() {
+    use siros_openid4vp::host::Haip;
+    use siros_openid4vp::resolve::{Finding, Outcome as Phase2};
+    use siros_paso::PasoFinding;
+    use siros_testkit::TestHaip;
+
+    // TestHaip states ECDH-ES on P-256; A.6's key is one, the same point under a key wrap is not.
+    let a6: Json = serde_json::from_str(&a6_keys()).expect("A.6");
+    let mut wrapped = a6["keys"][0].clone();
+    wrapped["alg"] = json!("ECDH-ES+A128KW");
+    wrapped["kid"] = json!("issuer-enc-wrapped");
+    let entry_json = payment("");
+    let parameters = parameters(
+        r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,
+        &[&entry_json],
+        "",
+    );
+    siros_testkit::signed_request!(let request = &parameters);
+    let meta = payment_meta();
+    let sealed = format!(
+        r#"{}, "encrypted": true, "risk_signals": [{{"type": "{MODE}", "required": true}}]}}"#,
+        meta.strip_suffix('}').expect("an object")
+    );
+    let run = |keys: Json| {
+        let card = card(
+            &format!(r#"{{"{PAY}": {sealed}}}"#),
+            Some(&keys.to_string()),
+            ISSUER,
+        );
+        answer(
+            &request,
+            &card,
+            &registry(PasoProfile::default()),
+            &Published::default(),
+            &host_with(Vec::new()),
+        )
+    };
+    let response = run(json!({"keys": [wrapped, a6["keys"][0]]})).expect("answered");
+    let jwe = proof(&response)["risk_signals"]
+        .as_str()
+        .expect("a JWE")
+        .to_owned();
+    let header: Json = serde_json::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(jwe.split('.').next().expect("a header"))
+            .expect("base64url"),
+    )
+    .expect("json");
+    assert_eq!(header["kid"], a6["keys"][0]["kid"]);
+    // With the wrapped key alone, phase 2 finds no key the module seals to before it seals.
+    let Err(Phase2::Fallback(findings)) = run(json!({"keys": [wrapped]})) else {
+        panic!("phase 2 falls back");
+    };
+    let [Finding::Revalidation { finding, .. }] = findings.items() else {
+        panic!("{findings:?}");
+    };
+    assert_eq!(
+        finding
+            .data::<PasoFinding>()
+            .and_then(PasoFinding::unsealable),
+        Some(TestHaip.agreements())
+    );
+}

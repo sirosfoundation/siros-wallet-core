@@ -82,9 +82,10 @@ pub enum X509Refusal {
         /// der's reason.
         cause: String,
     },
-    /// The leaf's key is no uncompressed P-256 point under id-ecPublicKey and secp256r1 (RFC
-    /// 5480 §2.1.1, §2.2).
-    #[error("the leaf's key is no uncompressed P-256 point")]
+    /// The leaf's key is none [`SpkiKey::key`] reads: an uncompressed point under
+    /// id-ecPublicKey and secp256r1, secp384r1 or secp521r1 (RFC 5480 §2.1.1, §2.2), or an
+    /// id-Ed25519 or id-Ed448 key (RFC 8410 §3).
+    #[error("the leaf's key is no EC or EdDSA public key the wallet reads")]
     Key,
     /// The original Client Identifier is no base64url without padding of 32 octets.
     #[error("x509_hash {0:?} is no base64url SHA-256 hash")]

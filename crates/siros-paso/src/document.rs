@@ -9,7 +9,7 @@
 
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node, Object};
-use siros_openid4vp::request::AgreeableKey;
+use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption};
 
 /// The key of the PaSO document in a credential's registration.
 pub const DOCUMENT: &str = "paso";
@@ -138,9 +138,11 @@ impl<'d> PasoDocument<'d> {
 
     /// Risk Signals §7.3: the first published key, `use` `enc` with a `kid` and an `alg`, that
     /// the wallet can agree a key with: an ECDH-ES agreement (RFC 7518 §4.6) on an `EC` curve
-    /// of RFC 7518 §6.2.1.1 or an `OKP` curve of RFC 8037 §2.
+    /// of RFC 7518 §6.2.1.1 or an `OKP` curve of RFC 8037 §2, which `sealer`, when given, states
+    /// with §7.6's A256GCM. `sealer` is the statement of the module that seals a JWE to it
+    /// (`Haip::agreements`).
     #[must_use]
-    pub fn encryption_key(&self) -> Option<AgreeableKey<'d>> {
+    pub fn encryption_key(&self, sealer: Option<&Agreements>) -> Option<AgreeableKey<'d>> {
         self.keys.iter().find_map(|key| {
             let usable =
                 key.get("use") == Some(&Node::String("enc".into())) && key.get("alg").is_some();
@@ -148,6 +150,13 @@ impl<'d> PasoDocument<'d> {
                 .then(|| AgreeableKey::of(key))
                 .flatten()
                 .filter(|agreeable| agrees(key, agreeable))
+                .filter(|agreeable| {
+                    sealer.is_none_or(|sealer| {
+                        agreeable.alg().is_some_and(|alg| {
+                            sealer.admits(agreeable.curve(), alg, ContentEncryption::A256GCM)
+                        })
+                    })
+                })
         })
     }
 }

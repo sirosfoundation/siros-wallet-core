@@ -50,21 +50,19 @@ fn es256_signs_as_rfc_6979_a_2_5_says_and_verifies() {
     assert_eq!(key, verifier_key().expect("key"));
     assert!(verifies(&key, b"sample", &signature));
     assert!(!verifies(&key, b"samplf", &signature));
-    // SEC 2 §2.4.2: a point one above U on the y axis is off the curve and verifies nothing.
+    // SEC 1 §3.2.2.1: U with its y's last bit flipped is off the curve, which the double refuses
+    // as a point before any signature.
     let mut above = uy;
     if let Some(last) = above.last_mut() {
         *last ^= 1;
     }
-    let off = VerificationKey::of(
-        PublicJwk::parse(jwk(
-            &URL_SAFE_NO_PAD.encode(hex(
-                "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6",
-            )),
-            &URL_SAFE_NO_PAD.encode(above),
-        ))
-        .expect("a JWK"),
+    let off = jwk(
+        &URL_SAFE_NO_PAD.encode(hex(
+            "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6",
+        )),
+        &URL_SAFE_NO_PAD.encode(above),
     );
-    assert!(!verifies(&off, b"sample", &signature));
+    assert!(p256_point(&off).is_none());
 }
 
 #[test]

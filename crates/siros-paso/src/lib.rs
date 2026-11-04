@@ -73,7 +73,7 @@ use siros_openid4vp::plugins::{
     Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{Entry, EntryIndex, Request};
+use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Credential;
 siros_openid4vp::with_resolve! {
@@ -171,8 +171,9 @@ pub struct Rendered {
 
 /// The PaSO profile, with the wallet data its registration carries: the https resources the
 /// wallet fetched, its View §2 item bound, the risk signal profiles it transcribed, its trust
-/// store's roots, the ad-hoc metadata JWTs phase 2 found expired, and the modules phase 2 found
-/// the build lacks.
+/// store's roots, the ad-hoc metadata JWTs phase 2 found expired, the modules phase 2 found
+/// the build lacks, and the statement of the module that seals a JWE when phase 2 found it admits
+/// none of an issuer's keys.
 #[derive(Debug, Clone)]
 pub struct PasoProfile {
     resources: Vec<(String, Fetch)>,
@@ -181,6 +182,7 @@ pub struct PasoProfile {
     trust: Vec<TrustAnchor>,
     expired: Vec<String>,
     lacking: Vec<OptionalModule>,
+    sealer: Option<Agreements>,
 }
 
 impl Default for PasoProfile {
@@ -194,6 +196,7 @@ impl Default for PasoProfile {
             trust: Vec::new(),
             expired: Vec::new(),
             lacking: Vec::new(),
+            sealer: None,
         }
     }
 }
@@ -378,7 +381,11 @@ impl PasoProfile {
         }
         .render()?;
         let signals = Effective::resolve(given, &self.catalogue)?;
-        if signals.sealing == Sealing::Encrypted && document.encryption_key().is_none() {
+        let sealer = self
+            .sealer
+            .as_ref()
+            .filter(|_| Proof::of(format) == Some(Proof::KeyBinding));
+        if signals.sealing == Sealing::Encrypted && document.encryption_key(sealer).is_none() {
             return Err(NotCompatible::NoEncryptionKey.into());
         }
         if let Some(module) = OptionalModule::needed(&signals, format)
@@ -506,6 +513,9 @@ impl Profile for PasoProfile {
                 }));
                 informed.expired.extend(finding.expired().map(str::to_owned));
                 informed.lacking.extend(finding.lacks());
+                if let Some(sealer) = finding.unsealable() {
+                    informed.sealer = Some(sealer);
+                }
             }
             informed
         }
@@ -537,6 +547,7 @@ siros_openid4vp::with_resolve! {
                 self,
                 &record,
                 Has::<dyn Platform>::module(host),
+                Has::<dyn Haip>::module(host).agreements(),
                 <<H as MayHave<dyn CoseEncrypt>>::Slot as Slot<dyn CoseEncrypt>>::HELD,
             )
         }
