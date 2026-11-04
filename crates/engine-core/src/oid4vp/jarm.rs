@@ -95,20 +95,18 @@ pub fn map_content_encryption(name: &str) -> Option<JweEncryption> {
 ///
 /// `now_unix` comes from the Clock port — the core never reads a clock
 /// itself.
-pub fn build_jarm_claims(vp_token: &str, client_id: &str, state: &str, now_unix: i64) -> Value {
+pub fn build_jarm_claims(vp_token: &str, _client_id: &str, state: &str, _now_unix: i64) -> Value {
     // A vp_token that is itself valid JSON embeds as parsed JSON (the
     // DCQL object, most notably); anything else stays a string.
+    //
+    // OID4VP 1.0 §8.3: the direct_post.jwt response is the encrypted
+    // authorization-response object — its response parameters only.
+    // The JWT-style claims (iss, aud, exp, iat) do not belong in it;
+    // the suite's ValidateJWEBodyDoesNotIncludeIssExpAud refuses them.
     let vp_token_value: Value =
         serde_json::from_str(vp_token).unwrap_or_else(|_| Value::String(vp_token.to_owned()));
 
     let mut claims = serde_json::Map::new();
-    claims.insert("iss".to_owned(), Value::String(SELF_ISSUED_ISS.to_owned()));
-    claims.insert("aud".to_owned(), Value::String(client_id.to_owned()));
-    claims.insert(
-        "exp".to_owned(),
-        Value::Number((now_unix + RESPONSE_LIFETIME_SECS).into()),
-    );
-    claims.insert("iat".to_owned(), Value::Number(now_unix.into()));
     claims.insert("vp_token".to_owned(), vp_token_value);
     if !state.is_empty() {
         claims.insert("state".to_owned(), Value::String(state.to_owned()));
@@ -138,29 +136,44 @@ pub fn verifier_jwk_thumbprint(auth_req: &super::types::AuthorizationRequest) ->
 /// `jwks`: prefer a key with `use: "enc"`, else the first parseable key —
 /// the P0.6-verified selection.
 pub fn select_verifier_jwk(client_metadata: &Value) -> Result<Jwk, JarmError> {
+    // RFC 7517 §5: the jwks may carry unusable entries (unsupported
+    // key types, exotic parameter sets) beside the usable key — the
+    // wallet encrypts to the first key that resolves to algorithms it
+    // can use, ignoring the others. The `use: "enc"` keys are
+    // preferred, then any usable one.
     let keys = client_metadata
         .get("jwks")
         .and_then(|jwks| jwks.get("keys"))
         .and_then(Value::as_array)
         .ok_or_else(|| JarmError::NoEncryptionKey("no jwks.keys in client_metadata".to_owned()))?;
 
-    let mut fallback: Option<Jwk> = None;
+    let mut enc_keys = Vec::new();
+    let mut other_keys = Vec::new();
     for raw in keys {
         // An unparseable key is skipped, not fatal (the Go behaviour).
         let Ok(jwk) = serde_json::from_value::<Jwk>(raw.clone()) else {
             continue;
         };
         if jwk.use_.as_deref() == Some("enc") {
+            enc_keys.push(jwk);
+        } else {
+            other_keys.push(jwk);
+        }
+    }
+    for jwk in enc_keys.into_iter().chain(other_keys) {
+        if resolve_algorithms(Some(client_metadata), &jwk).is_ok() {
             return Ok(jwk);
         }
-        fallback.get_or_insert(jwk);
     }
 
-    fallback.ok_or_else(|| JarmError::NoEncryptionKey("no parseable key in jwks".to_owned()))
+    Err(JarmError::NoEncryptionKey(
+        "no usable key in jwks".to_owned(),
+    ))
 }
 
 /// Resolves the JARM algorithms: the client metadata's declarations,
-/// else the JWK's own `alg` when supported, else inference from the key
+/// else the first of the OID4VP 1.0 `*_values_supported` lists, else
+/// the JWK's own `alg` when supported, else inference from the key
 /// type. `enc` defaults to A128GCM (the live-interop finding: verifiers
 /// reject CBC-HS256 in practice).
 pub fn resolve_algorithms(
@@ -175,20 +188,50 @@ pub fn resolve_algorithms(
         .and_then(|m| m.get("authorization_encrypted_response_enc"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-
-    // The content encryption: declared, else the GCM default.
-    let enc = if declared_enc.is_empty() {
-        JweEncryption::A128GCM
-    } else {
-        map_content_encryption(declared_enc)
-            .ok_or_else(|| JarmError::UnsupportedEnc(declared_enc.to_owned()))?
+    // The OID4VP 1.0 §8.3 client metadata: the verifier's supported
+    // algorithm lists — the JWE's headers must match one of them.
+    let first_supported = |metadata: &Value, name: &str| {
+        metadata
+            .get(name)
+            .and_then(Value::as_array)
+            .and_then(|values| values.first())
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
     };
 
-    // The key-management algorithm: declared, else the JWK's own alg
-    // when it is one we support, else inferred from the key type.
-    if !declared_alg.is_empty() {
-        let alg = map_key_algorithm(declared_alg)
-            .ok_or_else(|| JarmError::UnsupportedAlg(declared_alg.to_owned()))?;
+    // The content encryption: declared, else the supported list, else
+    // the GCM default.
+    let enc_name = if declared_enc.is_empty() {
+        client_metadata
+            .map(|m| first_supported(m, "encrypted_response_enc_values_supported"))
+            .unwrap_or_default()
+    } else {
+        declared_enc.to_owned()
+    };
+    let enc = if enc_name.is_empty() {
+        JweEncryption::A128GCM
+    } else {
+        map_content_encryption(&enc_name)
+            .ok_or_else(|| JarmError::UnsupportedEnc(enc_name.clone()))?
+    };
+
+    // The key-management algorithm: the declared name, else the
+    // supported list's first entry.
+    let alg_name = if declared_alg.is_empty() {
+        client_metadata
+            .map(|m| first_supported(m, "encrypted_response_alg_values_supported"))
+            .unwrap_or_default()
+    } else {
+        declared_alg.to_owned()
+    };
+
+    // The key-management algorithm: the resolved name, else the JWK's
+    // own alg when it is one we support, else inferred from the key
+    // type.
+    if !alg_name.is_empty() {
+        let alg = map_key_algorithm(&alg_name)
+            .ok_or_else(|| JarmError::UnsupportedAlg(alg_name.clone()))?;
         return Ok((alg, enc));
     }
 
@@ -225,7 +268,9 @@ pub fn encrypt_jarm_response(
     recipient.alg = Some(alg.as_str().to_owned());
 
     let mut header = JoseHeader::for_jwe(alg, enc);
-    header.cty = Some("JWT".to_owned());
+    // The payload is the plain JSON authorization response (OID4VP 1.0
+    // §8.3), not a nested JWT — cty names the content's type.
+    header.cty = Some("json".to_owned());
     if let Some(kid) = jwk.kid.as_deref() {
         header.kid = Some(kid.to_owned());
     }
@@ -333,13 +378,16 @@ mod tests {
 
     #[test]
     fn the_claims_are_the_jarm_shape() {
+        // OID4VP 1.0 §8.3: the encrypted body is the authorization
+        // response's parameters only — the JWT-style claims (iss, aud,
+        // exp, iat) do not belong in it.
         let claims = build_jarm_claims("vp-1", "x509_san_dns:verifier.example", "state-1", 1_000);
-        assert_eq!(claims["iss"], SELF_ISSUED_ISS);
-        assert_eq!(claims["aud"], "x509_san_dns:verifier.example");
-        assert_eq!(claims["iat"], 1_000);
-        assert_eq!(claims["exp"], 1_300);
         assert_eq!(claims["vp_token"], "vp-1");
         assert_eq!(claims["state"], "state-1");
+        assert!(claims.get("iss").is_none());
+        assert!(claims.get("aud").is_none());
+        assert!(claims.get("exp").is_none());
+        assert!(claims.get("iat").is_none());
     }
 
     #[test]
@@ -459,12 +507,13 @@ mod tests {
         let (alg, enc) = resolve_algorithms(None, &public).expect("resolve");
         let token = encrypt_jarm_response(&claims, &public, alg, enc).expect("encrypt");
 
-        // The compact form: five parts, cty JWT in the header.
+        // The compact form: five parts, cty json in the header (the
+        // payload is the plain-JSON response object, OID4VP 1.0 §8.3).
         let parts: Vec<&str> = token.split('.').collect();
         assert_eq!(parts.len(), 5);
         let header = crate::oid4vp::test_util::base64url_decode(parts[0].as_bytes());
         let header: Value = serde_json::from_slice(&header).expect("header json");
-        assert_eq!(header["cty"], "JWT");
+        assert_eq!(header["cty"], "json");
         assert_eq!(header["alg"], "ECDH-ES");
         assert_eq!(header["enc"], "A128GCM");
 
@@ -477,7 +526,8 @@ mod tests {
         let recovered: Value = serde_json::from_slice(&decrypted).expect("claims json");
         assert_eq!(recovered["vp_token"], json!({ "pid": ["t"] }));
         assert_eq!(recovered["state"], "state-1");
-        assert_eq!(recovered["aud"], "verifier");
+        // The JWT-style claims are not part of the response object.
+        assert!(recovered.get("aud").is_none());
     }
 
     // ─── the submission ───────────────────────────────────────────────

@@ -38,10 +38,12 @@ pub async fn submit_response(
     match auth_req.response_mode {
         ResponseMode::DirectPost => submit_direct_post(http, &endpoint, auth_req, vp_token).await,
         ResponseMode::DirectPostJwt => {
-            // The encrypted submission (JARM): the claims as a JWT,
-            // JWE-encrypted to the verifier's key, POSTed as
-            // response=<jwe>. The Clock port supplies `now_unix` — the
-            // core never reads a clock itself.
+            // The encrypted submission (JARM): the claims JWE-encrypted
+            // to the verifier's usable key, POSTed as response=<jwe>.
+            // The Clock port supplies `now_unix` — the core never reads
+            // a clock itself. Unusable jwks entries are skipped at the
+            // key selection (RFC 7517 §5); an encryption contract no
+            // key can meet is not sent (the verifier times out).
             super::jarm::submit_jarm_response(http, auth_req, vp_token, None, now_unix).await
         }
         ResponseMode::Fragment => Ok(build_fragment_redirect(&endpoint, auth_req, vp_token)),

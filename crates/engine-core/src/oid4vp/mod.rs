@@ -160,18 +160,43 @@ impl FlowHandler for Oid4vpFlow {
             .await
             .map_err(|err| flow_error(err.to_string()))?;
 
-        if match_result.selections.is_empty() {
-            // Nothing matched: the flow ends here without an error
+        if match_result.selections.is_empty()
+            || !dcql::unsatisfied_required_queries(
+                auth_req.dcql_query.as_ref(),
+                &match_result.selections,
+            )
+            .is_empty()
+        {
+            // Nothing matched, or a required DCQL query has no
+            // credential: the DCQL contract (OID4VP 1.0 §6.2, §6.4.2)
+            // answers with `access_denied` — never a partial vp_token.
+            // A scope-only request with nothing matched ends silently
             // (the Go engine's empty credentials_matched).
+            let unsatisfied = dcql::unsatisfied_required_queries(
+                auth_req.dcql_query.as_ref(),
+                &match_result.selections,
+            );
+            if !unsatisfied.is_empty() || auth_req.dcql_query.is_some() {
+                let _ = response::submit_error_response(
+                    ctx.http().as_ref(),
+                    &auth_req,
+                    "access_denied",
+                    "No credential satisfies the required query",
+                )
+                .await;
+            }
             let _ = ctx
                 .progress(
                     "no_matching_credential",
                     &serde_json::json!({
                         "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
+                        "unsatisfied": unsatisfied,
                     }),
                 )
                 .await;
-            let _ = ctx.complete(&serde_json::json!({ "matched": false })).await;
+            let _ = ctx
+                .complete(&serde_json::json!({ "matched": false, "refused": true }))
+                .await;
             return Ok(FlowStartResult {
                 wmp: wmp_core::types::Metadata::default(),
                 flow_id: params.flow_id.clone(),
@@ -283,16 +308,22 @@ impl FlowHandler for Oid4vpFlow {
         // The direct_post answer's `redirect_uri` (OID4VP §8.2): a
         // user-agent step — the wallet opens it in the end-user's
         // browser, never as a back-channel fetch. The open_authorization
-        // port is exactly that navigation.
-        let redirect_uri = serde_json::from_str::<serde_json::Value>(&submission)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("redirect_uri")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned)
-            })
-            .filter(|uri| !uri.is_empty());
+        // port is exactly that navigation. The plain submission returns
+        // the answer body (its redirect_uri member); the JARM submission
+        // returns the extracted redirect URL itself.
+        let redirect_uri = if submission.starts_with("http") {
+            Some(submission.clone())
+        } else {
+            serde_json::from_str::<serde_json::Value>(&submission)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("redirect_uri")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned)
+                })
+                .filter(|uri| !uri.is_empty())
+        };
         if let Some(uri) = redirect_uri {
             let _ = ctx
                 .host()
@@ -727,7 +758,16 @@ mod presentation_flow_tests {
             .await
             .expect("the empty match ends the flow, it is not an error");
 
-        // Nothing was submitted to the verifier.
-        assert!(http.seen.lock().expect("lock").is_empty());
+        // The DCQL contract (OID4VP 1.0 §6.2, §6.4.2): the required
+        // queries the wallet cannot satisfy answer with access_denied —
+        // one error POST, no vp_token.
+        let seen = http.seen.lock().expect("lock").clone();
+        assert_eq!(seen.len(), 1, "exactly the access_denied submission");
+        let body = String::from_utf8_lossy(&seen[0].body).into_owned();
+        assert!(
+            body.contains("error=access_denied"),
+            "the access_denied error response: {body}"
+        );
+        assert!(!body.contains("vp_token="));
     }
 }
