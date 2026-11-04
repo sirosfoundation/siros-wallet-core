@@ -1,13 +1,10 @@
 //! A presentation record: an entry of `S.presentations`, and the record the core returns for
 //! the host to append as a `new_presentation` event (privatedata 3.1, Section 6; H5).
 
+use crate::error::{JsonTextError, PresentationsFault, WalletStateError};
+use crate::ids::{CredentialId, PresentationId, TransactionId};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::value::RawValue;
-use siros_codec::date::DateTime;
-use siros_codec::json::JsonTextError;
-
-use crate::error::{PresentationsFault, WalletStateError};
-use crate::ids::{CredentialId, PresentationId, TransactionId};
 
 /// The members of `new_presentation`. It serialises to them, with
 /// `presentationTimestampSeconds` in seconds since 1970-01-01T00:00:00Z.
@@ -22,7 +19,7 @@ pub struct PresentationRecord {
         rename = "presentationTimestampSeconds",
         serialize_with = "unix_seconds"
     )]
-    timestamp: DateTime,
+    timestamp: Timestamp,
     audience: String,
 }
 
@@ -34,7 +31,7 @@ impl PresentationRecord {
         transaction_id: TransactionId,
         data: String,
         used_credential_ids: Vec<CredentialId>,
-        timestamp: DateTime,
+        timestamp: Timestamp,
         audience: String,
     ) -> Self {
         Self {
@@ -66,7 +63,7 @@ impl PresentationRecord {
                 .into_iter()
                 .map(CredentialId::new)
                 .collect(),
-            timestamp: DateTime::from_unix(stored.presentation_timestamp_seconds)
+            timestamp: Timestamp::from_unix(stored.presentation_timestamp_seconds)
                 .ok_or(fault(PresentationsFault::Timestamp))?,
             audience: stored.audience,
         })
@@ -85,6 +82,32 @@ struct Stored {
     audience: String,
 }
 
-fn unix_seconds<S: Serializer>(time: &DateTime, serializer: S) -> Result<S::Ok, S::Error> {
+fn unix_seconds<S: Serializer>(time: &Timestamp, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_i64(time.unix())
+}
+
+/// An instant in whole seconds since 1970-01-01T00:00:00Z, within RFC 3339's years 0000 to 9999.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Timestamp(i64);
+
+impl Timestamp {
+    /// The first second of 0000-01-01.
+    pub const MIN_UNIX: i64 = -62_167_219_200;
+    /// The last second of 9999-12-31.
+    pub const MAX_UNIX: i64 = 253_402_300_799;
+
+    /// The instant `unix` seconds after 1970-01-01T00:00:00Z; `None` outside the years 0000 to
+    /// 9999.
+    #[must_use]
+    pub fn from_unix(unix: i64) -> Option<Self> {
+        (Self::MIN_UNIX..=Self::MAX_UNIX)
+            .contains(&unix)
+            .then_some(Self(unix))
+    }
+
+    /// Seconds since 1970-01-01T00:00:00Z.
+    #[must_use]
+    pub fn unix(self) -> i64 {
+        self.0
+    }
 }

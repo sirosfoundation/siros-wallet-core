@@ -16,16 +16,17 @@ default = ["credential"]
 credential = [
     "dep:siros-mdoc",
     "siros-mdoc/crypto",
-    "siros-oid4vp/crypto",
     "dep:siros-trust",
     "siros-trust/chain",
     "dep:zeroize",
 ]
 # The nym_auth request of a verified request (N2), and the presentation of a usable answer.
-request = ["credential", "siros-oid4vp/crypto"]
+request = ["credential"]
 # A test issuer, signed requests and host, for this crate's tests and those of the bindings.
 test-fixtures = [
     "request",
+    "dep:siros-x509",
+    "dep:siros-testkit",
     "dep:p256",
     "dep:rand_core",
     "dep:x509-cert",
@@ -37,10 +38,18 @@ test-fixtures = [
 ]
 
 [dependencies]
+# The CBOR values, dates and signatures siros-mdoc's API carries.
 siros-codec = { workspace = true }
-siros-dcql = { workspace = true }
-siros-oid4vp = { workspace = true }
+# The core's requests, sessions and identifiers.
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-zkp-req = { workspace = true }
+siros-explain = { workspace = true }
+# The document type siros-mdoc's API carries.
+siros-dcql = { workspace = true }
+base64 = { workspace = true }
+# The signed requests of `test-fixtures`, authenticated through the core's x509_san_dns.
+siros-x509 = { workspace = true, optional = true }
+siros-testkit = { workspace = true, optional = true }
 siros-mdoc = { workspace = true, optional = true }
 siros-trust = { workspace = true, optional = true }
 serde_json = { workspace = true }

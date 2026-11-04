@@ -17,7 +17,7 @@ use siros_explain::Explain;
 
 use crate::json::{JsonError, Node, Number};
 pub use crate::plugins::members::Item;
-use read::Reader;
+use read::{DEPTH, Lengths, Reader};
 
 /// Why bytes are no CBOR data item the wallet reads, or a value does not convert.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -34,9 +34,13 @@ pub enum CborError {
     /// A text string, or a chunk of one, that is no UTF-8.
     #[error("the text at byte {0} is no UTF-8")]
     Utf8(#[explain(name = "at")] usize),
-    /// Arrays, maps and tags nested deeper than 256 levels.
-    #[error("the data item nests deeper than 256 levels")]
-    Depth,
+    /// Arrays, maps and tags nested deeper than the reading admits.
+    #[error("the data item nests deeper than {0} levels")]
+    Depth(#[explain(name = "levels")] usize),
+    /// An indefinite length, or the break that ends one, where the reading admits definite
+    /// lengths alone.
+    #[error("the head at byte {0} has an indefinite length")]
+    Indefinite(#[explain(name = "at")] usize),
     /// `undefined` (23) or an unassigned simple value, which ciborium's `Value` cannot hold.
     #[error("the simple value {0}")]
     Simple(#[explain(name = "value")] u8),
@@ -81,7 +85,21 @@ pub enum CborError {
 ///
 /// The bytes are no data item ciborium's `Value` holds, bytes follow it, or a map repeats a key.
 pub fn decode(bytes: &[u8]) -> Result<Value, CborError> {
-    let mut reader = Reader::new(bytes);
+    read(Reader::new(bytes, DEPTH, Lengths::Any))
+}
+
+/// One data item as [`decode`] reads it, with definite lengths alone (RFC 8949 §4.2.1) and
+/// nested at most `depth` levels.
+///
+/// # Errors
+///
+/// [`decode`]'s, an indefinite length ([`CborError::Indefinite`]), and nesting deeper than
+/// `depth` ([`CborError::Depth`]).
+pub fn decode_definite(bytes: &[u8], depth: usize) -> Result<Value, CborError> {
+    read(Reader::new(bytes, depth, Lengths::Definite))
+}
+
+fn read(mut reader: Reader<'_>) -> Result<Value, CborError> {
     let value = reader.item(0)?;
     if !reader.rest().is_empty() {
         return Err(CborError::Trailing(reader.rest().len()));
@@ -98,6 +116,19 @@ pub fn decode(bytes: &[u8]) -> Result<Value, CborError> {
 pub fn encode(value: &Value) -> Result<Vec<u8>, CborError> {
     let mut out = Vec::new();
     ciborium::ser::into_writer(value, &mut out).map_err(CborError::Encode)?;
+    Ok(out)
+}
+
+/// The deterministic encoding of RFC 8949 §4.2.1: the shortest heads, definite lengths, each
+/// float in its shortest form that keeps its value, and each map's keys in the bytewise
+/// lexicographic order of their encodings.
+///
+/// # Errors
+///
+/// A map holds one key twice under that encoding, or ciborium cannot write a scalar.
+pub fn encode_deterministic(value: &Value) -> Result<Vec<u8>, CborError> {
+    let mut out = Vec::new();
+    write(value, Floats::AsGiven, &mut out)?;
     Ok(out)
 }
 
@@ -168,15 +199,31 @@ pub fn key_form(key: &Value) -> Result<Vec<u8>, CborError> {
 
 fn form(value: &Value) -> Result<Vec<u8>, CborError> {
     let mut out = Vec::new();
-    write_form(value, &mut out)?;
+    write(value, Floats::Normal, &mut out)?;
     Ok(out)
 }
 
-/// Appends the value's form. Each map's keys get their forms once, which the map's own form
-/// copies: the work grows with the size times the nesting.
-fn write_form(value: &Value, out: &mut Vec<u8>) -> Result<(), CborError> {
+/// How [`write`] writes a float.
+#[derive(Debug, Clone, Copy)]
+enum Floats {
+    /// As given.
+    AsGiven,
+    /// -0.0 as 0.0, a NaN without its sign: a key's form.
+    Normal,
+}
+
+/// Appends the value's deterministic encoding, its floats as `floats` says. Each map's keys get
+/// their forms once, which the map's own form copies: the work grows with the size times the
+/// nesting.
+fn write(value: &Value, floats: Floats, out: &mut Vec<u8>) -> Result<(), CborError> {
     match value {
-        Value::Float(float) => out.extend(encode(&Value::Float(normal(*float)))?),
+        Value::Float(float) => {
+            let float = match floats {
+                Floats::AsGiven => *float,
+                Floats::Normal => normal(*float),
+            };
+            out.extend(encode(&Value::Float(float))?);
+        }
         Value::Bytes(bytes) => {
             head(2, bytes.len() as u64, out);
             out.extend_from_slice(bytes);
@@ -188,20 +235,22 @@ fn write_form(value: &Value, out: &mut Vec<u8>) -> Result<(), CborError> {
         Value::Array(items) => {
             head(4, items.len() as u64, out);
             for item in items {
-                write_form(item, out)?;
+                write(item, floats, out)?;
             }
         }
         Value::Tag(tag, inner) => {
             head(6, *tag, out);
-            write_form(inner, out)?;
+            write(inner, floats, out)?;
         }
         Value::Map(pairs) => {
             let mut entries = pairs
                 .iter()
                 .map(|(key, item)| {
+                    let mut written = Vec::new();
+                    write(item, floats, &mut written)?;
                     Ok(Pair {
                         key: Keyed::of(key)?,
-                        item: form(item)?,
+                        item: written,
                     })
                 })
                 .collect::<Result<Vec<_>, CborError>>()?;

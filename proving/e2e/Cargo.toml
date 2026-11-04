@@ -11,6 +11,7 @@ rust-version.workspace = true
 
 [dev-dependencies]
 siros-codec = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-trust = { workspace = true }
 siros-zkp-req = { workspace = true }
 siros-zkp-catalogues = { workspace = true, features = ["test-fixtures"] }

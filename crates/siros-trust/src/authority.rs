@@ -1,8 +1,12 @@
 //! The authorities a Credential Query names in `trusted_authorities` (OpenID4VP 1.0, Section
 //! 6.1.1), read for the admission rule (TR3).
 
-use siros_codec::{base64url, Base64Error};
-use siros_dcql::{AuthorityType, AuthorityValue, CredentialQuery, QueryId, TrustedAuthorities};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{DecodeError, Engine as _};
+use siros_openid4vp::ids;
+use siros_openid4vp::request::TrustedAuthority;
+
+use crate::ids::{AuthorityType, AuthorityValue, QueryId};
 
 /// The keyIdentifier of an AuthorityKeyIdentifier extension (RFC 5280, Section 4.2.1.1): the
 /// bytes by which a certificate names its signer's key. Never empty.
@@ -46,7 +50,9 @@ impl KeyIdentifier {
     ///
     /// [`AkiError`]: a value that is not base64url without padding, or that encodes no byte.
     pub fn from_aki(value: &AuthorityValue) -> Result<Self, AkiError> {
-        let bytes = base64url::decode(value.as_str()).map_err(AkiError::Base64url)?;
+        let bytes = URL_SAFE_NO_PAD
+            .decode(value.as_str())
+            .map_err(AkiError::Base64url)?;
         Self::new(&bytes).map_err(AkiError::KeyIdentifier)
     }
 
@@ -77,7 +83,7 @@ pub(crate) enum KnownAuthorityType {
 
 impl KnownAuthorityType {
     /// The known type `kind` names; `None` for another type.
-    pub(crate) fn of(kind: &AuthorityType) -> Option<Self> {
+    pub(crate) fn of(kind: &ids::AuthorityType<'_>) -> Option<Self> {
         match kind.as_str() {
             "aki" => Some(Self::Aki),
             other => StoreType::named(other).map(Self::Store),
@@ -148,10 +154,10 @@ pub enum Authority {
 enum Named {
     /// The query has no `trusted_authorities`: every issuer is admitted.
     Nothing,
-    /// `trusted_authorities` as DCQL parsed it, and the authorities of its values, at least
-    /// one, in the Verifier's order.
+    /// `trusted_authorities` as the core's DCQL reader parsed it, and the authorities of its
+    /// values, at least one, in the Verifier's order.
     Authorities {
-        sent: TrustedAuthorities,
+        sent: Vec<TrustedAuthority<'static>>,
         read: Vec<Authority>,
     },
 }
@@ -164,11 +170,11 @@ pub struct QueryAuthorities {
 }
 
 /// Why an `aki` value encodes no keyIdentifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{}", self.code())]
 pub enum AkiError {
     /// The value is not base64url without padding.
-    Base64url(#[source] Base64Error),
+    Base64url(#[source] DecodeError),
     /// The bytes are no keyIdentifier.
     KeyIdentifier(#[source] KeyIdentifierError),
 }
@@ -176,7 +182,7 @@ pub enum AkiError {
 impl AkiError {
     /// A stable identifier.
     #[must_use]
-    pub fn code(self) -> &'static str {
+    pub fn code(&self) -> &'static str {
         match self {
             Self::Base64url(_) => "aki_not_base64url",
             Self::KeyIdentifier(error) => error.code(),
@@ -210,30 +216,38 @@ impl AuthorityError {
 }
 
 impl QueryAuthorities {
-    /// The authorities `query` names: each value of its `trusted_authorities`, in their order.
+    /// The authorities the Credential Query `query` names in `trusted_authorities`, empty when
+    /// it has none: each value, in their order.
     ///
     /// # Errors
     ///
     /// [`AuthorityError::Aki`] for the first `aki` value that encodes no keyIdentifier.
-    pub fn of(query: &CredentialQuery) -> Result<Self, AuthorityError> {
-        let named = match query.trusted_authorities() {
-            None => Named::Nothing,
-            Some(authorities) => Named::Authorities {
-                read: authorities
-                    .entries()
+    pub fn of(
+        query: &QueryId,
+        trusted_authorities: &[TrustedAuthority<'_>],
+    ) -> Result<Self, AuthorityError> {
+        let named = if trusted_authorities.is_empty() {
+            Named::Nothing
+        } else {
+            Named::Authorities {
+                read: trusted_authorities
                     .iter()
                     .flat_map(|entry| {
                         entry
-                            .values()
+                            .values
                             .iter()
-                            .map(|value| Authority::read(entry.kind(), value))
+                            .map(|value| Authority::read(&entry.kind, value))
                     })
                     .collect::<Result<_, _>>()?,
-                sent: authorities.clone(),
-            },
+                sent: trusted_authorities
+                    .iter()
+                    .cloned()
+                    .map(TrustedAuthority::into_owned)
+                    .collect(),
+            }
         };
         Ok(Self {
-            query: query.id().clone(),
+            query: query.clone(),
             named,
         })
     }
@@ -254,31 +268,37 @@ impl QueryAuthorities {
         }
     }
 
-    /// Whether these are the authorities of `query`: its `id` and its `trusted_authorities`.
+    /// Whether these are the authorities of the Credential Query `query` with
+    /// `trusted_authorities`.
     #[must_use]
-    pub fn are_those_of(&self, query: &CredentialQuery) -> bool {
-        let sent = match &self.named {
-            Named::Nothing => None,
-            Named::Authorities { sent, .. } => Some(sent),
+    pub fn are_those_of(
+        &self,
+        query: &QueryId,
+        trusted_authorities: &[TrustedAuthority<'_>],
+    ) -> bool {
+        let sent: &[TrustedAuthority<'static>] = match &self.named {
+            Named::Nothing => &[],
+            Named::Authorities { sent, .. } => sent,
         };
-        self.query == *query.id() && sent == query.trusted_authorities()
+        self.query == *query && sent == trusted_authorities
     }
 }
 
 impl Authority {
     /// The authority of the value `value` of an entry of type `kind`.
-    fn read(kind: &AuthorityType, value: &AuthorityValue) -> Result<Self, AuthorityError> {
+    fn read(
+        kind: &ids::AuthorityType<'_>,
+        value: &ids::AuthorityValue<'_>,
+    ) -> Result<Self, AuthorityError> {
+        let value = value.clone().into_owned();
         Ok(match KnownAuthorityType::of(kind) {
-            Some(KnownAuthorityType::Aki) => KeyIdentifier::from_aki(value)
+            Some(KnownAuthorityType::Aki) => KeyIdentifier::from_aki(&value)
                 .map(Self::KeyIdentifier)
-                .map_err(|error| AuthorityError::Aki {
-                    value: value.clone(),
-                    error,
-                })?,
+                .map_err(|error| AuthorityError::Aki { value, error })?,
             Some(KnownAuthorityType::Store(store)) => {
-                Self::Store(StoreAuthority::new(store, value.clone()))
+                Self::Store(StoreAuthority::new(store, value))
             }
-            None => Self::Other(kind.clone()),
+            None => Self::Other(kind.clone().into_owned()),
         })
     }
 }

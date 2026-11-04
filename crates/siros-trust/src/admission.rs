@@ -2,7 +2,7 @@
 //! credential's issuer. The wallet applies it to the issuer chain and the trust store, the
 //! picker to the facts the wallet recorded (TR5).
 
-use siros_dcql::{AuthorityType, QueryId};
+use crate::ids::{AuthorityType, QueryId};
 
 use crate::authority::{Authority, KeyIdentifier, QueryAuthorities, StoreAuthority};
 

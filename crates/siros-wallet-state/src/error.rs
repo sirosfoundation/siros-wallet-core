@@ -1,7 +1,75 @@
 //! Why text is not a wallet state the core reads. Each error has a stable code.
 
-use siros_codec::json::JsonTextError;
-use siros_codec::member::MemberFault;
+use serde_json::error::Category;
+
+/// What breaks the rule of a member of a decoded JSON object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum MemberFault {
+    /// The member is absent.
+    #[error("the member is absent")]
+    Absent,
+    /// The member has another type than its rule gives it.
+    #[error("the member has another type than its rule gives it")]
+    WrongType,
+}
+
+/// What serde_json found in text that is no JSON value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum JsonTextFault {
+    /// Text that breaks the JSON syntax.
+    #[error("text that breaks the JSON syntax")]
+    Syntax,
+    /// A value of another type than its member's, or a number beyond a 64-bit float.
+    #[error("a value of another type than its member's")]
+    Value,
+    /// The text ends inside a value.
+    #[error("the text ends inside a value")]
+    Eof,
+}
+
+/// Why bytes are no JSON text of the shape read, and where.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[error("{kind:?} at line {line} column {column}")]
+pub struct JsonTextError {
+    #[source]
+    kind: JsonTextFault,
+    line: usize,
+    column: usize,
+}
+
+impl JsonTextError {
+    /// What `error` found, and where.
+    #[must_use]
+    pub fn of(error: &serde_json::Error) -> Self {
+        Self {
+            kind: match error.classify() {
+                Category::Syntax | Category::Io => JsonTextFault::Syntax,
+                Category::Data => JsonTextFault::Value,
+                Category::Eof => JsonTextFault::Eof,
+            },
+            line: error.line(),
+            column: error.column(),
+        }
+    }
+
+    /// What breaks the text.
+    #[must_use]
+    pub fn kind(self) -> JsonTextFault {
+        self.kind
+    }
+
+    /// The line, from 1.
+    #[must_use]
+    pub fn line(self) -> usize {
+        self.line
+    }
+
+    /// The column, from 1, or 0 at the start of a line.
+    #[must_use]
+    pub fn column(self) -> usize {
+        self.column
+    }
+}
 
 /// Why text is not the `S` of a WalletStateContainer (privatedata 3.1, Section 6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]

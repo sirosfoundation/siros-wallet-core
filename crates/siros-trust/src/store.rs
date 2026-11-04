@@ -1,15 +1,15 @@
 //! The trust store the host provisions (TR1, TR4): for each authority a Verifier may name, the
 //! certificates to which an issuer chain has a path.
 
-use siros_codec::date::DateTime;
-use siros_codec::json::{Json, JsonFault};
-use siros_codec::member::MemberFault;
-use siros_codec::{base64, Base64Error};
-use siros_dcql::{AuthorityType, AuthorityValue};
+use base64::engine::general_purpose::STANDARD;
+use base64::{DecodeError, Engine as _};
+use siros_openid4vp::host::Timestamp;
+use siros_openid4vp::json::{JsonError, Node};
 
 use crate::authority::{KnownAuthorityType, StoreAuthority};
 use crate::certificate::{Certificate, CertificateError};
 use crate::chain::IssuerChain;
+use crate::ids::{AuthorityType, AuthorityValue};
 use crate::path::PathRefusal;
 use crate::position::{CertificateIndex, EntryIndex};
 
@@ -26,12 +26,26 @@ pub struct StoreEntry {
     certificates: Vec<Certificate>,
 }
 
+/// What breaks the rule of a member of a trust store entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum MemberFault {
+    /// The member is absent.
+    #[error("the member is absent")]
+    Absent,
+    /// The member has another type than its rule gives it.
+    #[error("the member has another type than its rule gives it")]
+    WrongType,
+    /// The member is an empty string or array.
+    #[error("the member is an empty string or array")]
+    Empty,
+}
+
 /// Why a record is no trust store (TR1).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum StoreError {
-    /// The strict reader refuses the record: a member name an object repeats among its faults.
+    /// The record is no JSON with unique member names.
     #[error("{code}: {0}", code = self.code())]
-    Json(#[source] JsonFault),
+    Json(#[source] JsonError),
     /// The record is not a JSON array.
     #[error("{}", self.code())]
     NotArray,
@@ -73,7 +87,7 @@ pub enum EntryError {
         certificate: CertificateIndex,
         /// Why.
         #[source]
-        error: Base64Error,
+        error: DecodeError,
     },
     /// A certificate does not parse.
     Certificate {
@@ -90,8 +104,8 @@ impl StoreError {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
-            Self::Json(JsonFault::Read(_)) => "trust_store_json",
-            Self::Json(JsonFault::RepeatedMember(_)) => "trust_store_member_repeated",
+            Self::Json(JsonError::Syntax(_)) => "trust_store_json",
+            Self::Json(JsonError::DuplicateMember(_)) => "trust_store_member_repeated",
             Self::NotArray => "trust_store_not_array",
             Self::Entry { error, .. } => error.code(),
             Self::Repeated(_) => "trust_store_entry_repeated",
@@ -128,9 +142,8 @@ impl TrustStore {
     ///
     /// [`StoreError`]: the first rule the record breaks.
     pub fn parse(record: &str) -> Result<Self, StoreError> {
-        let Json::Array(entries) =
-            Json::parse_unique(record.as_bytes()).map_err(StoreError::Json)?
-        else {
+        let record = Node::parse(record).map_err(StoreError::Json)?;
+        let Node::Array(entries) = record else {
             return Err(StoreError::NotArray);
         };
         let mut parsed: Vec<StoreEntry> = Vec::with_capacity(entries.len());
@@ -171,7 +184,7 @@ impl TrustStore {
     /// # Errors
     ///
     /// [`Unanchored`]: the refusal of each entry, in the record's order.
-    pub fn anchor(&self, chain: &IssuerChain, time: DateTime) -> Result<&Certificate, Unanchored> {
+    pub fn anchor(&self, chain: &IssuerChain, time: Timestamp) -> Result<&Certificate, Unanchored> {
         let mut refusals = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             match chain.validate_path(&entry.certificates, time) {
@@ -204,32 +217,35 @@ impl Unanchored {
 }
 
 impl StoreEntry {
-    fn parse(entry: &Json) -> Result<Self, EntryError> {
-        let Json::Object(members) = entry else {
+    fn parse(entry: &Node<'_>) -> Result<Self, EntryError> {
+        let Node::Object(members) = entry else {
             return Err(EntryError::NotObject);
         };
-        if let Some((name, _)) = members
-            .iter()
-            .find(|(name, _)| !matches!(name.as_str(), "type" | "value" | "certificates"))
+        if let Some(name) = members
+            .names()
+            .find(|name| !matches!(*name, "type" | "value" | "certificates"))
         {
-            return Err(EntryError::UnknownMember(name.clone()));
+            return Err(EntryError::UnknownMember(name.to_owned()));
         }
-        let kind = AuthorityType::new(text(entry, "type").map_err(EntryError::Type)?);
+        let kind = AuthorityType::parse(text(entry, "type").map_err(EntryError::Type)?.to_owned())
+            .map_err(|_| EntryError::Type(MemberFault::Empty))?;
         let kind = match KnownAuthorityType::of(&kind) {
             Some(KnownAuthorityType::Store(store)) => store,
             Some(KnownAuthorityType::Aki) | None => return Err(EntryError::UnknownType(kind)),
         };
         let value = text(entry, "value").map_err(EntryError::Value)?;
-        let certificates = match entry.member("certificates") {
+        let value = AuthorityValue::parse(value.to_owned())
+            .map_err(|_| EntryError::Value(MemberFault::Empty))?;
+        let certificates = match entry.get("certificates") {
             None => return Err(EntryError::Certificates(MemberFault::Absent)),
-            Some(Json::Array(certificates)) if certificates.is_empty() => {
+            Some(Node::Array(certificates)) if certificates.is_empty() => {
                 return Err(EntryError::Certificates(MemberFault::Empty))
             }
-            Some(Json::Array(certificates)) => certificates,
+            Some(Node::Array(certificates)) => certificates,
             Some(_) => return Err(EntryError::Certificates(MemberFault::WrongType)),
         };
         Ok(Self {
-            authority: StoreAuthority::new(kind, AuthorityValue::new(value)),
+            authority: StoreAuthority::new(kind, value),
             certificates: certificates
                 .iter()
                 .enumerate()
@@ -254,24 +270,26 @@ impl StoreEntry {
 }
 
 /// The string member `name` of `entry`.
-fn text<'e>(entry: &'e Json, name: &str) -> Result<&'e str, MemberFault> {
-    match entry.member(name) {
+fn text<'e>(entry: &'e Node<'_>, name: &str) -> Result<&'e str, MemberFault> {
+    match entry.get(name) {
         None => Err(MemberFault::Absent),
-        Some(Json::String(text)) => Ok(text),
+        Some(Node::String(text)) => Ok(text),
         Some(_) => Err(MemberFault::WrongType),
     }
 }
 
 /// The certificate at `position` of an entry's `certificates`: base64 with padding of a DER
 /// certificate.
-fn certificate_of(value: &Json, position: CertificateIndex) -> Result<Certificate, EntryError> {
-    let Json::String(text) = value else {
+fn certificate_of(value: &Node<'_>, position: CertificateIndex) -> Result<Certificate, EntryError> {
+    let Node::String(text) = value else {
         return Err(EntryError::CertificateNotString(position));
     };
-    let der = base64::decode(text).map_err(|error| EntryError::Encoding {
-        certificate: position,
-        error,
-    })?;
+    let der = STANDARD
+        .decode(text.as_bytes())
+        .map_err(|error| EntryError::Encoding {
+            certificate: position,
+            error,
+        })?;
     Certificate::parse(&der).map_err(|error| EntryError::Certificate {
         certificate: position,
         error,

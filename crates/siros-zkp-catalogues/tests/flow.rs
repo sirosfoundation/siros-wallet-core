@@ -14,8 +14,8 @@ mod support;
 
 use ciborium::value::Value as Ciborium;
 use serde_json::{json, Value};
-use siros_codec::cbor::Value as Cbor;
 use siros_codec::date::DateTime;
+use siros_openid4vp::cbor::Value as Cbor;
 use siros_trust::Certificate;
 use siros_zkp_catalogues::prover::ProofFailure;
 use siros_zkp_catalogues::system::NymAuthSystem;
@@ -37,9 +37,11 @@ fn two_option_query() -> Value {
 /// The presentation of `query` by the default credential of `ds`, with `system`, in the session
 /// of [`NONCE`].
 fn present_with(system: NymAuthSystem, query: &Value, ds: &Issuer) -> ZkpPresentation {
-    let request = verified_request(query, NONCE);
+    let request = signed_request(query, NONCE);
     let data = issue(ds, &Spec::default());
-    let prepared = prepared(system, query, &data, &SEED, &request).unwrap();
+    let prepared = request
+        .authenticated(|request| prepared(system, query, &data, &SEED, request))
+        .unwrap();
     present(
         &prepared,
         Spec::default().device,
@@ -134,7 +136,7 @@ fn honest_path_per_system() {
         let presented = present_with(system, &query, &ds);
         assert_eq!(presented.req_set, Some(ReqSetIndex::new(0)));
         assert_eq!(presented.system_id, system.id());
-        let bytes = presented.encode();
+        let bytes = presented.encode().unwrap();
         let nym = assert_draft_shape(&bytes, system, &ds.der);
         assert_eq!(nym, expected_pseudonym(&SEED, CLIENT_ID));
         let verified = verify_with(&query, NONCE, &bytes, &trust_anchors).unwrap();
@@ -148,7 +150,7 @@ fn honest_path_per_system() {
 fn edited(bytes: &[u8], edit: impl FnOnce(&mut ZkpPresentation)) -> Vec<u8> {
     let mut p = ZkpPresentation::decode(bytes).unwrap();
     edit(&mut p);
-    p.encode()
+    p.encode().unwrap()
 }
 
 /// The `proof` with `proof_time` one second later: still within the tolerance.
@@ -156,10 +158,10 @@ fn later_proof_time(p: &mut ZkpPresentation) {
     let mut envelope = ProofEnvelope::decode(&p.proof).unwrap();
     for (name, value) in &mut envelope.inputs {
         if name == "proof_time" {
-            *value = Cbor::Tag(0, Box::new(Cbor::text("2026-10-09T12:00:01Z")));
+            *value = Cbor::Tag(0, Box::new(Cbor::Text("2026-10-09T12:00:01Z".into())));
         }
     }
-    p.proof = envelope.encode();
+    p.proof = envelope.encode().unwrap();
 }
 
 fn flipped_pseudonym(p: &mut ZkpPresentation) {
@@ -179,7 +181,7 @@ fn tampering_is_refused_by_the_proof() {
     let ds = Issuer::root(0x11, "Test Document Signer");
     let trust_anchors = vec![Certificate::parse(&ds.der).unwrap()];
     for system in NymAuthSystem::ALL {
-        let honest = present_with(system, &query, &ds).encode();
+        let honest = present_with(system, &query, &ds).encode().unwrap();
         let cases = [
             ("proof_time", edited(&honest, later_proof_time), NONCE),
             ("result", edited(&honest, flipped_pseudonym), NONCE),

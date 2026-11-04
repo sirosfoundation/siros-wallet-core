@@ -3,11 +3,11 @@
 
 use std::fmt;
 
-use siros_codec::cbor::Value as Cbor;
 use siros_codec::signature::Es256Signature;
 use siros_mdoc::{
     device_signing_input, es256_verifies, DeviceNameSpaces, SessionTranscript, SigStructure,
 };
+use siros_openid4vp::cbor::Value as Cbor;
 use siros_zkp_req::{
     PairRefusal, ProofEnvelope, QueryOption, ReqSetIndex, ResultKey, ZkpPresentation,
 };
@@ -43,6 +43,8 @@ pub enum ProveError {
     PseudonymMismatch,
     /// The prover's `zk_proof` breaks the proof backend's length rules.
     ZkProofLength,
+    /// The SessionTranscript or `Proof` does not encode as CBOR.
+    Encoding,
 }
 
 impl ProveError {
@@ -64,6 +66,7 @@ impl ProveError {
             Self::Prover(e) => e.code(),
             Self::PseudonymMismatch => "pseudonym_mismatch",
             Self::ZkProofLength => "zk_proof_length",
+            Self::Encoding => "presentation_unencodable",
         }
     }
 }
@@ -113,10 +116,14 @@ impl Prepared {
 fn build(answer: Answer<'_>, session: &Session) -> Result<Prepared, ProveError> {
     let (pair, attestation, seed) = answer.into_parts();
     let pseudonym_item = pair.pseudonym().pseudonym;
-    let session_transcript = SessionTranscript::new(session.handover.session_transcript());
+    let transcript = session
+        .transcript
+        .to_bytes()
+        .map_err(|_| ProveError::Encoding)?;
+    let session_transcript = SessionTranscript::new(transcript);
     let data_to_sign = device_signing_input(
         &session_transcript,
-        &nym_auth_doc_type(),
+        &siros_dcql::DocType::new(nym_auth_doc_type().as_str()),
         &DeviceNameSpaces::empty(),
     );
     let (earliest, cutoff) = pair.bounds().dates().map_err(|Unencodable| {
@@ -240,7 +247,7 @@ impl Prepared {
             system_id: self.statement.system.id(),
             proof_backend: self.statement.proof_backend.clone(),
             req_set: self.req_set,
-            proof: envelope.encode(),
+            proof: envelope.encode().map_err(|_| ProveError::Encoding)?,
             results: self.results.clone(),
         })
     }

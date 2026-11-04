@@ -4,7 +4,7 @@
 use der::asn1::ObjectIdentifier;
 use der::{Decode, Encode, Header, Reader, SliceReader, Tag};
 use p256::ecdsa::signature::Verifier;
-use siros_codec::date::DateTime;
+use siros_openid4vp::host::Timestamp;
 use x509_cert::spki::AlgorithmIdentifierOwned;
 use x509_cert::time::Time;
 
@@ -44,8 +44,8 @@ pub struct Certificate {
     algorithm: SignatureAlgorithm,
     issuer: DistinguishedName,
     subject: DistinguishedName,
-    not_before: DateTime,
-    not_after: DateTime,
+    not_before: Timestamp,
+    not_after: Timestamp,
     key: SubjectKey,
     authority_key_identifier: Option<KeyIdentifier>,
     subject_key_identifier: Option<KeyIdentifier>,
@@ -74,15 +74,6 @@ enum SubjectKey {
     P384(p384::ecdsa::VerifyingKey, Vec<u8>),
     /// A key of another type.
     Other,
-}
-
-/// A time of a certificate's validity period (RFC 5280, Section 4.1.2.5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ValidityTime {
-    /// `notBefore`.
-    NotBefore,
-    /// `notAfter`.
-    NotAfter,
 }
 
 /// A name of a certificate (RFC 5280, Section 4.1.2.4 and 4.1.2.6).
@@ -132,8 +123,6 @@ pub enum CertificateError {
     Signature,
     /// This name does not encode.
     Name(NameField, #[source] der::Error),
-    /// This time of the validity period lies outside 0000 to 9999.
-    Validity(ValidityTime),
     /// The subject's key is declared P-256 or P-384 and is no key of that curve.
     PublicKey(#[source] PublicKeyFault),
     /// The certificate holds the extension of this identifier twice (RFC 5280, Section 4.2).
@@ -159,7 +148,6 @@ impl CertificateError {
             Self::AlgorithmMismatch => "certificate_algorithm_mismatch",
             Self::Signature => "certificate_signature",
             Self::Name(..) => "certificate_name",
-            Self::Validity(_) => "certificate_validity",
             Self::PublicKey(_) => "certificate_public_key",
             Self::ExtensionRepeated(_) => "certificate_extension_repeated",
             Self::BasicConstraints(_) => "certificate_basic_constraints",
@@ -236,8 +224,8 @@ impl Certificate {
             algorithm: SignatureAlgorithm::of(&certificate.signature_algorithm),
             issuer: name(NameField::Issuer, &tbs_certificate.issuer)?,
             subject: name(NameField::Subject, &tbs_certificate.subject)?,
-            not_before: time(validity.not_before, ValidityTime::NotBefore)?,
-            not_after: time(validity.not_after, ValidityTime::NotAfter)?,
+            not_before: time(validity.not_before),
+            not_after: time(validity.not_after),
             key: SubjectKey::read(&tbs_certificate.subject_public_key_info)
                 .map_err(CertificateError::PublicKey)?,
             authority_key_identifier: extensions.authority_key_identifier,
@@ -323,7 +311,7 @@ impl Certificate {
     /// Whether `time` lies in the validity period, both ends included (RFC 5280, Section
     /// 4.1.2.5).
     #[must_use]
-    pub(crate) fn valid_at(&self, time: DateTime) -> bool {
+    pub(crate) fn valid_at(&self, time: Timestamp) -> bool {
         self.not_before <= time && time <= self.not_after
     }
 
@@ -429,9 +417,8 @@ fn tbs_bytes(der: &[u8]) -> Result<&[u8], der::Error> {
     reader.tlv_bytes()
 }
 
-/// `time`, the time `which` of the validity period, as a UTC time of the years 0000 to 9999.
-fn time(time: Time, which: ValidityTime) -> Result<DateTime, CertificateError> {
-    let seconds = i64::try_from(time.to_unix_duration().as_secs())
-        .map_err(|_| CertificateError::Validity(which))?;
-    DateTime::from_unix(seconds).ok_or(CertificateError::Validity(which))
+/// `time`, a time of the validity period, in seconds since 1970-01-01T00:00:00Z: an X.509 time
+/// lies in the years 1970 to 9999 (RFC 5280, Section 4.1.2.5).
+fn time(time: Time) -> Timestamp {
+    Timestamp(time.to_unix_duration().as_secs())
 }

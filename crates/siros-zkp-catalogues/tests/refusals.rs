@@ -11,25 +11,26 @@ mod refusal_cases;
 mod support;
 
 use serde_json::{json, Value};
-use siros_codec::cbor::{CborError, Unsupported as CborUnsupported, Value as Cbor};
 use siros_codec::date::DateTime;
-use siros_codec::member::{ArrayIndex, MemberFault};
-use siros_dcql::{CredentialQuery, QueryError};
-use siros_oid4vp::{ClientId, ClientIdError, Origin};
+use siros_explain::MessageId;
+use siros_openid4vp::cbor::Value as Cbor;
+use siros_openid4vp::ids::{ClientId, Origin};
 use siros_trust::Certificate;
 use siros_zkp_catalogues::attestation::{SecretSeed, Unusable};
 use siros_zkp_catalogues::catalogue::{CatalogueRule, ContextFault, NymAuthQuery, ParamFault, Prf};
 use siros_zkp_catalogues::outcome::{CredentialCode, InvalidRequest, ItemCode, ZkpError};
-use siros_zkp_catalogues::policy::PolicyRule;
+use siros_zkp_catalogues::policy::{ClientIdFault, PolicyRule};
 use siros_zkp_catalogues::presenter::{Answer, ProveError, Unanswerable};
 use siros_zkp_catalogues::prover::{ProofFailure, ProverFailure};
 use siros_zkp_catalogues::request_object::{check_request, Channel, Signing};
 use siros_zkp_catalogues::system::{NymAuthSystem, Unsupported};
+use siros_zkp_catalogues::testing::read_query;
 use siros_zkp_catalogues::verifier_id::{Intermediary, LengthError, VerifierId, VerifierIdRule};
 use siros_zkp_catalogues::verify::{
     verify, IssuerKeySetError, OwnQueryFault, ProofEncodingFault, ProofTimeError, Rejection,
     ResultsFault, Tolerance, VerifyInput,
 };
+use siros_zkp_req::{ArrayIndex, CborFault, MemberFault, Unsupported as CborUnsupported};
 use siros_zkp_req::{
     EncodingError, IdentifierFault, InputName, ItemIndex, OptionFault, PairRefusal, ProofBackend,
     ProofContent, ProofEnvelope, ReqSetIndex, RequestRule, ResultKey, ReturnFault,
@@ -42,7 +43,7 @@ use zeroize::Zeroizing;
 /// What a fixture gives.
 #[derive(Debug, PartialEq)]
 enum Got {
-    Dcql(QueryError),
+    Dcql(MessageId),
     Invalid(InvalidRequest),
     Unsupported(PairRefusal<Unsupported>),
     Credential(Vec<CredentialCode>),
@@ -69,8 +70,9 @@ fn ds() -> Issuer {
 /// The nym_auth query of `query` and the Verifier's formats of `metadata`.
 fn parsed(query: &Value, metadata: &Value) -> Result<(NymAuthQuery, ZkpFormats), Got> {
     let invalid = |rule: InvalidRequest| Got::Invalid(rule);
-    let query = CredentialQuery::parse(query).map_err(Got::Dcql)?;
-    let parsed = ZkpReqQuery::parse(&query).map_err(|r| invalid(r.into()))?;
+    let parsed = read_query(query, ZkpReqQuery::parse)
+        .map_err(|refusal| Got::Dcql(refusal.rule().id()))?
+        .map_err(|r| invalid(r.into()))?;
     let formats = ZkpFormats::from_client_metadata(metadata).map_err(|r| invalid(r.into()))?;
     let nym = NymAuthQuery::from_query(parsed)
         .map_err(|r| invalid(r.into()))?
@@ -145,8 +147,10 @@ fn match_credential(spec: Spec, range: Option<&str>, seed: [u8; 16]) -> Got {
 fn prove(device: u8, fail: Option<ProverFailure>) -> Got {
     let q = query(None, false);
     let data = issue(&ds(), &Spec::default());
-    let request = verified_request(&q, NONCE);
-    let prepared = prepared(NymAuthSystem::LongfellowV1, &q, &data, &SEED, &request).unwrap();
+    let request = signed_request(&q, NONCE);
+    let prepared = request
+        .authenticated(|request| prepared(NymAuthSystem::LongfellowV1, &q, &data, &SEED, request))
+        .unwrap();
     match present(&prepared, device, &TestProver { fail }) {
         Ok(_) => Got::Accepted,
         Err(e) => Got::Prove(e),
@@ -172,8 +176,10 @@ fn verifier_id(result: Result<VerifierId, VerifierIdRule>) -> Got {
 /// An honest presentation for `query`, made with `system`.
 fn honest(system: NymAuthSystem, query: &Value) -> Vec<u8> {
     let data = issue(&ds(), &Spec::default());
-    let request = verified_request(query, NONCE);
-    let prepared = prepared(system, query, &data, &SEED, &request).unwrap();
+    let request = signed_request(query, NONCE);
+    let prepared = request
+        .authenticated(|request| prepared(system, query, &data, &SEED, request))
+        .unwrap();
     present(
         &prepared,
         Spec::default().device,
@@ -181,6 +187,7 @@ fn honest(system: NymAuthSystem, query: &Value) -> Vec<u8> {
     )
     .unwrap()
     .encode()
+    .unwrap()
 }
 
 fn sets_query() -> Value {
@@ -238,13 +245,13 @@ fn verify_edit_as(
 ) -> Got {
     let mut p = ZkpPresentation::decode(&honest(system, &sets_query())).unwrap();
     edit(&mut p);
-    verified(v, &p.encode())
+    verified(v, &p.encode().unwrap())
 }
 
 fn edit_envelope(p: &mut ZkpPresentation, edit: impl FnOnce(&mut ProofEnvelope)) {
     let mut envelope = ProofEnvelope::decode(&p.proof).unwrap();
     edit(&mut envelope);
-    p.proof = envelope.encode();
+    p.proof = envelope.encode().unwrap();
 }
 
 fn set_input(envelope: &mut ProofEnvelope, name: &str, value: Cbor) {
@@ -299,5 +306,5 @@ fn edited_no_sets() -> Vec<u8> {
     ))
     .unwrap();
     p.req_set = Some(ReqSetIndex::new(0));
-    p.encode()
+    p.encode().unwrap()
 }

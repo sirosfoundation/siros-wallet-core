@@ -55,8 +55,12 @@ impl<'q> Answer<'q> {
         attestation: UsableAttestation,
         secret_seed: &SecretSeed,
     ) -> Result<Self, Unanswerable> {
-        let query = pair.option().query().query().credential_query();
-        if !attestation.issuer().authorities().are_those_of(query) {
+        let query = pair.option().query().query();
+        if !attestation
+            .issuer()
+            .authorities()
+            .are_those_of(query.id(), query.trusted_authorities())
+        {
             return Err(Unanswerable::OtherQuery);
         }
         if attestation.proof_time().date() != pair.date() {

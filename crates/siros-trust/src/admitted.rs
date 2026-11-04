@@ -2,8 +2,9 @@
 //! query, from its chain and the trust store at a given time, and the facts it records for the
 //! picker.
 
-use siros_codec::date::DateTime;
-use siros_dcql::QueryId;
+use siros_openid4vp::host::Timestamp;
+
+use crate::ids::QueryId;
 
 use crate::admission::{Ground, Issuer, Unadmitted};
 use crate::authority::{KeyIdentifier, QueryAuthorities, StoreAuthority};
@@ -44,7 +45,7 @@ impl ChainRefusal {
 struct ChainAt<'a> {
     chain: &'a IssuerChain,
     store: &'a TrustStore,
-    time: DateTime,
+    time: Timestamp,
 }
 
 /// A credential without an issuer chain.
@@ -130,7 +131,7 @@ impl AdmittedIssuer {
         authorities: &QueryAuthorities,
         chain: Option<&IssuerChain>,
         store: &TrustStore,
-        time: DateTime,
+        time: Timestamp,
     ) -> Result<Self, Unadmitted<ChainRefusal>> {
         let admitted = match chain {
             // The issuer refuses every authority: only a query that names none admits it.
@@ -196,7 +197,7 @@ impl IssuerFacts {
     /// authorities to whose store entries it has a path. A credential without a chain has
     /// none.
     #[must_use]
-    pub fn at(chain: Option<&IssuerChain>, store: &TrustStore, time: DateTime) -> Self {
+    pub fn at(chain: Option<&IssuerChain>, store: &TrustStore, time: Timestamp) -> Self {
         let Some(chain) = chain else {
             return Self::new(Vec::new(), Vec::new());
         };

@@ -2,7 +2,7 @@
 //! `zkp_req`, Section 4.1. Steps 6 to 8 build the statement and verify the proof; the system
 //! defines them.
 
-use siros_codec::cbor::Value;
+use siros_openid4vp::cbor::Value;
 
 use crate::formats::ZkpFormats;
 use crate::ids::{ItemIndex, ReqSetIndex, ResultKey, SystemId};

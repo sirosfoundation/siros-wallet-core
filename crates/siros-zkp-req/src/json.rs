@@ -1,7 +1,7 @@
 //! The member shapes the request rules share.
 
+use crate::member::{ArrayIndex, MemberFault};
 use serde_json::Value;
-use siros_codec::member::{ArrayIndex, MemberFault};
 
 use crate::outcome::IdentifierFault;
 

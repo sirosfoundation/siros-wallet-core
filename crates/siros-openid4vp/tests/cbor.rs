@@ -1,8 +1,11 @@
-//! RFC 8949 §5.6.1's distinct keys at every depth, RFC 9052 §3's header buckets, and RFC 8949
-//! §6's conversions between JSON and CBOR over export_formats.py's `json_value` grammar.
+//! RFC 8949 §5.6.1's distinct keys at every depth, RFC 9052 §3's header buckets, RFC 8949 §6's
+//! conversions between JSON and CBOR over export_formats.py's `json_value` grammar, and RFC 8949
+//! §4.2.1's deterministic encoding.
 
 use siros_openid4vp::cbor::cose::{CoseShape, coset, read_sign1};
-use siros_openid4vp::cbor::{CborError, Value, decode, encode, of_json, to_json};
+use siros_openid4vp::cbor::{
+    CborError, Value, decode, encode, encode_deterministic, of_json, to_json,
+};
 use siros_openid4vp::json::Node;
 use siros_testkit::reading::model_value;
 
@@ -82,7 +85,7 @@ fn a_key_twice_is_refused_at_every_depth() {
         (
             "300 nested arrays",
             deep.as_str(),
-            Some(|e| matches!(e, CborError::Depth)),
+            Some(|e| matches!(e, CborError::Depth(256))),
         ),
     ];
     let mut held = 0;
@@ -242,4 +245,30 @@ fn json_converts_to_cbor_and_back() {
         );
         assert_eq!(to_json(&item).unwrap(), node, "{text}");
     }
+}
+
+/// RFC 8949 §4.2.1's example key order (10, 100, -1, "z", "aa", [100], [-1], false), given
+/// scrambled, and Appendix A's shortest float for 1.5.
+#[test]
+fn the_deterministic_encoding_is_rfc_8949_s4_2_1() {
+    let int = |n: i64| Value::Integer(n.into());
+    let keys = [
+        Value::Bool(false),
+        Value::Text("aa".into()),
+        int(-1),
+        Value::Array(vec![int(-1)]),
+        int(100),
+        Value::Text("z".into()),
+        Value::Array(vec![int(100)]),
+        int(10),
+    ];
+    let map = Value::Map(keys.into_iter().map(|key| (key, int(0))).collect());
+    assert_eq!(
+        encode_deterministic(&map).unwrap(),
+        unhex("a8 0a00 186400 2000 617a00 62616100 81186400 812000 f400")
+    );
+    assert_eq!(
+        encode_deterministic(&Value::Float(1.5)).unwrap(),
+        unhex("f93e00")
+    );
 }

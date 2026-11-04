@@ -12,8 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::Value;
-use siros_dcql::CredentialQuery;
 use siros_zkp_catalogues::prover::ProofFailure;
+use siros_zkp_catalogues::testing::read_query;
 use siros_zkp_catalogues::verify::{check_presentation, Rejection};
 use siros_zkp_req::{presentations_of, EncodingError, StructureRejection, ZkpReqQuery};
 
@@ -46,7 +46,9 @@ fn rejection_code(r: &Rejection) -> &'static str {
         Rejection::Results(_) => "results",
         Rejection::Proof(ProofFailure::Invalid) => "proof_invalid",
         Rejection::Proof(ProofFailure::PublicInput) => "public_input",
-        Rejection::Proof(ProofFailure::Internal) => "verifier_internal",
+        Rejection::Proof(ProofFailure::Internal) | Rejection::Clock | Rejection::Transcript => {
+            "verifier_internal"
+        }
     }
 }
 
@@ -54,7 +56,7 @@ fn rejection_code(r: &Rejection) -> &'static str {
 fn verdict(vector: &Value) -> Option<&'static str> {
     let query = &vector["query"];
     let metadata = &vector["client_metadata"];
-    let Ok(parsed) = CredentialQuery::parse(query).map(|query| ZkpReqQuery::parse(&query)) else {
+    let Ok(parsed) = read_query(query, ZkpReqQuery::parse) else {
         return Some("request");
     };
     let Ok(parsed) = parsed else {

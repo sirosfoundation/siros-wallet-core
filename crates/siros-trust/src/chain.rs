@@ -1,8 +1,6 @@
 //! A credential's issuer chain (TR2): the certificates the credential carries for its issuer,
 //! the signer's first.
 
-use siros_codec::chain::CertificateChain;
-
 use crate::authority::KeyIdentifier;
 use crate::certificate::{Certificate, CertificateError};
 use crate::position::ChainIndex;
@@ -45,24 +43,26 @@ impl ChainError {
 }
 
 impl IssuerChain {
-    /// The chain of the DER certificates `certificates`.
+    /// The chain of the DER certificates `leaf`, the signer's, and `issuers` after it.
     ///
     /// # Errors
     ///
     /// [`ChainError`]: the first certificate that does not parse.
-    pub fn parse(certificates: &CertificateChain) -> Result<Self, ChainError> {
+    pub fn parse<'d>(
+        leaf: &[u8],
+        issuers: impl IntoIterator<Item = &'d [u8]>,
+    ) -> Result<Self, ChainError> {
         let parse = |position: usize, der: &[u8]| {
             Certificate::parse(der).map_err(|error| ChainError {
                 position: ChainIndex::new(position),
                 error,
             })
         };
-        let leaf = parse(0, certificates.first())?;
-        let issuers = certificates
-            .certificates()
+        let leaf = parse(0, leaf)?;
+        let issuers = issuers
+            .into_iter()
             .enumerate()
-            .skip(1)
-            .map(|(position, der)| parse(position, der))
+            .map(|(position, der)| parse(position + 1, der))
             .collect::<Result<_, _>>()?;
         Ok(Self { leaf, issuers })
     }

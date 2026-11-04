@@ -6,8 +6,8 @@ use ciborium::value::{Integer, Value};
 
 use super::CborError;
 
-/// The deepest nesting of arrays, maps and tags read.
-const DEPTH: usize = 256;
+/// The deepest nesting of arrays, maps and tags [`decode`](super::decode) reads.
+pub(super) const DEPTH: usize = 256;
 
 /// `undefined` (RFC 8949 §3.3).
 const UNDEFINED: u8 = 23;
@@ -20,15 +20,32 @@ enum Argument {
     Indefinite,
 }
 
-/// The bytes holding a data item, and the part not read yet.
+/// The lengths a reading admits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Lengths {
+    /// Definite and indefinite lengths.
+    Any,
+    /// Definite lengths alone: additional information 31 is refused.
+    Definite,
+}
+
+/// The bytes holding a data item, the part not read yet, and what the reading admits.
 pub(super) struct Reader<'b> {
     bytes: &'b [u8],
     rest: &'b [u8],
+    depth: usize,
+    lengths: Lengths,
 }
 
 impl<'b> Reader<'b> {
-    pub(super) fn new(bytes: &'b [u8]) -> Self {
-        Self { bytes, rest: bytes }
+    /// A reading of `bytes` that nests at most `depth` levels and admits `lengths`.
+    pub(super) fn new(bytes: &'b [u8], depth: usize, lengths: Lengths) -> Self {
+        Self {
+            bytes,
+            rest: bytes,
+            depth,
+            lengths,
+        }
     }
 
     /// The bytes not read yet.
@@ -82,9 +99,19 @@ impl<'b> Reader<'b> {
             25 => u64::from(u16::from_be_bytes(self.fixed()?)),
             26 => u64::from(u32::from_be_bytes(self.fixed()?)),
             27 => u64::from_be_bytes(self.fixed()?),
-            31 => return Ok(Argument::Indefinite),
+            31 if self.lengths == Lengths::Any => return Ok(Argument::Indefinite),
+            31 => return Err(CborError::Indefinite(at)),
             _ => return Err(CborError::Malformed(at)),
         }))
+    }
+
+    /// The depth of an array's, a map's or a tag's content.
+    fn deeper(&self, depth: usize) -> Result<usize, CborError> {
+        if depth < self.depth {
+            Ok(depth + 1)
+        } else {
+            Err(CborError::Depth(self.depth))
+        }
     }
 
     /// One data item at `depth` levels of nesting.
@@ -122,9 +149,11 @@ impl<'b> Reader<'b> {
                 }
                 Value::Text(text)
             }
-            (4, length) => Value::Array(self.array(length, deeper(depth)?)?),
-            (5, length) => Value::Map(self.map(length, deeper(depth)?)?),
-            (6, Argument::Definite(tag)) => Value::Tag(tag, Box::new(self.item(deeper(depth)?)?)),
+            (4, length) => Value::Array(self.array(length, self.deeper(depth)?)?),
+            (5, length) => Value::Map(self.map(length, self.deeper(depth)?)?),
+            (6, Argument::Definite(tag)) => {
+                Value::Tag(tag, Box::new(self.item(self.deeper(depth)?)?))
+            }
             _ => return Err(CborError::Malformed(at)),
         })
     }
@@ -143,6 +172,7 @@ impl<'b> Reader<'b> {
             25 => Value::Float(half(u16::from_be_bytes(self.fixed()?))),
             26 => Value::Float(f64::from(f32::from_be_bytes(self.fixed()?))),
             27 => Value::Float(f64::from_be_bytes(self.fixed()?)),
+            31 if self.lengths == Lengths::Definite => return Err(CborError::Indefinite(at)),
             _ => return Err(CborError::Malformed(at)),
         })
     }
@@ -208,15 +238,6 @@ impl<'b> Chunk<'b> {
     /// The chunk as text: each chunk of a text string is UTF-8 on its own.
     fn text(&self) -> Result<&'b str, CborError> {
         std::str::from_utf8(self.bytes).map_err(|_| CborError::Utf8(self.at))
-    }
-}
-
-/// The depth of an array's, a map's or a tag's content.
-fn deeper(depth: usize) -> Result<usize, CborError> {
-    if depth < DEPTH {
-        Ok(depth + 1)
-    } else {
-        Err(CborError::Depth)
     }
 }
 

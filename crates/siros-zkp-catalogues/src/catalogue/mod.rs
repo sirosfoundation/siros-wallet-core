@@ -4,7 +4,8 @@
 
 use serde_json::{Map, Value};
 use siros_codec::date::Date;
-use siros_dcql::{DocType, HolderBinding};
+use siros_openid4vp::request::HolderBinding;
+use siros_zkp_req::DocType;
 use siros_zkp_req::{
     CredentialType, FnId, ItemIndex, QueryOption, ReqItem, ReturnHandle, ZkpReqQuery,
 };
@@ -291,7 +292,7 @@ impl NymAuthQuery {
         let Some(form) = form_of(query.credential_type())? else {
             return Ok(Catalogued::OtherType(query));
         };
-        if query.holder_binding() == HolderBinding::Optional {
+        if query.holder_binding() == HolderBinding::Waived {
             return Err(CatalogueRule::HolderBindingWaived);
         }
         let items = query

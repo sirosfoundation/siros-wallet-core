@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use siros_codec::member::{ArrayIndex, MemberFault};
+use crate::member::{ArrayIndex, MemberFault};
 
 use crate::ids::{FnIdError, ItemIndex, ReqSetIndex, ReturnHandleError};
 
@@ -75,6 +75,17 @@ pub enum ReturnFault {
     Syntax(#[source] ReturnHandleError),
 }
 
+/// What breaks OpenID4VP 1.0, Section 6.1's `claims` and `claim_sets`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+pub enum ClaimsFault {
+    /// `claims` is no non-empty array of claims queries, or `claim_sets` breaks its rule.
+    #[error("claims is no non-empty array of claims queries")]
+    Claims,
+    /// `claim_sets` is present without `claims`.
+    #[error("claim_sets is present without claims")]
+    ClaimSetsWithoutClaims,
+}
+
 /// Why an entry of `_req_sets` is no option (Section 2.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum OptionFault {
@@ -96,14 +107,19 @@ pub enum OptionFault {
 }
 
 /// A rule of `zkp_req` that a request breaks, with what breaks it. Each one makes the request
-/// invalid ([`ErrorCode::InvalidRequest`]). The rules of OpenID4VP 1.0, Section 6 are DCQL's,
-/// which parses the query first.
+/// invalid ([`ErrorCode::InvalidRequest`]). The core's DCQL reader parses the query first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
 #[error("{}", self.code())]
 pub enum RequestRule {
+    /// The query is no JSON object (OpenID4VP 1.0, Section 6.1).
+    QueryNotObject,
+    /// `claims` or `claim_sets` breaks OpenID4VP 1.0, Section 6.1.
+    ClaimsInvalid(#[source] ClaimsFault),
+    /// `meta` is absent or no object (OpenID4VP 1.0, Section 6.1).
+    MetaInvalid(#[source] MemberFault),
     /// `format` is not `zkp_req`.
     FormatNotZkpReq,
-    /// `claims` is present (Section 1.1). DCQL refuses `claim_sets` without `claims`.
+    /// `claims` is present (Section 1.1).
     ClaimsPresent,
     /// `meta.source_format` is absent, not a string or empty (Section 1.1).
     SourceFormatInvalid(#[source] MemberFault),
@@ -170,6 +186,10 @@ impl RequestRule {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
+            Self::ClaimsInvalid(ClaimsFault::ClaimSetsWithoutClaims) => "claim_sets_without_claims",
+            Self::QueryNotObject
+            | Self::ClaimsInvalid(ClaimsFault::Claims)
+            | Self::MetaInvalid(_) => "dcql_malformed",
             Self::FormatNotZkpReq => "format_not_zkp_req",
             Self::ClaimsPresent => "claims_present",
             Self::SourceFormatInvalid(_) => "source_format_invalid",

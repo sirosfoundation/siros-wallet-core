@@ -20,7 +20,9 @@
 
 mod presenting;
 
-pub use presenting::{nym_query, prepared, present, usable, verified_request, Presenting};
+pub use presenting::{
+    nym_query, prepared, present, read_query, signed_request, usable, Presenting, SignedRequest,
+};
 
 use std::str::FromStr;
 use std::time::Duration;
@@ -30,20 +32,20 @@ use crate::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,
     Statement,
 };
-use crate::request_object::{check_request, Channel, Signing};
+use crate::request_object::{check_request, ec_jwk_thumbprint, Channel, Signing};
 use crate::system::NymAuthSystem;
 use crate::verifier_id::{Intermediary, PseudonymValue, VerifierId};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use der::asn1::{GeneralizedTime, UtcTime};
 use der::Encode;
 use p256::ecdsa::signature::Signer as _;
 use p256::ecdsa::{DerSignature, Signature, SigningKey};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use siros_codec::base64url;
 use siros_codec::cbor::Value as Cbor;
 use siros_codec::date::DateTime;
 use siros_codec::signature::Es256Signature;
-use siros_oid4vp::ec_jwk_thumbprint;
 use siros_zkp_req::ZkProof;
 use x509_cert::builder::{Builder, CertificateBuilder, Profile};
 use x509_cert::name::Name;
@@ -267,7 +269,7 @@ pub fn issue(issuer: &Issuer, spec: &Spec) -> String {
             ]),
         ),
     ]);
-    base64url::encode(&issuer_signed.encode()).into()
+    URL_SAFE_NO_PAD.encode(issuer_signed.encode())
 }
 
 /// A pseudonym item and, unless `range` is `None`, an age_check item.
@@ -324,7 +326,7 @@ pub fn session(query: &Value, nonce: &str) -> Session {
     .unwrap();
     let thumbprint = ec_jwk_thumbprint(&encryption_jwk()).unwrap();
     Session {
-        handover: checked.handover(&thumbprint).unwrap(),
+        transcript: checked.transcript(thumbprint).unwrap(),
         verifier_id: VerifierId::x509_san_dns(checked.client_id(), Intermediary::Absent).unwrap(),
     }
 }

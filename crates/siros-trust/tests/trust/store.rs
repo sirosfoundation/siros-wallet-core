@@ -1,10 +1,9 @@
 //! TR1: the trust store record, one refusal per rule, each by its reason.
 
+use base64::DecodeError;
 use serde_json::json;
-use siros_codec::json::JsonFault;
-use siros_codec::member::MemberFault;
-use siros_codec::Base64Error;
-use siros_dcql::AuthorityType;
+use siros_openid4vp::json::JsonError;
+use siros_trust::{AuthorityType, MemberFault};
 use siros_trust::{CertificateError, CertificateIndex, EntryError, StoreError, TrustStore};
 use x509_cert::der::Decode;
 
@@ -26,7 +25,7 @@ fn verdict(record: &str) -> Verdict {
         Ok(_) => Verdict::Parsed,
         Err(StoreError::Entry { entry, error }) => Verdict::Entry(entry.value(), error),
         Err(StoreError::Repeated(entry)) => Verdict::Repeated(entry.value()),
-        Err(StoreError::Json(JsonFault::RepeatedMember(name))) => Verdict::RepeatedMember(name),
+        Err(StoreError::Json(JsonError::DuplicateMember(name))) => Verdict::RepeatedMember(name),
         Err(error) => Verdict::Record(error.code()),
     }
 }
@@ -73,7 +72,10 @@ fn each_rule_of_tr1() {
         (
             "an unknown type",
             entry(&|e| e["type"] = json!("aki")),
-            Verdict::Entry(0, EntryError::UnknownType(AuthorityType::new("aki"))),
+            Verdict::Entry(
+                0,
+                EntryError::UnknownType(AuthorityType::parse("aki").unwrap()),
+            ),
         ),
         (
             "no string value",
@@ -97,7 +99,10 @@ fn each_rule_of_tr1() {
                 0,
                 EntryError::Encoding {
                     certificate: first,
-                    error: Base64Error::Alphabet(base64url_text.find(['-', '_']).unwrap()),
+                    error: {
+                        let at = base64url_text.find(['-', '_']).unwrap();
+                        DecodeError::InvalidByte(at, base64url_text.as_bytes()[at])
+                    },
                 },
             ),
         ),

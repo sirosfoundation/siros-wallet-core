@@ -46,6 +46,12 @@ macro_rules! text_id {
             pub fn borrowed(&self) -> $name<'_> {
                 $name(Cow::Borrowed(&self.0))
             }
+
+            /// The identifier, owning its text.
+            #[must_use]
+            pub fn into_owned(self) -> $name<'static> {
+                $name(Cow::Owned(self.0.into_owned()))
+            }
         }
 
         impl fmt::Display for $name<'_> {

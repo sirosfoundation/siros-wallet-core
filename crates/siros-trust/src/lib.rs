@@ -48,6 +48,7 @@
 mod admission;
 mod authority;
 mod facts;
+mod ids;
 
 pub use admission::{Admission, Ground, Issuer, Refusal, Unadmitted};
 pub use authority::{
@@ -55,6 +56,7 @@ pub use authority::{
     StoreAuthority, StoreType,
 };
 pub use facts::{FactRefusal, IssuerFacts};
+pub use ids::{AuthorityType, AuthorityValue, QueryId};
 
 #[cfg(feature = "chain")]
 mod admitted;
@@ -76,7 +78,7 @@ pub use admitted::{AdmittedIssuer, ChainRefusal};
 #[cfg(feature = "chain")]
 pub use certificate::{
     Certificate, CertificateError, DistinguishedName, IssuanceRefusal, KeyIdentifierFault,
-    NameField, PublicKeyFault, ValidityTime,
+    NameField, PublicKeyFault,
 };
 #[cfg(feature = "chain")]
 pub use chain::{ChainError, IssuerChain};
@@ -87,4 +89,4 @@ pub use path::{OnPath, PathRefusal};
 #[cfg(feature = "chain")]
 pub use position::{CertificateIndex, ChainIndex, EntryIndex};
 #[cfg(feature = "chain")]
-pub use store::{EntryError, StoreEntry, StoreError, TrustStore, Unanchored};
+pub use store::{EntryError, MemberFault, StoreEntry, StoreError, TrustStore, Unanchored};

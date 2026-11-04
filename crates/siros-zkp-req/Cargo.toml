@@ -10,18 +10,19 @@ authors.workspace = true
 rust-version.workspace = true
 
 [features]
-# Reading the presentations of a query from a JSON `vp_token`, with siros-codec's strict JSON
-# reader.
-vp-token = ["siros-codec/json"]
+# Reading the presentations of a query from a JSON `vp_token`.
+vp-token = []
 
 [dependencies]
-siros-codec = { workspace = true }
-siros-dcql = { workspace = true }
+# The core's DCQL reader, CBOR, JSON with unique member names and identifiers.
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+base64 = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 
 [lints]
 workspace = true

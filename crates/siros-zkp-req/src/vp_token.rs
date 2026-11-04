@@ -1,9 +1,11 @@
 //! Reading the presentations of one query from a JSON `vp_token` (`zkp_req`, Section 6.1;
 //! OpenID4VP 1.0, Section 8.1).
 
-use siros_codec::json::{Json, JsonFault};
-use siros_codec::{base64url, Base64Error};
-use siros_dcql::{Multiplicity, QueryId};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::{DecodeError, Engine as _};
+use siros_openid4vp::ids::QueryId;
+use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::request::Multiplicity;
 
 use crate::ids::PresentationIndex;
 
@@ -11,8 +13,8 @@ use crate::ids::PresentationIndex;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{}", self.code())]
 pub enum VpTokenError {
-    /// The strict reader refuses the text.
-    NotJson(#[source] JsonFault),
+    /// The text is no JSON with unique member names.
+    NotJson(#[source] JsonError),
     /// The JSON value is no object.
     NotObject,
     /// The object has no entry for the query's `id`.
@@ -34,7 +36,7 @@ pub enum VpTokenError {
         index: PresentationIndex,
         /// What breaks the encoding.
         #[source]
-        error: Base64Error,
+        error: DecodeError,
     },
 }
 
@@ -43,8 +45,8 @@ impl VpTokenError {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {
-            Self::NotJson(JsonFault::Read(_)) | Self::NotObject => "response_not_object",
-            Self::NotJson(JsonFault::RepeatedMember(_)) => "duplicate_member",
+            Self::NotJson(JsonError::Syntax(_)) | Self::NotObject => "response_not_object",
+            Self::NotJson(JsonError::DuplicateMember(_)) => "duplicate_member",
             Self::QueryIdMissing => "query_id_missing",
             Self::NotArray => "presentations_not_array",
             Self::Empty => "presentations_empty",
@@ -63,35 +65,34 @@ impl VpTokenError {
 /// [`VpTokenError`]: the first rule the `vp_token` breaks for this query.
 pub fn presentations_of(
     vp_token: &str,
-    query_id: &QueryId,
+    query_id: &QueryId<'_>,
     multiplicity: Multiplicity,
 ) -> Result<Vec<Vec<u8>>, VpTokenError> {
-    let Json::Object(members) =
-        Json::parse_unique(vp_token.as_bytes()).map_err(VpTokenError::NotJson)?
-    else {
+    let token = Node::parse(vp_token).map_err(VpTokenError::NotJson)?;
+    let Node::Object(members) = token else {
         return Err(VpTokenError::NotObject);
     };
     let entry = members
-        .iter()
-        .find(|(name, _)| query_id == name)
-        .map(|(_, value)| value)
+        .get(query_id.as_str())
         .ok_or(VpTokenError::QueryIdMissing)?;
-    let Json::Array(list) = entry else {
+    let Node::Array(list) = entry else {
         return Err(VpTokenError::NotArray);
     };
     match (list.len(), multiplicity) {
         (0, _) => return Err(VpTokenError::Empty),
-        (1, _) | (_, Multiplicity::Several) => {}
+        (1, _) | (_, Multiplicity::Many) => {}
         (_, Multiplicity::One) => return Err(VpTokenError::MultipleNotAllowed),
     }
     list.iter()
         .enumerate()
         .map(|(index, p)| {
             let index = PresentationIndex::new(index);
-            let Json::String(text) = p else {
+            let Node::String(text) = p else {
                 return Err(VpTokenError::NotString { index });
             };
-            base64url::decode(text).map_err(|error| VpTokenError::NotBase64url { index, error })
+            URL_SAFE_NO_PAD
+                .decode(text.as_bytes())
+                .map_err(|error| VpTokenError::NotBase64url { index, error })
         })
         .collect()
 }

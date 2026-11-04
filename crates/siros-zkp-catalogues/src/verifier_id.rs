@@ -2,7 +2,9 @@
 //! (nym_auth catalogue, `pseudonym`: "Verifier identity" and "Configurations").
 
 use sha2::{Digest, Sha256};
-use siros_oid4vp::{ClientId, ClientIdPrefix, SemanticIdError, SemanticIdentifier};
+use siros_openid4vp::ids::ClientId;
+
+use crate::semantic::{SemanticIdError, SemanticIdentifier};
 
 use crate::catalogue::Config;
 
@@ -51,6 +53,15 @@ pub enum Intermediary {
     Named,
 }
 
+/// The Client Identifier Prefix of `x509_san_dns` (OpenID4VP 1.0, Section 5.9.3).
+pub(crate) const X509_SAN_DNS: &str = "x509_san_dns";
+
+/// The Client Identifier Prefix of `client_id`: the text before its first `:` (OpenID4VP 1.0,
+/// Section 5.9.1); `None` without one.
+pub(crate) fn prefix<'c>(client_id: &'c ClientId<'_>) -> Option<&'c str> {
+    client_id.as_str().split_once(':').map(|(prefix, _)| prefix)
+}
+
 impl VerifierId {
     /// The `semantic` form: `"semantic_id:"` and the end Relying Party's semantics identifier,
     /// from the registration certificate when present, else from the access certificate.
@@ -66,10 +77,10 @@ impl VerifierId {
     /// [`VerifierIdRule::Intermediary`] when the registration certificate names an
     /// intermediary.
     pub fn x509_san_dns(
-        client_id: &ClientId,
+        client_id: &ClientId<'_>,
         intermediary: Intermediary,
     ) -> Result<Self, VerifierIdRule> {
-        if client_id.prefix() != ClientIdPrefix::X509SanDns {
+        if prefix(client_id) != Some(X509_SAN_DNS) {
             return Err(VerifierIdRule::ClientIdPrefix);
         }
         if intermediary == Intermediary::Named {

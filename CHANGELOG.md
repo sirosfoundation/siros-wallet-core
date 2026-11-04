@@ -30,6 +30,17 @@ released version yet.
 
 ### Changed
 
+- `siros-zkp-req`, `siros-zkp-catalogues`, `siros-trust` and `proving/` read
+  DCQL, CBOR, JSON, identifiers, sessions and authenticated requests through
+  `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
+  and refuses an indefinite length through the core's definite reading.
+  `siros-zkp-catalogues` reads the semantics identifier from the trust
+  service's facts. `siros-trust` takes the core's `Timestamp` and identifiers.
+  `siros-wallet-state` holds its own errors and timestamp.
+- `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
+  CBOR with definite lengths alone under a nesting bound, and reads a
+  `dcql_query`'s Credential Queries alone (`Query::read_all`).
+
 - `clippy.toml` disallows `BTreeMap` and `BTreeSet`, and `split_off` and
   `split_at` on vectors, strings, slices and `str`. `wmp-core` and
   `engine-conformance` keep their ordered maps under `#[expect]`.
@@ -44,6 +55,13 @@ released version yet.
   `siros-zkp-catalogues` (every rulebook as modules and features). nym_auth is
   the first rulebook in the catalogue crate; further rulebooks, credential
   forms and systems land in it rather than in new crates.
+
+### Removed
+
+- `siros-credential`, `siros-display`, `siros-transaction-data` and
+  `siros-presentation`: the presentation core's crates hold their
+  capabilities. The generated
+  Unicode tables and `scripts/gen_unicode_tables.py` leave with them.
 
 ### Not ported
 

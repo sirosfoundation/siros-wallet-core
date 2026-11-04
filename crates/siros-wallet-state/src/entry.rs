@@ -3,10 +3,10 @@
 use rustc_hash::FxHashMap;
 use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
-use siros_codec::json::JsonTextError;
-use siros_codec::member::MemberFault;
 
-use crate::error::{Member, MetadataFault, TypeFault, WalletStateError};
+use crate::error::{
+    JsonTextError, Member, MemberFault, MetadataFault, TypeFault, WalletStateError,
+};
 use crate::ids::{
     known, BatchId, ConfigurationId, CredentialId, FormatIdentifier, InstanceId, IssuerIdentifier,
     KeyId,

@@ -26,12 +26,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use siros_dcql::QueryId;
+use siros_openid4vp::ids::QueryId;
 use siros_zkp_backend_longfellow::{self as longfellow, LongfellowProver};
 use siros_zkp_backend_vega::{self as vega, VegaNymAuth};
-use siros_zkp_req::{ErrorCode, ZkpPresentation};
 use siros_zkp_catalogues::prover::{NymAuthProver, ProofJob, ProofOutput, ProverFailure};
 use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_req::{ErrorCode, ZkpPresentation};
 use wasm_bindgen::prelude::*;
 
 /// A refusal, as thrown to JavaScript.
@@ -152,7 +152,13 @@ pub fn vp_token_json(entries: JsValue) -> Result<String, JsValue> {
     let answers = entries
         .into_iter()
         .map(|e| {
-            let query_id = QueryId::parse(&e.query_id).map_err(|e| host(e.code()))?;
+            let query_id = QueryId::parse(e.query_id.clone()).map_err(|_| {
+                host(if e.query_id.is_empty() {
+                    "query_id_empty"
+                } else {
+                    "query_id_character"
+                })
+            })?;
             let presentations = e
                 .presentations
                 .iter()
@@ -161,5 +167,7 @@ pub fn vp_token_json(entries: JsValue) -> Result<String, JsValue> {
             Ok((query_id, presentations))
         })
         .collect::<Result<Vec<_>, JsValue>>()?;
-    Ok(siros_zkp_req::vp_token_json(&answers).to_string())
+    siros_zkp_req::vp_token_json(&answers)
+        .map(|token| token.to_string())
+        .map_err(|_| host("presentation_unencodable"))
 }

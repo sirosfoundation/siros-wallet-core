@@ -16,7 +16,7 @@
 //! | every certificate on the path, the anchor included, has each critical extension in the set [`extensions`](crate::extensions) processes | 6.1.4 (o) |
 
 use der::asn1::ObjectIdentifier;
-use siros_codec::date::DateTime;
+use siros_openid4vp::host::Timestamp;
 
 use crate::certificate::{Certificate, IssuanceRefusal};
 use crate::chain::IssuerChain;
@@ -128,7 +128,7 @@ impl IssuerChain {
     pub fn validate_path<'a>(
         &self,
         anchors: &'a [Certificate],
-        time: DateTime,
+        time: Timestamp,
     ) -> Result<&'a Certificate, PathRefusal> {
         let certificates: Vec<&Certificate> = self.certificates().collect();
         let mut position = 0;
@@ -163,7 +163,11 @@ impl IssuerChain {
 
 /// `certificate`, at `position` on the path, valid at `time` and with no critical extension
 /// outside the processed set.
-fn on_path(certificate: &Certificate, position: OnPath, time: DateTime) -> Result<(), PathRefusal> {
+fn on_path(
+    certificate: &Certificate,
+    position: OnPath,
+    time: Timestamp,
+) -> Result<(), PathRefusal> {
     if !certificate.valid_at(time) {
         return Err(PathRefusal::NotValid(position));
     }
@@ -184,7 +188,7 @@ fn anchored<'a>(
     at: ChainIndex,
     below: usize,
     anchors: &'a [Certificate],
-    time: DateTime,
+    time: Timestamp,
 ) -> Result<&'a Certificate, Option<PathRefusal>> {
     let mut named: Vec<(CertificateIndex, &'a Certificate)> = anchors
         .iter()

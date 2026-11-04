@@ -41,12 +41,12 @@ mod state;
 
 pub use entry::{CredentialData, CredentialEntry, MetadataEntry, MetadataType, MetadataValue};
 pub use error::{
-    ArrayFault, FoundVersion, Member, MetadataFault, PresentationsFault, TypeFault,
-    WalletStateError,
+    ArrayFault, FoundVersion, JsonTextError, JsonTextFault, Member, MemberFault, MetadataFault,
+    PresentationsFault, TypeFault, WalletStateError,
 };
 pub use ids::{
     BatchId, ConfigurationId, CredentialId, EmptyIdentifier, FormatIdentifier, InstanceId,
     IssuerIdentifier, KeyId, PresentationId, TransactionId,
 };
-pub use presentation::PresentationRecord;
+pub use presentation::{PresentationRecord, Timestamp};
 pub use state::WalletState;

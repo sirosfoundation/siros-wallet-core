@@ -1,15 +1,16 @@
 //! TR3's path validation, one case per rule, each refusal by its reason; and the picker's
 //! admission from the TR5 facts, which must equal the wallet's in every case.
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use serde_json::{json, Value};
-use siros_codec::base64url;
-use siros_codec::date::DateTime;
-use siros_dcql::AuthorityType;
+use siros_openid4vp::host::Timestamp;
 use siros_trust::{
     Admission, AdmittedIssuer, CertificateIndex, ChainIndex, ChainRefusal, Ground, IssuerChain,
     IssuerFacts, KeyIdentifier, OnPath, PathRefusal, Refusal, StoreAuthority, StoreType,
     TrustStore,
 };
+use siros_trust::{AuthorityType, AuthorityValue};
 use x509_cert::der::asn1::ObjectIdentifier;
 use x509_cert::ext::pkix::{KeyUsage, KeyUsages};
 
@@ -30,7 +31,7 @@ struct Case {
     chain: IssuerChain,
     store: TrustStore,
     authorities: Value,
-    time: DateTime,
+    time: Timestamp,
     expected: Result<Ground, Vec<Refusal<ChainRefusal>>>,
 }
 
@@ -41,7 +42,7 @@ fn etsi_tl(value: &str) -> Value {
 fn listed() -> Ground {
     Ground::Store(StoreAuthority::new(
         StoreType::EtsiTl,
-        siros_dcql::AuthorityValue::new(LIST),
+        AuthorityValue::parse(LIST).unwrap(),
     ))
 }
 
@@ -97,7 +98,7 @@ fn cases() -> Vec<Case> {
         case(
             "an aki value a chain certificate's AuthorityKeyIdentifier names",
             signed_by(&iaca, |ds| ds.aki(&named_key)),
-            json!([{"type": "aki", "values": [base64url::encode(&named_key).as_str()]}]),
+            json!([{"type": "aki", "values": [URL_SAFE_NO_PAD.encode(named_key).as_str()]}]),
             Ok(Ground::KeyIdentifier(
                 KeyIdentifier::new(&named_key).unwrap(),
             )),
@@ -271,7 +272,9 @@ fn cases() -> Vec<Case> {
             "an unknown type",
             signed_by(&iaca, |ds| ds),
             json!([{"type": "x_unknown", "values": [LIST]}]),
-            Err(vec![Refusal::Type(AuthorityType::new("x_unknown"))]),
+            Err(vec![Refusal::Type(
+                AuthorityType::parse("x_unknown").unwrap(),
+            )]),
         ),
     ]
 }

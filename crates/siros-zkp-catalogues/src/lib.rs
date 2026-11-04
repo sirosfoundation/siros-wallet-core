@@ -52,6 +52,7 @@ pub mod catalogue;
 pub mod outcome;
 pub mod pair;
 pub mod policy;
+pub mod semantic;
 pub mod system;
 pub mod verifier_id;
 

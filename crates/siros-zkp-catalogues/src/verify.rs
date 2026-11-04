@@ -3,11 +3,14 @@
 //! only `req_set`, `results` and the prover-supplied values from the presentation, and hands
 //! the proof to a system's verifier.
 
+use serde_json::value::RawValue;
 use serde_json::Value;
-use siros_codec::cbor::Value as Cbor;
 use siros_codec::date::DateTime;
-use siros_dcql::{CredentialQuery, QueryError};
+use siros_explain::MessageId;
 use siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript};
+use siros_openid4vp::cbor::Value as Cbor;
+use siros_openid4vp::host::Timestamp;
+use siros_openid4vp::request::Query;
 use siros_trust::{Certificate, IssuerChain, PathRefusal};
 use siros_zkp_req::{
     answered_option, EncodingError, InputName, ProofBackend, ProofEnvelope, QueryOption,
@@ -50,7 +53,7 @@ pub struct VerifyInput<'a> {
 }
 
 /// What an accepted presentation establishes.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Verified {
     /// The system.
     pub system: NymAuthSystem,
@@ -69,9 +72,9 @@ pub struct Verified {
 /// Why the Verifier's own query is unusable: `request`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, thiserror::Error)]
 pub enum OwnQueryFault {
-    /// DCQL refuses it (OpenID4VP 1.0, Section 6).
-    #[error("DCQL refuses it (OpenID4VP 1.0, Section 6)")]
-    Dcql(#[source] QueryError),
+    /// The core's DCQL reader refuses it (OpenID4VP 1.0, Section 6), with the rule's message.
+    #[error("DCQL refuses it (OpenID4VP 1.0, Section 6): {}", .0.as_str())]
+    Dcql(MessageId),
     /// It breaks a rule of `zkp_req` or of the catalogue.
     #[error("it breaks a rule of `zkp_req` or of the catalogue")]
     Invalid(#[source] InvalidRequest),
@@ -165,6 +168,10 @@ pub enum Rejection {
     Results(#[source] ResultsFault),
     /// The system's verifier refused the proof.
     Proof(#[source] ProofFailure),
+    /// The Verifier's clock lies before 1970.
+    Clock,
+    /// The session's SessionTranscript does not encode as CBOR.
+    Transcript,
 }
 
 impl Rejection {
@@ -182,7 +189,9 @@ impl Rejection {
             Self::Results(_) => "results",
             Self::Proof(ProofFailure::Invalid) => "proof_invalid",
             Self::Proof(ProofFailure::PublicInput) => "public_input",
-            Self::Proof(ProofFailure::Internal) => "verifier_internal",
+            Self::Proof(ProofFailure::Internal) | Self::Clock | Self::Transcript => {
+                "verifier_internal"
+            }
         }
     }
 }
@@ -267,8 +276,11 @@ pub fn verify(
         return Err(Rejection::ProofTime(ProofTimeError::Tolerance));
     }
     let chain = IssuerChain::new(checked.signer.certificate().clone(), Vec::new());
+    let now = u64::try_from(input.now.unix())
+        .map(Timestamp)
+        .map_err(|_| Rejection::Clock)?;
     chain
-        .validate_path(input.trust_anchors, input.now)
+        .validate_path(input.trust_anchors, now)
         .map(drop)
         .map_err(|refusal| Rejection::IssuerKeySet(IssuerKeySetError::Untrusted(refusal)))?;
     let (earliest, cutoff) = checked
@@ -279,10 +291,15 @@ pub fn verify(
         .query
         .option_pseudonym(&checked.option)
         .ok_or(Rejection::Unsupported(Unsupported::NoPseudonym))?;
-    let session_transcript = SessionTranscript::new(input.session.handover.session_transcript());
+    let transcript = input
+        .session
+        .transcript
+        .to_bytes()
+        .map_err(|_| Rejection::Transcript)?;
+    let session_transcript = SessionTranscript::new(transcript);
     let challenge_digest = device_signing_input(
         &session_transcript,
-        &nym_auth_doc_type(),
+        &siros_dcql::DocType::new(nym_auth_doc_type().as_str()),
         &DeviceNameSpaces::empty(),
     )
     .digest();
@@ -333,14 +350,20 @@ fn encoding(fault: ProofEncodingFault) -> Rejection {
     Rejection::ProofEncoding(fault)
 }
 
+/// The message of a Verifier's own query that is no Credential Query.
+const OWN_QUERY: MessageId = siros_explain::checked!(MessageId, "openid4vp.dcql.query_not_object");
+
 fn own_query(
     query: &Value,
     client_metadata: &Value,
 ) -> Result<(NymAuthQuery, ZkpFormats), Rejection> {
     let invalid = |rule: InvalidRequest| Rejection::Request(OwnQueryFault::Invalid(rule));
-    let query = CredentialQuery::parse(query)
-        .map_err(|error| Rejection::Request(OwnQueryFault::Dcql(error)))?;
-    let parsed = ZkpReqQuery::parse(&query).map_err(|r| invalid(r.into()))?;
+    let refused = |id| Rejection::Request(OwnQueryFault::Dcql(id));
+    let dcql = RawValue::from_string(serde_json::json!({ "credentials": [query] }).to_string())
+        .map_err(|_| refused(OWN_QUERY))?;
+    let queries = Query::read_all(&dcql).map_err(|refusal| refused(refusal.rule().id()))?;
+    let query = queries.first().ok_or(refused(OWN_QUERY))?;
+    let parsed = ZkpReqQuery::parse(query).map_err(|r| invalid(r.into()))?;
     let formats =
         ZkpFormats::from_client_metadata(client_metadata).map_err(|r| invalid(r.into()))?;
     let query = NymAuthQuery::from_query(parsed)

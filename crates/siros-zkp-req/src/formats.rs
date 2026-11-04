@@ -1,7 +1,7 @@
 //! The `zkp_req` entry of `vp_formats_supported` (`zkp_req`, Section 1.2).
 
+use crate::member::MemberFault;
 use serde_json::Value;
-use siros_codec::member::MemberFault;
 
 use crate::ids::{ProofBackend, SystemId};
 use crate::json::non_empty_strings;

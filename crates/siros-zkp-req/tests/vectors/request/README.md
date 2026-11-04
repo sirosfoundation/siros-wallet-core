@@ -17,9 +17,11 @@ have their own set in `crates/siros-zkp-catalogues/tests/vectors/request/`. Spec
 ```
 
 Text that is not JSON reads as `null`. `options` lists each option's `_req` indexes in the
-Verifier's order; `req_sets` says whether the query has `_req_sets`. DCQL parses the query
-first: a rule of OpenID4VP 1.0, Section 6 has the code of `siros_dcql::QueryError::code`, and a
-rule of `zkp_req` that of `siros_zkp_req::RequestRule::code`.
+Verifier's order; `req_sets` says whether the query has `_req_sets`. The core's DCQL reader
+(`siros_openid4vp::request::Query::read_all`) reads the query first: a rule of OpenID4VP 1.0,
+Section 6 it applies has the code `query_id_empty` for the `id`, `dcql_malformed` otherwise. A
+rule of `zkp_req`, and one of Section 6.1 the reader leaves to the format, has the code of
+`siros_zkp_req::RequestRule::code`.
 
 ## Provenance
 

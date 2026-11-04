@@ -1,14 +1,15 @@
 //! A `zkp_req` Credential Query (`zkp_req`, Sections 1.1, 2 and 2.1).
 
 use serde_json::{Map, Value};
-use siros_codec::member::{ArrayIndex, MemberFault};
-use siros_dcql::{
-    CredentialFormat, CredentialQuery, DocType, HolderBinding, Multiplicity, QueryId, Vct,
-};
+use siros_openid4vp::claims::{Claims, ClaimsError};
+use siros_openid4vp::ids::QueryId;
+use siros_openid4vp::json::Node;
+use siros_openid4vp::request::{HolderBinding, Multiplicity, Query, TrustedAuthority};
 
-use crate::ids::{FnId, ItemIndex, ReqSetIndex, ReturnHandle, W3cType};
+use crate::ids::{DocType, FnId, ItemIndex, ReqSetIndex, ReturnHandle, SourceFormat, Vct, W3cType};
 use crate::json::{identifier, non_empty_array, non_empty_strings};
-use crate::outcome::{OptionFault, RequestRule, ReturnFault, TypeValueFault};
+use crate::member::{ArrayIndex, MemberFault};
+use crate::outcome::{ClaimsFault, OptionFault, RequestRule, ReturnFault, TypeValueFault};
 
 /// The Credential Format Identifier of a `zkp_req` query.
 pub const FORMAT: &str = "zkp_req";
@@ -80,14 +81,14 @@ pub enum CredentialType {
     /// `jwt_vc_json` or `ldp_vc`, with `type_values` (OpenID4VP 1.0, B.1.1).
     W3c {
         /// The source format.
-        source_format: CredentialFormat,
+        source_format: SourceFormat,
         /// `type_values`.
         type_values: Vec<Vec<W3cType>>,
     },
     /// A format whose own profile defines its `meta` members, such as `bbs_cd`.
     Profiled {
         /// The source format.
-        source_format: CredentialFormat,
+        source_format: SourceFormat,
         /// `meta`, as sent.
         meta: Map<String, Value>,
     },
@@ -96,10 +97,10 @@ pub enum CredentialType {
 impl CredentialType {
     /// `meta.source_format`.
     #[must_use]
-    pub fn source_format(&self) -> CredentialFormat {
+    pub fn source_format(&self) -> SourceFormat {
         match self {
-            Self::MsoMdoc { .. } => CredentialFormat::new("mso_mdoc"),
-            Self::SdJwt { .. } => CredentialFormat::new("dc+sd-jwt"),
+            Self::MsoMdoc { .. } => SourceFormat::from_static("mso_mdoc"),
+            Self::SdJwt { .. } => SourceFormat::from_static("dc+sd-jwt"),
             Self::W3c { source_format, .. } | Self::Profiled { source_format, .. } => {
                 source_format.clone()
             }
@@ -116,10 +117,13 @@ pub enum ReqSets {
     Present,
 }
 
-/// A `zkp_req` Credential Query: the DCQL Credential Query and what `zkp_req` reads from it.
+/// A `zkp_req` Credential Query: what DCQL and `zkp_req` read from it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ZkpReqQuery {
-    query: CredentialQuery,
+    id: QueryId<'static>,
+    multiplicity: Multiplicity,
+    holder_binding: HolderBinding,
+    trusted_authorities: Vec<TrustedAuthority<'static>>,
     credential_type: CredentialType,
     items: Vec<ReqItem>,
     options: Vec<QueryOption>,
@@ -127,24 +131,41 @@ pub struct ZkpReqQuery {
 }
 
 impl ZkpReqQuery {
-    /// The `zkp_req` reading of the Credential Query `query`, which DCQL parsed: its `format`,
-    /// `meta`, `_req` and `_req_sets`.
+    /// The `zkp_req` reading of the Credential Query `query`, which the core's DCQL reader
+    /// parsed: its `claims`, `meta`, `format`, `_req` and `_req_sets`.
     ///
     /// # Errors
     ///
-    /// [`RequestRule`]: the first rule of Sections 1.1, 2 and 2.1 the query breaks.
-    pub fn parse(query: &CredentialQuery) -> Result<Self, RequestRule> {
-        if *query.format() != FORMAT {
+    /// [`RequestRule`]: the first rule the query breaks: OpenID4VP 1.0, Section 6.1's `claims`
+    /// and `meta`, which the core's reader leaves to the format, then Sections 1.1, 2 and 2.1.
+    pub fn parse(query: &Query<'_>) -> Result<Self, RequestRule> {
+        let object: Map<String, Value> =
+            serde_json::from_str(query.object.get()).map_err(|_| RequestRule::QueryNotObject)?;
+        let claims = claims(query)?;
+        let meta = match object.get("meta") {
+            None => return Err(RequestRule::MetaInvalid(MemberFault::Absent)),
+            Some(Value::Object(meta)) => meta,
+            Some(_) => return Err(RequestRule::MetaInvalid(MemberFault::WrongType)),
+        };
+        if query.format.as_str() != FORMAT {
             return Err(RequestRule::FormatNotZkpReq);
         }
-        if !query.claims().is_empty() {
+        if claims {
             return Err(RequestRule::ClaimsPresent);
         }
-        let credential_type = CredentialType::of_meta(query.meta())?;
-        let items = read_items(query.extension("_req"))?;
-        let (options, req_sets) = read_options(query.extension("_req_sets"), items.len())?;
+        let credential_type = CredentialType::of_meta(meta)?;
+        let items = read_items(object.get("_req"))?;
+        let (options, req_sets) = read_options(object.get("_req_sets"), items.len())?;
         Ok(Self {
-            query: query.clone(),
+            id: query.id.clone().into_owned(),
+            multiplicity: query.multiple,
+            holder_binding: query.holder_binding,
+            trusted_authorities: query
+                .trusted_authorities
+                .iter()
+                .cloned()
+                .map(TrustedAuthority::into_owned)
+                .collect(),
             credential_type,
             items,
             options,
@@ -152,16 +173,16 @@ impl ZkpReqQuery {
         })
     }
 
-    /// The DCQL Credential Query.
-    #[must_use]
-    pub fn credential_query(&self) -> &CredentialQuery {
-        &self.query
-    }
-
     /// `id`.
     #[must_use]
-    pub fn id(&self) -> &QueryId {
-        self.query.id()
+    pub fn id(&self) -> &QueryId<'static> {
+        &self.id
+    }
+
+    /// `trusted_authorities`; empty when absent (OpenID4VP 1.0, Section 6.1.1).
+    #[must_use]
+    pub fn trusted_authorities(&self) -> &[TrustedAuthority<'static>] {
+        &self.trusted_authorities
     }
 
     /// `meta`, read for its source format.
@@ -198,14 +219,14 @@ impl ZkpReqQuery {
     /// 6.1).
     #[must_use]
     pub fn holder_binding(&self) -> HolderBinding {
-        self.query.holder_binding()
+        self.holder_binding
     }
 
     /// `multiple`: whether several presentations may answer; one when absent (OpenID4VP 1.0,
     /// Section 6.1).
     #[must_use]
     pub fn multiplicity(&self) -> Multiplicity {
-        self.query.multiplicity()
+        self.multiplicity
     }
 
     /// The option with index `req_set` of `_req_sets`, or the one option without them.
@@ -242,16 +263,30 @@ impl CredentialType {
                 .map_err(TypeValueFault::Member),
             "jwt_vc_json" | "ldp_vc" => {
                 type_values(meta.get("type_values")).map(|type_values| CredentialType::W3c {
-                    source_format: CredentialFormat::new(source_format),
+                    source_format: SourceFormat::new(source_format),
                     type_values,
                 })
             }
             _ => Ok(CredentialType::Profiled {
-                source_format: CredentialFormat::new(source_format),
+                source_format: SourceFormat::new(source_format),
                 meta: meta.clone(),
             }),
         };
         credential_type.map_err(RequestRule::TypeValueInvalid)
+    }
+}
+
+/// Whether the query has claims: `claims` and `claim_sets` as the core's reader of OpenID4VP 1.0,
+/// Section 6.1 reads them.
+fn claims(query: &Query<'_>) -> Result<bool, RequestRule> {
+    let node = Node::from_raw(query.object)
+        .map_err(|_| RequestRule::ClaimsInvalid(ClaimsFault::Claims))?;
+    match Claims::parse(&node) {
+        Ok(claims) => Ok(!claims.claims().is_empty()),
+        Err(ClaimsError::ClaimSets) if node.get("claims").is_none() => Err(
+            RequestRule::ClaimsInvalid(ClaimsFault::ClaimSetsWithoutClaims),
+        ),
+        Err(_) => Err(RequestRule::ClaimsInvalid(ClaimsFault::Claims)),
     }
 }
 

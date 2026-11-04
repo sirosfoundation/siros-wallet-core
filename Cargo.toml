@@ -13,14 +13,10 @@ members = [
     "crates/siros-cldr",
     # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
     "crates/siros-codec",
-    "crates/siros-credential",
     "crates/siros-dcql",
-    "crates/siros-display",
     "crates/siros-mdoc",
     "crates/siros-oid4vp",
-    "crates/siros-presentation",
     "crates/siros-sdjwt",
-    "crates/siros-transaction-data",
     "crates/siros-trust",
     "crates/siros-wallet-state",
     "crates/siros-zkp-req",
@@ -45,14 +41,10 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 siros-codec = { path = "crates/siros-codec" }
-siros-credential = { path = "crates/siros-credential" }
 siros-dcql = { version = "0.12.0", path = "crates/siros-dcql" }
-siros-display = { path = "crates/siros-display", default-features = false }
 siros-mdoc = { path = "crates/siros-mdoc" }
 siros-oid4vp = { path = "crates/siros-oid4vp" }
-siros-presentation = { path = "crates/siros-presentation", default-features = false }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
-siros-transaction-data = { path = "crates/siros-transaction-data", default-features = false }
 siros-trust = { path = "crates/siros-trust", default-features = false }
 siros-wallet-state = { path = "crates/siros-wallet-state" }
 siros-zkp-req = { path = "crates/siros-zkp-req" }
@@ -79,6 +71,7 @@ siros-openid4vp = { path = "crates/siros-openid4vp", default-features = false }
 siros-testkit = { path = "crates/siros-testkit" }
 siros-explain = { path = "crates/siros-explain" }
 siros-explain-derive = { path = "crates/siros-explain-derive" }
+siros-x509 = { path = "crates/siros-x509" }
 siros-i18n = { path = "crates/siros-i18n", default-features = false }
 base64 = "0.23.1"
 sha2 = "0.11.1"
@@ -104,8 +97,7 @@ ct-merkle = "0.3.0"
 # UAX #15: MessageFormat 2 compares names and variant keys in NFC.
 unicode-normalization = { version = "0.1.26", default-features = false }
 # UAX #29 for the extended grapheme clusters PaSO counts label lengths in.
-# siros-transaction-data's grapheme oracle pins 1.12 until the crate leaves.
-unicode-segmentation = "1.12.0"
+unicode-segmentation = "1.13.3"
 # P-256's checked points and scalars: the keys a Request Object verifies under and the wallet's
 # ephemeral key for an encrypted Request Object.
 p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic"] }

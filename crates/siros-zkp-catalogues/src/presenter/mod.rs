@@ -10,7 +10,7 @@ mod answer;
 #[cfg(feature = "request")]
 mod proving;
 
-use siros_oid4vp::Handover;
+use siros_openid4vp::session::SessionTranscript;
 
 use crate::verifier_id::VerifierId;
 
@@ -20,10 +20,10 @@ pub use answer::{Answer, Unanswerable};
 pub use proving::{Prepared, ProveError};
 
 /// The session a presentation is bound to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Session {
-    /// The `Handover` of the channel the request arrived on.
-    pub handover: Handover,
+    /// The SessionTranscript of the channel's `Handover` (OpenID4VP 1.0, B.2.6).
+    pub transcript: SessionTranscript,
     /// `verifier_id`, in the form the trust framework fixes.
     pub verifier_id: VerifierId,
 }

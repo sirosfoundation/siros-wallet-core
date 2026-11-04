@@ -240,7 +240,7 @@ pub fn cases() -> Vec<Case> {
                 Signing::Signed,
                 Channel::Redirect,
             ),
-            Got::Policy(PolicyRule::ClientId(ClientIdError::Unprefixed)),
+            Got::Policy(PolicyRule::ClientId(ClientIdFault::Unprefixed)),
         ),
         (
             "nonce_missing",
@@ -291,7 +291,7 @@ pub fn cases() -> Vec<Case> {
                 },
                 Signing::Signed,
                 Channel::DcApi {
-                    origin: Origin::new("https://evil.example"),
+                    origin: Origin::parse("https://evil.example").unwrap(),
                 },
             ),
             Got::Policy(PolicyRule::OriginNotExpected),

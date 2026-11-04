@@ -1,6 +1,6 @@
 //! Runs the request vectors in `tests/vectors/request/` (format in its README): each case is
-//! one rule of `zkp_req`, Sections 1.1, 1.2, 2 and 2.1, or of DCQL, which parses the query
-//! first, or a query that follows them all.
+//! one rule of `zkp_req`, Sections 1.1, 1.2, 2 and 2.1, or of DCQL, which the core's reader
+//! applies first, or a query that follows them all.
 
 #![allow(
     clippy::unwrap_used,
@@ -12,8 +12,10 @@
 use std::fs;
 use std::path::PathBuf;
 
+use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use siros_dcql::CredentialQuery;
+use siros_openid4vp::refusal::Refusal;
+use siros_openid4vp::request::Query;
 use siros_zkp_req::{ReqSets, RequestRule, ZkpFormats, ZkpReqQuery};
 
 /// A JSON member, or the JSON a text member holds; text that is not JSON reads as `null`.
@@ -40,12 +42,21 @@ fn rule_json(rule: RequestRule) -> Value {
     out
 }
 
+/// The vectors' code of a rule of the core's DCQL reader (OpenID4VP 1.0, Section 6).
+fn dcql_code(refusal: &Refusal) -> &'static str {
+    match refusal.rule().id().as_str() {
+        "openid4vp.dcql.query_id" => "query_id_empty",
+        _ => "dcql_malformed",
+    }
+}
+
 fn verdict(vector: &Value) -> Value {
     let query = member(vector, "query", "query_text");
     let metadata = member(vector, "client_metadata", "client_metadata_text");
-    let query = match CredentialQuery::parse(&query) {
-        Ok(query) => query,
-        Err(error) => return json!({"error": error.code()}),
+    let dcql = RawValue::from_string(json!({ "credentials": [query] }).to_string()).unwrap();
+    let query = match Query::read_all(&dcql) {
+        Ok(queries) => queries.into_iter().next().unwrap(),
+        Err(refusal) => return json!({"error": dcql_code(&refusal)}),
     };
     let parsed = match ZkpReqQuery::parse(&query) {
         Ok(parsed) => parsed,

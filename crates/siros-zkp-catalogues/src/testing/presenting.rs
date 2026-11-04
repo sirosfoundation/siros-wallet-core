@@ -1,26 +1,34 @@
-//! The Holder's side as the plan drives it: the Verifier's signed request through intake, the
+//! The Holder's side as the plan drives it: the Verifier's signed request through the core, the
 //! credential tested, its Document Signer admitted for the query, the answer of the first option
 //! with a usable pair, the prepared presentation, the device signature and the proof.
 
 use std::str::FromStr;
 use std::time::Duration;
 
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::Engine as _;
 use der::asn1::{Ia5String, UtcTime};
 use der::Encode;
 use p256::ecdsa::signature::Signer as _;
 use p256::ecdsa::{DerSignature, Signature, SigningKey};
-use rand_core::{CryptoRng, RngCore};
-use serde_json::{json, Map, Value};
-use siros_codec::base64url;
+use serde_json::value::RawValue;
+use serde_json::{json, Value};
 use siros_codec::date::DateTime;
-use siros_dcql::CredentialQuery;
 use siros_mdoc::{Mdoc, MdocError};
-use siros_oid4vp::{
-    Effect, EffectResult, IntakeState, Step, TrustAnswer, Verdict, VerifiedRequest,
-};
+use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, RequestClaims, TrustConfig};
+use siros_openid4vp::envelope::Envelope;
+use siros_openid4vp::host::{Seconds, Timestamp};
+use siros_openid4vp::jose::Skew;
+use siros_openid4vp::plugins::Registry;
+use siros_openid4vp::refusal::Refusal;
+use siros_openid4vp::request::Query;
+use siros_openid4vp::routing::Modes;
+use siros_openid4vp::uri::{Fetch, FetchAnswer};
+use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_trust::{
     AdmittedIssuer, ChainRefusal, IssuerChain, QueryAuthorities, TrustStore, Unadmitted,
 };
+use siros_x509::X509SanDns;
 use siros_zkp_req::{PairRefusal, ZkpFormats, ZkpPresentation, ZkpReqQuery};
 use x509_cert::builder::{Builder, CertificateBuilder, Profile};
 use x509_cert::ext::pkix::name::GeneralName;
@@ -31,13 +39,16 @@ use x509_cert::spki::SubjectPublicKeyInfoOwned;
 use x509_cert::time::{Time, Validity};
 use zeroize::Zeroizing;
 
-use super::{client_metadata, device_signature, key, request_object, CLIENT_ID, NOW};
+use super::{
+    client_metadata, device_signature, encryption_jwk, key, request_object, CLIENT_ID, NOW,
+};
 use crate::attestation::{OtherIssuer, SecretSeed, TestedAttestation, Unusable, UsableAttestation};
 use crate::catalogue::NymAuthQuery;
 use crate::policy::RequestRefusal;
 use crate::presenter::{Answer, Prepared, ProveError, Unanswerable};
 use crate::prover::NymAuthProver;
 use crate::request::NymAuthRequest;
+use crate::request_object::ec_jwk_thumbprint;
 use crate::system::{NymAuthSystem, Unsupported};
 use crate::verifier_id::VerifierIdForm;
 
@@ -61,33 +72,6 @@ pub enum Presenting {
     /// The statement.
     Prove(ProveError),
 }
-
-/// A deterministic generator standing in for the host's CSPRNG.
-struct Counter(u64);
-
-impl RngCore for Counter {
-    fn next_u32(&mut self) -> u32 {
-        self.next_u64() as u32
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        self.0
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for byte in dest {
-            *byte = self.next_u64() as u8;
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl CryptoRng for Counter {}
 
 /// The Verifier's signing key and its self-signed access certificate, with the dNSName SAN of
 /// [`CLIENT_ID`].
@@ -118,41 +102,72 @@ fn verifier() -> (SigningKey, Vec<u8>) {
     (key, der)
 }
 
-/// The request of [`request_object`] for `query` and `nonce`, which the Verifier signs, by value
-/// over redirects, through intake with a positive trust verdict.
-pub fn verified_request(query: &Value, nonce: &str) -> VerifiedRequest {
+/// The Request Object of [`request_object`] for a query and a nonce, which the Verifier signs and
+/// serves at its `request_uri`, and the link that names it.
+pub struct SignedRequest {
+    uri: String,
+    object: String,
+}
+
+/// The Request Object of [`request_object`] for `query` and `nonce`, signed by the Verifier.
+pub fn signed_request(query: &Value, nonce: &str) -> SignedRequest {
     let (key, der) = verifier();
-    let mut x5c = base64url::encode(&der)
-        .as_str()
-        .replace('-', "+")
-        .replace('_', "/");
-    while !x5c.len().is_multiple_of(4) {
-        x5c.push('=');
-    }
-    let header = json!({"alg": "ES256", "typ": "oauth-authz-req+jwt", "x5c": [x5c]});
+    let header =
+        json!({"alg": "ES256", "typ": "oauth-authz-req+jwt", "x5c": [STANDARD.encode(&der)]});
     let input = format!(
         "{}.{}",
-        base64url::encode(header.to_string().as_bytes()),
-        base64url::encode(request_object(query, nonce).to_string().as_bytes())
+        URL_SAFE_NO_PAD.encode(header.to_string().as_bytes()),
+        URL_SAFE_NO_PAD.encode(request_object(query, nonce).to_string().as_bytes())
     );
     let signature: Signature = key.sign(input.as_bytes());
-    let jws = format!("{input}.{}", base64url::encode(&signature.to_bytes()));
-    let uri = format!("openid4vp://?client_id={CLIENT_ID}&request={jws}");
-    let now = DateTime::from_unix(NOW).unwrap();
-    let mut state = IntakeState::redirect(&uri, Map::new(), now, &mut Counter(9));
-    loop {
-        match state.step().unwrap() {
-            Step::Verified(request) => return *request,
-            Step::Effect(Effect::Trust(_)) => {
-                state.answer(EffectResult::Trusted(TrustAnswer::new(
-                    Verdict::Trusted,
-                    None,
-                    None,
-                )));
-            }
-            Step::Effect(other) => panic!("no Request Object expected: {other:?}"),
-        }
+    SignedRequest {
+        uri: format!(
+            "openid4vp://?client_id={}&request_uri=https%3A%2F%2Fverifier.example%2Frequest",
+            CLIENT_ID.replace(':', "%3A")
+        ),
+        object: format!("{input}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes())),
     }
+}
+
+impl SignedRequest {
+    /// `with` of the request as the core authenticates it: fetched by its `request_uri`, its
+    /// `x509_san_dns` Client Identifier bound to the access certificate's key, and the trust
+    /// service's permit.
+    pub fn authenticated<R>(&self, with: impl FnOnce(&Authenticated<'_>) -> R) -> R {
+        let mut builder = Registry::<TestHost>::builder();
+        builder.format(TestFormat::new().unwrap());
+        builder.client_prefix(X509SanDns);
+        let registry = builder.build().unwrap();
+        let host = TestHost::default();
+        let config = TrustConfig {
+            skew: Skew::new(Seconds(60)).unwrap(),
+            origins: OriginPolicy::Accept,
+            claims: RequestClaims::Checked,
+        };
+        let fetch = Fetch::of(&self.uri, &registry, &host).unwrap();
+        let received = fetch
+            .resume(FetchAnswer::Body(&self.object), &host)
+            .unwrap();
+        let envelope = Envelope::parse(&received, Modes::of::<TestHost>()).unwrap();
+        let trust = TestTrust::default();
+        let authenticated = envelope
+            .questions(&registry, &config)
+            .unwrap()
+            .authenticate(|evaluation| trust.decide(evaluation), &config, &host)
+            .unwrap();
+        with(&authenticated)
+    }
+}
+
+/// `with` of the Credential Query `query` as the core's DCQL reader reads it.
+///
+/// # Errors
+///
+/// The rule of OpenID4VP 1.0, Section 6 the query breaks.
+pub fn read_query<R>(query: &Value, with: impl FnOnce(&Query<'_>) -> R) -> Result<R, Refusal> {
+    let dcql = RawValue::from_string(json!({ "credentials": [query] }).to_string()).unwrap();
+    let queries = Query::read_all(&dcql)?;
+    Ok(with(&queries[0]))
 }
 
 /// The `kid` of the Holder's device key.
@@ -163,22 +178,29 @@ fn admitted(
     mdoc: &Mdoc,
     now: DateTime,
 ) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
-    let authorities = QueryAuthorities::of(&CredentialQuery::parse(query).unwrap()).unwrap();
-    let chain = IssuerChain::parse(mdoc.issuer_auth().x5chain()).unwrap();
+    let authorities = read_query(query, |query| {
+        QueryAuthorities::of(&query.id.clone().into_owned(), &query.trusted_authorities).unwrap()
+    })
+    .unwrap();
+    let x5chain = mdoc.issuer_auth().x5chain();
+    let chain = IssuerChain::parse(x5chain.first(), x5chain.certificates().skip(1)).unwrap();
     AdmittedIssuer::resolve(
         &authorities,
         Some(&chain),
         &TrustStore::parse("[]").unwrap(),
-        now,
+        Timestamp(u64::try_from(now.unix()).unwrap()),
     )
 }
 
 /// The nym_auth query of the Credential Query `query`.
 pub fn nym_query(query: &Value) -> NymAuthQuery {
-    NymAuthQuery::from_query(ZkpReqQuery::parse(&CredentialQuery::parse(query).unwrap()).unwrap())
-        .unwrap()
-        .nym_auth()
-        .unwrap()
+    read_query(query, |query| {
+        NymAuthQuery::from_query(ZkpReqQuery::parse(query).unwrap())
+            .unwrap()
+            .nym_auth()
+            .unwrap()
+    })
+    .unwrap()
 }
 
 /// The credential `data`, tested at `now` and usable for `nym`, the nym_auth query of `query`.
@@ -209,7 +231,7 @@ pub fn prepared(
     query: &Value,
     data: &str,
     seed: &[u8; 16],
-    request: &VerifiedRequest,
+    request: &Authenticated<'_>,
 ) -> Result<Prepared, Presenting> {
     let now = DateTime::from_unix(NOW).unwrap();
     let nym = nym_query(query);
@@ -224,8 +246,9 @@ pub fn prepared(
     let usable = usable(query, &nym, data, now)?;
     let answer = Answer::new(pair, usable, &SecretSeed::new(Zeroizing::new(*seed)))
         .map_err(Presenting::Unanswerable)?;
-    let request =
-        NymAuthRequest::new(request, VerifierIdForm::X509SanDns).map_err(Presenting::Request)?;
+    let encryption_key = ec_jwk_thumbprint(&encryption_jwk()).unwrap();
+    let request = NymAuthRequest::new(request, VerifierIdForm::X509SanDns, encryption_key)
+        .map_err(Presenting::Request)?;
     Prepared::new(answer, &request).map_err(Presenting::Prove)
 }
 

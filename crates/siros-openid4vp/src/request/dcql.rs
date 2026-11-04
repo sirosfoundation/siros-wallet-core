@@ -38,8 +38,8 @@ pub struct TrustedAuthority<'a> {
     pub values: Vec<AuthorityValue<'a>>,
 }
 
-/// A Credential Query. Only [`Request::parse`](super::Request::parse) makes one, its object
-/// parsed as JSON with unique member names.
+/// A Credential Query. [`Request::parse`](super::Request::parse) makes one, its object parsed as
+/// JSON with unique member names; [`Query::read_all`] makes those of a `dcql_query` alone.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Query<'a> {
@@ -109,6 +109,16 @@ impl<'a> Dcql<'a> {
 }
 
 impl<'a> Query<'a> {
+    /// The Credential Queries of `dcql_query` as [`Request::parse`](super::Request::parse) reads
+    /// them (§6.1, §6.2), for a Verifier that checks its own query under the wallet's rules.
+    ///
+    /// # Errors
+    ///
+    /// The first [`DcqlRule`] the query breaks.
+    pub fn read_all(dcql_query: &'a RawValue) -> Result<Vec<Self>, Refusal> {
+        Dcql::parse(dcql_query).map(|dcql| dcql.queries)
+    }
+
     fn parse(raw: &'a RawValue) -> Result<Self, Refusal> {
         let object =
             RawObject::parse(raw.get()).map_err(|e| refuse(DcqlRule::QueryNotObject(e)))?;
@@ -162,6 +172,19 @@ impl<'a> Query<'a> {
 }
 
 impl<'a> TrustedAuthority<'a> {
+    /// The query, owning its texts.
+    #[must_use]
+    pub fn into_owned(self) -> TrustedAuthority<'static> {
+        TrustedAuthority {
+            kind: self.kind.into_owned(),
+            values: self
+                .values
+                .into_iter()
+                .map(AuthorityValue::into_owned)
+                .collect(),
+        }
+    }
+
     fn parse_all(raw: &'a RawValue) -> Option<Vec<Self>> {
         let items: Vec<&'a RawValue> = serde_json::from_str(raw.get()).ok()?;
         if items.is_empty() {

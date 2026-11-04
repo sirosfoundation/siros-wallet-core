@@ -14,7 +14,6 @@ rustc-hash = { workspace = true }
 serde = { workspace = true }
 # `raw_value` keeps each `metadata` value as the text the container holds.
 serde_json = { workspace = true, features = ["raw_value"] }
-siros-codec = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

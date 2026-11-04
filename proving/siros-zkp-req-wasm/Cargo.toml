@@ -13,7 +13,7 @@ rust-version.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-siros-dcql = { workspace = true }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-zkp-req = { workspace = true }
 siros-zkp-catalogues = { workspace = true }
 siros-zkp-backend-longfellow = { workspace = true }

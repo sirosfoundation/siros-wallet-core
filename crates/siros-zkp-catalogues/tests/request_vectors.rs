@@ -12,8 +12,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
-use siros_dcql::CredentialQuery;
 use siros_zkp_catalogues::catalogue::{CatalogueRule, Catalogued, NymAuthQuery};
+use siros_zkp_catalogues::testing::read_query;
 use siros_zkp_req::{ZkpFormats, ZkpReqQuery};
 
 fn member(vector: &Value, value_key: &str, text_key: &str) -> Value {
@@ -49,11 +49,18 @@ fn rule_json(rule: CatalogueRule) -> Value {
 fn verdict(vector: &Value) -> Value {
     let query = member(vector, "query", "query_text");
     let metadata = member(vector, "client_metadata", "client_metadata_text");
-    let query = match CredentialQuery::parse(&query) {
-        Ok(query) => query,
-        Err(error) => return json!({"error": error.code()}),
+    let parsed = match read_query(&query, ZkpReqQuery::parse) {
+        Ok(parsed) => parsed,
+        // A rule of the core's DCQL reader (OpenID4VP 1.0, Section 6).
+        Err(refusal) => {
+            let code = match refusal.rule().id().as_str() {
+                "openid4vp.dcql.query_id" => "query_id_empty",
+                _ => "dcql_malformed",
+            };
+            return json!({ "error": code });
+        }
     };
-    let parsed = match ZkpReqQuery::parse(&query) {
+    let parsed = match parsed {
         Ok(parsed) => parsed,
         Err(rule) => return json!({"error": rule.code()}),
     };

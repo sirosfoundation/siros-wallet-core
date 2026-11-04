@@ -5,9 +5,9 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use p256::ecdsa::signature::{Keypair, Signer};
-use siros_codec::chain::CertificateChain;
-use siros_codec::date::DateTime;
-use siros_dcql::DcqlQuery;
+use serde_json::value::RawValue;
+use siros_openid4vp::host::Timestamp;
+use siros_openid4vp::request::Query;
 use siros_trust::{IssuerChain, QueryAuthorities, TrustStore};
 use x509_cert::builder::{Builder, CertificateBuilder, Profile};
 use x509_cert::der::asn1::{AnyRef, GeneralizedTime, ObjectIdentifier, OctetString};
@@ -24,8 +24,20 @@ use x509_cert::time::{Time, Validity};
 /// The time of every case: 2026-10-26T12:00:00Z.
 pub const NOW: &str = "2026-10-26T12:00:00Z";
 
-pub fn at(text: &str) -> DateTime {
-    DateTime::parse(text).unwrap()
+/// The instant `YYYY-MM-DDThh:mm:ssZ` names: the days since 1970-01-01 of the proleptic
+/// Gregorian calendar, each of 86,400 seconds (RFC 3339, POSIX's seconds since the Epoch).
+pub fn at(text: &str) -> Timestamp {
+    let field = |range: std::ops::Range<usize>| text[range].parse::<i64>().unwrap();
+    let (year, month, day) = (field(0..4), field(5..7), field(8..10));
+    let (hour, minute, second) = (field(11..13), field(14..16), field(17..19));
+    // Howard Hinnant's days_from_civil.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Timestamp(u64::try_from(days * 86_400 + hour * 3_600 + minute * 60 + second).unwrap())
 }
 
 /// A signing key of a fixed scalar.
@@ -203,7 +215,7 @@ impl Cert {
 
     fn built(&self) -> Vec<u8> {
         let time = |text: &str| {
-            let unix = Duration::from_secs(at(text).unix() as u64);
+            let unix = Duration::from_secs(at(text).0);
             Time::GeneralTime(GeneralizedTime::from_unix_duration(unix).unwrap())
         };
         let validity = Validity {
@@ -350,15 +362,14 @@ fn explicit_false_critical(der: &[u8], signer: &Key) -> Vec<u8> {
 
 /// The chain of the DER certificates `first` and `rest`.
 pub fn chain_of(first: &[u8], rest: &[&[u8]]) -> IssuerChain {
-    let rest = rest.iter().map(|der| der.to_vec()).collect();
-    IssuerChain::parse(&CertificateChain::new(first.to_vec(), rest)).unwrap()
+    IssuerChain::parse(first, rest.iter().copied()).unwrap()
 }
 
 /// The chain of `certificates`, the signer's first.
 pub fn chain(certificates: &[&Cert]) -> IssuerChain {
     let (first, rest) = certificates.split_first().unwrap();
-    let rest = rest.iter().map(|c| c.der()).collect();
-    IssuerChain::parse(&CertificateChain::new(first.der(), rest)).unwrap()
+    let rest: Vec<Vec<u8>> = rest.iter().map(|c| c.der()).collect();
+    IssuerChain::parse(&first.der(), rest.iter().map(Vec::as_slice)).unwrap()
 }
 
 /// The authorities of a `mso_mdoc` query with `trusted_authorities` `authorities`; `null`
@@ -368,8 +379,10 @@ pub fn authorities(authorities: serde_json::Value) -> QueryAuthorities {
     if !authorities.is_null() {
         query["trusted_authorities"] = authorities;
     }
-    let query = DcqlQuery::parse(&serde_json::json!({ "credentials": [query] })).unwrap();
-    QueryAuthorities::of(&query.credentials()[0]).unwrap()
+    let dcql = RawValue::from_string(serde_json::json!({ "credentials": [query] }).to_string());
+    let dcql = dcql.unwrap();
+    let query = Query::read_all(&dcql).unwrap().remove(0);
+    QueryAuthorities::of(&query.id.into_owned(), &query.trusted_authorities).unwrap()
 }
 
 /// A store record with one entry per `(type, value, certificates)`.

@@ -18,11 +18,11 @@ use ciborium::value::Value as Ciborium;
 use serde_json::{json, Value};
 use siros_codec::date::DateTime;
 use siros_mdoc::{Mdoc, P256Key};
-use siros_oid4vp::ec_jwk_thumbprint;
 use siros_zkp_catalogues::attestation::TestedAttestation;
 use siros_zkp_catalogues::catalogue::MDOC_DOCTYPE;
 use siros_zkp_catalogues::presenter::Prepared;
 use siros_zkp_catalogues::prover::ProofOutput;
+use siros_zkp_catalogues::request_object::ec_jwk_thumbprint;
 use siros_zkp_catalogues::system::NymAuthSystem;
 use siros_zkp_catalogues::verifier_id::PseudonymValue;
 use siros_zkp_req::ZkProof;
@@ -101,12 +101,14 @@ fn prepared_for(facts: &Value, system: NymAuthSystem) -> Prepared {
     assert_eq!(proof_time(facts).unix(), NOW);
     assert_eq!(
         unhex(&inputs["jwk_thumbprint"]),
-        ec_jwk_thumbprint(&encryption_jwk()).unwrap().as_bytes()
+        ec_jwk_thumbprint(&encryption_jwk()).unwrap().0
     );
     let query = query(Some("18+"), true);
-    let request = verified_request(&query, NONCE);
+    let request = signed_request(&query, NONCE);
     let data = inputs["credential"].as_str().unwrap();
-    prepared(system, &query, data, &SEED, &request).unwrap()
+    request
+        .authenticated(|request| prepared(system, &query, data, &SEED, request))
+        .unwrap()
 }
 
 /// A prover's output with the pseudonym readdit computed. The presenter assembles a
@@ -195,7 +197,8 @@ fn the_draft_presentation_carries_readdits_v0_4_values() {
     let ours = prepared_for(&facts, NymAuthSystem::LongfellowV1)
         .assemble(&output)
         .unwrap()
-        .encode();
+        .encode()
+        .unwrap();
     let ours: Ciborium = ciborium::from_reader(ours.as_slice()).unwrap();
     let v0_4 = unhex(&facts["longfellow"]["presentation_v0_4"]);
     let v0_4: Ciborium = ciborium::from_reader(v0_4.as_slice()).unwrap();

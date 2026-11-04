@@ -292,7 +292,7 @@ impl UsableAttestation {
         }
         if !issuer
             .authorities()
-            .are_those_of(query.query().credential_query())
+            .are_those_of(query.query().id(), query.query().trusted_authorities())
         {
             return Err(OtherIssuer::Query);
         }

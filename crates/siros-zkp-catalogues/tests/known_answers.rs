@@ -11,8 +11,10 @@ use serde_json::Value;
 use siros_codec::date::Date;
 use siros_dcql::DocType;
 use siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript};
-use siros_oid4vp::ClientId;
-use siros_oid4vp::{Handover, JwkThumbprint};
+use siros_openid4vp::ids::{ClientId, Nonce, Origin};
+use siros_openid4vp::session::{
+    Endpoint, Handover, SessionTranscript as CoreTranscript, Thumbprint,
+};
 use siros_zkp_catalogues::age::{AgeRange, Bound, Bounds};
 use siros_zkp_catalogues::catalogue::Config;
 use siros_zkp_catalogues::verifier_id::{
@@ -205,14 +207,18 @@ fn session_vectors() {
     let v = vectors("session.json");
     for e in v["redirect"].as_array().unwrap() {
         let s = |k: &str| e[k].as_str().unwrap();
-        let thumbprint = JwkThumbprint::new(hex(s("jwk_thumbprint_hex")).try_into().unwrap());
-        let handover = Handover::redirect(
-            s("client_id"),
-            s("nonce"),
-            Some(&thumbprint),
-            s("response_uri"),
+        let thumbprint = Thumbprint(hex(s("jwk_thumbprint_hex")).try_into().unwrap());
+        let (client_id, nonce) = (
+            ClientId::parse(s("client_id")).unwrap(),
+            Nonce::parse(s("nonce")).unwrap(),
         );
-        let transcript = handover.session_transcript();
+        let handover = Handover::Redirect {
+            client_id: &client_id,
+            nonce: &nonce,
+            thumbprint: Some(thumbprint),
+            endpoint: Endpoint::ResponseUri(s("response_uri")),
+        };
+        let transcript = CoreTranscript::of(&handover).unwrap().to_bytes().unwrap();
         assert_eq!(
             transcript,
             hex(s("session_transcript_hex")),
@@ -236,9 +242,18 @@ fn session_vectors() {
             s("name")
         );
         if let Some(thumbprint) = e["jwk_thumbprint_hex"].as_str() {
-            let thumbprint = JwkThumbprint::new(hex(thumbprint).try_into().unwrap());
-            let handover = Handover::dc_api(s("origin"), s("nonce"), Some(&thumbprint));
-            assert_eq!(handover.session_transcript(), transcript, "{}", s("name"));
+            let thumbprint = Thumbprint(hex(thumbprint).try_into().unwrap());
+            let (origin, nonce) = (
+                Origin::parse(s("origin")).unwrap(),
+                Nonce::parse(s("nonce")).unwrap(),
+            );
+            let handover = Handover::DcApi {
+                origin: &origin,
+                nonce: &nonce,
+                thumbprint: Some(thumbprint),
+            };
+            let core = CoreTranscript::of(&handover).unwrap().to_bytes().unwrap();
+            assert_eq!(core, transcript, "{}", s("name"));
         }
     }
     for e in v["transcript_only"].as_array().unwrap() {

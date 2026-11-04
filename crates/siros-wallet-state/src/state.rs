@@ -2,10 +2,9 @@
 
 use rustc_hash::FxHashSet;
 use serde_json::value::RawValue;
-use siros_codec::json::JsonTextError;
 
 use crate::entry::{array, object, CredentialEntry, Members};
-use crate::error::{ArrayFault, FoundVersion, PresentationsFault, WalletStateError};
+use crate::error::{ArrayFault, FoundVersion, JsonTextError, PresentationsFault, WalletStateError};
 use crate::ids::KeyId;
 use crate::presentation::PresentationRecord;
 

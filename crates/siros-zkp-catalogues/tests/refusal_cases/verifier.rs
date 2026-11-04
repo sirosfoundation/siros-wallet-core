@@ -126,7 +126,7 @@ pub fn cases() -> Vec<Case> {
             "proof_encoding: proof",
             verify_edit(|p| p.proof = ProofContent::new(vec![0xff])),
             Got::Verify(Rejection::ProofEncoding(ProofEncodingFault::Envelope(
-                EncodingError::Cbor(CborError::Unsupported(CborUnsupported::IndefiniteLength)),
+                EncodingError::Cbor(CborFault::Unsupported(CborUnsupported::IndefiniteLength)),
             ))),
         ),
         (
@@ -140,7 +140,7 @@ pub fn cases() -> Vec<Case> {
             "proof_encoding: tdate",
             verify_edit(|p| {
                 edit_envelope(p, |e| {
-                    set_input(e, "proof_time", Cbor::text("2026-10-09T12:00:00Z"))
+                    set_input(e, "proof_time", Cbor::Text("2026-10-09T12:00:00Z".into()))
                 })
             }),
             Got::Verify(Rejection::ProofEncoding(ProofEncodingFault::ProofTime)),
@@ -208,7 +208,7 @@ pub fn cases() -> Vec<Case> {
                     set_input(
                         e,
                         "proof_time",
-                        Cbor::Tag(0, Box::new(Cbor::text("2026-10-09T12:00:00.5Z"))),
+                        Cbor::Tag(0, Box::new(Cbor::Text("2026-10-09T12:00:00.5Z".into()))),
                     )
                 })
             }),
