@@ -50,8 +50,8 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-x509` | The `x509_hash` and `x509_san_dns` Client Identifier Prefixes |
 | `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, and the stored mdoc's reading (`stored`) |
 | `siros-sdjwt` | `dc+sd-jwt` |
-| `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules |
-| `siros-qes` | CSC's QES transaction data |
+| `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and, under `sealed-signals`, `CoseEncrypt` modules |
+| `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
@@ -65,19 +65,24 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
 | `siros-zkp-catalogues` | The catalogue crate: every `zkp_req` rulebook lands here as modules and features — capability growth never adds a crate. Today it holds nym_auth, a normal credential (an mdoc, stored in the wallet state and consented like any other) that happens to carry the capability of doing pseudonyms: its rulebook defines the functions (`pseudonym`, `age_check`) and the Longfellow and Vega systems that prove them |
 
+Each mechanism of the core is a feature, which the crates that use it turn on;
+a build compiles what it registers. The right column names the core's features
+each crate turns on.
+
 ```text
-siros-openid4vp     the core: a request in, a response built
-├── siros-x509      x509_hash, x509_san_dns
-├── siros-mdoc      mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading
-├── siros-sdjwt     dc+sd-jwt
-├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt
-├── siros-qes       CSC's QES transaction data
-├── siros-credman   Credential Manager's entries for the matcher
-├── siros-webuild   WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer
-└── siros-trust     issuer trust at registration
-siros-i18n          the i18n engine
+siros-openid4vp     the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
+├── siros-x509      x509_hash, x509_san_dns                     signed
+├── siros-mdoc      mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading   claims; resolve: cbor
+├── siros-sdjwt     dc+sd-jwt                                   claims
+├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt   transaction-data, sri; sealed-signals: cbor
+├── siros-qes       CSC's QES transaction data                  sri; sha3: its SHA-3 approval hashes
+├── siros-credman   Credential Manager's entries for the matcher   match
+├── siros-webuild   WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
+├── siros-zkp-req   zkp_req's protocol layer                    resolve, cbor
+└── siros-trust     issuer trust at registration                match, resolve
+siros-i18n          the i18n engine                             load | render | number | currency | offset | date | list
 siros-explain       the message contract
-siros-testkit       the core's test doubles
+siros-testkit       the core's test doubles                     every mechanism
 siros-integration   the HAIP build end to end
 ```
 
@@ -103,6 +108,8 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
+cargo xtask builds   # each build of xtask/builds.json compiles none of the crates it excludes
+cargo xtask alone    # each crate alone, with and without its default features
 ```
 
 Nothing panics outside the tests: a type makes the impossible state

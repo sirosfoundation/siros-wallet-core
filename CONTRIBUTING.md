@@ -68,6 +68,12 @@ the workspace on 1.89, then each crate with its default features and with
 `--no-default-features`. If you raise a floor, raise it in the manifest that
 owns it and say why there.
 
+A build compiles what it registers. `cargo xtask builds` checks each build of
+`xtask/builds.json`, the design's section 4.11, against the crates it must not
+compile; `cargo xtask alone` checks each crate alone and the workspace crates
+it names. A change that adds a feature or a dependency edge updates the table
+in the same pull request.
+
 Nothing panics outside the tests: a type makes the impossible state
 unrepresentable, or the caller receives an error. CI holds each crate to it with
 clippy and `scripts/check_panic_sites.py`, which fails on a new crate until its

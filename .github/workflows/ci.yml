@@ -53,6 +53,30 @@ jobs:
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 
+  builds:
+    name: Builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # Each build of the design's section 4.11 compiles none of the crates its row excludes
+      # (I39); each crate builds alone and names the workspace crates its row gives (I25).
+      - run: cargo xtask builds
+      - run: cargo xtask alone
+
+  per-merge:
+    name: Per-merge tier
+    # The ignored tests: ICU4X's renderings (I35, I36) and the integration properties at the
+    # model's size.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo test --locked --workspace --all-features -- --ignored
+
   wasm:
     name: WASM (browser engine, Node)
     runs-on: ubuntu-latest

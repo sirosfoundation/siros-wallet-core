@@ -11,7 +11,11 @@ engine core. Keep changes small and protocol-specific.
   the document in the same pull request or raise it with the owner.
 - **The core is modular** (decision 20). Each mechanism a specification leaves
   open is an extension point: its inputs are core-made, the core checks its
-  outputs. A build compiles what it uses. The core names no plug-in.
+  outputs, and the core's own cases implement it as peers. A build compiles
+  what it uses: each mechanism sits behind a feature the crates that use it
+  turn on (design §4.11), a feature adds items and changes no signature, and a
+  plug-in gates its phase 2 on its own `resolve`. A new feature or dependency
+  edge updates `xtask/builds.json`. The core names no plug-in.
 - **Tests check behaviour an external source defines**: a specification,
   published vectors, an independent implementation or a property. Delete a
   test whose expected value comes from the code it tests.
@@ -77,6 +81,8 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
+cargo xtask builds
+cargo xtask alone
 ```
 
 Rust 1.89 is the floor of every crate; the `msrv` CI job checks it.

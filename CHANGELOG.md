@@ -26,6 +26,33 @@ released version yet.
 - `siros-webuild` holds WE BUILD's CS-02 rules: `Cs02Claims` requires a
   Request Object's `exp` and `aud` (CS-02 §8.2), `Cs02ErrorAnswer` reads the
   Verifier's error answer from the Response URI (CS-02 §8.3).
+- `siros-openid4vp`'s extension points, each implemented by the core's own
+  cases as peers: response types and response modes (`ResponseType`, `Mode`,
+  `ModeHost`; `vp_token` and the modes `dc_api`, `dc_api.jwt`,
+  `direct_post.jwt`, `direct_post`), transaction data hash algorithms
+  (`HashAlgorithm`, `HashDigest`; `Sha2`, `Sha3`, `Blake2`, `K12`), scope
+  queries (`ScopeQuery`, §5.5), rules on a Request Object's claims
+  (`ObjectRule`, A14), the `request_uri` POST and encrypted Request Objects
+  (`RequestPost`, `EncryptedRequests`). The registry refuses each conflict:
+  a name twice, an error mode over the DC API, a DC API mode declaring
+  `wallet_metadata` members, a transaction data profile without `sha-256`, a
+  scope query the DCQL reader refuses or whose ids another shares.
+- `siros-openid4vp`'s features put each mechanism behind the feature its users
+  turn on: `match`, `resolve`, `dc-api`, `uri`, `signed`,
+  `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`,
+  `sri`, `claims` and `test-util`. A build compiles what it registers: an
+  SD-JWT DC API build links no CBOR, COSE, form encoding, curve arithmetic or
+  hash beyond SHA-2. `siros-paso`'s `sealed-signals` holds its `COSE_Encrypt`
+  sealing and module, `siros-qes`'s `sha3` its SHA-3 approval hashes.
+- `cargo xtask builds` checks that each build of the design's section 4.11
+  compiles none of the crates its row excludes; `cargo xtask alone` checks
+  each crate alone, with and without its default features, and the workspace
+  crates it names. CI runs both.
+- `siros-testkit`'s doubles of the extension points: `TestMode`,
+  `TestResponseType`, `TestHash`, `TestScope`, `TestObjectRule`,
+  `TestPostContribution` and `TestAnswerReader`.
+- `siros-paso` classifies the inherence facts the platform reports as Risk
+  Signal Registry §2.8's `bio_strong` and `bio_weak` (`BiometricClass`).
 
 ### Changed
 
@@ -53,6 +80,30 @@ released version yet.
   refuses a name two parts declare and one the core writes. `RequestClaims`
   leaves `TrustConfig`: a deployment requiring claims registers an
   `ObjectRule`.
+- `ErrorCode` is open: a code in RFC 6749 Appendix A.7's syntax, checked by
+  `ErrorCode::new` or `checked!`; a plug-in's rule returns its
+  specification's code.
+- The host's modules state the algorithms they implement (`Haip::verifies`,
+  `Haip::agreements`, `RequestDecryption::decrypts`), and the core accepts
+  exactly those: A7 refuses an `alg` the module does not state before the
+  caller is asked. `VerificationKey` and `EphemeralKey` are public JWKs, the
+  secret behind a `KeyHandle`; the core links no curve arithmetic.
+- `CoreHost` is `Platform` alone; each registration that makes the core call
+  another module bounds it (`client_prefix` and `jwe_mode`: `Haip`;
+  `request_encryption`: `RequestDecryption`). `RandomIds` and `CoseEncrypt`
+  are `siros-paso`'s modules.
+- The session holds the facts a presentation binds; `siros-mdoc` builds
+  B.2.6's handover, the RFC 7638 thumbprint and ISO/IEC 18013-5's
+  `SessionTranscript` from them, and decodes a transcript a Verifier holds.
+- A format states how its proof carries a profile's members
+  (`Format::placement`), and a profile places its members by it
+  (`Profile::members(placement)`), naming no format.
+- `Profile`'s phase-2 methods (`wanted`, `informed`, `authentication`) are
+  `ProfileHost`'s; each plug-in gates its phase 2 on its own `resolve`.
+- The core refuses a mode's JWE choice whose key or `enc` the sealing module
+  does not state, or whose `enc` the Verifier does not list (§5.1).
+- The consent entry's icon is of any image media type; `siros-credman` draws
+  PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
   CBOR with definite lengths alone under a nesting bound, and reads a
   `dcql_query`'s Credential Queries alone (`Query::read_all`).
@@ -68,6 +119,11 @@ released version yet.
 
 ### Removed
 
+- The `direct_post.cwt` routing and `Modes`; `ResponseMode`, `DcApiMode`,
+  `ModeChoice`, `Protection`, `Encryption::choose`, `ResponseKey` and
+  `ResponseEnc`, which the registered modes and HAIP's key rule replace;
+  `Strength`, which the inherence facts replace; `with_resolve!` and
+  `without_resolve!`.
 - `siros-codec`, `siros-dcql` and `siros-oid4vp`: `siros-openid4vp` reads
   DCQL, CBOR, JSON and requests, and the crates that read them name it.
   crates.io's `siros-dcql` stays as siros-dc-matcher published it.
