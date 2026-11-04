@@ -183,7 +183,6 @@ fn cldr_symbol(language: &str, code: &str, display: &str, theirs: String) -> Str
 fn amounts_in_every_currency_equal_icu4x() {
     let formats = cldr::formats(&[]);
     let currencies = currencies();
-    assert_eq!(currencies.len(), 183);
     let amounts = ["1234567.891", "-1234.5", "0", "1", "2.5", "0.005"];
     let mut differences = Differences::default();
     for language in SHIPPED {

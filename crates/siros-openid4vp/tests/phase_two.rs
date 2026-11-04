@@ -103,24 +103,25 @@ fn phase_2_rejects_what_no_selection_allows() {
     };
     let honest = outcome(&text, &held, &[c1], &TestHost::default());
     assert!(honest.is_ok(), "{honest:?}");
-    let cases: [(Vec<&str>, &str); 5] = [
-        (vec![c1, "none"], "not a record"),
-        (vec![c3, c4], "r: 2 records, 2 credentials"),
-        (vec![c1, c1], "q: 2 records, 1 credentials"),
-        (
-            vec![c1, c2],
-            "two records carry transactions; one confirmation carries one",
-        ),
-        (
-            vec![],
-            "the queries [] are none of the request's alternatives",
-        ),
+    // §6.4's selection rules: a record per query without `multiple`, one transaction per
+    // confirmation (C3), and the alternatives the request allows.
+    let query_records = |query: &str, records: usize, credentials: usize| Rejection::QueryRecords {
+        query: query.to_owned(),
+        records,
+        credentials,
+    };
+    let cases: [(Vec<&str>, Option<Rejection>); 5] = [
+        (vec![c1, "none"], None),
+        (vec![c3, c4], Some(query_records("r", 2, 2))),
+        (vec![c1, c1], Some(query_records("q", 2, 1))),
+        (vec![c1, c2], Some(Rejection::TwoTransactions)),
+        (vec![], Some(Rejection::NoAlternative(Vec::new()))),
     ];
     for (ids, want) in cases {
-        match outcome(&text, &held, &ids, &TestHost::default()) {
-            Err(Outcome::Rejected(Rejection::NotARecord(_))) => assert_eq!(want, "not a record"),
-            Err(Outcome::Rejected(rejection)) => assert_eq!(rejection.to_string(), want),
-            other => panic!("{ids:?}: {other:?}"),
+        match (outcome(&text, &held, &ids, &TestHost::default()), want) {
+            (Err(Outcome::Rejected(Rejection::NotARecord(_))), None) => {}
+            (Err(Outcome::Rejected(rejection)), Some(want)) => assert_eq!(rejection, want),
+            (other, _) => panic!("{ids:?}: {other:?}"),
         }
     }
 }
