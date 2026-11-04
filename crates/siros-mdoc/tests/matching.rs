@@ -37,7 +37,6 @@ siros_testkit::test_host! {
             siros_testkit::TestRequestDecryption => siros_openid4vp::host::RequestDecryption
         }
         optional {
-            siros_testkit::TestCoseEncrypt => siros_openid4vp::host::CoseEncrypt,
             siros_mdoc::TestDeviceMac => siros_mdoc::DeviceMac
         }
         lacks {}

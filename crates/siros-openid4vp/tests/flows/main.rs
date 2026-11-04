@@ -92,9 +92,10 @@ fn config() -> TrustConfig {
 /// A URI request fetched by GET: the body the caller fetched, resumed.
 fn fetched<'a>(uri: &'a str, body: &'a str) -> Result<Received<'a>, Box<Rejected<'a>>> {
     let host = TestHost::default();
-    let fetch = Fetch::of(uri, &registry(), &host).expect("a fetch");
+    let registry = registry();
+    let fetch = Fetch::of(uri, &registry, &host).expect("a fetch");
     assert!(matches!(fetch.request(), RequestObjectFetch::Get(_)));
-    fetch.resume(FetchAnswer::Body(body), &host)
+    fetch.resume(FetchAnswer::Body(body), &registry, &host)
 }
 
 /// The envelope's questions answered by the trust service, and the checks under the bound key.
@@ -104,7 +105,8 @@ fn authenticated<'e>(
     trust: &TestTrust,
     config: &TrustConfig,
 ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
-    let pending: Pending<'_> = envelope.questions(registry, config, &TestHost::default())?;
+    let pending: Pending<'_, TestHost> =
+        envelope.questions(registry, config, &TestHost::default())?;
     pending.authenticate(
         |evaluation| trust.decide(evaluation),
         config,

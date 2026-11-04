@@ -6,12 +6,11 @@ use std::borrow::Cow;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
-use siros_openid4vp::cbor::Item;
 use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Attested, Fault, JsonText, MemberValue, Members};
 use siros_openid4vp::host::{
-    Authentication, CoseEnc, CoseEncrypt, Haip, Has, MayHave, Platform, Seconds, Timestamp,
+    Authentication, Haip, Has, MayHave, Platform, Seconds, Timestamp,
 };
 use siros_openid4vp::request::{ContentEncryption, Request};
 use siros_openid4vp::routing::ModeName;
@@ -21,6 +20,7 @@ use crate::FAULT;
 use crate::document::PasoDocument;
 use crate::entry::PasoEntry;
 use crate::measure::{Paso, Reading};
+use crate::modules::{CoseEnc, CoseEncrypt, RandomIds, SealedCose};
 use crate::amr;
 use crate::risk::{Effective, RiskSignal, Sealing, SignalSpec};
 use crate::sca::{Proof, Sca};
@@ -128,6 +128,7 @@ fn floats(node: &Node<'_>) -> Result<Node<'static>, Fault> {
 pub(crate) struct Modules<'h> {
     pub(crate) platform: &'h dyn Platform,
     pub(crate) paso: &'h dyn Paso,
+    pub(crate) random_ids: &'h dyn RandomIds,
     pub(crate) haip: &'h dyn Haip,
     pub(crate) cose: Option<&'h dyn CoseEncrypt>,
 }
@@ -136,13 +137,18 @@ impl<'h> Modules<'h> {
     /// The modules of the build's host.
     pub(crate) fn of<H>(host: &'h H) -> Self
     where
-        H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + MayHave<dyn CoseEncrypt>,
+        H: Has<dyn Platform>
+            + Has<dyn Haip>
+            + Has<dyn Paso>
+            + Has<dyn RandomIds>
+            + MayHave<dyn CoseEncrypt>,
     {
         use siros_openid4vp::host::Host;
 
         Self {
             platform: host.get::<dyn Platform>(),
             paso: host.get::<dyn Paso>(),
+            random_ids: host.get::<dyn RandomIds>(),
             haip: host.get::<dyn Haip>(),
             cose: host.maybe::<dyn CoseEncrypt>(),
         }
@@ -186,7 +192,7 @@ impl Answer<'_> {
         let mut out = vec![
             (
                 proof.member(Sca::Jti),
-                MemberValue::Text(modules.platform.random_id().to_string()),
+                MemberValue::Text(modules.random_ids.random_id().to_string()),
             ),
             (
                 proof.member(Sca::DisplayLocale),
@@ -262,11 +268,14 @@ impl Answer<'_> {
                         detail!("an mdoc's sealed risk signals without the COSE_Encrypt module revalidation requires"),
                     )
                 })?;
-                MemberValue::Cbor(Item::from(cose.encrypt_cose(
-                    &key,
-                    CoseEnc::A256Gcm,
-                    plaintext.as_bytes(),
-                )?))
+                let sealed = cose.encrypt_cose(&key, CoseEnc::A256GCM, plaintext.as_bytes())?;
+                let sealed = SealedCose::parse(sealed, cose.encryptions())
+                    .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt module's ciphertext"), e))?;
+                MemberValue::Cbor(
+                    sealed
+                        .into_item()
+                        .map_err(|e| Fault::caused(FAULT, detail!("a sealed COSE_Encrypt"), e))?,
+                )
             }
         })
     }

@@ -218,11 +218,25 @@ impl PrefixRefusal {
 }
 
 /// A prefix plug-in (§5.9.3: "Other specifications can define further Client Identifier
-/// Prefixes").
+/// Prefixes"): its name. Its claim is [`PrefixHost`].
+///
+/// # Implementing
+///
+/// `name` is a constant; the registry refuses a name registered twice (`PrefixTwice`), and
+/// [`PrefixName`] refuses `origin`. `PrefixHost::claim` reads the core-made [`ClientClaim`] and
+/// returns its rule's refusal (A5) or a [`PrefixClaim`]: the evaluations the caller answers, the
+/// binding read from their decisions, and by URI what vouches for the `response_uri`. The prefix
+/// binds a key; the core checks the `alg` against `Haip::verifies` before it asks the caller
+/// (A7), verifies the signature under the bound key through the `Haip` the registration reached
+/// (A8), and binds the endpoint itself, so a prefix reaches no endpoint and no key the request
+/// and the decisions do not give.
 pub trait ClientPrefix: DynClone + Send + Sync {
     /// The prefix as written before the `:`.
     fn name(&self) -> PrefixName;
+}
 
+/// A prefix's claim over the build's host: its bounds name the modules it calls.
+pub trait PrefixHost<H>: ClientPrefix {
     /// Reads a claim: the prefix's syntax and header rules, refused with the rule the claim
     /// breaks (A5), and the questions its trust framework answers.
     ///
@@ -232,10 +246,16 @@ pub trait ClientPrefix: DynClone + Send + Sync {
     fn claim<'c>(
         &'c self,
         claim: ClientClaim<'c>,
+        host: &H,
     ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>>;
 }
 
-dyn_clone::clone_trait_object!(ClientPrefix);
+/// A prefix the registry takes, as [`HostedFormat`](crate::plugins::HostedFormat) takes a format.
+pub trait HostedPrefix<H>: PrefixHost<H> {}
+
+impl<H, P: PrefixHost<H>> HostedPrefix<H> for P {}
+
+dyn_clone::clone_trait_object!(<H> HostedPrefix<H>);
 
 /// A claim a prefix read: its evaluations, then its binding from their decisions, then, by URI,
 /// what vouches for the endpoint. The core hands each method the decisions on the claim's own

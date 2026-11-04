@@ -1,7 +1,7 @@
 //! What cannot exist is refused at construction: a registry whose profile writes a member
 //! twice, a name given twice where each is given once, bound entries outside those offered,
 //! identifiers breaking their rule; and the protocol values the core writes: the error codes,
-//! the registry's profile lookup, random identifiers.
+//! the registry's profile lookup, the modules' ciphertexts.
 
 mod common;
 
@@ -338,41 +338,8 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
 }
 
 #[test]
-fn a_random_id_is_a_version_4_uuid() {
-    use siros_openid4vp::host::RandomId;
-    // RFC 9562 Appendix A.3's example.
-    assert_eq!(
-        RandomId::from_bytes([
-            0x91, 0x91, 0x08, 0xf7, 0x52, 0xd1, 0x33, 0x20, 0x5b, 0xac, 0xf8, 0x47, 0xdb, 0x41,
-            0x48, 0xa8
-        ])
-        .to_string(),
-        "919108f7-52d1-4320-9bac-f847db4148a8"
-    );
-    // RFC 9562 §5.4: version 4 in the version field, the variant bits 10.
-    assert_eq!(
-        RandomId::from_bytes([0; 16]).to_string(),
-        "00000000-0000-4000-8000-000000000000"
-    );
-    assert_eq!(
-        RandomId::from_bytes([0xff; 16]).to_string(),
-        "ffffffff-ffff-4fff-bfff-ffffffffffff"
-    );
-    assert!(RandomId::parse("00000000-0000-4000-9abc-000000000001").is_ok());
-    for invalid in [
-        "00000000-0000-1000-8000-000000000000",
-        "00000000-0000-4000-c000-000000000000",
-        "00000000-0000-4000-8000-00000000000A",
-        "00000000-0000-4000-8000-0000000000000",
-        "000000000000-4000-8000-000000000000",
-    ] {
-        assert!(RandomId::parse(invalid).is_err(), "{invalid}");
-    }
-}
-
-#[test]
 fn a_modules_ciphertext_of_another_form_is_refused() {
-    use siros_openid4vp::host::{NotSealed, SealedCose, SealedJwe};
+    use siros_openid4vp::host::{NotSealed, SealedJwe};
     // RFC 7516 §7.1: a compact JWE has five parts, the first a protected header that is a JSON
     // object; `{"alg":"ECDH-ES"}` is eyJhbGciOiJFQ0RILUVTIn0.
     let header = "eyJhbGciOiJFQ0RILUVTIn0";
@@ -380,17 +347,5 @@ fn a_modules_ciphertext_of_another_form_is_refused() {
     assert!(matches!(
         SealedJwe::parse(format!("{header}..AAAA.AAAA")),
         Err(NotSealed::JweParts { parts: 4 })
-    ));
-    // RFC 9052 §5.1: a COSE_Encrypt is tag 96 around [protected, unprotected, ciphertext,
-    // recipients]; d8 60 is tag 96, 80 an empty array.
-    assert!(SealedCose::parse(vec![0xd8, 0x60, 0x84, 0x40, 0xa0, 0x40, 0x80]).is_ok());
-    assert!(matches!(
-        SealedCose::parse(vec![0x84, 0x40, 0xa0, 0x40, 0x80]),
-        Err(NotSealed::Untagged)
-    ));
-    // 96([]): the tagged content lacks the structure's four items.
-    assert!(matches!(
-        SealedCose::parse(vec![0xd8, 0x60, 0x80]),
-        Err(NotSealed::Structure(_))
     ));
 }

@@ -16,7 +16,7 @@
 //! builder.client_prefix(X509Hash);
 //! builder.client_prefix(X509SanDns);
 //! let registry = builder.build().expect("a registry");
-//! assert!(registry.client_prefix("x509_hash").is_some());
+//! assert!(registry.names_prefix("x509_hash"));
 //! ```
 
 #![forbid(unsafe_code)]
@@ -47,7 +47,9 @@ mod names;
 pub mod test_util;
 
 use siros_explain::{Explain, Explained, Message, Messages};
-use siros_openid4vp::authenticate::{ClientClaim, ClientPrefix, PrefixClaim, PrefixName};
+use siros_openid4vp::authenticate::{
+    ClientClaim, ClientPrefix, PrefixClaim, PrefixHost, PrefixName,
+};
 
 pub use chain::{ChainCertificate, SpkiKey, X5c};
 pub use names::{LeafHash, SanDnsName};
@@ -135,10 +137,13 @@ impl ClientPrefix for X509Hash {
     fn name(&self) -> PrefixName {
         X509_HASH
     }
+}
 
+impl<H> PrefixHost<H> for X509Hash {
     fn claim<'c>(
         &'c self,
         claim: ClientClaim<'c>,
+        _host: &H,
     ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let hash = LeafHash::parse(claim.original()).map_err(refused)?;
@@ -154,10 +159,13 @@ impl ClientPrefix for X509SanDns {
     fn name(&self) -> PrefixName {
         X509_SAN_DNS
     }
+}
 
+impl<H> PrefixHost<H> for X509SanDns {
     fn claim<'c>(
         &'c self,
         claim: ClientClaim<'c>,
+        _host: &H,
     ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let name = SanDnsName::parse(claim.original()).map_err(refused)?;

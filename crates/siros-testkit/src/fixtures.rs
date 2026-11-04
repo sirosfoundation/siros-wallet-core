@@ -7,7 +7,7 @@ use std::num::NonZeroU32;
 use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::envelope::Envelope;
-use siros_openid4vp::host::{Haip, Has};
+use siros_openid4vp::host::{Haip, Has, RequestDecryption};
 use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
     Origin,
@@ -21,6 +21,7 @@ use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
 use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, IconMedia};
+use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::{
     Credential, Document, Facts, HeldAuthority, Holder, RegistrationError,
 };
@@ -170,16 +171,19 @@ pub fn data_of<'a>(
     }
 }
 
-/// Registers OpenID4VP's response type and response modes, as a HAIP build registers them:
-/// `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed through the
-/// host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`.
-pub fn openid4vp<H: Has<dyn Haip>>(builder: &mut RegistryBuilder<H>) {
+/// Registers OpenID4VP's response type, response modes and Request Object POST, as the flows'
+/// tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
+/// through the host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`; the POST of
+/// `wallet_metadata` with encrypted Request Objects through the host's `RequestDecryption`.
+pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut RegistryBuilder<H>) {
     builder.response_type(VpToken);
     builder.mode(DcApi);
     builder.jwe_mode(DcApiJwt);
     builder.jwe_mode(DirectPostJwt);
     builder.error_mode(DirectPostJwt);
     builder.error_mode(DirectPost);
+    builder.request_post(RequestPost);
+    builder.request_encryption(EncryptedRequests);
 }
 
 /// Registers OpenID4VP's response type and the modes a build without `Haip` answers in:

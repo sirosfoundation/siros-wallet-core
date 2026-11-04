@@ -50,11 +50,15 @@ pub mod render;
 siros_openid4vp::with_resolve! {
     pub mod amr;
     pub mod measure;
+    pub mod modules;
     pub mod respond;
 
     pub use measure::{Measurement, Paso, Reading};
+    pub use modules::{CoseEnc, CoseEncrypt, NotRandomId, NotSealedCose, RandomId, RandomIds, SealedCose};
     #[cfg(feature = "test-util")]
     pub use measure::{Measured, Signal, TestPaso};
+    #[cfg(feature = "test-util")]
+    pub use modules::{TestCoseEncrypt, TestRandomIds};
 }
 pub mod risk;
 pub mod rulebook;
@@ -80,8 +84,7 @@ siros_openid4vp::with_resolve! {
     use siros_openid4vp::{
         plugins::{Answered, FetchedRecord, Members},
         host::{
-            Authentication, AuthenticationNeed, CoseEncrypt, Haip, Has, MayHave, Platform,
-            ProfileHost, Slot,
+            Authentication, AuthenticationNeed, Haip, Has, MayHave, Platform, ProfileHost, Slot,
         },
     };
 }
@@ -122,6 +125,10 @@ impl Messages for CrateMessages {
             outcome::Excluded::messages,
             rules::PasoRule::messages,
             rules::BindExcluded::messages,
+            #[cfg(feature = "resolve")]
+            modules::NotRandomId::messages,
+            #[cfg(feature = "resolve")]
+            modules::NotSealedCose::messages,
         ];
         declared
             .iter()
@@ -242,17 +249,22 @@ impl PasoProfile {
     /// holds the modules the profile needs:
     ///
     /// ```
-    /// use siros_openid4vp::host::{CoseEncrypt, Haip, Platform, RequestDecryption};
+    /// use siros_openid4vp::host::{Haip, Platform};
     /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::{Paso, PasoProfile, TestPaso};
-    /// use siros_testkit::{TestCoseEncrypt, TestHaip, TestPlatform, TestRequestDecryption};
+    /// use siros_paso::{CoseEncrypt, Paso, PasoProfile, RandomIds};
+    /// use siros_paso::{TestCoseEncrypt, TestPaso, TestRandomIds};
+    /// use siros_testkit::{TestHaip, TestPlatform};
     ///
     /// siros_testkit::test_host! {
     ///     /// The PaSO build's host.
     ///     #[derive(Default)]
     ///     struct Wallet {
-    ///         handles { platform: TestPlatform => Platform, paso: TestPaso => Paso }
-    ///         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
+    ///         handles {
+    ///             platform: TestPlatform => Platform,
+    ///             paso: TestPaso => Paso,
+    ///             random_ids: TestRandomIds => RandomIds
+    ///         }
+    ///         zero_sized { TestHaip => Haip }
     ///         optional { TestCoseEncrypt => CoseEncrypt }
     ///         lacks {}
     ///     }
@@ -265,17 +277,18 @@ impl PasoProfile {
     /// A host without the PaSO module does not compile with it:
     ///
     /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::{CoseEncrypt, Haip, Platform, RequestDecryption};
+    /// use siros_openid4vp::host::{Haip, Platform};
     /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::PasoProfile;
-    /// use siros_testkit::{TestCoseEncrypt, TestHaip, TestPlatform, TestRequestDecryption};
+    /// use siros_paso::{CoseEncrypt, PasoProfile, RandomIds};
+    /// use siros_paso::{TestCoseEncrypt, TestRandomIds};
+    /// use siros_testkit::{TestHaip, TestPlatform};
     ///
     /// siros_testkit::test_host! {
     ///     /// A host lacking the PaSO module.
     ///     #[derive(Default)]
     ///     struct Wallet {
-    ///         handles { platform: TestPlatform => Platform }
-    ///         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
+    ///         handles { platform: TestPlatform => Platform, random_ids: TestRandomIds => RandomIds }
+    ///         zero_sized { TestHaip => Haip }
     ///         optional { TestCoseEncrypt => CoseEncrypt }
     ///         lacks {}
     ///     }
@@ -533,7 +546,11 @@ siros_openid4vp::with_resolve! {
     /// the `COSE_Encrypt` module when the build holds it.
     impl<H> ProfileHost<H> for PasoProfile
     where
-        H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + MayHave<dyn CoseEncrypt>,
+        H: Has<dyn Platform>
+            + Has<dyn Haip>
+            + Has<dyn Paso>
+            + Has<dyn RandomIds>
+            + MayHave<dyn CoseEncrypt>,
     {
         /// Risk Signals §7.6, Proof Metadata §5.3 step 5 and View §3: the `COSE_Encrypt` module
         /// an mdoc's sealed risk signals need, read from the host's type; the ad-hoc metadata
@@ -548,7 +565,9 @@ siros_openid4vp::with_resolve! {
                 &record,
                 Has::<dyn Platform>::module(host),
                 Has::<dyn Haip>::module(host).agreements(),
-                <<H as MayHave<dyn CoseEncrypt>>::Slot as Slot<dyn CoseEncrypt>>::HELD,
+                MayHave::<dyn CoseEncrypt>::slot(host)
+                    .filled()
+                    .is_some_and(|cose| cose.encryptions().contains(&CoseEnc::A256GCM)),
             )
         }
 

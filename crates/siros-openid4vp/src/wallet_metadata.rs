@@ -23,9 +23,10 @@ impl WalletMetadata {
     /// module `verifies`, given when the outer `client_id` names a registered prefix (§5.10:
     /// SHOULD); `authorization_encryption_alg_values_supported` and
     /// `authorization_encryption_enc_values_supported`, the key rule's ECDH-ES on P-256 with
-    /// A128GCM or A256GCM that the module's `agreements` state, in the module's order (§5.10:
-    /// SHOULD for an encrypted response), absent when it states none; `jwks` holding the key with
-    /// `use` `enc` (§5.10: SHOULD; CS-12 §7.3 item 9).
+    /// A128GCM or A256GCM that the `agreements` of the `Haip` a registered JWE mode by URI
+    /// bounded state, in the module's order (§5.10: SHOULD for an encrypted response), absent
+    /// when it states none or no such mode is registered; `jwks` holding the key with `use` `enc`
+    /// when there is one (§5.10: SHOULD; CS-12 §7.3 item 9).
     ///
     /// # Errors
     ///
@@ -33,10 +34,11 @@ impl WalletMetadata {
     /// or a module's bug.
     pub fn of<H>(
         registry: &Registry<H>,
-        key: &EphemeralKey,
+        key: Option<&EphemeralKey>,
         verifies: Option<JwsAlgorithms>,
-        agreements: Agreements,
+        host: &H,
     ) -> Result<Self, Fault> {
+        let agreements = registry.uri_sealer(host).unwrap_or(Agreements::NONE);
         let fault = |e| Fault::caused(FAULT, detail!("the wallet metadata"), e);
         let names = |values: &mut dyn Iterator<Item = &'static str>| {
             Node::Array(
@@ -55,8 +57,11 @@ impl WalletMetadata {
             })
             .collect::<Result<Vec<_>, Fault>>()?;
         let formats = Node::object(formats).map_err(fault)?;
-        let jwks =
-            Node::object([(Cow::Borrowed("keys"), Node::Array(vec![jwk(key)?]))]).map_err(fault)?;
+        let jwks = key
+            .map(|key| {
+                Node::object([(Cow::Borrowed("keys"), Node::Array(vec![jwk(key)?]))]).map_err(fault)
+            })
+            .transpose()?;
         let encryptions: Vec<&'static str> = agreements
             .encryptions()
             .iter()
@@ -85,7 +90,7 @@ impl WalletMetadata {
                     names(&mut encryptions.into_iter()),
                 )
             }),
-            Some(("jwks", jwks)),
+            jwks.map(|jwks| ("jwks", jwks)),
         ];
         let object = Node::object(
             members

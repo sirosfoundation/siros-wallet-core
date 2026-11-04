@@ -143,7 +143,7 @@ impl SignedRequest {
         };
         let fetch = Fetch::of(&self.uri, &registry, &host).unwrap();
         let received = fetch
-            .resume(FetchAnswer::Body(&self.object), &host)
+            .resume(FetchAnswer::Body(&self.object), &registry, &host)
             .unwrap();
         let envelope = Envelope::parse(&received, &registry).unwrap();
         let trust = TestTrust::default();

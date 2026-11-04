@@ -15,8 +15,8 @@ use siros_openid4vp::cbor::cose::coset::iana;
 use siros_openid4vp::cbor::cose::coset::{AsCborValue, CoseSign1, CoseSign1Builder, HeaderBuilder};
 use siros_openid4vp::cbor::{CborError, Value, decode, embedded, encode};
 use siros_openid4vp::host::{
-    CoreHost, CoseEncrypt, Empty, FormatHost, Haip, Has, Held, MayHave, Platform, SealedJwe,
-    SignFailed, Signature, Usable,
+    CoreHost, FormatHost, Haip, Has, Held, MayHave, Platform, SealedJwe, SignFailed, Signature,
+    Usable,
 };
 use siros_openid4vp::ids::{CredentialId, Nonce, Origin};
 use siros_openid4vp::json::Node;
@@ -127,14 +127,6 @@ impl MayHave<dyn DeviceMac> for Recording {
     }
 }
 
-impl MayHave<dyn CoseEncrypt> for Recording {
-    type Slot = Empty;
-
-    fn slot(&self) -> &Self::Slot {
-        &Empty
-    }
-}
-
 /// The presentation of a registration for a query, the Verifier's client metadata and the
 /// members, over the DC API with the handover's thumbprint.
 fn present<H>(
@@ -146,7 +138,7 @@ fn present<H>(
     host: &H,
 ) -> Node<'static>
 where
-    H: CoreHost + MayHave<dyn DeviceMac> + 'static,
+    H: CoreHost + Has<dyn Haip> + MayHave<dyn DeviceMac> + 'static,
 {
     let text = parameters(
         &format!(r#"{{"credentials": [{query}]}}"#),

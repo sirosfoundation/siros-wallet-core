@@ -13,13 +13,13 @@ use siros_mdoc::Mdoc;
 use siros_mdoc::issuer_signed::IssuedError;
 use siros_openid4vp::cbor::{CborError, Item, Value, decode, encode};
 use siros_openid4vp::host::Usable;
-use siros_openid4vp::host::{CoseEnc, FormatHost, PresentError};
+use siros_openid4vp::host::{FormatHost, PresentError};
 use siros_openid4vp::ids::{ClientId, Nonce, Origin};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Fault, Format, JsonText, Member, MemberValue, Members, OptionIndex,
 };
-use siros_openid4vp::request::{ClientMetadata, KeyAgreement};
+use siros_openid4vp::request::{ClientMetadata, ContentEncryption, KeyAgreement};
 use siros_openid4vp::session::{Endpoint, Handover, Session, SessionTranscript, Thumbprint};
 use siros_testkit::cose::cose_encrypt;
 use siros_testkit::fixtures::{
@@ -40,7 +40,6 @@ siros_testkit::test_host! {
             siros_testkit::TestRequestDecryption => siros_openid4vp::host::RequestDecryption
         }
         optional {
-            siros_testkit::TestCoseEncrypt => siros_openid4vp::host::CoseEncrypt,
             siros_mdoc::TestDeviceMac => siros_mdoc::DeviceMac
         }
         lacks {}
@@ -411,8 +410,13 @@ fn the_document_holds_the_disclosed_elements_and_the_members() {
                     }
                     _ => MemberValue::Cbor(
                         Item::parse(
-                            cose_encrypt(KeyAgreement::ECDH_ES, CoseEnc::A256Gcm, "k", &[k as u8])
-                                .expect("COSE_Encrypt"),
+                            cose_encrypt(
+                                KeyAgreement::ECDH_ES,
+                                ContentEncryption::A256GCM,
+                                "k",
+                                &[k as u8],
+                            )
+                            .expect("COSE_Encrypt"),
                         )
                         .expect("item"),
                     ),

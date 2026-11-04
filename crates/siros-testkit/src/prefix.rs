@@ -11,7 +11,8 @@ use std::borrow::Cow;
 
 use siros_explain::Explained;
 use siros_openid4vp::authenticate::{
-    ClientBinding, ClientClaim, ClientPrefix, EndpointBasis, PrefixClaim, PrefixName, Unbound,
+    ClientBinding, ClientClaim, ClientPrefix, EndpointBasis, PrefixClaim, PrefixHost, PrefixName,
+    Unbound,
 };
 use siros_openid4vp::effects::{
     Action, ActionName, Decided, Decision, Entity, EntityId, EntityType, Evaluation, Verdict,
@@ -43,10 +44,13 @@ impl ClientPrefix for TestPrefix {
     fn name(&self) -> PrefixName {
         TEST
     }
+}
 
+impl<H> PrefixHost<H> for TestPrefix {
     fn claim<'c>(
         &'c self,
         claim: ClientClaim<'c>,
+        _host: &H,
     ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
         Ok(Box::new(TestClaim {
             prefix: self,

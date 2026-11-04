@@ -13,7 +13,8 @@ use crate::sca::Proof;
 /// A module the build may lack that an entry's response needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum OptionalModule {
-    /// The `COSE_Encrypt` module, which seals an mdoc's risk signals (Risk Signals §7.6).
+    /// The `COSE_Encrypt` module, stating A256GCM, which seals an mdoc's risk signals (Risk
+    /// Signals §7.6).
     CoseEncrypt,
 }
 
@@ -265,7 +266,7 @@ siros_openid4vp::with_resolve! {
     /// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
     /// a key the issuer publishes, its ad-hoc metadata JWT's `exp`, then each https image of the
     /// payload its metadata displays and the matcher did not have, with what the caller fetched.
-    /// `cose_held`: the host's type holds the `COSE_Encrypt` module.
+    /// `cose_held`: the build holds the `COSE_Encrypt` module, stating §7.6's A256GCM.
     pub(crate) fn revalidate(
         profile: &PasoProfile,
         fetched: &FetchedRecord<'_>,

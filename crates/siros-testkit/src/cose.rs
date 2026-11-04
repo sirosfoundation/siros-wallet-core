@@ -7,9 +7,8 @@ use siros_openid4vp::cbor::cose::coset::{
     CoseEncryptBuilder, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
 };
 use siros_openid4vp::detail;
-use siros_openid4vp::host::CoseEnc;
 use siros_openid4vp::plugins::Fault;
-use siros_openid4vp::request::KeyAgreement;
+use siros_openid4vp::request::{ContentEncryption, KeyAgreement};
 
 use crate::FAULT;
 
@@ -30,22 +29,31 @@ pub const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [
     ),
 ];
 
+/// The content encryptions the stand-in writes, with their COSE algorithms (RFC 9053 §4.1).
+pub const ENCRYPTIONS: [(ContentEncryption<'static>, iana::Algorithm); 3] = [
+    (ContentEncryption::A128GCM, iana::Algorithm::A128GCM),
+    (
+        checked!(ContentEncryption, "A192GCM"),
+        iana::Algorithm::A192GCM,
+    ),
+    (ContentEncryption::A256GCM, iana::Algorithm::A256GCM),
+];
+
 /// The COSE algorithms of a key agreement and a content encryption (RFC 9053 §6.3, §4.1);
-/// `None` for an agreement the stand-in does not write.
+/// `None` for one the stand-in does not write.
 #[must_use]
 pub fn cose_algorithms(
     alg: KeyAgreement<'_>,
-    enc: CoseEnc,
+    enc: ContentEncryption<'_>,
 ) -> Option<(iana::Algorithm, iana::Algorithm)> {
     let recipient = AGREEMENTS
         .iter()
         .find(|(known, _)| known.as_str() == alg.as_str())
         .map(|(_, cose)| *cose)?;
-    let content = match enc {
-        CoseEnc::A128Gcm => iana::Algorithm::A128GCM,
-        CoseEnc::A192Gcm => iana::Algorithm::A192GCM,
-        CoseEnc::A256Gcm => iana::Algorithm::A256GCM,
-    };
+    let content = ENCRYPTIONS
+        .iter()
+        .find(|(known, _)| known.as_str() == enc.as_str())
+        .map(|(_, cose)| *cose)?;
     Some((recipient, content))
 }
 
@@ -58,14 +66,14 @@ pub fn cose_algorithms(
 /// An agreement the stand-in does not write, or coset cannot write the structure.
 pub fn cose_encrypt(
     alg: KeyAgreement<'_>,
-    enc: CoseEnc,
+    enc: ContentEncryption<'_>,
     kid: &str,
     plaintext: &[u8],
 ) -> Result<Vec<u8>, Fault> {
     let (recipient, content) = cose_algorithms(alg, enc).ok_or_else(|| {
         Fault::new(
             FAULT,
-            detail!("a key agreement the stand-in does not write"),
+            detail!("a key agreement or a content encryption the stand-in does not write"),
         )
     })?;
     CoseEncryptBuilder::new()
@@ -89,8 +97,8 @@ pub fn jose_names(recipient: i64, content: i64) -> Option<(&'static str, &'stati
     let (alg, _) = AGREEMENTS
         .iter()
         .find(|(_, cose)| cose.to_i64() == recipient)?;
-    let enc = [CoseEnc::A128Gcm, CoseEnc::A192Gcm, CoseEnc::A256Gcm]
-        .into_iter()
-        .find(|enc| enc.id() == content)?;
+    let (enc, _) = ENCRYPTIONS
+        .iter()
+        .find(|(_, cose)| cose.to_i64() == content)?;
     Some((alg.as_str(), enc.as_str()))
 }

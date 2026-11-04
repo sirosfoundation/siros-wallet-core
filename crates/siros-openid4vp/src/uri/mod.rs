@@ -17,6 +17,21 @@ use crate::ids::ClientId;
 pub use crate::arrival::{FailedStatus, FetchFailure};
 pub use fetch::{Fetch, FetchAnswer, NoFetch, RequestObjectFetch};
 pub use form::{FormBody, FormMembers};
+
+/// The POST of `wallet_metadata` to the `request_uri` (§5.10), a core component the registry
+/// takes (`RegistryBuilder::request_post`): with it, a request whose `request_uri_method` is
+/// `post` is fetched by POST.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestPost;
+
+/// Encrypted Request Objects (§5.10: "If the Wallet requires the Verifier to encrypt the Request
+/// Object, it SHOULD use the jwks parameter"), a core component the registry takes from a build
+/// whose host holds `RequestDecryption`, beside [`RequestPost`]
+/// (`RegistryBuilder::request_encryption`): each POST's `jwks` holds a key from
+/// `RequestDecryption::ephemeral_key`, and a JWE Request Object decrypts through
+/// `RequestDecryption::decrypt` under the algorithms `RequestDecryption::decrypts` states.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EncryptedRequests;
 use query::QueryRead;
 
 /// The `https` scheme, compared without regard to case (RFC 3986 §3.1).

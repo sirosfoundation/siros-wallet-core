@@ -23,7 +23,7 @@ siros_testkit::test_host! {
             siros_testkit::TestHaip => siros_openid4vp::host::Haip,
             siros_testkit::TestRequestDecryption => siros_openid4vp::host::RequestDecryption
         }
-        optional { siros_testkit::TestCoseEncrypt => siros_openid4vp::host::CoseEncrypt }
+        optional {}
         lacks { siros_mdoc::DeviceMac }
     }
 }
@@ -101,9 +101,12 @@ fn the_device_authenticates_by_signature_or_by_mac_as_check_respond_states() {
 
 /// Phase 2 over `host` for the first selection of `QUERY` with the client metadata, its
 /// fetches unanswered.
-fn respond<H: CoreHost>(host: &H, client_metadata: &str, held: &Held) -> Result<Response, Outcome>
+fn respond<H>(host: &H, client_metadata: &str, held: &Held) -> Result<Response, Outcome>
 where
     Mdoc: HostedFormat<H>,
+    H: CoreHost
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::RequestDecryption>,
 {
     let text = parameters(
         &format!(r#"{{"credentials": [{QUERY}]}}"#),

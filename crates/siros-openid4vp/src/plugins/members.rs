@@ -84,13 +84,6 @@ impl Item {
     }
 }
 
-#[cfg(feature = "resolve")]
-impl From<crate::host::SealedCose> for Item {
-    fn from(sealed: crate::host::SealedCose) -> Self {
-        Self(sealed.into_bytes())
-    }
-}
-
 /// The text of a JSON value whose objects name each member once, written as Python's
 /// `json.dumps(value, separators=(",", ":"), ensure_ascii=False)` writes it: object members in
 /// their order, integers by value, other numbers as Python's `repr` of the double.

@@ -7,8 +7,10 @@
 //! type the host gives as `&'static`.
 //!
 //! The core defines the access traits, its own modules ([`Platform`], [`Haip`],
-//! [`RequestDecryption`], [`CoseEncrypt`]), the values they exchange, and each plug-in's phase 2 over the host
-//! ([`ProfileHost`], [`FormatHost`]). A plug-in defines its own modules in its crate.
+//! [`RequestDecryption`]), the values they exchange, and each plug-in's phase 2 over the host
+//! ([`ProfileHost`], [`FormatHost`]). A plug-in defines its own modules in its crate. The core
+//! calls [`Platform`] with no extension registered ([`CoreHost`]); each registration that makes it
+//! call another module bounds the build's host by it, and keeps the module's accessor.
 
 mod access;
 mod authentication;
@@ -23,10 +25,10 @@ pub use authentication::{
     Authentication, AuthenticationNeed, Categories, Factor, Inherence, Knowledge, Modality,
     Possession, Sensor, Strength,
 };
-pub use ciphertext::{CoseEnc, NotSealed, SealedCose, SealedJwe};
+pub use ciphertext::{NotSealed, SealedJwe};
 pub use ephemeral::{EphemeralKey, KeyHandle};
 pub use phase2::{AnsweredOption, AnsweredQuery, FormatHost, PresentError, ProfileHost};
-pub use values::{NotRandomId, Presentation, RandomId, Seconds, Signature, Timestamp, Usable};
+pub use values::{Presentation, Seconds, Signature, Timestamp, Usable};
 
 use siros_explain::Explain;
 
@@ -36,7 +38,7 @@ use crate::plugins::Fault;
 use crate::request::{AgreeableKey, Agreements, ContentEncryption};
 use crate::wallet::Credential;
 
-/// The wallet app: its clock, its credentials' status, the End-User's prompt, fresh ids.
+/// The wallet app: its clock, its credentials' status, the End-User's prompt.
 pub trait Platform {
     /// The current time.
     fn now(&self) -> Timestamp;
@@ -45,8 +47,6 @@ pub trait Platform {
     /// The End-User's authentication, at least as strong as `need`; `None` when the End-User
     /// failed or cancelled.
     fn authenticate(&self, need: AuthenticationNeed) -> Option<Authentication>;
-    /// A fresh random identifier.
-    fn random_id(&self) -> RandomId;
 }
 
 /// HAIP's cryptography (HAIP §5, §7), one family (decision 13); the credentials' keys sit in the
@@ -136,31 +136,10 @@ pub enum SignFailed {
     Fault(#[from] Fault),
 }
 
-/// A `COSE_Encrypt` (RFC 9052 §5.1, tag 96) to a public key, with one recipient holding the
-/// ephemeral key and the key's `kid` (RFC 9053 §6.3, ECDH-ES + HKDF-256): siros-paso's sealed
-/// signals. Used when the build holds it.
-pub trait CoseEncrypt {
-    /// The plaintext encrypted to a public key under the key's own agreement (`key.alg`: -25, or
-    /// a key wrap -29 to -31) and `enc`.
-    ///
-    /// # Errors
-    ///
-    /// The module broke its contract.
-    fn encrypt_cose(
-        &self,
-        key: &AgreeableKey<'_>,
-        enc: CoseEnc,
-        plaintext: &[u8],
-    ) -> Result<SealedCose, Fault>;
-}
+/// The module the core calls with no extension registered: the platform's clock, the credentials'
+/// status and the End-User's authentication. Each registration that makes the core call another
+/// module bounds it (`prefix` and `jwe_mode`: [`Haip`]; `request_encryption`:
+/// [`RequestDecryption`]), and a plug-in bounds the modules it calls itself.
+pub trait CoreHost: Has<dyn Platform> {}
 
-/// The modules the core itself needs, and the module it uses when the build holds it.
-pub trait CoreHost:
-    Has<dyn Platform> + Has<dyn Haip> + Has<dyn RequestDecryption> + MayHave<dyn CoseEncrypt>
-{
-}
-
-impl<H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn RequestDecryption> + MayHave<dyn CoseEncrypt>>
-    CoreHost for H
-{
-}
+impl<H: Has<dyn Platform>> CoreHost for H {}

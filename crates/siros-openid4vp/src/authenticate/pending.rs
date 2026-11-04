@@ -15,11 +15,12 @@ use crate::effects::{
     Action, ActionName, Decided, Decision, Entity, EntityId, EntityType, Evaluation, Slots, Verdict,
 };
 use crate::envelope::{Channel, Envelope, Signatures, Signer};
-use crate::host::{Haip, Has, Host, Platform};
+use crate::host::{CoreHost, Host, Platform};
 use crate::ids::{ClientId, Origin};
-use crate::jose::{JwsAlgorithms, Signed, Validity};
+use crate::jose::{Signed, Validity};
 use crate::json::{Node, Object};
 use crate::plugins::Registry;
+use crate::plugins::registry::HaipAccess;
 use crate::recourse::{self, ErrorRoute, Rejected};
 use crate::uri::ResponseUri;
 
@@ -33,39 +34,41 @@ const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-ver
 /// A request whose evaluations wait for the caller's decisions: one slot per evaluation, held
 /// with what asked it.
 #[must_use]
-pub struct Pending<'e> {
+pub struct Pending<'e, H> {
     envelope: &'e Envelope<'e>,
     response_uri: Option<ResponseUri>,
-    asked: Asked<'e>,
+    asked: Asked<'e, H>,
 }
 
 /// What a pending request asked: the Origin's evaluation of an unsigned DC API request under
 /// `OriginPolicy::Evaluate`, nothing under `Accept`, or each signature's claim, the first apart.
-enum Asked<'e> {
+enum Asked<'e, H> {
     Origin(&'e Origin<'e>, Slots<Evaluation>),
     Nothing(&'e Origin<'e>),
-    Claims(Claimed<'e>, Vec<Claimed<'e>>),
+    Claims(Claimed<'e, H>, Vec<Claimed<'e, H>>),
 }
 
-/// A signature's claim: read by its prefix, with the slots of its own evaluations, or refused by
-/// A1 to A5.
-enum Claimed<'e> {
+/// A signature's claim: read by its prefix, with the slots of its own evaluations and the
+/// accessor of the `Haip` the prefix's registration bounded, or refused by A1 to A5 or A7.
+enum Claimed<'e, H> {
     Read {
         client_id: ClientId<'e>,
         signed: Signed<'e>,
         claim: Box<dyn PrefixClaim + 'e>,
         slots: Slots<Evaluation>,
+        haip: HaipAccess<H>,
     },
     Refused(Unauthenticated),
 }
 
-impl<'e> Claimed<'e> {
-    fn of(read: Result<Pieces<'e>, Unauthenticated>) -> Self {
+impl<'e, H> Claimed<'e, H> {
+    fn of(read: Result<Pieces<'e, H>, Unauthenticated>) -> Self {
         match read {
             Ok(Pieces {
                 client_id,
                 signed,
                 claim,
+                haip,
             }) => {
                 let slots = Slots::of(claim.questions());
                 Self::Read {
@@ -73,6 +76,7 @@ impl<'e> Claimed<'e> {
                     signed,
                     claim,
                     slots,
+                    haip,
                 }
             }
             Err(cause) => Self::Refused(cause),
@@ -115,13 +119,12 @@ impl<'e> Envelope<'e> {
     /// # Errors
     ///
     /// The A rule the request breaks.
-    pub fn questions<H>(
+    pub fn questions<H: CoreHost>(
         &'e self,
         registry: &'e Registry<H>,
         config: &TrustConfig,
-        host: &impl Has<dyn Haip>,
-    ) -> Result<Pending<'e>, Box<Rejected<'e>>> {
-        let verifies = host.get::<dyn Haip>().verifies();
+        host: &H,
+    ) -> Result<Pending<'e, H>, Box<Rejected<'e>>> {
         let reject = |cause: Unauthenticated, route| Box::new(Rejected::of(cause, route));
         let response_uri = match (self.channel(), self.routing().response_uri()) {
             (Channel::Uri, Some(text)) => Some(
@@ -156,7 +159,7 @@ impl<'e> Envelope<'e> {
                 let claimed = self
                     .claim(
                         registry,
-                        &verifies,
+                        host,
                         client_id.clone(),
                         jws.signed(),
                         response_uri.as_ref(),
@@ -165,11 +168,11 @@ impl<'e> Envelope<'e> {
                 Asked::Claims(Claimed::of(Ok(claimed)), Vec::new())
             }
             (Signatures::Many(signers), _) => {
-                let read = |signer: &Signer<'e>| -> Result<Pieces<'e>, Unauthenticated> {
+                let read = |signer: &Signer<'e>| -> Result<Pieces<'e, H>, Unauthenticated> {
                     let client_id = signer.client_id().ok_or(Unauthenticated::ClientIdAbsent)?;
                     self.claim(
                         registry,
-                        &verifies,
+                        host,
                         client_id.clone(),
                         signer.signed(),
                         response_uri.as_ref(),
@@ -202,16 +205,17 @@ impl<'e> Envelope<'e> {
 
     /// A signature's claim, read by the prefix its Client Identifier names (§5.9.1): A1 for
     /// `origin`, A2 for an unregistered prefix or none (a pre-registered client, §5.9.2), A5 for
-    /// the prefix's rule, A7 for an `alg` the verifying module does not state.
+    /// the prefix's rule, A7 for an `alg` the `Haip` the prefix's registration bounded does not
+    /// state.
     fn claim<H>(
         &'e self,
         registry: &'e Registry<H>,
-        verifies: &JwsAlgorithms,
+        host: &H,
         client_id: ClientId<'e>,
         signed: Signed<'e>,
         response_uri: Option<&ResponseUri>,
-    ) -> Result<Pieces<'e>, Unauthenticated> {
-        let prefix = match client_id.as_str().split_once(':') {
+    ) -> Result<Pieces<'e, H>, Unauthenticated> {
+        let (prefix, haip) = match client_id.as_str().split_once(':') {
             Some(("origin", _)) => return Err(Unauthenticated::Origin),
             Some((name, _)) => registry.client_prefix(name),
             None => None,
@@ -232,20 +236,21 @@ impl<'e> Envelope<'e> {
             verifier_info: self.verifier_info(),
             query: self.parameters().raw("dcql_query"),
         };
-        let claim = prefix.claim(read).map_err(|rule| {
+        let claim = prefix.claim(read, host).map_err(|rule| {
             Unauthenticated::Prefix(PrefixRefusal {
                 prefix: prefix.name(),
                 rule,
             })
         })?;
         let alg = signed.header().alg();
-        if !verifies.accepts(alg) {
+        if !haip(host).verifies().accepts(alg) {
             return Err(Unauthenticated::Algorithm(alg.to_owned()));
         }
         Ok(Pieces {
             client_id,
             signed,
             claim,
+            haip,
         })
     }
 
@@ -260,10 +265,11 @@ impl<'e> Envelope<'e> {
 }
 
 /// A signature's claim before its slots are counted.
-struct Pieces<'e> {
+struct Pieces<'e, H> {
     client_id: ClientId<'e>,
     signed: Signed<'e>,
     claim: Box<dyn PrefixClaim + 'e>,
+    haip: HaipAccess<H>,
 }
 
 /// The Origin's evaluation: may the Origin act as a credential Verifier over the DC API?
@@ -287,11 +293,11 @@ fn origin_evaluation(origin: &Origin<'_>) -> Evaluation {
     }
 }
 
-impl<'e> Pending<'e> {
+impl<'e, H: CoreHost> Pending<'e, H> {
     /// The evaluations for the caller, in order: the Origin's, or each claim's in the
     /// signatures' order.
     pub fn questions(&self) -> impl Iterator<Item = &Evaluation> {
-        let (origin, first, rest): (&[Evaluation], &[Evaluation], &[Claimed<'e>]) =
+        let (origin, first, rest): (&[Evaluation], &[Evaluation], &[Claimed<'e, H>]) =
             match &self.asked {
                 Asked::Origin(_, slots) => (slots.questions(), &[], &[]),
                 Asked::Nothing(_) => (&[], &[], &[]),
@@ -318,7 +324,7 @@ impl<'e> Pending<'e> {
         self,
         decide: impl FnMut(&Evaluation) -> Decision,
         config: &TrustConfig,
-        host: &(impl Has<dyn Haip> + Has<dyn Platform>),
+        host: &H,
     ) -> Result<Authenticated<'e>, Box<Rejected<'e>>> {
         let Self {
             envelope,
@@ -369,13 +375,14 @@ impl<'e> Pending<'e> {
                     now: host.get::<dyn Platform>().now(),
                 };
                 let mut decide = decide;
-                let mut checked = |claimed: Claimed<'e>| match claimed {
+                let mut checked = |claimed: Claimed<'e, H>| match claimed {
                     Claimed::Refused(cause) => Err(Failed::of(cause, envelope.route())),
                     Claimed::Read {
                         client_id,
                         signed,
                         claim,
                         slots,
+                        haip,
                     } => {
                         let filled = slots.fill(&mut decide);
                         check
@@ -384,7 +391,7 @@ impl<'e> Pending<'e> {
                                 claim.as_ref(),
                                 &signed,
                                 Decided::of(filled.replies()),
-                                host,
+                                haip(host),
                             )
                             .map(|(binding, endpoint)| {
                                 authenticated(
@@ -446,7 +453,7 @@ impl<'e> Check<'_, 'e> {
         claim: &dyn PrefixClaim,
         signed: &Signed<'_>,
         decided: Decided<'_>,
-        host: &impl Has<dyn Haip>,
+        haip: &dyn crate::host::Haip,
     ) -> Result<(ClientBinding, BoundEndpoint), Box<Failed<'e>>> {
         let unverified = || self.envelope.route();
         let binding = claim
@@ -482,8 +489,7 @@ impl<'e> Check<'_, 'e> {
             | BoundEndpoint::DcApi => unverified(),
         };
         let failed = |cause| Failed::of(cause, route.clone());
-        host.get::<dyn Haip>()
-            .verify(&binding.key, signed)
+        haip.verify(&binding.key, signed)
             .map_err(|_| failed(Unauthenticated::Signature))?;
         self.validity()
             .map_err(|cause| failed(Unauthenticated::Validity(cause)))?;

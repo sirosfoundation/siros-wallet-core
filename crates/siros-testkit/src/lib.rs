@@ -2,7 +2,7 @@
 //! the Verifier's side: a format whose credentials say which queries and options they answer
 //! ([`TestFormat`]), a profile that binds by first match over the types a credential supports, or
 //! every such entry ([`TestProfile`]), the doubles of the core's host modules ([`TestPlatform`],
-//! [`TestHaip`], [`TestRequestDecryption`], [`TestCoseEncrypt`]) with [`test_host!`], their JOSE
+//! [`TestHaip`], [`TestRequestDecryption`]) with [`test_host!`], their JOSE
 //! ([`jose`]) and the COSE_Encrypt stand-in ([`cose`]), the test Verifier's Client Identifier
 //! Prefix and a trust service double ([`prefix`]), the resources a test publishes for phase 2's
 //! fetches ([`Published`]), the issuer stand-in ([`issuer`]), the encoders of [`verifier`], the
@@ -77,7 +77,7 @@ impl Messages for CrateMessages {
 }
 
 pub use format::TestFormat;
-pub use host::{TestCoseEncrypt, TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
+pub use host::{TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
 pub use jose::TestRequestDecryption;
 pub use prefix::{Registration, TestPrefix, TestTrust};
 pub use profile::{Binds, Stale, TestProfile};

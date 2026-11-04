@@ -243,7 +243,7 @@ fn a_uri_request_binds_its_endpoint_as_the_prefix_says() {
         );
         let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
         let received = fetch
-            .resume(FetchAnswer::Body(&object), &host)
+            .resume(FetchAnswer::Body(&object), &registry, &host)
             .expect("received");
         let envelope = Envelope::parse(
             &received,

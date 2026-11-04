@@ -127,8 +127,6 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             txhash::HashesError::messages,
             #[cfg(feature = "resolve")]
-            host::NotRandomId::messages,
-            #[cfg(feature = "resolve")]
             host::NotSealed::messages,
             #[cfg(feature = "resolve")]
             host::SignFailed::messages,

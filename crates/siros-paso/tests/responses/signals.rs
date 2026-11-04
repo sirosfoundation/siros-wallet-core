@@ -378,6 +378,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let without = SealerlessHost {
             platform: siros_testkit::TestPlatform::at(at),
             paso: siros_paso::TestPaso::at(at),
+            random_ids: siros_paso::TestRandomIds::default(),
         };
         let registry = registry_of::<SealerlessHost>(format, PasoProfile::default());
         let outcome = answer(&request, &card, &registry, &Published::default(), &without);

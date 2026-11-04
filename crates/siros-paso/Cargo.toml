@@ -12,8 +12,9 @@ publish = false
 [features]
 default = ["resolve"]
 # Phase 2: revalidation of what the matcher assumed, its findings, and the SCA response members.
-resolve = ["siros-openid4vp/resolve"]
-# The `Paso` double for the tests of crates that register siros-paso.
+resolve = ["siros-openid4vp/resolve", "dep:uuid"]
+# The `Paso`, `RandomIds` and `CoseEncrypt` doubles for the tests of crates that register
+# siros-paso.
 test-util = ["resolve"]
 
 [dependencies]
@@ -26,6 +27,7 @@ siros-explain = { workspace = true }
 rustc-hash = { workspace = true }
 unicode-segmentation = { workspace = true }
 serde_json = { workspace = true }
+uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
 siros-paso = { path = ".", features = ["test-util"] }

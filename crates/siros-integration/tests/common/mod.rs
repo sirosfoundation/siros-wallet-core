@@ -7,18 +7,24 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
-use siros_openid4vp::host::{CoseEncrypt, Haip, Platform, RequestDecryption, Timestamp};
+use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::plugins::Registry;
-use siros_paso::{Paso, PasoProfile, TestPaso};
+use siros_paso::{
+    CoseEncrypt, Paso, PasoProfile, RandomIds, TestCoseEncrypt, TestPaso, TestRandomIds,
+};
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
-use siros_testkit::{TestCoseEncrypt, TestHaip, TestPlatform, TestRequestDecryption};
+use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 
 siros_testkit::test_host! {
     /// The HAIP build's host: every module, each a test double.
     #[derive(Debug, Clone, Default)]
     pub struct HaipHost {
-        handles { platform: TestPlatform => Platform, paso: TestPaso => Paso }
+        handles {
+            platform: TestPlatform => Platform,
+            paso: TestPaso => Paso,
+            random_ids: TestRandomIds => RandomIds
+        }
         zero_sized {
             TestHaip => Haip,
             TestRequestDecryption => RequestDecryption
@@ -34,6 +40,7 @@ impl HaipHost {
         Self {
             platform: TestPlatform::at(now),
             paso: TestPaso::at(now),
+            random_ids: TestRandomIds::default(),
         }
     }
 }

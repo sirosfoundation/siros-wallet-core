@@ -1,8 +1,7 @@
-//! The core's modules as deterministic doubles: the platform's clock, identifiers, credential
-//! checks and End-User authentication ([`TestPlatform`]); stand-ins for HAIP's keystore
-//! ([`TestHaip`]) and the `COSE_Encrypt` module ([`TestCoseEncrypt`]), whose ciphertexts keep
-//! their plaintext readable for the checks; and [`test_host!`](crate::test_host), which states
-//! the modules of a test's host.
+//! The core's modules as deterministic doubles: the platform's clock, credential checks and
+//! End-User authentication ([`TestPlatform`]); the stand-in for HAIP's keystore ([`TestHaip`]),
+//! whose ciphertexts keep their plaintext readable for the checks; and
+//! [`test_host!`](crate::test_host), which states the modules of a test's host.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -14,9 +13,8 @@ use sha2::{Digest, Sha256};
 use siros_explain::AllOf;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
-    Authentication, AuthenticationNeed, CoseEnc, CoseEncrypt, Factor, Haip, Knowledge, Platform,
-    Possession, RandomId, RequestDecryption, SealedCose, SealedJwe, SignFailed, Signature,
-    SignatureInvalid, Timestamp, Usable,
+    Authentication, AuthenticationNeed, Factor, Haip, Knowledge, Platform, Possession,
+    RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid, Timestamp, Usable,
 };
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::jose::{JwsAlgorithm, JwsAlgorithms};
@@ -27,12 +25,11 @@ use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, Curv
 use siros_openid4vp::wallet::Credential;
 
 use crate::FAULT;
-use crate::cose::cose_encrypt;
 use crate::jose::TestRequestDecryption;
 
 /// The platform double. `unusable` lists the credentials no longer valid; `authentication` is
-/// what authenticating the End-User gives, whatever the need. It counts the identifiers it
-/// issued and the End-User authentications it was asked for.
+/// what authenticating the End-User gives, whatever the need. It counts the End-User
+/// authentications it was asked for.
 #[derive(Debug, Clone)]
 pub struct TestPlatform {
     /// The clock.
@@ -41,7 +38,6 @@ pub struct TestPlatform {
     pub unusable: Vec<String>,
     /// The End-User's authentication; `None` when the user fails it.
     pub authentication: Option<Authentication>,
-    issued: Cell<u64>,
     authentications: Cell<u64>,
 }
 
@@ -71,22 +67,8 @@ impl TestPlatform {
             now,
             unusable: Vec::new(),
             authentication: Some(pin_and_device(now)),
-            issued: Cell::new(0),
             authentications: Cell::new(0),
         }
-    }
-
-    /// The platform once it has issued `count` identifiers: its next is the count after.
-    #[must_use]
-    pub fn after_issuing(self, count: u64) -> Self {
-        self.issued.set(count);
-        self
-    }
-
-    /// How many identifiers it issued.
-    #[must_use]
-    pub fn issued(&self) -> u64 {
-        self.issued.get()
     }
 
     /// How many times it was asked to authenticate the End-User.
@@ -119,21 +101,6 @@ impl Platform for TestPlatform {
     fn authenticate(&self, _need: AuthenticationNeed) -> Option<Authentication> {
         self.authentications.set(self.authentications.get() + 1);
         self.authentication.clone()
-    }
-
-    /// `00000000-0000-4000-8000-` and the count of identifiers issued in twelve decimal digits.
-    fn random_id(&self) -> RandomId {
-        let issued = self.issued.get() + 1;
-        self.issued.set(issued);
-        let digits: Vec<u8> = format!("{:012}", issued % 1_000_000_000_000)
-            .bytes()
-            .map(|digit| digit - b'0')
-            .collect();
-        let mut bytes = [0u8; 16];
-        for (byte, pair) in bytes.iter_mut().skip(10).zip(digits.chunks(2)) {
-            *byte = pair.iter().fold(0, |value, digit| (value << 4) | digit);
-        }
-        RandomId::from_bytes(bytes)
     }
 }
 
@@ -202,47 +169,28 @@ impl Haip for TestHaip {
     }
 }
 
-/// The `COSE_Encrypt` module's stand-in.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TestCoseEncrypt;
-
-impl CoseEncrypt for TestCoseEncrypt {
-    /// A tagged COSE_Encrypt whose ciphertext is the plaintext ([`cose_encrypt`]), under the
-    /// key's agreement, ECDH-ES for a key without one.
-    fn encrypt_cose(
-        &self,
-        key: &AgreeableKey<'_>,
-        enc: CoseEnc,
-        plaintext: &[u8],
-    ) -> Result<SealedCose, Fault> {
-        let alg = key.alg().unwrap_or(KeyAgreement::ECDH_ES);
-        SealedCose::parse(cose_encrypt(alg, enc, key.kid(), plaintext)?)
-            .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt stand-in"), e))
-    }
-}
-
 /// A test's host: a struct whose fields hold its handle modules, with `Has` for each module it
 /// holds and `MayHave` for each module a plug-in uses when the build holds it, after axum's
 /// `#[derive(FromRef)]`. `zero_sized` modules take no field: the host gives them as `&'static`.
 ///
 /// ```
-/// use siros_openid4vp::host::{CoseEncrypt, Haip, Host, Platform, RequestDecryption};
-/// use siros_testkit::{TestCoseEncrypt, TestHaip, TestPlatform, TestRequestDecryption};
+/// use siros_openid4vp::host::{Haip, Host, Platform, RequestDecryption};
+/// use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 ///
 /// siros_testkit::test_host! {
 ///     /// The host of a test.
 ///     #[derive(Default)]
 ///     pub struct Wallet {
 ///         handles { platform: TestPlatform => Platform }
-///         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
-///         optional { TestCoseEncrypt => CoseEncrypt }
+///         zero_sized { TestHaip => Haip }
+///         optional { TestRequestDecryption => RequestDecryption }
 ///         lacks {}
 ///     }
 /// }
 ///
 /// let host = Wallet::default();
 /// assert_eq!(host.get::<dyn Platform>().now(), host.platform.now);
-/// assert!(host.maybe::<dyn CoseEncrypt>().is_some());
+/// assert!(host.maybe::<dyn RequestDecryption>().is_some());
 /// ```
 #[macro_export]
 macro_rules! test_host {
@@ -292,13 +240,13 @@ macro_rules! test_host {
 }
 
 crate::test_host! {
-    /// The core's modules: the platform double, and HAIP's and the `COSE_Encrypt` module's
-    /// stand-ins.
+    /// The core's modules: the platform double, and the stand-ins of HAIP's keystore and of the
+    /// Request Object decryption.
     #[derive(Debug, Clone, Default)]
     pub struct TestHost {
         handles { platform: TestPlatform => Platform }
         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
-        optional { TestCoseEncrypt => CoseEncrypt }
+        optional {}
         lacks {}
     }
 }

@@ -97,10 +97,11 @@ fn a_fetch_that_fails_terminates_and_a_body_is_an_es256_jws() {
     let uri = link("test%3Averifier", "");
     // U9: terminating, no route.
     let host = TestHost::default();
-    let fetch = Fetch::of(&uri, &registry(), &host).expect("a fetch");
+    let registry = registry();
+    let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let failure = FetchFailure::Status(FailedStatus::new(404).expect("a status"));
     let rejected = fetch
-        .resume(FetchAnswer::Failed(failure), &host)
+        .resume(FetchAnswer::Failed(failure), &registry, &host)
         .expect_err("U9");
     assert!(
         matches!(rejected.failure(), Failure::Unreadable(Unreadable::Fetch(f)) if *f == failure)
@@ -200,7 +201,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     let object = request_object(&payload);
     let jwe = encrypt_to(&jwk, "A128GCM", true, object.as_bytes()).expect("encrypts");
     let received = fetch
-        .resume(FetchAnswer::Body(&jwe), &host)
+        .resume(FetchAnswer::Body(&jwe), &registry, &host)
         .expect("decrypts");
     assert_eq!(
         super::envelope(&received).parameters().text("nonce"),
@@ -211,7 +212,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     let jwe = encrypt_to(&other, "A128GCM", false, object.as_bytes()).expect("encrypts");
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let rejected = fetch
-        .resume(FetchAnswer::Body(&jwe), &host)
+        .resume(FetchAnswer::Body(&jwe), &registry, &host)
         .expect_err("U11");
     assert!(matches!(
         rejected.failure(),
@@ -226,7 +227,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     );
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let rejected = fetch
-        .resume(FetchAnswer::Body(&wrapped), &host)
+        .resume(FetchAnswer::Body(&wrapped), &registry, &host)
         .expect_err("U11");
     assert!(matches!(
         rejected.failure(),
@@ -254,7 +255,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     );
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let rejected = fetch
-        .resume(FetchAnswer::Body(&twice), &host)
+        .resume(FetchAnswer::Body(&twice), &registry, &host)
         .expect_err("U11");
     assert!(matches!(
         rejected.failure(),

@@ -10,8 +10,8 @@ mod common;
 use siros_explain::AllOf;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
-    Authentication, AuthenticationNeed, CoreHost, CoseEncrypt, Factor, Haip, Knowledge, Platform,
-    ProfileHost, RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid,
+    Authentication, AuthenticationNeed, CoreHost, Factor, Haip, Knowledge, Platform, ProfileHost,
+    RequestDecryption, SealedJwe, SignFailed, Signature, SignatureInvalid,
 };
 use siros_openid4vp::ids::{CredentialId, FormatId, TransactionType};
 use siros_openid4vp::jose::JwsAlgorithms;
@@ -29,8 +29,8 @@ use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::FAULT;
 use siros_testkit::{
-    Binds, Published, Stale, TestCoseEncrypt, TestFormat, TestHaip, TestHost, TestPlatform,
-    TestProfile, TestRequestDecryption,
+    Binds, Published, Stale, TestFormat, TestHaip, TestHost, TestPlatform, TestProfile,
+    TestRequestDecryption,
 };
 
 use common::{Held, entry, env, parameters, registry, request_of, test_queries, unsigned};
@@ -428,7 +428,7 @@ siros_testkit::test_host! {
     struct Failing {
         handles { platform: TestPlatform => Platform }
         zero_sized { FailingHaip => Haip, TestRequestDecryption => RequestDecryption }
-        optional { TestCoseEncrypt => CoseEncrypt }
+        optional {}
         lacks {}
     }
 }
@@ -439,7 +439,7 @@ siros_testkit::test_host! {
     struct Sealerless {
         handles { platform: TestPlatform => Platform }
         zero_sized { SealerlessHaip => Haip, TestRequestDecryption => RequestDecryption }
-        optional { TestCoseEncrypt => CoseEncrypt }
+        optional {}
         lacks {}
     }
 }

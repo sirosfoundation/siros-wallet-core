@@ -97,7 +97,8 @@ fn registry(profile: PasoProfile) -> Registry<PasoHost> {
 fn registry_of<H>(format: &str, profile: PasoProfile) -> Registry<H>
 where
     PasoProfile: HostedProfile<H>,
-    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>,
+    H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::RequestDecryption>,
 {
     let mut builder = Registry::<H>::builder();
     siros_testkit::fixtures::openid4vp(&mut builder);

@@ -4,7 +4,6 @@ use std::borrow::Cow;
 
 use serde_json::Value;
 use siros_openid4vp::cbor::Item;
-use siros_openid4vp::host::CoseEnc;
 use siros_openid4vp::plugins::{JsonText, Member, MemberValue};
 
 use super::OracleError;
@@ -83,8 +82,9 @@ fn sealed(stand_in: &str) -> Result<Item, OracleError> {
         .find(|known| known.as_str() == alg)
         .ok_or_else(|| missing("COSE_Encrypt alg"))?;
     let enc = text(protected, "enc")?;
-    let enc = [CoseEnc::A128Gcm, CoseEnc::A192Gcm, CoseEnc::A256Gcm]
-        .into_iter()
+    let enc = crate::cose::ENCRYPTIONS
+        .iter()
+        .map(|(known, _)| *known)
         .find(|known| known.as_str() == enc)
         .ok_or_else(|| missing("COSE_Encrypt enc"))?;
     let plaintext = bytes(text(field(sealed, "ciphertext")?, "bstr")?)?;

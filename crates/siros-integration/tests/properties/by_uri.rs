@@ -82,7 +82,7 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
         }
     };
     let received = fetch
-        .resume(FetchAnswer::Body(&body), &host)
+        .resume(FetchAnswer::Body(&body), &registry, &host)
         .expect("R-uri: the Request Object reads");
     let envelope = Envelope::parse(
         &received,

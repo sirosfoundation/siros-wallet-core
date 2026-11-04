@@ -13,11 +13,11 @@ use super::{Answered, Fault, FetchedRecord, Members};
 use super::{Binding, Bound, NoCandidate};
 use super::{Format, Member, Profile};
 #[cfg(feature = "resolve")]
-use crate::authenticate::ClientPrefix;
+use crate::authenticate::HostedPrefix;
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
-use crate::host::{Haip, Has};
+use crate::host::{Haip, Has, RequestDecryption};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
 #[cfg(feature = "resolve")]
 use crate::routing::ModeHost;
@@ -26,6 +26,8 @@ use crate::routing::{
 };
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
+#[cfg(feature = "resolve")]
+use crate::uri::{EncryptedRequests, RequestPost};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
@@ -68,6 +70,12 @@ pub enum RegistryError {
     /// Two response types of one name.
     #[error("the response type {0} is registered twice")]
     ResponseTypeTwice(#[explain(name = "response_type")] ResponseTypeName),
+    /// `RequestPost` or `EncryptedRequests` registered twice.
+    #[error("the request_uri POST is registered twice")]
+    PostTwice,
+    /// `EncryptedRequests` without `RequestPost`.
+    #[error("encrypted Request Objects are registered without the request_uri POST")]
+    DecryptionWithoutPost,
     /// A profile would write a member twice into one presentation: one of the format's own, or
     /// one it declares twice.
     #[error("the profile registered for {registration} writes {} twice in a {format} presentation", .members.items().join(", "))]
@@ -196,7 +204,9 @@ pub struct Registry<H = NoHost> {
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
     #[cfg(feature = "resolve")]
-    clients: Vec<Box<dyn ClientPrefix>>,
+    clients: Vec<RegisteredPrefix<H>>,
+    #[cfg(feature = "resolve")]
+    post: Option<Post<H>>,
 }
 
 impl<H> fmt::Debug for Registry<H> {
@@ -225,7 +235,9 @@ pub struct RegistryBuilder<H = NoHost> {
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
     #[cfg(feature = "resolve")]
-    clients: Vec<Box<dyn ClientPrefix>>,
+    clients: Vec<RegisteredPrefix<H>>,
+    #[cfg(feature = "resolve")]
+    posts: Vec<PostPart<H>>,
 }
 
 impl<H> Default for RegistryBuilder<H> {
@@ -239,6 +251,8 @@ impl<H> Default for RegistryBuilder<H> {
             prefixes: Vec::new(),
             #[cfg(feature = "resolve")]
             clients: Vec::new(),
+            #[cfg(feature = "resolve")]
+            posts: Vec::new(),
         }
     }
 }
@@ -260,6 +274,28 @@ impl<H> RegistryBuilder<H> {
 
     /// A response mode whose answers the core seals as JWEs (§8.3) through the host's `Haip`,
     /// keyed by its name and channel.
+    ///
+    /// A host without the module does not compile with it:
+    ///
+    /// ```compile_fail,E0277
+    /// use siros_openid4vp::host::Platform;
+    /// use siros_openid4vp::plugins::Registry;
+    /// use siros_testkit::TestPlatform;
+    ///
+    /// siros_testkit::test_host! {
+    ///     /// A host of the platform alone.
+    ///     #[derive(Default)]
+    ///     struct Bare {
+    ///         handles { platform: TestPlatform => Platform }
+    ///         zero_sized {}
+    ///         optional {}
+    ///         lacks {}
+    ///     }
+    /// }
+    ///
+    /// let mut builder = Registry::<Bare>::builder();
+    /// builder.jwe_mode(siros_openid4vp::modes::DcApiJwt);
+    /// ```
     #[cfg(feature = "resolve")]
     pub fn jwe_mode(&mut self, mode: impl HostedMode<H> + 'static)
     where
@@ -312,10 +348,83 @@ impl<H> RegistryBuilder<H> {
         self.prefixes.push((prefix, profile));
     }
 
-    /// Registers a Client Identifier Prefix plug-in; `build` refuses a prefix registered twice.
+    /// A Client Identifier Prefix (§5.9.3), keyed by its name; the core verifies its requests'
+    /// signatures through the host's `Haip`, whose accessor the registration keeps. `build`
+    /// refuses a name registered twice.
+    ///
+    /// A host without the module does not compile with it:
+    ///
+    /// ```compile_fail,E0277
+    /// use siros_openid4vp::host::Platform;
+    /// use siros_openid4vp::plugins::Registry;
+    /// use siros_testkit::TestPlatform;
+    ///
+    /// siros_testkit::test_host! {
+    ///     /// A host of the platform alone.
+    ///     #[derive(Default)]
+    ///     struct Bare {
+    ///         handles { platform: TestPlatform => Platform }
+    ///         zero_sized {}
+    ///         optional {}
+    ///         lacks {}
+    ///     }
+    /// }
+    ///
+    /// let mut builder = Registry::<Bare>::builder();
+    /// builder.client_prefix(siros_testkit::TestPrefix::Request);
+    /// ```
     #[cfg(feature = "resolve")]
-    pub fn client_prefix(&mut self, prefix: impl ClientPrefix + 'static) {
-        self.clients.push(Box::new(prefix));
+    pub fn client_prefix(&mut self, prefix: impl HostedPrefix<H> + 'static)
+    where
+        H: Has<dyn Haip>,
+    {
+        self.clients.push(RegisteredPrefix {
+            prefix: Box::new(prefix),
+            haip: |host| Has::<dyn Haip>::module(host),
+        });
+    }
+
+    /// The POST of `wallet_metadata` to the `request_uri` (§5.10): with it, a request whose
+    /// `request_uri_method` is `post` is fetched by POST; without it, by GET (§5.1: "Wallets not
+    /// supporting the post method will send a GET request"). `build` refuses it twice.
+    #[cfg(feature = "resolve")]
+    pub fn request_post(&mut self, post: RequestPost) {
+        self.posts.push(PostPart::Post(post));
+    }
+
+    /// Encrypted Request Objects (§5.10): each POST's `jwks` holds a fresh key from the host's
+    /// `RequestDecryption`, whose accessor the registration keeps, and a JWE Request Object
+    /// decrypts through it. `build` refuses it twice, and without [`Self::request_post`].
+    ///
+    /// A host without the module does not compile with it:
+    ///
+    /// ```compile_fail,E0277
+    /// use siros_openid4vp::host::Platform;
+    /// use siros_openid4vp::plugins::Registry;
+    /// use siros_testkit::TestPlatform;
+    ///
+    /// siros_testkit::test_host! {
+    ///     /// A host of the platform alone.
+    ///     #[derive(Default)]
+    ///     struct Bare {
+    ///         handles { platform: TestPlatform => Platform }
+    ///         zero_sized {}
+    ///         optional {}
+    ///         lacks {}
+    ///     }
+    /// }
+    ///
+    /// let mut builder = Registry::<Bare>::builder();
+    /// builder.request_encryption(siros_openid4vp::uri::EncryptedRequests);
+    /// ```
+    #[cfg(feature = "resolve")]
+    pub fn request_encryption(&mut self, requests: EncryptedRequests)
+    where
+        H: Has<dyn RequestDecryption>,
+    {
+        self.posts.push(PostPart::Encrypted(requests, |host| {
+            Has::<dyn RequestDecryption>::module(host)
+        }));
     }
 
     /// The registry. Refused when a response type is registered twice, a mode twice on one
@@ -332,6 +441,8 @@ impl<H> RegistryBuilder<H> {
             prefixes,
             #[cfg(feature = "resolve")]
             clients,
+            #[cfg(feature = "resolve")]
+            posts,
         } = self;
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
@@ -358,14 +469,17 @@ impl<H> RegistryBuilder<H> {
             }
         }
         #[cfg(feature = "resolve")]
-        if let Some(twice) = clients.iter().enumerate().find_map(|(k, prefix)| {
+        if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
+            let name = registered.prefix.name();
             clients
                 .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == prefix.name()))
-                .then(|| prefix.name().to_string())
+                .is_some_and(|before| before.iter().any(|other| other.prefix.name() == name))
+                .then(|| name.to_string())
         }) {
             return Err(RegistryError::PrefixTwice(twice));
         }
+        #[cfg(feature = "resolve")]
+        let post = Post::of(posts)?;
         for (k, format) in formats.iter().enumerate() {
             if formats
                 .get(..k)
@@ -429,6 +543,8 @@ impl<H> RegistryBuilder<H> {
             prefixes,
             #[cfg(feature = "resolve")]
             clients,
+            #[cfg(feature = "resolve")]
+            post,
         })
     }
 }
@@ -440,14 +556,45 @@ impl<H> Registry<H> {
         RegistryBuilder::default()
     }
 
-    /// The Client Identifier Prefix plug-in of a name.
+    /// Whether a Client Identifier Prefix of the name is registered.
     #[cfg(feature = "resolve")]
     #[must_use]
-    pub fn client_prefix(&self, name: &str) -> Option<&dyn ClientPrefix> {
+    pub fn names_prefix(&self, name: &str) -> bool {
+        self.client_prefix(name).is_some()
+    }
+
+    /// The Client Identifier Prefix of a name, with the accessor of the `Haip` its registration
+    /// bounded.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn client_prefix(
+        &self,
+        name: &str,
+    ) -> Option<(&dyn HostedPrefix<H>, HaipAccess<H>)> {
         self.clients
             .iter()
-            .find(|prefix| prefix.name().as_str() == name)
-            .map(AsRef::as_ref)
+            .find(|registered| registered.prefix.name().as_str() == name)
+            .map(|registered| (registered.prefix.as_ref(), registered.haip))
+    }
+
+    /// The statement of the `Haip` the first registered JWE mode by URI bounded, which writes the
+    /// POST's encryption members until the modes write their own.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn uri_sealer(&self, host: &H) -> Option<crate::request::Agreements> {
+        self.modes
+            .iter()
+            .find_map(|registered| match registered.role {
+                Role::Jwe(access) if registered.mode.channel() == ChannelKind::Uri => {
+                    Some(access(host).agreements())
+                }
+                Role::Clear | Role::Jwe(_) | Role::Errors => None,
+            })
+    }
+
+    /// The registered POST of `wallet_metadata`, with the decrypting module's accessor when
+    /// encrypted Request Objects are registered.
+    #[cfg(feature = "resolve")]
+    pub(crate) const fn post(&self) -> Option<&Post<H>> {
+        self.post.as_ref()
     }
 
     /// The formats, in registration order.
@@ -534,7 +681,81 @@ impl<H> Registry<H> {
             exact: self.exact.clone(),
             prefixes: self.prefixes.clone(),
             clients: self.clients.clone(),
+            post: self.post.clone(),
         })
+    }
+}
+
+/// A registered prefix, with the accessor of the host's `Haip` its registration bounded.
+#[cfg(feature = "resolve")]
+pub(crate) struct RegisteredPrefix<H> {
+    prefix: Box<dyn HostedPrefix<H>>,
+    haip: HaipAccess<H>,
+}
+
+#[cfg(feature = "resolve")]
+impl<H> Clone for RegisteredPrefix<H> {
+    fn clone(&self) -> Self {
+        Self {
+            prefix: self.prefix.clone(),
+            haip: self.haip,
+        }
+    }
+}
+
+/// The host's `RequestDecryption`, as the registration of encrypted Request Objects keeps it.
+#[cfg(feature = "resolve")]
+pub(crate) type DecryptionAccess<H> = fn(&H) -> &dyn RequestDecryption;
+
+/// A part of the `request_uri` POST as registered.
+#[cfg(feature = "resolve")]
+enum PostPart<H> {
+    Post(RequestPost),
+    Encrypted(EncryptedRequests, DecryptionAccess<H>),
+}
+
+/// The registered POST of `wallet_metadata`, and the decrypting module's accessor when encrypted
+/// Request Objects are registered.
+#[cfg(feature = "resolve")]
+pub(crate) struct Post<H> {
+    pub(crate) decryption: Option<DecryptionAccess<H>>,
+}
+
+#[cfg(feature = "resolve")]
+impl<H> Clone for Post<H> {
+    fn clone(&self) -> Self {
+        Self {
+            decryption: self.decryption,
+        }
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H> Post<H> {
+    /// The POST the parts make: none without parts; refused when a part is given twice, or
+    /// encrypted Request Objects without the POST.
+    fn of(parts: Vec<PostPart<H>>) -> Result<Option<Self>, RegistryError> {
+        let mut post = None;
+        let mut decryption = None;
+        for part in parts {
+            match part {
+                PostPart::Post(RequestPost) => {
+                    if post.replace(()).is_some() {
+                        return Err(RegistryError::PostTwice);
+                    }
+                }
+                PostPart::Encrypted(EncryptedRequests, access) => {
+                    if decryption.replace(access).is_some() {
+                        return Err(RegistryError::PostTwice);
+                    }
+                }
+            }
+        }
+        match (post, decryption) {
+            (None, None) => Ok(None),
+            (None, Some(_)) => Err(RegistryError::DecryptionWithoutPost),
+            (Some(()), decryption) => Ok(Some(Self { decryption })),
+        }
     }
 }
 
