@@ -283,6 +283,16 @@ impl World {
         if let Some(content_type) = &http_out.reply.content_type {
             headers.push(("content-type".to_owned(), content_type.clone()));
         }
+        // The scripted response headers — e.g. the `DPoP-Nonce` of a
+        // use_dpop_nonce demand (RFC 9449 §8): the engine captures
+        // them for the retried proof.
+        if let Some(scripted) = &http_out.reply.headers {
+            for (name, value) in scripted {
+                if let Some(text) = value.as_str() {
+                    headers.push((name.clone(), text.to_owned()));
+                }
+            }
+        }
         Ok(engine_ports::HttpResponse {
             status: http_out.reply.status as u16,
             headers,
@@ -460,6 +470,34 @@ impl ScriptedHost {
 
 #[async_trait::async_trait]
 impl engine_ports::Host for ScriptedHost {
+    /// The signing-key ask: the vector's `signing_key` step answers
+    /// with the public JWK; no scripted step is the best-effort
+    /// refusal (the engine falls back to the bare proof header).
+    async fn request_signing_key(
+        &self,
+        params: engine_ports::SigningKeyParams,
+    ) -> Result<engine_ports::SigningKeyResult, engine_ports::HostError> {
+        let ask = serde_json::to_value(&params).unwrap_or(Value::Null);
+        match self.world.host_ask("signing_key", ask) {
+            Ok(value) => {
+                // The refusal shape: no jwk, or a Null answer.
+                let jwk = value.get("jwk").cloned().unwrap_or(Value::Null);
+                if jwk.is_null() {
+                    return Err(engine_ports::HostError::Cannot(
+                        "the scripted host exposes no signing key".to_owned(),
+                    ));
+                }
+                Ok(engine_ports::SigningKeyResult { jwk })
+            }
+            Err(reason) => {
+                self.world.fail(reason);
+                Err(engine_ports::HostError::Cannot(
+                    "the scripted host refused".to_owned(),
+                ))
+            }
+        }
+    }
+
     async fn request_sign(
         &self,
         params: engine_ports::SignParams,

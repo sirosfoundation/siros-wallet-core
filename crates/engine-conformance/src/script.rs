@@ -137,6 +137,10 @@ pub struct HttpReply {
     /// The content type, as a response header.
     #[serde(default)]
     pub content_type: Option<String>,
+    /// The response headers the world answers with — e.g. the
+    /// `DPoP-Nonce` header of a use_dpop_nonce demand (RFC 9449 §8).
+    #[serde(default)]
+    pub headers: Option<serde_json::Map<String, serde_json::Value>>,
     /// The body: a string is raw bytes, anything else is JSON.
     #[serde(default)]
     pub body: Option<serde_json::Value>,
