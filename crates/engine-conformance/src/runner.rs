@@ -46,6 +46,10 @@ pub struct Report {
 impl Report {
     /// Records one verdict.
     pub fn record(&mut self, id: &str, provenance: &str, verdict: Verdict) {
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the report lists provenances in order"
+        )]
         let mut counts: std::collections::BTreeMap<String, usize> =
             self.by_provenance.iter().cloned().collect();
         *counts.entry(provenance.to_owned()).or_insert(0) += 1;

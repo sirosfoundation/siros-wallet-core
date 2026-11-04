@@ -1,0 +1,22 @@
+{
+  "type": "https://cloudsignatureconsortium.org/2025/qes-approval",
+  "credential_ids": [
+    "xyz123"
+  ],
+  "numSignatures": 2,
+  "signatureQualifier": "eu_eidas_qes",
+  "documentInfos": [
+    {
+      "label": "Example Terms of Service",
+      "hash": "sTOgwOm+474gFj0q0x1iSNspKqbcse4IeiqlDg/HWuI=",
+      "hashType": "dtbsr",
+      "access": {
+        "type": "OTP",
+        "oneTimePassword": "51623"
+      },
+      "href": "https://protected.rp.example/contract-01.pdf?token=HS9naJKWwp901hBcK348IUHiuH8374",
+      "checksum": "sha256-sTOgwOm+474gFj0q0x1iSNspKqbcse4IeiqlDg/HWuI="
+    }
+  ],
+  "hashAlgorithmOID": "2.16.840.1.101.3.4.2.1"
+}

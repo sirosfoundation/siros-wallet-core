@@ -18,7 +18,7 @@ pub struct WellKnownConfig {
     /// The protocol versions the endpoint speaks.
     pub supported_versions: Vec<String>,
     /// The endpoints, keyed by name.
-    pub endpoints: std::collections::BTreeMap<String, String>,
+    pub endpoints: crate::types::OrderedMap<String, String>,
     /// The capabilities the endpoint offers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<serde_json::Value>,

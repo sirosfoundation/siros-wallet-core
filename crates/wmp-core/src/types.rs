@@ -2,8 +2,6 @@
 //! assertions, relay entries, delegates, the session security mode, and the
 //! capabilities map with its parameter types.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -200,7 +198,14 @@ pub struct SecurityMode {
 /// The map is ordered so the serialized form is deterministic, mirroring
 /// go-wmp, whose JSON encoder sorts map keys.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Capabilities(pub BTreeMap<String, Box<RawValue>>);
+pub struct Capabilities(pub OrderedMap<String, Box<RawValue>>);
+
+/// A map that serializes its keys in order, as go-wmp's JSON encoder sorts map keys.
+#[expect(
+    clippy::disallowed_types,
+    reason = "go-wmp's JSON encoder sorts map keys: the serialized order is the key order"
+)]
+pub(crate) type OrderedMap<K, V> = std::collections::BTreeMap<K, V>;
 
 impl PartialEq for Capabilities {
     fn eq(&self, other: &Self) -> bool {

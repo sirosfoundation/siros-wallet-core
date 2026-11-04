@@ -276,7 +276,7 @@ impl SessionService {
         let id = self.new_session_id()?;
         let token = self.new_resumption_token()?;
         let expires = now + ttl;
-        let mut meta = std::collections::BTreeMap::new();
+        let mut meta = crate::types::OrderedMap::new();
         meta.insert(METADATA_KEY_VERSION.to_owned(), selected.to_owned());
         if !p.wmp.sender.is_empty() {
             meta.insert(METADATA_KEY_SENDER.to_owned(), p.wmp.sender.clone());
@@ -585,7 +585,7 @@ impl SessionService {
     }
 
     fn negotiate_capabilities(&self, offered: Option<&Capabilities>) -> Capabilities {
-        static EMPTY: Capabilities = Capabilities(std::collections::BTreeMap::new());
+        static EMPTY: Capabilities = Capabilities(crate::types::OrderedMap::new());
         let offered = offered.unwrap_or(&EMPTY);
         if let Some(custom) = &self.cfg.capabilities {
             return custom(offered);

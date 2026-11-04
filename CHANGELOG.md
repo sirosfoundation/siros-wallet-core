@@ -23,8 +23,18 @@ released version yet.
   `docs/engine-spec.md`. The spike is gated on the PR 163 rework landing on
   go-wallet-backend `main`.
 
+- The presentation core: `siros-openid4vp`,
+  `siros-x509`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
+  `siros-explain-derive`, `siros-i18n` and `siros-cldr`, from the design's
+  reference implementation. Each is edition 2024 and unpublished.
+
 ### Changed
 
+- `clippy.toml` disallows `BTreeMap` and `BTreeSet`, and `split_off` and
+  `split_at` on vectors, strings, slices and `str`. `wmp-core` and
+  `engine-conformance` keep their ordered maps under `#[expect]`.
+- `scripts/check_panic_sites.py` reads a `const` item's initialiser and an
+  inline `const` block as build-time code.
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
   1.89, then each crate with and without its default features. The workspace
   resolves with resolver 3. Both container images build on Rust 1.99.1, the

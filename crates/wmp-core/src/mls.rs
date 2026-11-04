@@ -6,8 +6,6 @@
 //! MLS cryptographic operations are delegated to an [`MlsProvider`]
 //! implementation backed by an MLS library.
 
-use std::collections::BTreeMap;
-
 use rustc_hash::FxHashMap;
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +18,7 @@ use crate::error::{
 };
 use crate::handler::HandlerError;
 use crate::profile::{DispatchResult, Profile};
-use crate::types::Metadata;
+use crate::types::{Metadata, OrderedMap};
 
 // --- Method names ---
 
@@ -70,7 +68,7 @@ pub struct GroupCreateParams {
     /// The group's GroupInfo.
     pub group_info: String,
     /// The Welcome messages, base64url-encoded, keyed by participant.
-    pub welcomes: BTreeMap<String, String>,
+    pub welcomes: OrderedMap<String, String>,
 }
 
 /// The result of [`METHOD_GROUP_CREATE`].
@@ -278,7 +276,7 @@ pub trait MlsProvider: Send + Sync {
         &self,
         cipher_suite: i64,
         participants: &[String],
-    ) -> Result<(String, BTreeMap<String, String>), HandlerError>;
+    ) -> Result<(String, OrderedMap<String, String>), HandlerError>;
 
     /// Processes an incoming Welcome, joining the group.
     fn process_welcome(&self, welcome: &str) -> Result<(String, i64), HandlerError>;
@@ -599,9 +597,9 @@ impl MlsProvider for NoopMlsProvider {
         &self,
         _cipher_suite: i64,
         participants: &[String],
-    ) -> Result<(String, BTreeMap<String, String>), HandlerError> {
+    ) -> Result<(String, OrderedMap<String, String>), HandlerError> {
         // Empty group info and empty welcomes, as in go-wmp.
-        let welcomes: BTreeMap<String, String> = participants
+        let welcomes: OrderedMap<String, String> = participants
             .iter()
             .map(|p| (p.clone(), String::new()))
             .collect();

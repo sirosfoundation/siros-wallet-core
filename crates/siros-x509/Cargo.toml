@@ -1,0 +1,33 @@
+[package]
+name = "siros-x509"
+version = "0.1.0"
+description = "The x509_hash and x509_san_dns Client Identifier Prefixes of the SIROS wallet core: OpenID4VP 1.0 §5.9.3"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+# Certificates and chains generated for the tests of crates that register the prefixes.
+test-util = ["dep:p256"]
+
+[dependencies]
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+x509-cert = { workspace = true }
+der = { workspace = true }
+spki = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"], optional = true }
+
+[dev-dependencies]
+siros-x509 = { path = ".", features = ["test-util"] }
+siros-testkit = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

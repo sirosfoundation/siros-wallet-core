@@ -1,0 +1,323 @@
+//! The consent display both renderers draw: each entry's record, box and header, the sets of
+//! slots of choices, and the selection read back from the ids Credential Manager returns.
+
+use rustc_hash::FxHashMap;
+use siros_explain::Explain;
+
+use super::{Match, OfferSet, Offered, Pick, Record};
+use crate::boxes::{EntryBox, Header, StandardBox};
+use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
+use crate::request::Item;
+use crate::rows::{Env, Label, WalletText};
+use crate::{FAULT, detail};
+
+/// The header of a request without a transaction: the wallet's own.
+#[must_use]
+pub fn wallet_header(env: &Env) -> Header {
+    let locale = env.first();
+    Header {
+        title: Label::text(locale.text(WalletText::RequestTitle)),
+        confirm: Label::text(locale.text(WalletText::Share)),
+        cancel: Label::text(locale.text(WalletText::Deny)),
+    }
+}
+
+/// The option's items in every option the candidate answers, then those this option adds.
+#[must_use]
+pub fn option_items(
+    options: &[OptionItems],
+    answerable: &[OptionIndex],
+    option: OptionIndex,
+) -> (Vec<Item>, Vec<Item>) {
+    let items = options.get(option.0).map_or(&[][..], OptionItems::items);
+    let in_all = |item: &Item| {
+        answerable.iter().all(|o| {
+            options
+                .get(o.0)
+                .is_some_and(|other| other.items().contains(item))
+        })
+    };
+    let everyone: Vec<Item> = items.iter().copied().filter(in_all).collect();
+    let chosen = items
+        .iter()
+        .copied()
+        .filter(|item| !everyone.contains(item))
+        .collect();
+    (everyone, chosen)
+}
+
+/// One consent entry: its pick, its record, its box, and its transaction's header.
+#[derive(Debug, Clone)]
+pub struct EntryView<'m> {
+    /// The pick.
+    pub pick: Pick,
+    /// The record.
+    pub record: Record<'m>,
+    /// The box: the profile's overlay over the format's card, or the card alone.
+    pub entry_box: EntryBox,
+    /// The transaction's header.
+    pub header: Option<&'m Header>,
+}
+
+/// Every consent entry: one per query, candidate and answerable option.
+#[derive(Debug, Clone)]
+pub struct Views<'m> {
+    views: Vec<EntryView<'m>>,
+    by_pick: FxHashMap<Pick, usize>,
+}
+
+impl<'m> Views<'m> {
+    /// Every (query, candidate, answerable option): its record, and the box and header of the
+    /// transaction it authorizes.
+    pub fn of(matched: &'m Match<'m>, env: &Env) -> Result<Self, Fault> {
+        let accepted = matched.accepted();
+        let request = accepted.request();
+        let digest = request.digest();
+        let mut views = Vec::new();
+        for (index, query) in request.indexed_queries() {
+            let Some(formatted) = accepted
+                .plan(index)
+                .and_then(|plan| plan.formatted.as_ref())
+            else {
+                continue;
+            };
+            let options = formatted.query.options();
+            for (k, candidate) in matched.candidates(index).iter().enumerate() {
+                let bound = candidate.bound.as_ref();
+                for option in &candidate.options {
+                    let (everyone, chosen) = option_items(options, &candidate.options, *option);
+                    let entries = bound.map_or(&[][..], |bound| bound.entries.entries());
+                    let record = Record::new(
+                        &query.id,
+                        &candidate.credential.id,
+                        *option,
+                        entries,
+                        bound.map(|b| &b.attested),
+                        digest,
+                    );
+                    let card = formatted.query.draw(
+                        candidate.credential,
+                        Shown {
+                            everyone: &everyone,
+                            chosen: &chosen,
+                        },
+                        env,
+                    )?;
+                    views.push(EntryView {
+                        pick: Pick {
+                            query: index,
+                            candidate: super::CandidateIndex(k),
+                            option: *option,
+                        },
+                        record,
+                        entry_box: EntryBox::compose(card, bound.map(|bound| &bound.overlay)),
+                        header: bound.map(|bound| &bound.header),
+                    });
+                }
+            }
+        }
+        let by_pick = views
+            .iter()
+            .enumerate()
+            .map(|(k, view)| (view.pick, k))
+            .collect();
+        Ok(Self { views, by_pick })
+    }
+
+    /// The entry of a pick.
+    #[must_use]
+    pub fn get(&self, pick: Pick) -> Option<&EntryView<'m>> {
+        self.by_pick.get(&pick).and_then(|k| self.views.get(*k))
+    }
+
+    /// The entry whose record has this id.
+    #[must_use]
+    pub fn by_id(&self, id: &str) -> Option<&EntryView<'m>> {
+        self.views
+            .iter()
+            .find(|view| view.record.id().as_str() == id)
+    }
+
+    /// Every entry, by query, candidate and option.
+    pub fn iter(&self) -> impl Iterator<Item = &EntryView<'m>> {
+        self.views.iter()
+    }
+}
+
+/// A box the wallet adds to every set, one per slot, first in every set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticBox {
+    /// Its id in Credential Manager.
+    pub id: String,
+    /// The box.
+    pub content: StandardBox,
+}
+
+/// One choice of a slot.
+#[derive(Debug, Clone, Copy)]
+pub enum Choice<'v> {
+    /// A static box.
+    Static(&'v StaticBox),
+    /// The empty choice, "none".
+    Nothing,
+    /// A consent entry.
+    Entry(&'v EntryView<'v>),
+}
+
+impl Choice<'_> {
+    /// The choice's id in Credential Manager.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Static(content) => &content.id,
+            Self::Nothing => "none",
+            Self::Entry(view) => view.record.id().as_str(),
+        }
+    }
+}
+
+/// The consent display: sets of slots of choices. Each set opens with one slot per static box,
+/// then holds the slots of the offer.
+#[derive(Debug, Clone)]
+pub struct Display<'v> {
+    sets: Vec<Vec<Vec<Choice<'v>>>>,
+}
+
+/// The display of an offer, with the wallet's static boxes.
+pub fn display<'v>(
+    sets: &[OfferSet],
+    views: &'v Views<'v>,
+    statics: &'v [StaticBox],
+) -> Result<Display<'v>, Fault> {
+    let head = || statics.iter().map(|content| vec![Choice::Static(content)]);
+    let sets = sets
+        .iter()
+        .map(|set| {
+            let slots = set
+                .iter()
+                .map(|slot| {
+                    slot.iter()
+                        .map(|offered| match offered {
+                            Offered::Nothing => Ok(Choice::Nothing),
+                            Offered::Pick(pick) => {
+                                views.get(*pick).map(Choice::Entry).ok_or_else(|| {
+                                    Fault::new(FAULT, detail!("{pick:?} has no view", pick = *pick))
+                                })
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(head().chain(slots).collect())
+        })
+        .collect::<Result<Vec<_>, Fault>>()?;
+    Ok(Display { sets })
+}
+
+/// A selection that is not one of the display's.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.selection")]
+pub enum SelectionError {
+    /// No set at that index.
+    #[error("set {set} of {sets}")]
+    NoSet {
+        /// The index.
+        set: usize,
+        /// The number of sets.
+        sets: usize,
+    },
+    /// Not one id per slot.
+    #[error("set {set}: {ids} ids for {slots} slots")]
+    Length {
+        /// The set.
+        set: usize,
+        /// The ids returned.
+        ids: usize,
+        /// The slots.
+        slots: usize,
+    },
+    /// An id that is not exactly one of its slot's choices.
+    #[error("set {set} slot {slot}: {id} is not one of its entries")]
+    NotAChoice {
+        /// The set.
+        set: usize,
+        /// The slot.
+        slot: usize,
+        /// The id.
+        id: String,
+    },
+    /// Two chosen entries carry transactions.
+    #[error("two chosen entries carry transactions; one confirmation carries one")]
+    TwoTransactions,
+}
+
+impl<'v> Display<'v> {
+    /// The sets.
+    #[must_use]
+    pub fn sets(&self) -> &[Vec<Vec<Choice<'v>>>] {
+        &self.sets
+    }
+
+    /// The selection Credential Manager returned: the set's index and the chosen entry's id per
+    /// slot. An id that is not one of its slot's choices is refused.
+    pub fn select(&self, set: usize, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
+        let slots = self.sets.get(set).ok_or(SelectionError::NoSet {
+            set,
+            sets: self.sets.len(),
+        })?;
+        if ids.len() != slots.len() {
+            return Err(SelectionError::Length {
+                set,
+                ids: ids.len(),
+                slots: slots.len(),
+            });
+        }
+        let mut chosen = Vec::new();
+        for (slot, (choices, id)) in slots.iter().zip(ids).enumerate() {
+            let hits: Vec<&Choice<'v>> =
+                choices.iter().filter(|choice| choice.id() == *id).collect();
+            match hits.as_slice() {
+                [Choice::Entry(view)] => chosen.push(*view),
+                [_] => {}
+                _ => {
+                    return Err(SelectionError::NotAChoice {
+                        set,
+                        slot,
+                        id: (*id).to_owned(),
+                    });
+                }
+            }
+        }
+        if chosen.iter().filter(|view| view.header.is_some()).count() > 1 {
+            return Err(SelectionError::TwoTransactions);
+        }
+        Ok(Selection { chosen })
+    }
+}
+
+/// The entries a selection presents, at most one carrying a transaction.
+#[derive(Debug, Clone)]
+pub struct Selection<'v> {
+    chosen: Vec<&'v EntryView<'v>>,
+}
+
+impl<'v> Selection<'v> {
+    /// The ids of the records the selection presents, in slot order.
+    #[must_use]
+    pub fn ids(&self) -> Vec<&'v str> {
+        self.chosen
+            .iter()
+            .map(|view| view.record.id().as_str())
+            .collect()
+    }
+
+    /// The header for the selection: the transaction's, else the wallet's own.
+    #[must_use]
+    pub fn header(&self, env: &Env) -> Header {
+        self.chosen
+            .iter()
+            .find_map(|view| view.header)
+            .cloned()
+            .unwrap_or_else(|| wallet_header(env))
+    }
+}

@@ -1,0 +1,61 @@
+[package]
+name = "siros-openid4vp"
+version = "0.1.0"
+description = "OpenID4VP 1.0 for the SIROS wallet core: DCQL, transaction data, the plug-in contract, matching and consent, and the response"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["match", "resolve"]
+# Phase 1: request rules, matching, consent, display, records.
+match = []
+# Phase 2: the response. It derives the records with the matcher's code.
+resolve = [
+    "match",
+    "dep:sha3",
+    "dep:blake2",
+    "dep:k12",
+    "dep:uuid",
+    "dep:ciborium",
+    "dep:coset",
+    "dep:p256",
+    "dep:serde_urlencoded",
+    "fluent-uri/net",
+]
+# A plug-in's tests: a record made from given parts, and its revalidation as phase 2 runs it.
+test-util = ["resolve"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true, optional = true }
+blake2 = { workspace = true, optional = true }
+k12 = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+ciborium = { workspace = true, optional = true }
+coset = { workspace = true, optional = true }
+p256 = { workspace = true, optional = true }
+serde_urlencoded = { workspace = true, optional = true }
+thiserror = { workspace = true }
+siros-explain = { workspace = true }
+rustc-hash = { workspace = true }
+dyn-clone = { workspace = true }
+idna = { workspace = true }
+fluent-uri = { workspace = true }
+unicode-general-category = { workspace = true }
+
+[dev-dependencies]
+siros-testkit = { workspace = true }
+k12 = { workspace = true }
+ciborium = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+
+[lints]
+workspace = true

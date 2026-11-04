@@ -1,12 +1,11 @@
 //! The session state, the store that persists it, and the in-memory store.
 
-use std::collections::BTreeMap;
 use std::sync::RwLock;
 
 use rustc_hash::FxHashMap;
 
 use crate::token::tokens_equal;
-use crate::types::{Capabilities, SecurityMode};
+use crate::types::{Capabilities, OrderedMap, SecurityMode};
 
 /// Why a store operation failed — the analogue of go-wmp's sentinel errors,
 /// distinct from the numeric JSON-RPC codes.
@@ -50,7 +49,7 @@ pub struct Session {
     /// The session security configuration.
     pub security: SecurityMode,
     /// Free-form session metadata.
-    pub metadata: BTreeMap<String, String>,
+    pub metadata: OrderedMap<String, String>,
     /// The session's current single-use resumption token.
     pub resumption_token: String,
     /// When the session was created, unix seconds.

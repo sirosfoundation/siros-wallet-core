@@ -1,6 +1,16 @@
 [workspace]
 resolver = "3"
 members = [
+    # The presentation core.
+    "crates/siros-openid4vp",
+    "crates/siros-x509",
+    "crates/siros-paso",
+    "crates/siros-qes",
+    "crates/siros-testkit",
+    "crates/siros-explain",
+    "crates/siros-explain-derive",
+    "crates/siros-i18n",
+    "crates/siros-cldr",
     # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
     "crates/siros-codec",
     "crates/siros-credential",
@@ -48,9 +58,10 @@ siros-wallet-state = { path = "crates/siros-wallet-state" }
 siros-zkp-req = { path = "crates/siros-zkp-req" }
 siros-zkp-catalogues = { path = "crates/siros-zkp-catalogues", default-features = false }
 
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-ciborium = "0.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+# CBOR's data model and codec (RFC 8949).
+ciborium = "0.2.2"
 # Hash sets and maps for every crate that links into an embedded or wasm
 # artifact. std's default hasher seeds itself from a platform `random_get`,
 # which embedded hosts may not provide; FxHash needs no seed.
@@ -59,7 +70,74 @@ rustc-hash = "2.1.3"
 # from a `random_get` the embedded hosts lack.
 itertools = "0.12.1"
 # Every error type derives `Display` and `Error` with it.
-thiserror = "2"
+thiserror = "2.0.21"
+
+# The presentation core's crates and libraries.
+# Each member names the core's features it needs: a plug-in forwards its own `resolve` to the
+# core's.
+siros-openid4vp = { path = "crates/siros-openid4vp", default-features = false }
+siros-testkit = { path = "crates/siros-testkit" }
+siros-explain = { path = "crates/siros-explain" }
+siros-explain-derive = { path = "crates/siros-explain-derive" }
+siros-i18n = { path = "crates/siros-i18n", default-features = false }
+base64 = "0.23.1"
+sha2 = "0.11.1"
+sha3 = "0.12.0"
+blake2 = "0.11.0"
+k12 = { version = "0.5.1", default-features = false }
+# The platform module supplies the random bytes.
+uuid = { version = "1.29.0", default-features = false }
+# The Verifier stand-in signs with an HMAC.
+hmac = "0.13.0"
+# An informed registry clones the formats it holds as trait objects.
+dyn-clone = "1.0.20"
+# UTS #46 for the A-label form of an internationalised URL host.
+idna = "1.1.0"
+# RFC 3986 and RFC 3987: URIs and IRIs.
+fluent-uri = "0.4.1"
+# application/x-www-form-urlencoded: the Authorization Request URI's query, the form bodies.
+serde_urlencoded = "=0.7.1"
+# CommonMark's whitespace and punctuation are Unicode general categories.
+unicode-general-category = "1.1.0"
+# RFC 9162's Merkle tree hashes and audit paths over an in-order node array.
+ct-merkle = "0.3.0"
+# UAX #15: MessageFormat 2 compares names and variant keys in NFC.
+unicode-normalization = { version = "0.1.26", default-features = false }
+# UAX #29 for the extended grapheme clusters PaSO counts label lengths in.
+# siros-transaction-data's grapheme oracle pins 1.12 until the crate leaves.
+unicode-segmentation = "1.12.0"
+# P-256's checked points and scalars: the keys a Request Object verifies under and the wallet's
+# ephemeral key for an encrypted Request Object.
+p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic"] }
+# Test-only: the doubles' AES-GCM (RFC 7518 §5.3) and DEFLATE (RFC 1951) for JWE.
+aes-gcm = "0.11.1"
+miniz_oxide = "0.8.9"
+# X.509 certificates (RFC 5280) in DER, and SubjectPublicKeyInfo (RFC 5480).
+x509-cert = { version = "=0.3.0", default-features = false, features = ["std"] }
+der = { version = "=0.8.3", features = ["oid"] }
+spki = "=0.8.1"
+# COSE (RFC 9052, RFC 9053) and IANA's COSE registries.
+coset = "0.4.2"
+# Test-only: ICU4X 2.4 and its compiled CLDR 49.0.0 data, siros-i18n's oracle (I35, I36).
+icu_plurals = { version = "=2.4.0", features = ["compiled_data"] }
+icu_decimal = { version = "=2.4.0", features = ["compiled_data"] }
+icu_list = { version = "=2.4.0", features = ["compiled_data"] }
+icu_datetime = { version = "=2.4.0", features = ["compiled_data"] }
+icu_calendar = { version = "=2.4.0", features = ["compiled_data"] }
+icu_time = { version = "=2.4.0", features = ["compiled_data"] }
+icu_locale_core = "=2.4.0"
+icu_experimental = { version = "=0.7.0", features = ["compiled_data"] }
+fixed_decimal = "=0.7.3"
+writeable = "0.6.3"
+# Test-only: a seeded generator.
+rand = "0.9.2"
+rand_chacha = "0.9.0"
+# siros-explain's build script remaps its ISO 4217 table; the pin fixes the table.
+iso_currency = { version = "=0.7.1", features = ["iterator"] }
+# siros-explain-derive's parser and code generation.
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.9", features = ["full"] }
 
 # clippy.toml names the std methods that panic on an argument. The tests may
 # call them; each crate root denies them outside its tests.
@@ -94,4 +172,18 @@ opt-level = 3
 [profile.dev.package.ecdsa]
 opt-level = 3
 [profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.sha3]
+opt-level = 3
+[profile.dev.package.keccak]
+opt-level = 3
+[profile.dev.package.k12]
+opt-level = 3
+[profile.dev.package.primefield]
+opt-level = 3
+[profile.dev.package.aes]
+opt-level = 3
+[profile.dev.package.aes-gcm]
+opt-level = 3
+[profile.dev.package.ghash]
 opt-level = 3

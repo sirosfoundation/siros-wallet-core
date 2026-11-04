@@ -253,6 +253,10 @@ fn conformance_structural_validity() {
 /// (`TestConformanceMethodCoverage`).
 #[test]
 fn conformance_method_coverage() {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the coverage failure lists the methods in order"
+    )]
     let mut vector_methods = std::collections::BTreeSet::new();
     for file in [
         "session-create.json",

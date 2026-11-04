@@ -1,0 +1,25 @@
+[package]
+name = "siros-testkit"
+version = "0.1.0"
+description = "Test plug-ins, deterministic doubles of the core's host modules and the Verifier's encoders, for the tests of the SIROS wallet core crates"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+thiserror = { workspace = true }
+siros-explain = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa", "ecdh"] }
+aes-gcm = { workspace = true }
+miniz_oxide = { workspace = true }
+
+[lints]
+workspace = true

@@ -4,12 +4,17 @@
 # v0.11.0 did, on zkp_req requests). The crates that link into matcher.wasm
 # use rustc_hash::FxHashMap and FxHashSet, which need no seed.
 #
+# BTree collections order what needs no order: a crate uses an Fx collection,
+# or a sorted Vec where order matters.
+#
 # siros-dc-matcher-ffi and siros-picker-testhost never link into
 # matcher.wasm and allow `clippy::disallowed_types` at their crate root.
 disallowed-types = [
     { path = "std::collections::HashMap", reason = "its RandomState reads WASI random_get, which the Credential Manager host lacks; use rustc_hash::FxHashMap" },
     { path = "std::collections::HashSet", reason = "its RandomState reads WASI random_get, which the Credential Manager host lacks; use rustc_hash::FxHashSet" },
     { path = "std::collections::hash_map::RandomState", reason = "reads WASI random_get, which the Credential Manager host lacks; use rustc_hash::FxBuildHasher" },
+    { path = "std::collections::BTreeMap", reason = "use rustc_hash::FxHashMap, or a sorted Vec where order matters" },
+    { path = "std::collections::BTreeSet", reason = "use rustc_hash::FxHashSet, or a sorted Vec where order matters" },
 ]
 
 # The zkp_req crates enable clippy::cognitive_complexity; each function stays within this.
@@ -23,10 +28,12 @@ disallowed-methods = [
     { path = "alloc::vec::Vec::remove", reason = "panics on an index at or past the length" },
     { path = "alloc::vec::Vec::insert", reason = "panics on an index past the length" },
     { path = "alloc::vec::Vec::drain", reason = "panics on a range past the length" },
+    { path = "alloc::vec::Vec::split_off", reason = "panics on an index past the length" },
     { path = "alloc::string::String::remove", reason = "panics on an index at or past the length, or inside a character" },
     { path = "alloc::string::String::insert", reason = "panics on an index past the length, or inside a character" },
     { path = "alloc::string::String::drain", reason = "panics on a range past the length, or inside a character" },
     { path = "alloc::string::String::truncate", reason = "panics on a length inside a character" },
+    { path = "alloc::string::String::split_off", reason = "panics on an index past the length, or inside a character" },
     { path = "alloc::collections::VecDeque::insert", reason = "panics on an index past the length" },
     { path = "alloc::collections::VecDeque::swap", reason = "panics on an index at or past the length" },
     { path = "alloc::collections::VecDeque::drain", reason = "panics on a range past the length" },
@@ -35,6 +42,8 @@ disallowed-methods = [
     { path = "alloc::collections::VecDeque::rotate_left", reason = "panics on a count past the length" },
     { path = "alloc::collections::VecDeque::rotate_right", reason = "panics on a count past the length" },
     { path = "slice::swap", reason = "panics on an index at or past the length" },
+    { path = "slice::split_at", reason = "panics on an index past the length" },
+    { path = "str::split_at", reason = "panics on an index past the length, or inside a character" },
     { path = "slice::rotate_left", reason = "panics on a count past the length" },
     { path = "slice::rotate_right", reason = "panics on a count past the length" },
     { path = "core::cell::RefCell::borrow", reason = "panics while a mutable borrow is alive" },

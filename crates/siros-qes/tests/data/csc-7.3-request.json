@@ -1,0 +1,42 @@
+{
+  "dcql_query": {
+    "credentials": [
+      {
+        "id": "qscd_service_attestation",
+        "format": "mso_mdoc",
+        "meta": {
+          "doctype_value": "com.example.service.1.attestation"
+        },
+        "claims": [
+          {
+            "path": [
+              "com.example.service.1",
+              "userName"
+            ],
+            "values": [
+              "willeke"
+            ]
+          },
+          {
+            "path": [
+              "com.example.service.1",
+              "credentialID"
+            ],
+            "values": [
+              "GX0112348"
+            ]
+          },
+          {
+            "path": [
+              "org.cloudsignatureconsortium.dm.1",
+              "qesApproval"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "transaction_data": [
+    "ewogICAgInR5cGUiOiAiaHR0cHM6Ly9jbG91ZHNpZ25hdHVyZWNvbnNvcnR..."
+  ]
+}
