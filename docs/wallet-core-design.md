@@ -5398,8 +5398,9 @@ declares Rust 1.89. jose-rs 0.10.0 and kryptering 0.7.0 declare 1.88. tokio 1.54
 0.4.3 declare 1.85. getrandom 0.4.3 and aes-kw 0.3.1 are edition 2024.
 
 The branch takes the plan's crates from wallet-rs `flows` at `a307cca`. That head passes 49 of 49
-merge gates: 248 tests passed, 0 failed, 13 ignored, and 384 of 384 per-seed differential lines
-equal the baseline.
+merge gates: 248 tests passed, 0 failed, 13 ignored. Its 408 per-seed differential lines equal the
+baseline's 384 apart from reading 25's key-rule classes, which I9 tallies apart; the 21 mismatch
+lines all read 0.
 
 ### 10.2 The workspace after reorganisation
 
@@ -5975,11 +5976,11 @@ is green, every workspace run passes.
 | Gate | Holds | Measure |
 | :-- | :-- | :-- |
 | R1 | The import is wallet-rs's code | Each imported crate equals wallet-rs `flows` `a307cca` (`git archive`) outside the import's listed files. `cargo tree -e normal,build --prefix none -p <crate>` equals wallet-rs's output: 0 differing lines. |
-| R2 | The removed crates leave the tree | `git grep -n -E 'siros[-_](codec\|credential\|dcql\|display\|oid4vp\|presentation\|transaction[-_]data)\b' -- ':!CHANGELOG.md'`: 0. The removed directories are absent. |
+| R2 | The removed crates leave the tree | `git grep -n -E 'siros[-_](codec\|credential\|dcql\|display\|oid4vp\|presentation\|transaction[-_]data)\b' -- ':!CHANGELOG.md' ':!docs/wallet-core-design.md'`: 0; the design names the crates it supersedes. The removed directories are absent. |
 | R3 | The forced changes keep zkp_req's behaviour | `scripts/vectors_digest.sh --digest` equals the base's. The zkp crates' test names equal the base's, all passing. proving's tests and its real-proof run pass. |
 | R4 | The repository's checks | fmt; clippy with all targets and features; the tests with all features; `check_panic_sites.py Cargo.toml proving/Cargo.toml`: 0 sites, 0 roots without the lints; the msrv job on 1.89 |
 | R5 | The engine holds no OpenID4VP rule | engine-core's `parse_request`, `validate_transaction_data`, `build_dcql_vp_token`, `build_jarm_claims`, `select_verifier_jwk` and `ClientIdScheme`: 0 occurrences |
-| R6 | The differentials compare what they compared | The harness's per-seed lines equal the baseline: 384 of 384, the 21 mismatch lines all 0. A class a milestone adds is tallied apart with its reason, as I9 allows. |
+| R6 | The differentials compare what they compared | The harness's per-seed lines equal those of wallet-rs `a307cca`: 408 of 408, baseline.md's 384 with reading 25's key-rule tallies as I9 allows, the 21 mismatch lines all 0. A class a milestone adds is tallied apart with its reason, as I9 allows. |
 
 **The milestones**, in order:
 
