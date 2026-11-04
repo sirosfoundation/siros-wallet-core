@@ -33,7 +33,8 @@ edition = "2021"
 license = "BSD-2-Clause"
 repository = "https://github.com/sirosfoundation/siros-wallet-core"
 authors = ["SIROS Foundation"]
-# The floor of every crate: aes 0.9.4 declares 1.89. Checked by the msrv CI job.
+# The floor of every crate: edition 2024 needs 1.85, aes 0.9.4 and uuid 1.29.0 declare 1.89, and
+# trait upcasting (1.86) lets a profile's finding reach `dyn Any`. Checked by the msrv CI job.
 rust-version = "1.89"
 
 [workspace.dependencies]
