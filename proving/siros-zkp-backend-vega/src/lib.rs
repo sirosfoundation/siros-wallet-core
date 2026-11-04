@@ -23,13 +23,13 @@
 )]
 
 use siros_zkp_catalogues::date::Date;
-use siros_zkp_req::ZkProof;
 use siros_zkp_catalogues::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,
     Statement,
 };
 use siros_zkp_catalogues::system::{ArtifactPin, NymAuthSystem};
 use siros_zkp_catalogues::verifier_id::PseudonymValue;
+use siros_zkp_req::ZkProof;
 use zk_cred_vega::nymauth_vega::engine::statement::{
     self as vega, Error, Holder, Keys, Statement as VegaStatement,
 };
