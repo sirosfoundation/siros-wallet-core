@@ -15,7 +15,7 @@ default = ["credential"]
 # matcher needs only the catalogue and the systems, and builds without it.
 credential = [
     "dep:siros-mdoc",
-    "siros-mdoc/crypto",
+    "dep:p256",
     "dep:siros-trust",
     "siros-trust/chain",
     "dep:zeroize",
@@ -38,14 +38,10 @@ test-fixtures = [
 ]
 
 [dependencies]
-# The CBOR values, dates and signatures siros-mdoc's API carries.
-siros-codec = { workspace = true }
 # The core's requests, sessions and identifiers.
 siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-zkp-req = { workspace = true }
 siros-explain = { workspace = true }
-# The document type siros-mdoc's API carries.
-siros-dcql = { workspace = true }
 base64 = { workspace = true }
 # The signed requests of `test-fixtures`, authenticated through the core's x509_san_dns.
 siros-x509 = { workspace = true, optional = true }

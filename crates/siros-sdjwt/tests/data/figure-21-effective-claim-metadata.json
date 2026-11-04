@@ -1,0 +1,16 @@
+{
+     "claims": [
+       {
+         "path": ["name"],
+         "display": [{"label": "Full Name", "locale": "en"}]
+       },
+       {
+         "path": ["address", "city"],
+         "display": [{"label": "Town", "locale": "en"}]
+       },
+       {
+         "path": ["nationalities"],
+         "display": [{"label": "Nationalities", "locale": "en"}]
+       }
+     ]
+   }

@@ -27,12 +27,14 @@ pub use presenting::{
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::date::DateTime;
 use crate::presenter::Session;
 use crate::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,
     Statement,
 };
 use crate::request_object::{check_request, ec_jwk_thumbprint, Channel, Signing};
+use crate::signature::Es256Signature;
 use crate::system::NymAuthSystem;
 use crate::verifier_id::{Intermediary, PseudonymValue, VerifierId};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -43,9 +45,7 @@ use p256::ecdsa::signature::Signer as _;
 use p256::ecdsa::{DerSignature, Signature, SigningKey};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use siros_codec::cbor::Value as Cbor;
-use siros_codec::date::DateTime;
-use siros_codec::signature::Es256Signature;
+use siros_openid4vp::cbor::Value as Cbor;
 use siros_zkp_req::ZkProof;
 use x509_cert::builder::{Builder, CertificateBuilder, Profile};
 use x509_cert::name::Name;
@@ -159,17 +159,36 @@ impl Default for Spec {
 }
 
 fn text(s: &str) -> Cbor {
-    Cbor::text(s)
+    Cbor::Text(s.to_owned())
+}
+
+fn uint(n: u64) -> Cbor {
+    Cbor::Integer(n.into())
+}
+
+/// CBOR's negative integer `-1 - n`.
+fn neg(n: u64) -> Cbor {
+    Cbor::Integer((-1 - i64::try_from(n).unwrap()).into())
+}
+
+/// The deterministic encoding (RFC 8949, Section 4.2.1).
+fn encode(value: &Cbor) -> Vec<u8> {
+    siros_openid4vp::cbor::encode_deterministic(value).unwrap()
+}
+
+/// The item the bytes `encoded` hold.
+fn encoded(encoded: Vec<u8>) -> Cbor {
+    siros_openid4vp::cbor::decode(&encoded).unwrap()
 }
 
 fn item(digest_id: u64, salt: u8, identifier: &str, value: Cbor) -> Vec<u8> {
     let item = Cbor::Map(vec![
-        (text("digestID"), Cbor::Unsigned(digest_id)),
+        (text("digestID"), uint(digest_id)),
         (text("random"), Cbor::Bytes(vec![salt; 16])),
         (text("elementIdentifier"), text(identifier)),
         (text("elementValue"), value),
     ]);
-    Cbor::Tag(24, Box::new(Cbor::Bytes(item.encode()))).encode()
+    encode(&Cbor::Tag(24, Box::new(Cbor::Bytes(encode(&item)))))
 }
 
 pub fn sha256(bytes: &[u8]) -> [u8; 32] {
@@ -200,8 +219,8 @@ pub fn issue(issuer: &Issuer, spec: &Spec) -> String {
             Cbor::Map(vec![(
                 text(DOCTYPE),
                 Cbor::Map(vec![
-                    (Cbor::Unsigned(0), Cbor::Bytes(sha256(&birth).to_vec())),
-                    (Cbor::Unsigned(1), Cbor::Bytes(ssc_digest.to_vec())),
+                    (uint(0), Cbor::Bytes(sha256(&birth).to_vec())),
+                    (uint(1), Cbor::Bytes(ssc_digest.to_vec())),
                 ]),
             )]),
         ),
@@ -210,10 +229,10 @@ pub fn issue(issuer: &Issuer, spec: &Spec) -> String {
             Cbor::Map(vec![(
                 text("deviceKey"),
                 Cbor::Map(vec![
-                    (Cbor::Unsigned(1), Cbor::Unsigned(2)),
-                    (Cbor::Negative(0), Cbor::Unsigned(1)),
-                    (Cbor::Negative(1), Cbor::Bytes(point.x().unwrap().to_vec())),
-                    (Cbor::Negative(2), Cbor::Bytes(point.y().unwrap().to_vec())),
+                    (uint(1), uint(2)),
+                    (neg(0), uint(1)),
+                    (neg(1), Cbor::Bytes(point.x().unwrap().to_vec())),
+                    (neg(2), Cbor::Bytes(point.y().unwrap().to_vec())),
                 ]),
             )]),
         ),
@@ -236,15 +255,14 @@ pub fn issue(issuer: &Issuer, spec: &Spec) -> String {
             ]),
         ),
     ]);
-    let payload = Cbor::Tag(24, Box::new(Cbor::Bytes(mso.encode()))).encode();
-    let protected = Cbor::Map(vec![(Cbor::Unsigned(1), Cbor::Negative(6))]).encode();
-    let sig_structure = Cbor::Array(vec![
+    let payload = encode(&Cbor::Tag(24, Box::new(Cbor::Bytes(encode(&mso)))));
+    let protected = encode(&Cbor::Map(vec![(uint(1), neg(6))]));
+    let sig_structure = encode(&Cbor::Array(vec![
         text("Signature1"),
         Cbor::Bytes(protected.clone()),
         Cbor::Bytes(Vec::new()),
         Cbor::Bytes(payload.clone()),
-    ])
-    .encode();
+    ]));
     let signed: &[u8] = if spec.wrong_signature {
         b"another message"
     } else {
@@ -256,20 +274,20 @@ pub fn issue(issuer: &Issuer, spec: &Spec) -> String {
             text("nameSpaces"),
             Cbor::Map(vec![(
                 text(DOCTYPE),
-                Cbor::Array(vec![Cbor::Encoded(birth), Cbor::Encoded(ssc)]),
+                Cbor::Array(vec![encoded(birth), encoded(ssc)]),
             )]),
         ),
         (
             text("issuerAuth"),
             Cbor::Array(vec![
                 Cbor::Bytes(protected),
-                Cbor::Map(vec![(Cbor::Unsigned(33), Cbor::Bytes(issuer.der.clone()))]),
+                Cbor::Map(vec![(uint(33), Cbor::Bytes(issuer.der.clone()))]),
                 Cbor::Bytes(payload),
                 Cbor::Bytes(signature.to_bytes().to_vec()),
             ]),
         ),
     ]);
-    URL_SAFE_NO_PAD.encode(issuer_signed.encode())
+    URL_SAFE_NO_PAD.encode(encode(&issuer_signed))
 }
 
 /// A pseudonym item and, unless `range` is `None`, an age_check item.
@@ -349,7 +367,7 @@ pub fn expected_pseudonym(seed: &[u8; 16], verifier_id: &str) -> [u8; 32] {
 /// A digest of every public value and the pseudonym: a test proof binds them as a real proof
 /// does, so a verifier with any other value refuses it.
 fn binding(statement: &Statement, pseudonym: &PseudonymValue) -> [u8; 32] {
-    let date = |d: Option<siros_codec::date::Date>| d.map_or("-".to_owned(), |d| d.to_string());
+    let date = |d: Option<crate::date::Date>| d.map_or("-".to_owned(), |d| d.to_string());
     let mut h = Sha256::new();
     for part in [
         statement.system.id().as_str().as_bytes(),

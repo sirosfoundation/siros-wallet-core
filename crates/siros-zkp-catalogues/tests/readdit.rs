@@ -16,10 +16,10 @@ mod support;
 
 use ciborium::value::Value as Ciborium;
 use serde_json::{json, Value};
-use siros_codec::date::DateTime;
-use siros_mdoc::{Mdoc, P256Key};
+use siros_mdoc::stored::{P256Key, StoredMdoc};
 use siros_zkp_catalogues::attestation::TestedAttestation;
 use siros_zkp_catalogues::catalogue::MDOC_DOCTYPE;
+use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::presenter::Prepared;
 use siros_zkp_catalogues::prover::ProofOutput;
 use siros_zkp_catalogues::request_object::ec_jwk_thumbprint;
@@ -67,10 +67,11 @@ fn assert_agrees(reference: &str, theirs: &Value, ours: &Value, elsewhere: &[&st
 /// The credential as this crate reads it, under readdit's names.
 fn our_credential(facts: &Value) -> Value {
     let data = facts["inputs"]["credential"].as_str().unwrap();
-    let attestation = match TestedAttestation::of(&Mdoc::parse(data).unwrap(), proof_time(facts)) {
-        Ok(attestation) => attestation,
-        Err(unusable) => panic!("the credential fails its tests: {unusable:?}"),
-    };
+    let attestation =
+        match TestedAttestation::of(&StoredMdoc::parse(data).unwrap(), proof_time(facts)) {
+            Ok(attestation) => attestation,
+            Err(unusable) => panic!("the credential fails its tests: {unusable:?}"),
+        };
     let credential = attestation.credential();
     let mdoc = credential.mdoc();
     json!({

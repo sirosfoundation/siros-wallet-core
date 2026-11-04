@@ -1,32 +1,24 @@
-//! SD-JWT VC for the SIROS wallet core (RFC 9901).
+//! The SD-JWT VC format plug-in (OpenID4VP 1.0 B.3, Credential Format Identifier `dc+sd-jwt`):
+//! `meta.vct_values` (B.3.5), the card and rows from SD-JWT VC Type Metadata (§7, §8), the
+//! Verifier's JWS algorithms (B.3.4), Key Binding JWT claims as transaction response members
+//! (B.3.3), and the presentation: the disclosures, then a Key Binding JWT (B.3.6).
 //!
-//! | Step | API | Requirement |
-//! | --- | --- | --- |
-//! | Read a stored credential | [`SdJwt::parse`] | S1: the checks of RFC 9901, Section 7.1 |
-//! | Walk its claims | [`SdJwt::claims`], [`Object`], [`Claim`], [`ClaimValue`], [`Element`] | S2: issued array positions |
-//! | Resolve a claims path pointer | [`SdJwt::root`] gives the [`Node`] that [`siros_dcql::resolve`] walks | Q4 |
-//! | Select disclosures | [`SdJwt::select`] gives a [`Presentation`] | S3 |
-//! | Bind the presentation to a key | [`Presentation::key_binding`] gives a [`KeyBinding`] | S4 |
+//! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `jwt`,
+//! the Issuer-signed JWT; `alg` and `curve`, its algorithm and key curve; `key_alg` and
+//! `key_curve`, the holder key's. The view holds values where an issued SD-JWT holds
+//! disclosures: a disclosure is the base64url JSON array `[salt, name, value]`, its salt a digest
+//! of the claim's path.
 //!
-//! The issuer JWT is kept verbatim, with its `x5c` header parameter ([`SdJwt::x5c`]). Its
-//! signature and the validity claims (Section 7.1, steps 2.a to 2.c and 6) are the caller's to
-//! check.
-//!
-//! The host signs [`KeyBinding::signing_input`] with ES256 and returns the signature, which
-//! [`KeyBinding::assemble`] turns into the SD-JWT+KB.
-//!
-//! Types that hold claim values or salts implement no `Debug`, which keeps them out of logs
-//! (R-G6).
-//!
-//! Nothing here panics on any input.
+//! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
+//! wallet registers the view's `metadata` from.
 
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
-#![deny(unused_results)]
-#![deny(clippy::cognitive_complexity)]
-#![deny(clippy::let_underscore_must_use, clippy::let_underscore_untyped)]
-// Nothing panics outside the tests. scripts/check_panic_sites.py refuses an
-// allow of these lints there and finds the panics they cannot see.
+#![forbid(unsafe_code)]
+#![deny(missing_docs, unused_must_use, unused_results)]
+#![deny(
+    clippy::let_underscore_must_use,
+    clippy::let_underscore_untyped,
+    clippy::disallowed_types
+)]
 #![cfg_attr(
     not(test),
     deny(
@@ -41,22 +33,275 @@
     )
 )]
 
-mod alg;
-mod error;
-mod key_binding;
-mod node;
-mod process;
-mod sd_jwt;
-mod select;
-mod tree;
+mod jose;
+pub mod type_metadata;
+mod view;
 
-pub use alg::Digest;
-pub use error::{
-    DisclosureFault, EncodedJsonFault, IssuerJwtFault, KeyBindingError, ParseError, Placement,
-    ReservedFault, SdAlgFault, X5cError, X5cIndex,
-};
-pub use key_binding::{Audience, BeforeEpoch, KbNonce, KeyBinding, NumericDate, Presentation};
-pub use node::{Children, Node, NodeValue};
-pub use process::MAX_DEPTH;
-pub use sd_jwt::SdJwt;
-pub use tree::{Claim, ClaimValue, DisclosureId, Element, Object};
+siros_openid4vp::with_resolve! {
+    mod presentation;
+}
+
+use siros_explain::{AllOf, Explain, Explained, Message, Messages};
+use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_openid4vp::claims::{Claim, ClaimPath};
+use siros_openid4vp::ids::{FormatId, InvalidId};
+use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member};
+use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
+use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
+use siros_openid4vp::wallet::Holder;
+
+use view::SdJwtMembers;
+
+/// The Credential Format Identifier.
+const ID: &str = "dc+sd-jwt";
+
+/// The plug-in's domain, as its fault message.
+pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "sdjwt.fault");
+
+/// B.3.5's rule on a `dc+sd-jwt` query's `meta`, which the kit reports under the query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.rules")]
+pub enum SdJwtRule {
+    /// `meta.vct_values` is no non-empty array of strings.
+    #[error("meta.vct_values is not a non-empty array of strings (B.3.5)")]
+    VctValues,
+}
+
+/// B.3.3: transaction data names a query that waives holder binding: `invalid_transaction_data`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.rules", id = "holder_binding")]
+#[error("dc+sd-jwt {query}: transaction data on a query without holder binding (B.3.3)")]
+pub struct HolderBindingWaived {
+    /// The query's id.
+    pub query: String,
+}
+
+impl RequestRule for HolderBindingWaived {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::InvalidTransactionData
+    }
+}
+
+/// The plug-in's messages: those its error types and rules declare, and its fault's.
+pub struct CrateMessages;
+
+impl Messages for CrateMessages {
+    fn messages() -> Vec<Message> {
+        let declared: &[fn() -> Vec<Message>] = &[
+            SdJwtRule::messages,
+            HolderBindingWaived::messages,
+            type_metadata::ExtendError::messages,
+        ];
+        declared
+            .iter()
+            .flat_map(|messages| messages())
+            .chain([FAULT.message()])
+            .collect()
+    }
+}
+
+/// The Key Binding JWT's own claims (B.3.6, RFC 9901 §4.3).
+static RESERVED: [Member; 4] = [
+    Member::claim("iat"),
+    Member::claim("aud"),
+    Member::claim("nonce"),
+    Member::claim("sd_hash"),
+];
+
+/// The SD-JWT VC format plug-in. A transaction's response members are Key Binding JWT claims.
+#[derive(Debug, Clone)]
+pub struct SdJwtVc {
+    id: FormatId<'static>,
+}
+
+impl SdJwtVc {
+    /// The plug-in.
+    pub fn new() -> Result<Self, InvalidId> {
+        Ok(Self {
+            id: FormatId::parse(ID)?,
+        })
+    }
+}
+
+impl Format for SdJwtVc {
+    fn id(&self) -> FormatId<'_> {
+        self.id.borrowed()
+    }
+
+    /// The Key Binding JWT's own claims: `iat`, `aud`, `nonce`, `sd_hash`.
+    fn reserved(&self) -> &[Member] {
+        &RESERVED
+    }
+
+    /// ES256 for the Issuer-signed JWT and the Key Binding JWT (B.3.4; HAIP §7).
+    fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
+        Node::parse(r#"{"sd-jwt_alg_values":["ES256"],"kb-jwt_alg_values":["ES256"]}"#)
+            .map_err(|e| Fault::caused(FAULT, siros_openid4vp::detail!("the formats member"), e))
+    }
+
+    fn query<'q>(
+        &'q self,
+        query: &'q Query<'q>,
+        context: siros_openid4vp::routing::QueryContext<'q>,
+    ) -> Result<Box<dyn FormatQuery + 'q>, AllOf<Refusal>> {
+        kit::query(self, query, &context)
+    }
+}
+
+impl ClaimsFormat for SdJwtVc {
+    fn id(&self) -> &'static str {
+        ID
+    }
+
+    /// SD-JWT VC §8.2: a claim's display entry holds its `label`.
+    fn label_key(&self) -> &'static str {
+        "label"
+    }
+
+    fn appendix(&self) -> &'static str {
+        "B.3"
+    }
+
+    /// B.3.4: a JWS algorithm identifier is a string.
+    fn is_algorithm(&self, value: &Node<'_>) -> bool {
+        value.as_str().is_some()
+    }
+
+    /// SD-JWT VC §7.1.1.1: the display entry's `rendering.simple.logo.uri`.
+    fn logo<'n>(&self, entry: &'n Node<'n>) -> Option<&'n str> {
+        entry
+            .get("rendering")?
+            .get("simple")?
+            .get("logo")?
+            .get("uri")?
+            .as_str()
+    }
+
+    /// B.3.5: `meta.vct_values` is a non-empty array of strings.
+    fn read_meta<'n, 'm>(
+        &self,
+        meta: Option<&'n Node<'m>>,
+    ) -> Result<&'n Node<'m>, Box<dyn Explained>> {
+        meta.filter(|meta| {
+            meta.get("vct_values")
+                .and_then(Node::as_array)
+                .is_some_and(|values| {
+                    !values.is_empty() && values.iter().all(|v| v.as_str().is_some())
+                })
+        })
+        .ok_or_else(|| Box::new(SdJwtRule::VctValues) as Box<dyn Explained>)
+    }
+
+    /// B.3.5: the credential's type is one of `vct_values`.
+    fn meta_matches(&self, meta: &Node<'_>, view: &Node<'_>) -> bool {
+        match (
+            meta.get("vct_values").and_then(Node::as_array),
+            view.get("type"),
+        ) {
+            (Some(values), Some(kind)) => values.contains(kind),
+            _ => false,
+        }
+    }
+
+    /// A Key Binding JWT claim is no claim of the credential.
+    fn written(&self, _claim: &Claim<'_>, _provided: &[Member]) -> bool {
+        false
+    }
+
+    /// §7.1: every claims path pointer addresses a JSON-based credential.
+    fn pointer_refusal(&self, _path: &ClaimPath<'_>) -> Option<Box<dyn Explained>> {
+        None
+    }
+}
+
+impl ClaimsPlugin for SdJwtVc {
+    /// B.3.3: transaction data needs a Key Binding JWT, so a query transaction data names
+    /// requires holder binding.
+    fn rules(&self, query: &Query<'_>, named: bool) -> Vec<Refusal> {
+        if named && query.holder_binding == HolderBinding::Waived {
+            vec![Refusal::new(HolderBindingWaived {
+                query: query.id.to_string(),
+            })]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// B.3.4: the Issuer-signed JWT's algorithm under `sd-jwt_alg_values`, and the Key Binding
+    /// JWT's under `kb-jwt_alg_values` when the credential is bound to a key.
+    fn algorithms<'v>(
+        &self,
+        view: &ClaimsView<'v>,
+        _keys: &[AgreeableKey<'_>],
+    ) -> Result<Vec<Constraint<'v>>, Fault> {
+        let members = SdJwtMembers::of(view);
+        let mut constraints = vec![Constraint {
+            member: "sd-jwt_alg_values",
+            matched: members.issuer()?.identifiers(),
+        }];
+        if view.credential().facts.holder == Holder::Bound {
+            constraints.push(Constraint {
+                member: "kb-jwt_alg_values",
+                matched: members.holder()?.identifiers(),
+            });
+        }
+        Ok(constraints)
+    }
+
+    /// A presentation with a Key Binding JWT carries any claim: the query requires holder
+    /// binding and the credential is bound to a key. A data element is no claim.
+    fn carries(
+        &self,
+        query: &Query<'_>,
+        view: &ClaimsView<'_>,
+        members: &[Member],
+    ) -> Result<bool, Fault> {
+        Ok(query.holder_binding == HolderBinding::Required
+            && view.credential().facts.holder == Holder::Bound
+            && members
+                .iter()
+                .all(|member| matches!(member, Member::Claim(_))))
+    }
+}
+
+siros_openid4vp::with_resolve! {
+    /// Signs the Key Binding JWT with HAIP's keystore, its `iat` the platform's clock.
+    impl<H> siros_openid4vp::host::FormatHost<H> for SdJwtVc
+    where
+        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+            + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
+    {
+        fn answer<'q>(
+            &'q self,
+            query: &'q Query<'q>,
+            context: siros_openid4vp::host::AnsweredContext<'q>,
+        ) -> Result<Box<dyn siros_openid4vp::host::AnsweredQuery<H> + 'q>, AllOf<Refusal>> {
+            kit::answer(self, query, context)
+        }
+    }
+
+    impl<H> kit::ClaimsPresent<H> for SdJwtVc
+    where
+        H: siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+            + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Platform>,
+    {
+        /// Nothing: the presentation needs only required modules, and its key binding reads
+        /// the view phase 2 derived again.
+        fn revalidate(
+            &self,
+            _revalidating: kit::Revalidating<'_>,
+            _host: &H,
+        ) -> Result<Option<Box<dyn siros_openid4vp::plugins::FindingData>>, Fault> {
+            Ok(None)
+        }
+
+        fn present(
+            &self,
+            presenting: kit::Presenting<'_>,
+            host: &H,
+        ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
+            presentation::present(presenting, host)
+        }
+    }
+}

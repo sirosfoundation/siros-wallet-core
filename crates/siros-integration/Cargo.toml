@@ -1,0 +1,37 @@
+[package]
+name = "siros-integration"
+version = "0.1.0"
+description = "The SIROS wallet core with every real plug-in registered at once: the dressed run's properties, its live differential against the reference model, and one end-to-end path per configuration"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+# The tests are the crate; the library holds its documentation alone.
+[lib]
+test = false
+doctest = false
+
+[dev-dependencies]
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-sdjwt = { path = "../siros-sdjwt" }
+siros-mdoc = { path = "../siros-mdoc", features = ["test-util"] }
+siros-paso = { path = "../siros-paso", features = ["test-util"] }
+siros-qes = { path = "../siros-qes" }
+siros-x509 = { path = "../siros-x509", features = ["test-util"] }
+siros-testkit = { workspace = true }
+siros-i18n = { workspace = true, features = ["load"] }
+siros-explain = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+rustc-hash = { workspace = true }
+serde_urlencoded = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+
+[lints]
+workspace = true

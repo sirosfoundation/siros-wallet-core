@@ -3506,14 +3506,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "siros-mdoc"
-version = "0.11.0"
+name = "siros-integration"
+version = "0.1.0"
 dependencies = [
- "p256 0.13.2",
+ "base64 0.23.1",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
  "rustc-hash",
- "sha2 0.10.9",
- "siros-codec",
- "siros-dcql",
+ "serde_json",
+ "serde_urlencoded",
+ "sha2 0.11.1",
+ "sha3 0.12.0",
+ "siros-explain",
+ "siros-i18n",
+ "siros-mdoc",
+ "siros-openid4vp",
+ "siros-paso",
+ "siros-qes",
+ "siros-sdjwt",
+ "siros-testkit",
+ "siros-x509",
+]
+
+[[package]]
+name = "siros-mdoc"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "rustc-hash",
+ "serde_json",
+ "sha2 0.11.1",
+ "siros-explain",
+ "siros-mdoc",
+ "siros-openid4vp",
+ "siros-testkit",
  "thiserror 2.0.21",
 ]
 
@@ -3605,13 +3633,16 @@ dependencies = [
 
 [[package]]
 name = "siros-sdjwt"
-version = "0.11.0"
+version = "0.1.0"
 dependencies = [
- "rustc-hash",
+ "base64 0.23.1",
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
  "serde_json",
- "sha2 0.10.9",
- "siros-codec",
- "siros-dcql",
+ "sha2 0.11.1",
+ "siros-explain",
+ "siros-openid4vp",
+ "siros-testkit",
  "thiserror 2.0.21",
 ]
 
@@ -3686,8 +3717,6 @@ dependencies = [
  "rand_core 0.6.4",
  "serde_json",
  "sha2 0.10.9",
- "siros-codec",
- "siros-dcql",
  "siros-explain",
  "siros-mdoc",
  "siros-openid4vp",

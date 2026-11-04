@@ -5,8 +5,9 @@
 
 use std::fmt;
 
-use siros_codec::date::DateTime;
-use siros_mdoc::{es256_verifies, Mdoc, P256Key, PointError};
+use crate::date::DateTime;
+use crate::signature::es256_verifies;
+use siros_mdoc::stored::{P256Key, PointError, StoredMdoc};
 use siros_trust::{AdmittedIssuer, Certificate, CertificateError};
 use zeroize::Zeroizing;
 
@@ -185,7 +186,7 @@ impl Unusable {
 }
 
 /// A credential that passes the credential tests at a proof time (N3): the nym_auth form, the
-/// issuer signature under the Document Signer's key, and the validity. A parsed [`Mdoc`] lists
+/// issuer signature under the Document Signer's key, and the validity. A parsed [`StoredMdoc`] lists
 /// the digest of every item it holds.
 #[derive(Debug, Clone)]
 pub struct TestedAttestation {
@@ -200,7 +201,7 @@ impl TestedAttestation {
     ///
     /// [`Unusable`]: another `docType`, a credential out of the nym_auth form, or the failed
     /// tests.
-    pub fn of(mdoc: &Mdoc, proof_time: DateTime) -> Result<Self, Unusable> {
+    pub fn of(mdoc: &StoredMdoc, proof_time: DateTime) -> Result<Self, Unusable> {
         let document_signer = mdoc.issuer_auth().x5chain().first();
         let mdoc = match mdoc::read_mdoc(mdoc) {
             Ok(Reading::NymAuth(mdoc)) => *mdoc,

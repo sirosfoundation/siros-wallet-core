@@ -10,7 +10,6 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-siros-codec = { workspace = true }
 siros-zkp-req = { workspace = true }
 siros-zkp-catalogues = { workspace = true }
 thiserror = { workspace = true }

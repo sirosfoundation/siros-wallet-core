@@ -3,13 +3,13 @@
 
 use std::fmt;
 
-use siros_codec::cbor::Value;
-use siros_codec::date::{Date, DateTime};
-use siros_codec::signature::{Es256Signature, SignatureLength};
-use siros_mdoc::{
-    CoseAlgorithm, DigestAlgorithm, ElementIdentifier, IssuerSignedItem, Mdoc, P256Key,
-    SigStructure,
+use crate::date::{Date, DateTime};
+use crate::signature::{Es256Signature, SignatureLength};
+use siros_mdoc::stored::{
+    CoseAlgorithm, DigestAlgorithm, ElementIdentifier, IssuerSignedItem, P256Key, SigStructure,
+    StoredMdoc,
 };
+use siros_openid4vp::cbor::Value;
 
 use crate::catalogue::MDOC_DOCTYPE;
 
@@ -70,6 +70,8 @@ pub enum FormError {
     BirthDate(#[source] ElementFault<FullDateFault>),
     /// `ssc` is missing or not a 32-byte string.
     Ssc(#[source] ElementFault<CommitmentFault>),
+    /// A validity time of the MSO lies outside the years 0000 to 9999.
+    Validity,
 }
 
 impl FormError {
@@ -84,6 +86,7 @@ impl FormError {
             Self::Element(_) | Self::Psc(_) => "nym_auth_element",
             Self::BirthDate(_) => "birth_date",
             Self::Ssc(_) => "ssc",
+            Self::Validity => "validity",
         }
     }
 }
@@ -230,7 +233,7 @@ pub enum Reading {
 /// # Errors
 ///
 /// [`FormError`]: what puts the mdoc out of the nym_auth form.
-pub fn read_mdoc(mdoc: &Mdoc) -> Result<Reading, FormError> {
+pub fn read_mdoc(mdoc: &StoredMdoc) -> Result<Reading, FormError> {
     if *mdoc.doc_type() != MDOC_DOCTYPE {
         return Ok(Reading::OtherDocType);
     }
@@ -254,8 +257,8 @@ pub fn read_mdoc(mdoc: &Mdoc) -> Result<Reading, FormError> {
         sig_structure: auth.sig_structure().clone(),
         issuer_signature,
         device_key: *mso.device_key(),
-        valid_from: mso.validity().valid_from(),
-        valid_until: mso.validity().valid_until(),
+        valid_from: instant(mso.validity().valid_from())?,
+        valid_until: instant(mso.validity().valid_until())?,
         birth_date: elements
             .birth_date
             .ok_or(FormError::BirthDate(ElementFault::Absent))?,
@@ -317,4 +320,12 @@ fn commitment(value: &Value) -> Result<Commitment, CommitmentFault> {
     <[u8; 32]>::try_from(value.as_slice())
         .map(Commitment)
         .map_err(|_| CommitmentFault::Length(value.len()))
+}
+
+/// The MSO's validity time `time` as a [`DateTime`].
+fn instant(time: siros_openid4vp::host::Timestamp) -> Result<DateTime, FormError> {
+    i64::try_from(time.0)
+        .ok()
+        .and_then(DateTime::from_unix)
+        .ok_or(FormError::Validity)
 }

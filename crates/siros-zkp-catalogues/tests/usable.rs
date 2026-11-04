@@ -6,13 +6,13 @@
 mod support;
 
 use serde_json::{json, Value};
-use siros_codec::date::DateTime;
-use siros_mdoc::Mdoc;
+use siros_mdoc::stored::StoredMdoc;
 use siros_openid4vp::host::Timestamp;
 use siros_trust::{
     AdmittedIssuer, ChainRefusal, IssuerChain, QueryAuthorities, TrustStore, Unadmitted,
 };
 use siros_zkp_catalogues::attestation::{OtherIssuer, TestedAttestation, UsableAttestation};
+use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::testing::read_query;
 use support::*;
 
@@ -45,7 +45,7 @@ fn the_admission_of_another_certificate_or_query_is_refused() {
     let nym = nym_query(&query);
     let ds = Issuer::root(0x11, "Test Document Signer");
     let other_signer = Issuer::root(0x22, "Another Document Signer");
-    let mdoc = Mdoc::parse(&issue(&ds, &Spec::default())).unwrap();
+    let mdoc = StoredMdoc::parse(&issue(&ds, &Spec::default())).unwrap();
     let mut other_query = query.clone();
     other_query["id"] = json!("other");
     let usable = |issuer: AdmittedIssuer| {
@@ -73,7 +73,7 @@ fn the_admission_of_the_same_id_with_other_authorities_is_refused() {
     let mut constrained = unconstrained.clone();
     constrained["trusted_authorities"] = json!([{"type": "aki", "values": ["AAAA"]}]);
     let ds = Issuer::root(0x11, "Test Document Signer");
-    let mdoc = Mdoc::parse(&issue(&ds, &Spec::default())).unwrap();
+    let mdoc = StoredMdoc::parse(&issue(&ds, &Spec::default())).unwrap();
     assert!(admission(&constrained, &ds.der, now).is_err());
 
     let tested = TestedAttestation::of(&mdoc, now).unwrap();

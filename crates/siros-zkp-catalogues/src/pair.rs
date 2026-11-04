@@ -1,7 +1,7 @@
 //! The options of a nym_auth query, and the usable pair of a system and a proof backend for an
 //! option at a proof date (`zkp_req`, Section 1.3).
 
-use siros_codec::date::Date;
+use crate::date::Date;
 use siros_zkp_req::{usable_backend, PairRefusal, ProofBackend, QueryOption, ZkpFormats};
 
 use crate::age::Bounds;

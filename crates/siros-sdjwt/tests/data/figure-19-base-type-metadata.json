@@ -1,0 +1,13 @@
+{
+     "vct": "https://example.com/base-type-metadata",
+     "claims": [
+       {
+         "path": ["name"],
+         "display": [{"label": "Full Name", "locale": "en"}]
+       },
+       {
+         "path": ["address", "city"],
+         "display": [{"label": "City", "locale": "en"}]
+       }
+     ]
+   }

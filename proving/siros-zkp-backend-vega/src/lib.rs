@@ -22,7 +22,7 @@
     )
 )]
 
-use siros_codec::date::Date;
+use siros_zkp_catalogues::date::Date;
 use siros_zkp_req::ZkProof;
 use siros_zkp_catalogues::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,

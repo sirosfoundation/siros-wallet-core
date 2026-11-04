@@ -9,7 +9,7 @@
 )]
 
 use serde_json::Value;
-use siros_codec::date::DateTime;
+use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::verify::Tolerance;
 
 #[test]

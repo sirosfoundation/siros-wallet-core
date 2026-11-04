@@ -3,11 +3,11 @@
 //! only `req_set`, `results` and the prover-supplied values from the presentation, and hands
 //! the proof to a system's verifier.
 
+use crate::date::DateTime;
 use serde_json::value::RawValue;
 use serde_json::Value;
-use siros_codec::date::DateTime;
 use siros_explain::MessageId;
-use siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript};
+use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SessionTranscript};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::request::Query;
@@ -299,9 +299,10 @@ pub fn verify(
     let session_transcript = SessionTranscript::new(transcript);
     let challenge_digest = device_signing_input(
         &session_transcript,
-        &siros_dcql::DocType::new(nym_auth_doc_type().as_str()),
+        &siros_mdoc::stored::DocType::new(nym_auth_doc_type().as_str()),
         &DeviceNameSpaces::empty(),
     )
+    .map_err(|_| Rejection::Transcript)?
     .digest();
     let statement = Statement {
         system: checked.system,

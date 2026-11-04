@@ -8,15 +8,14 @@
 )]
 
 use serde_json::Value;
-use siros_codec::date::Date;
-use siros_dcql::DocType;
-use siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript};
+use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, DocType, SessionTranscript};
 use siros_openid4vp::ids::{ClientId, Nonce, Origin};
 use siros_openid4vp::session::{
     Endpoint, Handover, SessionTranscript as CoreTranscript, Thumbprint,
 };
 use siros_zkp_catalogues::age::{AgeRange, Bound, Bounds};
 use siros_zkp_catalogues::catalogue::Config;
+use siros_zkp_catalogues::date::Date;
 use siros_zkp_catalogues::verifier_id::{
     pseudonym_sha256, verifier_input, Intermediary, ProverInput, VerifierId,
 };
@@ -48,6 +47,7 @@ fn challenge_digest(session_transcript: &[u8], doc_type: &str) -> [u8; 32] {
         &DocType::new(doc_type),
         &DeviceNameSpaces::empty(),
     )
+    .unwrap()
     .digest()
     .as_bytes()
 }

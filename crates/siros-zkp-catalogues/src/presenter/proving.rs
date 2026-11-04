@@ -3,10 +3,9 @@
 
 use std::fmt;
 
-use siros_codec::signature::Es256Signature;
-use siros_mdoc::{
-    device_signing_input, es256_verifies, DeviceNameSpaces, SessionTranscript, SigStructure,
-};
+use crate::signature::es256_verifies;
+use crate::signature::Es256Signature;
+use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, SessionTranscript, SigStructure};
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_zkp_req::{
     PairRefusal, ProofEnvelope, QueryOption, ReqSetIndex, ResultKey, ZkpPresentation,
@@ -123,9 +122,10 @@ fn build(answer: Answer<'_>, session: &Session) -> Result<Prepared, ProveError> 
     let session_transcript = SessionTranscript::new(transcript);
     let data_to_sign = device_signing_input(
         &session_transcript,
-        &siros_dcql::DocType::new(nym_auth_doc_type().as_str()),
+        &siros_mdoc::stored::DocType::new(nym_auth_doc_type().as_str()),
         &DeviceNameSpaces::empty(),
-    );
+    )
+    .map_err(|_| ProveError::Encoding)?;
     let (earliest, cutoff) = pair.bounds().dates().map_err(|Unencodable| {
         ProveError::NotUsable(PairRefusal::Unsupported(Unsupported::AgeBounds))
     })?;

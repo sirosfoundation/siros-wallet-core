@@ -1,25 +1,39 @@
 [package]
 name = "siros-mdoc"
-version = "0.11.0"
-description = "ISO/IEC 18013-5 mdocs for the SIROS wallet core: the stored credential, element selection, DeviceResponse and the device signature's signing input"
-publish = false
-edition.workspace = true
+version = "0.1.0"
+description = "The mdoc format plug-in of the SIROS wallet core: OpenID4VP 1.0 B.2, mso_mdoc"
+edition = "2024"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
+publish = false
 
 [features]
-# ES256 verification.
-crypto = ["dep:p256"]
+default = ["resolve"]
+# Phase 2: the presentation. The crate's phase-2 code follows the core's `resolve`
+# (`siros_openid4vp::with_resolve!`), whichever crate enables it.
+resolve = ["siros-openid4vp/resolve"]
+# The `DeviceMac` double for the tests of crates that register siros-mdoc.
+test-util = ["resolve"]
 
 [dependencies]
-siros-codec = { workspace = true }
-siros-dcql = { workspace = true }
-rustc-hash = { workspace = true }
-sha2 = "0.10.9"
-p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "alloc"], optional = true }
+siros-openid4vp = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
 thiserror = { workspace = true }
+siros-explain = { workspace = true }
+# The stored mdoc's value digests (ISO/IEC 18013-5, 9.1.2.5) and its device signing input.
+sha2 = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+siros-mdoc = { path = ".", features = ["test-util"] }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-testkit = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
 
 [lints]
 workspace = true

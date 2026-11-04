@@ -49,10 +49,12 @@
 
 pub mod age;
 pub mod catalogue;
+pub mod date;
 pub mod outcome;
 pub mod pair;
 pub mod policy;
 pub mod semantic;
+pub mod signature;
 pub mod system;
 pub mod verifier_id;
 

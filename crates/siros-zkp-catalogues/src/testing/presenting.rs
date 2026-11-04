@@ -5,6 +5,7 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use crate::date::DateTime;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use der::asn1::{Ia5String, UtcTime};
@@ -13,8 +14,7 @@ use p256::ecdsa::signature::Signer as _;
 use p256::ecdsa::{DerSignature, Signature, SigningKey};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
-use siros_codec::date::DateTime;
-use siros_mdoc::{Mdoc, MdocError};
+use siros_mdoc::stored::{MdocError, StoredMdoc};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, RequestClaims, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{Seconds, Timestamp};
@@ -58,7 +58,7 @@ pub enum Presenting {
     /// No option has a usable pair with the system: each option's refusal.
     NoPair(Vec<PairRefusal<Unsupported>>),
     /// The credential is no mdoc.
-    Mdoc(MdocError),
+    StoredMdoc(MdocError),
     /// The mdoc is no tested attestation.
     Unusable(Unusable),
     /// The query's `trusted_authorities` do not admit the Document Signer.
@@ -175,7 +175,7 @@ pub fn read_query<R>(query: &Value, with: impl FnOnce(&Query<'_>) -> R) -> Resul
 /// empty trust store, at `now`.
 fn admitted(
     query: &Value,
-    mdoc: &Mdoc,
+    mdoc: &StoredMdoc,
     now: DateTime,
 ) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
     let authorities = read_query(query, |query| {
@@ -214,7 +214,7 @@ pub fn usable(
     data: &str,
     now: DateTime,
 ) -> Result<UsableAttestation, Presenting> {
-    let mdoc = Mdoc::parse(data).map_err(Presenting::Mdoc)?;
+    let mdoc = StoredMdoc::parse(data).map_err(Presenting::StoredMdoc)?;
     let tested = TestedAttestation::of(&mdoc, now).map_err(Presenting::Unusable)?;
     let issuer = admitted(query, &mdoc, now).map_err(Presenting::Unadmitted)?;
     UsableAttestation::new(tested, issuer, nym).map_err(Presenting::OtherIssuer)

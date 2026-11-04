@@ -1,0 +1,191 @@
+//! How the device authenticates the document (OpenID4VP B.2.4, ISO/IEC 18013-5 §9.1.3), with
+//! the device MAC module and without it.
+
+use std::any::Any;
+
+use siros_mdoc::{DeviceAuthRefused, Mdoc};
+use siros_openid4vp::effects::Fetch;
+use siros_openid4vp::host::CoreHost;
+use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::{HostedFormat, Member, MemberValue, Registry};
+use siros_openid4vp::resolve::{Finding, Outcome, Prepared, Response};
+use siros_openid4vp::wallet::Wallet;
+use siros_testkit::fixtures::{Held, env, first_selection, parameters, request_of, unsigned};
+
+use super::{MdocHost, P256, P384, QUERY, device_auth, issued, present, read, view};
+
+siros_testkit::test_host! {
+    /// The core's modules, without the device MAC.
+    #[derive(Default)]
+    struct MaclessHost {
+        handles { platform: siros_testkit::TestPlatform => siros_openid4vp::host::Platform }
+        zero_sized {
+            siros_testkit::TestHaip => siros_openid4vp::host::Haip,
+            siros_testkit::TestRequestDecryption => siros_openid4vp::host::RequestDecryption
+        }
+        optional { siros_testkit::TestCoseEncrypt => siros_openid4vp::host::CoseEncrypt }
+        lacks { siros_mdoc::DeviceMac }
+    }
+}
+
+#[test]
+fn the_device_authenticates_by_signature_or_by_mac_as_check_respond_states() {
+    // A signature when the Verifier states nothing or lists no MAC for the device key's curve; a
+    // MAC, agreed with the first Verifier key on that curve, when it lists only the MAC, or both
+    // and the presentation carries no transaction; a signature for a transaction when both are
+    // listed.
+    let transaction = || {
+        vec![(
+            Member::element("urn:paso:sca:1", "jti"),
+            MemberValue::Text("j".to_owned()),
+        )]
+    };
+    // (deviceauth_alg_values, the Verifier's keys, whether a transaction is carried, the mode
+    // and the MAC's Verifier key).
+    type Case = (
+        Option<&'static str>,
+        String,
+        bool,
+        (&'static str, Option<&'static str>),
+    );
+    let cases: [Case; 6] = [
+        (None, P256.to_owned(), false, ("deviceSignature", None)),
+        (
+            Some("[-9]"),
+            P256.to_owned(),
+            false,
+            ("deviceSignature", None),
+        ),
+        (
+            Some("[-65537]"),
+            format!("{P384}, {P256}"),
+            false,
+            ("deviceMac", Some("reader-p256")),
+        ),
+        (
+            Some("[-9, -65537]"),
+            P256.to_owned(),
+            false,
+            ("deviceMac", Some("reader-p256")),
+        ),
+        (
+            Some("[-9, -65537]"),
+            P256.to_owned(),
+            true,
+            ("deviceSignature", None),
+        ),
+        (
+            Some("[-65537]"),
+            P256.to_owned(),
+            true,
+            ("deviceMac", Some("reader-p256")),
+        ),
+    ];
+    let held = issued(&view(-7, "P-256"));
+    for (deviceauth, keys, carries, (mode, reader)) in cases {
+        let supported = deviceauth.map_or_else(String::new, |listed| {
+            format!(
+                r#","vp_formats_supported":{{"mso_mdoc":{{"deviceauth_alg_values":{listed}}}}}"#
+            )
+        });
+        let metadata = format!(r#"{{"jwks":{{"keys":[{keys}]}}{supported}}}"#);
+        let members = if carries { transaction() } else { Vec::new() };
+        let presentation = present(QUERY, &metadata, &held, members, None).expect("presentation");
+        assert_eq!(
+            device_auth(&read(&presentation)),
+            (mode.to_owned(), reader.map(str::to_owned)),
+            "{deviceauth:?} {keys} {carries}"
+        );
+    }
+}
+
+/// Phase 2 over `host` for the first selection of `QUERY` with the client metadata, its
+/// fetches unanswered.
+fn respond<H: CoreHost>(host: &H, client_metadata: &str, held: &Held) -> Result<Response, Outcome>
+where
+    Mdoc: HostedFormat<H>,
+{
+    let text = parameters(
+        &format!(r#"{{"credentials": [{QUERY}]}}"#),
+        &format!(r#""client_metadata":{client_metadata}"#),
+    );
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let mut builder = Registry::<H>::builder();
+    builder.format(Mdoc::new().expect("format"));
+    let registry = builder.build().expect("registry");
+    let wallet = Wallet::new(vec![held.credential().expect("credential")]).expect("wallet");
+    let env = env(&["en"], Vec::new()).expect("env");
+    let ids = first_selection(&request, &wallet, &registry, &env).expect("a selection");
+    let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    Prepared::prepare(&request, &ids, &wallet, &registry, &env)
+        .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
+}
+
+/// The device authentication of a response's one presentation.
+fn mode(response: &Response) -> (String, Option<String>) {
+    let token = Node::parse(&response.vp_token.json())
+        .expect("vp_token")
+        .into_owned();
+    let presentation = token
+        .get("q")
+        .and_then(Node::as_array)
+        .and_then(|presentations| presentations.first())
+        .expect("a presentation");
+    device_auth(&read(presentation))
+}
+
+#[test]
+fn a_build_without_the_device_mac_signs_where_the_verifier_lists_a_signature_and_falls_back_otherwise()
+ {
+    // B.2.4: the device key's signature (-9 for ES256) only where deviceauth_alg_values lists
+    // it or is absent; the MAC alone listed leaves the build no device authentication, which
+    // phase 2 finds before the End-User authenticates. The build with the module MACs wherever
+    // the MAC is listed, the presentation carrying no transaction.
+    let held = issued(&view(-7, "P-256"));
+    for (deviceauth, signs, macs) in [
+        (None, true, false),
+        (Some("[-9, -65537]"), true, true),
+        (Some("[-65537]"), false, true),
+    ] {
+        let supported = deviceauth.map_or_else(String::new, |listed| {
+            format!(
+                r#","vp_formats_supported":{{"mso_mdoc":{{"deviceauth_alg_values":{listed}}}}}"#
+            )
+        });
+        let metadata = format!(r#"{{"jwks":{{"keys":[{P256}]}}{supported}}}"#);
+        let macless = MaclessHost::default();
+        match respond(&macless, &metadata, &held) {
+            Ok(response) if signs => {
+                assert_eq!(
+                    mode(&response),
+                    ("deviceSignature".to_owned(), None),
+                    "{deviceauth:?}"
+                );
+                assert_eq!(macless.platform.authentications(), 1, "{deviceauth:?}");
+            }
+            Err(Outcome::Fallback(findings)) if !signs => {
+                let [Finding::Format { record: 0, finding }] = findings.items() else {
+                    panic!("{deviceauth:?}: {findings:?}");
+                };
+                let finding: &dyn Any = finding.as_ref();
+                assert_eq!(
+                    finding.downcast_ref::<DeviceAuthRefused>(),
+                    Some(&DeviceAuthRefused::NoDeviceMac),
+                    "{deviceauth:?}"
+                );
+                assert_eq!(macless.platform.authentications(), 0, "{deviceauth:?}");
+            }
+            other => panic!("{deviceauth:?}: {other:?}"),
+        }
+        let held_mac = MdocHost::default();
+        let response = respond(&held_mac, &metadata, &held).expect("answered");
+        let want = if macs {
+            ("deviceMac".to_owned(), Some("reader-p256".to_owned()))
+        } else {
+            ("deviceSignature".to_owned(), None)
+        };
+        assert_eq!(mode(&response), want, "{deviceauth:?}");
+        assert_eq!(held_mac.platform.authentications(), 1, "{deviceauth:?}");
+    }
+}

@@ -14,9 +14,9 @@ mod support;
 
 use ciborium::value::Value as Ciborium;
 use serde_json::{json, Value};
-use siros_codec::date::DateTime;
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_trust::Certificate;
+use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::prover::ProofFailure;
 use siros_zkp_catalogues::system::NymAuthSystem;
 use siros_zkp_catalogues::verify::{verify, Rejection, Tolerance, VerifyInput};

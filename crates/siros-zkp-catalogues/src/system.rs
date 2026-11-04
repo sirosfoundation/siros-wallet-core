@@ -3,7 +3,7 @@
 //!
 //! `urn:mms:bbs-cd:nym_auth:v1` is not listed: no Wallet proves it yet.
 
-use siros_codec::date::Date;
+use crate::date::Date;
 use siros_zkp_req::{CredentialType, PairRefusal, ProofBackend, SystemId, ZkProof};
 
 use crate::age::Bounds;
@@ -169,7 +169,7 @@ impl NymAuthSystem {
 
     /// The attestation form it proves over.
     pub fn form(self) -> Form {
-        Form::Mdoc
+        Form::StoredMdoc
     }
 
     /// The dates E and C may take (Section 2): 0000-01-01 to 9999-12-31 for both systems.

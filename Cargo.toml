@@ -11,6 +11,7 @@ members = [
     "crates/siros-explain-derive",
     "crates/siros-i18n",
     "crates/siros-cldr",
+    "crates/siros-integration",
     # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
     "crates/siros-codec",
     "crates/siros-dcql",

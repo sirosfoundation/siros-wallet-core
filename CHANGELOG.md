@@ -24,9 +24,14 @@ released version yet.
   go-wallet-backend `main`.
 
 - The presentation core: `siros-openid4vp`,
-  `siros-x509`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
-  `siros-explain-derive`, `siros-i18n` and `siros-cldr`, from the design's
-  reference implementation. Each is edition 2024 and unpublished.
+  `siros-x509`, `siros-mdoc`, `siros-sdjwt`, `siros-paso`, `siros-qes`,
+  `siros-testkit`, `siros-explain`, `siros-explain-derive`, `siros-i18n`,
+  `siros-cldr` and `siros-integration`, from the design's reference
+  implementation. Each is edition 2024 and unpublished. `siros-mdoc` and
+  `siros-sdjwt` replace the earlier crates of those names.
+- `siros-mdoc::stored` reads a stored mdoc: its items against the MSO's
+  digests, the MSO, `issuerAuth`, and the data the device key signs.
+  ISO/IEC 18013-5 Annex D's DeviceResponse is its known answer.
 
 ### Changed
 
@@ -35,7 +40,8 @@ released version yet.
   `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
   and refuses an indefinite length through the core's definite reading.
   `siros-zkp-catalogues` reads the semantics identifier from the trust
-  service's facts. `siros-trust` takes the core's `Timestamp` and identifiers.
+  service's facts, its stored mdocs through `siros-mdoc::stored`, and holds
+  its calendar dates and ES256 signatures. `siros-trust` takes the core's `Timestamp` and identifiers.
   `siros-wallet-state` holds its own errors and timestamp.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
   CBOR with definite lengths alone under a nesting bound, and reads a

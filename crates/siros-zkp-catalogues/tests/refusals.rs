@@ -11,13 +11,13 @@ mod refusal_cases;
 mod support;
 
 use serde_json::{json, Value};
-use siros_codec::date::DateTime;
 use siros_explain::MessageId;
 use siros_openid4vp::cbor::Value as Cbor;
 use siros_openid4vp::ids::{ClientId, Origin};
 use siros_trust::Certificate;
 use siros_zkp_catalogues::attestation::{SecretSeed, Unusable};
 use siros_zkp_catalogues::catalogue::{CatalogueRule, ContextFault, NymAuthQuery, ParamFault, Prf};
+use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::outcome::{CredentialCode, InvalidRequest, ItemCode, ZkpError};
 use siros_zkp_catalogues::policy::{ClientIdFault, PolicyRule};
 use siros_zkp_catalogues::presenter::{Answer, ProveError, Unanswerable};

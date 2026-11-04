@@ -1,0 +1,14 @@
+{
+     "vct": "https://example.com/custom-type-metadata",
+     "extends": "https://example.com/base-type-metadata",
+     "claims": [
+       {
+         "path": ["address", "city"],
+         "display": [{"label": "Town", "locale": "en"}]
+       },
+       {
+         "path": ["nationalities"],
+         "display": [{"label": "Nationalities", "locale": "en"}]
+       }
+     ]
+   }

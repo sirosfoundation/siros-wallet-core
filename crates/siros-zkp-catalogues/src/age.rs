@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use siros_codec::date::{is_leap, Date};
+use crate::date::{is_leap, Date};
 
 /// An age in whole years: `1*DIGIT`, any base-10 integer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
