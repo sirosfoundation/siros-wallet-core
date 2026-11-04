@@ -75,11 +75,8 @@ impl<M: ?Sized> Slot<M> for Empty {
     }
 }
 
-/// `host.get::<dyn Haip>()` for a required module, `host.maybe::<dyn CoseEncrypt>()` for one the
-/// build may hold.
-///
-/// [`Haip`]: super::Haip
-/// [`CoseEncrypt`]: super::CoseEncrypt
+/// `host.get::<dyn Haip>()` for a required module, `host.maybe::<dyn RequestDecryption>()` for one
+/// the build may hold.
 pub trait Host {
     /// The module the host holds.
     fn get<M: ?Sized>(&self) -> &M

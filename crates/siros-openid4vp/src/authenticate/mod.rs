@@ -194,7 +194,7 @@ pub enum ClaimChannel<'c> {
 }
 
 /// A prefix rule a claim breaks: the prefix the core called, and the plug-in's rule (A5). The
-/// core makes one from [`ClientPrefix::claim`]'s refusal.
+/// core makes one from [`PrefixHost::claim`]'s refusal.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.authenticate", id = "prefix")]
 #[error("{prefix}: {rule}")]
