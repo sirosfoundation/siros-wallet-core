@@ -6,7 +6,7 @@ use siros_paso::mandate::MandateLabel;
 use siros_paso::rulebook::{Rulebook, Subtype};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
-/// embeddings and overrides, an isolate left open; a closed isolate passes.
+/// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
 #[test]
 fn single_labels_meet_section_3_3_as_it_states() {
     let claim = LabelSlot::ClaimName;
@@ -25,11 +25,6 @@ fn single_labels_meet_section_3_3_as_it_states() {
         LabelText::parse("a\nb", claim),
         Err(LabelViolation::Control('\n'))
     );
-    // U+0085 is whitespace to Python's str.strip: alone it leaves a blank label.
-    assert_eq!(
-        LabelText::parse("\u{85}", claim),
-        Err(LabelViolation::Blank)
-    );
     assert_eq!(
         LabelText::parse("a\u{85}b", claim),
         Err(LabelViolation::Control('\u{85}'))
@@ -43,10 +38,8 @@ fn single_labels_meet_section_3_3_as_it_states() {
         Err(LabelViolation::Directional(_))
     ));
     assert!(LabelText::parse("a\u{2066}b\u{2069}", claim).is_ok());
-    assert_eq!(
-        LabelText::parse(" \u{3000}", claim),
-        Err(LabelViolation::Blank)
-    );
+    // §3.3 holds no rule on white space.
+    assert!(LabelText::parse(" \u{3000}", claim).is_ok());
     assert_eq!(
         LabelText::parse(&"x".repeat(41), LabelSlot::Affirmative),
         Err(LabelViolation::TooLong {

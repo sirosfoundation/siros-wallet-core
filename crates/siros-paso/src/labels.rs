@@ -2,7 +2,6 @@
 //! too.
 
 use siros_explain::Explain;
-use siros_openid4vp::text::python_space;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// A string that breaks the directional rule.
@@ -67,9 +66,6 @@ impl LabelSlot {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso.label")]
 pub enum LabelViolation {
-    /// Whitespace alone: Credential Manager needs a non-blank field name (ABI.md §5).
-    #[error("blank label")]
-    Blank,
     /// A C0 (U+0000 to U+001F) or C1 (U+0080 to U+009F) control character.
     #[error("control character U+{:04X}", u32::from(*.0))]
     Control(#[explain(skip)] char),
@@ -91,12 +87,9 @@ pub enum LabelViolation {
 pub struct LabelText<'t>(&'t str);
 
 impl<'t> LabelText<'t> {
-    /// The text when it meets the rules for the slot: not blank, no control character, the
-    /// directional rule, at most the slot's length in extended grapheme clusters.
+    /// The text when it meets the rules for the slot: no control character, the directional
+    /// rule, at most the slot's length in extended grapheme clusters.
     pub fn parse(text: &'t str, slot: LabelSlot) -> Result<Self, LabelViolation> {
-        if text.chars().all(python_space) {
-            return Err(LabelViolation::Blank);
-        }
         if let Some(control) = text
             .chars()
             .find(|c| matches!(u32::from(*c), 0..0x20 | 0x80..0xA0))
