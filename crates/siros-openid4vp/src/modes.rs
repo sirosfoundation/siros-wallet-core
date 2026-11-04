@@ -9,7 +9,16 @@ use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::{Agreements, ClientMetadata, ContentEncryption, Curve, KeyAgreement, Request};
 use crate::routing::{ChannelKind, Mode, ModeName, VerifierKey, VerifierMetadata};
 #[cfg(feature = "resolve")]
+use std::borrow::Cow;
+
+#[cfg(feature = "resolve")]
+use crate::json::Node;
+#[cfg(feature = "resolve")]
+use crate::plugins::Fault;
+#[cfg(feature = "resolve")]
 use crate::routing::{Encrypting, ModeHost};
+#[cfg(feature = "resolve")]
+use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
 
 /// `dc_api` (A.2): the Authorization Response in the clear, as the DigitalCredential's `data`.
@@ -65,7 +74,7 @@ const KEY_RULE: Agreements = Agreements::new(
 );
 
 /// The `wallet_metadata` members `direct_post.jwt` writes (JARM §4's names, as §5.10 uses them).
-const JWE_METADATA: &[ParameterName] = &[
+const JWE_NAMES: [ParameterName; 2] = [
     siros_explain::checked!(
         ParameterName,
         "authorization_encryption_alg_values_supported"
@@ -235,7 +244,7 @@ impl Mode for DirectPostJwt {
     }
 
     fn metadata_names(&self) -> &'static [ParameterName] {
-        JWE_METADATA
+        &JWE_NAMES
     }
 }
 
@@ -267,6 +276,15 @@ impl<H> ModeHost<H> for DcApi {
     ) -> Result<Encrypting<'k>, Refusal> {
         Ok(Encrypting::Plain)
     }
+
+    /// None: a DC API request posts no `wallet_metadata`.
+    fn wallet_metadata(
+        &self,
+        _sealer: &Agreements,
+        _host: &H,
+    ) -> Result<Vec<MetadataMember>, Fault> {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(feature = "resolve")]
@@ -278,6 +296,15 @@ impl<H> ModeHost<H> for DcApiJwt {
         _host: &H,
     ) -> Result<Encrypting<'k>, Refusal> {
         encrypting(self.name(), metadata, sealer)
+    }
+
+    /// None: a DC API request posts no `wallet_metadata`.
+    fn wallet_metadata(
+        &self,
+        _sealer: &Agreements,
+        _host: &H,
+    ) -> Result<Vec<MetadataMember>, Fault> {
+        Ok(Vec::new())
     }
 }
 
@@ -291,6 +318,41 @@ impl<H> ModeHost<H> for DirectPostJwt {
     ) -> Result<Encrypting<'k>, Refusal> {
         encrypting(self.name(), metadata, sealer)
     }
+
+    /// `authorization_encryption_alg_values_supported` and
+    /// `authorization_encryption_enc_values_supported` (JARM §4, as §5.10 uses them): the key
+    /// rule's ECDH-ES on P-256 with A128GCM or A256GCM that `sealer` admits, in its order; none
+    /// when it admits neither.
+    fn wallet_metadata(
+        &self,
+        sealer: &Agreements,
+        _host: &H,
+    ) -> Result<Vec<MetadataMember>, Fault> {
+        let names = |values: Vec<&'static str>| {
+            Node::Array(
+                values
+                    .into_iter()
+                    .map(|value| Node::String(Cow::Borrowed(value)))
+                    .collect(),
+            )
+        };
+        let encryptions: Vec<&'static str> = sealer
+            .encryptions()
+            .iter()
+            .filter(|enc| KEY_RULE.encryptions().contains(enc))
+            .filter(|enc| sealer.admits(Curve::P_256, KeyAgreement::ECDH_ES, **enc))
+            .map(|enc| enc.as_str())
+            .collect();
+        let [alg, enc] = JWE_NAMES;
+        Ok(if encryptions.is_empty() {
+            Vec::new()
+        } else {
+            vec![
+                MetadataMember::new(alg, names(vec![KeyAgreement::ECDH_ES.as_str()])),
+                MetadataMember::new(enc, names(encryptions)),
+            ]
+        })
+    }
 }
 
 /// `direct_post` carries errors alone, in the clear.
@@ -303,5 +365,14 @@ impl<H> ModeHost<H> for DirectPost {
         _host: &H,
     ) -> Result<Encrypting<'k>, Refusal> {
         Ok(Encrypting::Plain)
+    }
+
+    /// None.
+    fn wallet_metadata(
+        &self,
+        _sealer: &Agreements,
+        _host: &H,
+    ) -> Result<Vec<MetadataMember>, Fault> {
+        Ok(Vec::new())
     }
 }

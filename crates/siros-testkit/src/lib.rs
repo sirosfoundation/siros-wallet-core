@@ -4,11 +4,12 @@
 //! every such entry ([`TestProfile`]), the doubles of the core's host modules ([`TestPlatform`],
 //! [`TestHaip`], [`TestRequestDecryption`]) with [`test_host!`], their JOSE
 //! ([`jose`]) and the COSE_Encrypt stand-in ([`cose`]), the test Verifier's Client Identifier
-//! Prefix and a trust service double ([`prefix`]), the resources a test publishes for phase 2's
-//! fetches ([`Published`]), the issuer stand-in ([`issuer`]), the encoders of [`verifier`], the
-//! reading of an mdoc presentation in the reference model's shape ([`reading`]), the fixtures the
-//! format plug-ins' tests share ([`fixtures`]), and the reference model's shapes the tests read
-//! ([`oracle`]).
+//! Prefix and a trust service double ([`prefix`]), the `request_uri` POST's contribution and the
+//! Response URI answer's reader ([`TestPostContribution`], [`TestAnswerReader`]), the resources
+//! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-in ([`issuer`]), the
+//! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
+//! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
+//! model's shapes the tests read ([`oracle`]).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -38,6 +39,7 @@ mod host;
 pub mod issuer;
 pub mod jose;
 pub mod oracle;
+mod post;
 pub mod prefix;
 mod profile;
 mod published;
@@ -79,6 +81,7 @@ impl Messages for CrateMessages {
 pub use format::TestFormat;
 pub use host::{TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
 pub use jose::TestRequestDecryption;
+pub use post::{TestAnswerReader, TestPostContribution};
 pub use prefix::{Registration, TestPrefix, TestTrust};
 pub use profile::{Binds, Stale, TestProfile};
 pub use published::{Published, PublishedResource};

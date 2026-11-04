@@ -4,7 +4,7 @@
 //! request derived it: a record commits to the request as received.
 
 use serde_json::{Value, json};
-use siros_openid4vp::authenticate::{OriginPolicy, RequestClaims, TrustConfig};
+use siros_openid4vp::authenticate::{OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::Seconds;
 use siros_openid4vp::jose::Skew;
@@ -92,7 +92,6 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     let config = TrustConfig {
         skew: Skew::new(Seconds(60)).expect("a skew"),
         origins: OriginPolicy::Accept,
-        claims: RequestClaims::Checked,
     };
     let trust = TestTrust::default();
     let pending = envelope

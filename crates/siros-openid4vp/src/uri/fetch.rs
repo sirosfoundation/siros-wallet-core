@@ -12,7 +12,7 @@ use crate::jose::{CompactJwe, CompactJws, JwsError};
 use crate::plugins::{Fault, Registry};
 use crate::recourse::{self, Rejected};
 use crate::request::Curve;
-use crate::wallet_metadata::{RequestUriPost, WalletMetadata};
+use crate::wallet_metadata::{MetadataRefused, RequestUriPost, WalletMetadata};
 use crate::{FAULT, detail};
 
 /// What the caller fetches, with `Accept: application/oauth-authz-req+jwt` (RFC 9101 §5.2.3,
@@ -39,13 +39,17 @@ pub enum FetchAnswer<'b> {
     Failed(FetchFailure),
 }
 
-/// Why a URI gives no fetch: the URI breaks a U rule, or a module broke its contract.
+/// Why a URI gives no fetch: the URI breaks a U rule, a `wallet_metadata` contributor broke its
+/// declaration, or a module broke its contract.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.fetch")]
 pub enum NoFetch {
     /// A U rule.
     #[error(transparent)]
     Unreadable(#[from] Unreadable),
+    /// A contributor broke its declaration.
+    #[error(transparent)]
+    Metadata(#[from] MetadataRefused),
     /// The host's module or a format's member broke its contract.
     #[error(transparent)]
     Fault(#[from] Fault),
@@ -112,13 +116,7 @@ impl<'a> Fetch<'a> {
                         }
                     })
                     .transpose()?;
-                let verifies = uri
-                    .client_id()
-                    .as_str()
-                    .split_once(':')
-                    .and_then(|(prefix, _)| registry.client_prefix(prefix))
-                    .map(|(_, haip)| haip(host).verifies());
-                let metadata = WalletMetadata::of(registry, key.as_ref(), verifies, host)?;
+                let metadata = WalletMetadata::of(registry, host, uri.client_id(), key.as_ref())?;
                 let body = FormBody::of(&RequestUriPost::of(&metadata))?;
                 FetchMethod::Post { body, key }
             }

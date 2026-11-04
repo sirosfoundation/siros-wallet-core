@@ -23,6 +23,9 @@ released version yet.
   `Full` when the set needs no wallet display (A9, K4). `siros-openid4vp`
   composes the consent entry as platform-neutral data (`consent`), its
   transaction header filled by the profile.
+- `siros-webuild` holds WE BUILD's CS-02 rules: `Cs02Claims` requires a
+  Request Object's `exp` and `aud` (CS-02 §8.2), `Cs02ErrorAnswer` reads the
+  Verifier's error answer from the Response URI (CS-02 §8.3).
 
 ### Changed
 
@@ -42,6 +45,14 @@ released version yet.
   `Presentation::object` alone (§8.1). A format states a credential's types
   (`ViewAdditions`), which a profile reads in its `Binding`; `siros-sdjwt`'s
   `vct_values` matches a type the credential's `extends` chain names (B.3.5).
+- `siros-openid4vp` composes `wallet_metadata` from what each registered part
+  contributes: the formats, the prefixes (`client_id_prefixes_supported`), the
+  prefix's verifying module, the URI modes, encrypted Request Objects and each
+  `PostContribution`, whose parameters the POST carries beside it. The
+  Response URI's answer reads through registered `AnswerReader`s. The registry
+  refuses a name two parts declare and one the core writes. `RequestClaims`
+  leaves `TrustConfig`: a deployment requiring claims registers an
+  `ObjectRule`.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
   CBOR with definite lengths alone under a nesting bound, and reads a
   `dcql_query`'s Credential Queries alone (`Query::read_all`).

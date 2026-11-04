@@ -9,8 +9,8 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
-    Authenticated, BoundEndpoint, EndpointBasis, OriginPolicy, RequestClaims, TrustConfig,
-    Unauthenticated, VerifierId,
+    Authenticated, BoundEndpoint, EndpointBasis, OriginPolicy, TrustConfig, Unauthenticated,
+    VerifierId,
 };
 use siros_openid4vp::effects::{Decision, Evaluation, Verdict};
 use siros_openid4vp::envelope::Envelope;
@@ -43,7 +43,6 @@ fn config() -> TrustConfig {
     TrustConfig {
         skew: Skew::new(Seconds(60)).expect("skew"),
         origins: OriginPolicy::Accept,
-        claims: RequestClaims::Checked,
     }
 }
 

@@ -350,16 +350,6 @@ pub enum OriginPolicy {
     Evaluate,
 }
 
-/// A Request Object's `exp` and `aud`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestClaims {
-    /// Checked when present (RFC 7519 §4.1.3, §4.1.4).
-    Checked,
-    /// Present, then checked (CS-02 §8.2: "The Presentation Request Object MUST include"): A9
-    /// for `exp` absent, A10 for `aud` absent.
-    Required,
-}
-
 /// A rule a profile or a deployment sets on an authenticated Request Object's claims, beside RFC
 /// 7519's checks when present (A9, A10): a claim it requires, a value it restricts.
 ///
@@ -382,8 +372,6 @@ pub struct TrustConfig {
     pub skew: Skew,
     /// Unsigned DC API requests.
     pub origins: OriginPolicy,
-    /// A Request Object's `exp` and `aud`.
-    pub claims: RequestClaims,
 }
 
 /// Why the wallet does not authenticate the Verifier (the A rules).
@@ -418,16 +406,15 @@ pub enum Unauthenticated {
     #[error("A8 the signature does not verify")]
     #[explain(id = "a8")]
     Signature,
-    /// A9: the Request Object is expired or not yet valid (RFC 7519 §4.1.4, §4.1.5), or under
-    /// `RequestClaims::Required` states no `exp`.
+    /// A9: the Request Object is expired or not yet valid (RFC 7519 §4.1.4, §4.1.5).
     #[error("A9 the Request Object is outside its validity: {0}")]
     #[explain(id = "a9")]
-    Validity(#[explain(name = "cause")] OutsideValidity),
+    Validity(#[explain(name = "cause")] crate::jose::TimeError),
     /// A10: `aud` names another recipient than `https://self-issued.me/v2` (§5.8, RFC 7519
-    /// §4.1.3), or under `RequestClaims::Required` is absent.
+    /// §4.1.3).
     #[error("A10 aud {0:?} names another recipient")]
     #[explain(id = "a10")]
-    Audience(#[explain(name = "aud")] Option<String>),
+    Audience(#[explain(name = "aud")] String),
     /// A11: no signature of a multisigned request authenticates; each one's reason.
     #[error("A11 no signature authenticates the Verifier")]
     #[explain(id = "a11")]
@@ -468,18 +455,6 @@ impl Unauthenticated {
             | Self::EndpointScheme(_) => ErrorCode::INVALID_REQUEST,
         }
     }
-}
-
-/// Why a Request Object is outside its validity (A9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.authenticate.validity")]
-pub enum OutsideValidity {
-    /// `exp` or `nbf` is no NumericDate, `exp` has passed or `nbf` is still ahead.
-    #[error(transparent)]
-    Time(crate::jose::TimeError),
-    /// `exp` absent under `RequestClaims::Required`.
-    #[error("exp is absent")]
-    ExpAbsent,
 }
 
 /// The Verifier as authenticated.

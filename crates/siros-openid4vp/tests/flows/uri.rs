@@ -146,7 +146,8 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         panic!("a POST")
     };
     assert_eq!(target.as_str(), super::REQUEST_URI);
-    // §5.10: wallet_metadata alone, a JSON string, its members what §5.10 and CS-12 ask, and no more.
+    // §5.10: wallet_metadata alone, a JSON string, its members what §5.10, §10.1 and CS-12 ask,
+    // and no more.
     let form: Vec<(String, String)> = serde_urlencoded::from_str(body.as_str()).expect("a form");
     let [(name, metadata)] = form.as_slice() else {
         panic!("one member: {form:?}")
@@ -165,10 +166,16 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         [
             "authorization_encryption_alg_values_supported",
             "authorization_encryption_enc_values_supported",
+            "client_id_prefixes_supported",
             "jwks",
             "request_object_signing_alg_values_supported",
             "vp_formats_supported",
         ]
+    );
+    // §10.1: the prefixes the build registers.
+    assert_eq!(
+        metadata["client_id_prefixes_supported"],
+        serde_json::json!(["test"])
     );
     assert_eq!(
         metadata["request_object_signing_alg_values_supported"],
@@ -291,4 +298,109 @@ fn the_by_reference_example_of_section_8_2_terminates_by_u14() {
     let rejected = siros_openid4vp::recourse::Rejected::unreadable(&received, cause);
     assert_eq!(rejected.failure().code(), None);
     assert!(rejected.route().is_none());
+}
+
+#[test]
+fn a_post_carries_each_contribution_by_the_names_it_declared() {
+    use siros_openid4vp::json::Node;
+    use siros_openid4vp::plugins::Registry;
+    use siros_openid4vp::wallet_metadata::{
+        MetadataMember, MetadataRefused, ParameterName, PostContent, PostParameter,
+    };
+    use siros_testkit::{TestFormat, TestPostContribution, TestPrefix};
+    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
+    const PARAMETER: ParameterName = siros_explain::checked!(ParameterName, "test_parameter");
+    const OTHER: ParameterName = siros_explain::checked!(ParameterName, "other_member");
+    let build = |format: TestFormat, content: PostContent| {
+        let mut builder = Registry::<TestHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
+        builder.format(format);
+        builder.client_prefix(TestPrefix::Request);
+        builder.post_contribution(TestPostContribution {
+            members: &[MEMBER],
+            parameters: &[PARAMETER],
+            content,
+        });
+        builder.build().expect("registry")
+    };
+    let format = || TestFormat::new().expect("format");
+    let uri = link("test%3Averifier", "&request_uri_method=post");
+    let host = TestHost::default();
+    // §10.1, §5.10: a contribution's member in wallet_metadata, its parameter beside it.
+    let content = PostContent {
+        members: vec![MetadataMember::new(MEMBER, Node::Bool(true))],
+        parameters: vec![PostParameter::new(PARAMETER, "x y".to_owned())],
+    };
+    let registry = build(format(), content);
+    let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
+    let RequestObjectFetch::Post { body, .. } = fetch.request() else {
+        panic!("a POST")
+    };
+    let form: Vec<(String, String)> = serde_urlencoded::from_str(body.as_str()).expect("a form");
+    let [(first, metadata), (second, value)] = form.as_slice() else {
+        panic!("two members: {form:?}")
+    };
+    assert_eq!(
+        (first.as_str(), second.as_str(), value.as_str()),
+        ("wallet_metadata", "test_parameter", "x y")
+    );
+    let metadata: Value = serde_json::from_str(metadata).expect("JSON");
+    assert_eq!(metadata["test_member"], serde_json::json!(true));
+    // A member or a parameter of a name the contribution did not declare.
+    let undeclared = [
+        PostContent {
+            members: vec![MetadataMember::new(OTHER, Node::Bool(true))],
+            parameters: Vec::new(),
+        },
+        PostContent {
+            members: Vec::new(),
+            parameters: vec![PostParameter::new(OTHER, String::new())],
+        },
+    ];
+    for content in undeclared {
+        let registry = build(format(), content);
+        assert!(matches!(
+            Fetch::of(&uri, &registry, &host),
+            Err(NoFetch::Metadata(MetadataRefused::Undeclared(name))) if name == OTHER
+        ));
+    }
+    // §10.1: a format's vp_formats_supported value is an object.
+    let registry = build(format().stating(Node::Bool(true)), PostContent::default());
+    assert!(matches!(
+        Fetch::of(&uri, &registry, &host),
+        Err(NoFetch::Metadata(MetadataRefused::NotObject(member))) if member == "vp_formats_supported.test"
+    ));
+}
+
+#[test]
+fn a_response_uri_answer_is_a_json_object_and_redirects_to_a_uri() {
+    use siros_openid4vp::uri::{AnswerError, ResponseUriAnswer};
+    let registry = registry();
+    // §8.2: a JSON object, its redirect_uri a URI with a scheme, a fragment allowed (reading 23).
+    let answer = ResponseUriAnswer::parse(
+        r#"{"redirect_uri": "https://verifier.example/cb#s", "other": 1}"#,
+        &registry,
+    )
+    .expect("an answer");
+    assert_eq!(
+        answer.redirect().map(|uri| uri.as_str()),
+        Some("https://verifier.example/cb#s")
+    );
+    for (body, want) in [
+        ("[]", "object"),
+        ("no JSON", "object"),
+        (
+            r#"{"redirect_uri": "https://a.example", "redirect_uri": "https://b.example"}"#,
+            "object",
+        ),
+        (r#"{"redirect_uri": "/cb"}"#, "redirect"),
+        (r#"{"redirect_uri": 1}"#, "redirect"),
+    ] {
+        let got = ResponseUriAnswer::parse(body, &registry).map(drop);
+        let holds = matches!(
+            (&got, want),
+            (Err(AnswerError::NotObject), "object") | (Err(AnswerError::RedirectUri), "redirect")
+        );
+        assert!(holds, "{body}: {got:?}");
+    }
 }

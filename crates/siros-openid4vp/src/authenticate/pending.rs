@@ -7,8 +7,8 @@ use siros_explain::AllOf;
 
 use super::{
     BoundEndpoint, ClaimChannel, ClientBinding, ClientClaim, EndpointBasis, ObjectRule,
-    OriginPolicy, OutsideValidity, PrefixClaim, PrefixRefusal, RequestClaims, TrustConfig,
-    Unauthenticated, Unbound, Verifier, VerifierId,
+    OriginPolicy, PrefixClaim, PrefixRefusal, TrustConfig, Unauthenticated, Unbound, Verifier,
+    VerifierId,
 };
 use crate::arrival::ReceivedForm;
 use crate::effects::{
@@ -17,7 +17,7 @@ use crate::effects::{
 use crate::envelope::{Channel, Envelope, Signatures, Signer};
 use crate::host::{CoreHost, Host, Platform};
 use crate::ids::{ClientId, Origin};
-use crate::jose::{Signed, Validity};
+use crate::jose::{Signed, TimeError, Validity};
 use crate::json::{Node, Object};
 use crate::plugins::Registry;
 use crate::plugins::registry::HaipAccess;
@@ -521,31 +521,21 @@ impl<'e> Check<'_, 'e> {
     }
 
     /// A9: the Request Object is processed before `exp` and at or after `nbf`, each within the
-    /// skew; under `RequestClaims::Required`, `exp` is present.
-    fn validity(&self) -> Result<(), OutsideValidity> {
+    /// skew, when present (RFC 7519 §4.1.4, §4.1.5).
+    fn validity(&self) -> Result<(), TimeError> {
         let parameters = self.envelope.parameters();
-        let validity = Validity::read(parameters.json("exp"), parameters.json("nbf"))
-            .map_err(OutsideValidity::Time)?;
-        if self.config.claims == RequestClaims::Required && validity.exp().is_none() {
-            return Err(OutsideValidity::ExpAbsent);
-        }
-        validity
+        Validity::read(parameters.json("exp"), parameters.json("nbf"))?
             .check(self.now, self.config.skew)
-            .map_err(OutsideValidity::Time)
     }
 
-    /// A10: `aud` absent or `https://self-issued.me/v2`; under `RequestClaims::Required`,
-    /// present.
-    fn audience(&self) -> Result<(), Option<String>> {
+    /// A10: `aud` absent or `https://self-issued.me/v2` (§5.8).
+    fn audience(&self) -> Result<(), String> {
         match self.envelope.parameters().json("aud") {
-            None if self.config.claims == RequestClaims::Checked => Ok(()),
-            None => Err(None),
+            None => Ok(()),
             Some(Node::String(aud)) if aud == SELF_ISSUED => Ok(()),
-            Some(other) => Err(Some(
-                other
-                    .as_str()
-                    .map_or_else(|| other.python_compact().to_string(), str::to_owned),
-            )),
+            Some(other) => Err(other
+                .as_str()
+                .map_or_else(|| other.python_compact().to_string(), str::to_owned)),
         }
     }
 }

@@ -1,0 +1,21 @@
+[package]
+name = "siros-webuild"
+version = "0.1.0"
+description = "WE BUILD's CS-02 rules for the SIROS wallet core: the Request Object claims CS-02 §8.2 requires, and the Verifier's error answer of CS-02 §8.3"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+siros-testkit = { workspace = true }
+
+[lints]
+workspace = true

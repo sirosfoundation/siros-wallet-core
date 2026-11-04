@@ -14,9 +14,7 @@ mod uri;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::arrival::Received;
-use siros_openid4vp::authenticate::{
-    Authenticated, OriginPolicy, Pending, RequestClaims, TrustConfig,
-};
+use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, Pending, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::Seconds;
 use siros_openid4vp::jose::Skew;
@@ -85,7 +83,6 @@ fn config() -> TrustConfig {
     TrustConfig {
         skew: Skew::new(Seconds(60)).expect("a skew"),
         origins: OriginPolicy::Accept,
-        claims: RequestClaims::Checked,
     }
 }
 

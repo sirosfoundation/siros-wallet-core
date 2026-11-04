@@ -156,8 +156,6 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             authenticate::Unbound::messages,
             #[cfg(feature = "resolve")]
-            authenticate::OutsideValidity::messages,
-            #[cfg(feature = "resolve")]
             recourse::Failure::messages,
             #[cfg(feature = "resolve")]
             uri::NotHttps::messages,
@@ -165,6 +163,10 @@ impl siros_explain::Messages for CrateMessages {
             uri::NotUri::messages,
             #[cfg(feature = "resolve")]
             uri::NoFetch::messages,
+            #[cfg(feature = "resolve")]
+            uri::AnswerError::messages,
+            #[cfg(feature = "resolve")]
+            wallet_metadata::MetadataRefused::messages,
             #[cfg(feature = "resolve")]
             resolve::Outcome::messages,
         ];

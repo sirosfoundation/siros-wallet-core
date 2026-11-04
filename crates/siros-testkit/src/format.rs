@@ -55,6 +55,7 @@ pub struct TestFormat {
     id: FormatId<'static>,
     reserved: [Member; 2],
     placement: Placement,
+    formats: Node<'static>,
 }
 
 impl TestFormat {
@@ -69,7 +70,14 @@ impl TestFormat {
             id: FormatId::parse("test")?,
             reserved: [Member::claim("aud"), Member::claim("nonce")],
             placement,
+            formats: Node::Object(siros_openid4vp::json::Object::default()),
         })
+    }
+
+    /// The format, its `vp_formats_supported` member `formats`, which may be no object.
+    #[must_use]
+    pub fn stating(self, formats: Node<'static>) -> Self {
+        Self { formats, ..self }
     }
 }
 
@@ -82,9 +90,9 @@ impl Format for TestFormat {
         &self.reserved
     }
 
-    /// No member: the test format states no algorithm.
+    /// No member unless [`TestFormat::stating`] gave one: the test format states no algorithm.
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
-        Ok(Node::Object(siros_openid4vp::json::Object::default()))
+        Ok(self.formats.clone())
     }
 
     fn placement(&self) -> Option<Placement> {

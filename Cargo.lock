@@ -3404,6 +3404,7 @@ dependencies = [
  "siros-qes",
  "siros-sdjwt",
  "siros-testkit",
+ "siros-webuild",
  "siros-x509",
 ]
 
@@ -3544,6 +3545,16 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "siros-webuild"
+version = "0.1.0"
+dependencies = [
+ "siros-explain",
+ "siros-openid4vp",
+ "siros-testkit",
  "thiserror 2.0.21",
 ]
 

@@ -7,6 +7,7 @@ members = [
     "crates/siros-paso",
     "crates/siros-qes",
     "crates/siros-credman",
+    "crates/siros-webuild",
     "crates/siros-testkit",
     "crates/siros-explain",
     "crates/siros-explain-derive",
@@ -69,6 +70,7 @@ siros-explain = { path = "crates/siros-explain" }
 siros-explain-derive = { path = "crates/siros-explain-derive" }
 siros-x509 = { path = "crates/siros-x509" }
 siros-credman = { path = "crates/siros-credman" }
+siros-webuild = { path = "crates/siros-webuild" }
 siros-i18n = { path = "crates/siros-i18n", default-features = false }
 base64 = "0.23.1"
 sha2 = "0.11.1"

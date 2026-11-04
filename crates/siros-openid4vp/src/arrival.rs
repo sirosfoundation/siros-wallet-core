@@ -68,7 +68,7 @@ impl IntoArg for DcApiProtocol {
 }
 
 /// The DC API protocols the wallet registers with the platform: [`DcApiProtocols::ALL`] under
-/// HAIP's width, [`DcApiProtocols::SIGNED`] under the WE BUILD build (CS-07 WU-DC-01; CS-02 §7.1).
+/// HAIP's width, [`DcApiProtocols::SIGNED`] for a deployment that admits signed requests alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DcApiProtocols(&'static [DcApiProtocol]);
 

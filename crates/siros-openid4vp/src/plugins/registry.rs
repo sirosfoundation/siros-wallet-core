@@ -21,6 +21,8 @@ use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 use crate::host::{Haip, Has, RequestDecryption};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
 #[cfg(feature = "resolve")]
+use crate::request::Agreements;
+#[cfg(feature = "resolve")]
 use crate::routing::ModeHost;
 use crate::routing::{
     Carries, ChannelKind, Mode, ModeHandle, ModeName, ResponseType, ResponseTypeName, RoutedMode,
@@ -31,7 +33,11 @@ use crate::rows::HttpsUrl;
 use crate::scope::ScopeQuery;
 use crate::scope::{ScopeEntry, ScopeValue, Scopes};
 #[cfg(feature = "resolve")]
-use crate::uri::{EncryptedRequests, RequestPost};
+use crate::uri::{AnswerReader, EncryptedRequests, RequestPost};
+#[cfg(feature = "resolve")]
+use crate::wallet_metadata::{
+    CORE_ANSWER, CORE_PARAMETERS, HostedPostContribution, MetadataMember, PostContribution,
+};
 use crate::wallet_metadata::{CORE_METADATA, NamePlace, ParameterName, Placement};
 #[cfg(feature = "match")]
 use crate::{
@@ -294,6 +300,10 @@ pub struct Registry<H = NoHost> {
     object_rules: Vec<Box<dyn ObjectRule>>,
     #[cfg(feature = "resolve")]
     post: Option<Post<H>>,
+    #[cfg(feature = "resolve")]
+    contributions: Vec<Box<dyn HostedPostContribution<H>>>,
+    #[cfg(feature = "resolve")]
+    readers: Vec<Box<dyn AnswerReader>>,
 }
 
 impl<H> fmt::Debug for Registry<H> {
@@ -330,6 +340,10 @@ pub struct RegistryBuilder<H = NoHost> {
     object_rules: Vec<Box<dyn ObjectRule>>,
     #[cfg(feature = "resolve")]
     posts: Vec<PostPart<H>>,
+    #[cfg(feature = "resolve")]
+    contributions: Vec<Box<dyn HostedPostContribution<H>>>,
+    #[cfg(feature = "resolve")]
+    readers: Vec<Box<dyn AnswerReader>>,
 }
 
 impl<H> Default for RegistryBuilder<H> {
@@ -350,6 +364,10 @@ impl<H> Default for RegistryBuilder<H> {
             object_rules: Vec::new(),
             #[cfg(feature = "resolve")]
             posts: Vec::new(),
+            #[cfg(feature = "resolve")]
+            contributions: Vec::new(),
+            #[cfg(feature = "resolve")]
+            readers: Vec::new(),
         }
     }
 }
@@ -545,11 +563,30 @@ impl<H> RegistryBuilder<H> {
         }));
     }
 
+    /// Members of `wallet_metadata` and parameters of the `request_uri` POST a profile or a
+    /// deployment adds (§10.1, §5.10: "Additional parameters MAY be defined"), keyed by their
+    /// names: `build` refuses a name another part declares (`NameTwice`) and a name the core
+    /// writes (`NameReserved`).
+    #[cfg(feature = "resolve")]
+    pub fn post_contribution(&mut self, contribution: impl HostedPostContribution<H> + 'static) {
+        self.contributions.push(Box::new(contribution));
+    }
+
+    /// A reader of the Response URI's answer members (§8.2: "Additional parameters MAY be
+    /// defined"), keyed by their names: `build` refuses a name another reader declares
+    /// (`NameTwice`) and `redirect_uri` (`NameReserved`).
+    #[cfg(feature = "resolve")]
+    pub fn answer_reader(&mut self, reader: impl AnswerReader + 'static) {
+        self.readers.push(Box::new(reader));
+    }
+
     /// The registry. Refused when a response type is registered twice, a mode twice on one
     /// channel, an error mode twice or on the DC API, two formats share an identifier, a type or
     /// prefix is registered twice, a registration names no profile, a profile would write a
-    /// member twice into one presentation, or a profile names a member the format's placement
-    /// does not hold.
+    /// member twice into one presentation, a profile names a member the format's placement does
+    /// not hold, the POST or encrypted Request Objects are registered twice or encrypted Request
+    /// Objects without the POST, or two parts declare one name or a part declares one the core
+    /// writes.
     pub fn build(self) -> Result<Registry<H>, RegistryError> {
         let Self {
             hashes,
@@ -567,6 +604,10 @@ impl<H> RegistryBuilder<H> {
             object_rules,
             #[cfg(feature = "resolve")]
             posts,
+            #[cfg(feature = "resolve")]
+            contributions,
+            #[cfg(feature = "resolve")]
+            readers,
         } = self;
         for (k, algorithm) in hashes.iter().enumerate() {
             if hashes
@@ -604,7 +645,27 @@ impl<H> RegistryBuilder<H> {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
         }
-        names(&modes)?;
+        #[cfg(feature = "resolve")]
+        let declared = Declared {
+            members: contributions
+                .iter()
+                .flat_map(|c| PostContribution::members(c.as_ref()))
+                .copied()
+                .collect(),
+            parameters: contributions
+                .iter()
+                .flat_map(|c| PostContribution::parameters(c.as_ref()))
+                .copied()
+                .collect(),
+            answers: readers
+                .iter()
+                .flat_map(|reader| reader.names())
+                .copied()
+                .collect(),
+        };
+        #[cfg(not(feature = "resolve"))]
+        let declared = Declared::default();
+        names(&modes, declared)?;
         #[cfg(feature = "resolve")]
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
@@ -719,6 +780,10 @@ impl<H> RegistryBuilder<H> {
             object_rules,
             #[cfg(feature = "resolve")]
             post,
+            #[cfg(feature = "resolve")]
+            contributions,
+            #[cfg(feature = "resolve")]
+            readers,
         })
     }
 }
@@ -750,18 +815,52 @@ impl<H> Registry<H> {
             .map(|registered| (registered.prefix.as_ref(), registered.haip))
     }
 
-    /// The statement of the `Haip` the first registered JWE mode by URI bounded, which writes the
-    /// POST's encryption members until the modes write their own.
+    /// The registered prefixes' names, in registration order.
     #[cfg(feature = "resolve")]
-    pub(crate) fn uri_sealer(&self, host: &H) -> Option<crate::request::Agreements> {
+    pub(crate) fn prefix_names(&self) -> impl Iterator<Item = crate::authenticate::PrefixName> {
+        self.clients
+            .iter()
+            .map(|registered| registered.prefix.name())
+    }
+
+    /// Each registered URI mode's `wallet_metadata` members with the names it declared, in
+    /// registration order, each written under what its registration seals with: the `Haip`
+    /// statement of a JWE mode, none of a mode in the clear.
+    ///
+    /// # Errors
+    ///
+    /// A mode broke its contract.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn mode_metadata(&self, host: &H) -> Result<Vec<ModeMembers>, Fault> {
         self.modes
             .iter()
-            .find_map(|registered| match registered.role {
-                Role::Jwe(access) if registered.mode.channel() == ChannelKind::Uri => {
-                    Some(access(host).agreements())
-                }
-                Role::Clear | Role::Jwe(_) | Role::Errors => None,
+            .filter(|registered| registered.mode.channel() == ChannelKind::Uri)
+            .filter_map(|registered| {
+                let sealer = match registered.role {
+                    Role::Jwe(access) => access(host).agreements(),
+                    Role::Clear => Agreements::NONE,
+                    Role::Errors => return None,
+                };
+                Some(
+                    registered
+                        .mode
+                        .wallet_metadata(&sealer, host)
+                        .map(|members| (registered.mode.metadata_names(), members)),
+                )
             })
+            .collect()
+    }
+
+    /// The registered POST contributions, in registration order.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn contributions(&self) -> impl Iterator<Item = &dyn HostedPostContribution<H>> {
+        self.contributions.iter().map(AsRef::as_ref)
+    }
+
+    /// The registered readers of the Response URI's answer, in registration order.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn answer_readers(&self) -> &[Box<dyn AnswerReader>] {
+        &self.readers
     }
 
     /// The registered rules over a Request Object's claims, in registration order.
@@ -894,6 +993,8 @@ impl<H> Registry<H> {
             clients: self.clients.clone(),
             object_rules: self.object_rules.clone(),
             post: self.post.clone(),
+            contributions: self.contributions.clone(),
+            readers: self.readers.clone(),
         })
     }
 }
@@ -914,6 +1015,10 @@ impl<H> Clone for RegisteredPrefix<H> {
         }
     }
 }
+
+/// A mode's `wallet_metadata` members, with the names it declared.
+#[cfg(feature = "resolve")]
+pub(crate) type ModeMembers = (&'static [ParameterName], Vec<MetadataMember>);
 
 /// The host's `RequestDecryption`, as the registration of encrypted Request Objects keeps it.
 #[cfg(feature = "resolve")]
@@ -1036,11 +1141,22 @@ impl<H> Routes for Registry<H> {
     }
 }
 
-/// The names the registered modes that carry answers declare: a DC API mode declares none
-/// (`MetadataChannel`), no name twice (`NameTwice`), and none the core writes (`NameReserved`).
-fn names<H>(modes: &[RegisteredMode<H>]) -> Result<(), RegistryError> {
-    let place = NamePlace::WalletMetadata;
-    let mut declared: Vec<ParameterName> = Vec::new();
+/// The names registered parts declare, by place: the `wallet_metadata` members of the modes that
+/// carry answers and of the POST's contributions, the POST's parameters, the Response URI
+/// answer's members.
+#[derive(Default)]
+struct Declared {
+    members: Vec<ParameterName>,
+    parameters: Vec<ParameterName>,
+    answers: Vec<ParameterName>,
+}
+
+/// The names registered parts declare: a DC API mode declares none (`MetadataChannel`); each name
+/// once in its place (`NameTwice`), none the core writes there (`NameReserved`):
+/// [`CORE_METADATA`], and under `resolve` the POST's `wallet_metadata` and `wallet_nonce` and the
+/// answer's `redirect_uri`.
+fn names<H>(modes: &[RegisteredMode<H>], mut declared: Declared) -> Result<(), RegistryError> {
+    let mut members: Vec<ParameterName> = Vec::new();
     for registered in modes {
         if matches!(registered.role, Role::Errors) {
             continue;
@@ -1049,14 +1165,27 @@ fn names<H>(modes: &[RegisteredMode<H>]) -> Result<(), RegistryError> {
         if registered.mode.channel() == ChannelKind::DcApi && !names.is_empty() {
             return Err(RegistryError::MetadataChannel(registered.mode.name()));
         }
-        for name in names {
-            if CORE_METADATA.contains(name) {
+        members.extend_from_slice(names);
+    }
+    members.append(&mut declared.members);
+    #[cfg(feature = "resolve")]
+    let (parameters, answers): (&[ParameterName], &[ParameterName]) =
+        (&CORE_PARAMETERS, &CORE_ANSWER);
+    #[cfg(not(feature = "resolve"))]
+    let (parameters, answers): (&[ParameterName], &[ParameterName]) = (&[], &[]);
+    let places = [
+        (NamePlace::WalletMetadata, &CORE_METADATA[..], members),
+        (NamePlace::PostParameter, parameters, declared.parameters),
+        (NamePlace::AnswerMember, answers, declared.answers),
+    ];
+    for (place, reserved, names) in places {
+        for (k, name) in names.iter().enumerate() {
+            if reserved.contains(name) {
                 return Err(RegistryError::NameReserved { place, name: *name });
             }
-            if declared.contains(name) {
+            if names.get(..k).is_some_and(|before| before.contains(name)) {
                 return Err(RegistryError::NameTwice { place, name: *name });
             }
-            declared.push(*name);
         }
     }
     Ok(())

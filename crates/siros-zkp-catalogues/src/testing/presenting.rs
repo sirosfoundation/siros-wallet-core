@@ -15,7 +15,7 @@ use p256::ecdsa::{DerSignature, Signature, SigningKey};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use siros_mdoc::stored::{MdocError, StoredMdoc};
-use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, RequestClaims, TrustConfig};
+use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{Seconds, Timestamp};
 use siros_openid4vp::jose::Skew;
@@ -139,7 +139,6 @@ impl SignedRequest {
         let config = TrustConfig {
             skew: Skew::new(Seconds(60)).unwrap(),
             origins: OriginPolicy::Accept,
-            claims: RequestClaims::Checked,
         };
         let fetch = Fetch::of(&self.uri, &registry, &host).unwrap();
         let received = fetch

@@ -3,6 +3,7 @@
 //! parse with fluent-uri (RFC 3986), which keeps the text as received; serde_urlencoded reads the
 //! query and writes the form bodies.
 
+mod answer;
 mod fetch;
 mod form;
 mod query;
@@ -15,6 +16,7 @@ use crate::arrival::{Unreadable, UriError};
 use crate::ids::ClientId;
 
 pub use crate::arrival::{FailedStatus, FetchFailure};
+pub use answer::{AnswerError, AnswerMembers, AnswerReader, ResponseUriAnswer};
 pub use fetch::{Fetch, FetchAnswer, NoFetch, RequestObjectFetch};
 pub use form::{FormBody, FormMembers};
 

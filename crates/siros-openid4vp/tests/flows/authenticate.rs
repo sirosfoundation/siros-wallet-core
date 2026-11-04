@@ -5,8 +5,8 @@
 
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
-    BoundEndpoint, EndpointBasis, OriginPolicy, OutsideValidity, PrefixName, RequestClaims,
-    TrustConfig, Unauthenticated, VerifierId,
+    BoundEndpoint, EndpointBasis, OriginPolicy, PrefixName, TrustConfig, Unauthenticated,
+    VerifierId,
 };
 use siros_openid4vp::effects::Verdict;
 use siros_openid4vp::envelope::Envelope;
@@ -192,7 +192,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
     let rejected = refused(&uri_payload(""), TestPrefix::Request, &denied, &checked);
     assert!(matches!(cause(&rejected), Unauthenticated::Untrusted(id) if id == "test:verifier"));
     assert_eq!(target(&rejected), unverified());
-    // A9: expired, not yet valid, and exp absent under Required.
+    // A9: expired, not yet valid.
     let now = 1_785_000_000_i64;
     for (extra, why) in [
         (format!(r#","exp":{}"#, now - 61), "expired"),
@@ -201,13 +201,11 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         let rejected = refused(&uri_payload(&extra), TestPrefix::Request, &trust, &checked);
         let holds = matches!(
             (cause(&rejected), why),
-            (
-                Unauthenticated::Validity(OutsideValidity::Time(TimeError::Expired)),
-                "expired"
-            ) | (
-                Unauthenticated::Validity(OutsideValidity::Time(TimeError::NotYetValid)),
-                "not yet valid"
-            )
+            (Unauthenticated::Validity(TimeError::Expired), "expired")
+                | (
+                    Unauthenticated::Validity(TimeError::NotYetValid),
+                    "not yet valid"
+                )
         );
         assert!(holds, "{why}: {rejected:?}");
         assert_eq!(
@@ -223,23 +221,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
     let envelope = envelope(&received);
     let registry = registry();
     assert!(authenticated(&envelope, &registry, &trust, &checked).is_ok());
-    let required = TrustConfig {
-        claims: RequestClaims::Required,
-        ..checked
-    };
-    let rejected = refused(&uri_payload(""), TestPrefix::Request, &trust, &required);
-    assert!(matches!(
-        cause(&rejected),
-        Unauthenticated::Validity(OutsideValidity::ExpAbsent)
-    ));
-    // A10: aud absent under Required; another recipient (tamper).
-    let rejected = refused(
-        &uri_payload(&format!(r#","exp":{}"#, now + 600)),
-        TestPrefix::Request,
-        &trust,
-        &required,
-    );
-    assert!(matches!(cause(&rejected), Unauthenticated::Audience(None)));
+    // A10: another recipient (tamper).
     let rejected = refused(
         &uri_payload(r#","aud":"https://wallet.example""#),
         TestPrefix::Request,
@@ -247,7 +229,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         &checked,
     );
     assert!(
-        matches!(cause(&rejected), Unauthenticated::Audience(Some(aud)) if aud == "https://wallet.example")
+        matches!(cause(&rejected), Unauthenticated::Audience(aud) if aud == "https://wallet.example")
     );
     let uri = link("test%3Averifier", "");
     let object = request_object(&uri_payload(r#","aud":"https://self-issued.me/v2""#));

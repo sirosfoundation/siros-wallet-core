@@ -110,6 +110,40 @@ impl fmt::Display for ErrorCode {
     }
 }
 
+/// An `error_description` (RFC 6749 §4.1.2.1): one or more of Appendix A.8's characters,
+/// `%x20-21`, `%x23-5B`, `%x5D-7E`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct ErrorDescription(String);
+
+impl ErrorDescription {
+    /// A description as an error response holds it; `None` for an empty text or one outside
+    /// Appendix A.8.
+    #[must_use]
+    pub fn parse(text: String) -> Option<Self> {
+        (!text.is_empty()
+            && text
+                .bytes()
+                .all(|byte| matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E)))
+        .then_some(Self(text))
+    }
+
+    /// Its text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A description is named by its text in a message.
+impl IntoArg for ErrorDescription {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A request rule: its message, and the one code the Verifier receives for it (OpenID4VP 1.0
 /// §8.5).
 pub trait RequestRule: Explained {

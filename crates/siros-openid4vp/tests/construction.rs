@@ -361,6 +361,14 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         ) -> Result<siros_openid4vp::routing::Encrypting<'k>, Refusal> {
             Ok(siros_openid4vp::routing::Encrypting::Plain)
         }
+
+        fn wallet_metadata(
+            &self,
+            _sealer: &siros_openid4vp::request::Agreements,
+            _host: &TestHost,
+        ) -> Result<Vec<siros_openid4vp::wallet_metadata::MetadataMember>, Fault> {
+            Ok(Vec::new())
+        }
     }
 
     /// A scope value's query, given.
@@ -471,6 +479,74 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         builder.build().map(drop),
         Err(RegistryError::NameReserved { name, .. }) if name.as_str() == "jwks"
     ));
+    // A POST contribution's member a mode declares too; its parameter the core owns; a reader's
+    // member another reader declares; the answer member the core reads.
+    use siros_openid4vp::wallet_metadata::{NamePlace, ParameterName, PostContent};
+    use siros_testkit::{TestAnswerReader, TestPostContribution};
+    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
+    const NONCE: ParameterName = siros_explain::checked!(ParameterName, "wallet_nonce");
+    const REDIRECT: ParameterName = siros_explain::checked!(ParameterName, "redirect_uri");
+    let contribution = |members, parameters| TestPostContribution {
+        members,
+        parameters,
+        content: PostContent::default(),
+    };
+    let mut builder = Registry::<TestHost>::builder();
+    builder.mode(Declares("post.one", ChannelKind::Uri, &["test_member"]));
+    builder.post_contribution(contribution(&[MEMBER], &[]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameTwice {
+            place: NamePlace::WalletMetadata,
+            name: MEMBER
+        })
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.post_contribution(contribution(&[], &[NONCE]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameReserved {
+            place: NamePlace::PostParameter,
+            name: NONCE
+        })
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.answer_reader(TestAnswerReader(&[MEMBER]));
+    builder.answer_reader(TestAnswerReader(&[MEMBER]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameTwice {
+            place: NamePlace::AnswerMember,
+            name: MEMBER
+        })
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.answer_reader(TestAnswerReader(&[REDIRECT]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameReserved {
+            place: NamePlace::AnswerMember,
+            name: REDIRECT
+        })
+    );
+    // The POST twice; encrypted Request Objects twice, or without the POST (§5.10: the key
+    // travels in the POST's `jwks`).
+    use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
+    let mut builder = Registry::<TestHost>::builder();
+    builder.request_post(RequestPost);
+    builder.request_post(RequestPost);
+    assert_eq!(builder.build().map(drop), Err(RegistryError::PostTwice));
+    let mut builder = Registry::<TestHost>::builder();
+    builder.request_post(RequestPost);
+    builder.request_encryption(EncryptedRequests);
+    builder.request_encryption(EncryptedRequests);
+    assert_eq!(builder.build().map(drop), Err(RegistryError::PostTwice));
+    let mut builder = Registry::<TestHost>::builder();
+    builder.request_encryption(EncryptedRequests);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::DecryptionWithoutPost)
+    );
     // An error mode on the DC API, whose errors A.4 fixes.
     let mut builder = Registry::<TestHost>::builder();
     builder.error_mode(DcApi);

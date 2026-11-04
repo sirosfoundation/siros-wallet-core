@@ -21,6 +21,7 @@ siros-mdoc = { path = "../siros-mdoc", features = ["test-util"] }
 siros-paso = { path = "../siros-paso", features = ["test-util"] }
 siros-qes = { path = "../siros-qes" }
 siros-credman = { workspace = true }
+siros-webuild = { workspace = true }
 siros-x509 = { path = "../siros-x509", features = ["test-util"] }
 siros-testkit = { workspace = true }
 siros-i18n = { workspace = true, features = ["load"] }

@@ -52,6 +52,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-sdjwt` | `dc+sd-jwt` |
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules |
 | `siros-qes` | CSC's QES transaction data |
+| `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
 | `siros-wallet-state` | The decrypted wallet state of the private data container |
@@ -72,6 +73,7 @@ siros-openid4vp     the core: a request in, a response built
 ├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt
 ├── siros-qes       CSC's QES transaction data
 ├── siros-credman   Credential Manager's entries for the matcher
+├── siros-webuild   WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer
 └── siros-trust     issuer trust at registration
 siros-i18n          the i18n engine
 siros-explain       the message contract

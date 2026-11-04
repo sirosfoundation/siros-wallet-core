@@ -12,11 +12,15 @@ use siros_explain::{Explain, IntoArg, kind};
 
 use crate::envelope::{Channel, Parameters};
 use crate::json::Node;
+#[cfg(feature = "resolve")]
+use crate::plugins::Fault;
 use crate::plugins::registry::Routes;
 use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::{AgreeableKey, ClientMetadata, Request};
 #[cfg(feature = "resolve")]
 use crate::request::{Agreements, ContentEncryption};
+#[cfg(feature = "resolve")]
+use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
 
 /// A `response_mode` value (OAuth 2.0 Multiple Response Type Encoding Practices §2.1): one or
@@ -777,7 +781,8 @@ pub enum Encrypting<'k> {
     },
 }
 
-/// A response mode's phase 2 over the build's host: the encryption of its route.
+/// A response mode's phase 2 over the build's host: the encryption of its route and its
+/// `wallet_metadata` members.
 ///
 /// # Implementing
 ///
@@ -785,7 +790,9 @@ pub enum Encrypting<'k> {
 /// `sealer`, the sealing module's statement (`Haip::agreements`), and refuses with the mode's
 /// rule when it finds none. A mode registered with `mode` returns [`Encrypting::Plain`]; the
 /// core refuses a key the statement does not admit, and a key on a route in the clear, with a
-/// `Fault`.
+/// `Fault`. `wallet_metadata` writes the members [`Mode::metadata_names`] declares, from the same
+/// statement ([`Agreements::NONE`] for a mode registered with `mode`); the core refuses another
+/// name (`MetadataRefused::Undeclared`).
 #[cfg(feature = "resolve")]
 pub trait ModeHost<H>: Mode {
     /// The route's encryption.
@@ -799,4 +806,11 @@ pub trait ModeHost<H>: Mode {
         sealer: &Agreements,
         host: &H,
     ) -> Result<Encrypting<'k>, Refusal>;
+
+    /// The `wallet_metadata` members it declares, from what the build seals with (§5.10).
+    ///
+    /// # Errors
+    ///
+    /// The mode cannot write them: its bug, or a module it calls failed.
+    fn wallet_metadata(&self, sealer: &Agreements, host: &H) -> Result<Vec<MetadataMember>, Fault>;
 }
