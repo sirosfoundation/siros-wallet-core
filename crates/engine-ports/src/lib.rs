@@ -368,6 +368,15 @@ pub struct MatchResult {
     /// The selected credentials.
     #[serde(default)]
     pub selections: Vec<VpSelection>,
+    /// The transport's opaque selection handle, when it issued one
+    /// (WMP OpenID4x 3.2.3.1: the `select_credentials` ask's
+    /// correlation handle). The engine does not interpret it: it rides
+    /// unchanged into the presentation ask
+    /// ([`VpParams::selection_handle`](crate::VpParams::selection_handle)),
+    /// so the transport's answer correlates with its ask. Absent when
+    /// the transport has no handle (the plain host asks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 /// The presentation the engine asks the host to construct and sign:
@@ -402,6 +411,11 @@ pub struct VpParams {
     /// the KB-JWT (TS12).
     #[serde(default)]
     pub transaction_data: Vec<String>,
+    /// The transport's selection handle, as the match answer carried
+    /// it (WMP OpenID4x 3.2.3.1): passed through unchanged, never
+    /// interpreted. Absent when the transport has no handle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_handle: Option<String>,
 }
 
 /// The presentation answer.
@@ -656,6 +670,23 @@ pub trait Host: Send + Sync {
         ))
     }
 
+    /// Asks the host's user to pick one of the offered credential
+    /// configurations, when the offer names more than one (the Go
+    /// `awaiting_selection` + `select_credential` action path): the
+    /// user decides what the wallet issues.
+    ///
+    /// The default implementation refuses — an older host keeps every
+    /// single-configuration flow working (exactly one configuration is
+    /// auto-selected and never asked).
+    async fn request_credential_selection(
+        &self,
+        _params: CredentialSelectionParams,
+    ) -> Result<CredentialSelectionResult, HostError> {
+        Err(HostError::Cannot(
+            "credential selection not supported by this host".to_owned(),
+        ))
+    }
+
     /// Reports progress on a flow (a notification, not a request).
     fn progress(&self, flow_id: &str, step: &str, detail: Option<String>);
 }
@@ -745,6 +776,101 @@ pub trait Pdp: Send + Sync {
     ) -> Result<EntitlementDecision, PdpError> {
         Err(PdpError::NotImplemented)
     }
+}
+
+// ─── The presentation consent policy ────────────────────────────────────
+//
+// How the engine treats a match answer that does not fit the DCQL query
+// it was sent (#525, the Go `presentation.dcql_consent_check`): the
+// modes off, warn and enforce. The mode is deployment policy — the
+// adapter parses its configured value and sets it on
+// [`crate::Ports`](engine_core::Ports).
+
+/// How a match answer that does not fit the DCQL query it was sent is
+/// treated: `warn` (the default) records the violation and proceeds,
+/// `enforce` refuses the presentation before anything is signed, `off`
+/// compares nothing.
+///
+/// The default is warn — a consent check that cannot run must never
+/// read as "checked and fine", and an unrecognised configured value
+/// becomes warn, never off, so a typo cannot silently disable the
+/// check (the Go `DCQLConsentCheckMode.Effective()`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConsentCheckMode {
+    /// Records the violation (telemetry) and proceeds.
+    #[default]
+    Warn,
+    /// Refuses the presentation before anything is signed: the
+    /// verifier is answered `access_denied`, as a decline is.
+    Enforce,
+    /// Compares nothing.
+    Off,
+}
+
+impl ConsentCheckMode {
+    /// Parses a configured mode name, defaulting to warn — an empty or
+    /// unrecognised value is warn, never off, so a typo cannot
+    /// silently disable the check.
+    #[must_use]
+    pub fn parse(configured: &str) -> Self {
+        match configured {
+            "off" => Self::Off,
+            "enforce" => Self::Enforce,
+            _ => Self::Warn,
+        }
+    }
+
+    /// The mode's configured name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Enforce => "enforce",
+            Self::Off => "off",
+        }
+    }
+}
+
+// ─── The credential configuration selection ─────────────────────────────
+
+/// One credential configuration the wallet may select, as the
+/// `awaiting_selection` progress carries it: the configuration's id
+/// and the display members the selection UI shows (the Go
+/// `AvailableCredential`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableCredential {
+    /// The credential configuration's id.
+    pub id: String,
+    /// The configuration's first `display` entry, raw, for the
+    /// selection UI to render (the core passes it through; it is
+    /// issuer-controlled display content).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<serde_json::Value>,
+    /// The configuration's credential format identifier.
+    #[serde(default)]
+    pub format: String,
+    /// The `vct` (SD-JWT VC), when the configuration carries one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vct: String,
+}
+
+/// The credential configuration selection the engine asks the host for,
+/// when the offer names more than one configuration: the user picks
+/// what to issue (the Go `awaiting_selection` + `select_credential`
+/// action path).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialSelectionParams {
+    /// The flow the selection belongs to.
+    pub flow_id: String,
+    /// The configurations on offer, in the offer's order.
+    pub available: Vec<AvailableCredential>,
+}
+
+/// The selection answer: the chosen configuration's id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialSelectionResult {
+    /// The chosen configuration's id.
+    pub credential_configuration_id: String,
 }
 
 // ─── TokenProvider ──────────────────────────────────────────────────────

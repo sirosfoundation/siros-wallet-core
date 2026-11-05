@@ -87,6 +87,7 @@ mod presentation_flow_tests {
                         disclosed_claims: Vec::new(),
                     },
                 ],
+                handle: None,
             })
         }
         async fn request_consent(
@@ -190,6 +191,10 @@ mod presentation_flow_tests {
                 pdp: Arc::new(TrustedPdp),
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -354,6 +359,7 @@ mod presentation_flow_tests {
             async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
                 Ok(MatchResult {
                     selections: Vec::new(),
+                    handle: None,
                 })
             }
             async fn request_consent(
@@ -410,6 +416,10 @@ mod presentation_flow_tests {
                 pdp: Arc::new(TrustedPdp),
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -544,6 +554,10 @@ mod untrusted_flow_tests {
                 pdp: Arc::new(UntrustedPdp),
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -659,6 +673,7 @@ mod sign_refusal_tests {
                     credential_id: "cred-pid-001".to_owned(),
                     disclosed_claims: Vec::new(),
                 }],
+                handle: None,
             })
         }
         async fn request_consent(&self, _p: ConsentParams) -> Result<ConsentResult, HostError> {
@@ -724,6 +739,10 @@ mod sign_refusal_tests {
                     std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
                 )),
                 telemetry: Arc::new(super::presentation_flow_tests::NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),

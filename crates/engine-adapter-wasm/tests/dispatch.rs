@@ -27,6 +27,10 @@ fn dispatcher(script: serde_json::Value) -> Dispatcher {
             pdp: Arc::new(ScriptedPdp::new(&serde_json::json!({}))),
             kv: Arc::new(MemoryKv::new()),
             telemetry: Arc::new(NoTelemetry),
+            consent_check: engine_ports::ConsentCheckMode::Warn,
+            notifications: std::sync::Arc::new(
+                engine_core::oid4vci::notification::NotificationContexts::default(),
+            ),
         }),
         Arc::new(|| 1_700_000_000),
         Arc::new(|bytes: &mut [u8]| {

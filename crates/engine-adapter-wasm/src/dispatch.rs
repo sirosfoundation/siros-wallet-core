@@ -73,6 +73,11 @@ impl Dispatcher {
         runtime
             .register(Arc::new(engine_core::oid4vp::Oid4vpFlow))
             .map_err(|err| format!("register the oid4vp family: {err}"))?;
+        runtime
+            .register(Arc::new(
+                engine_core::oid4vci::notification::CredentialNotificationFlow,
+            ))
+            .map_err(|err| format!("register the credential_notification family: {err}"))?;
 
         let _ = clock.clone();
         Ok(Self {
@@ -229,6 +234,17 @@ impl DispatchError {
 
 /// The flows capability the dispatcher grants.
 fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities, String> {
-    serde_json::from_value(serde_json::json!({ "flows": { "max_concurrent": max_concurrent } }))
-        .map_err(|err| format!("the flows capability does not serialize: {err}"))
+    // The credential_notification capability (WMP OpenID4x 2.4): the
+    // events the engine forwards and the TTL of the context it
+    // retains. A wallet that wants to run the flow offers it; a
+    // session that did not negotiate it refuses the flow (-31005,
+    // core 10.3).
+    serde_json::from_value(serde_json::json!({
+        "flows": { "max_concurrent": max_concurrent },
+        "credential_notification": {
+            "events": ["credential_accepted", "credential_failure"],
+            "context_ttl_seconds": 300,
+        },
+    }))
+    .map_err(|err| format!("the flows capability does not serialize: {err}"))
 }

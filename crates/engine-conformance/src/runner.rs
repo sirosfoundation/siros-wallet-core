@@ -151,10 +151,21 @@ pub fn run_vector(vector: &VectorFile) -> Verdict {
         pdp: Arc::new(ScriptedPdp::new(&setup)),
         kv: Arc::new(MemoryKv::new()),
         telemetry: Arc::new(NoTelemetry),
+        consent_check: engine_ports::ConsentCheckMode::Warn,
+        notifications: std::sync::Arc::new(
+            engine_core::oid4vci::notification::NotificationContexts::default(),
+        ),
     });
     let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
     if let Err(err) = runtime.register(Arc::new(engine_core::oid4vci::Oid4vciFlow)) {
         return Verdict::Fail(format!("register the oid4vci family: {err}"));
+    }
+    if let Err(err) = runtime.register(Arc::new(
+        engine_core::oid4vci::notification::CredentialNotificationFlow,
+    )) {
+        return Verdict::Fail(format!(
+            "register the credential_notification family: {err}"
+        ));
     }
     if let Err(err) = runtime.register(Arc::new(engine_core::oid4vp::Oid4vpFlow)) {
         return Verdict::Fail(format!("register the oid4vp family: {err}"));
