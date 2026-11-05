@@ -22,6 +22,7 @@ use wmp_core::principal::Principal;
 use wmp_core::session::{MemorySessionStore, SessionStore};
 use wmp_core::sessionservice::{SessionHandler, SessionService, SessionServiceConfig};
 use wmp_core::types::Capabilities;
+use wmp_core::version::Version;
 
 /// Where the vectors live: the override, else the sibling checkout.
 fn vectors_dir() -> PathBuf {
@@ -431,7 +432,7 @@ fn fixed_clock() -> wmp_core::sessionservice::Clock {
     Arc::new(|| 1_730_000_000)
 }
 
-fn service_peer_with_versions(versions: Vec<String>) -> (Arc<Peer>, Arc<dyn SessionStore>) {
+fn service_peer_with_versions(versions: Vec<Version>) -> (Arc<Peer>, Arc<dyn SessionStore>) {
     let store = Arc::new(MemorySessionStore::new());
     let supported = Capabilities(
         [(
@@ -463,10 +464,31 @@ fn service_peer() -> (Arc<Peer>, Arc<dyn SessionStore>) {
     service_peer_with_versions(Vec::new())
 }
 
+/// The service's supported versions a vector's setup names, parsed as a
+/// configuration parses them.
+fn setup_versions(vector: &TestVector) -> Vec<Version> {
+    let Some(values) = vector
+        .setup
+        .get("supported_versions")
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .and_then(|version| version.parse().ok())
+                .unwrap_or_else(|| panic!("{}: setup version {value} is no version", vector.id))
+        })
+        .collect()
+}
+
 #[test]
 fn session_create_vectors() {
     let mut peer: Option<Arc<Peer>> = None;
-    let mut configured_for: Vec<String> = Vec::new();
+    let mut configured_for: Vec<Version> = Vec::new();
     let ctx = RequestContext {
         principal: Some(Principal::new("alice", "")),
         ..RequestContext::default()
@@ -474,18 +496,7 @@ fn session_create_vectors() {
     for vector in load_vectors("session-create.json") {
         // The vector's setup names the service's supported versions;
         // the peer is rebuilt when they differ from the current one.
-        let setup_versions: Vec<String> = vector
-            .setup
-            .get("supported_versions")
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let setup_versions = setup_versions(&vector);
         if peer.is_none() || configured_for != setup_versions {
             let (built, _store) = service_peer_with_versions(setup_versions.clone());
             peer = Some(built);
@@ -555,6 +566,54 @@ fn session_create_vectors() {
                 .cloned()
                 .unwrap_or_default();
             assert_eq!(got, want, "{}: {member}", vector.id);
+        }
+    }
+}
+
+/// The `wmp.session.create` vectors of errors.json: an offer no supported
+/// version answers is `-31013` whose `data` lists every supported version,
+/// and a malformed offer is `-32602` (core §2.2.2).
+#[test]
+fn session_create_version_errors() {
+    let ctx = RequestContext {
+        principal: Some(Principal::new("alice", "")),
+        ..RequestContext::default()
+    };
+    let vectors: Vec<TestVector> = load_vectors("errors.json")
+        .into_iter()
+        .filter(|vector| {
+            vector.input.get("method").and_then(Value::as_str) == Some(METHOD_SESSION_CREATE)
+        })
+        .collect();
+    assert!(
+        !vectors.is_empty(),
+        "errors.json holds no wmp.session.create vector"
+    );
+    for vector in vectors {
+        let expected = vector
+            .expected_error
+            .as_ref()
+            .and_then(|expected| expected.get("error"))
+            .unwrap_or_else(|| panic!("{}: expected_error.error missing", vector.id));
+        let (peer, _store) = service_peer_with_versions(setup_versions(&vector));
+        let data = serde_json::to_vec(&vector.input).expect("serialize input");
+        let response = peer
+            .handle_request_sync(&ctx, &data)
+            .unwrap_or_else(|err| panic!("{}: {err}", vector.id))
+            .unwrap_or_else(|| panic!("{}: expected a response", vector.id));
+        let actual: Value =
+            serde_json::from_slice(&response).unwrap_or_else(|e| panic!("{}: {e}", vector.id));
+        let error = actual
+            .get("error")
+            .unwrap_or_else(|| panic!("{}: expected an error, got {actual}", vector.id));
+        // The message is wording; the code and the data are the contract.
+        for member in ["code", "data"] {
+            assert_eq!(
+                error.get(member),
+                expected.get(member),
+                "{}: error {member}",
+                vector.id
+            );
         }
     }
 }

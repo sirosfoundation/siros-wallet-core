@@ -42,7 +42,12 @@ fn discovery_decodes_a_document() {
         "example.com",
     )
     .expect("discover");
-    assert_eq!(config.supported_versions, ["0.1"]);
+    let versions: Vec<String> = config
+        .supported_versions
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(versions, ["0.1"]);
     assert!(config.endpoints.contains_key("wss"));
 }
 

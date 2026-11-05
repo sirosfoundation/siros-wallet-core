@@ -279,7 +279,7 @@ pub trait PeerContext: Send + Sync {
     /// through an unexported interface assertion on the peer); the default
     /// is the crate's version.
     fn version_for(&self, _session_id: &str) -> String {
-        crate::types::VERSION.to_owned()
+        crate::version::VERSION.to_string()
     }
 
     /// The capabilities this profile provides to a session, as negotiated.

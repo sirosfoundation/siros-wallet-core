@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::version::Version;
+
 /// The maximum size of a well-known document: 1 MiB.
 const MAX_CONFIG_BYTES: usize = 1 << 20;
 
@@ -15,8 +17,9 @@ const MAX_CONFIG_BYTES: usize = 1 << 20;
 /// `/.well-known/wmp-configuration`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WellKnownConfig {
-    /// The protocol versions the endpoint speaks.
-    pub supported_versions: Vec<String>,
+    /// The protocol versions the endpoint speaks (core §2.2.1). Decoding
+    /// refuses a document with an entry that is not `MAJOR.MINOR`.
+    pub supported_versions: Vec<Version>,
     /// The endpoints, keyed by name.
     pub endpoints: std::collections::BTreeMap<String, String>,
     /// The capabilities the endpoint offers.

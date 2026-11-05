@@ -3,6 +3,7 @@
 use crate::context::RequestContext;
 use crate::error::{RpcError, ERR_INTERNAL_ERROR, ERR_METHOD_NOT_FOUND};
 use crate::methods::*;
+use crate::version::{Version, SUPPORTED_VERSIONS};
 
 /// What a handler returned instead of a result.
 ///
@@ -52,12 +53,8 @@ pub trait Handler: Send + Sync {
     /// The protocol versions this handler negotiates against
     /// (go-wmp's `VersionProvider` interface, a default here). A service
     /// configured with different versions also works through a peer.
-    fn supported_versions(&self) -> Vec<String> {
-        crate::types::SUPPORTED_VERSIONS
-            .iter()
-            .copied()
-            .map(str::to_owned)
-            .collect()
+    fn supported_versions(&self) -> &[Version] {
+        SUPPORTED_VERSIONS
     }
 
     /// `wmp.session.create`
