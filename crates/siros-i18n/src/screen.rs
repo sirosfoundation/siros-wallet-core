@@ -21,8 +21,8 @@ pub struct Screen<'m> {
 }
 
 /// A module whose texts show in a locale its profile selected, as PaSO View §4 selects a
-/// transaction's: the module's entry of that locale renders, and the locale heads the priority
-/// list the screen's other modules take their language from.
+/// transaction's: the module's entry of that locale renders, and the locale and its RFC 4647
+/// §3.4 truncations head the priority list the screen's other modules take their language from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Selected {
     module: ModuleId,
@@ -223,7 +223,8 @@ impl<'m> Screen<'m> {
     /// The presentation's language over the End-User's priority list and the app's fallback
     /// list, by [`decide`] over the screen's modules. A selected module shows its entry of the
     /// locale its profile selected, and the others decide over the priority list headed by that
-    /// locale.
+    /// locale and its RFC 4647 §3.4 truncations ([`LocaleTag::truncations`]): `de-CH` selected
+    /// heads the list with `de-CH`, `de`.
     ///
     /// # Errors
     ///
@@ -280,7 +281,7 @@ impl<'m> Screen<'m> {
         let headed: Vec<LocaleTag> = self
             .selected
             .iter()
-            .map(|selected| selected.locale.clone())
+            .flat_map(|selected| selected.locale.truncations())
             .chain(priority.iter().cloned())
             .collect();
         let language = decide(&served, &headed, fallback)?;

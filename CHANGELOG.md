@@ -257,7 +257,8 @@ released version yet.
 - Each consent entry's texts take one language. `Screen::selecting` shows the
   module a profile selected a locale for in that locale, refused with
   `NoLanguage::Selected` when the module holds none, and `Screen::locale`
-  decides the other modules over the priority list headed by it.
+  decides the other modules over the priority list headed by it and its
+  RFC 4647 §3.4 truncations (`de-CH`, then `de`; `LocaleTag::truncations`).
   `Match::run` and `Prepared::prepare` take the `Rendering` the app built (the
   package, the render halves, the app's modules beside the defined ones); an
   entry no language serves, or whose selected module the package lacks, is
@@ -272,7 +273,8 @@ released version yet.
   and a pick naming a derived record with other inputs falls back with
   `Finding::Rendered` naming the first input that differs.
 - `siros-i18n::RegistrationBuilder` builds a registration's package: its
-  locales the tags of the priority and fallback lists, and a manifest that
+  locales the tags of the priority list with their RFC 4647 truncations and
+  the fallback list's, and a manifest that
   records the lists, the rendering options, each credential with its card's
   modules and candidate languages, and each transaction type with its module
   (`Package::registration`). Over it, `Rendering::renderer` faults on other

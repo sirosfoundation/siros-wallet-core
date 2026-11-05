@@ -33,9 +33,9 @@ pub struct PackageBuilder {
 }
 
 /// A registration's package under construction (section 4.14 of the design, "DC API
-/// precomputation"): its locales the tags of the End-User's priority list and the app's fallback
-/// list, its modules, the credentials and transaction types it serves, and the lists and options
-/// it records. Only [`RegistrationBuilder::new`] makes one.
+/// precomputation"): its locales the tags of the End-User's priority list with their RFC 4647
+/// §3.4 truncations and the tags of the app's fallback list, its modules, the credentials and
+/// transaction types it serves, and the lists and options it records. Only [`RegistrationBuilder::new`] makes one.
 #[derive(Debug)]
 pub struct RegistrationBuilder {
     builder: PackageBuilder,
@@ -264,8 +264,10 @@ impl PackageBuilder {
 
 impl RegistrationBuilder {
     /// A builder for a registration under the End-User's priority list, the app's fallback list
-    /// and its rendering options: the package's locales are the lists' tags, so each text it
-    /// precomputes is held under the tag a screen's language names.
+    /// and its rendering options: the package's locales are the lists' tags and the priority
+    /// list's truncations, which head a screen's list beside a locale a profile selected from it
+    /// ([`LocaleTag::truncations`]), so each text it precomputes is held under the tag a
+    /// screen's language names.
     ///
     /// # Errors
     ///
@@ -278,7 +280,11 @@ impl RegistrationBuilder {
         if priority.is_empty() {
             return Err(PackageError::NoLocale);
         }
-        let mut locales: Vec<LocaleTag> = priority.iter().chain(&fallback).cloned().collect();
+        let mut locales: Vec<LocaleTag> = priority
+            .iter()
+            .flat_map(LocaleTag::truncations)
+            .chain(fallback.iter().cloned())
+            .collect();
         locales.sort();
         locales.dedup();
         Ok(Self {

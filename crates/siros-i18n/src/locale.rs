@@ -1,4 +1,4 @@
-//! Language tags and RFC 4647 basic filtering.
+//! Language tags, RFC 4647 basic filtering and Lookup's truncations.
 
 use std::fmt;
 
@@ -69,6 +69,26 @@ impl LocaleTag {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The ranges RFC 4647 §3.4's Lookup tries for this tag as the range, in order: the tag, then
+    /// the tag truncated from the end one subtag at a time, a single-character subtag dropped
+    /// with the subtag after it. `de-CH` gives `de-CH`, `de`; `zh-Hant-CN-x-private1-private2`
+    /// gives it, `zh-Hant-CN-x-private1`, `zh-Hant-CN`, `zh-Hant`, `zh`.
+    #[must_use]
+    pub fn truncations(&self) -> Vec<Self> {
+        let mut out = vec![self.clone()];
+        let mut rest: &str = &self.0;
+        while let Some((kept, _)) = rest.rsplit_once('-') {
+            rest = kept;
+            while let Some((kept, last)) = rest.rsplit_once('-')
+                && last.len() == 1
+            {
+                rest = kept;
+            }
+            out.push(Self(rest.into()));
+        }
+        out
     }
 
     /// Whether this tag, as a basic language range, matches `tag` by RFC 4647 §3.3.1 basic
