@@ -42,27 +42,24 @@ The Go engine (`oid4vp.go:56-72, 507-851, 1832-1859`) vs the Rust
 
 | Scheme | Go engine | Rust engine | Verdict |
 |---|---|---|---|
-| `redirect_uri` | default; no signature requirement; best-effort key material from `client_metadata` (x5c > jwks > jwks_uri), else unverified JWT header extraction | recognized; JWS verified under `x5c` when present; no key-material extraction | **aligned on acceptance**; key-material enrichment → §3 trust |
-| `did:` | `did:` and `decentralized_identifier:` both infer; server-side DID resolution (`TrustSvc.ResolveDID`); JWT must verify against ≥1 resolved key | `did:` infers; **no `decentralized_identifier:` prefix**; no resolution — trust goes straight to the PDP | **gap A1** (prefix); **gap A2** (resolution — architectural, see below) |
-| `x509_san_dns:` | JWT-required; JWS verified pre-cache (`:1986-1994`); key material must be `x5c`; SAN↔DNS binding delegated to the PDP | JWS verified under `x5c` when present; **unsigned/chainless accepted** | **gap A3**: enforce the signed+x5c requirement |
+| `redirect_uri` | default; no signature requirement; best-effort key material from `client_metadata` (x5c > jwks > jwks_uri), else unverified JWT header extraction | recognized; JWS verified under `x5c` when present; the best-effort key material (x5c > the metadata's jwks > the request JWT header's jwk) | **aligned (W8)** — the key-material enrichment landed |
+| `did:` | `did:` and `decentralized_identifier:` both infer; server-side DID resolution (`TrustSvc.ResolveDID`); JWT must verify against ≥1 resolved key | both prefixes infer (W1); the resolution behind the Pdp `resolve` port (`did_document`), the request JWT verified engine-side against the resolved `publicKeyJwk`s, the **matched key** the PDP evaluates; a PDP without DID resolution = best-effort, a failed one fails closed | **landed (W8)** — gap A2 closed per the recorded architecture |
+| `x509_san_dns:` | JWT-required; JWS verified pre-cache (`:1986-1994`); key material must be `x5c`; SAN↔DNS binding delegated to the PDP | signed+x5c enforced (W1); the `x5c` chain is the key material the PDP evaluates (W8) | **landed (W8)** |
 | `x509_san_uri:` | falls into the default best-effort path (no dedicated handling) | same (recognized, no dedicated path) | **aligned** (both best-effort) |
 | `x509_hash:` | JWT-required; JWS verified; the hash↔leaf binding **left to the PDP** | JWS verified; **hash↔leaf binding checked in-engine** (constant time; unsigned/chainless refused) | **aligned** (Rust stricter; the PDP check is redundant but compatible) |
-| `verifier_attestation:` | attestation extracted from the request JWT's `jwt` header param (`pkg/trust/jwtutil.go:93-168`): `iss`/`sub`/`cnf.jwk` required, request JWT signature verified against `cnf.jwk`, `sub` must equal `client_id` minus the prefix; attestation key material → PDP | recognized; **no handling** | **gap A4**: extraction + `sub` check + signature verification |
+| `verifier_attestation:` | attestation extracted from the request JWT's `jwt` header param (`pkg/trust/jwtutil.go:93-168`): `iss`/`sub`/`cnf.jwk` required, request JWT signature verified against `cnf.jwk`, `sub` must equal `client_id` minus the prefix; attestation key material → PDP | the extraction + checks (W1); the `cnf.jwk` is the key material and the whole attestation JWT rides the eval context (W8) — the PDP verifies it | **landed (W8)** |
 
-**A2 (DID resolution) — the architectural decision.** The Go engine resolves
-the DID document server-side and verifies the request JWT against the
-resolved keys before the PDP decides trust. The Rust core's `Pdp` port
-already carries the `/v1/resolve` shape (`ResolveRequest{uri,
-resource_type}`), and the wasm/mini host answers it always-trusted. The
-alignment decision, recorded here: **the DID document resolution moves
-behind the Pdp port** (`resolve` with a `did_document` resource type), with
-the **engine verifying the request JWT against the resolved keys** once the
-port returns them — the same split the Go engine makes between resolution
-(`TrustSvc`) and trust (`evaluate`). Until a `Pdp` implementation answers
-`did_document` resolutions, the engine treats a `did:`-schemed verifier as
-best-effort (the current behavior), the same way an unconfigured PDP fails
-closed. *(Open: extend `ResolveResponse` with the DID verification methods,
-or return the raw document and verify engine-side — preferred, the latter.)*
+**A2 (DID resolution) — landed (W8), as the decision recorded.** The DID
+document resolution moves behind the Pdp port (`resolve` with a
+`did_document` resource type), the port returning the **raw document** (the
+preferred form), and the engine verifying the request JWT against the
+resolved `publicKeyJwk`s itself — the matched key is the key material the
+PDP evaluates, exactly the Go engine's split between resolution
+(`TrustSvc.ResolveDID`) and trust (`evaluate`). The transition state, as
+recorded: a PDP that does not implement `did_document` resolutions answers
+the did-schemed verifier **best-effort** (the metadata's jwks, the request
+JWT unverified); a configured resolution that fails **fails closed**, as
+the evaluate step does.
 
 ## 2. Flow progress steps
 
@@ -131,7 +128,7 @@ whatever answers, including the user).
 
 | Gap | Action |
 |---|---|
-| eval-context (scheme, URIs, trust chain, attestation) | **gap C1**: extend `EvaluationRequest` with a context map |
+| eval-context (scheme, URIs, trust chain, attestation) | **landed (W8)**: `EvaluationRequest.context` — the `client_id_scheme` claim name, `response_uri`/`redirect_uri`, the `trust_chain` from the JAR header (OID4VP §5.9.3.6), the attestation's `attestation_issuer`/`attestation_subject`/`attestation_jwt` (§5.9.3.4) |
 | verdict cache | **gap C2**: adapter-side (the core is stateless; the server adapter caches) |
 | no-PDP frontend path | **by design** — the port's implementation bridges (documented); the SDK's `Pdp` callback answers |
 
@@ -454,9 +451,24 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    without it). The server's runtime now registers its families
    (oid4vci, oid4vp, credential_notification — it answered `-31005`
    for everything before).
-8. **W8 — trust plumbing** (from §3): the eval-context map on
-   `EvaluationRequest`; DID resolution behind `resolve` + engine-side JWT
-   verification.
+8. **W8 — COMPLETE (trust plumbing, §1 + §3)**: the eval-context map on
+   `EvaluationRequest.context` (gap C1 — the Go
+   `buildVerifierEvalContext`: the scheme's claim name, the
+   response/redirect URIs, the JAR header's `trust_chain`
+   (OpenID4VP §5.9.3.6), the whole verifier attestation JWT
+   (§5.9.3.4, which the PDP verifies itself), forwarded by the
+   server's proxy); the DID resolution (gap A2, the recorded
+   architecture): the did-schemed request resolves the DID document
+   behind the Pdp `resolve` port (`did_document`), the engine verifies
+   the request JWT against the resolved `publicKeyJwk`s, and the
+   matched key — not the DID in the abstract — is the key material
+   the PDP evaluates; a PDP without DID resolution answers best-effort
+   (the documented transition), a failed one fails closed; the
+   per-scheme key material (the x.509 schemes' `x5c` chain as the
+   header carried it, the attestation's `cnf.jwk`, the best-effort
+   chain x5c > the metadata's jwks > the request JWT header's jwk).
+   The parser retains the raw request JWT, the chain and the
+   attestation on `AuthorizationRequest` for the evaluation.
 9. **W9 — SDK adapter + transports + real testing**: port wiring (F2/F3),
    `WmpUniFFITransport`, the AAR/XCFramework CI, then end-to-end against
    the deployed stack.

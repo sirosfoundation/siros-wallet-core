@@ -446,6 +446,11 @@ impl Pdp for BackendProxyPdp {
         let mut builder = self.client.post(&url).json(&serde_json::json!({
             "subject": request.subject,
             "key_material": request.key_material,
+            // The evaluation's context (the core's gap C1): what the
+            // PDP decides on beside the key material — the client_id
+            // scheme, the response/redirect URIs, the trust chain from
+            // the JAR header, the verifier attestation.
+            "context": request.context,
         }));
         if let Some(token) = &self.token {
             builder = builder.bearer_auth(token);

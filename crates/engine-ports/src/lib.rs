@@ -290,6 +290,22 @@ impl ClientIdScheme {
             Self::Unknown(_) => "",
         }
     }
+
+    /// The scheme's claim name — the `client_id_scheme` the request
+    /// names and the trust evaluation's context carries (the Go
+    /// engine's `ClientIDScheme*` constants).
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::X509SanDns => "x509_san_dns",
+            Self::X509SanUri => "x509_san_uri",
+            Self::X509Hash => "x509_hash",
+            Self::DecentralizedIdentifier => "decentralized_identifier",
+            Self::VerifierAttestation => "verifier_attestation",
+            Self::RedirectUri => "redirect_uri",
+            Self::Unknown(_) => "unknown",
+        }
+    }
 }
 
 /// The verifier info the host's consent UI shows (OpenID4VP §5.2's
@@ -706,6 +722,17 @@ pub struct EvaluationRequest {
     pub key_material: Vec<u8>,
     /// The resource type being resolved (for `/v1/resolve`).
     pub resource_type: Option<String>,
+    /// The evaluation's context (the Go engine's
+    /// `buildVerifierEvalContext`, carried by
+    /// `EvaluateVerifierWithContext`): what the PDP decides on beside
+    /// the key material — the `client_id_scheme`, the `response_uri`
+    /// and `redirect_uri`, the `trust_chain` from the request object's
+    /// JAR header (OID4VP §5.9.3.6), and the verifier attestation's
+    /// `attestation_issuer`/`attestation_subject`/`attestation_jwt`
+    /// (§5.9.3.4, whose whole JWT the PDP verifies). An empty object
+    /// when there is nothing to carry (the issuer evaluation).
+    #[serde(default)]
+    pub context: serde_json::Value,
 }
 
 /// The PDP's verdict.

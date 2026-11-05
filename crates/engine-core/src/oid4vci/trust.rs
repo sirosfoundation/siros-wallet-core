@@ -67,6 +67,10 @@ pub async fn evaluate_issuer_trust(
             subject: issuer.to_owned(),
             key_material,
             resource_type: None,
+            // The issuer evaluation carries no context (the Go
+            // engine's EvaluateIssuer has none — the verifier's
+            // buildVerifierEvalContext is the presentation side's).
+            context: serde_json::json!({}),
         })
         .await
         .map_err(|err| match err {
