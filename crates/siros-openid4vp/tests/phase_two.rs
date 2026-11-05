@@ -660,7 +660,7 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
 
     use siros_openid4vp::json::Node;
     use siros_openid4vp::plugins::RegistryBuilder;
-    use siros_openid4vp::resolve::ResponseMember;
+    use siros_openid4vp::resolve::{ParameterBreach, ResponseMember};
     use siros_openid4vp::routing::{ResponseParameters, ResponseParametersHost, ResponseTypeName};
     use siros_openid4vp::session::Session;
     use siros_openid4vp::wallet_metadata::ParameterName;
@@ -743,14 +743,21 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
     let shifting = |builder: &mut RegistryBuilder<TestHost>| {
         builder.response_parameters(Shifting(AtomicBool::new(false)));
     };
-    let cases: [(Register<'_>, &str); 2] = [
-        (&shifting, "does not declare"),
-        (&writes(vec![issuer.clone(), issuer]), "written twice"),
+    let cases: [(Register<'_>, ParameterBreach); 2] = [
+        (&shifting, ParameterBreach::Undeclared),
+        (
+            &writes(vec![issuer.clone(), issuer]),
+            ParameterBreach::Twice,
+        ),
     ];
-    for (register, cause) in cases {
+    for (register, breach) in cases {
         match respond(register) {
-            Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains(cause), "{fault}"),
-            other => panic!("{cause}: {other:?}"),
+            Err(Outcome::Fault(fault)) => {
+                let cause = std::error::Error::source(&fault)
+                    .and_then(|cause| cause.downcast_ref::<ParameterBreach>());
+                assert_eq!(cause, Some(&breach), "{fault}");
+            }
+            other => panic!("{breach:?}: {other:?}"),
         }
     }
 }

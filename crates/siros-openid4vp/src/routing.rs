@@ -195,10 +195,10 @@ dyn_clone::clone_trait_object!(ResponseType);
 /// `names` is a constant: the registry refuses a name another registered part declares
 /// (`RegistryError::NameTwice`) and the names the core writes, `vp_token`, `state`, `error`,
 /// `error_description` and `error_uri` (`RegistryError::NameReserved`). The phase-2 half
-/// [`ResponseParametersHost`] writes members of declared names alone, for the response type the
-/// request names, each value JSON; the core refuses another name with a `Fault` and writes the
-/// members after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is the
-/// double.
+/// [`ResponseParametersHost`] writes members of declared names alone, each name once, for the
+/// response type the request names, each value JSON; the core refuses another name and a name
+/// written twice with a `Fault` caused by `resolve::ParameterBreach`, and writes the members
+/// after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is the double.
 pub trait ResponseParameters: DynClone + Send + Sync {
     /// The parameter names it writes.
     fn names(&self) -> &'static [ParameterName];

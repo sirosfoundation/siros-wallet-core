@@ -156,9 +156,10 @@ released version yet.
   `ResponseParametersHost`, `HostedResponseParameters`,
   `RegistryBuilder::response_parameters`) under names the registry checks
   (`NamePlace::ResponseParameter`, `CORE_RESPONSE`); phase 2 writes them
-  after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is
-  the double; its `fixtures::authenticate` and `fixtures::trust_config` give
-  a test an authenticated request.
+  after `vp_token` and `state`, and a member of another name or a name written
+  twice is a `Fault` caused by `ParameterBreach`. `siros-testkit`'s
+  `TestResponseParameters` is the double; its `fixtures::authenticate` and
+  `fixtures::trust_config` give a test an authenticated request.
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads

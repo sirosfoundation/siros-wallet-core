@@ -7,7 +7,10 @@ use siros_explain::AllOf;
 
 use super::route::Route;
 use super::selection::{check, derived};
-use super::{AuthorizationResponse, Built, Finding, Outcome, Rejection, ResponseMember, VpToken};
+use super::{
+    AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, Rejection, ResponseMember,
+    VpToken,
+};
 use crate::authenticate::Authenticated;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::host::{
@@ -22,7 +25,7 @@ use crate::plugins::{
 };
 use crate::refusal::Refused;
 use crate::request::{ClientMetadata, Query, QueryIndex, Request};
-use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext};
+use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext, Routing};
 use crate::rows::Env;
 use crate::session::Session;
 use crate::wallet::{Credential, Wallet};
@@ -98,11 +101,12 @@ struct Presenting<'a, 'r, 'p, H: CoreHost> {
 
 impl<'p, H: CoreHost> Prepared<'p, H> {
     /// Phase 2's first step, from the ids the End-User chose, none when the request's every
-    /// credential set is optional (§6.4.2): the request read from the authenticated envelope with its routing, its rules run again; every record derived with
-    /// the matcher's code and checked as a selection; each record's query read through its
-    /// format's [`FormatHost::answer`] under the accepted response mode; each record's profile
-    /// names the resources it revalidates with, one slot each, in record order. `registry` is the
-    /// one the envelope was read with.
+    /// credential set is optional (§6.4.2): the request read from the authenticated envelope
+    /// with its routing, its rules run again; every record derived with the matcher's code and
+    /// checked as a selection; each record's query read through its format's
+    /// [`FormatHost::answer`] under the accepted response mode; each record's profile names the
+    /// resources it revalidates with, one slot each, in record order. `registry` is the one the
+    /// envelope was read with.
     ///
     /// # Errors
     ///
@@ -235,7 +239,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
 /// registry checked for its part, each name once.
 fn parameters<H: CoreHost>(
     registry: &Registry<H>,
-    routing: &crate::routing::Routing<'_>,
+    routing: &Routing<'_>,
     session: &Session<'_>,
     host: &H,
 ) -> Result<Vec<ResponseMember>, Fault> {
@@ -246,16 +250,18 @@ fn parameters<H: CoreHost>(
     for registered in registry.response_parameters() {
         for member in registered.part().members(response_type, session, host)? {
             let name = member.name();
-            if !registered.names().contains(&name) {
-                return Err(Fault::new(
+            let breach = if !registered.names().contains(&name) {
+                Some(ParameterBreach::Undeclared)
+            } else if members.iter().any(|written| written.name() == name) {
+                Some(ParameterBreach::Twice)
+            } else {
+                None
+            };
+            if let Some(breach) = breach {
+                return Err(Fault::caused(
                     FAULT,
-                    detail!("a response parameter {name} its part does not declare"),
-                ));
-            }
-            if members.iter().any(|written| written.name() == name) {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!("the response parameter {name} written twice"),
+                    detail!("the response parameter {name}"),
+                    breach,
                 ));
             }
             members.push(member);

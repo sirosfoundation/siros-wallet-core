@@ -88,6 +88,19 @@ pub enum RouteBreach {
     BodyChannel,
 }
 
+/// How a registered part of the Authorization Response's parameters breaks its registration, the
+/// cause of phase 2's fault: the part broke its contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.parameter_breach")]
+pub enum ParameterBreach {
+    /// A member of a name outside the names the registry checked for the part.
+    #[error("a part wrote a response parameter it does not declare")]
+    Undeclared,
+    /// A member of a name an earlier member holds.
+    #[error("a response parameter written twice")]
+    Twice,
+}
+
 /// Why phase 2 rejects a selection: its ids are no records, or no selection the request allows.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.rejection")]

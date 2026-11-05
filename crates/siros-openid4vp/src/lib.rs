@@ -181,6 +181,8 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             resolve::RouteBreach::messages,
             #[cfg(feature = "resolve")]
+            resolve::ParameterBreach::messages,
+            #[cfg(feature = "resolve")]
             resolve::FormMedia::messages,
             #[cfg(feature = "resolve")]
             resolve::NotObject::messages,

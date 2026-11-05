@@ -14,9 +14,9 @@ use crate::wallet_metadata::ParameterName;
 
 /// The key and `enc` a route bound: what the core seals to through `Haip::encrypt_jwe` and what
 /// the session holds. Only `Route::new` makes one, from the mode's [`Encrypting::Jwe`] once it
-/// has checked it: the key is one of the request's (`VerifierKey`), its curve and `alg` and the `enc`
-/// are ones the sealing module states (`Haip::agreements`), and the `enc` is one the Verifier
-/// lists (A128GCM when it lists none, §5.1):
+/// has checked it: the key is one of the request's (`VerifierKey`), its curve and `alg` and the
+/// `enc` are ones the sealing module states (`Haip::agreements`), and the `enc` is one the
+/// Verifier lists (A128GCM when it lists none, §5.1):
 ///
 /// ```compile_fail,E0451
 /// use siros_openid4vp::request::ContentEncryption;
