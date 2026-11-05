@@ -1,7 +1,7 @@
 [package]
 name = "siros-integration"
 version = "0.1.0"
-description = "The SIROS wallet core with every real plug-in registered at once: the dressed run's properties, its live differential against the reference model, and one end-to-end path per configuration"
+description = "The SIROS wallet core with every real plug-in registered at once: the dressed run's properties, one end-to-end path per configuration and every flow of the design"
 edition = "2024"
 license.workspace = true
 repository.workspace = true

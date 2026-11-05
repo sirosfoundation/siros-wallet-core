@@ -61,7 +61,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
 | `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
 | `siros-testkit` | The core's test doubles |
-| `siros-integration` | The HAIP build end to end |
+| `siros-integration` | The HAIP and WE BUILD builds end to end: every flow of the design, F1 to F13 |
 | `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
 | `siros-zkp-catalogues` | The catalogue crate: every `zkp_req` rulebook lands here as modules and features — capability growth never adds a crate. Today it holds nym_auth, a normal credential (an mdoc, stored in the wallet state and consented like any other) that happens to carry the capability of doing pseudonyms: its rulebook defines the functions (`pseudonym`, `age_check`) and the Longfellow and Vega systems that prove them |
 
@@ -83,7 +83,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
 ├── siros-testkit     the core's test doubles                     test-util, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
-└── siros-integration the HAIP build end to end                   resolve
+└── siros-integration the HAIP and WE BUILD builds end to end     resolve
 siros-i18n            the i18n engine                             load | render | number | currency | offset | date | list
 siros-cldr            CLDR format options for siros-i18n modules
 siros-explain         the message contract
