@@ -25,6 +25,15 @@ pub struct ValidatedToken {
     pub jti: String,
     /// The token access control string (the `tac` claim).
     pub tac: String,
+    /// The `iat` claim, unix seconds: when the token was issued. The
+    /// #319 cut-off gate compares it — a token issued before the user's
+    /// `auth_invalid_before` was moved forward is stale.
+    pub iat: Option<i64>,
+    /// The `auth_invalid_before` claim, unix seconds, when the AS stamps
+    /// it: the user's token cut-off at issue time (the #319 lifecycle
+    /// gate's stateless half — the store-backed check lives in the
+    /// [`TokenGate`] the backend adapter implements).
+    pub auth_invalid_before: Option<i64>,
 }
 
 /// Why a token was refused.
@@ -213,6 +222,16 @@ impl TokenValidator {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .to_owned();
+        // The #319 lifecycle claims: `iat` (registered; jose-rs exposes
+        // it) and the custom `auth_invalid_before` — the user's token
+        // cut-off as the AS stamped it at issue.
+        let iat = claims
+            .iat
+            .and_then(|t| i64::try_from(t.as_secs()).ok())
+            .or_else(|| claims_value.get("iat").and_then(serde_json::Value::as_i64));
+        let auth_invalid_before = claims_value
+            .get("auth_invalid_before")
+            .and_then(serde_json::Value::as_i64);
 
         // Revocation check.
         if !jti.is_empty() && self.revocation.is_revoked(&jti) {
@@ -224,6 +243,8 @@ impl TokenValidator {
             tenant,
             jti,
             tac,
+            iat,
+            auth_invalid_before,
         })
     }
 }
@@ -265,4 +286,187 @@ fn base64url_decode(encoded: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+// ─── The #319 lifecycle gate ──────────────────────────────────────────────────
+
+/// The #319 token cut-off gate: whether the user's tokens were invalidated
+/// after this one was issued. The Go backend consults
+/// `User.AuthInvalidBefore` at the WebSocket handshake **and at each flow
+/// start** (an instance revoked mid-token must not start new flows); the
+/// Rust adapter replicates the flow-start half here (the handshake half is
+/// the transport's `bearer_principal`, which refuses an invalid token
+/// outright).
+///
+/// The two halves of the check:
+///
+/// - **Stateless** (always on): the token's own `auth_invalid_before`
+///   claim — the user's cut-off as the AS stamped it — against its `iat`.
+///   A token issued before the cut-off was moved forward is stale. This
+///   sees everything the AS knew at issue; it cannot see a revocation
+///   that happened after.
+/// - **Store-backed** (the [`TokenGate`] trait): the backend's user store
+///   answers the cut-off question live. The default
+///   [`NoTokenGate`] answers nothing — the standalone engine has no
+///   lifecycle backend; the backend adapter implements it.
+pub trait TokenGate: Send + Sync {
+    /// The user's current token cut-off, unix seconds: tokens issued
+    /// before it are stale. `None` when the user has no cut-off (or the
+    /// gate has no backend to ask).
+    fn auth_invalid_before(&self, subject: &str, tenant: &str) -> Option<i64>;
+}
+
+/// No lifecycle backend: the standalone engine's default gate. Only the
+/// stateless claim check applies.
+#[derive(Default)]
+pub struct NoTokenGate;
+
+impl TokenGate for NoTokenGate {
+    fn auth_invalid_before(&self, _subject: &str, _tenant: &str) -> Option<i64> {
+        None
+    }
+}
+
+/// Whether the validated token is stale: issued before the user's token
+/// cut-off. The stateless claim check first (the token's own
+/// `auth_invalid_before` against its `iat`), then the gate's answer (the
+/// live cut-off, which overrides the claim — the store is newer than the
+/// stamp).
+#[must_use]
+pub fn token_is_stale(token: &ValidatedToken, gate: &dyn TokenGate) -> bool {
+    // The stateless claim check: the AS stamped the cut-off, the token
+    // says it predates it.
+    if let (Some(iat), Some(before)) = (token.iat, token.auth_invalid_before) {
+        if iat < before {
+            return true;
+        }
+    }
+    // The store-backed check: the gate's answer is newer than the stamp.
+    let live = gate.auth_invalid_before(&token.subject, &token.tenant);
+    match (token.iat, live) {
+        (Some(iat), Some(before)) => iat < before,
+        _ => false,
+    }
+}
+
+/// The principal-level stale check (the handler's flow-start gate): the
+/// transport stamped the token's `iat` and its `auth_invalid_before` into
+/// the principal, so the stateless half reads straight off it; the gate
+/// adds the store-backed half (the live cut-off, which overrides the
+/// stamp — the store is newer than the token).
+///
+/// A principal without token claims — the transport established it some
+/// other way — is not stale: the transport decided it was good enough.
+pub fn principal_token_is_stale(
+    principal: &wmp_core::principal::Principal,
+    gate: &dyn TokenGate,
+) -> bool {
+    // The stateless claim check: the AS stamped the cut-off, the token
+    // says it predates it.
+    if let (Some(iat), Some(before)) = (principal.iat, principal.auth_invalid_before) {
+        if iat < before {
+            return true;
+        }
+    }
+    // The store-backed check: the gate's live answer.
+    match (
+        principal.iat,
+        gate.auth_invalid_before(&principal.subject, &principal.tenant),
+    ) {
+        (Some(iat), Some(before)) => iat < before,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    //! The #319 gate's own proof: the stateless claim check, the
+    //! store-backed override, and the no-claims pass.
+
+    use super::*;
+
+    /// A gate that answers a fixed cut-off (the store-backed test double).
+    struct FixedGate(Option<i64>);
+
+    impl TokenGate for FixedGate {
+        fn auth_invalid_before(&self, _subject: &str, _tenant: &str) -> Option<i64> {
+            self.0
+        }
+    }
+
+    #[test]
+    fn a_token_predating_its_stamped_cut_off_is_stale() {
+        // iat 100 < auth_invalid_before 200: the AS stamped a cut-off the
+        // token predates.
+        let token = ValidatedToken {
+            subject: "alice".to_owned(),
+            tenant: "acme".to_owned(),
+            iat: Some(100),
+            auth_invalid_before: Some(200),
+            ..ValidatedToken::default()
+        };
+        assert!(token_is_stale(&token, &NoTokenGate));
+    }
+
+    #[test]
+    fn a_token_after_its_cut_off_is_not_stale() {
+        let token = ValidatedToken {
+            subject: "alice".to_owned(),
+            tenant: "acme".to_owned(),
+            iat: Some(300),
+            auth_invalid_before: Some(200),
+            ..ValidatedToken::default()
+        };
+        assert!(!token_is_stale(&token, &NoTokenGate));
+    }
+
+    #[test]
+    fn the_store_backed_gate_overrides_the_stamp() {
+        // The token's stamp says fresh (iat 300 > stamp 200), but the live
+        // store answers a newer cut-off the token predates.
+        let token = ValidatedToken {
+            subject: "alice".to_owned(),
+            tenant: "acme".to_owned(),
+            iat: Some(300),
+            auth_invalid_before: Some(200),
+            ..ValidatedToken::default()
+        };
+        let gate = FixedGate(Some(400));
+        assert!(
+            token_is_stale(&token, &gate),
+            "the live cut-off overrides the stamp"
+        );
+        // And the reverse: the store says fresh, the stale stamp does not
+        // win (the stateless check already passed iat >= stamp).
+        let gate = FixedGate(Some(100));
+        assert!(!token_is_stale(&token, &gate));
+    }
+
+    #[test]
+    fn a_principal_without_token_claims_is_not_stale() {
+        // The transport established the principal without lifecycle
+        // claims: not stale — the transport decided it was good enough.
+        let principal = wmp_core::principal::Principal::new("alice", "acme");
+        assert!(!principal_token_is_stale(&principal, &NoTokenGate));
+        // With claims, the same rules as the token.
+        let stale = wmp_core::principal::Principal::with_token_claims(
+            "alice",
+            "acme",
+            "jti-1",
+            "ri",
+            Some(100),
+            Some(200),
+        );
+        assert!(principal_token_is_stale(&stale, &NoTokenGate));
+        let gate = FixedGate(Some(400));
+        let fresh_stamp = wmp_core::principal::Principal::with_token_claims(
+            "alice",
+            "acme",
+            "jti-1",
+            "ri",
+            Some(300),
+            Some(200),
+        );
+        assert!(principal_token_is_stale(&fresh_stamp, &gate));
+    }
 }

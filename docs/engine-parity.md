@@ -217,24 +217,33 @@ that lands, the standalone engine trusts the token's signature only.
    step + the single-config auto-select** (a multi-config offer needs the
    `select_credential` action path, like the auth-code grant's two-call
    resume).
-2. **W2 — the bridge (#163)**: ✅ the SSE event pump (`id:` lines,
-   `Last-Event-ID` replay, `410 Gone`, the `refresh_token`/`dpop_jwk`/
-   `dpop_key_id` redaction, and the replayer — `wmp.session.resume`'s
-   `missed_messages` counts from the same log); ✅ `wmp.resolve` vctm
-   serving (the six-member projection, `-32603` with
-   `metadata_fetch_error`, `-32602`); ✅ **the Host↔WMP sub-flow bridge
-   (F1)** — every engine ask (sign, signing_key, match, consent, tx_code,
-   presentation, dpop_proof, attestation, authorization) rides a child
-   flow (`<parent>::<type>::<n>`), its completion routed back through the
-   peer's registry, with the Go per-ask timeouts and the
-   cancel-on-timeout; ✅ the typed −31006 wire data on the trust
-   refusals (`{reason: "untrusted_issuer"/"untrusted_verifier",
-   retryable: false}` + the subject and the PDP detail); ✅ the flows
-   capability advert on the server's session create (§10.3). Remaining:
-   the OpenID4x profile + step/action translation (3.1.2/3.2.2), the
-   TAC-aware Principal + session-access checks (−31002), and the #319
-   seam (the decision is made — §6.10 — the adapter replicates it, in
-   the same wave as the TAC wiring).
+2. **W2 — the bridge (#163): COMPLETE.** ✅ the SSE event pump (`id:`
+   lines, `Last-Event-ID` replay, `410 Gone`, the
+   `refresh_token`/`dpop_jwk`/`dpop_key_id` redaction, and the replayer
+   — `wmp.session.resume`'s `missed_messages` counts from the same
+   log); ✅ `wmp.resolve` vctm serving (the six-member projection,
+   `-32603` with `metadata_fetch_error`, `-32602`); ✅ **the Host↔WMP
+   sub-flow bridge (F1)** — every engine ask (sign, signing_key, match,
+   consent, tx_code, presentation, dpop_proof, attestation,
+   authorization) rides a child flow (`<parent>::<type>::<n>`), its
+   completion routed back through the peer's registry, with the Go
+   per-ask timeouts and the cancel-on-timeout; ✅ the typed −31006 wire
+   data on the trust refusals; ✅ the flows capability advert on the
+   server's session create (§10.3); ✅ **the OpenID4x action translation
+   (3.1.2/3.2.2)** at the adapter — `authorize`→`authorization_complete`,
+   `select_credentials`→`select_credential`, `provide_tx_code`→
+   `provide_pin`, `accept_offer`→`consent`, unknown actions pass
+   through; ✅ **the TAC principal** — `Principal` carries `jti`/`tac`
+   (+ the lifecycle claims), the flow-start gate enforces the Go
+   `requiredTACForProtocol` map (`oid4vp`→`r`, `oid4vci`→`i`), only
+   when the principal carries a TAC (the legacy-auth empty-TAC shape
+   does not enforce); ✅ **the #319 seam, the flow-start half**
+   (§6.10): the anonymous principal refuses engine flow starts with
+   `-31002`, and the token cut-off gate — `Principal.iat`/`auth_invalid_before`
+   (stamped by `bearer_principal` from the token) + the `TokenGate`
+   trait (stateless claim check + the store-backed half, default
+   `NoTokenGate` for the standalone deployment, the backend adapter
+   implements it) — refuses a principal whose token was cut off.
 3. **W3 — the sign-stage refusal (#472)**: `request_vp` decline/rejected
    answers the verifier `access_denied` (+state) and the client
    `PRESENTATION_ERROR` + `redirect_uri`.

@@ -336,9 +336,18 @@ fn bearer_principal(
         .and_then(|v| v.strip_prefix("Bearer "))?;
 
     match validator.validate(raw_token) {
-        Ok(validated) => Some(wmp_core::principal::Principal::new(
+        // The full token identity: the subject, the tenant, the token's
+        // `jti` and `tac`, and its lifecycle claims (`iat`, the
+        // `auth_invalid_before` stamp) — the #319 gate's stateless
+        // inputs, stamped here so the flow-start gate reads them off the
+        // principal.
+        Ok(validated) => Some(wmp_core::principal::Principal::with_token_claims(
             validated.subject,
             validated.tenant,
+            validated.jti,
+            validated.tac,
+            validated.iat,
+            validated.auth_invalid_before,
         )),
         Err(_) => None,
     }

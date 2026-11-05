@@ -733,3 +733,77 @@ async fn a_session_create_advertises_the_flows_capability() {
         "the engine advertises its flows bound: {response}"
     );
 }
+
+// ─── The auth gates at the flow start + the OpenID4x action translation ──────
+
+/// Posts a flow start for `flow_type`, answering the JSON-RPC error
+/// shape. `token`: `Some` sends the bearer, `None` sends no header at
+/// all (the anonymous principal).
+async fn post_flow_start(
+    server: &Arc<EngineServer>,
+    token: Option<&str>,
+    flow_type: &str,
+) -> (StatusCode, serde_json::Value) {
+    let app = engine_adapter_server::transport::router(server.clone());
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/wmp")
+        .header("content-type", "application/json");
+    if let Some(token) = token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    let request = builder
+        .body(Body::from(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": "req-flow",
+                "method": "wmp.flow.start",
+                "params": {
+                    "wmp": { "version": "0.1" },
+                    "flow_id": "flow-gate-1",
+                    "flow_type": flow_type,
+                    "params": {},
+                }
+            })
+            .to_string(),
+        ))
+        .expect("build request");
+    let response = app.oneshot(request).await.expect("serve");
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("read body");
+    let value = serde_json::from_slice(&body).unwrap_or_default();
+    (status, value)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_anonymous_flow_start_refuses_with_31002() {
+    let server = test_server();
+    // No Authorization header at all: the anonymous principal (None,
+    // not an empty bearer). The standalone engine requires a token for
+    // engine flows (#319's anonymous refusal), so the flow start
+    // refuses with -31002 before the capability gate fires.
+    let (status, body) = post_flow_start(&server, None, "oid4vci").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.pointer("/error/code")
+            .and_then(serde_json::Value::as_i64),
+        Some(-31002),
+        "an unauthenticated flow start refuses: {body}"
+    );
+    assert!(
+        body.pointer("/error/data/reason")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|r| r.contains("authenticated principal")),
+        "the reason names the requirement: {body}"
+    );
+}
+
+// The OpenID4x action translation (the #163 bridge's wmp_translate.go
+// shape) is unit-tested in the handler module (translation_tests):
+// authorize → authorization_complete, select_credentials →
+// select_credential, provide_tx_code → provide_pin, accept_offer →
+// consent; unknown actions pass through. A full action round-trip needs
+// a flow in flight — the wasm dispatcher's end-to-end script covers
+// that shape.
