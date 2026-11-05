@@ -27,6 +27,54 @@ use types::MetadataType;
 
 /// The OID4VCI flow handler: the full S1+S2 issuance flow — parse the
 /// offer, resolve the issuer metadata, discover the AS, exchange the
+/// The AS the flow discovers (#511): the offer's grant-level
+/// `authorization_server` hint — OpenID4VCI 1.0/1.1: "the Wallet MUST NOT
+/// proceed with the flow if the `authorization_server` Credential Offer
+/// parameter value does not match any of the entries in the
+/// `authorization_servers` array" — else the first advertised (the
+/// documented choice when the offer carries no hint and several are
+/// advertised), else the credential issuer itself (the same-origin AS).
+fn select_as_url(
+    offer: &types::CredentialOffer,
+    issuer_metadata: &types::IssuerMetadata,
+) -> Result<String, String> {
+    // The hint: the grant's authorization_server member (either grant
+    // carries it; the first found wins).
+    let hint = offer
+        .grants
+        .as_object()
+        .and_then(|grants| {
+            grants
+                .values()
+                .find_map(|grant| grant.get("authorization_server").and_then(|v| v.as_str()))
+        })
+        .filter(|url| !url.is_empty());
+    match hint {
+        Some(hint) => {
+            // MUST equal (exact string comparison) one of the advertised
+            // entries; a mismatch fails closed.
+            if issuer_metadata
+                .authorization_servers
+                .iter()
+                .any(|url| url == hint)
+            {
+                Ok(hint.to_owned())
+            } else {
+                Err(format!(
+                    "the offer names authorization_server {hint:?} which the issuer metadata does not advertise"
+                ))
+            }
+        }
+        // No hint: the first advertised (the documented choice), else the
+        // credential issuer itself.
+        None => Ok(issuer_metadata
+            .authorization_servers
+            .first()
+            .cloned()
+            .unwrap_or_else(|| offer.credential_issuer.clone())),
+    }
+}
+
 /// pre-authorized code for a token, request the credential with the
 /// host-signed proof, and report the result.
 pub struct Oid4vciFlow;
@@ -149,11 +197,10 @@ impl FlowHandler for Oid4vciFlow {
             .await;
 
         // ── S1: discover the AS metadata ────────────────────────────────
-        let as_url = issuer_metadata
-            .authorization_servers
-            .first()
-            .cloned()
-            .unwrap_or_else(|| offer.credential_issuer.clone());
+        // #511: the offer's grant-level authorization_server hint
+        // selects the AS (and a mismatch fails closed); without a hint,
+        // the first advertised.
+        let as_url = select_as_url(&offer, &issuer_metadata).map_err(flow_error)?;
 
         let as_metadata = as_metadata::discover_as_metadata(ctx.http().as_ref(), &as_url, false)
             .await
@@ -814,11 +861,8 @@ async fn resume_authorization_code(
         _ => flow_error(err.to_string()),
     })?;
 
-    let as_url = issuer_metadata
-        .authorization_servers
-        .first()
-        .cloned()
-        .unwrap_or_else(|| offer.credential_issuer.clone());
+    // #511: the hint selects the AS on the resume path too.
+    let as_url = select_as_url(&offer, &issuer_metadata).map_err(flow_error)?;
     let as_metadata = as_metadata::discover_as_metadata(ctx.http().as_ref(), &as_url, false)
         .await
         .map_err(|err| flow_error(err.to_string()))?;
@@ -1791,5 +1835,105 @@ mod renewal_flow_tests {
         // The proof was signed with the EXISTING key the issuer knows.
         let key_ids = host.sign_key_ids.lock().expect("lock");
         assert_eq!(key_ids.as_slice(), [Some("kid-original".to_owned())]);
+    }
+}
+
+#[cfg(test)]
+mod as_selection_tests {
+    //! #511: the offer's `authorization_server` hint — the grant-level
+    //! hint selects the AS; a mismatch fails closed; no hint keeps the
+    //! first-advertised choice.
+
+    use super::*;
+
+    fn offer(grants: serde_json::Value) -> types::CredentialOffer {
+        types::CredentialOffer {
+            credential_issuer: "https://issuer.example".to_owned(),
+            credential_configuration_ids: vec!["UniversityDegree".to_owned()],
+            grants,
+        }
+    }
+
+    fn issuer_metadata(servers: &[&str]) -> types::IssuerMetadata {
+        types::IssuerMetadata {
+            credential_issuer: "https://issuer.example".to_owned(),
+            authorization_servers: servers.iter().map(|s| s.to_string()).collect(),
+            ..serde_json::from_value(serde_json::json!({
+                "credential_issuer": "https://issuer.example"
+            }))
+            .expect("the minimal metadata parses")
+        }
+    }
+
+    #[test]
+    fn a_matching_hint_selects_the_hinted_as() {
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://as-2.example"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &issuer_metadata),
+            Ok("https://as-2.example".to_owned()),
+            "the hint selects, not the first"
+        );
+    }
+
+    #[test]
+    fn a_mismatched_hint_fails_closed() {
+        // OpenID4VCI 1.0/1.1: the wallet MUST NOT proceed when the hint
+        // matches no advertised entry.
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://evil.example"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example"]);
+        assert!(
+            select_as_url(&offer, &issuer_metadata).is_err(),
+            "the mismatch fails closed"
+        );
+    }
+
+    #[test]
+    fn an_exact_match_is_required() {
+        // The match is an exact string comparison: a trailing slash or a
+        // scheme difference is a mismatch.
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://as-1.example/"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example"]);
+        assert!(select_as_url(&offer, &issuer_metadata).is_err());
+    }
+
+    #[test]
+    fn no_hint_keeps_the_first_advertised() {
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"issuer_state": "x"}
+        }));
+        let metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &metadata),
+            Ok("https://as-1.example".to_owned())
+        );
+        // And no advertised servers at all: the credential issuer itself.
+        let metadata = issuer_metadata(&[]);
+        assert_eq!(
+            select_as_url(&offer, &metadata),
+            Ok("https://issuer.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_hint_is_read_from_either_grant() {
+        // The pre-authorized grant carries it too.
+        let offer = offer(serde_json::json!({
+            "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+                "pre-authorized_code": "x",
+                "authorization_server": "https://as-2.example"
+            }
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &issuer_metadata),
+            Ok("https://as-2.example".to_owned())
+        );
     }
 }
