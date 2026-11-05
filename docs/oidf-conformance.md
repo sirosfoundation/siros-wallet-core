@@ -45,12 +45,32 @@ family). The code-for-token exchange carries the same assertion
 (`vci.oidf.authcode-private-key-jwt.001` pins the wire; provenance `oidf`,
 plans `qxakXX5iipJh4` and `hBdQN9b9fHxXP`).
 
-**Remaining:** the haip profile (the x509_hash client_id scheme, the
-dc_api browser variants) and the iso_mdl format (the mdoc presentation
-path in the mini host). Both runs are published on the Pages site under
+**The HAIP profile (2026-11-05)** — the OID4VP HAIP wallet plan
+(`oid4vp-1final-wallet-haip-test-plan`, `sd_jwt_vc` / `eudi_pid` /
+`direct_post.jwt`) green against the raw engine: 11 modules PASSED
+(both happy flows, the unusable-encryption-key, all-mandatory-claims,
+fewer-claims, optional-credential-set, no-claims, the three DCQL path
+forms — array index, array all-elements, object member — and the
+required-non-matching negative), `request-uri-method-post` SKIPPED by
+the suite, the other eight negative modules REVIEW (each refusal
+verified; the placeholder upload completes them). The profile's three
+new rules all engine-side: the `x509_hash` client_id scheme (§5.2.3 —
+the base64url SHA-256 over the request object's `x5c` leaf, checked in
+constant time; an unsigned or chainless request under the scheme
+refuses), the HAIP credential form (the PID's JWS header carries its
+X.509 chain, HAIP-6.1.1, validating to the configured trust anchor),
+and the DCQL §7 path forms over the typed fixture claims. The wire is
+pinned by `vp.oidf.x509-hash.basic.001` and
+`vp.oidf.x509-hash.mismatch.001` (provenance `oidf`, plan
+`x03k3BO5eKEsQ`, suite 5.3.4).
+
+**Remaining:** the dc_api response modes (the W3C Digital Credentials
+API browser flow) and the iso_mdl format (the mdoc presentation path in
+the mini host). The runs are published on the Pages site under
 `runs/mini-wallet-phase1-2026-11-04`,
-`runs/mini-wallet-vp-phase2-2026-11-04` and
-`runs/mini-wallet-authcode-2026-11-05`.
+`runs/mini-wallet-vp-phase2-2026-11-04`,
+`runs/mini-wallet-authcode-2026-11-05` and
+`runs/mini-wallet-vp-haip-2026-11-05`.
 
 ## The goal
 
