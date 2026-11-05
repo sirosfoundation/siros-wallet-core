@@ -10,6 +10,7 @@ use crate::compile::{self, Site};
 use crate::error::{ModuleError, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
+    ParamName,
 };
 use crate::format::{
     Call, Compilers, FormatCompiler, FormatId, LanguageFormats, Operand, ParsedFormats, Uses,
@@ -65,15 +66,15 @@ impl Declaration {
         for entry in messages.entries() {
             let mut params = Vec::with_capacity(entry.value().entries().len());
             for param in entry.value().entries() {
-                let name = param.key().clone().into_owned();
-                if DefinedKey::parse(name.clone()).is_none() {
-                    return Err(ModuleError::ParameterName {
-                        key: entry.key().as_str().to_owned(),
-                        name,
-                    });
-                }
+                let name =
+                    DefinedKey::parse(param.key().clone().into_owned()).ok_or_else(|| {
+                        ModuleError::ParameterName {
+                            key: entry.key().as_str().to_owned(),
+                            name: param.key().clone().into_owned(),
+                        }
+                    })?;
                 params.push(ParamForm {
-                    name,
+                    name: ParamName::Defined(name),
                     kind: param.value().kind(),
                     presence: param.value().presence(),
                 });

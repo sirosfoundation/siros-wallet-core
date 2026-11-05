@@ -271,7 +271,7 @@ impl Resolver<'_> {
             .params()
             .iter()
             .enumerate()
-            .find(|(_, param)| param.name == name);
+            .find(|(_, param)| param.name.as_str() == name);
         found
             .map(|(index, param)| Argument {
                 index,
