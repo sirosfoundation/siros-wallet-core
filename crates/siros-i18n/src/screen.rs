@@ -16,7 +16,7 @@ use crate::render::{RENDERER, RenderOptions, Renderer};
 pub struct Screen<'m> {
     package: Package<'m>,
     manifest: Manifest,
-    modules: Keyed<ModuleId, usize>,
+    modules: Keyed<ModuleId, ModuleRecord>,
 }
 
 /// The language of a presentation.
@@ -39,9 +39,6 @@ impl Language {
     }
 }
 
-/// A module none of whose entries a tag matches.
-struct Unserved;
-
 /// A module's digest, and the locale entry a language chose.
 #[derive(Debug, Clone)]
 struct Chosen {
@@ -50,10 +47,66 @@ struct Chosen {
     tag: LocaleTag,
 }
 
-/// The locale entries a tag chose, and the language it is.
-struct Choice {
-    chosen: Keyed<ModuleId, Chosen>,
-    language: Language,
+/// A module as the language decision reads it: its identity, the tags of its locale entries in
+/// its order, and its language policy.
+#[derive(Debug, Clone, Copy)]
+pub struct Served<'t> {
+    /// The module.
+    pub id: ModuleId,
+    /// Its locale entries' tags.
+    pub tags: &'t [LocaleTag],
+    /// Its language policy.
+    pub policy: LanguagePolicy,
+}
+
+/// The entry among `entries` the range `tag` matches by RFC 4647 basic filtering: the one whose
+/// tag equals the range, else the first in the module's order whose tag extends it.
+fn matching<'e, E>(
+    entries: &'e [E],
+    tag_of: impl Fn(&E) -> &LocaleTag,
+    tag: &LocaleTag,
+) -> Option<&'e E> {
+    let equal = entries.iter().find(|entry| tag_of(entry) == tag);
+    equal.or_else(|| entries.iter().find(|entry| tag.filters(tag_of(entry))))
+}
+
+/// The presentation's language over its modules, the End-User's priority list and the app's
+/// fallback list: the first tag of the priority list every module matches; with none, and no
+/// module enforcing understood languages, the first tag of the fallback list every module
+/// matches. [`Screen::locale`] decides with it over a package's modules; a converter decides with
+/// it over the modules a presentation draws from before a package holds them.
+///
+/// # Errors
+///
+/// [`NoLanguage::NotUnderstood`], naming the first enforcing module, when no tag of the priority
+/// list serves every module and a module enforces; [`NoLanguage::NoFallback`] when no tag of the
+/// fallback list serves every module.
+pub fn decide(
+    modules: &[Served<'_>],
+    priority: &[LocaleTag],
+    fallback: &[LocaleTag],
+) -> Result<Language, NoLanguage> {
+    let first = |tags: &[LocaleTag]| {
+        tags.iter()
+            .find(|tag| {
+                modules
+                    .iter()
+                    .all(|module| matching(module.tags, |tag| tag, tag).is_some())
+            })
+            .cloned()
+    };
+    if let Some(tag) = first(priority) {
+        return Ok(Language::Understood(tag));
+    }
+    if let Some(enforcing) = modules
+        .iter()
+        .find(|module| module.policy == LanguagePolicy::Understood)
+    {
+        return Err(NoLanguage::NotUnderstood(ModuleName::of(enforcing.id)));
+    }
+    first(fallback)
+        .map(Language::Fallback)
+        .ok_or(NoLanguage::NoFallback)
 }
 
 /// A screen and the language [`Screen::locale`] chose for it. Only `locale` makes one.
@@ -63,14 +116,6 @@ pub struct Located<'m> {
     manifest: Manifest,
     chosen: Keyed<ModuleId, Chosen>,
     language: Language,
-}
-
-/// A module's locale entry that the range `tag` matches by RFC 4647 basic filtering: the one equal
-/// to the tag, else the first in the module's order.
-fn locale_entry<'r>(module: &'r ModuleRecord, tag: &LocaleTag) -> Option<&'r LocaleRef> {
-    let locales = &module.locales;
-    let equal = locales.iter().find(|locale| locale.tag == *tag);
-    equal.or_else(|| locales.iter().find(|locale| tag.filters(&locale.tag)))
 }
 
 impl<'m> Screen<'m> {
@@ -89,9 +134,9 @@ impl<'m> Screen<'m> {
             });
         }
         let entries = modules.into_iter().map(|id| {
-            let index = manifest.modules.iter().position(|module| module.id.is(id));
-            index
-                .map(|index| Entry::new(id, index))
+            let record = manifest.modules.iter().find(|module| module.id.is(id));
+            record
+                .map(|record| Entry::new(id, record.clone()))
                 .ok_or_else(|| PackageError::Module(ModuleName::of(id)))
         });
         let modules = Keyed::new(entries.collect::<Result<_, _>>()?)
@@ -103,38 +148,29 @@ impl<'m> Screen<'m> {
         })
     }
 
-    /// The screen of the modules among `modules` that `tag` serves, located at `tag`; `None`
-    /// when a module it holds does not serve `tag`.
+    /// The screen of the modules among `modules` that `tag` serves, located at `tag`.
     #[cfg(feature = "load")]
     pub(crate) fn serving(
         package: &Package<'m>,
         modules: &[ModuleId],
         tag: &LocaleTag,
-    ) -> Result<Option<Located<'m>>, PackageError> {
+    ) -> Result<Located<'m>, PackageError> {
         let all = Self::new(package, modules.to_vec())?;
-        let served = all.modules.entries().iter().filter(|entry| {
-            all.record(*entry.value())
-                .is_some_and(|module| locale_entry(module, tag).is_some())
+        let chosen = all.modules.entries().iter().filter_map(|entry| {
+            let record = entry.value();
+            matching(&record.locales, |locale| &locale.tag, tag)
+                .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale)))
         });
-        let screen = Self::new(package, served.map(|entry| *entry.key()).collect())?;
-        Ok(screen
-            .first(std::slice::from_ref(tag), Language::Understood)
-            .map(|choice| Located {
-                package: screen.package,
-                manifest: screen.manifest,
-                chosen: choice.chosen,
-                language: choice.language,
-            }))
-    }
-
-    /// The module of the manifest at `index`.
-    fn record(&self, index: usize) -> Option<&ModuleRecord> {
-        self.manifest.modules.get(index)
+        Ok(Located {
+            package: all.package,
+            chosen: Keyed::first_of(chosen),
+            manifest: all.manifest,
+            language: Language::Understood(tag.clone()),
+        })
     }
 
     /// The presentation's language over the End-User's priority list and the app's fallback
-    /// list: the first tag of the priority list every module matches; with none, and no module
-    /// enforcing understood languages, the first tag of the fallback list every module matches.
+    /// list, by [`decide`] over the screen's modules.
     ///
     /// # Errors
     ///
@@ -146,45 +182,53 @@ impl<'m> Screen<'m> {
         priority: &[LocaleTag],
         fallback: &[LocaleTag],
     ) -> Result<Located<'m>, NoLanguage> {
-        let choice = match self.first(priority, Language::Understood) {
-            Some(choice) => choice,
-            None => {
-                let enforcing = self.modules.entries().iter().find(|entry| {
-                    self.record(*entry.value())
-                        .is_some_and(|module| module.policy == LanguagePolicy::Understood)
-                });
-                if let Some(enforcing) = enforcing {
-                    return Err(NoLanguage::NotUnderstood(ModuleName::of(*enforcing.key())));
-                }
-                self.first(fallback, Language::Fallback)
-                    .ok_or(NoLanguage::NoFallback)?
-            }
-        };
+        let tags: Vec<Vec<LocaleTag>> = self
+            .modules
+            .entries()
+            .iter()
+            .map(|entry| {
+                entry
+                    .value()
+                    .locales
+                    .iter()
+                    .map(|l| l.tag.clone())
+                    .collect()
+            })
+            .collect();
+        let served: Vec<Served<'_>> = self
+            .modules
+            .entries()
+            .iter()
+            .zip(&tags)
+            .map(|(entry, tags)| Served {
+                id: *entry.key(),
+                tags,
+                policy: entry.value().policy,
+            })
+            .collect();
+        let language = decide(&served, priority, fallback)?;
+        let chosen = self.modules.entries().iter().filter_map(|entry| {
+            let record = entry.value();
+            matching(&record.locales, |locale| &locale.tag, language.tag())
+                .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale)))
+        });
         Ok(Located {
             package: self.package,
+            chosen: Keyed::first_of(chosen),
             manifest: self.manifest,
-            chosen: choice.chosen,
-            language: choice.language,
+            language,
         })
     }
+}
 
-    /// The locale entries the first tag of `tags` every module matches chose.
-    fn first(&self, tags: &[LocaleTag], language: fn(LocaleTag) -> Language) -> Option<Choice> {
-        tags.iter().find_map(|tag| {
-            let chosen = self.modules.try_map(|&module| {
-                let record = self.record(module).ok_or(Unserved)?;
-                let locale = locale_entry(record, tag).ok_or(Unserved)?;
-                Ok::<_, Unserved>(Chosen {
-                    digest: record.digest,
-                    entry: locale.entry,
-                    tag: locale.tag.clone(),
-                })
-            });
-            Some(Choice {
-                chosen: chosen.ok()?,
-                language: language(tag.clone()),
-            })
-        })
+impl Chosen {
+    /// A module's locale entry.
+    fn of(record: &ModuleRecord, locale: &LocaleRef) -> Self {
+        Self {
+            digest: record.digest,
+            entry: locale.entry,
+            tag: locale.tag.clone(),
+        }
     }
 }
 

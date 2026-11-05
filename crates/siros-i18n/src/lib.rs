@@ -171,7 +171,7 @@ pub use render::{
     Amounts, Bidi, OnRenderError, RENDERER, RenderOptions, Renderer, RenderingInputs,
 };
 #[cfg(feature = "render")]
-pub use screen::{Language, Located, Screen};
+pub use screen::{Language, Located, Screen, Served, decide};
 pub use sink::Style;
 #[cfg(feature = "render")]
 pub use sink::{Formatted, Sink, Span};

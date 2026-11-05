@@ -309,9 +309,7 @@ impl PackageTexts<'_> {
         let mut kept = Vec::new();
         let mut outside = None;
         for tag in &self.builder.locales {
-            let Some(located) = Screen::serving(&package, &ids, tag)? else {
-                continue;
-            };
+            let located = Screen::serving(&package, &ids, tag)?;
             let renderer = located.renderer(self.formats, options)?;
             match renderer.drawn(text) {
                 Ok(drawn) => kept.push(Held {
