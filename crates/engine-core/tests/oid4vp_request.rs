@@ -4,6 +4,10 @@
 use engine_core::oid4vp::request::parse_request;
 use engine_core::oid4vp::types::{ClientIdScheme, RequestError, ResponseMode};
 use engine_ports::{FetchPurpose, HttpClient, HttpError, HttpRequest};
+
+/// The request-object read limit of docs/wallet-core-architecture.md §4.14 F5.
+const REQUEST_OBJECT_LIMIT: usize = 256 * 1024;
+
 struct FakeHttp {
     body: Vec<u8>,
     status: u16,
@@ -13,7 +17,7 @@ struct FakeHttp {
 impl HttpClient for FakeHttp {
     async fn send(&self, request: HttpRequest) -> Result<engine_ports::HttpResponse, HttpError> {
         assert_eq!(request.purpose, FetchPurpose::RequestObject);
-        assert_eq!(request.max_response_bytes, 256 << 10);
+        assert_eq!(request.max_response_bytes, REQUEST_OBJECT_LIMIT);
         Ok(engine_ports::HttpResponse {
             status: self.status,
             headers: Vec::new(),

@@ -9,6 +9,10 @@ use engine_core::oid4vp::trust::{
 use engine_core::oid4vp::types::{AuthorizationRequest, ClientIdScheme, ResponseMode};
 use engine_ports::{EvaluationRequest, FetchPurpose, HttpClient, HttpRequest, Pdp, PdpError};
 use serde_json::json;
+
+/// The metadata fetch limit of docs/engine-spec.md §Ports.
+const METADATA_LIMIT: usize = 1024 * 1024;
+
 struct FakePdp {
     trusted: bool,
     reason: Option<String>,
@@ -55,7 +59,7 @@ impl HttpClient for FakeHttp {
         request: HttpRequest,
     ) -> Result<engine_ports::HttpResponse, engine_ports::HttpError> {
         assert_eq!(request.purpose, FetchPurpose::ClientMetadata);
-        assert_eq!(request.max_response_bytes, 1 << 20);
+        assert_eq!(request.max_response_bytes, METADATA_LIMIT);
         Ok(engine_ports::HttpResponse {
             status: self.status,
             headers: Vec::new(),
