@@ -144,6 +144,7 @@ pub struct Located<'m> {
     package: Package<'m>,
     manifest: Manifest,
     chosen: Keyed<ModuleId, Chosen>,
+    selected: Option<Selected>,
     language: Language,
 }
 
@@ -214,6 +215,7 @@ impl<'m> Screen<'m> {
             package: all.package,
             chosen: Keyed::first_of(chosen),
             manifest: all.manifest,
+            selected: None,
             language: Language::Understood(tag.clone()),
         })
     }
@@ -294,6 +296,7 @@ impl<'m> Screen<'m> {
             package: self.package,
             chosen: Keyed::first_of(chosen),
             manifest: self.manifest,
+            selected: self.selected,
             language,
         })
     }
@@ -349,11 +352,21 @@ impl<'m> Located<'m> {
             self.package,
             self.manifest,
             forms,
-            self.language,
+            Shown {
+                selected: self.selected,
+                language: self.language,
+            },
             formats,
             options,
         ))
     }
+}
+
+/// The locales a screen shows: the selected module's, and the others' language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Shown {
+    pub(crate) selected: Option<Selected>,
+    pub(crate) language: Language,
 }
 
 /// A module's digest and the locale entry its language chose, read.

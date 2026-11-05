@@ -11,7 +11,8 @@ use crate::rows::{Amounts, Bidi, Language, ModuleName, RenderingInputs};
 
 /// A record's id: the JSON array `[query, credential, option, entries, attested, request,
 /// rendering]`, `rendering` the object of its rendering inputs, members in this order:
-/// `language` (the tag), `fallback` (whether the language fell back), `modules` (each module's
+/// `selected` (`null`, or the array of the name of the module a profile selected a locale for and
+/// that locale), `language` (the tag), `fallback` (whether the language fell back), `modules` (each module's
 /// name and the hexadecimal SHA-256 of its sources), `amounts` (`formatted` or `written`), `bidi`
 /// (`default` or `none`) and `renderer` (the renderer's version).
 /// As an array it differs from "none" and from every static box's id; its pick tells it from
@@ -105,7 +106,7 @@ impl<'m> Record<'m> {
     }
 
     /// The rendering input `returned` names differently, when it names this record's other
-    /// items as this record does: the language, its fallback flag, a module's digest or its
+    /// items as this record does: the selected module and its locale, the language, its fallback flag, a module's digest or its
     /// presence, the amounts, the bidi strategy, or the renderer's version, in that order.
     #[must_use]
     pub fn other_input(&self, returned: &ReturnedRecord<'_>) -> Option<RenderingInput> {
@@ -126,6 +127,8 @@ impl<'m> Record<'m> {
 /// A rendering input a returned record names differently from the record phase 2 derives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderingInput {
+    /// The module a profile selected a locale for, or that locale.
+    Selected,
     /// The language.
     Language,
     /// Whether the language fell back.
@@ -143,6 +146,7 @@ pub enum RenderingInput {
 /// A record's rendering inputs as its id writes them.
 struct Written<'i> {
     inputs: &'i RenderingInputs,
+    selected: String,
     language: &'i str,
     fallback: bool,
     amounts: &'static str,
@@ -155,8 +159,19 @@ impl<'i> Written<'i> {
             Language::Understood(tag) => (tag.as_str(), false),
             Language::Fallback(tag) => (tag.as_str(), true),
         };
+        let selected = inputs.selected().map_or_else(
+            || "null".to_owned(),
+            |selected| {
+                format!(
+                    "[{},{}]",
+                    quote(&ModuleName::of(selected.module()).to_string()),
+                    quote(selected.locale().as_str())
+                )
+            },
+        );
         Self {
             inputs,
+            selected,
             language,
             fallback,
             amounts: match inputs.amounts() {
@@ -188,7 +203,8 @@ impl<'i> Written<'i> {
             .map(|(name, digest)| format!("{}:{}", quote(&name), quote(&digest)))
             .collect();
         format!(
-            "{{\"language\":{},\"fallback\":{},\"modules\":{{{}}},\"amounts\":{},\"bidi\":{},\"renderer\":{}}}",
+            "{{\"selected\":{},\"language\":{},\"fallback\":{},\"modules\":{{{}}},\"amounts\":{},\"bidi\":{},\"renderer\":{}}}",
+            self.selected,
             quote(self.language),
             self.fallback,
             modules.join(","),
@@ -201,6 +217,10 @@ impl<'i> Written<'i> {
     /// The first input `rendering` names otherwise than these, by its members of those names.
     fn first_other(&self, rendering: &Node<'_>) -> Option<RenderingInput> {
         let text = |name: &str| rendering.get(name).and_then(Node::as_str);
+        let own = Node::parse(&self.selected).ok();
+        if rendering.get("selected") != own.as_ref() {
+            return Some(RenderingInput::Selected);
+        }
         if text("language") != Some(self.language) {
             return Some(RenderingInput::Language);
         }

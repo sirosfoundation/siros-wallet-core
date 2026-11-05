@@ -8,7 +8,7 @@ use crate::error::{PackageError, RenderError};
 use crate::eval::Trail;
 use crate::format::Formats;
 use crate::package::{Manifest, Package, TextKey, replay};
-use crate::screen::{ChosenForm, Language};
+use crate::screen::{ChosenForm, Language, Selected, Shown};
 use crate::sink::{Formatted, FormattedSink, Sink};
 
 /// The renderer's version: its compiled form's and its formatting's. A record commits to it.
@@ -58,6 +58,7 @@ pub struct RenderOptions {
 /// [`Renderer::inputs`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderingInputs {
+    selected: Option<Selected>,
     language: Language,
     modules: Keyed<ModuleId, [u8; 32]>,
     amounts: Amounts,
@@ -66,6 +67,12 @@ pub struct RenderingInputs {
 }
 
 impl RenderingInputs {
+    /// The module a profile selected a locale for, in that locale.
+    #[must_use]
+    pub const fn selected(&self) -> Option<&Selected> {
+        self.selected.as_ref()
+    }
+
     /// The presentation's language, and whether it fell back.
     #[must_use]
     pub const fn language(&self) -> &Language {
@@ -103,7 +110,7 @@ pub struct Renderer<'m> {
     pub(crate) package: Package<'m>,
     pub(crate) manifest: Manifest,
     pub(crate) chosen: Keyed<ModuleId, ChosenForm>,
-    language: Language,
+    shown: Shown,
     pub(crate) formats: &'m Formats,
     pub(crate) options: RenderOptions,
 }
@@ -120,7 +127,7 @@ impl<'m> Renderer<'m> {
         package: Package<'m>,
         manifest: Manifest,
         chosen: Keyed<ModuleId, ChosenForm>,
-        language: Language,
+        shown: Shown,
         formats: &'m Formats,
         options: RenderOptions,
     ) -> Self {
@@ -128,18 +135,20 @@ impl<'m> Renderer<'m> {
             package,
             manifest,
             chosen,
-            language,
+            shown,
             formats,
             options,
         }
     }
 
-    /// The inputs a record commits to: the language and its fallback flag, each module's digest,
-    /// the rendering options that change a text (amounts and bidi), and the renderer's version.
+    /// The inputs a record commits to: the module a profile selected a locale for and that
+    /// locale, the language and its fallback flag, each module's digest, the rendering options
+    /// that change a text (amounts and bidi), and the renderer's version.
     #[must_use]
     pub fn inputs(&self) -> RenderingInputs {
         RenderingInputs {
-            language: self.language.clone(),
+            selected: self.shown.selected.clone(),
+            language: self.shown.language.clone(),
             modules: self.chosen.map(|chosen| chosen.digest),
             amounts: self.options.amounts,
             bidi: self.options.bidi,
@@ -216,7 +225,7 @@ impl<'m> Renderer<'m> {
         if self.manifest.held.is_empty() {
             return Ok(None);
         }
-        let key = TextKey::of(text, self.language.tag(), self.options);
+        let key = TextKey::of(text, self.shown.language.tag(), self.options);
         let Some(entry) = self.manifest.held(&key.digest()) else {
             return Ok(None);
         };

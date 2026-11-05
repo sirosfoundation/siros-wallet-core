@@ -61,6 +61,12 @@ fn fixture() -> (String, Vec<Held>) {
     )
 }
 
+/// The test app of the core's module.
+fn test_app() -> siros_testkit::render::App {
+    siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app")
+}
+
 /// The id of each entry the display offers, in display order.
 fn offered(text: &str, held: &[Held]) -> Vec<String> {
     offered_in(text, held, &registry(Binds::First))
@@ -78,8 +84,7 @@ fn offered_in<H: siros_openid4vp::plugins::Build>(
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
+    let app = test_app();
     let rendering = app.rendering().expect("the rendering");
     let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
@@ -101,8 +106,7 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
     let registry = registry(Binds::First);
     let authenticated = authenticate(request.envelope(), &registry, host).expect("authentic");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
+    let app = test_app();
     let rendering = app.rendering().expect("the rendering");
     Prepared::prepare(
         &authenticated,
@@ -206,6 +210,10 @@ fn phase_2_refuses_a_pick_rendered_with_other_inputs() {
     altered_digest.replace_range(digest_at..=digest_at, flipped);
     let cases = [
         (
+            c1.replace(r#""selected":null"#, r#""selected":["paso","en"]"#),
+            RenderingInput::Selected,
+        ),
+        (
             c1.replace(r#""language":"en""#, r#""language":"de""#),
             RenderingInput::Language,
         ),
@@ -283,10 +291,8 @@ fn phase_2_falls_back_on_what_no_longer_holds() {
             assert_eq!(bare.informed(&[finding]).map(drop), Err(InformError));
             let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
-            let app =
-                siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                    .expect("the test app");
-            let rendering = app.rendering().expect("the rendering");
+            let app = test_app();
+    let rendering = app.rendering().expect("the rendering");
             let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
             let q = request.indexed_queries().next().expect("q").0;
             let ids: Vec<&str> = matched
@@ -377,8 +383,7 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
     ));
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
+    let app = test_app();
     let rendering = app.rendering().expect("the rendering");
     match Prepared::prepare(
         &authenticated,
@@ -465,8 +470,7 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let host = TestHost::default();
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
+    let app = test_app();
     let rendering = app.rendering().expect("the rendering");
     match Prepared::prepare(
         &authenticated,
@@ -575,8 +579,7 @@ fn sealed<H: CoreHost>(
     let authenticated = authenticate(request.envelope(), registry, host)
         .map_err(|e| Fault::new(FAULT, detail!("{e}", e = e.to_string())))?;
     let ids: &[&str] = &[id];
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
+    let app = test_app();
     let rendering = app.rendering().expect("the rendering");
     Prepared::prepare(
         &authenticated,
@@ -820,10 +823,8 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
         let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let ids: &[&str] = &[&ids[0]];
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
+        let app = test_app();
+    let rendering = app.rendering().expect("the rendering");
         Prepared::prepare(
             &authenticated,
             ids,
