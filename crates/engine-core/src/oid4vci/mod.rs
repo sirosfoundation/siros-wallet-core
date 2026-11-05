@@ -6,6 +6,7 @@ pub mod as_metadata;
 pub mod attestation;
 pub mod auth_code;
 pub mod auth_params;
+pub mod auxiliary;
 pub mod credential;
 pub mod deferred;
 pub mod dpop;
@@ -258,6 +259,49 @@ impl FlowHandler for Oid4vciFlow {
             )
             .await;
 
+        // ── The auxiliary-data selection gate (Credential Auxiliary Data
+        // v0.1, #480): the advertisement is read from the selected
+        // configuration BEFORE any authorization or request — an entry the
+        // wallet cannot handle (a to_wallet alg/encoding, a required
+        // to_issuer entry) refuses with the AUXILIARY_DATA_UNSUPPORTED
+        // shape, and a malformed advertisement (an auxiliary_data member
+        // in the issuer's credential_metadata among them) fails closed.
+        // The engine never handles a secret value: the gate reads the
+        // advertisement alone.
+        let configuration_id = offer
+            .credential_configuration_ids
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let configuration = issuer_metadata
+            .credential_configurations
+            .get(&configuration_id)
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let delivery = match auxiliary::secret_delivery_of(&configuration) {
+            Ok(delivery) => delivery,
+            Err(err) => {
+                // The advertisement is malformed (or auxiliary_data rode
+                // the issuer metadata): fail closed, nothing of the
+                // content in the reason.
+                return Err(HandlerError::Rpc(flow_error(err.reason())));
+            }
+        };
+        if let Err(refusal) = auxiliary::usable(&delivery, &configuration) {
+            // The AUXILIARY_DATA_UNSUPPORTED refusal: the typed -31006
+            // data carries the class reason and the retryable flag
+            // (never retryable — a different wallet or the issuer's
+            // out-of-band resolution is the fix).
+            return Err(HandlerError::Rpc(wmp_core::error::RpcError::new(
+                wmp_core::error::ERR_FLOW_ERROR,
+                Some(serde_json::json!({
+                    "reason": "auxiliary_data_unsupported",
+                    "detail": refusal.reason,
+                    "retryable": false,
+                })),
+            )));
+        }
+
         // ── S2: negotiate the response encryption, when the issuer supports it
         // The alg/enc pair from the issuer's credential_response_encryption
         // metadata, in preference order (A256GCM first). The key the wallet
@@ -383,6 +427,7 @@ impl FlowHandler for Oid4vciFlow {
                 &token,
                 &configuration_id,
                 DeliverParams {
+                    delivery: Some(&delivery),
                     negotiated_encryption: negotiated_encryption.as_ref(),
                     dpop_key: dpop_key.as_ref(),
                     dpop_key_id: dpop_key_id.as_deref(),
@@ -448,6 +493,7 @@ impl FlowHandler for Oid4vciFlow {
                 &token,
                 &configuration_id,
                 DeliverParams {
+                    delivery: Some(&delivery),
                     negotiated_encryption: negotiated_encryption.as_ref(),
                     dpop_key: dpop_key.as_ref(),
                     dpop_key_id: dpop_key_id.as_deref(),
@@ -944,6 +990,22 @@ async fn resume_authorization_code(
         .cloned()
         .unwrap_or_default();
 
+    // The auxiliary-data selection gate, again on the resume (#480): the
+    // same parse and verdict, before the credential request.
+    let resume_configuration = issuer_metadata
+        .credential_configurations
+        .get(&configuration_id)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let delivery = auxiliary::secret_delivery_of(&resume_configuration)
+        .map_err(|err| flow_error(err.reason()))?;
+    if let Err(refusal) = auxiliary::usable(&delivery, &resume_configuration) {
+        return Err(flow_error(format!(
+            "auxiliary_data_unsupported: {}",
+            refusal.reason
+        )));
+    }
+
     let credential = request_and_deliver(
         ctx,
         &params.flow_id,
@@ -951,6 +1013,7 @@ async fn resume_authorization_code(
         &token,
         &configuration_id,
         DeliverParams {
+            delivery: Some(&delivery),
             negotiated_encryption: negotiated_encryption.as_ref(),
             dpop_key: dpop_key.as_ref(),
             dpop_key_id: None,
@@ -1028,6 +1091,11 @@ struct DeliverParams<'a> {
     /// The reissuance kid: a renewal's proof signs with the existing
     /// keypair the issuer knows.
     reissuance_kid: Option<&'a str>,
+    /// The credential configuration's secret delivery (Credential
+    /// Auxiliary Data v0.1), when it advertised one: the to_issuer
+    /// entries ride the proof, the to_wallet entries ride the
+    /// completion for the client's own response check.
+    delivery: Option<&'a auxiliary::SecretDelivery>,
 }
 
 async fn request_and_deliver(
@@ -1060,6 +1128,14 @@ async fn request_and_deliver(
     // proved the token request).
     let aux = credential::CredentialRequestAux {
         encryption: deliver.negotiated_encryption,
+        auxiliary_data_to_issuer: deliver
+            .delivery
+            .map(|delivery| delivery.to_issuer.as_slice())
+            .unwrap_or(&[]),
+        auxiliary_data_to_wallet: deliver
+            .delivery
+            .map(|delivery| delivery.to_wallet.as_slice())
+            .unwrap_or(&[]),
         dpop: deliver.dpop_key.map(|key| credential::ResourceDpop {
             flow_id: ctx.flow_id.as_str(),
             key_id: deliver.dpop_key_id,
@@ -1934,6 +2010,90 @@ mod as_selection_tests {
         assert_eq!(
             select_as_url(&offer, &issuer_metadata),
             Ok("https://as-2.example".to_owned())
+        );
+    }
+}
+
+#[cfg(test)]
+mod aux_gate_tests {
+    //! The auxiliary-data selection gate (#480): the flow-level call the
+    //! start and the resume make — parse + verdict, refused before any
+    //! authorization or request. The pieces are proven in
+    //! auxiliary::tests; this module pins the flow-level shape.
+
+    use super::*;
+
+    #[tokio::test]
+    async fn the_start_flow_gate_refuses_an_unusable_advertisement() {
+        // The start_flow gate is parse + verdict over the selected
+        // configuration; the pieces are proven at the unit level. This
+        // pins the order: the refusal fires before the grant dispatch,
+        // so no token POST happens — the same call the resume makes.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "vct": "https://example/PID",
+            "proof_types_supported": {"jwt": {}},
+            "auxiliary_data_supported": {
+                "to_wallet": [{
+                    "type": "hash_commitment",
+                    "alg": "sha-512",
+                    "path": ["family_name"],
+                }]
+            }
+        });
+        let delivery =
+            auxiliary::secret_delivery_of(&configuration).expect("the advertisement parses");
+        let refusal = auxiliary::usable(&delivery, &configuration)
+            .expect_err("the sha-512 entry the wallet cannot check");
+        assert!(
+            refusal.reason.contains("alg or encoding"),
+            "the refusal names the class: {refusal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_start_flow_gate_fails_closed_on_auxiliary_data_in_issuer_metadata() {
+        // §7: auxiliary_data MUST NOT appear in the issuer metadata; the
+        // gate fails closed before any request.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "credential_metadata": {"auxiliary_data": {}},
+            "auxiliary_data_supported": {"to_wallet": [{
+                "type": "hash_commitment",
+                "alg": "sha-256",
+                "path": ["family_name"],
+            }]},
+        });
+        assert!(
+            matches!(
+                auxiliary::secret_delivery_of(&configuration),
+                Err(auxiliary::SecretDeliveryError::AuxiliaryDataInIssuerMetadata(_))
+            ),
+            "the §7 rule fails closed at the gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_resume_gate_is_the_same_call() {
+        // The resume re-parses from its own metadata — a configuration
+        // that changed to an unusable advertisement between the start
+        // and the redirect is refused on the resume too.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "vct": "https://example/PID",
+            "proof_types_supported": {"cwt": {}},
+            "auxiliary_data_supported": {"to_issuer": [{
+                "type": "hash_commitment",
+                "alg": "sha-256",
+                "path": ["family_name"],
+                "required": true,
+            }]},
+        });
+        let delivery =
+            auxiliary::secret_delivery_of(&configuration).expect("the advertisement parses");
+        assert!(
+            auxiliary::usable(&delivery, &configuration).is_err(),
+            "no carrier proof type: the resume refuses too"
         );
     }
 }
