@@ -1,0 +1,60 @@
+[package]
+name = "siros-i18n"
+version = "0.1.0"
+description = "The wallet core's i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["load", "number", "currency", "offset", "date", "list"]
+# The wallet's half: the resource and MessageFormat 2 parsers, the module checks, the compilation,
+# the package builder. unicode-general-category serves the currency module's load half; a load
+# build without `currency` compiles it unused, as Cargo enables no dependency for two features
+# together.
+load = ["render", "dep:unicode-normalization", "dep:unicode-general-category"]
+# The matcher's half: the package reader, the renderer, and the sinks.
+render = ["dep:sha2", "dep:ct-merkle"]
+# The format modules, each with its load half under `load` and its render half under `render`.
+# `:number` and `:integer`.
+number = ["render"]
+# `:currency` and `:percent`.
+currency = ["render"]
+# `:offset`.
+offset = ["render"]
+# `:siros:date`, `:siros:time` and `:siros:datetime`.
+date = ["render"]
+# `:siros:list`.
+list = ["render"]
+
+[dependencies]
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true, optional = true }
+ct-merkle = { workspace = true, optional = true }
+unicode-normalization = { workspace = true, optional = true }
+unicode-general-category = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The tests use both halves whatever the build's features.
+siros-i18n = { path = ".", features = ["load"] }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+# The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
+icu_plurals = { workspace = true }
+icu_decimal = { workspace = true }
+icu_list = { workspace = true }
+icu_datetime = { workspace = true }
+icu_calendar = { workspace = true }
+icu_time = { workspace = true }
+icu_locale_core = { workspace = true }
+icu_experimental = { workspace = true }
+fixed_decimal = { workspace = true }
+writeable = { workspace = true }
+
+[lints]
+workspace = true

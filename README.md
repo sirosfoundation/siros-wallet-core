@@ -59,6 +59,12 @@ a socket, a clock, or a keystore.
 | `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
 | `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
+| `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
+| `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
+
+siros-i18n's features: `load`, the wallet's half (parsing, checking and compiling modules,
+building packages); `render`, the matcher's half (reading packages, rendering); and one per
+format module, `number`, `currency`, `offset`, `date` and `list`.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 
@@ -82,6 +88,13 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml
+```
+
+On a push to `main`, CI's per-merge tier also runs siros-i18n's ignored tests, its
+renderings against ICU4X 2.4's.
+
+```sh
+cargo test --locked -p siros-i18n --all-features -- --ignored
 ```
 
 Nothing panics outside the tests: a type makes the impossible state

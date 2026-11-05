@@ -30,6 +30,23 @@ released version yet.
   English template and parameter kinds. `Text` holds a message unrendered;
   `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
   second), and amounts in ISO 4217 currencies. Edition 2024, unpublished.
+- `siros-i18n`: the core renders messages. A module's sources are `.mf2`
+  resources of MessageFormat 2 messages, one per locale, with each used
+  format's options in `[formats.<format>]` sections; `Module::load` parses a
+  module whole, refuses it with the first rule it breaks, and compiles every
+  message. Each MF2 function family is a format module with a load half and a
+  render half, each a feature: `number`, `currency`, `offset`, `date`, `list`.
+  A `Screen` decides one language for every text by RFC 4647 basic filtering
+  over the priority list; its `Renderer` writes a `siros_explain::Text` as
+  formatted spans or plain text. `PackageBuilder` and `RegistrationBuilder`
+  write packages whose identity is the RFC 9162 Merkle tree root of their
+  entries; `Package::read` checks each entry when it is read. Feature `load`
+  is the wallet's half, `render` the matcher's. The message-format-wg test
+  suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles. Edition 2024,
+  unpublished.
+- `siros-cldr` writes a language's format options from CLDR's JSON release
+  49.0.0 as a resource head and `[formats.<format>]` sections.
+- CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
 
 ### Changed
 
