@@ -1,66 +1,178 @@
-//! Claims path pointers: "a non-empty array of strings, nulls and non-negative integers"
-//! (OpenID4VP 1.0 §7; OpenID4VCI 1.0 Appendix C.1 for a JSON-based Credential). A pointer is
-//! parsed where it enters, into keys, indices and nulls.
+//! Claims path pointers (OpenID4VCI 1.0 Appendix C): "a non-empty array of strings, nulls and
+//! integers", read by the semantics of the credential's format: Appendix C.1 for a JSON-based
+//! Credential, Appendix C.2 for an ISO mdoc. A pointer is parsed where it enters.
 
 use std::num::IntErrorKind;
 
 use serde_json::{Number, Value};
 
-/// One component of a claims path pointer (OpenID4VP 1.0 §7.1).
+use crate::oid4vci::types::CredentialFormat;
+
+/// A claims path pointer, parsed by the semantics of its credential's format. Two pointers are
+/// equal when their components are, whatever the spelling of their integers.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum PathComponent {
+pub(crate) enum ClaimsPath {
+    /// A pointer into a JSON-based Credential (Appendix C.1).
+    Json(Vec<JsonComponent>),
+    /// A pointer into an ISO mdoc (Appendix C.2).
+    Mdoc {
+        /// The namespace: the first component.
+        namespace: String,
+        /// The data element identifier: the second component.
+        data_element: String,
+        /// The components that select within the data element's value.
+        within: Vec<MdocComponent>,
+    },
+}
+
+/// A component of a pointer into a JSON-based Credential (Appendix C.1).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum JsonComponent {
     /// Selects the member of an object with this key: a JSON string.
     Key(String),
-    /// Selects the element of an array at this position, from 0: a JSON number whose value is a
-    /// non-negative integer.
+    /// Selects the element of an array at this position, from 0: a non-negative integer.
     Index(u64),
     /// Selects every element of an array: JSON `null`.
     AllElements,
 }
 
-/// A claims path pointer: one component or more. Two pointers are equal when their components
-/// are, whatever the spelling of their indices.
+/// A component after the data element identifier of a pointer into an ISO mdoc (Appendix C.2).
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ClaimsPath(Vec<PathComponent>);
+pub(crate) enum MdocComponent {
+    /// Selects the entry of a map with this text key: a JSON string.
+    Key(String),
+    /// Selects the entry of a map with this integer key. A non-negative integer selects the
+    /// element of an array at this position when the selected element is an array.
+    Integer(CborInteger),
+    /// Selects every element of an array: JSON `null`.
+    AllElements,
+}
+
+/// An integer of CBOR major type 0 or 1 (RFC 8949 §3.1): from −2^64 to 2^64 − 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CborInteger {
+    /// The integer n, from 0 to 2^64 − 1.
+    Unsigned(u64),
+    /// The integer −1 − n, from −2^64 to −1.
+    Negative(u64),
+}
 
 impl ClaimsPath {
-    /// The pointer the JSON value `value` writes.
-    pub(crate) fn parse(value: &Value) -> Result<Self, ClaimsPathError> {
+    /// The pointer the JSON value `value` writes into a Credential of the format `format`.
+    pub(crate) fn parse(value: &Value, format: CredentialFormat) -> Result<Self, ClaimsPathError> {
         let Value::Array(items) = value else {
             return Err(ClaimsPathError::NotArray);
         };
         if items.is_empty() {
             return Err(ClaimsPathError::Empty);
         }
+        match format {
+            CredentialFormat::JwtVcJson
+            | CredentialFormat::LdpVc
+            | CredentialFormat::JwtVcJsonLd
+            | CredentialFormat::DcSdJwt => Self::parse_json(items),
+            CredentialFormat::MsoMdoc => Self::parse_mdoc(items),
+        }
+    }
+
+    /// A pointer into a JSON-based Credential (Appendix C.1).
+    fn parse_json(items: &[Value]) -> Result<Self, ClaimsPathError> {
         items
             .iter()
             .enumerate()
             .map(|(at, item)| {
-                PathComponent::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
+                JsonComponent::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
             })
             .collect::<Result<_, _>>()
-            .map(Self)
+            .map(Self::Json)
+    }
+
+    /// A pointer into an ISO mdoc (Appendix C.2): "at least two path components of type
+    /// string", the namespace and the data element identifier, then the components within the
+    /// data element's value.
+    fn parse_mdoc(items: &[Value]) -> Result<Self, ClaimsPathError> {
+        let name = |at: usize| match items.get(at) {
+            Some(Value::String(name)) => Ok(name.clone()),
+            Some(_) => Err(ClaimsPathError::Component {
+                at,
+                why: ComponentError::NotString,
+            }),
+            // Appendix C.2.1: "If the path contains fewer than two path components, abort
+            // processing and return an error."
+            None => Err(ClaimsPathError::MdocTooShort),
+        };
+        let namespace = name(0)?;
+        let data_element = name(1)?;
+        let within = items
+            .iter()
+            .enumerate()
+            .skip(2)
+            .map(|(at, item)| {
+                MdocComponent::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self::Mdoc {
+            namespace,
+            data_element,
+            within,
+        })
     }
 }
 
-impl PathComponent {
+impl JsonComponent {
     /// The component the JSON value `value` writes.
     fn parse(value: &Value) -> Result<Self, ComponentError> {
         match value {
             Value::String(key) => Ok(Self::Key(key.clone())),
-            Value::Number(number) => index_of(number).map(Self::Index),
+            Value::Number(number) => match whole_number_of(number)? {
+                WholeNumber::InRange(CborInteger::Unsigned(index)) => Ok(Self::Index(index)),
+                // Appendix C.1: "Negative integer values are not used for JSON-based
+                // credentials."
+                WholeNumber::InRange(CborInteger::Negative(_)) | WholeNumber::Below => {
+                    Err(ComponentError::Negative)
+                }
+                WholeNumber::Above => Err(ComponentError::OutOfRange),
+            },
             Value::Null => Ok(Self::AllElements),
             Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(ComponentError::WrongType),
         }
     }
 }
 
-/// The index a JSON number writes: its value, when that is an integer from 0 to 2^64 − 1.
+impl MdocComponent {
+    /// The component the JSON value `value` writes.
+    fn parse(value: &Value) -> Result<Self, ComponentError> {
+        match value {
+            Value::String(key) => Ok(Self::Key(key.clone())),
+            // Appendix C.2: a map key is a "string or integer", an array index a non-negative
+            // integer.
+            Value::Number(number) => match whole_number_of(number)? {
+                WholeNumber::InRange(integer) => Ok(Self::Integer(integer)),
+                WholeNumber::Above | WholeNumber::Below => Err(ComponentError::OutOfRange),
+            },
+            Value::Null => Ok(Self::AllElements),
+            Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(ComponentError::WrongType),
+        }
+    }
+}
+
+/// A JSON number whose value is an integer, placed against the range of a CBOR integer.
+#[derive(Clone, Copy)]
+enum WholeNumber {
+    /// From −2^64 to 2^64 − 1.
+    InRange(CborInteger),
+    /// Above 2^64 − 1.
+    Above,
+    /// Below −2^64.
+    Below,
+}
+
+/// The integer a JSON number writes.
 ///
 /// The number's decimal text decides (RFC 8259 §6), digit by digit, so no rounding turns a
-/// fraction into an integer: `1`, `1.0` and `10e-1` are the index 1, `-0` is the index 0, and
+/// fraction into an integer: `1`, `1.0` and `10e-1` are 1, `-0` is 0, and
 /// `1.0000000000000001` is a fraction.
-fn index_of(number: &Number) -> Result<u64, ComponentError> {
+fn whole_number_of(number: &Number) -> Result<WholeNumber, ComponentError> {
     let text = number.to_string();
     // serde_json holds the text of a JSON number; any other text is no number.
     let NumberText {
@@ -74,19 +186,25 @@ fn index_of(number: &Number) -> Result<u64, ComponentError> {
     let significant = digits.trim_start_matches('0');
     if significant.is_empty() {
         // Zero, whatever its sign and exponent.
-        return Ok(0);
+        return Ok(WholeNumber::InRange(CborInteger::Unsigned(0)));
     }
-    if negative {
-        return Err(ComponentError::Negative);
-    }
-    // A nonzero value times a power of ten beyond i64 is above every index, or a fraction.
-    let exponent = exponent
-        .parse::<i64>()
-        .map_err(|error| match error.kind() {
-            IntErrorKind::PosOverflow => ComponentError::OutOfRange,
-            IntErrorKind::NegOverflow => ComponentError::Fraction,
-            _ => ComponentError::WrongType,
-        })?;
+    let beyond = if negative {
+        WholeNumber::Below
+    } else {
+        WholeNumber::Above
+    };
+    // A nonzero value times a power of ten beyond i64 is a fraction, or beyond every CBOR
+    // integer.
+    let exponent = match exponent.parse::<i64>() {
+        Ok(exponent) => exponent,
+        Err(error) => {
+            return match error.kind() {
+                IntErrorKind::PosOverflow => Ok(beyond),
+                IntErrorKind::NegOverflow => Err(ComponentError::Fraction),
+                _ => Err(ComponentError::WrongType),
+            }
+        }
+    };
     // `significant` is `kept` × 10^`zeros`, and `kept` ends in a nonzero digit.
     let kept = significant.trim_end_matches('0');
     let zeros = significant.len() - kept.len();
@@ -95,15 +213,29 @@ fn index_of(number: &Number) -> Result<u64, ComponentError> {
         // 10 does not divide `kept`.
         return Err(ComponentError::Fraction);
     }
-    let kept = kept.parse::<u64>().map_err(|error| match error.kind() {
-        IntErrorKind::PosOverflow => ComponentError::OutOfRange,
-        _ => ComponentError::WrongType,
-    })?;
-    u32::try_from(scale)
+    let kept = match kept.parse::<u128>() {
+        Ok(kept) => kept,
+        Err(error) => {
+            return match error.kind() {
+                IntErrorKind::PosOverflow => Ok(beyond),
+                _ => Err(ComponentError::WrongType),
+            }
+        }
+    };
+    let Some(magnitude) = u32::try_from(scale)
         .ok()
-        .and_then(|scale| 10_u64.checked_pow(scale))
+        .and_then(|scale| 10_u128.checked_pow(scale))
         .and_then(|power| kept.checked_mul(power))
-        .ok_or(ComponentError::OutOfRange)
+    else {
+        return Ok(beyond);
+    };
+    // `kept` is at least 1, and so is `magnitude`.
+    let in_range = if negative {
+        u64::try_from(magnitude - 1).ok().map(CborInteger::Negative)
+    } else {
+        u64::try_from(magnitude).ok().map(CborInteger::Unsigned)
+    };
+    Ok(in_range.map_or(beyond, WholeNumber::InRange))
 }
 
 /// The parts of a JSON number's text (RFC 8259 §6): `[-] whole [. fraction] [e [+|-] digits]`.
@@ -150,7 +282,8 @@ fn is_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// Why a JSON value is no claims path pointer (OpenID4VP 1.0 §7).
+/// Why a JSON value is no claims path pointer into a Credential of its format (OpenID4VCI 1.0
+/// Appendix C).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ClaimsPathError {
     /// The value is no array.
@@ -159,17 +292,22 @@ pub enum ClaimsPathError {
     /// The array is empty.
     #[error("the path is an empty array")]
     Empty,
-    /// A component is no key, index or null.
+    /// A pointer into an ISO mdoc has one component: it lacks the data element identifier
+    /// (Appendix C.2.1).
+    #[error("the mdoc path has fewer than two components")]
+    MdocTooShort,
+    /// A component is none its position admits.
     #[error("path component {at} is {why}")]
     Component {
         /// The component's position in the array, from 0.
         at: usize,
-        /// Why it is no key, index or null.
+        /// Why its position does not admit it.
         why: ComponentError,
     },
 }
 
-/// Why a JSON value is no component of a claims path pointer (OpenID4VP 1.0 §7).
+/// Why a JSON value is no component of a claims path pointer at its position (OpenID4VCI 1.0
+/// Appendix C).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ComponentError {
     /// No string, `null` or number.
@@ -178,10 +316,15 @@ pub enum ComponentError {
     /// A number whose value has a nonzero fractional part.
     #[error("a fraction")]
     Fraction,
-    /// A number below zero.
-    #[error("a negative number")]
+    /// A negative integer in a pointer into a JSON-based Credential (Appendix C.1).
+    #[error("a negative integer in a JSON-based credential's path")]
     Negative,
-    /// An integer above 2^64 − 1, the largest index.
-    #[error("an integer above 2^64 - 1")]
+    /// An integer above 2^64 − 1, the largest index, or, in a pointer into an ISO mdoc, below
+    /// −2^64, the smallest CBOR integer (RFC 8949 §3.1).
+    #[error("an integer out of range")]
     OutOfRange,
+    /// The namespace or the data element identifier of a pointer into an ISO mdoc is no string
+    /// (Appendix C.2).
+    #[error("no string")]
+    NotString,
 }

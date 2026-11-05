@@ -14,6 +14,7 @@
 use serde_json::Value;
 
 use crate::claims_path::{ClaimsPath, ClaimsPathError};
+use crate::oid4vci::types::CredentialFormat;
 
 /// The one `credential_metadata` member that carries Credential Auxiliary
 /// Data in a response. It MUST NOT appear in issuer metadata (§7).
@@ -73,8 +74,9 @@ pub enum SecretDeliveryError {
     /// metadata belongs, or a `required` in the wrong place or shape.
     #[error("oid4vci: the issuer metadata secret delivery advertisement is malformed: {0}")]
     MalformedAdvertisement(String),
-    /// A `hash_commitment` entry's `path` is no claims path pointer
-    /// (§4.1, OpenID4VP 1.0 §7).
+    /// A `hash_commitment` entry's `path` is no claims path pointer into
+    /// a Credential of the configuration's format (§4.1, OpenID4VCI 1.0
+    /// Appendix C).
     #[error(
         "oid4vci: the issuer metadata secret delivery advertisement is malformed: \
          {list} has a hash_commitment entry whose path is no claims path pointer: {error}"
@@ -84,6 +86,19 @@ pub enum SecretDeliveryError {
         list: &'static str,
         /// Why the path is no claims path pointer.
         error: ClaimsPathError,
+    },
+    /// A `hash_commitment` entry's `path` follows the semantics of the
+    /// configuration's format (OpenID4VCI 1.0 Appendix C), and the
+    /// `format` is absent or names no Credential Format Profile of
+    /// Appendix A.
+    #[error(
+        "oid4vci: the issuer metadata secret delivery advertisement cannot be read: \
+         {list} has a hash_commitment entry, and the configuration's format is absent \
+         or unknown"
+    )]
+    UnknownCredentialFormat {
+        /// The entries list: `to_wallet` or `to_issuer`.
+        list: &'static str,
     },
     /// `auxiliary_data` MUST NOT appear in issuer metadata (§7).
     #[error("oid4vci: the issuer metadata secret delivery advertisement is malformed: {0}")]
@@ -136,9 +151,15 @@ pub fn secret_delivery_of(configuration: &Value) -> Result<SecretDelivery, Secre
             "auxiliary_data_supported has neither to_wallet nor to_issuer".to_owned(),
         ));
     }
+    // The format decides how an entry's claims path pointer reads
+    // (OpenID4VCI 1.0 Appendix C).
+    let format = configuration
+        .get("format")
+        .and_then(Value::as_str)
+        .and_then(CredentialFormat::from_identifier);
 
     if let Some(to_wallet) = to_wallet {
-        let entries = parse_aux_entries(to_wallet, "to_wallet")?;
+        let entries = parse_aux_entries(to_wallet, "to_wallet", format)?;
         // §7.1: a to_wallet hash_commitment entry carries a Secret Value,
         // so the response must be encrypted.
         delivery.require_encryption = entries
@@ -158,7 +179,7 @@ pub fn secret_delivery_of(configuration: &Value) -> Result<SecretDelivery, Secre
     }
 
     if let Some(to_issuer) = to_issuer {
-        let entries = parse_aux_entries(to_issuer, "to_issuer")?;
+        let entries = parse_aux_entries(to_issuer, "to_issuer", format)?;
         let values = entry_values(to_issuer);
         for (entry, value) in entries.iter().zip(&values) {
             match entry {
@@ -271,10 +292,13 @@ fn entry_values(raw: &Value) -> Vec<Value> {
 }
 
 /// Parses one entries list (§5): a non-empty array of entry objects, no
-/// two `hash_commitment` entries of the same (type, path).
+/// two `hash_commitment` entries of the same (type, path). `format` is the
+/// configuration's credential format, when Appendix A of OpenID4VCI 1.0
+/// defines it.
 fn parse_aux_entries(
     raw: &Value,
     list: &'static str,
+    format: Option<CredentialFormat>,
 ) -> Result<Vec<AuxEntry>, SecretDeliveryError> {
     let malformed =
         |why: &str| SecretDeliveryError::MalformedAdvertisement(format!("{list} {why}"));
@@ -285,7 +309,7 @@ fn parse_aux_entries(
     let mut seen: Vec<ClaimsPath> = Vec::new();
     let mut parsed: Vec<AuxEntry> = Vec::with_capacity(entries.len());
     for entry in entries {
-        let parsed_entry = parse_aux_entry(entry, list)?;
+        let parsed_entry = parse_aux_entry(entry, list, format)?;
         if parsed_entry.typ == AUX_TYPE_HASH_COMMITMENT {
             // The duplicate key: (type, path), the path as its parsed
             // pointer.
@@ -315,13 +339,15 @@ struct AuxEntryParsed {
 }
 
 /// Parses one entry (§5): an object with a string `type`; a
-/// `hash_commitment` entry needs a string `alg` and a claims path pointer,
-/// carries no `opening` or `commitment` at any depth (values, never
-/// metadata), and its `alg`/`encoding` decide whether the wallet can send
-/// it; a `to_issuer` entry may carry a boolean `required`.
+/// `hash_commitment` entry needs a string `alg` and a claims path pointer
+/// into a Credential of the configuration's `format`, carries no `opening`
+/// or `commitment` at any depth (values, never metadata), and its
+/// `alg`/`encoding` decide whether the wallet can send it; a `to_issuer`
+/// entry may carry a boolean `required`.
 fn parse_aux_entry(
     entry: &Value,
     list: &'static str,
+    format: Option<CredentialFormat>,
 ) -> Result<AuxEntryParsed, SecretDeliveryError> {
     let malformed =
         |why: &str| SecretDeliveryError::MalformedAdvertisement(format!("{list} {why}"));
@@ -378,11 +404,14 @@ fn parse_aux_entry(
             "has a hash_commitment entry without a string alg",
         ));
     }
-    // ... and a claims path pointer (§4.1), parsed here, where it enters.
+    // ... and a claims path pointer (§4.1), parsed here, where it enters,
+    // by the semantics of the credential's format (OpenID4VCI 1.0
+    // Appendix C).
     let Some(path) = object.get("path") else {
         return Err(malformed("has a hash_commitment entry without a path"));
     };
-    let path = ClaimsPath::parse(path)
+    let format = format.ok_or(SecretDeliveryError::UnknownCredentialFormat { list })?;
+    let path = ClaimsPath::parse(path, format)
         .map_err(|error| SecretDeliveryError::MalformedClaimsPath { list, error })?;
 
     // The encoding: absent, or one the spec defines.

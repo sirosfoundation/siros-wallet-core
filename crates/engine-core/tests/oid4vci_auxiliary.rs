@@ -28,13 +28,18 @@ fn path(text: &str) -> Value {
     serde_json::from_str(text).expect("the path is JSON")
 }
 
-/// The delivery of one `to_wallet` `hash_commitment` entry per path.
-fn with_paths(paths: &[Value]) -> Result<SecretDelivery, SecretDeliveryError> {
+/// The delivery of a configuration of the credential format `format` with
+/// one `to_wallet` `hash_commitment` entry per path.
+fn with_paths(format: &str, paths: &[Value]) -> Result<SecretDelivery, SecretDeliveryError> {
     let entries: Vec<Value> = paths
         .iter()
         .map(|path| hash_commitment("sha-256", path.clone()))
         .collect();
-    secret_delivery_of(&config_with(serde_json::json!({ "to_wallet": entries })))
+    secret_delivery_of(&serde_json::json!({
+        "format": format,
+        "proof_types_supported": {"jwt": {}},
+        "auxiliary_data_supported": {"to_wallet": entries},
+    }))
 }
 
 #[test]
@@ -296,70 +301,159 @@ fn an_encoding_is_absent_base64url_base64_or_hex() {
 }
 
 /// A JSON number is the value its decimal text writes (RFC 8259 §6): two
-/// spellings of one index are one path, and the second entry is a duplicate.
+/// spellings of one integer are one path, so the second entry is a
+/// duplicate, and two integers are two paths.
 #[test]
 fn the_duplicate_key_is_the_normal_form() {
-    // (a spelling, the integer it writes)
-    let spellings = [
-        ("1.0", "1"),
-        ("1e0", "1"),
-        ("10e-1", "1"),
-        ("0.1e1", "1"),
-        ("-0", "0"),
+    // (the format, a path, another path, whether they are one path)
+    let pairs = [
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 1.0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 1e0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 10e-1]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 0.1e1]"#, true),
+        ("dc+sd-jwt", r#"["p", 0]"#, r#"["p", -0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 2]"#, false),
+        (
+            "mso_mdoc",
+            r#"["ns", "el", -1]"#,
+            r#"["ns", "el", -1.0]"#,
+            true,
+        ),
+        (
+            "mso_mdoc",
+            r#"["ns", "el", -1]"#,
+            r#"["ns", "el", 1]"#,
+            false,
+        ),
     ];
-    for (spelling, integer) in spellings {
-        let spelled = path(&format!(r#"["p", {spelling}]"#));
-        assert!(
-            with_paths(std::slice::from_ref(&spelled)).is_ok(),
-            "{spelling} is an index"
-        );
-        assert!(
-            matches!(
-                with_paths(&[path(&format!(r#"["p", {integer}]"#)), spelled]),
-                Err(SecretDeliveryError::MalformedAdvertisement(_))
-            ),
-            "{spelling} is the index {integer}"
-        );
+    for (format, first, second, one_path) in pairs {
+        let delivery = with_paths(format, &[path(first), path(second)]);
+        if one_path {
+            assert!(
+                matches!(
+                    delivery,
+                    Err(SecretDeliveryError::MalformedAdvertisement(_))
+                ),
+                "{format}: {first} and {second} are one path: {delivery:?}"
+            );
+        } else {
+            assert!(
+                delivery.is_ok(),
+                "{format}: {first} and {second} are two paths: {delivery:?}"
+            );
+        }
     }
-    assert!(with_paths(&[path(r#"["p", 1]"#), path(r#"["p", 2]"#)]).is_ok());
 }
 
-/// OpenID4VP 1.0 §7: a claims path pointer is "a non-empty array of
-/// strings, nulls and non-negative integers"; the engine caps an index at
-/// 2^64 − 1, a range limit RFC 8259 §6 allows. One rule per row, each path
-/// as the issuer's JSON text.
+/// OpenID4VCI 1.0 Appendix C: a claims path pointer is "a non-empty array
+/// of strings, nulls and integers". Into a JSON-based Credential,
+/// "Negative integer values are not used" (C.1). Into an ISO mdoc, it
+/// "always contains at least two path components of type string", the
+/// namespace and the data element identifier, and a later component is a
+/// map key ("string or integer"), an index or null (C.2). An index is at
+/// most 2^64 − 1, a range limit RFC 8259 §6 allows; an mdoc integer is a
+/// CBOR integer, at least −2^64 (RFC 8949 §3.1). One rule per row, each
+/// path as the issuer's JSON text.
 #[test]
-fn a_path_is_a_non_empty_array_of_keys_indices_and_nulls() {
+fn a_path_follows_appendix_c_for_its_format() {
     let component = |at, why| Err(ClaimsPathError::Component { at, why });
     let cases = [
-        (r#"[null, "x"]"#, Ok(())),
-        (r#"["p", 18446744073709551615]"#, Ok(())),
-        (r#""p""#, Err(ClaimsPathError::NotArray)),
-        ("[]", Err(ClaimsPathError::Empty)),
-        (r#"["p", true]"#, component(1, ComponentError::WrongType)),
+        ("dc+sd-jwt", r#"[null, "x"]"#, Ok(())),
+        ("dc+sd-jwt", r#"["p", 18446744073709551615]"#, Ok(())),
+        ("dc+sd-jwt", r#""p""#, Err(ClaimsPathError::NotArray)),
+        ("dc+sd-jwt", "[]", Err(ClaimsPathError::Empty)),
+        (
+            "dc+sd-jwt",
+            r#"["p", true]"#,
+            component(1, ComponentError::WrongType),
+        ),
         // binary64 rounds this fraction to 1.
         (
+            "dc+sd-jwt",
             r#"["p", 1.0000000000000001]"#,
             component(1, ComponentError::Fraction),
         ),
-        (r#"["p", -1]"#, component(1, ComponentError::Negative)),
+        (
+            "dc+sd-jwt",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
         // 2^64.
         (
+            "dc+sd-jwt",
             r#"["p", 18446744073709551616]"#,
             component(1, ComponentError::OutOfRange),
         ),
+        ("mso_mdoc", r#"["org.example.1", "member"]"#, Ok(())),
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", "k", null, 0, -1]"#,
+            Ok(()),
+        ),
+        // −2^64.
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", -18446744073709551616]"#,
+            Ok(()),
+        ),
+        (
+            "mso_mdoc",
+            r#"["org.example.1"]"#,
+            Err(ClaimsPathError::MdocTooShort),
+        ),
+        (
+            "mso_mdoc",
+            r#"["org.example.1", 0]"#,
+            component(1, ComponentError::NotString),
+        ),
+        // −2^64 − 1.
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", -18446744073709551617]"#,
+            component(2, ComponentError::OutOfRange),
+        ),
+        // The other JSON-based Credential Format Profiles (Appendix A.1).
+        (
+            "jwt_vc_json",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        (
+            "ldp_vc",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        (
+            "jwt_vc_json-ld",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
     ];
-    for (text, expected) in cases {
-        let delivery = with_paths(&[path(text)]);
+    for (format, text, expected) in cases {
+        let delivery = with_paths(format, &[path(text)]);
         match expected {
-            Ok(()) => assert!(delivery.is_ok(), "{text}: {delivery:?}"),
+            Ok(()) => assert!(delivery.is_ok(), "{format} {text}: {delivery:?}"),
             Err(expected) => assert!(
                 matches!(
                     delivery,
                     Err(SecretDeliveryError::MalformedClaimsPath { error, .. }) if error == expected
                 ),
-                "{text}: {delivery:?}"
+                "{format} {text}: {delivery:?}"
             ),
         }
     }
+}
+
+/// A `hash_commitment` path reads by its credential's format (OpenID4VCI
+/// 1.0 Appendix C), and Appendix A defines the formats.
+#[test]
+fn a_path_in_a_format_appendix_a_does_not_define_is_refused() {
+    let delivery = with_paths("example_format", &[path(r#"["p"]"#)]);
+    assert!(
+        matches!(
+            delivery,
+            Err(SecretDeliveryError::UnknownCredentialFormat { list: "to_wallet" })
+        ),
+        "{delivery:?}"
+    );
 }
