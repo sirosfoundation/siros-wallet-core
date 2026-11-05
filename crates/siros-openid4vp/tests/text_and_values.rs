@@ -13,16 +13,22 @@ fn tag(text: &'static str) -> LocaleTag {
 
 /// I33's known answers: RFC 4647 §3.3.1 basic filtering, the equal tag first, else the first tag
 /// extending the range; the owner's rule: "en should match enUS or enGB", "but not the other way
-/// around".
+/// around". §3.3.1's own example: `de-de` matches `de-DE-1996`, and neither `de-Deva` nor
+/// `de-Latn-DE`; tags compare case-insensitively (§2). A text outside §2.1's grammar is no tag.
 #[test]
 fn a_range_matches_an_equal_tag_else_the_first_extending_it() {
-    let cases: [(&str, &[&str], Option<&str>); 6] = [
+    let cases: [(&str, &[&str], Option<&str>); 11] = [
         ("en", &["en-GB"], Some("en-GB")),
         ("en", &["en-US", "en-GB"], Some("en-US")),
         ("en", &["en-GB", "en"], Some("en")),
         ("en-US", &["en"], None),
         ("en-US", &["en-GB"], None),
         ("en-GB", &["en"], None),
+        ("de-de", &["de-DE-1996"], Some("de-DE-1996")),
+        ("de-de", &["de-Deva", "de-Latn-DE"], None),
+        ("en", &["eng"], None),
+        ("EN-gb", &["en-GB"], Some("en-GB")),
+        ("en", &["en-"], None),
     ];
     for (range, tags, want) in cases {
         assert_eq!(
