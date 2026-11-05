@@ -196,9 +196,14 @@ jobs:
         run: cargo build -p engine-adapter-sdk
       - run: cargo run -p engine-adapter-sdk --features bindgen --bin uniffi-bindgen -- generate --library target/debug/libengine_adapter_sdk.dylib --language swift --out-dir bindings/swift
       - name: The generated Swift compiles and carries the async surface
+        # The macOS runner carries swiftformat, which uniffi-bindgen uses
+        # to auto-format the generated Swift (a Linux runner, or none,
+        # prints the "Unable to auto-format" warning and writes the raw
+        # template). The patterns tolerate both: [[:space:]]* where the
+        # raw template runs the tokens together.
         run: |
           swiftc -typecheck bindings/swift/engine_adapter_sdk.swift \
             -Xcc -fmodule-map-file=bindings/swift/engine_adapter_sdkFFI.modulemap
-          grep -q "func requestTxCode(flowId: String) async throws" bindings/swift/engine_adapter_sdk.swift
-          grep -q "func send(request: HttpRequest) async throws" bindings/swift/engine_adapter_sdk.swift
-          grep -q "func runPreAuthorizedFlow(http: HttpClient, host: Host, issuerUrl: String)async throws" bindings/swift/engine_adapter_sdk.swift
+          grep -Eq "func requestTxCode\(flowId: String\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
+          grep -Eq "func send\(request: HttpRequest\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
+          grep -Eq "func runPreAuthorizedFlow\(http: HttpClient, host: Host, issuerUrl: String\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
