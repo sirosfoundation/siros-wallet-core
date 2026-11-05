@@ -377,7 +377,14 @@ fn picked<'p, H: CoreHost>(
                 slots: start..questions.len(),
             })
         }
-        _ => None,
+        (None, None) => None,
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(Fault::new(
+                FAULT,
+                detail!("a candidate bound for a query without a transaction, or unbound for one"),
+            )
+            .into());
+        }
     };
     Ok(Picked {
         query: view.pick.query,
