@@ -135,6 +135,30 @@ released version yet.
   rejection's error goes in the clear on its route (`Rejected::reply`): A.4's
   `{"error": code}` over the DC API, or a cancelled flow (`DcApiErrors`,
   `Reply`), and §8.2's plain form by URI.
+- Phase 2 answers an authenticated request through its route.
+  `Prepared::prepare` takes the `Authenticated` and the ids the End-User
+  chose, one or more (`AllOf<&str>`), and reads the request from the
+  authenticated envelope. `Route::new` binds the authenticated endpoint, the
+  registered modes the request names and the key the answering mode chose,
+  checked; `Route::answering` gives the `AnswerRoute`, whose `answer` seals,
+  has the mode wrap the content and delivers to the bound endpoint, and whose
+  `session` holds the binding facts and the `RouteKey`. By URI a request whose
+  mode names no registered error mode is `Unroutable`
+  (`Outcome::Unroutable`). `Route::refusal`, `Route::unmet` and
+  `Route::unavailable` send a refusal, an unmet request under its `UnmetCode`
+  and `wallet_unavailable` on the route: A.4's error over the DC API, the
+  error mode's body by URI, sealed by the core when the route bound a key.
+  `Match::unmet` derives the code from the exclusions' plug-in
+  (`ExcludedBy`). The envelope holds `client_metadata` as read
+  (`Envelope::client_metadata`), and `Authenticated` the Verifier's keys.
+- An extension adds Authorization Response parameters (`ResponseParameters`,
+  `ResponseParametersHost`, `HostedResponseParameters`,
+  `RegistryBuilder::response_parameters`) under names the registry checks
+  (`NamePlace::ResponseParameter`, `CORE_RESPONSE`); phase 2 writes them
+  after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is
+  the double; its `fixtures::authenticate`, `fixtures::selection` and
+  `fixtures::trust_config` give a test an authenticated request and a
+  selection.
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads

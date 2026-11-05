@@ -75,8 +75,8 @@ jobs:
 
   per-merge:
     name: Per-merge tier
-    # The ignored tests: ICU4X's renderings (I35, I36) and the integration properties at the
-    # model's size.
+    # The ignored tests: ICU4X's renderings (I35, I36), the integration properties and the
+    # route's I2 at the model's size, and I5 at 1,000 replays.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:

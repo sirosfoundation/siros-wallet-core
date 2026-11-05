@@ -1,7 +1,6 @@
 //! One path per configuration and one per flow of the design (`flows`) through the core with
-//! every real plug-in, each built from a
-//! specification's own example: the request parsed, matched, offered, its first selection shown
-//! and answered. Each expected value is the specification's text, or a value it defines computed
+//! every real plug-in, each built from a specification's own example: the request parsed,
+//! matched, offered, its first selection shown and answered. Each expected value is the specification's text, or a value it defines computed
 //! here from the example's bytes.
 
 #[path = "../common/mod.rs"]
