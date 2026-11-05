@@ -38,6 +38,14 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo test --locked --workspace --all-features
+      # rustdoc checks a `compile_fail` doctest's error code on a nightly
+      # build alone; RUSTC_BOOTSTRAP=1 makes the pinned compiler one, so each
+      # refusal fails for its stated reason (E0277 a secret argument, E0080 a
+      # name given twice or outside the grammar, E0308 a kind mismatch).
+      - name: The refusals fail with their error codes
+        run: cargo test --locked -p siros-explain --all-features --doc
+        env:
+          RUSTC_BOOTSTRAP: "1"
 
   fmt:
     name: Format

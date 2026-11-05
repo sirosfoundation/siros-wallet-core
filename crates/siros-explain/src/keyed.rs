@@ -2,11 +2,11 @@
 
 use std::fmt;
 
-use crate::arg::Args;
-use crate::message::{Explain, Message, MessageId, Messages};
+use crate::arg::{Arg, Args, IntoArg};
+use crate::message::{Explain, Message, MessageId, Messages, ParamKind};
 
 /// Values under distinct keys, in the order given: a query's arguments, a module's sources by
-/// locale, a record's module digests. Only [`Keyed::new`] makes one.
+/// locale, a record's module digests. Each constructor holds the keys distinct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keyed<K, V>(Vec<Entry<K, V>>);
 
@@ -51,23 +51,23 @@ pub struct Repeated<K>(pub K);
 /// [`Repeated`]'s message.
 const REPEATED: MessageId = crate::checked!(MessageId, "explain.repeated");
 
-impl<K: fmt::Debug + Send + Sync> Explain for Repeated<K> {
+impl<K: IntoArg + fmt::Debug + Send + Sync> Explain for Repeated<K> {
     fn id(&self) -> MessageId {
         REPEATED
     }
 
     fn args(&self) -> Args<'_> {
-        Args::none()
+        Args::new(crate::names!("key"), [Arg::of(&self.0)])
     }
 }
 
-impl<K> Messages for Repeated<K> {
+impl<K: IntoArg> Messages for Repeated<K> {
     fn messages() -> Vec<Message> {
         vec![Message::new(
             REPEATED,
             Some("{0:?} is given twice"),
-            crate::names!(),
-            [],
+            crate::names!("key"),
+            [ParamKind::of::<K>()],
         )]
     }
 }

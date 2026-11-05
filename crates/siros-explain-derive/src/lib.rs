@@ -34,10 +34,9 @@ use syn::{Attribute, Data, DeriveInput, Error, Fields, LitStr, Result, parse_mac
 /// message is its field's; `#[explain(name = "…")]` on a field, required on a tuple field;
 /// `#[explain(skip)]` on a field the message does not name. It refuses a domain anywhere but on
 /// the type, an `id` beside `transparent`, a field attribute on a transparent message, a key
-/// given twice, an identifier outside
-/// siros-explain's `tokens`, and an identifier repeated in a type. A message's argument names go
-/// through `names!`, which fails the build (E0080) for a name outside `tokens` or a name given
-/// twice.
+/// given twice, an identifier outside siros-explain's `MessageId` grammar, and an identifier
+/// repeated in a type. A message's argument names go through `names!`, which fails the build
+/// (E0080) for a name outside `ArgName`'s grammar or a name given twice.
 #[proc_macro_derive(Explain, attributes(explain))]
 pub fn derive_explain(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -199,7 +198,7 @@ fn argument(field: &syn::Field, index: usize) -> Result<Option<String>> {
 }
 
 /// Whether a segment is a token: a lowercase ASCII letter, then lowercase letters, digits and
-/// underscores (siros-explain's `tokens`, one segment).
+/// underscores (one segment of siros-explain's `MessageId`).
 fn token(segment: &str) -> bool {
     let mut chars = segment.chars();
     chars.next().is_some_and(|c| c.is_ascii_lowercase())

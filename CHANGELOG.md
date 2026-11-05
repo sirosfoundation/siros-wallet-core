@@ -29,7 +29,9 @@ released version yet.
   writes it beside `thiserror::Error`, and `Messages` declares each message's
   English template and parameter kinds. `Text` holds a message unrendered;
   `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
-  second), and amounts in ISO 4217 currencies. Edition 2024, unpublished.
+  second), and amounts in ISO 4217 currencies. Edition 2024, unpublished. The
+  Test job runs its doctests with `RUSTC_BOOTSTRAP=1`, so each `compile_fail`
+  refusal fails with its stated error code.
 
 ### Changed
 

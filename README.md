@@ -81,8 +81,12 @@ use). The gates CI holds:
 cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
+RUSTC_BOOTSTRAP=1 cargo test --locked -p siros-explain --all-features --doc
 python3 scripts/check_panic_sites.py Cargo.toml
 ```
+
+The `RUSTC_BOOTSTRAP=1` run checks each `compile_fail` doctest's error code,
+which rustdoc reads on a nightly build alone.
 
 Nothing panics outside the tests: a type makes the impossible state
 unrepresentable, or the caller receives an error. CI holds each crate to it
