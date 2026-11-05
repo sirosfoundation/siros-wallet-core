@@ -239,11 +239,12 @@ jobs:
           # whatever xcodebuild names them (the slice directory depends
           # on the architectures it finds in the archives).
           test -d target/xcframework/engine_adapter_sdk.xcframework
-          # The layout, for the assertion failures' diagnosis.
+          # The layout, for the assertion failures' diagnosis. The counts
+          # are stripped: BSD wc pads its output.
           find target/xcframework -type f | sort
-          test "$(find target/xcframework -name 'libengine_adapter_sdk.a' | wc -l)" = 2
-          test "$(find target/xcframework -name 'engine_adapter_sdkFFI.h' | wc -l)" -ge 1
-          test "$(find target/xcframework -name 'module.modulemap' | wc -l)" -ge 1
+          test "$(find target/xcframework -name 'libengine_adapter_sdk.a' | wc -l | tr -d '[:space:]')" = 2
+          test "$(find target/xcframework -name 'engine_adapter_sdkFFI.h' | wc -l | tr -d '[:space:]')" -ge 1
+          test "$(find target/xcframework -name 'module.modulemap' | wc -l | tr -d '[:space:]')" -ge 1
 
   aar:
     name: AAR packaging
@@ -256,10 +257,13 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
-      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      # v4 takes `packages` (the SDK manager's list), not v3's
+      # api-level/ndk-version; 27.2.12479018 is the NDK the release
+      # workflow pins, and the `--platform 28` the recipe passes
+      # cargo-ndk needs no platform package.
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          api-level: 28
-          ndk-version: "27.2.12479018"
+          packages: 'ndk;27.2.12479018'
       - name: The AAR and POM recipes
         run: |
           make aar pom VERSION=0.0.0-ci
