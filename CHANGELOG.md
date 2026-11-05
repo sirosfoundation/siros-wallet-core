@@ -116,6 +116,14 @@ released version yet.
   its description and `state` as received; `ErrorDescription::sanitized`
   writes a refusal's text with `?` for each character outside RFC 6749
   Appendix A.8.
+- A response mode writes the body around an answer (`ModeHost::answer`): the
+  core seals the Authorization Response to the route's key through
+  `Haip::encrypt_jwe` and hands the mode the `SealedJwe` alone
+  (`AnswerContent`, `ModeRoute`), and refuses a body of another channel than
+  the mode's (`RouteBreach::BodyChannel`). `dc_api` writes the response,
+  `dc_api.jwt` `{"response": JWE}`, `direct_post.jwt` `response=<JWE>`
+  (`ResponseForm`). `siros-testkit`'s `TestMode` writes a body of either
+  channel (`TestBody`), and `JweHaip` seals with ECDH-ES.
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads

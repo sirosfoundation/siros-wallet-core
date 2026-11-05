@@ -2,7 +2,7 @@
 //! the Verifier's side: a format whose credentials say which queries and options they answer
 //! ([`TestFormat`]), a profile that binds by first match over the types a credential supports, or
 //! every such entry ([`TestProfile`]), the doubles of the core's host modules ([`TestPlatform`],
-//! [`TestHaip`], [`TestRequestDecryption`]) with [`test_host!`], their JOSE
+//! [`TestHaip`], [`JweHaip`], [`TestRequestDecryption`]) with [`test_host!`], their JOSE
 //! ([`jose`]) and the COSE_Encrypt stand-in ([`cose`]), the test Verifier's Client Identifier
 //! Prefix and a trust service double ([`prefix`]), the `request_uri` POST's contribution and the
 //! Response URI answer's reader ([`TestPostContribution`], [`TestAnswerReader`]), a response
@@ -81,10 +81,10 @@ impl Messages for CrateMessages {
     }
 }
 
-pub use doubles::{TestChoice, TestHash, TestMode, TestResponseType};
+pub use doubles::{TestBody, TestChoice, TestHash, TestMode, TestResponseType};
 pub use fixtures::TestScope;
 pub use format::TestFormat;
-pub use host::{TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
+pub use host::{JweHaip, TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
 pub use jose::TestRequestDecryption;
 pub use post::{TestAnswerReader, TestPostContribution};
 pub use prefix::{Registration, TestPrefix, TestTrust};

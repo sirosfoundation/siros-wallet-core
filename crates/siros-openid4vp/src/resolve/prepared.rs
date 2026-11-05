@@ -7,8 +7,8 @@ use siros_explain::AllOf;
 
 use super::selection::{check, derived};
 use super::{
-    AuthorizationResponse, Built, DcApiData, Delivery, Finding, Outcome, Rejection, RouteBreach,
-    RouteKey, VpToken,
+    AnswerContent, AuthorizationResponse, Body, Built, Delivery, Finding, ModeRoute, Outcome,
+    Rejection, RouteBreach, RouteKey, VpToken,
 };
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::envelope::Channel;
@@ -16,7 +16,6 @@ use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Haip,
     Host, Platform, PresentError, Usable,
 };
-use crate::json::quote;
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
 use crate::plugins::registry::{DynProfile, Placed, Role};
 use crate::plugins::{
@@ -25,7 +24,9 @@ use crate::plugins::{
 };
 use crate::refusal::Refused;
 use crate::request::{Agreements, Query, Request};
-use crate::routing::{AnsweredContext, Encrypting, ModeName, QueryContext, VerifierMetadata};
+use crate::routing::{
+    AnsweredContext, Encrypting, ModeHost, ModeName, QueryContext, VerifierMetadata,
+};
 use crate::rows::Env;
 use crate::session::{Session, SessionBinding};
 use crate::wallet::{Credential, Wallet};
@@ -169,7 +170,10 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let request = accepted.request();
         let metadata = VerifierMetadata::of(accepted.metadata());
         let mode = accepted.mode().name();
-        let sealing = seal(registry, &accepted, &metadata, host)?;
+        let Routed {
+            mode: answering,
+            sealing,
+        } = route(registry, &accepted, &metadata, host)?;
         let filled = resources.fill(fetch);
         let binding = match request.envelope().channel() {
             Channel::DcApi(origin) => SessionBinding::DcApi { origin },
@@ -207,20 +211,36 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                     })?;
             vp_token.push(&record.query.id, presentation);
         }
-        let response =
-            AuthorizationResponse::of(vp_token, request.envelope().routing().state(), Vec::new());
-        let plaintext = response.json();
-        let data = match sealing {
-            None => plaintext,
+        let routing = request.envelope().routing();
+        let response = AuthorizationResponse::of(vp_token, routing.state(), Vec::new());
+        let sealed;
+        let content = match &sealing {
+            None => AnswerContent::Clear(&response),
             Some(Sealing { haip, key }) => {
-                let jwe = haip.encrypt_jwe(key.key(), key.enc(), plaintext.as_bytes())?;
-                format!("{{\"response\":{}}}", quote(jwe.as_str()))
+                sealed = haip.encrypt_jwe(key.key(), key.enc(), response.json().as_bytes())?;
+                AnswerContent::Sealed(&sealed)
             }
         };
-        let data =
-            DcApiData::of(data).map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))?;
+        let route = ModeRoute::of(sealing.as_ref().map(|sealing| &sealing.key), routing.echo());
+        let body = answering.answer(&route, &content, host)?;
+        if body.channel() != answering.channel() {
+            return Err(breach(RouteBreach::BodyChannel));
+        }
+        let Body::DcApi(data) = body else {
+            return Err(Fault::new(
+                FAULT,
+                detail!("a URI route's endpoint, which the response side's route binds"),
+            )
+            .into());
+        };
         Ok(Built::of(response, Delivery::DcApi(data)))
     }
+}
+
+/// The registered mode a request's routing accepted, with what its route seals the answer with.
+struct Routed<'r, 'k, 'h, H> {
+    mode: &'r dyn ModeHost<H>,
+    sealing: Option<Sealing<'k, 'h>>,
 }
 
 /// What a JWE mode's route seals the answer with: the host's `Haip`, and the key the mode chose
@@ -230,17 +250,17 @@ struct Sealing<'k, 'h> {
     key: RouteKey<'k>,
 }
 
-/// The route of the mode the request's routing accepted, as its registration seals it: `None`
-/// in the clear; for a JWE mode, the key and `enc` the mode's key rule chooses under the host's
+/// The route of the mode the request's routing accepted, as its registration seals it: the clear,
+/// or for a JWE mode the key and `enc` the mode's key rule chooses under the host's
 /// `Haip::agreements`, refused with the mode's rule when the statement admits none. A route
 /// that breaks its registration (a key in the clear, no key for a JWE mode, a key or `enc` the
 /// statement does not admit, an error mode routing an answer) is a `Fault`.
-fn seal<'k, 'h, H: CoreHost>(
-    registry: &Registry<H>,
+fn route<'r, 'k, 'h, H: CoreHost>(
+    registry: &'r Registry<H>,
     accepted: &Accepted<'_>,
     metadata: &'k VerifierMetadata<'k>,
     host: &'h H,
-) -> Result<Option<Sealing<'k, 'h>>, Outcome> {
+) -> Result<Routed<'r, 'k, 'h, H>, Outcome> {
     let routed = accepted.mode();
     let registered = registry
         .mode_host(routed.handle())
@@ -259,31 +279,32 @@ fn seal<'k, 'h, H: CoreHost>(
         }
         Role::Errors => return Err(breach(RouteBreach::ErrorsAnswered)),
     };
-    let encrypting = registered
-        .mode
+    let mode: &'r dyn ModeHost<H> = registered.mode.as_ref();
+    let encrypting = mode
         .encryption(metadata, &sealer, host)
         .map_err(|refusal| Outcome::Refused(Refused::one(refusal)))?;
-    match (encrypting, haip) {
-        (Encrypting::Plain, None) => Ok(None),
+    let sealing = match (encrypting, haip) {
+        (Encrypting::Plain, None) => None,
         (Encrypting::Jwe { key, enc }, Some(haip)) => {
             let stated = key
                 .key()
                 .alg()
                 .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
             if !stated {
-                Err(breach(RouteBreach::Unstated))
-            } else if !metadata.lists(enc) {
-                Err(breach(RouteBreach::Unlisted))
-            } else {
-                Ok(Some(Sealing {
-                    haip,
-                    key: RouteKey::of(key, enc),
-                }))
+                return Err(breach(RouteBreach::Unstated));
             }
+            if !metadata.lists(enc) {
+                return Err(breach(RouteBreach::Unlisted));
+            }
+            Some(Sealing {
+                haip,
+                key: RouteKey::of(key, enc),
+            })
         }
-        (Encrypting::Jwe { .. }, None) => Err(breach(RouteBreach::KeyInTheClear)),
-        (Encrypting::Plain, Some(_)) => Err(breach(RouteBreach::NoKey)),
-    }
+        (Encrypting::Jwe { .. }, None) => return Err(breach(RouteBreach::KeyInTheClear)),
+        (Encrypting::Plain, Some(_)) => return Err(breach(RouteBreach::NoKey)),
+    };
+    Ok(Routed { mode, sealing })
 }
 
 /// Phase 2's fault for a route that breaks its registration.

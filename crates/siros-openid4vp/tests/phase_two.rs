@@ -2,8 +2,8 @@
 //! the request allows, falls back on records it does not derive or on what no longer holds,
 //! answers nothing when the wallet fails to authenticate the End-User (OpenID4VP §8.5
 //! `access_denied`) or authenticates them more weakly than a profile needs, and faults on a
-//! profile writing a member it does not declare and on a host that cannot seal the response as
-//! `dc_api.jwt` asks.
+//! profile writing a member it does not declare, on a host that cannot seal the response as
+//! `dc_api.jwt` asks, and on a mode's choice or body that breaks its registration.
 
 mod common;
 
@@ -535,10 +535,10 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
 }
 
 #[test]
-fn the_core_checks_the_key_and_enc_a_mode_chooses() {
+fn the_core_checks_what_a_mode_chooses_and_writes() {
     use siros_openid4vp::resolve::RouteBreach;
     use siros_openid4vp::routing::{ChannelKind, ModeName};
-    use siros_testkit::{TestChoice, TestMode};
+    use siros_testkit::{TestBody, TestChoice, TestMode};
 
     const NAME: ModeName = siros_explain::checked!(ModeName, "dc_api.test");
     let jwk = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES"}"#;
@@ -551,34 +551,50 @@ fn the_core_checks_the_key_and_enc_a_mode_chooses() {
     let received = unsigned(&text).expect("received");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let key = |enc| TestChoice::Key { place: 0, enc };
-    // Each case: the mode's choice, whether its registration seals, and the breach the core
-    // finds, none when it answers.
+    // Each case: the mode's choice, whether its registration seals, the channel of the body it
+    // writes, and the breach the core finds, none when it answers. A choice is checked before
+    // the End-User authenticates, a body once the presentations are made.
     let cases = [
-        (key(ContentEncryption::A128GCM), true, None),
-        (TestChoice::Plain, false, None),
+        (key(ContentEncryption::A128GCM), true, TestBody::Own, None),
+        (TestChoice::Plain, false, TestBody::Own, None),
         (
             key(siros_explain::checked!(
                 ContentEncryption<'static>,
                 "A192GCM"
             )),
             true,
+            TestBody::Own,
             Some(RouteBreach::Unstated),
         ),
         (
             key(ContentEncryption::A256GCM),
             true,
+            TestBody::Own,
             Some(RouteBreach::Unlisted),
         ),
         (
             key(ContentEncryption::A128GCM),
             false,
+            TestBody::Own,
             Some(RouteBreach::KeyInTheClear),
         ),
-        (TestChoice::Plain, true, Some(RouteBreach::NoKey)),
+        (
+            TestChoice::Plain,
+            true,
+            TestBody::Own,
+            Some(RouteBreach::NoKey),
+        ),
+        (
+            TestChoice::Plain,
+            false,
+            TestBody::Other,
+            Some(RouteBreach::BodyChannel),
+        ),
     ];
-    for (choice, sealed_route, breach) in cases {
+    for (choice, sealed_route, body, breach) in cases {
         let mode = TestMode {
             choice,
+            body,
             ..TestMode::new(NAME, ChannelKind::DcApi)
         };
         let mut builder = Registry::<TestHost>::builder();
@@ -595,17 +611,18 @@ fn the_core_checks_the_key_and_enc_a_mode_chooses() {
         let ids = offered_in(&text, &held, &registry);
         let host = TestHost::default();
         let outcome = sealed(&request, &ids[0], &wallet, &registry, &host);
-        match (breach, sealed_route, outcome) {
-            (None, _, Ok(response)) if wraps_a_jwe(&response) == sealed_route => {
+        match (breach, outcome) {
+            (None, Ok(delivery)) if wraps_a_jwe(&delivery) == sealed_route => {
                 assert_eq!(host.platform.authentications(), 1, "{choice:?}");
             }
-            (Some(breach), _, Err(Outcome::Fault(fault))) => {
+            (Some(breach), Err(Outcome::Fault(fault))) => {
                 let cause = std::error::Error::source(&fault)
                     .and_then(|cause| cause.downcast_ref::<RouteBreach>());
                 assert_eq!(cause, Some(&breach), "{choice:?}");
-                assert_eq!(host.platform.authentications(), 0, "{choice:?}");
+                let authenticated = u64::from(breach == RouteBreach::BodyChannel);
+                assert_eq!(host.platform.authentications(), authenticated, "{choice:?}");
             }
-            (_, _, other) => panic!("{choice:?}, sealed route {sealed_route}: {other:?}"),
+            (_, other) => panic!("{choice:?}, sealed route {sealed_route}: {other:?}"),
         }
     }
 }

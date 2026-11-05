@@ -280,6 +280,18 @@ pub fn concat_kdf(
 ///
 /// The JWK is no P-256 key, or `enc` neither A128GCM nor A256GCM.
 pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: bool, plaintext: &[u8]) -> Result<String, Fault> {
+    seal(jwk, None, enc, zip, plaintext)
+}
+
+/// A compact JWE of the plaintext to a P-256 JWK under ECDH-ES and `enc`, its header naming
+/// `kid` when given; `zip` compresses it with DEF first. The ephemeral key and the IV are fixed.
+pub(crate) fn seal(
+    jwk: &Node<'_>,
+    kid: Option<&str>,
+    enc: &str,
+    zip: bool,
+    plaintext: &[u8],
+) -> Result<String, Fault> {
     let fault = |what: &'static str| Fault::new(FAULT, detail!("the JWE's {what}", what = what));
     let recipient = p256_point(jwk).ok_or_else(|| fault("key"))?;
     let ephemeral = secret(&VERIFIER_EPHEMERAL)?;
@@ -298,8 +310,11 @@ pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: bool, plaintext: &[u8]) -> Res
     let mut members = vec![
         (Cow::Borrowed("alg"), text("ECDH-ES".to_owned())),
         (Cow::Borrowed("enc"), text(enc.to_owned())),
-        (Cow::Borrowed("epk"), epk),
     ];
+    if let Some(kid) = kid {
+        members.push((Cow::Borrowed("kid"), text(kid.to_owned())));
+    }
+    members.push((Cow::Borrowed("epk"), epk));
     if zip {
         members.push((Cow::Borrowed("zip"), text("DEF".to_owned())));
     }

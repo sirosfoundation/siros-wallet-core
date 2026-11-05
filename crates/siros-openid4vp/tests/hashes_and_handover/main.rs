@@ -1,7 +1,7 @@
 //! Known answers from the specifications: every hash B.3.3.1 names on its standard's examples,
 //! RFC 9861 §5's KT128 and KT256 values among them, W3C SRI §3's example digests, OpenID4VP
 //! B.3.3.1's hash rule, the session phase 2 binds and §5.9's audience, and §8.3's choice of the
-//! response encryption.
+//! response encryption and its JWE.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -14,6 +14,7 @@ use serde_json::Value as Json;
 use sha2::{Digest, Sha256, Sha512};
 use sha3::Sha3_256;
 use siros_openid4vp::hash::{Blake2, HashAlgorithm, K12, Sha2, Sha3};
+use siros_openid4vp::host::CoreHost;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
@@ -208,11 +209,12 @@ fn subresource_integrity_follows_the_w3c_example() {
     );
 }
 
-/// The response to the first selection the consent offers.
-fn answer<'a>(
+/// The response to the first selection the consent offers, over the default of the registry's
+/// host.
+fn answer<'a, H: CoreHost + Default>(
     request: &'a Request<'a>,
     wallet: &'a Wallet<'a>,
-    registry: &'a Registry<TestHost>,
+    registry: &'a Registry<H>,
     env: &'a Env,
 ) -> Built<'a> {
     let accepted = Accepted::new(request, registry).expect("accepted");
@@ -227,7 +229,7 @@ fn answer<'a>(
         .and_then(|prepared| {
             prepared.respond(
                 |resource| Published::default().answer(resource),
-                &TestHost::default(),
+                &H::default(),
             )
         })
         .expect("response")

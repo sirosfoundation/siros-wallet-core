@@ -2,13 +2,13 @@
 
 use siros_explain::Explain;
 
-use crate::host::Presentation;
+use crate::host::{Presentation, SealedJwe};
 use crate::ids::QueryId;
 use crate::json::{Node, quote};
 use crate::media::MediaType;
 use crate::refusal::{ErrorCode, ErrorDescription};
 use crate::request::{AgreeableKey, ContentEncryption};
-use crate::routing::{Echo, State, VerifierKey};
+use crate::routing::{ChannelKind, Echo, State, VerifierKey};
 use crate::uri::{FormBody, ResponseUri};
 use crate::wallet_metadata::ParameterName;
 
@@ -243,6 +243,62 @@ impl<'a> ErrorResponse<'a> {
     }
 }
 
+/// What a mode wraps for an answer: the clear response on a route in the clear, the JWE the core
+/// sealed it in on a sealed one.
+#[derive(Debug, Clone, Copy)]
+pub enum AnswerContent<'a> {
+    /// The Authorization Response, in the clear.
+    Clear(&'a AuthorizationResponse<'a>),
+    /// The Authorization Response sealed to the route's key.
+    Sealed(&'a SealedJwe),
+}
+
+/// What a mode reads of its route: the key and `enc` the route bound, and `state` as received.
+/// Only the core's route makes one:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::resolve::ModeRoute;
+///
+/// fn forged() -> ModeRoute<'static> {
+///     ModeRoute { encryption: None, echo: None }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct ModeRoute<'r> {
+    encryption: Option<&'r RouteKey<'r>>,
+    echo: Option<&'r Echo<'r>>,
+}
+
+impl<'r> ModeRoute<'r> {
+    pub(crate) const fn of(
+        encryption: Option<&'r RouteKey<'r>>,
+        echo: Option<&'r Echo<'r>>,
+    ) -> Self {
+        Self { encryption, echo }
+    }
+
+    /// The bound key and `enc`; `None` on a route in the clear.
+    #[must_use]
+    pub const fn encryption(&self) -> Option<&'r RouteKey<'r>> {
+        self.encryption
+    }
+
+    /// `state` as received.
+    #[must_use]
+    pub const fn echo(&self) -> Option<&'r Echo<'r>> {
+        self.echo
+    }
+}
+
+#[cfg(feature = "test-util")]
+impl<'r> ModeRoute<'r> {
+    /// The route a plug-in's tests hand a mode, as the core's route makes it.
+    #[must_use]
+    pub const fn new(encryption: Option<&'r RouteKey<'r>>, echo: Option<&'r Echo<'r>>) -> Self {
+        Self::of(encryption, echo)
+    }
+}
+
 /// What a mode writes: the content its channel carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Body {
@@ -250,6 +306,16 @@ pub enum Body {
     DcApi(DcApiData),
     /// A POST body.
     Post(PostBody),
+}
+
+impl Body {
+    /// The channel that carries it.
+    pub(crate) const fn channel(&self) -> ChannelKind {
+        match self {
+            Self::DcApi(_) => ChannelKind::DcApi,
+            Self::Post(_) => ChannelKind::Uri,
+        }
+    }
 }
 
 /// A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]

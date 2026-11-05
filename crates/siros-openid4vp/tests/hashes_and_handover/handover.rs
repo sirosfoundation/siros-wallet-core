@@ -1,5 +1,5 @@
 //! The session phase 2 binds (B.2.6.2's example request) and §5.9's audience, and §8.3's choice
-//! of the response encryption.
+//! of the response encryption and the JWE the core seals.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -10,6 +10,7 @@ use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredOption, AnsweredQuery, FormatHost, PresentError, Presentation, Usable,
 };
+use siros_openid4vp::host::{Haip, Platform, RequestDecryption};
 use siros_openid4vp::ids::{ClientId, FormatId, Nonce};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
@@ -25,7 +26,7 @@ use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::uri::ResponseUri;
 use siros_openid4vp::wallet::{Credential, Wallet};
 use siros_testkit::FAULT;
-use siros_testkit::{Binds, TestFormat, TestHost};
+use siros_testkit::{Binds, JweHaip, TestFormat, TestHost, TestPlatform, TestRequestDecryption};
 
 use crate::common::{Held, env, parameters, registry, request_of, test_queries, unsigned};
 
@@ -278,6 +279,100 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     assert_eq!(
         header,
         serde_json::json!({"alg": "ECDH-ES", "enc": "A256GCM", "kid": "2"})
+    );
+}
+
+/// §8.3's example key with its private `d`, which decrypts the example response.
+const SECTION_8_3_KEY: &str = r#"{"kty":"EC","kid":"ac","use":"enc","crv":"P-256","alg":"ECDH-ES",
+    "x":"YO4epjifD-KWeq1sL2tNmm36BhXnkJ0He-WqMYrp9Fk",
+    "y":"Hekpm0zfK7C-YccH5iBjcIXgf6YdUvNUac_0At55Okk",
+    "d":"Et-3ce0omz8_TuZ96Df9lp0GAaaDoUnDe6X-CRO7Aww"}"#;
+
+/// §8.3's example request's `client_metadata`: four keys, A128GCM and A128CBC-HS256.
+const SECTION_8_3_METADATA: &str = r#"{"jwks":{"keys":[
+    {"kty":"EC","kid":"ac","use":"enc","crv":"P-256","alg":"ECDH-ES",
+     "x":"YO4epjifD-KWeq1sL2tNmm36BhXnkJ0He-WqMYrp9Fk","y":"Hekpm0zfK7C-YccH5iBjcIXgf6YdUvNUac_0At55Okk"},
+    {"kty":"OKP","kid":"jc","use":"enc","crv":"X25519","alg":"ECDH-ES",
+     "x":"WPX7wnwq10hFNK9aDSyG1QlLswE_CJY14LdhcFUIVVc"},
+    {"kty":"EC","kid":"lc","use":"enc","crv":"P-384","alg":"ECDH-ES",
+     "x":"iHytgLNtXjEyYMAIGwfgjINZRmLfObYbmjPhkaPD8OiTkJtRHjegTNdH31Mxg4nV",
+     "y":"MizXWSqNB7sSt_SNjg3spvaJnmjB-LpxsPpLUaea33rvINL3Mq-gEaANErRQpbLx"},
+    {"kty":"OKP","kid":"bc","use":"enc","crv":"X448","alg":"ECDH-ES",
+     "x":"pK5IRpLlX-8XcsRYWHejpzkfsHoDOmAYuBzAC7aTpewWOw_QFHSa64t9p2kuommI8JQQLohS2AIA"}]},
+    "encrypted_response_enc_values_supported":["A128GCM","A128CBC-HS256"]}"#;
+
+/// §8.3's example response, its line breaks removed.
+const SECTION_8_3_RESPONSE: &str = "eyJhbGciOiJFQ0RILUVTIiwiZW5jIjoiQTEyOEdDTSIsImtpZCI6ImFjIiwiZXBrIjp7Imt0eSI6IkVDIiwieCI6Im5ubVZwbTNWM2piaGNhZlFhUkJrU1ZOSGx3Wkh3dC05ck9wSnVmeVlJdWsiLCJ5IjoicjRmakRxd0p5czlxVU9QLV9iM21SNVNaRy0tQ3dPMm1pYzVWU05UWU45ZyIsImNydiI6IlAtMjU2In19..uAYcHRUSSn2X0WPX.yVzlGSYG4qbg0bq18JcUiDRw56yVnbKR8E7S7YlEtzT00RqE3Pw5oTpUG3hdLN4taHZ9gC1kwak8JOnJgQ.1wR024_3-qtAlx1oFIUpQQ";
+
+siros_testkit::test_host! {
+    /// A host whose `Haip` encrypts.
+    #[derive(Default)]
+    struct Sealing {
+        handles { platform: TestPlatform => Platform }
+        zero_sized { JweHaip => Haip, TestRequestDecryption => RequestDecryption }
+        optional {}
+        lacks {}
+    }
+}
+
+/// KA6 and KA13: §8.3's request answered in `dc_api.jwt`; jose-rs, which decrypts §8.3's example
+/// response under its key to its payload, decrypts the core's JWE under the same key to the
+/// Authorization Response, under the header of the example (RFC 7518 §4.6: direct agreement, no
+/// encrypted key).
+#[test]
+fn the_core_seals_section_8_3s_answer_to_the_key_the_rule_chose() {
+    let key = jose_rs::jwk::Jwk::from_json(SECTION_8_3_KEY).expect("§8.3's key");
+    let decrypt = |jwe: &str| -> Json {
+        let plaintext = jose_rs::jwe::decrypt_with_jwk(&key, jwe).expect("decrypts");
+        serde_json::from_slice(&plaintext).expect("a JSON payload")
+    };
+    assert_eq!(
+        decrypt(SECTION_8_3_RESPONSE),
+        serde_json::json!({"vp_token": {"example_credential_id": ["eyJhb...YMetA"]}})
+    );
+    let text = format!(
+        r#"{{"response_type":"vp_token","response_mode":"dc_api.jwt","nonce":"xyz123ltcaccescbwc777","dcql_query":{},"client_metadata":{SECTION_8_3_METADATA}}}"#,
+        test_queries(&["q"])
+    );
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let held = Held::answering("c", &["q"], &[]);
+    let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
+    let mut builder = Registry::<Sealing>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.format(TestFormat::new().expect("format"));
+    let registry = builder.build().expect("registry");
+    let env = env("en");
+    let built = answer(&request, &wallet, &registry, &env);
+    let Delivery::DcApi(data) = built.delivery() else {
+        panic!("a DC API delivery")
+    };
+    let data: Json = serde_json::from_str(data.as_str()).expect("data");
+    let jwe = data["response"].as_str().expect("{\"response\": JWE}");
+    let parts: Vec<&str> = jwe.split('.').collect();
+    let [protected, encrypted_key, ..] = parts.as_slice() else {
+        panic!("a compact JWE")
+    };
+    let header: Json =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(protected).expect("base64url"))
+            .expect("a header");
+    assert_eq!(
+        (
+            &header["alg"],
+            &header["enc"],
+            &header["kid"],
+            *encrypted_key
+        ),
+        (
+            &Json::from("ECDH-ES"),
+            &Json::from("A128GCM"),
+            &Json::from("ac"),
+            ""
+        )
+    );
+    assert_eq!(
+        decrypt(jwe),
+        serde_json::from_str::<Json>(&built.response().json()).expect("the response")
     );
 }
 

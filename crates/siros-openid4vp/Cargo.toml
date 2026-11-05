@@ -64,6 +64,8 @@ unicode-general-category = { workspace = true }
 
 [dev-dependencies]
 siros-testkit = { workspace = true }
+# An independent JWE implementation, which decrypts what the core seals (KA6).
+jose-rs = { version = "0.10", default-features = false }
 k12 = { workspace = true }
 ciborium = { workspace = true }
 rand = { workspace = true }

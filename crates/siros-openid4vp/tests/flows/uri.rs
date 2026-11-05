@@ -304,10 +304,11 @@ fn the_by_reference_example_of_section_8_2_terminates_by_u14() {
 fn a_post_carries_each_contribution_by_the_names_it_declared() {
     use siros_openid4vp::json::Node;
     use siros_openid4vp::plugins::Registry;
+    use siros_openid4vp::routing::{ChannelKind, ModeName};
     use siros_openid4vp::wallet_metadata::{
         MetadataMember, MetadataRefused, ParameterName, PostContent, PostParameter,
     };
-    use siros_testkit::{TestFormat, TestPostContribution, TestPrefix};
+    use siros_testkit::{TestFormat, TestMode, TestPostContribution, TestPrefix};
     const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
     const PARAMETER: ParameterName = siros_explain::checked!(ParameterName, "test_parameter");
     const OTHER: ParameterName = siros_explain::checked!(ParameterName, "other_member");
@@ -371,6 +372,25 @@ fn a_post_carries_each_contribution_by_the_names_it_declared() {
     assert!(matches!(
         Fetch::of(&uri, &registry, &host),
         Err(NoFetch::Metadata(MetadataRefused::NotObject(member))) if member == "vp_formats_supported.test"
+    ));
+    // A URI mode's member of a name it did not declare.
+    const DECLARED: ParameterName = siros_explain::checked!(ParameterName, "mode_member");
+    let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.format(format());
+    builder.client_prefix(TestPrefix::Request);
+    builder.mode(TestMode {
+        declares: &[DECLARED],
+        writes: vec![MetadataMember::new(OTHER, Node::Bool(true))],
+        ..TestMode::new(
+            siros_explain::checked!(ModeName, "direct_post.test"),
+            ChannelKind::Uri,
+        )
+    });
+    let registry = builder.build().expect("registry");
+    assert!(matches!(
+        Fetch::of(&uri, &registry, &host),
+        Err(NoFetch::Metadata(MetadataRefused::Undeclared(name))) if name == OTHER
     ));
 }
 

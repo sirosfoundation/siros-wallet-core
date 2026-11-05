@@ -16,8 +16,8 @@ mod selection;
 
 pub use prepared::Prepared;
 pub use response::{
-    AuthorizationResponse, Body, Built, DcApiData, Delivery, ErrorResponse, FormMedia, NotObject,
-    PostBody, ResponseMember, RouteKey, VpToken,
+    AnswerContent, AuthorizationResponse, Body, Built, DcApiData, Delivery, ErrorResponse,
+    FormMedia, ModeRoute, NotObject, PostBody, ResponseMember, RouteKey, VpToken,
 };
 
 use siros_explain::{AllOf, Explain, Explained};
@@ -57,8 +57,8 @@ pub enum Finding {
     },
 }
 
-/// How a mode's route breaks its registration, the cause of phase 2's fault: the mode broke its
-/// contract.
+/// How a mode's route or body breaks its registration, the cause of phase 2's fault: the mode
+/// broke its contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.route_breach")]
 pub enum RouteBreach {
@@ -77,6 +77,9 @@ pub enum RouteBreach {
     /// A JWE mode chose an `enc` the Verifier does not list (§5.1, §8.3).
     #[error("a mode chose an enc the Verifier does not list")]
     Unlisted,
+    /// A mode wrote a body of another channel than its own.
+    #[error("a mode wrote a body of another channel than its own")]
+    BodyChannel,
 }
 
 /// Why phase 2 rejects a selection: its ids are no records, or no selection the request allows.

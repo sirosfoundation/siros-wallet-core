@@ -4,15 +4,21 @@
 use std::num::NonZeroUsize;
 
 use sha2::{Digest, Sha256};
+use siros_openid4vp::detail;
 use siros_openid4vp::hash::{HashAlgorithm, HashName};
+use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, ContentEncryption, Request};
+use siros_openid4vp::resolve::{AnswerContent, Body, DcApiData, ModeRoute, PostBody};
 use siros_openid4vp::routing::{
     ChannelKind, Encrypting, Mode, ModeHost, ModeName, ResponseType, ResponseTypeName,
     VerifierMetadata,
 };
+use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
+
+use crate::FAULT;
 
 use crate::rules::TestRule;
 
@@ -44,9 +50,20 @@ pub enum TestChoice {
     },
 }
 
+/// The channel whose body a [`TestMode`] writes: its own, or the other, which the core refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestBody {
+    /// The mode's channel.
+    Own,
+    /// The other channel.
+    Other,
+}
+
 /// A response mode a test configures: its name and channel, its request rule, the
 /// `wallet_metadata` names it declares and the members it writes, which may name what it did not
-/// declare, and its encryption choice.
+/// declare, its encryption choice, and the channel whose body it writes. A DC API body is the
+/// clear response's JSON or `{"response": JWE}`; a POST body the form of `vp_token` and `state`
+/// or `response=<JWE>`.
 #[derive(Debug, Clone)]
 pub struct TestMode {
     /// The `response_mode` value.
@@ -61,6 +78,8 @@ pub struct TestMode {
     pub writes: Vec<MetadataMember>,
     /// Its encryption.
     pub choice: TestChoice,
+    /// The channel whose body it writes.
+    pub body: TestBody,
 }
 
 impl TestMode {
@@ -74,6 +93,7 @@ impl TestMode {
             declares: &[],
             writes: Vec::new(),
             choice: TestChoice::Plain,
+            body: TestBody::Own,
         }
     }
 }
@@ -126,6 +146,43 @@ impl<H> ModeHost<H> for TestMode {
         _host: &H,
     ) -> Result<Vec<MetadataMember>, Fault> {
         Ok(self.writes.clone())
+    }
+
+    fn answer(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &AnswerContent<'_>,
+        _host: &H,
+    ) -> Result<Body, Fault> {
+        let channel = match (self.body, self.channel) {
+            (TestBody::Own, channel) => channel,
+            (TestBody::Other, ChannelKind::DcApi) => ChannelKind::Uri,
+            (TestBody::Other, ChannelKind::Uri) => ChannelKind::DcApi,
+        };
+        let fault = |e| Fault::caused(FAULT, detail!("a test mode's body"), e);
+        Ok(match (channel, content) {
+            (ChannelKind::DcApi, AnswerContent::Clear(response)) => {
+                Body::DcApi(DcApiData::of(response.json()).map_err(fault)?)
+            }
+            (ChannelKind::DcApi, AnswerContent::Sealed(jwe)) => Body::DcApi(
+                DcApiData::of(format!(r#"{{"response":{}}}"#, quote(jwe.as_str())))
+                    .map_err(fault)?,
+            ),
+            (ChannelKind::Uri, AnswerContent::Clear(response)) => {
+                let vp_token = response.vp_token().json();
+                let mut members = vec![("vp_token", vp_token.as_str())];
+                if let Some(state) = response.state() {
+                    members.push(("state", state.as_str()));
+                }
+                Body::Post(PostBody::form(FormBody::of(&members).map_err(|e| {
+                    Fault::caused(FAULT, detail!("a test mode's form"), e)
+                })?))
+            }
+            (ChannelKind::Uri, AnswerContent::Sealed(jwe)) => Body::Post(PostBody::form(
+                FormBody::of(&[("response", jwe.as_str())])
+                    .map_err(|e| Fault::caused(FAULT, detail!("a test mode's form"), e))?,
+            )),
+        })
     }
 }
 

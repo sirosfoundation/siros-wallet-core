@@ -20,6 +20,8 @@ use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::Agreements;
 use crate::request::{AgreeableKey, ClientMetadata, ContentEncryption, Request};
 #[cfg(feature = "resolve")]
+use crate::resolve::{AnswerContent, Body, ModeRoute};
+#[cfg(feature = "resolve")]
 use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
 
@@ -844,18 +846,23 @@ pub enum Encrypting<'k> {
     },
 }
 
-/// A response mode's phase 2 over the build's host: the encryption of its route and its
-/// `wallet_metadata` members.
+/// A response mode's phase 2 over the build's host: the encryption of its route, its
+/// `wallet_metadata` members, and the body around an answer.
 ///
 /// # Implementing
 ///
 /// `encryption` chooses among the request's keys alone ([`VerifierMetadata::keys`]) under
 /// `sealer`, the sealing module's statement (`Haip::agreements`), and refuses with the mode's
 /// rule when it finds none. A mode registered with `mode` returns [`Encrypting::Plain`]; the
-/// core refuses a key the statement does not admit, and a key on a route in the clear, with a
-/// `Fault`. `wallet_metadata` writes the members [`Mode::metadata_names`] declares, from the same
-/// statement ([`Agreements::NONE`] for a mode registered with `mode`); the core refuses another
-/// name (`MetadataRefused::Undeclared`).
+/// core refuses a key the statement does not admit or whose `enc` the Verifier does not list, a
+/// key on a route in the clear, and no key on a sealed route, with a `Fault`. `wallet_metadata`
+/// writes the members [`Mode::metadata_names`] declares, from the same statement
+/// ([`Agreements::NONE`] for a mode registered with `mode`); the core refuses another name
+/// (`MetadataRefused::Undeclared`). `answer` writes the [`Body`] of the mode's channel around
+/// the [`AnswerContent`]: the clear response on a route in the clear, the JWE the core sealed to
+/// the route's key on a sealed one, so no plaintext of a sealed route reaches the mode. The core
+/// refuses a body of the other channel with a `Fault` and sends a body to the route's endpoint
+/// alone.
 #[cfg(feature = "resolve")]
 pub trait ModeHost<H>: Mode {
     /// The route's encryption.
@@ -876,4 +883,16 @@ pub trait ModeHost<H>: Mode {
     ///
     /// The mode cannot write them: its bug, or a module it calls failed.
     fn wallet_metadata(&self, sealer: &Agreements, host: &H) -> Result<Vec<MetadataMember>, Fault>;
+
+    /// The body around an answer.
+    ///
+    /// # Errors
+    ///
+    /// The mode cannot write it: its bug, or a module it calls failed.
+    fn answer(
+        &self,
+        route: &ModeRoute<'_>,
+        content: &AnswerContent<'_>,
+        host: &H,
+    ) -> Result<Body, Fault>;
 }

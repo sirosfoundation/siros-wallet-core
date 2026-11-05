@@ -1,7 +1,7 @@
 //! The core's modules as deterministic doubles: the platform's clock, credential checks and
 //! End-User authentication ([`TestPlatform`]); the stand-in for HAIP's keystore ([`TestHaip`]),
-//! whose ciphertexts keep their plaintext readable for the checks; and
-//! [`test_host!`](crate::test_host), which states the modules of a test's host.
+//! whose ciphertexts keep their plaintext readable for the checks, and [`JweHaip`], whose JWEs
+//! encrypt; and [`test_host!`](crate::test_host), which states the modules of a test's host.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -166,6 +166,40 @@ impl Haip for TestHaip {
             URL_SAFE_NO_PAD.encode(plaintext)
         ))
         .map_err(|e| Fault::caused(FAULT, detail!("the JWE stand-in"), e))
+    }
+}
+
+/// HAIP's keystore stand-in whose `encrypt_jwe` encrypts: ECDH-ES (RFC 7518 §4.6) to the key
+/// with a fixed ephemeral key, A128GCM or A256GCM, the header naming the key's `kid`. Its other
+/// methods are [`TestHaip`]'s.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JweHaip;
+
+impl Haip for JweHaip {
+    fn verifies(&self) -> JwsAlgorithms {
+        TestHaip.verifies()
+    }
+
+    fn verify(&self, key: &VerificationKey, signed: &Signed<'_>) -> Result<(), SignatureInvalid> {
+        TestHaip.verify(key, signed)
+    }
+
+    fn sign(&self, credential: &CredentialId<'_>, data: &[u8]) -> Result<Signature, SignFailed> {
+        TestHaip.sign(credential, data)
+    }
+
+    fn agreements(&self) -> Agreements {
+        TestHaip.agreements()
+    }
+
+    fn encrypt_jwe(
+        &self,
+        key: &AgreeableKey<'_>,
+        enc: ContentEncryption<'_>,
+        plaintext: &[u8],
+    ) -> Result<SealedJwe, Fault> {
+        let jwe = crate::jose::seal(key.jwk(), Some(key.kid()), enc.as_str(), false, plaintext)?;
+        SealedJwe::parse(jwe).map_err(|e| Fault::caused(FAULT, detail!("the JWE"), e))
     }
 }
 

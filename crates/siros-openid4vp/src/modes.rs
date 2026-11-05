@@ -9,8 +9,12 @@ use siros_explain::Explain;
 #[cfg(feature = "uri")]
 use std::borrow::Cow;
 
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+use crate::host::SealedJwe;
 #[cfg(feature = "uri")]
 use crate::json::Node;
+#[cfg(all(feature = "resolve", feature = "dc-api"))]
+use crate::json::quote;
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::plugins::Fault;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
@@ -19,15 +23,25 @@ use crate::refusal::{ErrorCode, RequestRule};
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::request::Request;
 use crate::request::{Agreements, ContentEncryption, Curve, KeyAgreement};
+#[cfg(all(feature = "resolve", feature = "dc-api"))]
+use crate::resolve::DcApiData;
+#[cfg(feature = "uri")]
+use crate::resolve::PostBody;
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+use crate::resolve::{AnswerContent, Body, ModeRoute};
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::routing::{ChannelKind, Mode};
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::routing::{Encrypting, ModeHost};
 use crate::routing::{ModeName, VerifierKey, VerifierMetadata};
+#[cfg(feature = "uri")]
+use crate::uri::FormBody;
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::wallet_metadata::MetadataMember;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::wallet_metadata::ParameterName;
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+use crate::{FAULT, detail};
 
 pub use crate::routing::KeyChoice;
 
@@ -52,6 +66,24 @@ pub struct DirectPostJwt;
 /// naming it, and its error goes plain to the `response_uri` (reading 24).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DirectPost;
+
+/// `direct_post.jwt`'s form (§8.3.1): `response`, the compact JWE.
+#[cfg(all(feature = "uri", feature = "resolve"))]
+#[derive(Debug, serde::Serialize)]
+pub struct ResponseForm<'a> {
+    response: &'a str,
+}
+
+#[cfg(all(feature = "uri", feature = "resolve"))]
+impl<'a> ResponseForm<'a> {
+    /// The form of the JWE.
+    #[must_use]
+    pub fn of(jwe: &'a SealedJwe) -> Self {
+        Self {
+            response: jwe.as_str(),
+        }
+    }
+}
 
 /// C7: a JWE mode's key rule accepts no key, or no `enc` (§8.3, HAIP §5; reading 25). Both keep
 /// the text the reference model writes.
@@ -161,6 +193,34 @@ fn encrypting<'k>(
         .map_err(Refusal::new)
 }
 
+/// The DC API data of a JSON text the mode wrote.
+#[cfg(all(feature = "resolve", feature = "dc-api"))]
+fn data(text: String) -> Result<Body, Fault> {
+    DcApiData::of(text)
+        .map(Body::DcApi)
+        .map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))
+}
+
+/// The JWE a JWE mode wraps; a `Fault` for a clear answer, which its route never holds.
+#[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
+fn sealed<'a>(mode: ModeName, content: &AnswerContent<'a>) -> Result<&'a SealedJwe, Fault> {
+    match content {
+        AnswerContent::Sealed(jwe) => Ok(jwe),
+        AnswerContent::Clear(_) => Err(Fault::new(
+            FAULT,
+            detail!("{name}'s route holds a key", name = mode),
+        )),
+    }
+}
+
+/// The form body of the members, which no form of the core makes serde_urlencoded refuse.
+#[cfg(feature = "uri")]
+fn form(members: &impl serde::Serialize) -> Result<PostBody, Fault> {
+    FormBody::of(members)
+        .map(PostBody::form)
+        .map_err(|e| Fault::caused(FAULT, detail!("a mode's form body"), e))
+}
+
 #[cfg(feature = "dc-api")]
 impl Mode for DcApi {
     fn name(&self) -> ModeName {
@@ -256,6 +316,21 @@ impl<H> ModeHost<H> for DcApi {
     ) -> Result<Vec<MetadataMember>, Fault> {
         Ok(Vec::new())
     }
+
+    /// The Authorization Response itself as the DigitalCredential's `data` (A.2).
+    fn answer(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &AnswerContent<'_>,
+        _host: &H,
+    ) -> Result<Body, Fault> {
+        match content {
+            AnswerContent::Clear(response) => data(response.json()),
+            AnswerContent::Sealed(_) => {
+                Err(Fault::new(FAULT, detail!("dc_api's route is in the clear")))
+            }
+        }
+    }
 }
 
 #[cfg(all(feature = "resolve", feature = "dc-api"))]
@@ -276,6 +351,17 @@ impl<H> ModeHost<H> for DcApiJwt {
         _host: &H,
     ) -> Result<Vec<MetadataMember>, Fault> {
         Ok(Vec::new())
+    }
+
+    /// `{"response": JWE}` (A.2, §8.3).
+    fn answer(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &AnswerContent<'_>,
+        _host: &H,
+    ) -> Result<Body, Fault> {
+        let jwe = sealed(self.name(), content)?;
+        data(format!("{{\"response\":{}}}", quote(jwe.as_str())))
     }
 }
 
@@ -324,6 +410,17 @@ impl<H> ModeHost<H> for DirectPostJwt {
             ]
         })
     }
+
+    /// `response=<JWE>`, POSTed (§8.3.1).
+    fn answer(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &AnswerContent<'_>,
+        _host: &H,
+    ) -> Result<Body, Fault> {
+        let jwe = sealed(self.name(), content)?;
+        form(&ResponseForm::of(jwe)).map(Body::Post)
+    }
 }
 
 /// `direct_post` carries errors alone, in the clear.
@@ -345,5 +442,18 @@ impl<H> ModeHost<H> for DirectPost {
         _host: &H,
     ) -> Result<Vec<MetadataMember>, Fault> {
         Ok(Vec::new())
+    }
+
+    /// None: the core routes no answer to a mode registered for errors alone.
+    fn answer(
+        &self,
+        _route: &ModeRoute<'_>,
+        _content: &AnswerContent<'_>,
+        _host: &H,
+    ) -> Result<Body, Fault> {
+        Err(Fault::new(
+            FAULT,
+            detail!("direct_post carries errors alone"),
+        ))
     }
 }
