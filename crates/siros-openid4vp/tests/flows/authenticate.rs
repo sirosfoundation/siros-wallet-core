@@ -3,6 +3,7 @@
 //! (A11), the endpoint (A12, A13), each refusal's route; the registry's and the configuration's
 //! rules; and the tamper cases, each failing for its rule with no `Authenticated` built.
 
+use siros_explain::Text;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
     BoundEndpoint, EndpointBasis, OriginPolicy, PrefixName, TrustConfig, Unauthenticated,
@@ -88,7 +89,10 @@ fn a_uri_request_authenticates_under_its_prefix() {
         .expect("authenticated");
     let verifier = authenticated.verifier();
     assert!(matches!(verifier.id(), VerifierId::Client(id) if id.as_str() == "test:verifier"));
-    assert_eq!(verifier.name(), Some("Example Verifier"));
+    assert_eq!(
+        verifier.name(),
+        Some(&Text::Raw("Example Verifier".to_owned()))
+    );
     assert!(matches!(
         verifier.endpoint(),
         BoundEndpoint::ResponseUri { uri, basis: EndpointBasis::Request } if uri.as_str() == RESPONSE_URI

@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::Explained;
+use siros_explain::{Explained, Text};
 use siros_openid4vp::authenticate::{
     ClientBinding, ClientClaim, ClientPrefix, EndpointBasis, PrefixClaim, PrefixHost, PrefixName,
     Unbound,
@@ -120,7 +120,7 @@ impl PrefixClaim for TestClaim<'_> {
             key,
             name: context(&decided, "name")
                 .and_then(Node::as_str)
-                .map(str::to_owned),
+                .map(|name| Text::Raw(name.to_owned())),
             facts: context(&decided, "facts")
                 .and_then(Node::as_object)
                 .cloned(),

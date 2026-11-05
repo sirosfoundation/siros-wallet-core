@@ -3,7 +3,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::AllOf;
+use siros_explain::{AllOf, Text};
 
 use super::{BoundEndpoint, OriginPolicy, TrustConfig, Unauthenticated, Verifier, VerifierId};
 #[cfg(feature = "signed")]
@@ -536,7 +536,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
 }
 
 /// How the framework names the Verifier and what it states, when a prefix bound it.
-type Named = (Option<String>, Option<Object<'static>>);
+type Named = (Option<Text>, Option<Object<'static>>);
 
 #[cfg(feature = "signed")]
 /// A claim refused, with the route its error takes.

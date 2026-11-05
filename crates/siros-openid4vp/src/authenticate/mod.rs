@@ -14,7 +14,7 @@ use std::fmt;
 #[cfg(feature = "signed")]
 use dyn_clone::DynClone;
 use serde_json::value::RawValue;
-use siros_explain::{AllOf, Explain, Explained, IntoArg, kind};
+use siros_explain::{AllOf, Explain, Explained, IntoArg, Text, kind};
 
 #[cfg(feature = "signed")]
 use crate::effects::{Decided, Evaluation};
@@ -357,8 +357,8 @@ pub enum EndpointBasis {
 pub struct ClientBinding {
     /// The key the signature verifies under.
     pub key: VerificationKey,
-    /// How the trust framework names the Verifier, for the consent.
-    pub name: Option<String>,
+    /// How the trust framework names the Verifier, for the consent: a text the framework wrote.
+    pub name: Option<Text>,
     /// What the trust framework states about the Verifier (its decision's context `facts`), for
     /// the plug-ins that read it.
     pub facts: Option<Object<'static>>,
@@ -497,7 +497,7 @@ pub enum VerifierId<'r> {
 #[derive(Debug, Clone)]
 pub struct Verifier<'r> {
     id: VerifierId<'r>,
-    name: Option<String>,
+    name: Option<Text>,
     facts: Option<Object<'static>>,
     metadata: Option<&'r RawValue>,
     endpoint: BoundEndpoint,
@@ -512,8 +512,8 @@ impl<'r> Verifier<'r> {
 
     /// The framework's name for it.
     #[must_use]
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
+    pub const fn name(&self) -> Option<&Text> {
+        self.name.as_ref()
     }
 
     /// What the framework states about it (`ClientBinding::facts`).

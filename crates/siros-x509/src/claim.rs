@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 
+use siros_explain::Text;
 use siros_openid4vp::authenticate::{
     ClientBinding, ClientClaim, EndpointBasis, PrefixClaim, Unbound,
 };
@@ -144,7 +145,7 @@ impl PrefixClaim for X509Claim<'_> {
         let vocabulary = Vocabulary::read(&decided)?;
         Ok(ClientBinding {
             key: self.key.clone(),
-            name: vocabulary.name.map(str::to_owned),
+            name: vocabulary.name.map(|name| Text::Raw(name.to_owned())),
             facts: vocabulary.facts.cloned(),
         })
     }
