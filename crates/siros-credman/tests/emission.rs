@@ -2,21 +2,25 @@
 //! request decides. Its emission reads each card's texts as held and renders each transaction's
 //! from the package's compiled messages; every held text equals what a package compiled from the
 //! live modules renders (I38); an entry that does not render ends the emission or stays out of
-//! its slot, as `RenderOptions::on_error` states.
+//! its slot, as `RenderOptions::on_error` states. The emission refuses a renderer whose inputs
+//! differ from its record's, a card text the package does not hold, and a package registered
+//! under other lists.
 
-use siros_credman::register::{held, package};
-use siros_credman::{Emitted, Shown, emit};
-use siros_explain::Text;
+use siros_credman::register::{Registration, package};
+use siros_credman::{EmitError, Emitted, NotEmitted, Shown, emit, held};
+use siros_explain::{ModuleId, Text};
 use siros_i18n::{BuiltPackage, Formats, Module, Package};
-use siros_openid4vp::consent::{ConsentEntry, Header};
+use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::ids::TransactionType;
-use siros_openid4vp::matching::{Accepted, Consent, Match, StaticEntry, Views, display, offer};
+use siros_openid4vp::matching::{
+    Accepted, Consent, Display, Match, StaticEntry, Views, display, offer,
+};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::rendering::Rendering;
-use siros_openid4vp::rows::{Env, OnRenderError, RenderOptions, Value};
+use siros_openid4vp::rows::{Bidi, Choice, Env, Icon, OnRenderError, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::fixtures::{Held, OPTIONS, env, parameters, request_of, unsigned};
-use siros_testkit::render::{App, CrateSource, main_module};
+use siros_testkit::fixtures::{Held, OPTIONS, parameters, request_of, unsigned};
+use siros_testkit::render::{App, CrateSource, compilers, main_sources};
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 
 const QUERY: &str = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
@@ -49,15 +53,47 @@ fn requests() -> Vec<String> {
     ]
 }
 
-/// The wallet's modules: the main module, the test app's and the core's.
-fn modules() -> Vec<Module> {
-    vec![
-        main_module().expect("the main module"),
-        CrateSource::testkit()
-            .load()
-            .expect("the test app's module"),
-        CrateSource::openid4vp().load().expect("the core's module"),
-    ]
+/// A source whose `@locale` line names `tag` in place of the language its file serves.
+fn retagged(source: &str, tags: &[(&str, &str)]) -> String {
+    source
+        .lines()
+        .map(|line| {
+            tags.iter()
+                .find(|(from, _)| line.trim() == format!("@locale {from}"))
+                .map_or_else(|| line.to_owned(), |(_, to)| format!("@locale {to}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The wallet's modules: the main module, the test app's and the core's, each source's tag
+/// rewritten by `tags`.
+fn modules(tags: &[(&str, &str)]) -> Vec<Module> {
+    let [en, de] = main_sources();
+    let main = Module::load(
+        ModuleId::Main,
+        &siros_i18n::Declaration::new(Vec::new()).expect("a declaration"),
+        &[&retagged(&en, tags), &retagged(&de, tags)],
+        siros_i18n::LanguagePolicy::Any,
+        &compilers().expect("compilers"),
+    )
+    .expect("the main module");
+    let mut out = vec![main];
+    for source in [CrateSource::testkit(), CrateSource::openid4vp()] {
+        let english = retagged(source.english, tags);
+        let german = retagged(source.german, tags);
+        out.push(
+            Module::load(
+                source.id,
+                &siros_i18n::Declaration::new(source.messages.clone()).expect("a declaration"),
+                &[&english, &german],
+                siros_i18n::LanguagePolicy::Any,
+                &compilers().expect("compilers"),
+            )
+            .expect("a crate module"),
+        );
+    }
+    out
 }
 
 /// Every text an entry shows that a request decides: its overlay's and its header's.
@@ -84,115 +120,169 @@ fn request_texts<'e>(entry: &'e ConsentEntry, header: Option<&'e Header>) -> Vec
     out
 }
 
-/// The registration's package for a request's views: the modules, each card's texts held.
-fn registered(views: &Views<'_>, statics: &[StaticEntry], options: RenderOptions) -> BuiltPackage {
-    let modules = modules();
-    let mut texts: Vec<&Text> = views
-        .iter()
-        .flat_map(|view| held(view.entry.card()))
-        .collect();
-    texts.extend(statics.iter().flat_map(|entry| held(&entry.card)));
+/// The wallet's configuration under these lists and options.
+fn env_of(priority: &[&str], options: RenderOptions) -> Env {
+    let tag = |t: &&str| siros_i18n::LocaleTag::parse(t).expect("a tag");
+    Env::new(
+        priority.iter().map(tag).collect(),
+        Vec::new(),
+        options,
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env")
+}
+
+/// The registration's package of `modules` for these credentials' cards and the static cards,
+/// under `env`.
+fn registered(
+    modules: &[Module],
+    credentials: &[(&str, &Card)],
+    statics: &[&Card],
+    env: &Env,
+) -> BuiltPackage {
+    let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
     let formats = siros_testkit::render::formats().expect("the render halves");
     package(
-        &modules.iter().collect::<Vec<_>>(),
-        &texts,
+        &Registration {
+            modules: &modules.iter().collect::<Vec<_>>(),
+            own: &own,
+            credentials,
+            statics,
+            transactions: &[],
+        },
+        env,
         &formats,
-        options,
     )
     .expect("a package")
 }
 
+/// Each view's credential and card.
+fn cards<'v>(views: &'v Views<'_>) -> Vec<(&'v str, &'v Card)> {
+    views
+        .iter()
+        .map(|view| (view.record.credential.as_str(), view.entry.card()))
+        .collect()
+}
+
+/// A request matched over the live modules: the request's acceptance and the wallet.
+struct Case {
+    registry: Registry<TestHost>,
+    held: Held,
+    parameters: String,
+}
+
+impl Case {
+    fn new(parameters: String) -> Self {
+        Self {
+            registry: registry(),
+            held: held_credential("c"),
+            parameters,
+        }
+    }
+
+    /// The display of the request matched over `rendering` under `env`, with the static entries,
+    /// handed to `then` with the views.
+    fn shown<T>(
+        &self,
+        rendering: &Rendering<'_>,
+        env: &Env,
+        statics: &[StaticEntry],
+        then: impl FnOnce(&Views<'_>, &Display<'_>) -> T,
+    ) -> T {
+        let received = unsigned(&self.parameters).expect("received");
+        let request = request_of(&received).expect("request");
+        let wallet =
+            Wallet::new(vec![self.held.credential().expect("credential")]).expect("wallet");
+        let accepted = Accepted::new(&request, &self.registry).expect("accepted");
+        let matched = Match::run(&accepted, &wallet, env, rendering).expect("match");
+        let consent = Consent::of(&matched).expect("consent");
+        let views = Views::of(&matched, env).expect("views");
+        let sets = offer(&matched, &consent, env.choice());
+        let shown = display(&sets, &views, statics).expect("display");
+        then(&views, &shown)
+    }
+}
+
+/// I37 over modules tagged by language and over modules tagged by region beside a list of
+/// languages (section 4.14: `en` matches `en-GB`): every card text reads as held in the language
+/// its screen shows, every request text renders from the compiled messages, each byte-equal to
+/// the live package's rendering, and every entry is emitted.
 #[test]
 fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
-    let registry = registry();
-    let env = env(&["en"], Vec::new()).expect("env");
     let statics = [StaticEntry {
         id: "notice".to_owned(),
-        card: siros_openid4vp::consent::Card {
-            icon: siros_openid4vp::rows::Icon::DEFAULT,
+        card: Card {
+            icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),
             subtitle: None,
             rows: Vec::new(),
         },
     }];
-    let live = App::of(&[CrateSource::openid4vp()]).expect("the live modules' app");
-    let live_rendering = live.rendering().expect("the live rendering");
     let formats: Formats = siros_testkit::render::formats().expect("the render halves");
-    let own = live_rendering.own().to_vec();
+    let tagged: [&[(&str, &str)]; 2] = [&[], &[("en", "en-GB"), ("de", "de-DE")]];
     let (mut held_texts, mut rendered_texts) = (0, 0);
-    for parameters in requests() {
-        let received = unsigned(&parameters).expect("received");
-        let request = request_of(&received).expect("request");
-        let credential = held_credential("c");
-        let wallet =
-            Wallet::new(vec![credential.credential().expect("credential")]).expect("wallet");
-        let accepted = Accepted::new(&request, &registry).expect("accepted");
-        // The registration: the views a first match draws give the cards no request changes.
-        let matched = Match::run(&accepted, &wallet, &env, &live_rendering).expect("match");
-        let views = Views::of(&matched, &env).expect("views");
-        let built = registered(&views, &statics, env.options());
-        let package = Package::read(built.bytes(), built.root()).expect("the package");
-        let rendering = Rendering::new(package, &formats, &own);
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
-        let consent = Consent::of(&matched).expect("consent");
-        let views = Views::of(&matched, &env).expect("views");
-        let sets = offer(&matched, &consent, env.choice());
-        let shown = display(&sets, &views, &statics).expect("display");
-        let emission = emit(&shown, &rendering, &env).expect("no fault");
-        assert!(emission.refused().is_empty(), "{:?}", emission.refused());
-        for view in views.iter() {
-            let renderer = rendering
-                .renderer(view.selected, &env)
-                .expect("no fault")
-                .expect("a language");
-            let live = live_rendering
-                .renderer(view.selected, &env)
-                .expect("no fault")
-                .expect("a language");
-            assert_eq!(
-                renderer.inputs(),
-                *view.record.inputs,
-                "the record's inputs"
-            );
-            for text in held(view.entry.card()) {
-                assert!(renderer.holds(text).expect("reads"), "a card text is held");
-                assert_eq!(
-                    renderer.formatted(text),
-                    live.formatted(text),
-                    "held = live"
-                );
-                held_texts += 1;
-            }
-            for text in request_texts(&view.entry, view.header) {
-                assert!(
-                    !renderer.holds(text).expect("reads"),
-                    "a request's text renders"
-                );
-                assert_eq!(
-                    renderer.formatted(text),
-                    live.formatted(text),
-                    "compiled = live"
-                );
-                rendered_texts += 1;
-            }
-        }
-        // Every entry of every slot is emitted, its texts plain.
-        for (set, emitted) in shown.sets().iter().zip(emission.sets()) {
-            for (slot, choices) in set.iter().zip(emitted) {
-                assert_eq!(slot.len(), choices.len());
-                for (choice, emitted) in slot.iter().zip(choices) {
-                    match emitted {
-                        Emitted::Entry { id, shown } => {
-                            assert_eq!(id, choice.id());
-                            let title = match shown {
-                                Shown::Standard(entry) => &entry.title,
-                                Shown::Payment(entry) => &entry.method_name,
-                            };
-                            assert!(!title.is_empty());
+    for tags in tagged {
+        let modules = modules(tags);
+        let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
+        let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+        let live_rendering = live.rendering().expect("the live rendering");
+        for priority in [&["en"][..], &["de", "en"]] {
+            let env = env_of(priority, OPTIONS);
+            for parameters in requests() {
+                let case = Case::new(parameters);
+                // The registration: the cards a first match draws, which no request changes.
+                let built = case.shown(&live_rendering, &env, &statics, |views, _| {
+                    registered(&modules, &cards(views), &[&statics[0].card], &env)
+                });
+                let package = Package::read(built.bytes(), built.root()).expect("the package");
+                let rendering = Rendering::new(package, &formats, &own).expect("a registration");
+                case.shown(&rendering, &env, &statics, |views, shown| {
+                    let emission = emit(shown, &rendering, &env).expect("no fault");
+                    assert!(emission.refused().is_empty(), "{:?}", emission.refused());
+                    for view in views.iter() {
+                        let credential = Some(view.record.credential.as_str());
+                        let renderer = rendering
+                            .renderer(view.selected, credential, &env)
+                            .expect("no fault")
+                            .expect("a language");
+                        let wallet = live_rendering
+                            .renderer(view.selected, None, &env)
+                            .expect("no fault")
+                            .expect("a language");
+                        assert_eq!(renderer.inputs(), *view.record.inputs);
+                        assert_eq!(renderer.inputs(), wallet.inputs());
+                        for text in held(view.entry.card()) {
+                            assert!(renderer.holds(text).expect("reads"), "{tags:?}: held");
+                            assert_eq!(renderer.formatted(text), wallet.formatted(text));
+                            held_texts += 1;
                         }
-                        Emitted::Nothing => assert_eq!(choice.id(), "none"),
+                        for text in request_texts(&view.entry, view.header) {
+                            assert!(!renderer.holds(text).expect("reads"), "a request's text");
+                            assert_eq!(renderer.formatted(text), wallet.formatted(text));
+                            rendered_texts += 1;
+                        }
                     }
-                }
+                    // Every entry of every slot is emitted, its texts plain.
+                    for (set, emitted) in shown.sets().iter().zip(emission.sets()) {
+                        for (slot, choices) in set.iter().zip(emitted) {
+                            assert_eq!(slot.len(), choices.len());
+                            for (choice, emitted) in slot.iter().zip(choices) {
+                                match emitted {
+                                    Emitted::Entry { id, shown } => {
+                                        assert_eq!(id, choice.id());
+                                        let title = match shown {
+                                            Shown::Standard(entry) => &entry.title,
+                                            Shown::Payment(entry) => &entry.method_name,
+                                        };
+                                        assert!(!title.is_empty());
+                                    }
+                                    Emitted::Nothing => assert_eq!(choice.id(), "none"),
+                                }
+                            }
+                        }
+                    }
+                });
             }
         }
     }
@@ -202,66 +292,49 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
     );
 }
 
-/// `RenderOptions::on_error`: a static entry naming a module the package does not hold ends the
+/// `RenderOptions::on_error`: a static entry whose row label is white space alone ends the
 /// emission or stays out of its slot.
 #[test]
 fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
-    let registry = registry();
-    let parameters = requests();
-    let received = unsigned(&parameters[0]).expect("received");
-    let request = request_of(&received).expect("request");
-    let credential = held_credential("c");
-    let wallet = Wallet::new(vec![credential.credential().expect("credential")]).expect("wallet");
-    let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let modules = modules();
+    let modules = modules(&[]);
+    let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
     let formats = siros_testkit::render::formats().expect("the render halves");
-    let built =
-        package(&modules.iter().collect::<Vec<_>>(), &[], &formats, OPTIONS).expect("a package");
-    let package = Package::read(built.bytes(), built.root()).expect("the package");
-    let own: Vec<_> = modules.iter().map(Module::id).collect();
-    let rendering = Rendering::new(package, &formats, &own);
-    let absent = siros_explain::DefinedModule::new(
-        siros_explain::checked!(siros_explain::Domain, "absent"),
-        [0; 32],
-    );
-    let key = siros_explain::DefinedKey::parse("title".to_owned()).expect("a key");
+    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+    let live_rendering = live.rendering().expect("the live rendering");
     let statics = [StaticEntry {
         id: "notice".to_owned(),
-        card: siros_openid4vp::consent::Card {
-            icon: siros_openid4vp::rows::Icon::DEFAULT,
-            title: Text::Query(siros_explain::Query::defined(
-                absent,
-                key,
-                siros_explain::Keyed::empty(),
-            )),
+        card: Card {
+            icon: Icon::DEFAULT,
+            title: Text::Raw("Notice".to_owned()),
             subtitle: None,
-            rows: Vec::new(),
+            rows: vec![Row::new(
+                Text::Raw(" \t".to_owned()),
+                siros_openid4vp::rows::Value::Text(Text::Raw("unnamed".to_owned())),
+            )],
         },
     }];
+    let case = Case::new(requests().swap_remove(0));
     for on_error in [OnRenderError::NoEntry, OnRenderError::Rendered] {
-        let env = Env::new(
-            env(&["en"], Vec::new()).expect("env").priority().to_vec(),
-            Vec::new(),
+        let env = env_of(
+            &["en"],
             RenderOptions {
                 on_error,
                 ..OPTIONS
             },
-            Vec::new(),
-            siros_openid4vp::rows::Choice::First,
-        )
-        .expect("env");
-        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
-        let consent = Consent::of(&matched).expect("consent");
-        let views = Views::of(&matched, &env).expect("views");
-        let sets = offer(&matched, &consent, env.choice());
-        let shown = display(&sets, &views, &statics).expect("display");
-        let emission = emit(&shown, &rendering, &env).expect("no fault");
-        let refused: Vec<&str> = emission
-            .refused()
-            .iter()
-            .map(|(id, _)| id.as_str())
-            .collect();
-        assert!(refused.iter().all(|id| *id == "notice") && !refused.is_empty());
+        );
+        let built = case.shown(&live_rendering, &env, &statics, |views, _| {
+            registered(&modules, &cards(views), &[&statics[0].card], &env)
+        });
+        let package = Package::read(built.bytes(), built.root()).expect("the package");
+        let rendering = Rendering::new(package, &formats, &own).expect("a registration");
+        let emission = case.shown(&rendering, &env, &statics, |_, shown| {
+            emit(shown, &rendering, &env).expect("no fault")
+        });
+        assert!(
+            matches!(emission.refused(), [(id, NotEmitted::Field(_))] if id == "notice"),
+            "{:?}",
+            emission.refused()
+        );
         let emitted: Vec<&Emitted> = emission.sets().iter().flatten().flatten().collect();
         match on_error {
             OnRenderError::NoEntry => assert!(emission.sets().is_empty()),
@@ -275,6 +348,84 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
             }
         }
     }
+}
+
+/// The emission's refusals, one fixture each: a record whose rendering inputs differ from the
+/// renderer's (`Inputs`), a card the registration's package holds no text of (`NotHeld`), and a
+/// package registered under other lists than the matcher's (`Fault`).
+#[test]
+fn the_emission_refuses_other_inputs_unheld_cards_and_other_lists() {
+    let modules = modules(&[]);
+    let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
+    let formats = siros_testkit::render::formats().expect("the render halves");
+    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+    let live_rendering = live.rendering().expect("the live rendering");
+    let case = Case::new(requests().swap_remove(0));
+    let env = env_of(&["en"], OPTIONS);
+    let other = Card {
+        icon: Icon::DEFAULT,
+        title: Text::Raw("Another card".to_owned()),
+        subtitle: None,
+        rows: Vec::new(),
+    };
+    fn read<'p>(
+        built: &'p BuiltPackage,
+        formats: &'p Formats,
+        own: &'p [ModuleId],
+    ) -> Rendering<'p> {
+        Package::read(built.bytes(), built.root())
+            .and_then(|package| Rendering::new(package, formats, own))
+            .expect("a registration")
+    }
+    // The honest registration emits.
+    let honest = case.shown(&live_rendering, &env, &[], |views, _| {
+        registered(&modules, &cards(views), &[], &env)
+    });
+    let rendering = read(&honest, &formats, &own);
+    let emitted = case.shown(&rendering, &env, &[], |_, shown| {
+        emit(shown, &rendering, &env).map(|emission| emission.refused().len())
+    });
+    assert!(matches!(emitted, Ok(0)), "{emitted:?}");
+    // A record matched under another bidi strategy than the registration's.
+    let bidi = env_of(
+        &["en"],
+        RenderOptions {
+            bidi: Bidi::Default,
+            ..OPTIONS
+        },
+    );
+    let inputs = case.shown(&live_rendering, &bidi, &[], |views, shown| {
+        let id = views.iter().next().expect("a view").record.id().clone();
+        (emit(shown, &rendering, &env), id)
+    });
+    assert!(
+        matches!(&inputs, (Err(EmitError::Inputs(entry)), id) if entry == id.as_str()),
+        "{:?}",
+        inputs.0
+    );
+    // The credential registered with another card.
+    let unheld = case.shown(&live_rendering, &env, &[], |views, _| {
+        let credentials: Vec<(&str, &Card)> = cards(views)
+            .into_iter()
+            .map(|(id, _)| (id, &other))
+            .collect();
+        registered(&modules, &credentials, &[], &env)
+    });
+    let rendering = read(&unheld, &formats, &own);
+    let refused = case.shown(&rendering, &env, &[], |_, shown| {
+        emit(shown, &rendering, &env).map(|emission| emission.refused().len())
+    });
+    assert!(matches!(refused, Err(EmitError::NotHeld(_))), "{refused:?}");
+    // A registration under another priority list.
+    let german = env_of(&["de"], OPTIONS);
+    let stale = case.shown(&live_rendering, &german, &[], |views, _| {
+        registered(&modules, &cards(views), &[], &german)
+    });
+    let rendering = read(&stale, &formats, &own);
+    let faulted = case.shown(&live_rendering, &env, &[], |_, shown| {
+        emit(shown, &rendering, &env).map(|emission| emission.refused().len())
+    });
+    assert!(matches!(faulted, Err(EmitError::Fault(_))), "{faulted:?}");
 }
 
 /// The array-order index of the root of a subtree of `size` leaves whose nodes start at `base`:
@@ -317,26 +468,28 @@ fn audit_path(leaf: usize, size: usize, base: usize) -> Vec<usize> {
 #[test]
 fn a_request_reads_whole_entries_and_their_audit_paths() {
     let registry = registry();
-    let env = env(&["en"], Vec::new()).expect("env");
+    let env = env_of(&["en"], OPTIONS);
     let parameters = requests();
     let received = unsigned(&parameters[1]).expect("received");
     let request = request_of(&received).expect("request");
     let credential = held_credential("c");
     let wallet = Wallet::new(vec![credential.credential().expect("credential")]).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let live = App::of(&[CrateSource::openid4vp()]).expect("the live modules' app");
+    let modules = modules(&[]);
+    let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
+    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let matched = Match::run(&accepted, &wallet, &env, &live_rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");
-    let built = registered(&views, &[], env.options());
+    let built = registered(&modules, &cards(&views), &[], &env);
     let formats = siros_testkit::render::formats().expect("the render halves");
-    let own = live_rendering.own().to_vec();
     let emitted = |bytes: &[u8]| -> String {
-        let package = match Package::read(bytes, built.root()) {
-            Ok(package) => package,
+        let rendering = match Package::read(bytes, built.root())
+            .and_then(|package| Rendering::new(package, &formats, &own))
+        {
+            Ok(rendering) => rendering,
             Err(refused) => return format!("{refused:?}"),
         };
-        let rendering = Rendering::new(package, &formats, &own);
         let matched = match Match::run(&accepted, &wallet, &env, &rendering) {
             Ok(matched) => matched,
             Err(fault) => return format!("{fault:?}"),

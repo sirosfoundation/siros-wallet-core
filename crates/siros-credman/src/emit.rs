@@ -1,15 +1,16 @@
 //! The matcher's entry emission (section 4.14 of the design, "DC API precomputation"): each choice
-//! of a display as Credential Manager draws it, every text plain, read from the registration's
-//! package as held or rendered from its compiled messages. Every entry renders before the first
-//! is added; an entry whose texts do not render ends the emission or stays out of its slot, as
-//! the app's `RenderOptions::on_error` states.
+//! of a display as Credential Manager draws it, every text plain, a card's texts read from the
+//! registration's package as held and the request's rendered from its compiled messages. Every
+//! entry renders before the first is added; an entry whose texts do not render ends the emission
+//! or stays out of its slot, as the app's `RenderOptions::on_error` states.
 
 use siros_explain::{Explain, Text};
 use siros_i18n::{RenderError, Renderer};
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::matching::{Choice, Display};
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::rendering::{Rendering, Unrendered};
-use siros_openid4vp::rows::{Env, OnRenderError, Row, Selected};
+use siros_openid4vp::rows::{Env, OnRenderError, RenderingInputs, Row, Selected, Value};
 
 use crate::entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 use crate::field::{Field, NoName};
@@ -109,8 +110,9 @@ pub enum NotEmitted {
     Unrendered(#[from] Unrendered),
 }
 
-/// Why the matcher emits nothing: the core's screen faults, or an entry's renderer takes other
-/// inputs than its record commits to.
+/// Why the matcher emits nothing: the core's screen faults, an entry's renderer takes other
+/// inputs than its record commits to, or the registration's package does not hold a card's text
+/// precomputed.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "credman.emit")]
 pub enum EmitError {
@@ -120,16 +122,34 @@ pub enum EmitError {
     /// An entry's renderer takes other inputs than its record commits to.
     #[error("the renderer of the entry {0} takes other inputs than its record")]
     Inputs(#[explain(name = "entry")] String),
+    /// A text of an entry's card, which no request changes, is not held precomputed in the
+    /// language its screen shows: the registration's package was built for other cards.
+    #[error("a card text of the entry {0} is not held in its language")]
+    NotHeld(#[explain(name = "entry")] String),
+}
+
+/// The texts of a card no request changes: its title and subtitle, and each row's label, value
+/// and section. The registration's package holds them precomputed, and the matcher reads them as
+/// held.
+pub fn held(card: &Card) -> impl Iterator<Item = &Text> {
+    std::iter::once(&card.title)
+        .chain(&card.subtitle)
+        .chain(card.rows.iter().flat_map(|row| {
+            std::iter::once(&row.label)
+                .chain(row.value.as_ref().and_then(Value::text))
+                .chain(&row.section)
+        }))
 }
 
 /// The display's choices, each entry's texts rendered as Credential Manager draws them: plain
-/// text through `rendering` in the language its record commits to, with `env`'s options. Every
-/// entry renders before the emission returns.
+/// text through `rendering`, the registration's package, in the language its record commits to,
+/// with `env`'s options, which are the registration's. Every entry renders before the emission
+/// returns.
 ///
 /// # Errors
 ///
-/// [`EmitError`]: the core's screen faults, or an entry's renderer takes other inputs than its
-/// record commits to.
+/// [`EmitError`]: the core's screen faults, an entry's renderer takes other inputs than its
+/// record commits to, or a card's text is not held.
 pub fn emit(
     display: &Display<'_>,
     rendering: &Rendering<'_>,
@@ -142,38 +162,35 @@ pub fn emit(
         for slot in set {
             let mut choices = Vec::with_capacity(slot.len());
             for choice in slot {
+                let id = choice.id().to_owned();
                 let shown = match choice {
                     Choice::Nothing => {
                         choices.push(Emitted::Nothing);
                         continue;
                     }
                     Choice::Static(entry) => {
-                        drawn(&CredmanEntry::of_static(entry), None, rendering, env)?
+                        let screen = Screen {
+                            selected: None,
+                            credential: None,
+                            card: &entry.card,
+                            committed: None,
+                        };
+                        screen.drawn(&CredmanEntry::of_static(entry), &id, rendering, env)?
                     }
                     Choice::Entry(view) => {
-                        let shown = drawn(
-                            &CredmanEntry::of(&view.entry),
-                            view.selected,
-                            rendering,
-                            env,
-                        )?;
-                        match shown {
-                            Ok((shown, inputs)) if inputs != *view.record.inputs => {
-                                drop(shown);
-                                return Err(EmitError::Inputs(
-                                    view.record.id().as_str().to_owned(),
-                                ));
-                            }
-                            other => other,
-                        }
+                        let screen = Screen {
+                            selected: view.selected,
+                            credential: Some(view.record.credential.as_str()),
+                            card: view.entry.card(),
+                            committed: Some(view.record.inputs),
+                        };
+                        let entry = CredmanEntry::of(&view.entry);
+                        screen.drawn(&entry, view.record.id().as_str(), rendering, env)?
                     }
                 };
                 match shown {
-                    Ok((shown, _)) => choices.push(Emitted::Entry {
-                        id: choice.id().to_owned(),
-                        shown,
-                    }),
-                    Err(reason) => refused.push((choice.id().to_owned(), reason)),
+                    Ok(shown) => choices.push(Emitted::Entry { id, shown }),
+                    Err(reason) => refused.push((id, reason)),
                 }
             }
             slots.push(choices);
@@ -186,22 +203,45 @@ pub fn emit(
     Ok(Emission { sets, refused })
 }
 
-/// An entry drawn through the renderer of its screen, with the inputs the renderer took.
-type Drawn = Result<(Shown, siros_openid4vp::rows::RenderingInputs), NotEmitted>;
+/// What an entry's renderer is made for: the module its profile selected, its credential, its
+/// card, and the inputs its record commits to.
+struct Screen<'s> {
+    selected: Option<&'s Selected>,
+    credential: Option<&'s str>,
+    card: &'s Card,
+    committed: Option<&'s RenderingInputs>,
+}
 
-/// An entry's texts rendered on its screen: the module its profile selected in its locale, the
-/// others in the language `env`'s lists choose.
-fn drawn(
-    entry: &CredmanEntry,
-    selected: Option<&Selected>,
-    rendering: &Rendering<'_>,
-    env: &Env,
-) -> Result<Drawn, EmitError> {
-    let renderer = match rendering.renderer(selected, env)? {
-        Ok(renderer) => renderer,
-        Err(unrendered) => return Ok(Err(unrendered.into())),
-    };
-    Ok(shown(entry, &renderer).map(|shown| (shown, renderer.inputs())))
+impl Screen<'_> {
+    /// The entry's texts rendered on its screen, once its renderer takes the inputs its record
+    /// commits to and holds every card text: the module its profile selected in its locale, the
+    /// others in the language the registration's lists choose.
+    fn drawn(
+        &self,
+        entry: &CredmanEntry,
+        id: &str,
+        rendering: &Rendering<'_>,
+        env: &Env,
+    ) -> Result<Result<Shown, NotEmitted>, EmitError> {
+        let renderer = match rendering.renderer(self.selected, self.credential, env)? {
+            Ok(renderer) => renderer,
+            Err(unrendered) => return Ok(Err(unrendered.into())),
+        };
+        if self
+            .committed
+            .is_some_and(|committed| renderer.inputs() != *committed)
+        {
+            return Err(EmitError::Inputs(id.to_owned()));
+        }
+        for text in held(self.card) {
+            match renderer.holds(text) {
+                Ok(true) => {}
+                Ok(false) => return Err(EmitError::NotHeld(id.to_owned())),
+                Err(refused) => return Ok(Err(refused.into())),
+            }
+        }
+        Ok(shown(entry, &renderer))
+    }
 }
 
 /// An entry's texts as plain text.

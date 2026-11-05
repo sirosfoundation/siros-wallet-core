@@ -1,20 +1,22 @@
 //! The registration writer's part inside the workspace (section 4.14 of the design, "DC API
-//! precomputation"): the package the registration carries for the matcher, holding the modules'
-//! compiled messages and the texts no request changes precomputed. The registration's bytes are
-//! siros-dc-matcher's.
+//! precomputation"): the package the registration carries for the matcher. It holds the
+//! modules' compiled messages, every card's texts precomputed in each tag of the End-User's
+//! priority list and the app's fallback list whose modules serve them, and what it was built
+//! from: the lists, the rendering options, each credential with its candidate languages, each
+//! transaction type with its module. The registration's bytes are siros-dc-matcher's.
 
-use siros_explain::{Explain, Text};
-use siros_i18n::{
-    BuiltPackage, Formats, LocaleTag, Module, PackageBuilder, PackageError, RenderError,
-};
+use siros_explain::{Explain, ModuleId};
+use siros_i18n::{BuiltPackage, Formats, Module, PackageError, RegistrationBuilder, RenderError};
 use siros_openid4vp::consent::Card;
-use siros_openid4vp::rows::{RenderOptions, Value};
+use siros_openid4vp::rows::Env;
+
+use crate::emit::held;
 
 /// Why a registration's package is not written.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "credman.register")]
 pub enum RegisterError {
-    /// The builder refuses a module.
+    /// The builder refuses a module, a credential or a transaction type.
     #[error(transparent)]
     Package(#[from] PackageError),
     /// A text does not render.
@@ -22,43 +24,61 @@ pub enum RegisterError {
     Render(#[from] RenderError),
 }
 
-/// The texts of a card no request changes: its title and subtitle, and each row's label, value
-/// and section. A matcher reads them as held.
-pub fn held(card: &Card) -> impl Iterator<Item = &Text> {
-    std::iter::once(&card.title)
-        .chain(&card.subtitle)
-        .chain(card.rows.iter().flat_map(|row| {
-            std::iter::once(&row.label)
-                .chain(row.value.as_ref().and_then(Value::text))
-                .chain(&row.section)
-        }))
+/// What a registration serves.
+#[derive(Debug, Clone, Copy)]
+pub struct Registration<'r> {
+    /// The modules the package holds: the app's, and each transaction type's.
+    pub modules: &'r [&'r Module],
+    /// The modules every card draws from: the app's main module and its crate modules, as the
+    /// matcher's `Rendering` names them.
+    pub own: &'r [ModuleId],
+    /// Each card a credential shows, by the credential's id; a credential may show several.
+    pub credentials: &'r [(&'r str, &'r Card)],
+    /// The static entries' cards.
+    pub statics: &'r [&'r Card],
+    /// Each transaction type, with the module its metadata converts to.
+    pub transactions: &'r [(&'r str, ModuleId)],
 }
 
-/// The package of `modules`, every key of each in every locale one of them supports, with each
-/// of `held` precomputed under `options` in each package locale whose modules serve it.
+/// The package of a registration under `env`'s lists and options: every key of each module, each
+/// credential and transaction type recorded, and every card's texts precomputed.
 ///
 /// # Errors
 ///
-/// [`RegisterError`]: the builder refuses a module, or a text renders in no package locale.
+/// [`RegisterError`]: the builder refuses a module, a credential or a transaction type, or a
+/// card's text renders in no tag of the lists.
 pub fn package(
-    modules: &[&Module],
-    held: &[&Text],
+    registration: &Registration<'_>,
+    env: &Env,
     formats: &Formats,
-    options: RenderOptions,
 ) -> Result<BuiltPackage, RegisterError> {
-    let mut locales: Vec<LocaleTag> = modules
-        .iter()
-        .flat_map(|module| module.locales().cloned())
-        .collect();
-    locales.sort();
-    locales.dedup();
-    let mut builder = PackageBuilder::new(locales)?;
-    for module in modules {
+    let mut builder = RegistrationBuilder::new(
+        env.priority().to_vec(),
+        env.fallback().to_vec(),
+        env.options(),
+    )?;
+    for module in registration.modules {
         builder.module(module, None)?;
     }
+    let mut credentials: Vec<&str> = registration.credentials.iter().map(|(id, _)| *id).collect();
+    credentials.sort_unstable();
+    credentials.dedup();
+    for credential in credentials {
+        builder.credential(credential, registration.own)?;
+    }
+    for (kind, module) in registration.transactions {
+        builder.transaction(kind, *module)?;
+    }
     let mut texts = builder.texts(formats);
-    for text in held {
-        texts.precompute(text, options)?;
+    let cards = registration
+        .credentials
+        .iter()
+        .map(|(_, card)| *card)
+        .chain(registration.statics.iter().copied());
+    for card in cards {
+        for text in held(card) {
+            texts.precompute(text, env.options())?;
+        }
     }
     Ok(texts.finish())
 }

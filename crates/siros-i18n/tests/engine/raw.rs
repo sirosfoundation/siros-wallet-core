@@ -117,6 +117,16 @@ const CLASSED: &[(&str, &str, Class)] = &[
     ("i18n.package.repeated_key", "key", Class::Received),
     ("i18n.package.key", "module", Class::Received),
     ("i18n.package.key", "key", Class::Received),
+    (
+        "i18n.package.repeated_credential",
+        "credential",
+        Class::Received,
+    ),
+    (
+        "i18n.package.repeated_transaction",
+        "transaction",
+        Class::Received,
+    ),
     ("i18n.locale.invalid_tag", "tag", Class::Received),
 ];
 

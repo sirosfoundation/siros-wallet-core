@@ -5,9 +5,10 @@
 //!
 //! - [`CredmanEntry::of`]: a consent entry's Standard or Payment entry; [`Field::of`]: a row's
 //!   field.
-//! - [`emit`]: the matcher's entry emission, every text of every entry plain, read from the
-//!   registration's package as held or rendered from its compiled messages; [`register`]
-//!   (feature `register`): the package the registration writer builds.
+//! - [`emit`]: the matcher's entry emission, every text of every entry plain, a card's texts
+//!   ([`held`]) read from the registration's package as held, the request's rendered from its
+//!   compiled messages; [`register`] (feature `register`): the package the registration writer
+//!   builds, which records its lists, options, credentials and transaction types.
 //! - [`WalletDisplay::of`] (A9): whether a set needs the wallet's display. [`Delegation::of`]
 //!   (K4): the delegation the matcher sends for every entry of the set.
 //!   [`Fulfilment::check`] (A9): the background fulfilment of a set that needs the wallet's
@@ -48,7 +49,7 @@ pub use delegation::{
     WalletDisplayNeeded,
 };
 pub use emit::{
-    Emission, EmitError, Emitted, NotEmitted, PaymentShown, Shown, StandardShown, emit,
+    Emission, EmitError, Emitted, NotEmitted, PaymentShown, Shown, StandardShown, emit, held,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};

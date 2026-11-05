@@ -15,8 +15,9 @@
 //! | | the other entries, one after the other, each as long as the manifest says; the bytes end with the last |
 //!
 //! The manifest records the renderer's version, the package's locales, each module's identity,
-//! digest, language policy and locale entries, the precomputed texts' digests, and each other
-//! entry's length. A locale entry holds a module's direction, formats, bare formats and message
+//! digest, language policy and locale entries, the precomputed texts' digests, a registration's
+//! inputs (its lists, its rendering options, each credential with its candidate languages, each
+//! transaction type with its module), and each other entry's length. A locale entry holds a module's direction, formats, bare formats and message
 //! index in one locale; a message entry one compiled message; a held entry one precomputed text
 //! with its key, the modules it drew from and its formatted spans.
 //!
@@ -32,14 +33,16 @@ mod codec;
 mod held;
 mod manifest;
 mod merkle;
+mod registration;
 
 #[cfg(feature = "load")]
-pub use builder::{BuiltPackage, PackageBuilder, PackageTexts};
+pub use builder::{BuiltPackage, PackageBuilder, PackageTexts, RegistrationBuilder};
 pub(crate) use codec::replay;
 pub(crate) use held::{Held, TextKey};
 pub(crate) use manifest::{
     LocaleIndex, LocaleRef, Manifest, ModuleRecord, StoredKind, module_name,
 };
+pub use registration::{Candidates, CredentialRecord, Registration};
 
 use crate::error::PackageError;
 use crate::form::MessageForm;
@@ -143,6 +146,16 @@ impl<'p> Package<'p> {
             spans.push(begin..end);
         }
         Ok(spans)
+    }
+
+    /// What a registration's package was built from beside its modules; `None` for a package
+    /// built without a registration.
+    ///
+    /// # Errors
+    ///
+    /// The [`PackageError`] of the manifest.
+    pub fn registration(&self) -> Result<Option<Registration>, PackageError> {
+        Ok(self.manifest()?.registration)
     }
 
     /// Its RFC 9162 Merkle tree root: its identity.

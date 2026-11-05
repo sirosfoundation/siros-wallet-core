@@ -6,6 +6,7 @@ use super::Location;
 use super::codec::{EntryReader, bare, digest, direction, list, reader, tag, text};
 #[cfg(feature = "load")]
 use super::codec::{write_bare, write_direction, write_list};
+use super::registration::Registration;
 use crate::bytes::Writer;
 use crate::error::PackageError;
 use crate::form::{BareCalls, LanguagePolicy};
@@ -143,13 +144,15 @@ pub(crate) struct HeldRef {
 }
 
 /// The manifest: the renderer that built the package, its locales, its modules, its precomputed
-/// texts by their keys' SHA-256 in ascending order, and where each other entry lies.
+/// texts by their keys' SHA-256 in ascending order, a registration's inputs, and where each other
+/// entry lies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Manifest {
     pub(crate) renderer: u16,
     pub(crate) locales: Vec<LocaleTag>,
     pub(crate) modules: Vec<ModuleRecord>,
     pub(crate) held: Vec<HeldRef>,
+    pub(crate) registration: Option<Registration>,
     pub(crate) locations: Vec<Location>,
 }
 
@@ -204,6 +207,11 @@ impl Manifest {
                 entry: entry(reader)?,
             })
         })?;
+        let registration = if reader.flag()? {
+            Some(Registration::decode(reader, &modules)?)
+        } else {
+            None
+        };
         let lengths = list(reader, EntryReader::count)?;
         let mut offset = Some(0_usize);
         let locations = lengths.into_iter().map(|length| {
@@ -235,6 +243,7 @@ impl Manifest {
             locales,
             modules,
             held,
+            registration,
             locations,
         })
     }
@@ -286,6 +295,10 @@ impl Manifest {
             writer.raw(&held.digest);
             writer.count(held.entry);
         });
+        writer.flag(self.registration.is_some());
+        if let Some(registration) = &self.registration {
+            registration.encode(&mut writer);
+        }
         write_list(&mut writer, &self.locations, |writer, location| {
             writer.count(location.length);
         });

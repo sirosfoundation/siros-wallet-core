@@ -496,6 +496,12 @@ pub enum PackageError {
     /// A package builder given no locale.
     #[error("the package names no locale")]
     NoLocale,
+    /// A registration's builder given a credential twice.
+    #[error("the credential {0} is given twice")]
+    RepeatedCredential(#[explain(name = "credential")] String),
+    /// A registration's builder given a transaction type twice.
+    #[error("the transaction type {0} is given twice")]
+    RepeatedTransaction(#[explain(name = "transaction")] String),
 }
 
 /// Why a presentation has no language.

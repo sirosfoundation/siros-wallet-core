@@ -229,10 +229,16 @@ impl App {
     ///
     /// # Errors
     ///
-    /// [`AppError::Package`]: the package's header does not read.
+    /// [`AppError::Package`]: the package's header or manifest does not read.
     pub fn rendering(&self) -> Result<Rendering<'_>, AppError> {
         let package = Package::read(self.built.bytes(), self.built.root())?;
-        Ok(Rendering::new(package, &self.formats, &self.own))
+        Ok(Rendering::new(package, &self.formats, &self.own)?)
+    }
+
+    /// The modules every entry draws from: the app's main module and its crate modules.
+    #[must_use]
+    pub fn own(&self) -> &[ModuleId] {
+        &self.own
     }
 
     /// The app showing a module in the locale its profile selected.
@@ -338,6 +344,6 @@ impl App {
         selected: Option<&Selected>,
         env: &Env,
     ) -> Result<Renderer<'_>, AppError> {
-        Ok(self.rendering()?.renderer(selected, env)??)
+        Ok(self.rendering()?.renderer(selected, None, env)??)
     }
 }

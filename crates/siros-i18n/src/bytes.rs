@@ -67,15 +67,7 @@ impl Writer {
     }
 
     /// A flag.
-    #[cfg(all(
-        feature = "load",
-        any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "list"
-        )
-    ))]
+    #[cfg(feature = "load")]
     pub(crate) fn flag(&mut self, flag: bool) {
         self.byte(u8::from(flag));
     }
@@ -185,12 +177,6 @@ impl<'a, E: Clone> Reader<'a, E> {
     }
 
     /// A flag.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "list"
-    ))]
     pub(crate) fn flag(&mut self) -> Result<bool, E> {
         match self.byte()? {
             0 => Ok(false),

@@ -11,6 +11,7 @@ use super::held::{Held, TextKey};
 use super::manifest::{
     HeldRef, LocaleIndex, LocaleRef, Manifest, MessageRef, ModuleRecord, StoredId,
 };
+use super::registration::{Candidates, CredentialRecord, Registration, TransactionRecord};
 use super::{FORMAT, HEADER, Location, MAGIC, Package, merkle};
 use crate::bytes::Writer;
 use crate::error::{ModuleName, PackageError, RenderError};
@@ -28,6 +29,29 @@ use crate::screen::Screen;
 pub struct PackageBuilder {
     locales: Vec<LocaleTag>,
     modules: Vec<Added>,
+    registration: Option<Registration>,
+}
+
+/// A registration's package under construction (section 4.14 of the design, "DC API
+/// precomputation"): its locales the tags of the End-User's priority list and the app's fallback
+/// list, its modules, the credentials and transaction types it serves, and the lists and options
+/// it records. Only [`RegistrationBuilder::new`] makes one.
+#[derive(Debug)]
+pub struct RegistrationBuilder {
+    builder: PackageBuilder,
+    priority: Vec<LocaleTag>,
+    fallback: Vec<LocaleTag>,
+    options: RenderOptions,
+    credentials: Vec<Recorded>,
+    transactions: Vec<TransactionRecord>,
+}
+
+/// A credential a registration serves: its name, and its card's modules with the tags of the
+/// locale entries the package holds of each.
+#[derive(Debug)]
+struct Recorded {
+    name: String,
+    modules: Vec<(ModuleId, Vec<LocaleTag>)>,
 }
 
 /// A module added to a package: its locale entries that the package's locales choose, with
@@ -136,6 +160,7 @@ impl PackageBuilder {
         Ok(Self {
             locales,
             modules: Vec::new(),
+            registration: None,
         })
     }
 
@@ -227,12 +252,155 @@ impl PackageBuilder {
             locales: self.locales.clone(),
             modules: records,
             held: held_refs,
+            registration: self.registration.clone(),
             locations: locations(&entries),
         };
         if let Some(first) = entries.first_mut() {
             *first = manifest.encode();
         }
         entries
+    }
+}
+
+impl RegistrationBuilder {
+    /// A builder for a registration under the End-User's priority list, the app's fallback list
+    /// and its rendering options: the package's locales are the lists' tags, so each text it
+    /// precomputes is held under the tag a screen's language names.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageError::NoLocale`] for an empty priority list.
+    pub fn new(
+        priority: Vec<LocaleTag>,
+        fallback: Vec<LocaleTag>,
+        options: RenderOptions,
+    ) -> Result<Self, PackageError> {
+        if priority.is_empty() {
+            return Err(PackageError::NoLocale);
+        }
+        let mut locales: Vec<LocaleTag> = priority.iter().chain(&fallback).cloned().collect();
+        locales.sort();
+        locales.dedup();
+        Ok(Self {
+            builder: PackageBuilder::new(locales)?,
+            priority,
+            fallback,
+            options,
+            credentials: Vec::new(),
+            transactions: Vec::new(),
+        })
+    }
+
+    /// Adds a module, as [`PackageBuilder::module`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageBuilder::module`]'s.
+    pub fn module(&mut self, module: &Module, keys: Option<&[&str]>) -> Result<(), PackageError> {
+        self.builder.module(module, keys)
+    }
+
+    /// Records a credential the registration serves, by its name, and the modules its card draws
+    /// from, each added before.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageError::RepeatedCredential`] for a name given twice; [`PackageError::Module`] for a
+    /// module not added, and [`PackageError::RepeatedModule`] for one given twice.
+    pub fn credential(&mut self, name: &str, modules: &[ModuleId]) -> Result<(), PackageError> {
+        if self.credentials.iter().any(|known| known.name == name) {
+            return Err(PackageError::RepeatedCredential(name.to_owned()));
+        }
+        let mut tagged = Vec::with_capacity(modules.len());
+        for (index, module) in modules.iter().enumerate() {
+            if modules.iter().take(index).any(|earlier| earlier == module) {
+                return Err(PackageError::RepeatedModule(ModuleName::of(*module)));
+            }
+            let tags = self.added(*module)?.locales.iter();
+            tagged.push((*module, tags.map(|l| l.locale.clone()).collect()));
+        }
+        self.credentials.push(Recorded {
+            name: name.to_owned(),
+            modules: tagged,
+        });
+        Ok(())
+    }
+
+    /// Records a transaction type the registration serves and the module its metadata converts
+    /// to, added before.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageError::RepeatedTransaction`] for a type given twice; [`PackageError::Module`] for
+    /// a module not added.
+    pub fn transaction(&mut self, kind: &str, module: ModuleId) -> Result<(), PackageError> {
+        if self.transactions.iter().any(|known| known.kind == kind) {
+            return Err(PackageError::RepeatedTransaction(kind.to_owned()));
+        }
+        let added = self.added(module)?.id;
+        self.transactions.push(TransactionRecord {
+            kind: kind.to_owned(),
+            module: StoredId::of(added),
+        });
+        Ok(())
+    }
+
+    /// The added module of identity `id`.
+    fn added(&self, id: ModuleId) -> Result<&CompiledModule, PackageError> {
+        self.builder
+            .modules
+            .iter()
+            .find(|added| added.whole.id == id)
+            .map(|added| &added.whole)
+            .ok_or_else(|| PackageError::Module(ModuleName::of(id)))
+    }
+
+    /// The package builder with the registration's record: each credential's candidate
+    /// languages over the locale entries the package holds of its modules.
+    fn recorded(mut self) -> PackageBuilder {
+        let mut credentials: Vec<CredentialRecord> = self
+            .credentials
+            .iter()
+            .map(|credential| {
+                let tags: Vec<&[LocaleTag]> = credential
+                    .modules
+                    .iter()
+                    .map(|(_, tags)| tags.as_slice())
+                    .collect();
+                CredentialRecord {
+                    name: credential.name.clone(),
+                    modules: credential
+                        .modules
+                        .iter()
+                        .map(|(id, _)| StoredId::of(*id))
+                        .collect(),
+                    candidates: Candidates::of(&tags, &self.priority, &self.fallback),
+                }
+            })
+            .collect();
+        credentials.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut transactions = std::mem::take(&mut self.transactions);
+        transactions.sort_by(|a, b| a.kind.cmp(&b.kind));
+        self.builder.registration = Some(Registration {
+            priority: self.priority,
+            fallback: self.fallback,
+            options: self.options,
+            credentials,
+            transactions,
+        });
+        self.builder
+    }
+
+    /// Closes the module set, as [`PackageBuilder::texts`] does.
+    #[must_use]
+    pub fn texts(self, formats: &Formats) -> PackageTexts<'_> {
+        self.recorded().texts(formats)
+    }
+
+    /// The package with no text rendered in advance, as [`PackageBuilder::finish`] gives it.
+    #[must_use]
+    pub fn finish(self) -> BuiltPackage {
+        self.recorded().finish()
     }
 }
 

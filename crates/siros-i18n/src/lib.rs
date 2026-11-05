@@ -163,9 +163,9 @@ pub use number::{NUMBER, NumberFormat};
 #[cfg(feature = "offset")]
 pub use offset::{OFFSET, OffsetFormat};
 #[cfg(feature = "load")]
-pub use package::{BuiltPackage, PackageBuilder, PackageTexts};
+pub use package::{BuiltPackage, PackageBuilder, PackageTexts, RegistrationBuilder};
 #[cfg(feature = "render")]
-pub use package::{FORMAT, Package};
+pub use package::{Candidates, CredentialRecord, FORMAT, Package, Registration};
 #[cfg(feature = "render")]
 pub use render::{
     Amounts, Bidi, OnRenderError, RENDERER, RenderOptions, Renderer, RenderingInputs,

@@ -292,7 +292,7 @@ fn phase_2_falls_back_on_what_no_longer_holds() {
             let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
             let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
+            let rendering = app.rendering().expect("the rendering");
             let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
             let q = request.indexed_queries().next().expect("q").0;
             let ids: Vec<&str> = matched
@@ -824,7 +824,7 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let ids: &[&str] = &[&ids[0]];
         let app = test_app();
-    let rendering = app.rendering().expect("the rendering");
+        let rendering = app.rendering().expect("the rendering");
         Prepared::prepare(
             &authenticated,
             ids,

@@ -316,7 +316,7 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
     let rendering = app.rendering().expect("the rendering");
     let env = siros_testkit::fixtures::env(&["de"], Vec::new()).expect("env");
     let inputs = rendering
-        .renderer(None, &env)
+        .renderer(None, None, &env)
         .expect("no fault")
         .expect("a language")
         .inputs();
