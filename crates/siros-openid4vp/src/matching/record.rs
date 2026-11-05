@@ -11,10 +11,11 @@ use crate::rows::{Amounts, Bidi, Language, ModuleName, RenderingInputs};
 
 /// A record's id: the JSON array `[query, credential, option, entries, attested, request,
 /// rendering]`, `rendering` the object of its rendering inputs, members in this order:
-/// `selected` (`null`, or the array of the name of the module a profile selected a locale for and
-/// that locale), `language` (the tag), `fallback` (whether the language fell back), `modules` (each module's
-/// name and the hexadecimal SHA-256 of its sources), `amounts` (`formatted` or `written`), `bidi`
-/// (`default` or `none`) and `renderer` (the renderer's version).
+/// `selected` (`null`, or the array of the name of the module a profile selected a locale for
+/// and that locale), `language` (the tag), `fallback` (whether the language fell back),
+/// `modules` (each module's name and the hexadecimal SHA-256 of its sources), `amounts`
+/// (`formatted` or `written`), `bidi` (`default` or `none`) and `renderer` (the renderer's
+/// version).
 /// As an array it differs from "none" and from every static box's id; its pick tells it from
 /// every other entry of its slot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -106,8 +107,9 @@ impl<'m> Record<'m> {
     }
 
     /// The rendering input `returned` names differently, when it names this record's other
-    /// items as this record does: the selected module and its locale, the language, its fallback flag, a module's digest or its
-    /// presence, the amounts, the bidi strategy, or the renderer's version, in that order.
+    /// items as this record does: the selected module and its locale, the language, its
+    /// fallback flag, a module's digest or its presence, the amounts, the bidi strategy, or the
+    /// renderer's version, in that order.
     #[must_use]
     pub fn other_input(&self, returned: &ReturnedRecord<'_>) -> Option<RenderingInput> {
         let own = Node::parse(self.id.as_str()).ok()?;
