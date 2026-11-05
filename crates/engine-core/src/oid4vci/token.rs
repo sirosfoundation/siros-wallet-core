@@ -730,7 +730,7 @@ mod tests {
         // The retry's proof: decode the nonce claim.
         let proof = second.expect("dpop header").1.clone();
         let payload = proof.split('.').nth(1).unwrap_or_default();
-        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let decoded = jose_rs::base64url::decode(payload).expect("base64url");
         let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
         assert_eq!(claims["nonce"], "fresh-nonce");
     }

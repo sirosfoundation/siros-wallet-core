@@ -1272,7 +1272,7 @@ mod tests {
             .map(|(_, v)| v.clone())
             .expect("a DPoP header");
         let payload = proof.split('.').nth(1).unwrap_or_default();
-        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let decoded = jose_rs::base64url::decode(payload).expect("base64url");
         let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
         assert_eq!(claims["ath"], super::super::dpop::ath_of("at-dpop"));
         assert_eq!(claims["htm"], "POST");
@@ -1367,7 +1367,7 @@ mod tests {
             .expect("the retried request carries a proof");
         let decode = |proof: &str| {
             let payload = proof.split('.').nth(1).unwrap_or_default();
-            let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+            let decoded = jose_rs::base64url::decode(payload).expect("base64url");
             let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
             claims
         };
@@ -1436,7 +1436,7 @@ mod tests {
         let jwt = request["proofs"]["jwt"][0].as_str().expect("the proof jwt");
         let decode = |part: usize| {
             let payload = jwt.split('.').nth(part).unwrap_or_default();
-            crate::oid4vp::test_util::base64url_decode(payload.as_bytes())
+            jose_rs::base64url::decode(payload).expect("base64url")
         };
         let header: Value = serde_json::from_slice(&decode(0)).expect("the JOSE header");
         let claims: Value = serde_json::from_slice(&decode(1)).expect("the claims");
