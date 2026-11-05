@@ -5,7 +5,7 @@ use super::super::{ClaimPath, Concrete};
 use super::{ClaimsFormat, text_of};
 use crate::ids::LocaleTag;
 use crate::json::Node;
-use siros_explain::Text;
+use siros_explain::{Count, Decimal, Text, Value as Typed};
 
 use crate::rows::{Row, Value, WalletText};
 use crate::text::lookup;
@@ -136,9 +136,49 @@ pub(super) fn value_rows(
         }
         scalar => vec![Row::new(
             label.unwrap_or(fallback),
-            Value::Text(Text::Raw(text_of(scalar))),
+            Value::Text(scalar_text(scalar)),
         )],
     }
+}
+
+/// A claim's scalar value as its type shows it: a boolean as the wallet's yes or no, `null` as
+/// the wallet's text for no value, a number as a count or an exact decimal, a string as written.
+fn scalar_text(node: &Node<'_>) -> Text {
+    match node {
+        Node::Bool(true) => Text::of(&WalletText::Yes),
+        Node::Bool(false) => Text::of(&WalletText::No),
+        Node::Null => Text::of(&WalletText::Null),
+        Node::Number(number) => {
+            number_value(number.text()).map_or_else(|| Text::Raw(text_of(node)), Text::Value)
+        }
+        _ => Text::Raw(text_of(node)),
+    }
+}
+
+/// A JSON number (RFC 8259 §6) as an exact value: a natural number as a count, another as a
+/// decimal; `None` beyond a decimal's 38 fraction digits or an `i128`'s units.
+fn number_value(text: &str) -> Option<Typed> {
+    let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i32>().ok()?),
+        None => (text, 0),
+    };
+    let (negative, unsigned) = match mantissa.strip_prefix('-') {
+        Some(unsigned) => (true, unsigned),
+        None => (false, mantissa),
+    };
+    let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
+    let scale = i32::try_from(fraction.len()).ok()? - exponent;
+    let mut digits = format!("{whole}{fraction}");
+    if scale < 0 {
+        let zeros = usize::try_from(-scale).ok().filter(|zeros| *zeros <= 38)?;
+        digits.push_str(&"0".repeat(zeros));
+    }
+    let scale = u8::try_from(scale.max(0)).ok()?;
+    if !negative && scale == 0 {
+        return Count::parse(&digits).map(Typed::Count);
+    }
+    let units: i128 = digits.parse().ok()?;
+    Decimal::new(if negative { -units } else { units }, scale).map(Typed::Decimal)
 }
 
 impl Concrete<'_> {
@@ -146,6 +186,39 @@ impl Concrete<'_> {
         match self {
             Concrete::Key(key) => Concrete::Key(std::borrow::Cow::Owned(key.to_string())),
             Concrete::Index(at) => Concrete::Index(*at),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Count, Decimal, Typed, number_value};
+
+    /// RFC 8259 §6's number forms read to the value they write, by hand.
+    #[test]
+    fn a_json_number_reads_to_the_value_it_writes() {
+        let decimal = |units, scale| Decimal::new(units, scale).map(Typed::Decimal);
+        let count = |digits| Count::parse(digits).map(Typed::Count);
+        let table = [
+            ("0", count("0")),
+            ("42", count("42")),
+            (
+                "123456789012345678901234567890",
+                count("123456789012345678901234567890"),
+            ),
+            ("-7", decimal(-7, 0)),
+            ("1.5", decimal(15, 1)),
+            ("-0.25", decimal(-25, 2)),
+            ("1.0", decimal(10, 1)),
+            ("1e3", count("1000")),
+            ("2.50E-1", decimal(250, 3)),
+            ("-1.2e+2", decimal(-120, 0)),
+            ("1e-38", decimal(1, 38)),
+            ("1e-39", None),
+            ("1e39", None),
+        ];
+        for (text, value) in table {
+            assert_eq!(number_value(text), value, "{text}");
         }
     }
 }

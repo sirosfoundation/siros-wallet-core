@@ -12,6 +12,7 @@ request_title = Share your data
 yes = Yes
 no = No
 claim = claim
+null = None
 
 [frequency]
 inda = intraday

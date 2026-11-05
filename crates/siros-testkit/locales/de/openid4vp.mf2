@@ -12,6 +12,7 @@ request_title = Daten teilen
 yes = Ja
 no = Nein
 claim = Angabe
+null = Kein Wert
 
 [frequency]
 inda = untertägig

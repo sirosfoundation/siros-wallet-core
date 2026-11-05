@@ -11,6 +11,7 @@ use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::{Format, Member, Registry, Shown};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::{Item, Request};
+use siros_openid4vp::rows::WalletText;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, icon, parameters, query_context};
 use siros_testkit::render::written;
@@ -181,15 +182,16 @@ fn the_openid4vci_example_draws_its_card() {
             rows,
         )
     };
+    let yes = as_written(&siros_explain::Text::of(&WalletText::Yes));
     let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
         labels
             .iter()
-            .zip(["Erika", "Mustermann", "1971-09-01", "true"])
+            .zip(["Erika", "Mustermann", "1971-09-01", yes.as_str()])
             .map(|(label, value)| ((*label).to_owned(), value.to_owned()))
             .collect()
     };
     // en-US: the card's name and logo; a claim's `name`; a claim without display shows its data
-    // element identifier; a boolean its JSON text.
+    // element identifier; a boolean the wallet's yes.
     assert_eq!(
         card(&["en-US"]),
         (

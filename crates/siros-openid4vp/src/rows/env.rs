@@ -38,6 +38,9 @@ pub enum WalletText {
     /// A claim whose path names no member.
     #[error("claim")]
     Claim,
+    /// A claim's `null` value.
+    #[error("None")]
+    Null,
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.

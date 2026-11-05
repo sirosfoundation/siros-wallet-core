@@ -15,7 +15,7 @@ use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{Choice, Env, Icon, ImageMedia};
+use siros_openid4vp::rows::{Choice, Env, Icon, ImageMedia, WalletText};
 use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
@@ -25,11 +25,11 @@ const MDOC: ClaimsTest = ClaimsTest {
     label: "name",
 };
 
-/// A text the issuer or the credential wrote, which shows as written.
+/// A text the issuer or the credential wrote as written; another text as its query.
 fn raw(text: &Text) -> String {
     match text {
         Text::Raw(written) => written.clone(),
-        other => panic!("{other:?} is no text as written"),
+        other => format!("{other:?}"),
     }
 }
 
@@ -94,14 +94,15 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             .collect();
         (raw(&card.title), card.icon, rows)
     };
-    let values = ["Erika", "Mustermann", "1971-09-01", "true"];
+    let yes = raw(&Text::of(&WalletText::Yes));
+    let values = ["Erika", "Mustermann", "1971-09-01", yes.as_str()];
     let card = |title: &str, labels: [&str; 4]| {
         let rows = labels.iter().zip(values);
         let rows = rows.map(|(label, value)| ((*label).to_owned(), Some(value.to_owned())));
         (title.to_owned(), icon.clone(), rows.collect::<Vec<_>>())
     };
     // Rows follow the metadata's claims order (OpenID4VCI B.2). A claim without display shows
-    // its data element identifier; a boolean its JSON text.
+    // its data element identifier; a boolean the wallet's yes.
     assert_eq!(
         card_in(&["en-US"]),
         card(
