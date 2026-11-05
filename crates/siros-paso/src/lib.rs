@@ -61,7 +61,7 @@ pub mod respond;
 #[cfg(all(feature = "test-util", feature = "sealed-signals"))]
 pub use cose::TestCoseEncrypt;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
-pub use cose::{CoseEnc, CoseEncrypt, NotSealedCose, SealedCose};
+pub use cose::{NotSealedCose, SealedCose};
 #[cfg(feature = "test-util")]
 pub use measure::{Measured, Signal, TestPaso};
 #[cfg(feature = "resolve")]
@@ -69,7 +69,7 @@ pub use measure::{Measurement, Paso, Reading};
 #[cfg(feature = "test-util")]
 pub use modules::TestRandomIds;
 #[cfg(feature = "resolve")]
-pub use modules::{CoseSlot, NotRandomId, RandomId, RandomIds};
+pub use modules::{CoseEnc, CoseEncrypt, NotRandomId, RandomId, RandomIds};
 pub mod risk;
 pub mod rulebook;
 pub mod rules;
@@ -82,7 +82,7 @@ use siros_explain::{Message, Messages};
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
-use siros_openid4vp::host::{MayHave, Slot};
+use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FaultDomain, HostedProfile,
@@ -94,7 +94,7 @@ use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::{
-    host::{Authentication, AuthenticationNeed, Haip, Has, Platform, ProfileHost},
+    host::{Authentication, AuthenticationNeed, Haip, Has, MayHave, Platform, ProfileHost},
     plugins::{Answered, FetchedRecord, Members},
 };
 
@@ -526,7 +526,11 @@ impl Profile for PasoProfile {
 /// the `COSE_Encrypt` module when the build holds it.
 impl<H> ProfileHost<H> for PasoProfile
 where
-    H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + Has<dyn RandomIds> + CoseSlot,
+    H: Has<dyn Platform>
+        + Has<dyn Haip>
+        + Has<dyn Paso>
+        + Has<dyn RandomIds>
+        + MayHave<dyn CoseEncrypt>,
 {
     /// View §3: the https images the payload displays that the matcher had not fetched and a
     /// fetch reaches.

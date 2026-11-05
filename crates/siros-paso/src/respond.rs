@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::detail;
 use siros_openid4vp::hash::{HashAlgorithm, HashDigest, Sha2};
-use siros_openid4vp::host::{Authentication, Haip, Has, Platform, Seconds, Timestamp};
+use siros_openid4vp::host::{Authentication, Haip, Has, MayHave, Platform, Seconds, Timestamp};
 use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::plugins::{Attested, Fault, JsonText, MemberValue, Members};
 use siros_openid4vp::request::{ContentEncryption, Request};
@@ -18,11 +18,13 @@ use siros_openid4vp::wallet_metadata::Placement;
 use crate::FAULT;
 use crate::amr;
 #[cfg(feature = "sealed-signals")]
-use crate::cose::{CoseEnc, CoseEncrypt, SealedCose};
+use crate::cose::SealedCose;
 use crate::document::PasoDocument;
 use crate::entry::PasoEntry;
 use crate::measure::{Paso, Reading};
-use crate::modules::{CoseSlot, RandomIds};
+#[cfg(feature = "sealed-signals")]
+use crate::modules::CoseEnc;
+use crate::modules::{CoseEncrypt, RandomIds};
 use crate::risk::{Effective, RiskSignal, Sealing, SignalSpec};
 use crate::sca::{self, Sca};
 
@@ -139,7 +141,11 @@ impl<'h> Modules<'h> {
     /// The modules of the build's host.
     pub(crate) fn of<H>(host: &'h H) -> Self
     where
-        H: Has<dyn Platform> + Has<dyn Haip> + Has<dyn Paso> + Has<dyn RandomIds> + CoseSlot,
+        H: Has<dyn Platform>
+            + Has<dyn Haip>
+            + Has<dyn Paso>
+            + Has<dyn RandomIds>
+            + MayHave<dyn CoseEncrypt>,
     {
         use siros_openid4vp::host::Host;
 

@@ -43,7 +43,8 @@ released version yet.
   `sri`, `claims` and `test-util`. A build compiles what it registers: an
   SD-JWT DC API build links no CBOR, COSE, form encoding, curve arithmetic or
   hash beyond SHA-2. `siros-paso`'s `sealed-signals` holds its `COSE_Encrypt`
-  sealing and module, `siros-qes`'s `sha3` its SHA-3 approval hashes.
+  sealing, `siros-qes`'s `sha3` its SHA-3 approval hashes. A feature changes
+  no signature: a crate compiles the same when another turns it on.
 - `cargo xtask builds` checks that each build of the design's section 4.11
   compiles none of the crates its row excludes; `cargo xtask alone` checks
   each crate alone, with and without its default features, and the workspace

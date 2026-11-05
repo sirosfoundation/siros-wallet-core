@@ -1,27 +1,65 @@
 //! The host modules siros-paso calls beside the core's: [`RandomIds`] for a response's `jti`
-//! (Core §6.1), with the identifiers it returns; and the host's `COSE_Encrypt` slot, which the
-//! module fills under the feature `sealed-signals`.
+//! (Core §6.1), with the identifiers it returns; and [`CoseEncrypt`], which seals an mdoc's risk
+//! signals under the feature `sealed-signals`.
 
 use std::fmt;
 
 use siros_explain::Explain;
+use siros_openid4vp::plugins::Fault;
+use siros_openid4vp::request::AgreeableKey;
 use uuid::{Builder, Uuid, Variant, Version};
 
-/// The host's `COSE_Encrypt` slot, which siros-paso's phase 2 bounds: `MayHave<dyn CoseEncrypt>`
-/// under the feature `sealed-signals`, every host without it.
-#[cfg(feature = "sealed-signals")]
-pub trait CoseSlot: siros_openid4vp::host::MayHave<dyn crate::CoseEncrypt> {}
+/// A content encryption a `COSE_Encrypt` carries (IANA "COSE Algorithms", RFC 9053 §4.1): its
+/// integer value. The registry is open; a module states the ones it implements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CoseEnc(i64);
 
-#[cfg(feature = "sealed-signals")]
-impl<H: siros_openid4vp::host::MayHave<dyn crate::CoseEncrypt>> CoseSlot for H {}
+impl CoseEnc {
+    /// A128GCM (RFC 9053 §4.1).
+    pub const A128GCM: Self = Self(1);
+    /// A192GCM.
+    pub const A192GCM: Self = Self(2);
+    /// A256GCM.
+    pub const A256GCM: Self = Self(3);
 
-/// The host's `COSE_Encrypt` slot, which siros-paso's phase 2 bounds: `MayHave<dyn CoseEncrypt>`
-/// under the feature `sealed-signals`, every host without it.
-#[cfg(not(feature = "sealed-signals"))]
-pub trait CoseSlot {}
+    /// The value as a COSE header writes it.
+    #[must_use]
+    pub const fn new(id: i64) -> Self {
+        Self(id)
+    }
 
-#[cfg(not(feature = "sealed-signals"))]
-impl<H> CoseSlot for H {}
+    /// The value.
+    #[must_use]
+    pub const fn id(self) -> i64 {
+        self.0
+    }
+}
+
+/// A `COSE_Encrypt` (RFC 9052 §5.1, tag 96) to a public key, with one recipient holding the
+/// ephemeral key and, as label 4, the key's `kid` (RFC 9053 §6.3, ECDH-ES + HKDF-256). Used when
+/// the build holds it.
+///
+/// # Implementing
+///
+/// `encryptions` lists the content encryptions `encrypt_cose` implements; siros-paso seals under
+/// one the risk signal's key and the statement both admit (Risk Signals §7.6: A256GCM), and
+/// refuses a ciphertext of another (`NotSealedCose::Enc`). `TestCoseEncrypt` is the double.
+pub trait CoseEncrypt {
+    /// The content encryptions it implements.
+    fn encryptions(&self) -> &'static [CoseEnc];
+    /// The plaintext encrypted to a public key under the key's own agreement (`key.alg`: -25, or
+    /// a key wrap -29 to -31) and `enc`.
+    ///
+    /// # Errors
+    ///
+    /// The module broke its contract.
+    fn encrypt_cose(
+        &self,
+        key: &AgreeableKey<'_>,
+        enc: CoseEnc,
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, Fault>;
+}
 
 /// Fresh identifiers: a response's `jti`. Required by siros-paso.
 ///

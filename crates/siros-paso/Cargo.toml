@@ -13,8 +13,9 @@ publish = false
 default = ["resolve"]
 # Phase 2: revalidation of what the matcher assumed, its findings, and the SCA response members.
 resolve = ["siros-openid4vp/resolve", "dep:uuid"]
-# The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6) and its `CoseEncrypt`
-# module. Without it, an mdoc entry whose signals need encryption is refused (`NotCompatible::Lacks`).
+# The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6) with the host's
+# `CoseEncrypt` module, whose slot a host states in every build. Without it, an mdoc entry whose
+# signals need encryption is refused (`NotCompatible::Lacks`).
 sealed-signals = ["siros-openid4vp/cbor"]
 # The `Paso`, `RandomIds` and, with `sealed-signals`, `CoseEncrypt` doubles for the tests of crates
 # that register siros-paso.

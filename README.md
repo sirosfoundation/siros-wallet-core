@@ -50,7 +50,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-x509` | The `x509_hash` and `x509_san_dns` Client Identifier Prefixes |
 | `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, and the stored mdoc's reading (`stored`) |
 | `siros-sdjwt` | `dc+sd-jwt` |
-| `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and, under `sealed-signals`, `CoseEncrypt` modules |
+| `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules; `sealed-signals` seals an mdoc's risk signals with the last |
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher |

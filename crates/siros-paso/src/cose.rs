@@ -1,5 +1,5 @@
-//! The `COSE_Encrypt` module siros-paso seals an mdoc's risk signals with (Risk Signals §7.6),
-//! with the values it exchanges (feature `sealed-signals`).
+//! The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6, feature
+//! `sealed-signals`): the ciphertext's check and the module's double.
 
 use siros_explain::Explain;
 use siros_openid4vp::cbor::Item;
@@ -7,36 +7,10 @@ use siros_openid4vp::cbor::cose::coset::RegisteredLabelWithPrivate;
 use siros_openid4vp::cbor::cose::coset::iana::EnumI64;
 use siros_openid4vp::cbor::cose::{CoseShape, read_encrypt};
 use siros_openid4vp::cbor::{CborError, Value, decode};
-use siros_openid4vp::plugins::Fault;
-use siros_openid4vp::request::AgreeableKey;
 
-/// A content encryption a `COSE_Encrypt` carries (IANA "COSE Algorithms", RFC 9053 §4.1): its
-/// integer value. The registry is open; a module states the ones it implements.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CoseEnc(i64);
+use crate::modules::CoseEnc;
 
-impl CoseEnc {
-    /// A128GCM (RFC 9053 §4.1).
-    pub const A128GCM: Self = Self(1);
-    /// A192GCM.
-    pub const A192GCM: Self = Self(2);
-    /// A256GCM.
-    pub const A256GCM: Self = Self(3);
-
-    /// The value as a COSE header writes it.
-    #[must_use]
-    pub const fn new(id: i64) -> Self {
-        Self(id)
-    }
-
-    /// The value.
-    #[must_use]
-    pub const fn id(self) -> i64 {
-        self.0
-    }
-}
-
-/// A `COSE_Encrypt` (RFC 9052 §5.1), as [`CoseEncrypt::encrypt_cose`] returns it: one CBOR item,
+/// A `COSE_Encrypt` (RFC 9052 §5.1), as [`crate::CoseEncrypt::encrypt_cose`] returns it: one CBOR item,
 /// tag 96, with distinct keys at every depth (the core's `cbor::decode`), whose structure coset
 /// reads. Only [`SealedCose::parse`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,32 +84,6 @@ impl SealedCose {
     }
 }
 
-/// A `COSE_Encrypt` (RFC 9052 §5.1, tag 96) to a public key, with one recipient holding the
-/// ephemeral key and, as label 4, the key's `kid` (RFC 9053 §6.3, ECDH-ES + HKDF-256). Used when
-/// the build holds it.
-///
-/// # Implementing
-///
-/// `encryptions` lists the content encryptions `encrypt_cose` implements; siros-paso seals under
-/// one the risk signal's key and the statement both admit (Risk Signals §7.6: A256GCM), and
-/// refuses a ciphertext of another ([`NotSealedCose::Enc`]). [`TestCoseEncrypt`] is the double.
-pub trait CoseEncrypt {
-    /// The content encryptions it implements.
-    fn encryptions(&self) -> &'static [CoseEnc];
-    /// The plaintext encrypted to a public key under the key's own agreement (`key.alg`: -25, or
-    /// a key wrap -29 to -31) and `enc`.
-    ///
-    /// # Errors
-    ///
-    /// The module broke its contract.
-    fn encrypt_cose(
-        &self,
-        key: &AgreeableKey<'_>,
-        enc: CoseEnc,
-        plaintext: &[u8],
-    ) -> Result<Vec<u8>, Fault>;
-}
-
 #[cfg(feature = "test-util")]
 mod test_util {
     use siros_explain::checked;
@@ -147,7 +95,7 @@ mod test_util {
     use siros_openid4vp::plugins::Fault;
     use siros_openid4vp::request::{AgreeableKey, KeyAgreement};
 
-    use super::{CoseEnc, CoseEncrypt};
+    use crate::modules::{CoseEnc, CoseEncrypt};
     use crate::FAULT;
 
     /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
