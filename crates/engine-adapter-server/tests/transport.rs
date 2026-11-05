@@ -708,3 +708,28 @@ async fn an_ask_that_times_out_cancels_the_child() {
     }
     assert!(cancelled, "the timeout cancelled the child: {text}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_create_advertises_the_flows_capability() {
+    // The engine's flows capability (core §10.3): the session create
+    // carries it, so a client that did not offer it refuses at the
+    // session, not at the first flow start. The wasm dispatcher
+    // advertises the same shape.
+    let server = test_server();
+    let (status, body) = post_wmp(
+        &server,
+        r#"{"jsonrpc":"2.0","id":"req-1","method":"wmp.session.create","params":{"wmp":{"version":"0.1"},"participants":["x509:san:dns:bob.example.com"],"capabilities_offered":{"flows":{"max_concurrent":16},"messaging":{"max_size":65536}},"security":{"mode":"tls"},"ttl":3600}}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+    let flows = response
+        .pointer("/result/capabilities/flows/max_concurrent")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        flows.as_i64(),
+        Some(16),
+        "the engine advertises its flows bound: {response}"
+    );
+}

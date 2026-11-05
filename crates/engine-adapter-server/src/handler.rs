@@ -52,6 +52,15 @@ impl EngineHandler {
                 default_ttl_secs: config.default_session_ttl_secs,
                 entropy: Some(os_entropy()),
                 replay: Some(Arc::new(OutboxReplayer { outbox })),
+                // The flows capability the engine's families gate on
+                // (core §10.3): the session create advertises it, so a
+                // client that did not offer it refuses at the session,
+                // not at the first flow start. The wasm dispatcher
+                // advertises the same shape.
+                supported: flows_capability(config.max_concurrent_flows).unwrap_or_else(|err| {
+                    eprintln!("engine-server: invalid flows capability: {err}");
+                    std::process::exit(1);
+                }),
                 ..SessionServiceConfig::default()
             })
             .unwrap_or_else(|err| {
@@ -248,4 +257,11 @@ fn os_entropy() -> wmp_core::sessionservice::EntropyFn {
             Err(_) => false,
         }
     })
+}
+
+/// The flows capability the session create advertises (core §10.3): the
+/// same shape the wasm dispatcher offers.
+fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities, String> {
+    serde_json::from_value(serde_json::json!({ "flows": { "max_concurrent": max_concurrent } }))
+        .map_err(|err| format!("the flows capability does not serialize: {err}"))
 }

@@ -29,6 +29,10 @@ pub struct Config {
     /// The `metadata_type` policy: `prefer-signed` (default),
     /// `require-signed`, `prefer-unsigned`, `require-unsigned`, `any`.
     pub metadata_type: String,
+    /// The maximum concurrent flows a session may run (the flows
+    /// capability the session create advertises, core §10.3; default 16,
+    /// the wasm dispatcher's bound).
+    pub max_concurrent_flows: i64,
 }
 
 impl Default for Config {
@@ -41,6 +45,7 @@ impl Default for Config {
             pdp_url: String::new(),
             allow_plaintext: false,
             metadata_type: "prefer-signed".to_owned(),
+            max_concurrent_flows: 16,
         }
     }
 }

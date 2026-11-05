@@ -195,16 +195,19 @@ not the engine.
 | **#528** DPoP notification after flow end | The context is spent only after the issuer was actually contacted; a refused/timed-out `sign_client_auth` **restores** it (original expiry); retry until TTL | Absent by consequence of the above — must come with W7 | W7 |
 | **#529** entitlement wiring into the bridge | `errorWire` → #526's mapping; one terminal error per flow (never −31020 and −31006 together); malformed findings dropped, never relayed as a trust result | Nothing to wire until W2/W5 — the rules fold into both | W2+W5 |
 
-### §6.10 The #319 engine seam (stays open, needs a decision)
+### §6.10 The #319 engine seam (the decision: the Rust adapter replicates it)
 
 #319 (wallet-instance revocation) is backend lifecycle work, but its engine
 seam — the token cut-off consulted at **every flow start**
 (`User.AuthInvalidBefore`), the anonymous-token refusal on oid4vci/oid4vp
-flow starts, and the engine session store erased by the cascade — must be
-replicated in the Rust server adapter (a `TokenProvider`-per-user gate on
-`FlowRuntime::start_flow`) **or** guaranteed by the Go middleware in front
-of the Rust engine. Recorded as an architecture decision for the W2 bridge:
-`bearer_principal` today validates signature→`{subject, tenant}` only.
+flow starts, and the engine session store erased by the cascade — is now
+**decided: the Rust adapter replicates it** (the scope moved —
+siros-wallet-core is the primary engine, so the guarantee cannot live in a
+Go middleware in front of it). Concretely: `bearer_principal` gains the
+token's `AuthInvalidBefore` (and the wallet-revocation tombstone), and
+`FlowRuntime::start_flow` refuses a flow start whose principal's token
+was cut off — the W2 auth wave, alongside the TAC principal (§6.1). Until
+that lands, the standalone engine trusts the token's signature only.
 
 ## 7. The fix waves (revised after the PR triage)
 
@@ -219,11 +222,19 @@ of the Rust engine. Recorded as an architecture decision for the W2 bridge:
    `dpop_key_id` redaction, and the replayer — `wmp.session.resume`'s
    `missed_messages` counts from the same log); ✅ `wmp.resolve` vctm
    serving (the six-member projection, `-32603` with
-   `metadata_fetch_error`, `-32602`). Remaining: the OpenID4x profile +
-   step/action translation, the TAC-aware Principal + session-access
-   checks (−31002), the Host↔WMP sub-flow bridge (F1 — today every ask
-   refuses), the typed −31006 wire data, the capability advert, and the
-   #319 seam decision (§6.10).
+   `metadata_fetch_error`, `-32602`); ✅ **the Host↔WMP sub-flow bridge
+   (F1)** — every engine ask (sign, signing_key, match, consent, tx_code,
+   presentation, dpop_proof, attestation, authorization) rides a child
+   flow (`<parent>::<type>::<n>`), its completion routed back through the
+   peer's registry, with the Go per-ask timeouts and the
+   cancel-on-timeout; ✅ the typed −31006 wire data on the trust
+   refusals (`{reason: "untrusted_issuer"/"untrusted_verifier",
+   retryable: false}` + the subject and the PDP detail); ✅ the flows
+   capability advert on the server's session create (§10.3). Remaining:
+   the OpenID4x profile + step/action translation (3.1.2/3.2.2), the
+   TAC-aware Principal + session-access checks (−31002), and the #319
+   seam (the decision is made — §6.10 — the adapter replicates it, in
+   the same wave as the TAC wiring).
 3. **W3 — the sign-stage refusal (#472)**: `request_vp` decline/rejected
    answers the verifier `access_denied` (+state) and the client
    `PRESENTATION_ERROR` + `redirect_uri`.
