@@ -373,7 +373,7 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
             self.1
         }
     }
-    use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPostJwt};
+    use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
     use siros_openid4vp::routing::{ChannelKind, Mode, ModeName, ResponseType, VpToken};
     use siros_openid4vp::wallet_metadata::ParameterName;
     use siros_testkit::{TestHash, TestMode, TestResponseType};
@@ -413,6 +413,18 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         builder.build().map(drop),
         Err(RegistryError::ModeTwice {
             name: DirectPostJwt.name(),
+            channel: ChannelKind::Uri
+        })
+    );
+    // A sealed answering mode beside another mode's errors of its name: `direct_post`'s writer
+    // takes no sealed error.
+    let mut builder = Registry::<TestHost>::builder();
+    builder.jwe_mode(TestMode::new(DirectPost.name(), ChannelKind::Uri));
+    builder.error_mode(DirectPost);
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::ModeTwice {
+            name: DirectPost.name(),
             channel: ChannelKind::Uri
         })
     );

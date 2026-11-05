@@ -129,7 +129,8 @@ released version yet.
   (`ResponseForm::of`). `siros-testkit`'s `TestMode` writes a body of either
   channel (`TestBody`), and `JweHaip` seals with ECDH-ES.
 - A URI response mode writes the form around an error (`ErrorModeHost::error`,
-  `ErrorContent`), which `error_mode` registers through `HostedErrorMode`:
+  `ErrorContent`), which `error_mode` registers through `HostedErrorMode`; a
+  mode answering under the name is of the same type (`ModeTwice` otherwise).
   `direct_post` and `direct_post.jwt` write §8.2's plain form (`ErrorForm::of`),
   `direct_post.jwt` `response=<JWE>` for an error the core sealed. A
   rejection's error goes in the clear on its route (`Rejected::reply`): A.4's

@@ -3,6 +3,7 @@
 
 #[cfg(feature = "resolve")]
 use std::any::Any;
+use std::any::TypeId;
 use std::fmt;
 
 use siros_explain::{AllOf, Explain};
@@ -79,7 +80,8 @@ pub enum RegistryError {
     /// A registration names a profile the builder does not hold.
     #[error("{0} names a profile the registry does not hold")]
     UnknownProfile(#[explain(name = "registration")] String),
-    /// Two modes of one name on one channel, or two error modes of one name.
+    /// Two modes of one name on one channel: two registrations for answers, two for errors, or
+    /// an answer and an error registration of modes of different types.
     #[error("the response mode {name} is registered twice on one channel")]
     ModeTwice {
         /// The name.
@@ -444,6 +446,22 @@ impl<H: Has<dyn Platform> + Has<dyn Haip>> JweHost for H {
 #[cfg(feature = "resolve")]
 pub(crate) type HaipAccess<H> = fn(&H) -> &dyn Haip;
 
+/// A mode's registration as the builder collects it, with the type of the mode, which tells one
+/// mode's answer and error registrations from two modes of one name.
+struct ModeRegistration<H: Build> {
+    registered: RegisteredMode<H>,
+    kind: TypeId,
+}
+
+impl<H: Build> ModeRegistration<H> {
+    fn of<M: 'static>(registered: RegisteredMode<H>) -> Self {
+        Self {
+            registered,
+            kind: TypeId::of::<M>(),
+        }
+    }
+}
+
 /// A registered part of the Authorization Response's parameters and the names `build` checked,
 /// which bound the members phase 2 takes from it.
 pub(crate) struct RegisteredParameters<H: Build> {
@@ -576,7 +594,7 @@ pub struct RegistryBuilder<H: Build = NoHost> {
     scopes: Vec<Box<dyn ScopeQuery>>,
     response_types: Vec<Box<dyn ResponseType>>,
     parameters: Vec<Box<<H as Plugins>::ResponseParameters>>,
-    modes: Vec<RegisteredMode<H>>,
+    modes: Vec<ModeRegistration<H>>,
     formats: Vec<Box<<H as Plugins>::Format>>,
     profiles: Vec<Box<<H as Plugins>::Profile>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
@@ -656,8 +674,9 @@ impl<H: Build> RegistryBuilder<H> {
     }
 
     /// A response mode whose answers are in the clear, keyed by its name and channel.
-    pub fn mode(&mut self, mode: impl HostedMode<H>) {
-        self.modes.push(RegisteredMode::Clear(mode.stored()));
+    pub fn mode<M: HostedMode<H>>(&mut self, mode: M) {
+        let registered = RegisteredMode::Clear(mode.stored());
+        self.modes.push(ModeRegistration::of::<M>(registered));
     }
 
     /// A response mode whose answers the core seals as JWEs (§8.3) through the host's `Haip`,
@@ -684,19 +703,21 @@ impl<H: Build> RegistryBuilder<H> {
     /// let mut builder = Registry::<Bare>::builder();
     /// builder.jwe_mode(siros_openid4vp::modes::DcApiJwt);
     /// ```
-    pub fn jwe_mode(&mut self, mode: impl HostedMode<H>)
+    pub fn jwe_mode<M: HostedMode<H>>(&mut self, mode: M)
     where
         H: JweHost,
     {
-        self.modes
-            .push(RegisteredMode::Jwe(mode.stored(), H::sealing()));
+        let registered = RegisteredMode::Jwe(mode.stored(), H::sealing());
+        self.modes.push(ModeRegistration::of::<M>(registered));
     }
 
     /// A URI response mode's error responses (§8.2, §8.3.1), keyed by its name: a mode
     /// registered here alone carries errors alone (C5 refuses a request naming it). Over the DC
     /// API the core writes A.4's error itself, so `build` refuses a DC API mode registered here.
-    pub fn error_mode(&mut self, mode: impl HostedErrorMode<H>) {
-        self.modes.push(RegisteredMode::Errors(mode.stored()));
+    /// A mode registered for answers under the name is of the same type (`ModeTwice`).
+    pub fn error_mode<M: HostedErrorMode<H>>(&mut self, mode: M) {
+        let registered = RegisteredMode::Errors(mode.stored());
+        self.modes.push(ModeRegistration::of::<M>(registered));
     }
 
     /// Adds a format whose phase 2 the build's host can run.
@@ -879,7 +900,8 @@ impl<H: Build> RegistryBuilder<H> {
                 return Err(RegistryError::ResponseTypeTwice(kind.name()));
             }
         }
-        for (k, registered) in modes.iter().enumerate() {
+        for (k, registration) in modes.iter().enumerate() {
+            let registered = &registration.registered;
             let (name, channel) = (registered.mode().name(), registered.mode().channel());
             let errors = registered.carries_errors();
             if errors && channel == ChannelKind::DcApi {
@@ -887,14 +909,19 @@ impl<H: Build> RegistryBuilder<H> {
             }
             if modes.get(..k).is_some_and(|before| {
                 before.iter().any(|other| {
-                    other.mode().name() == name
-                        && other.mode().channel() == channel
-                        && other.carries_errors() == errors
+                    other.registered.mode().name() == name
+                        && other.registered.mode().channel() == channel
+                        && (other.registered.carries_errors() == errors
+                            || other.kind != registration.kind)
                 })
             }) {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
         }
+        let modes: Vec<RegisteredMode<H>> = modes
+            .into_iter()
+            .map(|registration| registration.registered)
+            .collect();
         let parameters: Vec<RegisteredParameters<H>> = parameters
             .into_iter()
             .map(RegisteredParameters::of)
