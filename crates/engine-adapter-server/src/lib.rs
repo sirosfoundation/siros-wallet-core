@@ -27,12 +27,14 @@
 
 pub mod config;
 pub mod handler;
+pub mod outbox;
 pub mod ports;
 pub mod token;
 pub mod transport;
 
 use std::sync::Arc;
 
+use crate::outbox::Outbox;
 use wmp_core::peer::Peer;
 use wmp_core::session::MemorySessionStore;
 
@@ -47,6 +49,11 @@ pub struct EngineServer {
     /// The flow runtime the handler delegates flow methods to — where the
     /// flow families (S0–S3) register.
     pub runtime: Arc<engine_core::runtime::FlowRuntime>,
+    /// The engine's outbound event log: the peer's notifications land in
+    /// it (the [`OutboxTransport`]), the SSE route replays and streams
+    /// from it, and `wmp.session.resume` counts its missed messages from
+    /// it.
+    pub outbox: Arc<Outbox>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -60,6 +67,7 @@ impl EngineServer {
     pub fn new(config: config::Config) -> Self {
         let store = Arc::new(MemorySessionStore::new());
         let validator = Arc::new(token::TokenValidator::from_config(&config));
+        let outbox = Arc::new(Outbox::new());
 
         // The ports the engine core runs on. The server adapter supplies:
         // the HTTP client (the flow families' fetches; reqwest with rustls
@@ -76,11 +84,14 @@ impl EngineServer {
             telemetry: Arc::new(crate::ports::NoopTelemetry),
         });
 
-        // Build the peer first (the FlowRuntime sends through it).
+        // Build the peer first (the FlowRuntime sends through it). The
+        // peer carries the outbox transport: every outbound notification
+        // lands in the log, so the SSE route serves what the flows send.
         let peer_store = store.clone();
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
-        let peer = build_peer(&peer_config, &peer_store, ports.clone());
+        let peer_outbox = outbox.clone();
+        let peer = build_peer(&peer_config, &peer_store, ports.clone(), peer_outbox);
 
         // Then the runtime over the same ports and peer.
         let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
@@ -90,6 +101,7 @@ impl EngineServer {
             store,
             validator,
             runtime,
+            outbox,
             config,
         }
     }
@@ -99,6 +111,7 @@ fn build_peer(
     config: &config::Config,
     store: &Arc<MemorySessionStore>,
     ports: Arc<engine_core::Ports>,
+    outbox: Arc<Outbox>,
 ) -> Arc<Peer> {
     // The peer needs a handler; the handler needs the runtime; the runtime
     // needs the peer. Break the cycle: build a placeholder peer first, then
@@ -111,9 +124,10 @@ fn build_peer(
         ports,
         placeholder_peer,
     ));
-    let handler = handler::EngineHandler::new(config, store, runtime.clone());
+    let handler = handler::EngineHandler::new(config, store, runtime.clone(), outbox.clone());
     wmp_core::peer::PeerBuilder::new(handler)
         .session_store(store.clone())
+        .transport(Arc::new(crate::outbox::OutboxTransport::new(outbox)))
         .max_message_size(config.max_message_size)
         .build()
 }

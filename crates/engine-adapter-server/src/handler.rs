@@ -14,6 +14,7 @@ use wmp_core::session::MemorySessionStore;
 use wmp_core::sessionservice::{Clock, SessionHandler, SessionService, SessionServiceConfig};
 
 use crate::config::Config;
+use crate::outbox::{Outbox, OutboxReplayer};
 
 /// The engine's handler: a `SessionHandler` for the session methods, and
 /// the `FlowRuntime` for the flow methods. Every WMP method the engine
@@ -29,17 +30,22 @@ pub struct EngineHandler {
 }
 
 impl EngineHandler {
-    /// Builds the handler from the config, the store, and the runtime.
+    /// Builds the handler from the config, the store, the runtime, and the
+    /// outbound event log: the `wmp.session.resume` result's
+    /// `missed_messages` counts from the same log the SSE route replays
+    /// (go-wmp's replayer contract — one log, one truth).
     pub fn new(
         config: &Config,
         store: &Arc<MemorySessionStore>,
         runtime: Arc<engine_core::runtime::FlowRuntime>,
+        outbox: Arc<Outbox>,
     ) -> Arc<Self> {
         let service = Arc::new(
             SessionService::new(SessionServiceConfig {
                 store: Some(store.clone()),
                 default_ttl_secs: config.default_session_ttl_secs,
                 entropy: Some(os_entropy()),
+                replay: Some(Arc::new(OutboxReplayer { outbox })),
                 ..SessionServiceConfig::default()
             })
             .unwrap_or_else(|err| {
