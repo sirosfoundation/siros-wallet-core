@@ -193,8 +193,9 @@ released version yet.
   pinned toolchain.
 - `siros-openid4vp::text::lookup` is RFC 4647 §3.3.1 basic filtering: a range
   matches the tag equal to it, else the first tag extending it (`en` matches
-  `en-GB`, `en-US` matches no `en`). A credential's display entry and
-  `siros-paso`'s View §4 selection match by it. `Env::new` takes the End-User's
+  `en-GB`, `en-US` matches no `en`) over received tags, through
+  `LocaleTag::filters`; a text outside RFC 4647's grammar matches no range. A
+  credential's display entry matches by it. `Env::new` takes the End-User's
   priority list as given, the app's fallback list and `siros-i18n`'s
   `RenderOptions`, whose `Amounts` replaces the core's; its documentation
   states the app's practice of putting each tag's generic form after it.
@@ -206,18 +207,33 @@ released version yet.
   label, value and section, and `siros-credman`'s Standard and Payment
   entries. The wallet's, PaSO's and QES's own texts are their modules'
   messages; a value with a type stays typed (dates, times, amounts and
-  currencies of ISO 4217's table); a boolean and a frequency are messages; an
-  issuer's, a Verifier's or a credential's text shows as written. A row's
+  currencies of ISO 4217's table, a claim's JSON number as a count or an exact
+  decimal, QES's `numSignatures` as a count); a boolean, a claim's `null` and
+  a frequency are messages; an issuer's, a Verifier's or a credential's text
+  shows as written, the Verifier's name for the consent included
+  (`ClientBinding::name`, `Verifier::name`). `Text::Joined` shows texts one
+  after another, each as it shows alone. A row's
   value is an image or a `Text`. `siros-credman`'s `Field::of`, `SetFacts::of`
   and `Fulfilment::check` take the caller's plain-text rendering.
 - `siros-paso` converts a type's display rules into a defined module
-  (`view::convert`): each label of each display array one message, a
-  `mini_markdown` label its MF2 markup, a template label's `{n}` an argument
-  of claim n's value kind, the main module's format options copied for each
-  language View §4 serves; its texts name the module by the metadata's
-  SHA-256. A `mini_markdown` value shows its text without its styles. A time
-  of day holds seconds 00 to 59; a date-time's second 60 is RFC 3339's leap
-  second.
+  (`view::convert`): one message per display array (`claim_<k>`, a UI label's
+  name) in each language the rules serve among the wallet's languages and
+  their shorter subtag prefixes, the entry that language takes by basic
+  filtering, then the default entry; a template entry an absent claim
+  discards selected by its argument `e<j>`. A `mini_markdown` label is its MF2
+  markup, a template label's `{n}` the argument `c<n>` of claim n's value
+  kind; each language copies the main module's format options, and its
+  direction when the main module states one. Its texts name the module by
+  the metadata's SHA-256. The presentation's language is `siros-i18n`'s
+  `decide`, the decision `Screen::locale` makes, over the wallet's languages
+  (`PasoProfile::with_languages`, English by default) and the module's, then
+  over the languages whose arrays keep an entry the absent claims leave;
+  `display_locale` attests it. A template value of an inner text or
+  `mini_markdown` kind sets each referenced value of a typed kind as its
+  typed text (View §3 step 3). A `mini_markdown` value shows its text without
+  its styles. A time of day holds seconds 00 to 59; a date-time's second 60 is
+  RFC 3339's leap second. A value's refusal names the rule it breaks
+  (`value::Breach`).
 - PaSO View's vocabulary is `siros-paso`'s: its value types (`value`:
   `ValueKind`, `FormattedKind`, `Parsed`, `Written`, `BadValue`,
   `formatted`), the ISO 20022 frequencies (`frequency`) and the
@@ -229,8 +245,10 @@ released version yet.
   form's cause, a certificate's DER reason, an mdoc's CBOR shape, an image
   fetch's and an ad-hoc JWT's encoding failure.
 - `siros-i18n`'s `Declaration::defined` declares a converted module's keys and
-  arguments; `siros-explain` adds `Keyed::first_of`, `DefinedKey::numbered`
-  and `ParamKind::new`.
+  arguments, a parameter name outside the tokens refused with
+  `ModuleError::ParameterName`; `siros-i18n`'s `decide` and `Served` give the
+  language decision over any modules' tags; `siros-explain` adds
+  `Keyed::first_of`, `DefinedKey::numbered` and `ParamKind::new`.
 
 ### Removed
 
