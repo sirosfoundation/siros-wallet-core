@@ -27,6 +27,8 @@ use siros_explain::{AllOf, Args, Explain, Explained, Message, MessageId, Message
 #[cfg(feature = "resolve")]
 pub use answered::{Answered, FetchedRecord};
 pub use members::{JsonText, Member, MemberTwice, MemberValue, Members};
+#[cfg(feature = "transaction-data")]
+pub use registry::Hashes;
 pub use registry::{
     Build, HostedFormat, HostedMode, HostedProfile, JweHost, NoHost, ProfileHandle, Registry,
     RegistryBuilder, RegistryError,
