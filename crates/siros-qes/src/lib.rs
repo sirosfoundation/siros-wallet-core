@@ -68,10 +68,29 @@ use siros_openid4vp::{
 use approval::ApprovalRequest;
 use binding::Encoding;
 pub use documents::{FailedDocument, FailedDocuments, Fetched};
+pub use render::QesText;
 use rules::{Excluded, Positions, QesRule};
 
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "qes.fault");
+
+/// The crate's module, `qes`: the messages of the texts the End-User sees, which the crate ships
+/// in English and the app in its other languages.
+pub struct CrateModule;
+
+impl CrateModule {
+    /// The module's identity.
+    pub const ID: siros_explain::ModuleId =
+        siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "qes"));
+    /// The English source.
+    pub const ENGLISH: &'static str = include_str!("../locales/en/qes.mf2");
+}
+
+impl Messages for CrateModule {
+    fn messages() -> Vec<Message> {
+        render::QesText::messages()
+    }
+}
 
 /// The profile's messages: those its rules and exclusions declare, and its fault's.
 pub struct CrateMessages;

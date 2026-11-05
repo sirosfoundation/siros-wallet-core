@@ -57,6 +57,14 @@ released version yet.
 - `siros-testkit`'s doubles of the extension points: `TestMode`,
   `TestResponseType`, `TestHash`, `TestScope`, `TestObjectRule`,
   `TestPostContribution` and `TestAnswerReader`.
+- The crate modules `openid4vp`, `paso` and `qes`: each crate declares the
+  messages of the texts the End-User sees through its `CrateModule` (the
+  wallet's own texts and the ISO 20022 frequencies; the Mandate labels and the
+  rulebooks' titles, actions and sections; CSC's QES approval) and ships their
+  English source, `locales/en/<domain>.mf2`, with siros-cldr's options of the
+  formats its messages call. `siros-testkit::render` is the test app: its main
+  module of siros-cldr's en and de options, its German sources, and a renderer
+  over a package of the modules for an `Env`.
 - `siros-paso` classifies the inherence facts the platform reports as Risk
   Signal Registry §2.8's `bio_strong` and `bio_weak` (`BiometricClass`).
 

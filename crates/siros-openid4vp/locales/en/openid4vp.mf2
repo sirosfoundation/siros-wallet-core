@@ -1,0 +1,27 @@
+# The openid4vp module's English source: the wallet's own texts and the ISO 20022 frequencies.
+@locale en
+@dir ltr
+---
+
+[wallet]
+deny = Cancel
+share = Share
+none = None
+credential = Credential
+request_title = Share your data
+yes = Yes
+no = No
+
+[frequency]
+inda = intraday
+dail = daily
+week = weekly
+towk = every two weeks
+twmn = twice a month
+mnth = monthly
+tomn = every two months
+qutr = quarterly
+fomn = every four months
+semi = twice a year
+year = yearly
+tyea = every two years

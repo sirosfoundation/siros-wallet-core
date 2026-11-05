@@ -1,4 +1,5 @@
-//! Section 4.13's identifiers: one identifier names one message across the workspace's crates.
+//! Section 4.13's identifiers: one identifier names one message across the workspace's crates,
+//! their errors' and their modules'.
 
 use rustc_hash::FxHashMap;
 use siros_explain::{Message, Messages};
@@ -18,6 +19,9 @@ fn an_identifier_names_one_message_across_the_crates() {
         siros_webuild::CrateMessages::messages(),
         siros_testkit::CrateMessages::messages(),
         siros_i18n::CrateMessages::messages(),
+        siros_openid4vp::CrateModule::messages(),
+        siros_paso::CrateModule::messages(),
+        siros_qes::CrateModule::messages(),
     ];
     let mut by_id: FxHashMap<&str, &Message> = FxHashMap::default();
     let mut clashes = Vec::new();

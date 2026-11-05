@@ -4,6 +4,7 @@
 
 use std::borrow::Cow;
 
+use siros_explain::Explain;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::rows::{FormattedKind, TableLocale, ValueKind, WalletText};
@@ -16,32 +17,46 @@ use crate::metadata::{
 use crate::outcome::Unsupported;
 use crate::rulebook::{Rulebook, Subtype};
 
-/// A label of the Mandate claims, by the screens of the rulebook's examples.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
+/// crate's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "paso.mandate")]
 pub enum MandateLabel {
     /// `mandate_id`.
+    #[error("Mandate reference")]
     MandateId,
     /// `mandatee.name` and `mandatee.logo`, which draws under it (Mandate A.2).
+    #[error("Authorized party")]
     Mandatee,
     /// `action`.
+    #[error("Authorized action")]
     Action,
     /// `conditions`.
+    #[error("Conditions")]
     Conditions,
     /// `max_amount`.
+    #[error("Maximum amount per use")]
     MaxAmount,
     /// `max_count`.
+    #[error("Maximum uses")]
     MaxCount,
     /// `period`.
+    #[error("Per period")]
     Period,
     /// `valid_from`.
+    #[error("Valid from")]
     ValidFrom,
     /// `valid_until`.
+    #[error("Valid until")]
     ValidUntil,
     /// `payment_payload.amount`, as Payment A.1's metadata labels it.
+    #[error("Amount")]
     Amount,
     /// `payment_payload.payee.name`, as Payment A.1's metadata labels it.
+    #[error("Payee")]
     Payee,
     /// `payment_payload.payee.logo`, as Payment A.1's metadata labels it.
+    #[error("Payee logo")]
     PayeeLogo,
 }
 
@@ -243,11 +258,11 @@ pub(crate) fn metadata<'m>(
     let mut ui = vec![
         UiLabel {
             key: UiKey::TransactionTitle,
-            entries: own(|locale| rulebook.title(locale)),
+            entries: own(|locale| rulebook.title().in_locale(locale)),
         },
         UiLabel {
             key: UiKey::AffirmativeActionLabel,
-            entries: own(|locale| rulebook.confirm(locale)),
+            entries: own(|locale| rulebook.confirm().in_locale(locale)),
         },
         UiLabel {
             key: UiKey::DenialActionLabel,

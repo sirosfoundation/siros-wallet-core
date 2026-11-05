@@ -66,9 +66,12 @@ fn the_wallets_own_labels_meet_section_3_3() {
         .chain(subtypes.iter().map(|sub| Rulebook::Mandate(*sub)));
     for locale in [TableLocale::En, TableLocale::De] {
         for rulebook in rulebooks.clone() {
-            assert!(LabelText::parse(rulebook.title(locale), LabelSlot::Title).is_ok());
-            assert!(LabelText::parse(rulebook.confirm(locale), LabelSlot::Affirmative).is_ok());
-            if let Some(section) = rulebook.section(locale) {
+            assert!(LabelText::parse(rulebook.title().in_locale(locale), LabelSlot::Title).is_ok());
+            assert!(
+                LabelText::parse(rulebook.confirm().in_locale(locale), LabelSlot::Affirmative)
+                    .is_ok()
+            );
+            if let Some(section) = rulebook.section().map(|section| section.in_locale(locale)) {
                 assert!(LabelText::parse(section, LabelSlot::ClaimName).is_ok());
             }
         }

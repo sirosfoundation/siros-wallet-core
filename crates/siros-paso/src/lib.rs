@@ -112,6 +112,30 @@ use siros_openid4vp::wallet_metadata;
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "paso.fault");
 
+/// The crate's module, `paso`: the messages of the texts the End-User sees, which the crate
+/// ships in English and the app in its other languages.
+pub struct CrateModule;
+
+impl CrateModule {
+    /// The module's identity.
+    pub const ID: siros_explain::ModuleId =
+        siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "paso"));
+    /// The English source.
+    pub const ENGLISH: &'static str = include_str!("../locales/en/paso.mf2");
+}
+
+impl Messages for CrateModule {
+    fn messages() -> Vec<Message> {
+        [
+            mandate::MandateLabel::messages(),
+            rulebook::Title::messages(),
+            rulebook::Confirm::messages(),
+            rulebook::Section::messages(),
+        ]
+        .concat()
+    }
+}
+
 /// The profile's messages: those its error types, rules and exclusions declare, and its fault's.
 pub struct CrateMessages;
 

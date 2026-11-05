@@ -1,0 +1,42 @@
+# The paso module's English source: the rulebooks' own labels, titles, actions and sections.
+@locale en
+@dir ltr
+---
+
+[mandate]
+mandate_id = Mandate reference
+mandatee = Authorized party
+action = Authorized action
+conditions = Conditions
+max_amount = Maximum amount per use
+max_count = Maximum uses
+period = Per period
+valid_from = Valid from
+valid_until = Valid until
+amount = Amount
+payee = Payee
+payee_logo = Payee logo
+
+[title]
+transaction = Confirm Transaction
+payment = Payment Confirmation
+data_sharing = Authorize Data Sharing
+generic_payment = Confirm Payment
+account_delegate = Authorize Account Delegate
+recurring_payment = Authorize Recurring Payment
+agent_purchase = Authorize Agent Purchase
+mandate = Authorize Mandate
+
+[confirm]
+confirm = Confirm
+allow_sharing = Authorize
+pay = Pay
+delegate = Authorize Delegate
+mandate = Authorize Mandate
+agent = Authorize Agent
+authorize = Authorize
+
+[section]
+payment_details = Payment Details
+first_collection = First Collection
+payment = Payment

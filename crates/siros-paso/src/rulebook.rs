@@ -2,6 +2,7 @@
 //! for every other `urn:paso:sca:` type. Each decides the metadata a type renders with, its
 //! payload rules, its claim order and sections, and the wallet's own strings it falls back on.
 
+use siros_explain::Explain;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::rows::TableLocale;
@@ -115,63 +116,42 @@ pub enum Rulebook<'t> {
 impl Rulebook<'_> {
     /// The wallet's transaction title when the metadata gives none (Proof Metadata §3.2).
     #[must_use]
-    pub fn title(&self, locale: TableLocale) -> &'static str {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::View, En) => "Confirm Transaction",
-            (Self::View, De) => "Transaktion bestätigen",
-            (Self::Payment, En) => "Payment Confirmation",
-            (Self::Payment, De) => "Zahlungsbestätigung",
-            (Self::Generic(sub), En) if sub.is("aisp") => "Authorize Data Sharing",
-            (Self::Generic(sub), De) if sub.is("aisp") => "Datenfreigabe erlauben",
-            (Self::Generic(_), En) => "Confirm Payment",
-            (Self::Generic(_), De) => "Zahlung bestätigen",
-            (Self::Mandate(Subtype::None), En) => "Authorize Account Delegate",
-            (Self::Mandate(Subtype::None), De) => "Kontovollmacht erteilen",
-            (Self::Mandate(sub), En) if sub.is("emandate") => "Authorize Recurring Payment",
-            (Self::Mandate(sub), De) if sub.is("emandate") => "Wiederkehrende Zahlung erlauben",
-            (Self::Mandate(sub), En) if sub.is("agentic") => "Authorize Agent Purchase",
-            (Self::Mandate(sub), De) if sub.is("agentic") => "Agentenkauf erlauben",
-            (Self::Mandate(_), En) => "Authorize Mandate",
-            (Self::Mandate(_), De) => "Mandat erteilen",
+    pub fn title(&self) -> Title {
+        match self {
+            Self::View => Title::Transaction,
+            Self::Payment => Title::Payment,
+            Self::Generic(sub) if sub.is("aisp") => Title::DataSharing,
+            Self::Generic(_) => Title::GenericPayment,
+            Self::Mandate(Subtype::None) => Title::AccountDelegate,
+            Self::Mandate(sub) if sub.is("emandate") => Title::RecurringPayment,
+            Self::Mandate(sub) if sub.is("agentic") => Title::AgentPurchase,
+            Self::Mandate(_) => Title::Mandate,
         }
     }
 
     /// The wallet's confirm action when the metadata gives none.
     #[must_use]
-    pub fn confirm(&self, locale: TableLocale) -> &'static str {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::View, En) => "Confirm",
-            (Self::View, De) => "Bestätigen",
-            (Self::Generic(sub), En) if sub.is("aisp") => "Authorize",
-            (Self::Generic(sub), De) if sub.is("aisp") => "Erlauben",
-            (Self::Payment | Self::Generic(_), En) => "Pay",
-            (Self::Payment | Self::Generic(_), De) => "Bezahlen",
-            (Self::Mandate(Subtype::None), En) => "Authorize Delegate",
-            (Self::Mandate(Subtype::None), De) => "Vollmacht erteilen",
-            (Self::Mandate(sub), En) if sub.is("emandate") => "Authorize Mandate",
-            (Self::Mandate(sub), De) if sub.is("emandate") => "Mandat erteilen",
-            (Self::Mandate(sub), En) if sub.is("agentic") => "Authorize Agent",
-            (Self::Mandate(sub), De) if sub.is("agentic") => "Agent erlauben",
-            (Self::Mandate(_), En) => "Authorize",
-            (Self::Mandate(_), De) => "Erteilen",
+    pub fn confirm(&self) -> Confirm {
+        match self {
+            Self::View => Confirm::Confirm,
+            Self::Generic(sub) if sub.is("aisp") => Confirm::AllowSharing,
+            Self::Payment | Self::Generic(_) => Confirm::Pay,
+            Self::Mandate(Subtype::None) => Confirm::Delegate,
+            Self::Mandate(sub) if sub.is("emandate") => Confirm::Mandate,
+            Self::Mandate(sub) if sub.is("agentic") => Confirm::Agent,
+            Self::Mandate(_) => Confirm::Authorize,
         }
     }
 
     /// The title of the section the embedded `payment_payload` renders in (Generic §3.2,
     /// Mandate §2.2); `None` for a rulebook without sections.
     #[must_use]
-    pub fn section(&self, locale: TableLocale) -> Option<&'static str> {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::View | Self::Payment, _) => None,
-            (Self::Generic(_), En) => Some("Payment Details"),
-            (Self::Generic(_), De) => Some("Zahlungsdetails"),
-            (Self::Mandate(sub), En) if sub.is("emandate") => Some("First Collection"),
-            (Self::Mandate(sub), De) if sub.is("emandate") => Some("Erste Abbuchung"),
-            (Self::Mandate(_), En) => Some("Payment"),
-            (Self::Mandate(_), De) => Some("Zahlung"),
+    pub fn section(&self) -> Option<Section> {
+        match self {
+            Self::View | Self::Payment => None,
+            Self::Generic(_) => Some(Section::PaymentDetails),
+            Self::Mandate(sub) if sub.is("emandate") => Some(Section::FirstCollection),
+            Self::Mandate(_) => Some(Section::Payment),
         }
     }
 
@@ -241,4 +221,143 @@ fn embedded(payload: &Object<'_>, absent: fn(String) -> NotCompatible) -> Result
     payload
         .get("payment_payload")
         .map_or(Ok(()), |embedded| required(embedded, absent))
+}
+
+/// A transaction title of the wallet's own, by rulebook: a message of the crate's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "paso.title")]
+pub enum Title {
+    /// PaSO View's generic renderer.
+    #[error("Confirm Transaction")]
+    Transaction,
+    /// The Payment rulebook.
+    #[error("Payment Confirmation")]
+    Payment,
+    /// The Generic rulebook's `aisp` subtype.
+    #[error("Authorize Data Sharing")]
+    DataSharing,
+    /// The Generic rulebook's other subtypes.
+    #[error("Confirm Payment")]
+    GenericPayment,
+    /// The Mandate rulebook without a subtype.
+    #[error("Authorize Account Delegate")]
+    AccountDelegate,
+    /// The Mandate rulebook's `emandate` subtype.
+    #[error("Authorize Recurring Payment")]
+    RecurringPayment,
+    /// The Mandate rulebook's `agentic` subtype.
+    #[error("Authorize Agent Purchase")]
+    AgentPurchase,
+    /// The Mandate rulebook's other subtypes.
+    #[error("Authorize Mandate")]
+    Mandate,
+}
+
+/// A confirm action of the wallet's own, by rulebook: a message of the crate's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "paso.confirm")]
+pub enum Confirm {
+    /// PaSO View's generic renderer.
+    #[error("Confirm")]
+    Confirm,
+    /// The Generic rulebook's `aisp` subtype.
+    #[error("Authorize")]
+    AllowSharing,
+    /// The Payment rulebook and the Generic rulebook's other subtypes.
+    #[error("Pay")]
+    Pay,
+    /// The Mandate rulebook without a subtype.
+    #[error("Authorize Delegate")]
+    Delegate,
+    /// The Mandate rulebook's `emandate` subtype.
+    #[error("Authorize Mandate")]
+    Mandate,
+    /// The Mandate rulebook's `agentic` subtype.
+    #[error("Authorize Agent")]
+    Agent,
+    /// The Mandate rulebook's other subtypes.
+    #[error("Authorize")]
+    Authorize,
+}
+
+/// The title of the section an embedded `payment_payload` renders in: a message of the crate's
+/// module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "paso.section")]
+pub enum Section {
+    /// The Generic rulebook's.
+    #[error("Payment Details")]
+    PaymentDetails,
+    /// The Mandate rulebook's `emandate` subtype's.
+    #[error("First Collection")]
+    FirstCollection,
+    /// The Mandate rulebook's other subtypes'.
+    #[error("Payment")]
+    Payment,
+}
+
+impl Title {
+    /// The title in a locale of the wallet's table.
+    #[must_use]
+    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
+        use TableLocale::{De, En};
+        match (self, locale) {
+            (Self::Transaction, En) => "Confirm Transaction",
+            (Self::Transaction, De) => "Transaktion bestätigen",
+            (Self::Payment, En) => "Payment Confirmation",
+            (Self::Payment, De) => "Zahlungsbestätigung",
+            (Self::DataSharing, En) => "Authorize Data Sharing",
+            (Self::DataSharing, De) => "Datenfreigabe erlauben",
+            (Self::GenericPayment, En) => "Confirm Payment",
+            (Self::GenericPayment, De) => "Zahlung bestätigen",
+            (Self::AccountDelegate, En) => "Authorize Account Delegate",
+            (Self::AccountDelegate, De) => "Kontovollmacht erteilen",
+            (Self::RecurringPayment, En) => "Authorize Recurring Payment",
+            (Self::RecurringPayment, De) => "Wiederkehrende Zahlung erlauben",
+            (Self::AgentPurchase, En) => "Authorize Agent Purchase",
+            (Self::AgentPurchase, De) => "Agentenkauf erlauben",
+            (Self::Mandate, En) => "Authorize Mandate",
+            (Self::Mandate, De) => "Mandat erteilen",
+        }
+    }
+}
+
+impl Confirm {
+    /// The action in a locale of the wallet's table.
+    #[must_use]
+    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
+        use TableLocale::{De, En};
+        match (self, locale) {
+            (Self::Confirm, En) => "Confirm",
+            (Self::Confirm, De) => "Bestätigen",
+            (Self::AllowSharing, En) => "Authorize",
+            (Self::AllowSharing, De) => "Erlauben",
+            (Self::Pay, En) => "Pay",
+            (Self::Pay, De) => "Bezahlen",
+            (Self::Delegate, En) => "Authorize Delegate",
+            (Self::Delegate, De) => "Vollmacht erteilen",
+            (Self::Mandate, En) => "Authorize Mandate",
+            (Self::Mandate, De) => "Mandat erteilen",
+            (Self::Agent, En) => "Authorize Agent",
+            (Self::Agent, De) => "Agent erlauben",
+            (Self::Authorize, En) => "Authorize",
+            (Self::Authorize, De) => "Erteilen",
+        }
+    }
+}
+
+impl Section {
+    /// The title in a locale of the wallet's table.
+    #[must_use]
+    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
+        use TableLocale::{De, En};
+        match (self, locale) {
+            (Self::PaymentDetails, En) => "Payment Details",
+            (Self::PaymentDetails, De) => "Zahlungsdetails",
+            (Self::FirstCollection, En) => "First Collection",
+            (Self::FirstCollection, De) => "Erste Abbuchung",
+            (Self::Payment, En) => "Payment",
+            (Self::Payment, De) => "Zahlung",
+        }
+    }
 }

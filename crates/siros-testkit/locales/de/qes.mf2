@@ -1,0 +1,34 @@
+# The test app's German source of the qes module. The number format's options are siros-cldr's for
+# de (CLDR 49.0.0).
+@locale de
+@dir ltr
+---
+
+[approval]
+title_signatures = Qualifizierte Signaturen freigeben
+title_seals = Qualifizierte Siegel freigeben
+confirm = Freigeben
+creates_eidas_signatures = Erstellt qualifizierte elektronische Signaturen nach der EU-eIDAS-Verordnung
+creates_eidas_seals = Erstellt qualifizierte elektronische Siegel nach der EU-eIDAS-Verordnung
+count = Signaturen
+name = Name
+no_name = Dieses Dokument hat keinen Namen
+one_time_password = Einmalpasswort
+link = Dokument-Link
+embedded = In der Anfrage enthalten
+integrity = Integrität
+verified = Automatisch geprüft
+unverified = Nicht geprüft
+section = Dokument {$document :integer useGrouping=never}
+
+[formats.number]
+zero = 0
+decimal = ,
+group = .
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+pattern = #,##0.###

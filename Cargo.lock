@@ -3525,6 +3525,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
  "thiserror 2.0.21",
 ]

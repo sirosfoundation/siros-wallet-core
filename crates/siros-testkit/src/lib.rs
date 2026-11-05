@@ -12,7 +12,8 @@
 //! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-in ([`issuer`]), the
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
 //! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
-//! model's shapes the tests read ([`oracle`]).
+//! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
+//! crate modules in English and in its German, and a renderer over them ([`render`]).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -48,6 +49,7 @@ pub mod prefix;
 mod profile;
 mod published;
 pub mod reading;
+pub mod render;
 pub mod rules;
 pub mod verifier;
 
@@ -68,6 +70,7 @@ impl Messages for CrateMessages {
             fixtures::FixtureError::messages,
             reading::ReadError::messages,
             oracle::OracleError::messages,
+            render::AppError::messages,
             rules::FormatRule::messages,
             rules::EntryRule::messages,
             rules::Excluded::messages,

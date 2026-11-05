@@ -1,0 +1,27 @@
+# The test app's German source of the openid4vp module.
+@locale de
+@dir ltr
+---
+
+[wallet]
+deny = Abbrechen
+share = Teilen
+none = Keine
+credential = Nachweis
+request_title = Daten teilen
+yes = Ja
+no = Nein
+
+[frequency]
+inda = untertägig
+dail = täglich
+week = wöchentlich
+towk = alle zwei Wochen
+twmn = zweimal im Monat
+mnth = monatlich
+tomn = alle zwei Monate
+qutr = vierteljährlich
+fomn = alle vier Monate
+semi = halbjährlich
+year = jährlich
+tyea = alle zwei Jahre

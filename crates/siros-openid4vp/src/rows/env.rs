@@ -32,22 +32,30 @@ impl TableLocale {
     }
 }
 
-/// A string of the wallet's own table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A text of the wallet's own: a message of the crate's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.wallet")]
 pub enum WalletText {
     /// The denial action.
+    #[error("Cancel")]
     Deny,
     /// The confirm action of a request without a transaction.
+    #[error("Share")]
     Share,
     /// The empty choice.
+    #[error("None")]
     None,
     /// A card without a name.
+    #[error("Credential")]
     Credential,
     /// The title of a request without a transaction.
+    #[error("Share your data")]
     RequestTitle,
     /// A true boolean.
+    #[error("Yes")]
     Yes,
     /// A false boolean.
+    #[error("No")]
     No,
 }
 

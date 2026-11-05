@@ -198,10 +198,10 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 .transpose()
         };
         let table = selection.locale.table;
-        let title =
-            ui(UiKey::TransactionTitle)?.unwrap_or_else(|| Label::text(rulebook.title(table)));
+        let title = ui(UiKey::TransactionTitle)?
+            .unwrap_or_else(|| Label::text(rulebook.title().in_locale(table)));
         let confirm = ui(UiKey::AffirmativeActionLabel)?
-            .unwrap_or_else(|| Label::text(rulebook.confirm(table)));
+            .unwrap_or_else(|| Label::text(rulebook.confirm().in_locale(table)));
         let deny = ui(UiKey::DenialActionLabel)?
             .unwrap_or_else(|| Label::text(selection.locale.text(WalletText::Deny)));
         let hint = ui(UiKey::SecurityHint)?.map(|label| label.text);
@@ -396,7 +396,9 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         // interpolation of such strings, or text of the wallet's own table.
         let section = match instance.placement {
             Placement::Main => None,
-            Placement::Embedded => rulebook.section(selection.locale.table),
+            Placement::Embedded => rulebook
+                .section()
+                .map(|section| section.in_locale(selection.locale.table)),
         };
         Ok(ViewRow {
             row: Row {

@@ -1,0 +1,37 @@
+# The qes module's English source: CSC's QES approval as the End-User sees it. The number format's
+# options are siros-cldr's for en (CLDR 49.0.0).
+@locale en
+@dir ltr
+---
+
+[approval]
+title_signatures = Approve qualified signatures
+title_seals = Approve qualified seals
+confirm = Approve
+creates_eidas_signatures = Creates qualified electronic signatures under the EU eIDAS regulation
+creates_eidas_seals = Creates qualified electronic seals under the EU eIDAS regulation
+count = Signatures
+name = Name
+no_name = This document has no name
+one_time_password = One-time password
+link = Document link
+embedded = Included in the request
+integrity = Integrity
+verified = Checked automatically
+unverified = Not checked
+section = Document {$document :integer useGrouping=never}
+
+[formats.number]
+zero = 0
+decimal = .
+group = ,
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+  one: n % 10 = 1 and n % 100 != 11
+  two: n % 10 = 2 and n % 100 != 12
+  few: n % 10 = 3 and n % 100 != 13
+pattern = #,##0.###

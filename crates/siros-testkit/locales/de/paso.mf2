@@ -1,0 +1,42 @@
+# The test app's German source of the paso module.
+@locale de
+@dir ltr
+---
+
+[mandate]
+mandate_id = Mandatsreferenz
+mandatee = Bevollmächtigte Partei
+action = Erlaubte Handlung
+conditions = Bedingungen
+max_amount = Höchstbetrag pro Nutzung
+max_count = Höchstzahl der Nutzungen
+period = Zeitraum
+valid_from = Gültig ab
+valid_until = Gültig bis
+amount = Betrag
+payee = Empfänger
+payee_logo = Logo des Empfängers
+
+[title]
+transaction = Transaktion bestätigen
+payment = Zahlungsbestätigung
+data_sharing = Datenfreigabe erlauben
+generic_payment = Zahlung bestätigen
+account_delegate = Kontovollmacht erteilen
+recurring_payment = Wiederkehrende Zahlung erlauben
+agent_purchase = Agentenkauf erlauben
+mandate = Mandat erteilen
+
+[confirm]
+confirm = Bestätigen
+allow_sharing = Erlauben
+pay = Bezahlen
+delegate = Vollmacht erteilen
+mandate = Mandat erteilen
+agent = Agent erlauben
+authorize = Erteilen
+
+[section]
+payment_details = Zahlungsdetails
+first_collection = Erste Abbuchung
+payment = Zahlung
