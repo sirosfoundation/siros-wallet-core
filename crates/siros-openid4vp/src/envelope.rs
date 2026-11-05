@@ -16,6 +16,7 @@ use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
 use crate::plugins::registry::Routes;
 use crate::plugins::{Build, Registry};
+use crate::request::{ClientMetadata, MetadataError};
 use crate::routing::{ChannelKind, Routing};
 use crate::scope::Scopes;
 
@@ -197,8 +198,9 @@ impl<'r> Signer<'r> {
     }
 }
 
-/// The request's parameters, signatures and routing, its mode and hash algorithms the registry's
-/// it was read with, which every later step reads. The channel is the received form's.
+/// The request's parameters, signatures, routing and `client_metadata`, its mode and hash
+/// algorithms the registry's it was read with, which every later step reads. The channel is the
+/// received form's.
 #[derive(Debug, Clone)]
 pub struct Envelope<'r> {
     #[cfg(feature = "transaction-data")]
@@ -208,6 +210,7 @@ pub struct Envelope<'r> {
     parameters: Parameters<'r>,
     signatures: Signatures<'r>,
     routing: Routing<'r>,
+    client_metadata: Result<ClientMetadata<'r>, MetadataError>,
 }
 
 /// The media type a Request Object's `typ` names (§5; RFC 9101 §10.8).
@@ -266,6 +269,7 @@ impl<'r> Envelope<'r> {
             }
         };
         let routing = Routing::read(&parameters, &channel(received), routes);
+        let client_metadata = ClientMetadata::parse(parameters.raw("client_metadata"));
         Ok(Self {
             #[cfg(feature = "transaction-data")]
             hashes: routes.hashes(),
@@ -274,6 +278,7 @@ impl<'r> Envelope<'r> {
             parameters,
             signatures,
             routing,
+            client_metadata,
         })
     }
 
@@ -295,6 +300,15 @@ impl<'r> Envelope<'r> {
     #[must_use]
     pub const fn routing(&self) -> &Routing<'r> {
         &self.routing
+    }
+
+    /// `client_metadata` as read, or C6's refusal of it, which the matcher's rules report.
+    ///
+    /// # Errors
+    ///
+    /// The metadata breaks C6.
+    pub const fn client_metadata(&self) -> Result<&ClientMetadata<'r>, &MetadataError> {
+        self.client_metadata.as_ref()
     }
 
     /// The request as received.

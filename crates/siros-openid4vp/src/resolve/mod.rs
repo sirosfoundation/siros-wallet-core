@@ -12,6 +12,7 @@
 
 mod prepared;
 mod response;
+mod route;
 mod selection;
 
 pub use prepared::Prepared;
@@ -19,6 +20,7 @@ pub use response::{
     AnswerContent, AuthorizationResponse, Body, Built, DcApiData, Delivery, ErrorContent,
     ErrorResponse, FormMedia, ModeRoute, NotObject, PostBody, ResponseMember, RouteKey, VpToken,
 };
+pub use route::{AnswerRoute, Route, Unroutable};
 
 use siros_explain::{AllOf, Explain, Explained};
 
@@ -26,6 +28,7 @@ use crate::host::{AuthenticationNeed, Categories};
 use crate::matching::RecordError;
 use crate::plugins::{Fault, FindingData, ProfileFinding};
 use crate::refusal::{QuotedList, Refused};
+use crate::session::{Session, SessionBinding};
 
 /// What phase 2 found for one record, by its position in the selection.
 #[derive(Debug)]
@@ -127,6 +130,10 @@ pub enum Outcome {
     /// the wallet's own UI.
     #[error("{} finding(s) make phase 2 fall back", .0.items().len())]
     Fallback(#[explain(skip)] AllOf<Finding>),
+    /// A URI request whose mode names no registered error mode (C5): the End-User alone hears
+    /// of it.
+    #[error(transparent)]
+    Unroutable(#[from] Unroutable),
     /// The wallet failed to authenticate the End-User (OpenID4VP §8.5 `access_denied`).
     #[error("the Wallet failed to authenticate the End-User")]
     UserUnauthenticated,

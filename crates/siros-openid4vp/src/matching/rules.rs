@@ -101,7 +101,7 @@ pub(crate) struct Plan<'q> {
 pub struct Accepted<'q> {
     request: &'q Request<'q>,
     registry: &'q dyn Catalog,
-    metadata: ClientMetadata<'q>,
+    metadata: &'q ClientMetadata<'q>,
     mode: RoutedMode,
     plans: Vec<Plan<'q>>,
 }
@@ -123,15 +123,15 @@ impl<'q> Accepted<'q> {
         let routing = request.envelope().routing();
         refusals.extend(routing.refusals());
         let mode = routing.answer();
-        let metadata = match ClientMetadata::parse(request.client_metadata()) {
+        let metadata = match request.envelope().client_metadata() {
             Ok(metadata) => metadata,
             Err(e) => {
-                let c6 = Refusal::new(CoreRule::ClientMetadata(e));
+                let c6 = Refusal::new(CoreRule::ClientMetadata(e.clone()));
                 return Err(Refused::adding(refusals, c6));
             }
         };
         if let Ok((_, registered)) = &mode {
-            refusals.extend(registered.rules(request, &VerifierMetadata::of(&metadata)));
+            refusals.extend(registered.rules(request, &VerifierMetadata::of(metadata)));
         }
         let mode = mode.map(|(mode, _)| mode);
         let mut plans = Vec::new();
@@ -139,7 +139,7 @@ impl<'q> Accepted<'q> {
             let formatted = match Formatted::of(
                 request,
                 registry,
-                &metadata,
+                metadata,
                 mode.as_ref().ok().map(RoutedMode::name),
                 index,
                 query,
@@ -182,8 +182,8 @@ impl<'q> Accepted<'q> {
 
     /// The parsed client metadata.
     #[must_use]
-    pub fn metadata(&self) -> &ClientMetadata<'q> {
-        &self.metadata
+    pub const fn metadata(&self) -> &'q ClientMetadata<'q> {
+        self.metadata
     }
 
     /// The response mode the routing's rules accepted.

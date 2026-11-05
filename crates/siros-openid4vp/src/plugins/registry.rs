@@ -1293,6 +1293,21 @@ impl<H: Build> Registry<H> {
     pub(crate) fn mode_host(&self, handle: ModeHandle) -> Option<&RegisteredMode<H>> {
         self.modes.get(handle.place())
     }
+
+    /// The URI mode of a name registered for errors (`error_mode`).
+    #[cfg(feature = "resolve")]
+    pub(crate) fn error_mode(&self, name: ModeName) -> Option<RoutedMode> {
+        self.modes
+            .iter()
+            .enumerate()
+            .find(|(_, registered)| {
+                let mode = registered.mode();
+                registered.carries_errors()
+                    && mode.channel() == ChannelKind::Uri
+                    && mode.name() == name
+            })
+            .map(|(place, _)| RoutedMode::of(ModeHandle::at(place), name, Carries::Errors))
+    }
 }
 
 #[cfg(feature = "transaction-data")]

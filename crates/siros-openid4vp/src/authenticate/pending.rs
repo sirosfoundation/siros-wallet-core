@@ -32,6 +32,8 @@ use crate::plugins::Registry;
 #[cfg(feature = "signed")]
 use crate::plugins::registry::HaipAccess;
 use crate::recourse::{self, ErrorRoute, Rejected};
+use crate::request::MetadataError;
+use crate::routing::VerifierMetadata;
 use crate::uri::ResponseUri;
 
 /// The audience a Request Object may name: the wallet, discovered statically (§5.8; reading 13).
@@ -110,10 +112,28 @@ impl<'e, H> Claimed<'e, H> {
     }
 }
 
-/// A request whose Verifier the wallet authenticated. Only [`Pending::authenticate`] makes one.
+/// A request whose Verifier the wallet authenticated, with the Verifier's metadata and keys
+/// from its `client_metadata`, or C6's refusal of it. Only [`Pending::authenticate`] makes one, so
+/// a route answers the Verifier the wallet authenticated:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::authenticate::{Authenticated, Verifier};
+/// use siros_openid4vp::envelope::Envelope;
+/// use siros_openid4vp::request::MetadataError;
+/// use siros_openid4vp::routing::VerifierMetadata;
+///
+/// fn forged<'e>(
+///     envelope: &'e Envelope<'e>,
+///     verifier: Verifier<'e>,
+///     metadata: Result<VerifierMetadata<'e>, &'e MetadataError>,
+/// ) -> Authenticated<'e> {
+///     Authenticated { envelope, verifier, metadata }
+/// }
+/// ```
 pub struct Authenticated<'e> {
     envelope: &'e Envelope<'e>,
     verifier: Verifier<'e>,
+    metadata: Result<VerifierMetadata<'e>, &'e MetadataError>,
 }
 
 impl<'e> Authenticated<'e> {
@@ -127,6 +147,14 @@ impl<'e> Authenticated<'e> {
     #[must_use]
     pub const fn verifier(&self) -> &Verifier<'e> {
         &self.verifier
+    }
+
+    /// The Verifier's metadata and keys, or C6's refusal of its `client_metadata`.
+    pub(crate) const fn metadata(&self) -> Result<&VerifierMetadata<'e>, &'e MetadataError> {
+        match &self.metadata {
+            Ok(metadata) => Ok(metadata),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -422,6 +450,7 @@ impl<'e, H: CoreHost> Pending<'e, H> {
                 metadata: envelope.parameters().raw("client_metadata"),
                 endpoint,
             },
+            metadata: envelope.client_metadata().map(VerifierMetadata::of),
         };
         match asked {
             Asked::Nothing(origin) => Ok(authenticated(
