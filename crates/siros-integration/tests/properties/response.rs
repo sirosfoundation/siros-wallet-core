@@ -12,7 +12,7 @@ use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::matching::{Accepted, EntryView, Match, Views};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::request::{EntryIndex, Multiplicity};
-use siros_openid4vp::resolve::{Finding, Outcome, Prepared, ResponseData};
+use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared};
 use siros_openid4vp::wallet::{Credential, Wallet};
 use siros_paso::{OptionalModule, PasoFinding};
 use siros_qes::FailedDocuments;
@@ -483,19 +483,28 @@ fn answered(
             "R-vp_token arrays"
         );
     }
-    match &response.data {
-        ResponseData::Plain(data) => {
+    let Delivery::DcApi(data) = &response.delivery else {
+        panic!("R-a DC API request answers on the DC API");
+    };
+    let data: Value = serde_json::from_str(data.as_str()).expect("data");
+    match data.get("response").and_then(Value::as_str) {
+        None => {
             // Annex A: dc_api's data is {"vp_token": ...}.
             assert_eq!(
                 mode(case),
                 "dc_api",
                 "R-dc_api.jwt answered without encryption"
             );
-            let data: Value = serde_json::from_str(data).expect("data");
             assert_eq!(data, json!({"vp_token": token}), "R-dc_api data");
             tally.add("responses plain");
         }
-        ResponseData::Encrypted(jwe) => {
+        Some(jwe) => {
+            // A.2, §8.3: dc_api.jwt's data is {"response": JWE}.
+            assert_eq!(
+                data.as_object().map(serde_json::Map::len),
+                Some(1),
+                "R-dc_api.jwt data"
+            );
             // OpenID4VP §8.3 under HAIP §5 (reading 25): the first P-256 key with `alg` ECDH-ES
             // and 32-octet coordinates; A256GCM when listed, else A128GCM.
             assert_eq!(mode(case), "dc_api.jwt", "R-dc_api encrypted");
@@ -530,7 +539,7 @@ fn answered(
                 );
                 "A128GCM"
             };
-            let (protected, plaintext) = opened_jwe(jwe.as_str());
+            let (protected, plaintext) = opened_jwe(jwe);
             assert_eq!(
                 protected,
                 json!({"alg": "ECDH-ES", "enc": enc, "kid": key["kid"]}),

@@ -24,7 +24,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Prepared, Response, ResponseData};
+use siros_openid4vp::resolve::{Delivery, Prepared, Response};
 use siros_openid4vp::rows::{Amounts, Choice, Env};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Published;
@@ -142,11 +142,11 @@ fn answer(
 /// The one presentation of a query in `vp_token`.
 fn presentation(response: &Response, query: &str) -> Value {
     let token: Value = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
-    let ResponseData::Plain(data) = &response.data else {
-        panic!("dc_api answers in plain text");
+    let Delivery::DcApi(data) = &response.delivery else {
+        panic!("dc_api answers on the DC API");
     };
     // OpenID4VP Annex A: dc_api's data is {"vp_token": ...}.
-    let data: Value = serde_json::from_str(data).expect("data");
+    let data: Value = serde_json::from_str(data.as_str()).expect("data");
     assert_eq!(data, json!({"vp_token": token}));
     let [presentation] = token[query]
         .as_array()

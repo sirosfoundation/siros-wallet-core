@@ -107,6 +107,10 @@ released version yet.
   `ProfileHost`'s; each plug-in gates its phase 2 on its own `resolve`.
 - The core refuses a mode's JWE choice whose key or `enc` the sealing module
   does not state, or whose `enc` the Verifier does not list (§5.1).
+- Phase 2 answers with a `Delivery`: the DigitalCredential's `data`
+  (`DcApiData`, a JSON object the core reads back) or a `PostBody` POSTed to
+  the `response_uri`. `FormBody::of` writes any flat members, each name once
+  (`NotForm`); `PostBody::of` refuses the form media type (`FormMedia`).
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
@@ -127,6 +131,7 @@ released version yet.
 
 ### Removed
 
+- `ResponseData`, which `Delivery` replaces; `FormMembers`.
 - The `direct_post.cwt` routing and `Modes`; `ResponseMode`, `DcApiMode`,
   `ModeChoice`, `Protection`, `Encryption::choose`, `ResponseKey` and
   `ResponseEnc`, which the registered modes and HAIP's key rule replace;

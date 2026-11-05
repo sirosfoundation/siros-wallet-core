@@ -334,7 +334,7 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
 #[test]
 fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     use siros_openid4vp::matching::{Views, display};
-    use siros_openid4vp::resolve::Prepared;
+    use siros_openid4vp::resolve::{Delivery, Prepared};
     use siros_testkit::{Published, TestHost};
     let text = parameters(
         &common::test_queries(&["q"]),
@@ -370,7 +370,10 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
         })
         .expect("response");
     // dc_api answers with the response parameters as the DigitalCredential's data (Annex A).
-    let data: serde_json::Value = serde_json::from_str(&response.data.json()).expect("data");
+    let Delivery::DcApi(data) = &response.delivery else {
+        panic!("a DC API delivery");
+    };
+    let data: serde_json::Value = serde_json::from_str(data.as_str()).expect("data");
     assert_eq!(data.as_object().map(serde_json::Map::len), Some(1));
     assert_eq!(data["vp_token"]["q"][0]["proof"]["binding"], "0");
 }

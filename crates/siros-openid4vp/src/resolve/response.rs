@@ -1,10 +1,14 @@
-//! The response: `vp_token` and the DigitalCredential's `data` (OpenID4VP Annex A).
+//! The answer: `vp_token`, the bodies a mode writes, and the delivery the caller performs.
 
-use crate::host::{Presentation, SealedJwe};
+use siros_explain::Explain;
+
+use crate::host::Presentation;
 use crate::ids::QueryId;
-use crate::json::quote;
+use crate::json::{Node, quote};
+use crate::media::MediaType;
 use crate::request::{AgreeableKey, ContentEncryption};
 use crate::routing::VerifierKey;
+use crate::uri::{FormBody, ResponseUri};
 
 /// The key and `enc` a route bound: what the core seals to through `Haip::encrypt_jwe` and what
 /// the session holds. Only phase 2 makes one, from the mode's [`Encrypting::Jwe`] once it has
@@ -90,24 +94,126 @@ impl VpToken {
     }
 }
 
-/// The DigitalCredential's `data`.
+/// What a mode writes: the content its channel carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResponseData {
-    /// `dc_api`: `{"vp_token": ...}`.
-    Plain(String),
-    /// `dc_api.jwt`: the JWE whose plaintext is `{"vp_token": ...}`.
-    Encrypted(SealedJwe),
+pub enum Body {
+    /// The DigitalCredential's `data` (A.4).
+    DcApi(DcApiData),
+    /// A POST body.
+    Post(PostBody),
 }
 
-impl ResponseData {
-    /// The JSON text, without whitespace.
+/// A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]
+/// refuses `application/x-www-form-urlencoded`, and only the two make one:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::media::MediaType;
+/// use siros_openid4vp::resolve::PostBody;
+///
+/// fn forged(media: MediaType) -> PostBody {
+///     PostBody { media, bytes: b"a[b]=1".to_vec() }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PostBody {
+    media: MediaType,
+    bytes: Vec<u8>,
+}
+
+/// A POST body of the form media type that no [`FormBody`] wrote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.post_body")]
+#[error("a body of application/x-www-form-urlencoded comes from FormBody::of alone")]
+pub struct FormMedia;
+
+impl PostBody {
+    /// A form: `application/x-www-form-urlencoded`.
     #[must_use]
-    pub fn json(&self) -> String {
-        match self {
-            Self::Plain(text) => text.clone(),
-            Self::Encrypted(jwe) => format!("{{\"response\":{}}}", quote(jwe.as_str())),
+    pub fn form(body: FormBody) -> Self {
+        Self {
+            media: MediaType::form(),
+            bytes: body.into_string().into_bytes(),
         }
     }
+
+    /// Bytes of another media type.
+    ///
+    /// # Errors
+    ///
+    /// The media type is `application/x-www-form-urlencoded`.
+    pub fn of(media: MediaType, bytes: Vec<u8>) -> Result<Self, FormMedia> {
+        if media.is_form() {
+            Err(FormMedia)
+        } else {
+            Ok(Self { media, bytes })
+        }
+    }
+
+    /// The `Content-Type` the caller sends.
+    #[must_use]
+    pub const fn media_type(&self) -> &MediaType {
+        &self.media
+    }
+
+    /// The bytes.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+/// The DigitalCredential's `data` (A.4): a JSON object whose objects name each member once.
+/// Only [`DcApiData::of`] makes one:
+///
+/// ```compile_fail,E0423
+/// use siros_openid4vp::resolve::DcApiData;
+///
+/// fn forged() -> DcApiData {
+///     DcApiData(String::from("{\"a\":1,\"a\":2}"))
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DcApiData(String);
+
+/// A DC API body that is no JSON object whose objects name each member once.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.dc_api_data")]
+#[error("the DC API data is no JSON object with unique member names")]
+pub struct NotObject;
+
+impl DcApiData {
+    /// A JSON text the core reads back through its `json` module.
+    ///
+    /// # Errors
+    ///
+    /// The text is no JSON object, or an object in it repeats a member name.
+    pub fn of(text: String) -> Result<Self, NotObject> {
+        match Node::parse(&text) {
+            Ok(Node::Object(_)) => Ok(Self(text)),
+            _ => Err(NotObject),
+        }
+    }
+
+    /// The JSON text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// What the caller does with an answer: the core writes it from the route's endpoint and the
+/// mode's body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delivery {
+    /// POST the body to the `response_uri`, then read the answer with `ResponseUriAnswer`.
+    Post {
+        /// The `response_uri`.
+        endpoint: ResponseUri,
+        /// The body.
+        body: PostBody,
+    },
+    /// Return the JSON object as the DigitalCredential's `data` (A.4).
+    DcApi(DcApiData),
 }
 
 /// The response to a selection.
@@ -115,6 +221,6 @@ impl ResponseData {
 pub struct Response {
     /// `vp_token`.
     pub vp_token: VpToken,
-    /// The DigitalCredential's `data`.
-    pub data: ResponseData,
+    /// What the caller does with it.
+    pub delivery: Delivery,
 }

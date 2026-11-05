@@ -181,6 +181,10 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             resolve::RouteBreach::messages,
             #[cfg(feature = "resolve")]
+            resolve::FormMedia::messages,
+            #[cfg(feature = "resolve")]
+            resolve::NotObject::messages,
+            #[cfg(feature = "resolve")]
             authenticate::Unauthenticated::messages,
             #[cfg(feature = "resolve")]
             authenticate::PrefixRefusal::messages,
@@ -194,6 +198,8 @@ impl siros_explain::Messages for CrateMessages {
             uri::NoFetch::messages,
             #[cfg(feature = "uri")]
             uri::AnswerError::messages,
+            #[cfg(feature = "uri")]
+            uri::NotForm::messages,
             #[cfg(feature = "uri")]
             wallet_metadata::MetadataRefused::messages,
             #[cfg(feature = "resolve")]

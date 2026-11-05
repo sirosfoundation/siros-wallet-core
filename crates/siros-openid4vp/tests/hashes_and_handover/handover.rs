@@ -18,7 +18,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, ClientMetadata, Query};
-use siros_openid4vp::resolve::ResponseData;
+use siros_openid4vp::resolve::Delivery;
 use siros_openid4vp::routing::VerifierMetadata;
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::session::{Session, SessionBinding};
@@ -253,22 +253,25 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     let holder = Held::answering("c", &["q"], &[]);
     let wallet = Wallet::new(vec![holder.credential()]).expect("wallet");
     let response = answer(&request, &wallet, &registry(Binds::First), &env("en"));
-    let ResponseData::Encrypted(jwe) = &response.data else {
-        panic!("an encrypted response")
+    let Delivery::DcApi(data) = &response.delivery else {
+        panic!("a DC API delivery")
     };
+    let data: Json = serde_json::from_str(data.as_str()).expect("data");
+    let jwe = data["response"].as_str().expect("an encrypted response");
+    assert_eq!(
+        data.as_object().map(serde_json::Map::len),
+        Some(1),
+        "data holds `response` alone"
+    );
     let header: Json = serde_json::from_slice(
         &URL_SAFE_NO_PAD
-            .decode(jwe.as_str().split('.').next().expect("header"))
+            .decode(jwe.split('.').next().expect("header"))
             .expect("base64url"),
     )
     .expect("json");
     assert_eq!(
         header,
         serde_json::json!({"alg": "ECDH-ES", "enc": "A256GCM", "kid": "2"})
-    );
-    assert!(
-        response.data.json().starts_with(r#"{"response":"#),
-        "data holds `response` alone"
     );
 }
 

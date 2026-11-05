@@ -6,13 +6,16 @@ use std::ops::Range;
 use siros_explain::AllOf;
 
 use super::selection::{check, derived};
-use super::{Finding, Outcome, Rejection, Response, ResponseData, RouteBreach, RouteKey, VpToken};
+use super::{
+    DcApiData, Delivery, Finding, Outcome, Rejection, Response, RouteBreach, RouteKey, VpToken,
+};
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::envelope::Channel;
 use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Haip,
     Host, Platform, PresentError, Usable,
 };
+use crate::json::quote;
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
 use crate::plugins::registry::{DynProfile, Placed, Role};
 use crate::plugins::{
@@ -205,14 +208,18 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         }
         let plaintext = vp_token.data();
         let data = match sealing {
-            None => ResponseData::Plain(plaintext),
-            Some(Sealing { haip, key }) => ResponseData::Encrypted(haip.encrypt_jwe(
-                key.key(),
-                key.enc(),
-                plaintext.as_bytes(),
-            )?),
+            None => plaintext,
+            Some(Sealing { haip, key }) => {
+                let jwe = haip.encrypt_jwe(key.key(), key.enc(), plaintext.as_bytes())?;
+                format!("{{\"response\":{}}}", quote(jwe.as_str()))
+            }
         };
-        Ok(Response { vp_token, data })
+        let data =
+            DcApiData::of(data).map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))?;
+        Ok(Response {
+            vp_token,
+            delivery: Delivery::DcApi(data),
+        })
     }
 }
 

@@ -270,7 +270,25 @@ impl MediaType {
     pub fn as_str(&self) -> &str {
         &self.text
     }
+
+    /// `application/x-www-form-urlencoded` (§5.10, §8.2).
+    #[must_use]
+    pub fn form() -> Self {
+        Self {
+            text: FORM.to_owned(),
+            essence: FORM.to_owned(),
+        }
+    }
+
+    /// Whether the essence is `application/x-www-form-urlencoded`.
+    #[must_use]
+    pub fn is_form(&self) -> bool {
+        self.essence == FORM
+    }
 }
+
+/// The form media type's essence.
+const FORM: &str = "application/x-www-form-urlencoded";
 
 impl fmt::Display for MediaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

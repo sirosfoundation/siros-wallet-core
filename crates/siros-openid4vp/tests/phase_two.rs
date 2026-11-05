@@ -25,7 +25,7 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, EntryIndex, Request};
 use siros_openid4vp::resolve::Response;
-use siros_openid4vp::resolve::{Finding, Outcome, Prepared, Rejection, ResponseData};
+use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared, Rejection};
 use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::FAULT;
@@ -472,6 +472,16 @@ fn sealed<H: CoreHost>(
     })
 }
 
+/// Whether the DC API data wraps a JWE: `{"response": JWE}` (A.2, §8.3).
+fn wraps_a_jwe(response: &Response) -> bool {
+    let Delivery::DcApi(data) = &response.delivery else {
+        return false;
+    };
+    let data: serde_json::Value = serde_json::from_str(data.as_str()).expect("JSON");
+    data.get("response")
+        .is_some_and(serde_json::Value::is_string)
+}
+
 #[test]
 fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
     let jwk = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES"}"#;
@@ -486,13 +496,10 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
     let registry = registry(Binds::First);
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     // The response is a JWE, else nothing: a failing encryption faults.
-    assert!(matches!(
-        sealed(&request, &ids[0], &wallet, &registry, &TestHost::default()),
-        Ok(Response {
-            data: ResponseData::Encrypted(_),
-            ..
-        })
-    ));
+    assert!(
+        sealed(&request, &ids[0], &wallet, &registry, &TestHost::default())
+            .is_ok_and(|response| wraps_a_jwe(&response))
+    );
     let mut failing = Registry::<Failing>::builder();
     siros_testkit::fixtures::openid4vp(&mut failing);
     failing.format(TestFormat::new().expect("format"));
@@ -588,22 +595,9 @@ fn the_core_checks_the_key_and_enc_a_mode_chooses() {
         let host = TestHost::default();
         let outcome = sealed(&request, &ids[0], &wallet, &registry, &host);
         match (breach, sealed_route, outcome) {
-            (
-                None,
-                true,
-                Ok(Response {
-                    data: ResponseData::Encrypted(_),
-                    ..
-                }),
-            )
-            | (
-                None,
-                false,
-                Ok(Response {
-                    data: ResponseData::Plain(_),
-                    ..
-                }),
-            ) => assert_eq!(host.platform.authentications(), 1, "{choice:?}"),
+            (None, _, Ok(response)) if wraps_a_jwe(&response) == sealed_route => {
+                assert_eq!(host.platform.authentications(), 1, "{choice:?}");
+            }
             (Some(breach), _, Err(Outcome::Fault(fault))) => {
                 let cause = std::error::Error::source(&fault)
                     .and_then(|cause| cause.downcast_ref::<RouteBreach>());

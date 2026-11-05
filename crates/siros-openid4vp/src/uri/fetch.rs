@@ -16,6 +16,7 @@ use crate::jose::{CompactJwe, JwsError};
 use crate::plugins::{Build, Fault, Registry};
 use crate::recourse::{self, Rejected};
 use crate::wallet_metadata::{MetadataRefused, RequestUriPost, WalletMetadata};
+use crate::{FAULT, detail};
 
 /// What the caller fetches, with `Accept: application/oauth-authz-req+jwt` (RFC 9101 §5.2.3,
 /// §5.10): a GET of the `request_uri`, or a POST of this form body to it.
@@ -101,7 +102,8 @@ impl<'a> Fetch<'a> {
             (RequestUriMethod::Post, Some(post)) => {
                 let key = post.ephemeral_key(host)?;
                 let metadata = WalletMetadata::of(registry, host, uri.client_id(), key.as_ref())?;
-                let body = FormBody::of(&RequestUriPost::of(&metadata))?;
+                let body = FormBody::of(&RequestUriPost::of(&metadata))
+                    .map_err(|e| Fault::caused(FAULT, detail!("the request_uri POST's form"), e))?;
                 FetchMethod::Post {
                     body,
                     #[cfg(feature = "request-decryption")]

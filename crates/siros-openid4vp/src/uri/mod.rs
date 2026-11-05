@@ -31,7 +31,7 @@ pub use answer::{AnswerError, AnswerMembers, AnswerReader, ResponseUriAnswer};
 pub use fetch::{Fetch, FetchAnswer, NoFetch, RequestObjectFetch};
 pub use form::FormBody;
 #[cfg(feature = "uri")]
-pub use form::FormMembers;
+pub use form::NotForm;
 
 /// The POST of `wallet_metadata` to the `request_uri` (§5.10), a core component the registry
 /// takes (`RegistryBuilder::request_post`): with it, a request whose `request_uri_method` is

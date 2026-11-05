@@ -533,3 +533,29 @@ fn a_modules_ciphertext_of_another_form_is_refused() {
         Err(NotSealed::JweParts { parts: 4 })
     ));
 }
+
+#[test]
+fn a_body_of_another_form_than_its_channels_is_refused() {
+    use siros_openid4vp::media::MediaType;
+    use siros_openid4vp::resolve::{DcApiData, FormMedia, NotObject, PostBody};
+    use siros_openid4vp::uri::{FormBody, NotForm};
+    // RFC 6749 Appendix B holds flat name-value pairs, each name once.
+    #[derive(serde::Serialize)]
+    struct Nested {
+        response: [u8; 1],
+    }
+    assert!(matches!(
+        FormBody::of(&Nested { response: [1] }),
+        Err(NotForm::Serializer(_))
+    ));
+    assert_eq!(
+        FormBody::of(&[("response", "a"), ("response", "b")]),
+        Err(NotForm::Repeated("response".to_owned()))
+    );
+    // A.4: the DigitalCredential's data is a JSON object.
+    assert_eq!(DcApiData::of("[]".to_owned()), Err(NotObject));
+    assert_eq!(DcApiData::of(r#"{"a":1,"a":2}"#.to_owned()), Err(NotObject));
+    // A form comes from FormBody::of alone.
+    let form = MediaType::parse("application/x-www-form-urlencoded; charset=UTF-8").expect("media");
+    assert_eq!(PostBody::of(form, b"a=1".to_vec()), Err(FormMedia));
+}
