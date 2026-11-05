@@ -270,14 +270,18 @@ proceeds.
    trait (stateless claim check + the store-backed half, default
    `NoTokenGate` for the standalone deployment, the backend adapter
    implements it) — refuses a principal whose token was cut off.
-3. **W3 — the sign-stage refusal (#472) + the JARM error responses
-   (#441)**: `request_vp` decline/rejected answers the verifier
-   `access_denied` (+state) and the client `PRESENTATION_ERROR` +
-   `redirect_uri`; and `submit_error_response` in `direct_post.jwt`
-   mode builds the error as JARM claims (`iss`, `aud`, `exp`, `error`,
-   `error_description`, `state`) encrypted with the same key selection
-   the success path uses — the P0.6 note characterized the Go bug, not
-   the spec. The plain form stays for `direct_post`.
+3. **W3 — COMPLETE (#472 + #441)**: the sign-stage refusal — `request_vp`
+   decline/refusal answers the verifier `access_denied` at once
+   (`invalid_transaction_data` for the transaction-type refusal), the
+   client's completion carrying `declined:true` + the verifier's
+   redirect; and the JARM error responses — `submit_error_response`
+   dispatches on the mode exactly as the success path does
+   (`direct_post.jwt`: the error claims `iss`/`aud`/`exp`/`error`/
+   `error_description`/`state` encrypted with the success path's key
+   selection, in `response=<jwe>`; `query`/`fragment`: the error
+   redirect; `direct_post`: the plain form). `VpResult` carries the
+   optional `SignRefusal` across the ports, the wasm mini host, the
+   SDK mirror, and the conformance world.
 4. **W4 — auxiliary data (#480, engine half)**: the advert, the selection
    refusal, the request members, the conflict relay, strict offer decode.
 5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
