@@ -384,9 +384,26 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    §6.12. **Remaining: the strict offer decode (pkg/strictjson's
    unknown-member rejection on the offer)** — small, folded into W9's
    hardening pass.
-5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
-   (WRPAC/WRPRC, registrar PDP action), the engine call site + modes +
-   findings, the −31020 wire data with bounding.
+5. **W5 — COMPLETE (#522/#526/#529, the core's half)**: the
+   entitlement wire shapes on the `Pdp` port (`engine-ports`: the
+   warn/fail/off mode parsed with warn as the default, the twelve
+   finding codes, the decision with its bounded relay form, the
+   not-evaluated answer, `Pdp::evaluate_entitlement` with a
+   `NotImplemented` default); the call site in `oid4vci/entitlement.rs`
+   (the request: the raw document — `issuer_info` rides it unmodelled,
+   ETSI TS 119 472-3 — the signing key material as the trust decision
+   received it, the offers with the type each format counts, the Go
+   `OfferFor`); the flow wiring (start + resume, after the trust
+   decision, before the grant dispatch; the trust refusal answers
+   first, so never both refusals for one flow); the additive
+   `trust_evaluated` progress (`issuer_entitlement_evaluated`, never
+   `issuer_trust_evaluated`, no `trust_info`); the −31020 refusal with
+   the bounded decision. `IssuerMetadata` carries the raw document as
+   resolved. The evaluation itself stays behind the port (the backend
+   adapter implements it on `go-trust`'s rpcert); the mode lives there
+   too. **Remaining: the backend adapter's `evaluate_entitlement`**
+   (the WRPAC/WRPRC rulebook evaluation on `go-trust`'s rpcert,
+   mirroring `pkg/issuertrust`) — lands with the adapter work in W9.
 6. **W6 — the consent component (#525)**: the SDK-side DCQL vetting and
    selection handle.
 7. **W7 — the notification flow (#527/#528)**: the flow type, the context
