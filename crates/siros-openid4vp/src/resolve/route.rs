@@ -41,8 +41,12 @@ pub struct Unroutable;
 /// use siros_openid4vp::plugins::{NoHost, Registry};
 /// use siros_openid4vp::resolve::Route;
 ///
-/// fn forged<'a>(authenticated: &'a Authenticated<'a>, registry: &'a Registry) -> Route<'a, NoHost> {
-///     Route { authenticated, registry, nonce: None }
+/// fn forged<'a>(
+///     authenticated: &'a Authenticated<'a>,
+///     registry: &'a Registry,
+///     other: Route<'a, NoHost>,
+/// ) -> Route<'a, NoHost> {
+///     Route { authenticated, registry, ..other }
 /// }
 /// ```
 pub struct Route<'a, H: Build> {
@@ -339,10 +343,10 @@ impl<'a, H: CoreHost> Route<'a, H> {
 ///
 /// ```compile_fail,E0451
 /// use siros_openid4vp::plugins::NoHost;
-/// use siros_openid4vp::resolve::{AnswerRoute, Route};
+/// use siros_openid4vp::resolve::AnswerRoute;
 ///
-/// fn forged<'a>(route: &'a Route<'a, NoHost>) -> AnswerRoute<'a, NoHost> {
-///     AnswerRoute { route, key: None }
+/// fn forged<'a>(sealed: AnswerRoute<'a, NoHost>) -> AnswerRoute<'a, NoHost> {
+///     AnswerRoute { key: None, ..sealed }
 /// }
 /// ```
 pub struct AnswerRoute<'a, H: Build> {
