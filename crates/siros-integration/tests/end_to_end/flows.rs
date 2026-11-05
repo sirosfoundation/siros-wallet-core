@@ -4,21 +4,26 @@
 //! the delivery's channel and endpoint (§8.2, §8.3.1, A.2, A.4), the JWE's key and `enc` (§8.3,
 //! HAIP §5), `state` (§5.2) and the Key Binding JWT's `aud` and `nonce` (Annex A, B.3.6).
 
+use std::num::NonZeroU32;
+
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use sha2::Digest;
+use siros_explain::AllOf;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
-use siros_openid4vp::host::{Seconds, Timestamp};
+use siros_openid4vp::host::{
+    Authentication, AuthenticationNeed, Factor, Knowledge, Seconds, Timestamp,
+};
 use siros_openid4vp::ids::Origin;
 use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Registry, RegistryBuilder};
 use siros_openid4vp::recourse::{DcApiErrors, ErrorTarget, Reply};
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Delivery, Prepared, Route};
+use siros_openid4vp::resolve::{Delivery, Outcome, Prepared, Route};
 use siros_openid4vp::routing::{ChannelKind, ModeName};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
@@ -133,6 +138,19 @@ fn delivered(
     published: &Published,
     host: &HaipHost,
 ) -> Delivery {
+    responded(authenticated, held, registry, published, host)
+        .unwrap_or_else(|outcome| panic!("phase 2: {outcome}"))
+}
+
+/// Phase 1's first selection and phase 2's outcome for it, phase 2's fetches answered from
+/// `published`.
+fn responded(
+    authenticated: &Authenticated<'_>,
+    held: &[Held],
+    registry: &Registry<HaipHost>,
+    published: &Published,
+    host: &HaipHost,
+) -> Result<Delivery, Outcome> {
     let env = english();
     let wallet = Wallet::new(
         held.iter()
@@ -146,7 +164,6 @@ fn delivered(
     Prepared::prepare(authenticated, &ids, &wallet, registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .map(|built| built.delivery().clone())
-        .unwrap_or_else(|outcome| panic!("phase 2: {outcome}"))
 }
 
 /// A DC API arrival from the Origin.
@@ -620,8 +637,10 @@ fn f10_a_we_build_request_by_uri_answers_and_reads_the_verifiers_error() {
 }
 
 /// F11, F12: an SCA transaction under the WE BUILD build, by URI (`direct_post.jwt`) and over the
-/// DC API (signed, `dc_api.jwt`): PaSO Core A.1's payment, strongly authenticated, its Key
-/// Binding JWT holding the transaction's hash (PaSO Core §6.1).
+/// DC API (signed, `dc_api.jwt`): PaSO Core A.1's payment, strongly authenticated (PSD2 Art.
+/// 4(30): factors of two categories), its Key Binding JWT holding the transaction's hash (PaSO
+/// Core §6.1), its `aud` the full Client Identifier by URI and the Origin over the DC API
+/// (B.3.6), and the request's nonce.
 #[test]
 fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
     let registry = registry().expect("the real registry");
@@ -646,9 +665,11 @@ fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
     card.documents = vec![("paso".to_owned(), document.into_bytes())];
     let held = [card];
     let hashed = json!(URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(entry.as_bytes())));
-    let transaction = |vp_token: &Value| {
-        let presentation = &vp_token["sca_card"][0];
-        presentation["kb_jwt"]["payload"]["transaction_data_hash"].clone()
+    let binding = |vp_token: &Value, aud: &str| {
+        let payload = &vp_token["sca_card"][0]["kb_jwt"]["payload"];
+        assert_eq!(payload["aud"], json!(aud));
+        assert_eq!(payload["nonce"], json!(NONCE));
+        payload["transaction_data_hash"].clone()
     };
     let body_of = |mode: &str, extra: &str| {
         format!(
@@ -680,7 +701,25 @@ fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
     );
     let response = sealed_form(&delivery);
     assert_eq!(response["state"], json!(STATE));
-    assert_eq!(transaction(&response["vp_token"]), hashed);
+    assert_eq!(binding(&response["vp_token"], SAN), hashed);
+    // A PIN alone covers one category: the payment's Strong need refuses it.
+    let mut weak = super::authenticated_as_a2();
+    weak.platform.authentication = Some(Authentication::new(
+        Timestamp(NOW - 5),
+        AllOf::one(Factor::Knowledge(Knowledge::Pin(NonZeroU32::new(6)))),
+    ));
+    match responded(
+        &authenticated,
+        &held,
+        &registry,
+        &Published::default(),
+        &weak,
+    ) {
+        Err(Outcome::AuthenticationTooWeak { need, .. }) => {
+            assert_eq!(need, AuthenticationNeed::Strong);
+        }
+        other => panic!("a PIN alone: {other:?}"),
+    }
     // F12 over the DC API, signed, dc_api.jwt.
     let payload = body_of(
         "dc_api.jwt",
@@ -704,7 +743,10 @@ fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
             .expect("response"),
     )
     .1;
-    assert_eq!(transaction(&response["vp_token"]), hashed);
+    assert_eq!(
+        binding(&response["vp_token"], &format!("origin:{ORIGIN}")),
+        hashed
+    );
 }
 
 /// F13: an extension's mode by URI (siros-testkit's `TestMode`), registered for answers and for
