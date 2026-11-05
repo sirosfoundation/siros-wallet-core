@@ -73,11 +73,7 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
             kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, encoded.as_bytes())
                 .map_err(|err| format!("the disclosure digest failed: {err}"))?;
         disclosures.push(encoded);
-        digests.push(
-            siros_codec::base64url::encode(&digest)
-                .as_str()
-                .to_owned(),
-        );
+        digests.push(siros_codec::base64url::encode(&digest).as_str().to_owned());
     }
 
     // The issuer JWT: the fixture claims are undisclosed; the device
@@ -174,8 +170,7 @@ impl MiniHost {
                 // host (the engine only ever sees the public JWK).
                 let public = jwk.to_public_jwk();
                 let text = public.to_json().unwrap_or_default();
-                let value: serde_json::Value =
-                    serde_json::from_str(&text).unwrap_or_default();
+                let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
                 (Some(p256_signer(&jwk)?), kid, Some(value))
             }
             None => (None, None, None),
@@ -221,13 +216,14 @@ impl Host for MiniHost {
         // (or the conventional client-auth name) when the client
         // assertion needs the client key; anything else is the device
         // key (the OID4VCI proof).
-        let use_client = params
-            .key_id
-            .as_deref()
-            .is_some_and(|id| match self.client_key_kid.as_deref() {
-                Some(kid) => id == kid,
-                None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
-            });
+        let use_client =
+            params
+                .key_id
+                .as_deref()
+                .is_some_and(|id| match self.client_key_kid.as_deref() {
+                    Some(kid) => id == kid,
+                    None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
+                });
         let signer = if use_client {
             self.client_signer.as_ref().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
@@ -250,13 +246,14 @@ impl Host for MiniHost {
         &self,
         params: engine_ports::SigningKeyParams,
     ) -> Result<engine_ports::SigningKeyResult, HostError> {
-        let use_client = params
-            .key_id
-            .as_deref()
-            .is_some_and(|id| match self.client_key_kid.as_deref() {
-                Some(kid) => id == kid,
-                None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
-            });
+        let use_client =
+            params
+                .key_id
+                .as_deref()
+                .is_some_and(|id| match self.client_key_kid.as_deref() {
+                    Some(kid) => id == kid,
+                    None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
+                });
         let jwk = if use_client {
             self.client_key.clone().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
@@ -290,11 +287,7 @@ impl Host for MiniHost {
             let vct_matches = entry
                 .pointer("/meta/vct_values")
                 .and_then(|v| v.as_array())
-                .is_some_and(|values| {
-                    values
-                        .iter()
-                        .any(|v| v.as_str() == Some(PID_VCT))
-                });
+                .is_some_and(|values| values.iter().any(|v| v.as_str() == Some(PID_VCT)));
             if format != Some("dc+sd-jwt") || !vct_matches {
                 continue;
             }
@@ -421,7 +414,9 @@ impl Host for MiniHost {
         &self,
         _params: DpopProofParams,
     ) -> Result<DpopProofResult, HostError> {
-        Err(HostError::Cannot("the mini host holds no DPoP key".to_owned()))
+        Err(HostError::Cannot(
+            "the mini host holds no DPoP key".to_owned(),
+        ))
     }
 
     /// Attestation: refused — the flow proceeds without, and an issuer

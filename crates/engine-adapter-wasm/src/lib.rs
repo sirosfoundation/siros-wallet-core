@@ -179,8 +179,9 @@ impl WasmEngine {
             // JSON round-trip gives the page exactly the wire shape.
             Ok(result) => {
                 let text = serde_json::to_string(&result).unwrap_or_default();
-                js_sys::JSON::parse(&text)
-                    .map_err(|_| rpc_error(wmp_core::error::ERR_INTERNAL_ERROR, "serialize the result"))
+                js_sys::JSON::parse(&text).map_err(|_| {
+                    rpc_error(wmp_core::error::ERR_INTERNAL_ERROR, "serialize the result")
+                })
             }
             Err(err) => {
                 // The whole RPC error — the data carries the flow's
@@ -198,8 +199,7 @@ impl WasmEngine {
 fn rpc_error(code: i32, message: &str) -> JsValue {
     let error = serde_json::json!({ "code": code, "message": message });
     let text = serde_json::to_string(&error).unwrap_or_default();
-    js_sys::JSON::parse(&text)
-        .unwrap_or_else(|_| JsValue::from_str(message))
+    js_sys::JSON::parse(&text).unwrap_or_else(|_| JsValue::from_str(message))
 }
 
 /// A required member of the config, of any type (the `host` and

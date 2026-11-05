@@ -23,13 +23,13 @@
 )]
 
 use siros_codec::date::Date;
-use siros_zkp_req::ZkProof;
 use siros_zkp_catalogues::prover::{
     NymAuthProofVerifier, NymAuthProver, ProofFailure, ProofJob, ProofOutput, ProverFailure,
     Statement,
 };
 use siros_zkp_catalogues::system::{ArtifactPin, NymAuthSystem};
 use siros_zkp_catalogues::verifier_id::PseudonymValue;
+use siros_zkp_req::ZkProof;
 use zk_cred_longfellow::nymauth::{
     NymAuthCircuitParams, NymAuthError, NymAuthProver as Prover, NymAuthRequest,
     NymAuthVerifier as Verifier, NymAuthWitnessInput,

@@ -979,7 +979,7 @@ async fn request_and_deliver(
             ctx.http().as_ref(),
             ctx.host().as_ref(),
             issuer_metadata,
-            Some(&token),
+            Some(token),
             aux.dpop.as_ref(),
             notification_id,
             "credential_accepted",
@@ -1069,7 +1069,6 @@ mod auth_code_flow_tests {
 
     struct FakeHost {
         authorization_urls: Mutex<Vec<String>>,
-        sign_key_ids: Mutex<Vec<Option<String>>>,
     }
     #[async_trait::async_trait]
     impl Host for FakeHost {
@@ -1267,7 +1266,6 @@ mod auth_code_flow_tests {
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
-            sign_key_ids: Mutex::new(Vec::new()),
         });
         let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host.clone());
         let flow = Oid4vciFlow;
@@ -1277,15 +1275,19 @@ mod auth_code_flow_tests {
         assert_eq!(result.flow_id, "flow-1");
 
         // The handoff: the authorization URL carries the PAR request_uri
-        // and only client_id beside it.
-        let urls = host.authorization_urls.lock().expect("lock");
-        assert_eq!(urls.len(), 1);
-        assert!(urls[0].starts_with("https://as.example/authorize?"));
-        assert!(urls[0].contains("request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Apar-1"));
-        assert!(urls[0].contains("client_id=client-1"));
-        // The pushed parameters are NOT in the URL (PAR: server-side).
-        assert!(!urls[0].contains("code_challenge="));
-        drop(urls);
+        // and only client_id beside it. The guard is block-scoped: the
+        // lock must not live across the resume's await.
+        {
+            let urls = host.authorization_urls.lock().expect("lock");
+            assert_eq!(urls.len(), 1);
+            assert!(urls[0].starts_with("https://as.example/authorize?"));
+            assert!(
+                urls[0].contains("request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Apar-1")
+            );
+            assert!(urls[0].contains("client_id=client-1"));
+            // The pushed parameters are NOT in the URL (PAR: server-side).
+            assert!(!urls[0].contains("code_challenge="));
+        }
 
         // ── The second call: the redirect's answer ─────────────────────
         // The state the Rng port produced (bytes 0..16).
@@ -1318,7 +1320,6 @@ mod auth_code_flow_tests {
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
-            sign_key_ids: Mutex::new(Vec::new()),
         });
         let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host.clone());
         let flow = Oid4vciFlow;

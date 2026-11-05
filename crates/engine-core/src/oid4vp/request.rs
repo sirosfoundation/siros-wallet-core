@@ -63,10 +63,7 @@ fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
     // The scheme forms: everything after `://` (the `?` optional).
     let query = match text.split_once("://") {
         Some((scheme, rest)) => {
-            if !matches!(
-                scheme,
-                "openid4vp" | "haip" | "haip-vp" | "mdoc-openid4vp"
-            ) {
+            if !matches!(scheme, "openid4vp" | "haip" | "haip-vp" | "mdoc-openid4vp") {
                 return Err(RequestError::NotRecognized);
             }
             rest.strip_prefix('?').unwrap_or(rest)
@@ -96,24 +93,29 @@ fn url_to_params(text: &str) -> Result<serde_json::Value, RequestError> {
 fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
+    // A hex digit, or 0xff when the byte is not one.
+    let hex = |v: u8| match v {
+        b'0'..=b'9' => v - b'0',
+        b'a'..=b'f' => v - b'a' + 10,
+        b'A'..=b'F' => v - b'A' + 10,
+        _ => 0xff,
+    };
     let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let hex = |v: u8| match v {
-                b'0'..=b'9' => v - b'0',
-                b'a'..=b'f' => v - b'a' + 10,
-                b'A'..=b'F' => v - b'A' + 10,
-                _ => 0xff,
-            };
-            let high = hex(bytes[index + 1]);
-            let low = hex(bytes[index + 2]);
-            if high != 0xff && low != 0xff {
-                out.push(high * 16 + low);
-                index += 3;
-                continue;
+    // The bounds are held by `get`, never by indexing: an index is a
+    // panic when the slice disagrees.
+    while let Some(&byte) = bytes.get(index) {
+        if byte == b'%' {
+            let high = bytes.get(index + 1).copied().map(hex);
+            let low = bytes.get(index + 2).copied().map(hex);
+            if let (Some(high), Some(low)) = (high, low) {
+                if high != 0xff && low != 0xff {
+                    out.push(high * 16 + low);
+                    index += 3;
+                    continue;
+                }
             }
         }
-        out.push(bytes[index]);
+        out.push(byte);
         index += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
@@ -289,8 +291,10 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
     // The direct_post channel requires a response_uri and forbids a
     // redirect_uri (OpenID4VP §5: the redirect_uri belongs to the
     // query/fragment channel).
-    if matches!(response_mode, ResponseMode::DirectPost | ResponseMode::DirectPostJwt)
-        && (response_uri.is_empty() || !redirect_uri.is_empty())
+    if matches!(
+        response_mode,
+        ResponseMode::DirectPost | ResponseMode::DirectPostJwt
+    ) && (response_uri.is_empty() || !redirect_uri.is_empty())
     {
         return Err(RequestError::DirectPostWithoutResponseUri {
             mode: response_mode_str.to_owned(),
@@ -595,9 +599,8 @@ mod tests {
     /// A compact-serialization JWT with the given header, for the
     /// request-object checks: the signature is irrelevant bytes.
     fn request_object_jwt(header: &serde_json::Value) -> String {
-        let header_text = crate::oid4vp::test_util::base64url(
-            header.to_string().as_bytes().to_vec().as_slice(),
-        );
+        let header_text =
+            crate::oid4vp::test_util::base64url(header.to_string().as_bytes().to_vec().as_slice());
         let payload_text = crate::oid4vp::test_util::base64url(
             request_json().to_string().as_bytes().to_vec().as_slice(),
         );

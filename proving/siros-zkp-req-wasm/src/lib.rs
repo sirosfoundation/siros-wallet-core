@@ -29,9 +29,9 @@ use serde_bytes::ByteBuf;
 use siros_dcql::QueryId;
 use siros_zkp_backend_longfellow::{self as longfellow, LongfellowProver};
 use siros_zkp_backend_vega::{self as vega, VegaNymAuth};
-use siros_zkp_req::{ErrorCode, ZkpPresentation};
 use siros_zkp_catalogues::prover::{NymAuthProver, ProofJob, ProofOutput, ProverFailure};
 use siros_zkp_catalogues::system::NymAuthSystem;
+use siros_zkp_req::{ErrorCode, ZkpPresentation};
 use wasm_bindgen::prelude::*;
 
 /// A refusal, as thrown to JavaScript.

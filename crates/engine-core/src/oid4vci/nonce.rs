@@ -162,7 +162,16 @@ pub async fn fetch_nonce(
         }
         dpop_nonce = super::dpop::dpop_nonce_from_response(&sent);
     }
-    let response = response.expect("the loop always stores the last response");
+    let response = match response {
+        Some(response) => response,
+        // Unreachable: the last attempt always stores its response
+        // before it breaks.
+        None => {
+            return Err(NonceError::EndpointFailed(
+                "the nonce endpoint never answered".to_owned(),
+            ))
+        }
+    };
 
     if response.status != 200 {
         return Err(NonceError::EndpointFailed(format!(
@@ -190,49 +199,55 @@ pub async fn fetch_nonce(
     Ok(nonce)
 }
 
-/// The test host: answers nothing beyond the sign asks the nonce
-/// path never makes when no DPoP binding rides the aux.
-struct TestHost;
-
-#[async_trait::async_trait]
-impl Host for TestHost {
-    async fn request_sign(
-        &self,
-        _p: engine_ports::SignParams,
-    ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
-        Err(engine_ports::HostError::Cannot("no keys in the test".to_owned()))
-    }
-    async fn request_match(
-        &self,
-        _p: engine_ports::MatchParams,
-    ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
-        Err(engine_ports::HostError::Cannot("no match in the test".to_owned()))
-    }
-    async fn request_consent(
-        &self,
-        _p: engine_ports::ConsentParams,
-    ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
-        Err(engine_ports::HostError::Cannot("no consent in the test".to_owned()))
-    }
-    async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
-        Err(engine_ports::HostError::Cannot(
-            "no tx code in the test".to_owned(),
-        ))
-    }
-    async fn open_authorization(
-        &self,
-        _f: &str,
-        _u: &str,
-    ) -> Result<(), engine_ports::HostError> {
-        Ok(())
-    }
-    fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use engine_ports::HttpError;
+
+    /// The test host: answers nothing beyond the sign asks the nonce
+    /// path never makes when no DPoP binding rides the aux.
+    struct TestHost;
+
+    #[async_trait::async_trait]
+    impl Host for TestHost {
+        async fn request_sign(
+            &self,
+            _p: engine_ports::SignParams,
+        ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot(
+                "no keys in the test".to_owned(),
+            ))
+        }
+        async fn request_match(
+            &self,
+            _p: engine_ports::MatchParams,
+        ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot(
+                "no match in the test".to_owned(),
+            ))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot(
+                "no consent in the test".to_owned(),
+            ))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot(
+                "no tx code in the test".to_owned(),
+            ))
+        }
+        async fn open_authorization(
+            &self,
+            _f: &str,
+            _u: &str,
+        ) -> Result<(), engine_ports::HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+    }
 
     struct FakeHttp {
         status: u16,
@@ -261,9 +276,15 @@ mod tests {
             body: br#"{"nonce":"fresh-1"}"#.to_vec(),
         };
         let response = br#"{"error":"invalid_nonce"}"#;
-        let outcome = handle_invalid_nonce(&http, &TestHost, response, Some("https://i.example/nonce"), false)
-            .await
-            .expect("handle");
+        let outcome = handle_invalid_nonce(
+            &http,
+            &TestHost,
+            response,
+            Some("https://i.example/nonce"),
+            false,
+        )
+        .await
+        .expect("handle");
         assert_eq!(outcome, NonceOutcome::RetryWith("fresh-1".to_owned()));
     }
 
@@ -287,9 +308,15 @@ mod tests {
             body: b"{}".to_vec(),
         };
         let response = br#"{"error":"invalid_nonce","c_nonce":"c-1"}"#;
-        let outcome = handle_invalid_nonce(&http, &TestHost, response, Some("https://i.example/nonce"), true)
-            .await
-            .expect("handle");
+        let outcome = handle_invalid_nonce(
+            &http,
+            &TestHost,
+            response,
+            Some("https://i.example/nonce"),
+            true,
+        )
+        .await
+        .expect("handle");
         assert!(matches!(
             outcome,
             NonceOutcome::Terminal(NonceError::Terminal)

@@ -325,10 +325,7 @@ impl FlowHandler for Oid4vpFlow {
                 .filter(|uri| !uri.is_empty())
         };
         if let Some(uri) = redirect_uri {
-            let _ = ctx
-                .host()
-                .open_authorization(&params.flow_id, &uri)
-                .await;
+            let _ = ctx.host().open_authorization(&params.flow_id, &uri).await;
             let _ = ctx
                 .progress(
                     "redirect_opened",
@@ -388,10 +385,10 @@ mod presentation_flow_tests {
     use crate::Ports;
     use engine_ports::{
         AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
-        DpopProofResult, EvaluationRequest, EvaluationResponse, FetchPurpose, Host, HostError,
-        HttpClient, HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchParams,
-        MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult,
-        VpParams, VpResult, VpSelection,
+        DpopProofResult, EvaluationRequest, EvaluationResponse, Host, HostError, HttpClient,
+        HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchParams, MatchResult,
+        Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult, VpParams,
+        VpResult, VpSelection,
     };
     use std::sync::{Arc, Mutex};
 

@@ -4,7 +4,7 @@
 
 use engine_conformance::runner::{run_vector, Verdict};
 use engine_conformance::script::VectorFile;
-use engine_conformance::{load, schema_path, vectors_dir};
+use engine_conformance::{load, schema_path};
 
 /// A minimal valid generator block (the schema requires the repo, the
 /// full commit and the date).
@@ -402,7 +402,7 @@ fn the_repository_loads_when_present() {
     match load() {
         Ok(vectors) => {
             assert!(
-                vectors.iter().all(|v| v.id != ""),
+                vectors.iter().all(|v| !v.id.is_empty()),
                 "every loaded vector has an id"
             );
         }

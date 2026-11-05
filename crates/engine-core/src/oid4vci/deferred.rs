@@ -41,6 +41,12 @@ pub enum DeferredError {
 /// - The maximum: 60 attempts (≈5 minutes at the default interval).
 /// - The request carries the same access token; a 200 answers the
 ///   credential; a 202 answers "not yet, keep polling".
+//
+// The argument count is the shape: the poller mirrors the credential
+// request it follows (the token, the DPoP binding, the transaction it
+// polls, the issuer's interval, the progress hook), so the parameters
+// ride loose instead of a nested context.
+#[allow(clippy::too_many_arguments)]
 pub async fn poll_deferred_credential(
     http: &dyn HttpClient,
     host: &dyn Host,
@@ -130,9 +136,7 @@ pub async fn poll_deferred_credential(
                 })
                 .await
                 .map_err(|err| match err {
-                    HttpError::Refused => {
-                        DeferredError::Fetch("refused by the adapter".to_owned())
-                    }
+                    HttpError::Refused => DeferredError::Fetch("refused by the adapter".to_owned()),
                     HttpError::Transport(detail) => DeferredError::Fetch(detail),
                 })?;
             if retry == 1 || !super::dpop::is_dpop_nonce_error(&sent) {
@@ -141,7 +145,16 @@ pub async fn poll_deferred_credential(
             }
             dpop_nonce = super::dpop::dpop_nonce_from_response(&sent);
         }
-        let response = response.expect("the retry loop always stores the last response");
+        let response = match response {
+            Some(response) => response,
+            // Unreachable: the last attempt always stores its response
+            // before it breaks.
+            None => {
+                return Err(DeferredError::Fetch(
+                    "the deferred endpoint never answered".to_owned(),
+                ))
+            }
+        };
 
         match response.status {
             200 => {
@@ -207,14 +220,11 @@ pub async fn send_notification(
     // token authorizes the notification like any other resource
     // request — the DPoP scheme with a fresh `ath`-bound proof, the
     // nonce retry included (§8.1).
-    let dpop_bound = token
-        .map(|token| token.token_type.eq_ignore_ascii_case("DPoP"))
-        .unwrap_or(false);
+    let dpop_token = token.filter(|token| token.token_type.eq_ignore_ascii_case("DPoP"));
     let mut dpop_nonce = dpop.and_then(|dpop| dpop.dpop_nonce).map(str::to_owned);
     for attempt in 0..2 {
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
-        if dpop_bound {
-            let token = token.expect("checked above");
+        if let Some(token) = dpop_token {
             headers.push((
                 "authorization".to_owned(),
                 format!("DPoP {}", token.access_token),
@@ -362,19 +372,25 @@ mod tests {
             &self,
             _p: engine_ports::SignParams,
         ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
-            Err(engine_ports::HostError::Cannot("no keys in the test".to_owned()))
+            Err(engine_ports::HostError::Cannot(
+                "no keys in the test".to_owned(),
+            ))
         }
         async fn request_match(
             &self,
             _p: engine_ports::MatchParams,
         ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
-            Err(engine_ports::HostError::Cannot("no match in the test".to_owned()))
+            Err(engine_ports::HostError::Cannot(
+                "no match in the test".to_owned(),
+            ))
         }
         async fn request_consent(
             &self,
             _p: engine_ports::ConsentParams,
         ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
-            Err(engine_ports::HostError::Cannot("no consent in the test".to_owned()))
+            Err(engine_ports::HostError::Cannot(
+                "no consent in the test".to_owned(),
+            ))
         }
         async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
             Err(engine_ports::HostError::Cannot(

@@ -64,10 +64,12 @@ pub enum Step {
         /// The step.
         wmp_in: WmpIn,
     },
-    /// An outgoing HTTP request the engine makes.
+    /// An outgoing HTTP request the engine makes. The payload is boxed:
+    /// the expect/reply pair dwarfs the other steps, and a script is
+    /// deserialized once, not held in bulk.
     HttpOut {
         /// The step.
-        http_out: HttpOut,
+        http_out: Box<HttpOut>,
     },
     /// A sub-flow the engine asks the wallet host for.
     HostAsk {

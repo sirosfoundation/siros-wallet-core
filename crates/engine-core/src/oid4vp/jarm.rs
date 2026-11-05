@@ -35,9 +35,6 @@ use super::types::{AuthorizationRequest, ResponseError};
 /// The self-issued issuer for the JARM response (JARM §4.1).
 pub const SELF_ISSUED_ISS: &str = "https://self-issued.me/v2";
 
-/// The response lifetime: five minutes (the P0.6-verified Go behaviour).
-const RESPONSE_LIFETIME_SECS: i64 = 300;
-
 /// The default `enc` when the client metadata declares none.
 pub const DEFAULT_CONTENT_ENCRYPTION: &str = "A128GCM";
 

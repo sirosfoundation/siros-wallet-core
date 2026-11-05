@@ -89,47 +89,38 @@ pub fn unsatisfied_required_queries(
 
     let sets = query.get("credential_sets").and_then(Value::as_array);
     let referenced: Vec<String> = sets
-        .iter()
-        .flat_map(|sets| sets.iter())
+        .into_iter()
+        .flatten()
         .filter_map(|set| set.get("options"))
         .filter_map(Value::as_array)
         .flatten()
-        .flat_map(|option| option_ids(option))
+        .flat_map(option_ids)
         .collect();
 
     let mut unsatisfied: Vec<String> = queries
         .iter()
         .filter(|q| {
             let id = q.get("id").and_then(Value::as_str).unwrap_or_default();
-            let required = q
-                .get("required")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            required
-                && !id.is_empty()
-                && !referenced.iter().any(|r| r == id)
-                && !answered(id)
+            let required = q.get("required").and_then(Value::as_bool).unwrap_or(true);
+            required && !id.is_empty() && !referenced.iter().any(|r| r == id) && !answered(id)
         })
         .filter_map(|q| q.get("id").and_then(Value::as_str).map(str::to_owned))
         .collect();
 
     // The required credential_sets: at least one fully-answered option.
     for set in sets.into_iter().flatten() {
-        let required = set
-            .get("required")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
+        let required = set.get("required").and_then(Value::as_bool).unwrap_or(true);
         if !required {
             continue;
         }
-        let options_answered = set
-            .get("options")
-            .and_then(Value::as_array)
-            .is_some_and(|options| {
-                options
-                    .iter()
-                    .any(|option| option_ids(option).iter().all(|id| answered(id)))
-            });
+        let options_answered =
+            set.get("options")
+                .and_then(Value::as_array)
+                .is_some_and(|options| {
+                    options
+                        .iter()
+                        .any(|option| option_ids(option).iter().all(|id| answered(id)))
+                });
         if !options_answered {
             unsatisfied.push("credential_set".to_owned());
         }

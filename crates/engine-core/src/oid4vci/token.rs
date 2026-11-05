@@ -391,11 +391,7 @@ async fn build_client_assertion(
         "exp": now + 300,
         "jti": jti,
     });
-    let tbs = format!(
-        "{}.{}",
-        base64url_json(&header),
-        base64url_json(&payload),
-    );
+    let tbs = format!("{}.{}", base64url_json(&header), base64url_json(&payload),);
     let kid = exchange
         .client_key_kid
         .unwrap_or(CLIENT_AUTH_KEY_ID)
@@ -420,7 +416,7 @@ async fn build_client_assertion(
 
 /// Minimal base64url encoding of a JSON value — the JOSE wire form.
 fn base64url_json(value: &serde_json::Value) -> String {
-    base64url(&value.to_string().as_bytes().to_vec())
+    base64url(value.to_string().as_bytes())
 }
 
 /// Minimal base64url encoding of bytes.
