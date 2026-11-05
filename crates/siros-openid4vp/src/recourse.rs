@@ -10,9 +10,18 @@ use crate::authenticate::Unauthenticated;
 use crate::envelope::Parameters;
 #[cfg(feature = "uri")]
 use crate::jose::JwsError;
-use crate::refusal::ErrorCode;
+#[cfg(feature = "uri")]
+use crate::modes::ErrorForm;
+use crate::plugins::Fault;
+use crate::refusal::{ErrorCode, ErrorDescription};
+#[cfg(feature = "uri")]
+use crate::resolve::PostBody;
+use crate::resolve::{DcApiData, Delivery, ErrorResponse};
 use crate::routing::Echo;
+#[cfg(feature = "uri")]
+use crate::uri::FormBody;
 use crate::uri::ResponseUri;
+use crate::{FAULT, detail};
 
 /// Why a request is refused before its Verifier is authenticated.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -172,6 +181,64 @@ impl<'r> Rejected<'r> {
     pub const fn route(&self) -> Option<&ErrorRoute<'r>> {
         self.route.as_ref()
     }
+
+    /// The failure's error on its route, in the clear: its code, its text sanitized as the
+    /// description, and `state` as received. Over the DC API A.4's `{"error": code}`, or
+    /// [`Reply::Cancel`] under [`DcApiErrors::Cancel`]; by URI §8.2's plain form POSTed to the
+    /// route's `response_uri`. [`Reply::Cancel`] for a terminating failure and without a route.
+    ///
+    /// # Errors
+    ///
+    /// A URI route in a build without the feature `uri`, which receives no request by URI.
+    pub fn reply(&self, policy: DcApiErrors) -> Result<Reply, Fault> {
+        let (Some(code), Some(route)) = (self.failure.code(), &self.route) else {
+            return Ok(Reply::Cancel);
+        };
+        let error = ErrorResponse::of(
+            code,
+            ErrorDescription::sanitized(&self.failure.to_string()),
+            route.echo.clone(),
+        );
+        match (&route.target, policy) {
+            (ErrorTarget::DcApi, DcApiErrors::Cancel) => Ok(Reply::Cancel),
+            (ErrorTarget::DcApi, DcApiErrors::Respond) => {
+                Ok(Reply::Deliver(Delivery::DcApi(DcApiData::error(&error))))
+            }
+            #[cfg(feature = "uri")]
+            (ErrorTarget::Listed(endpoint) | ErrorTarget::Unverified(endpoint), _) => {
+                let form = FormBody::of(&ErrorForm::of(&error))
+                    .map_err(|e| Fault::caused(FAULT, detail!("the plain error form"), e))?;
+                Ok(Reply::Deliver(Delivery::Post {
+                    endpoint: endpoint.clone(),
+                    body: PostBody::form(form),
+                }))
+            }
+            #[cfg(not(feature = "uri"))]
+            (ErrorTarget::Listed(_) | ErrorTarget::Unverified(_), _) => Err(Fault::new(
+                FAULT,
+                detail!("an error route by URI in a build without the feature uri"),
+            )),
+        }
+    }
+}
+
+/// What the wallet does with an error over the DC API (§15.9.2), which the app's configuration
+/// picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DcApiErrors {
+    /// The flow ends without a response.
+    Cancel,
+    /// The error goes back as A.4's `{"error": code}`.
+    Respond,
+}
+
+/// What the caller does with an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reply {
+    /// Delivers it.
+    Deliver(Delivery),
+    /// Ends the flow without a response.
+    Cancel,
 }
 
 /// The route over the DC API.

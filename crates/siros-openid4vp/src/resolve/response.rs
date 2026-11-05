@@ -120,7 +120,15 @@ impl ResponseMember {
 }
 
 /// An Authorization Response (§8.1): the VP Token, the request's `state`, and the registered
-/// response parameters' members. Only phase 2 makes one, from the routing.
+/// response parameters' members. Only phase 2 makes one, from the routing:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::resolve::{AuthorizationResponse, VpToken};
+///
+/// fn forged(vp_token: VpToken) -> AuthorizationResponse<'static> {
+///     AuthorizationResponse { vp_token, state: None, members: Vec::new() }
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct AuthorizationResponse<'a> {
     vp_token: VpToken,
@@ -180,7 +188,16 @@ impl<'a> AuthorizationResponse<'a> {
 }
 
 /// An error response (§8.5, RFC 6749 §4.1.2.1): its code, its description, and `state` as
-/// received. Only the core's route and rejection make one.
+/// received. Only the core's route and rejection make one:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::refusal::ErrorCode;
+/// use siros_openid4vp::resolve::ErrorResponse;
+///
+/// fn forged() -> ErrorResponse<'static> {
+///     ErrorResponse { code: ErrorCode::ACCESS_DENIED, description: None, echo: None }
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct ErrorResponse<'a> {
     code: ErrorCode,
@@ -189,6 +206,18 @@ pub struct ErrorResponse<'a> {
 }
 
 impl<'a> ErrorResponse<'a> {
+    pub(crate) const fn of(
+        code: ErrorCode,
+        description: Option<ErrorDescription>,
+        echo: Option<Echo<'a>>,
+    ) -> Self {
+        Self {
+            code,
+            description,
+            echo,
+        }
+    }
+
     /// The code.
     #[must_use]
     pub const fn code(&self) -> ErrorCode {
@@ -235,11 +264,7 @@ impl<'a> ErrorResponse<'a> {
         description: Option<ErrorDescription>,
         echo: Option<Echo<'a>>,
     ) -> Self {
-        Self {
-            code,
-            description,
-            echo,
-        }
+        Self::of(code, description, echo)
     }
 }
 
@@ -250,6 +275,16 @@ pub enum AnswerContent<'a> {
     /// The Authorization Response, in the clear.
     Clear(&'a AuthorizationResponse<'a>),
     /// The Authorization Response sealed to the route's key.
+    Sealed(&'a SealedJwe),
+}
+
+/// What an error mode wraps: the clear error on a route the core seals nothing on, the JWE the
+/// core sealed it in on a sealed one.
+#[derive(Debug, Clone, Copy)]
+pub enum ErrorContent<'a> {
+    /// The error response, in the clear.
+    Clear(&'a ErrorResponse<'a>),
+    /// The error response sealed to the route's key.
     Sealed(&'a SealedJwe),
 }
 
@@ -438,7 +473,15 @@ pub enum Delivery {
 }
 
 /// Phase 2's answer: the Authorization Response and its delivery. Only `Prepared::respond`
-/// makes one.
+/// makes one, so a delivery goes where the route sends it:
+///
+/// ```compile_fail,E0451
+/// use siros_openid4vp::resolve::{AuthorizationResponse, Built, Delivery};
+///
+/// fn forged(response: AuthorizationResponse<'_>, delivery: Delivery) -> Built<'_> {
+///     Built { response, delivery }
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Built<'p> {
     response: AuthorizationResponse<'p>,

@@ -124,6 +124,13 @@ released version yet.
   `dc_api.jwt` `{"response": JWE}`, `direct_post.jwt` `response=<JWE>`
   (`ResponseForm`). `siros-testkit`'s `TestMode` writes a body of either
   channel (`TestBody`), and `JweHaip` seals with ECDH-ES.
+- A URI response mode writes the form around an error (`ErrorModeHost::error`,
+  `ErrorContent`), which `error_mode` registers through `HostedErrorMode`:
+  `direct_post` and `direct_post.jwt` write §8.2's plain form (`ErrorForm`),
+  `direct_post.jwt` `response=<JWE>` for an error the core sealed. A
+  rejection's error goes in the clear on its route (`Rejected::reply`): A.4's
+  `{"error": code}` over the DC API, or a cancelled flow (`DcApiErrors`,
+  `Reply`), and §8.2's plain form by URI.
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads

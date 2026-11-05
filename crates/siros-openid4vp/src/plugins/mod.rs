@@ -30,8 +30,8 @@ pub use members::{JsonText, Member, MemberTwice, MemberValue, Members};
 #[cfg(feature = "transaction-data")]
 pub use registry::Hashes;
 pub use registry::{
-    Build, HostedFormat, HostedMode, HostedProfile, JweHost, NoHost, ProfileHandle, Registry,
-    RegistryBuilder, RegistryError,
+    Build, HostedErrorMode, HostedFormat, HostedMode, HostedProfile, JweHost, NoHost,
+    ProfileHandle, Registry, RegistryBuilder, RegistryError,
 };
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};

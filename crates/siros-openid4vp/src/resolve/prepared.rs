@@ -17,7 +17,7 @@ use crate::host::{
     Host, Platform, PresentError, Usable,
 };
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
-use crate::plugins::registry::{DynProfile, Placed, Role};
+use crate::plugins::registry::{DynProfile, Placed, RegisteredMode};
 use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
     ProfileHandle, Registry,
@@ -264,22 +264,21 @@ fn route<'r, 'k, 'h, H: CoreHost>(
     let routed = accepted.mode();
     let registered = registry
         .mode_host(routed.handle())
-        .filter(|registered| registered.mode.name() == routed.name())
+        .filter(|registered| registered.mode().name() == routed.name())
         .ok_or_else(|| {
             Fault::new(
                 FAULT,
                 detail!("the request's mode is none the registry holds"),
             )
         })?;
-    let (sealer, haip) = match &registered.role {
-        Role::Clear => (Agreements::NONE, None),
-        Role::Jwe(access) => {
+    let (mode, sealer, haip): (&'r dyn ModeHost<H>, _, _) = match registered {
+        RegisteredMode::Clear(mode) => (mode.as_ref(), Agreements::NONE, None),
+        RegisteredMode::Jwe(mode, access) => {
             let haip = access(host);
-            (haip.agreements(), Some(haip))
+            (mode.as_ref(), haip.agreements(), Some(haip))
         }
-        Role::Errors => return Err(breach(RouteBreach::ErrorsAnswered)),
+        RegisteredMode::Errors(_) => return Err(breach(RouteBreach::ErrorsAnswered)),
     };
-    let mode: &'r dyn ModeHost<H> = registered.mode.as_ref();
     let encrypting = mode
         .encryption(metadata, &sealer, host)
         .map_err(|refusal| Outcome::Refused(Refused::one(refusal)))?;

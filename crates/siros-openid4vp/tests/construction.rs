@@ -547,8 +547,9 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
         Err(RegistryError::DecryptionWithoutPost)
     );
     // An error mode on the DC API, whose errors A.4 fixes.
+    let dc_api_errors = TestMode::new(DcApi.name(), ChannelKind::DcApi);
     let mut builder = Registry::<TestHost>::builder();
-    builder.error_mode(DcApi);
+    builder.error_mode(dc_api_errors);
     assert_eq!(
         builder.build().map(drop),
         Err(RegistryError::ErrorModeChannel(DcApi.name()))

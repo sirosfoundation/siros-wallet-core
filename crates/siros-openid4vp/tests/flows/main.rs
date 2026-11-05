@@ -1,13 +1,14 @@
 //! The flows' request side: requests by URI and their fetch (U3 to U11, U18, U19), the envelope
 //! (U12 to U14, U16, U17), routing (P1, C5, P5, P6, P7, N1, S3, C7), Verifier authentication
-//! (A1 to A13) and the routes of refused requests; one fixture per rule, each asserting the rule's
-//! variant or code, the tamper cases with why each fails, and the known answers of OpenID4VP's
-//! examples.
+//! (A1 to A13), the routes of refused requests and the error's form; one fixture per rule, each
+//! asserting the rule's variant or code, the tamper cases with why each fails, and the known
+//! answers of OpenID4VP's examples.
 
 mod authenticate;
 #[path = "../common/mod.rs"]
 mod common;
 mod envelope;
+mod errors;
 mod routing;
 mod uri;
 

@@ -17,6 +17,8 @@ use crate::json::Node;
 use crate::json::quote;
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::plugins::Fault;
+#[cfg(feature = "uri")]
+use crate::refusal::ErrorDescription;
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::refusal::Refusal;
 use crate::refusal::{ErrorCode, RequestRule};
@@ -25,12 +27,14 @@ use crate::request::Request;
 use crate::request::{Agreements, ContentEncryption, Curve, KeyAgreement};
 #[cfg(all(feature = "resolve", feature = "dc-api"))]
 use crate::resolve::DcApiData;
-#[cfg(feature = "uri")]
-use crate::resolve::PostBody;
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::resolve::{AnswerContent, Body, ModeRoute};
+#[cfg(feature = "uri")]
+use crate::resolve::{ErrorContent, ErrorResponse, PostBody};
 #[cfg(any(feature = "dc-api", feature = "uri"))]
 use crate::routing::{ChannelKind, Mode};
+#[cfg(feature = "uri")]
+use crate::routing::{Echo, ErrorModeHost};
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 use crate::routing::{Encrypting, ModeHost};
 use crate::routing::{ModeName, VerifierKey, VerifierMetadata};
@@ -81,6 +85,31 @@ impl<'a> ResponseForm<'a> {
     pub fn of(jwe: &'a SealedJwe) -> Self {
         Self {
             response: jwe.as_str(),
+        }
+    }
+}
+
+/// §8.2's plain error form, in this order: `error`; `error_description` when the error has one;
+/// `state` when the request has one, as received (RFC 6749 §4.1.2.1).
+#[cfg(all(feature = "uri", feature = "resolve"))]
+#[derive(Debug, serde::Serialize)]
+pub struct ErrorForm<'a> {
+    error: ErrorCode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_description: Option<&'a ErrorDescription>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<&'a Echo<'a>>,
+}
+
+#[cfg(all(feature = "uri", feature = "resolve"))]
+impl<'a> ErrorForm<'a> {
+    /// The form of the error.
+    #[must_use]
+    pub const fn of(error: &'a ErrorResponse<'a>) -> Self {
+        Self {
+            error: error.code(),
+            error_description: error.description(),
+            state: error.echo(),
         }
     }
 }
@@ -423,37 +452,38 @@ impl<H> ModeHost<H> for DirectPostJwt {
     }
 }
 
-/// `direct_post` carries errors alone, in the clear.
+/// §8.2's plain form; the core seals nothing on its route.
 #[cfg(feature = "uri")]
-impl<H> ModeHost<H> for DirectPost {
-    fn encryption<'k>(
-        &self,
-        _metadata: &'k VerifierMetadata<'k>,
-        _sealer: &Agreements,
-        _host: &H,
-    ) -> Result<Encrypting<'k>, Refusal> {
-        Ok(Encrypting::Plain)
-    }
-
-    /// None.
-    fn wallet_metadata(
-        &self,
-        _sealer: &Agreements,
-        _host: &H,
-    ) -> Result<Vec<MetadataMember>, Fault> {
-        Ok(Vec::new())
-    }
-
-    /// None: the core routes no answer to a mode registered for errors alone.
-    fn answer(
+impl<H> ErrorModeHost<H> for DirectPost {
+    fn error(
         &self,
         _route: &ModeRoute<'_>,
-        _content: &AnswerContent<'_>,
+        content: &ErrorContent<'_>,
         _host: &H,
-    ) -> Result<Body, Fault> {
-        Err(Fault::new(
-            FAULT,
-            detail!("direct_post carries errors alone"),
-        ))
+    ) -> Result<PostBody, Fault> {
+        match content {
+            ErrorContent::Clear(error) => form(&ErrorForm::of(error)),
+            ErrorContent::Sealed(_) => Err(Fault::new(
+                FAULT,
+                detail!("direct_post's route is in the clear"),
+            )),
+        }
+    }
+}
+
+/// `response=<JWE>` on a route with a key; §8.2's plain form without one (§8.3.1: "it MAY send
+/// an error response without encryption").
+#[cfg(feature = "uri")]
+impl<H> ErrorModeHost<H> for DirectPostJwt {
+    fn error(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &ErrorContent<'_>,
+        _host: &H,
+    ) -> Result<PostBody, Fault> {
+        match content {
+            ErrorContent::Sealed(jwe) => form(&ResponseForm::of(jwe)),
+            ErrorContent::Clear(error) => form(&ErrorForm::of(error)),
+        }
     }
 }

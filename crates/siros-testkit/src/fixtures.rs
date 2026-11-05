@@ -17,7 +17,9 @@ use siros_openid4vp::json::quote;
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
 use siros_openid4vp::plugins::Fault;
-use siros_openid4vp::plugins::{Build, HostedMode, Registry, RegistryBuilder, RegistryError};
+use siros_openid4vp::plugins::{
+    Build, HostedErrorMode, HostedMode, Registry, RegistryBuilder, RegistryError,
+};
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
@@ -285,7 +287,7 @@ pub fn openid4vp_clear<H>(builder: &mut RegistryBuilder<H>)
 where
     H: Build,
     DcApi: HostedMode<H>,
-    DirectPost: HostedMode<H>,
+    DirectPost: HostedErrorMode<H>,
 {
     hashes(builder);
     builder.response_type(VpToken);

@@ -16,8 +16,8 @@ mod selection;
 
 pub use prepared::Prepared;
 pub use response::{
-    AnswerContent, AuthorizationResponse, Body, Built, DcApiData, Delivery, ErrorResponse,
-    FormMedia, ModeRoute, NotObject, PostBody, ResponseMember, RouteKey, VpToken,
+    AnswerContent, AuthorizationResponse, Body, Built, DcApiData, Delivery, ErrorContent,
+    ErrorResponse, FormMedia, ModeRoute, NotObject, PostBody, ResponseMember, RouteKey, VpToken,
 };
 
 use siros_explain::{AllOf, Explain, Explained};

@@ -20,7 +20,7 @@ use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::Agreements;
 use crate::request::{AgreeableKey, ClientMetadata, ContentEncryption, Request};
 #[cfg(feature = "resolve")]
-use crate::resolve::{AnswerContent, Body, ModeRoute};
+use crate::resolve::{AnswerContent, Body, ErrorContent, ModeRoute, PostBody};
 #[cfg(feature = "resolve")]
 use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
@@ -473,6 +473,13 @@ impl<'r> Echo<'r> {
         Self(text)
     }
 
+    /// `state` as a plug-in's tests receive it.
+    #[cfg(feature = "test-util")]
+    #[must_use]
+    pub const fn new(text: Cow<'r, str>) -> Self {
+        Self(text)
+    }
+
     /// Its text.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -895,4 +902,30 @@ pub trait ModeHost<H>: Mode {
         content: &AnswerContent<'_>,
         host: &H,
     ) -> Result<Body, Fault>;
+}
+
+/// A URI response mode's error responses over the build's host (§8.2, §8.3.1): the form body
+/// around the error.
+///
+/// # Implementing
+///
+/// `error` writes the [`PostBody`] around the [`ErrorContent`]: the clear error on a route the
+/// core seals nothing on, the JWE the core sealed the error in to the route's key on a sealed
+/// one. The core sends the body to the route's `response_uri`; over the DC API it writes A.4's
+/// error itself, and the registry refuses a DC API mode registered for errors
+/// (`RegistryError::ErrorModeChannel`). A mode registered with `error_mode` alone carries
+/// errors alone: C5 refuses a request naming it.
+#[cfg(feature = "resolve")]
+pub trait ErrorModeHost<H>: Mode {
+    /// The body around an error.
+    ///
+    /// # Errors
+    ///
+    /// The mode cannot write it: its bug, or a module it calls failed.
+    fn error(
+        &self,
+        route: &ModeRoute<'_>,
+        content: &ErrorContent<'_>,
+        host: &H,
+    ) -> Result<PostBody, Fault>;
 }

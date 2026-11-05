@@ -10,10 +10,10 @@ use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, ContentEncryption, Request};
-use siros_openid4vp::resolve::{AnswerContent, Body, DcApiData, ModeRoute, PostBody};
+use siros_openid4vp::resolve::{AnswerContent, Body, DcApiData, ErrorContent, ModeRoute, PostBody};
 use siros_openid4vp::routing::{
-    ChannelKind, Encrypting, Mode, ModeHost, ModeName, ResponseType, ResponseTypeName,
-    VerifierMetadata,
+    ChannelKind, Encrypting, ErrorModeHost, Mode, ModeHost, ModeName, ResponseType,
+    ResponseTypeName, VerifierMetadata,
 };
 use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
@@ -59,7 +59,7 @@ pub enum TestBody {
     Other,
 }
 
-/// A response mode a test configures: its name and channel, its request rule, the
+/// A response mode a test configures, for answers and for errors: its name and channel, its request rule, the
 /// `wallet_metadata` names it declares and the members it writes, which may name what it did not
 /// declare, its encryption choice, and the channel whose body it writes. A DC API body is the
 /// clear response's JSON or `{"response": JWE}`; a POST body the form of `vp_token` and `state`
@@ -183,6 +183,34 @@ impl<H> ModeHost<H> for TestMode {
                     .map_err(|e| Fault::caused(FAULT, detail!("a test mode's form"), e))?,
             )),
         })
+    }
+}
+
+/// Needs no module: the plain error form of `error`, `error_description` and `state`, or
+/// `response=<JWE>`.
+impl<H> ErrorModeHost<H> for TestMode {
+    fn error(
+        &self,
+        _route: &ModeRoute<'_>,
+        content: &ErrorContent<'_>,
+        _host: &H,
+    ) -> Result<PostBody, Fault> {
+        let members = match content {
+            ErrorContent::Clear(error) => {
+                let mut members = vec![("error", error.code().as_str())];
+                if let Some(description) = error.description() {
+                    members.push(("error_description", description.as_str()));
+                }
+                if let Some(echo) = error.echo() {
+                    members.push(("state", echo.as_str()));
+                }
+                members
+            }
+            ErrorContent::Sealed(jwe) => vec![("response", jwe.as_str())],
+        };
+        FormBody::of(&members)
+            .map(PostBody::form)
+            .map_err(|e| Fault::caused(FAULT, detail!("a test mode's form"), e))
     }
 }
 

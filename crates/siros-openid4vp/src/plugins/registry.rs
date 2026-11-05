@@ -30,11 +30,11 @@ use crate::ids::{FormatId, TransactionType, TypePrefix};
 use crate::request::Agreements;
 #[cfg(feature = "request-decryption")]
 use crate::request::Curve;
-#[cfg(feature = "resolve")]
-use crate::routing::ModeHost;
 use crate::routing::{
     Carries, ChannelKind, Mode, ModeHandle, ModeName, ResponseType, ResponseTypeName, RoutedMode,
 };
+#[cfg(feature = "resolve")]
+use crate::routing::{ErrorModeHost, ModeHost};
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
 #[cfg(feature = "uri")]
@@ -198,7 +198,8 @@ pub struct NoHost;
 /// phase 1's [`Format`], [`Profile`] and [`Mode`] in every build; under `resolve`, a host holding
 /// a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it
 /// ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost),
-/// [`ModeHost`](crate::routing::ModeHost)). The core implements it for those hosts alone.
+/// [`ModeHost`](crate::routing::ModeHost), [`ErrorModeHost`](crate::routing::ErrorModeHost)).
+/// The core implements it for those hosts alone.
 pub trait Build: Plugins {}
 
 impl<H: Plugins> Build for H {}
@@ -213,8 +214,10 @@ mod sealed {
         type Format: ?Sized + Format + Upcast<dyn Format>;
         /// A stored profile.
         type Profile: ?Sized + ErasedProfile + Upcast<dyn ErasedProfile>;
-        /// A stored response mode.
+        /// A stored response mode that carries answers.
         type Mode: ?Sized + Mode + Upcast<dyn Mode>;
+        /// A stored response mode that carries a URI route's errors.
+        type ErrorMode: ?Sized + Mode + Upcast<dyn Mode>;
         /// How a JWE mode's registration reaches the host's sealing module.
         type Sealing: Copy;
     }
@@ -250,6 +253,7 @@ impl Plugins for NoHost {
     type Format = dyn Format;
     type Profile = dyn ErasedProfile;
     type Mode = dyn Mode;
+    type ErrorMode = dyn Mode;
     type Sealing = ();
 }
 
@@ -268,6 +272,13 @@ impl<H> Upcast<dyn Mode> for dyn ModeHost<H> {
 }
 
 #[cfg(feature = "resolve")]
+impl<H> Upcast<dyn Mode> for dyn ErrorModeHost<H> {
+    fn upcast(&self) -> &(dyn Mode + 'static) {
+        self
+    }
+}
+
+#[cfg(feature = "resolve")]
 impl<H> Upcast<dyn ErasedProfile> for dyn DynProfile<H> {
     fn upcast(&self) -> &(dyn ErasedProfile + 'static) {
         self
@@ -279,6 +290,7 @@ impl<H: Has<dyn Platform>> Plugins for H {
     type Format = dyn FormatHost<H>;
     type Profile = dyn DynProfile<H>;
     type Mode = dyn ModeHost<H>;
+    type ErrorMode = dyn ErrorModeHost<H>;
     type Sealing = HaipAccess<H>;
 }
 
@@ -345,6 +357,28 @@ impl<H: Has<dyn Platform>, M: ModeHost<H> + 'static> HostedMode<H> for M {
     }
 }
 
+/// A response mode the registry of the host `H` takes for a URI route's errors: a [`Mode`] for
+/// [`NoHost`]; under `resolve`, a mode whose error responses run over `H`
+/// ([`ErrorModeHost`](crate::routing::ErrorModeHost)).
+pub trait HostedErrorMode<H: Build>: 'static {
+    /// The mode as the registry stores it.
+    #[doc(hidden)]
+    fn stored(self) -> Box<<H as Plugins>::ErrorMode>;
+}
+
+impl<M: Mode + 'static> HostedErrorMode<NoHost> for M {
+    fn stored(self) -> Box<dyn Mode> {
+        Box::new(self)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>, M: ErrorModeHost<H> + 'static> HostedErrorMode<H> for M {
+    fn stored(self) -> Box<dyn ErrorModeHost<H>> {
+        Box::new(self)
+    }
+}
+
 /// A host whose registry takes a JWE mode: [`NoHost`]; under `resolve`, a host holding the
 /// `Haip` that seals the mode's answers.
 pub trait JweHost: Build {
@@ -368,37 +402,38 @@ impl<H: Has<dyn Platform> + Has<dyn Haip>> JweHost for H {
 #[cfg(feature = "resolve")]
 pub(crate) type HaipAccess<H> = fn(&H) -> &dyn Haip;
 
-/// What a registered mode carries and how its answers are sealed.
-pub(crate) enum Role<H: Build> {
-    /// Answers in the clear (`mode`).
-    Clear,
-    /// Answers the core seals as JWEs through the host's `Haip` (`jwe_mode`).
-    Jwe(<H as Plugins>::Sealing),
-    /// A URI mode's errors alone (`error_mode`).
-    Errors,
+/// A registered mode by its registration: answers in the clear (`mode`), answers the core seals
+/// as JWEs through the host's `Haip` (`jwe_mode`), or a URI mode's errors alone (`error_mode`).
+pub(crate) enum RegisteredMode<H: Build> {
+    /// Answers in the clear.
+    Clear(Box<<H as Plugins>::Mode>),
+    /// Answers the core seals, and how the registration reaches the sealing module.
+    Jwe(Box<<H as Plugins>::Mode>, <H as Plugins>::Sealing),
+    /// A URI route's errors.
+    Errors(Box<<H as Plugins>::ErrorMode>),
 }
 
-impl<H: Build> Clone for Role<H> {
-    fn clone(&self) -> Self {
+impl<H: Build> RegisteredMode<H> {
+    /// The mode as phase 1 reads it.
+    pub(crate) fn mode(&self) -> &dyn Mode {
         match self {
-            Self::Clear => Self::Clear,
-            Self::Jwe(access) => Self::Jwe(*access),
-            Self::Errors => Self::Errors,
+            Self::Clear(mode) | Self::Jwe(mode, _) => mode.upcast(),
+            Self::Errors(mode) => mode.upcast(),
         }
     }
-}
 
-/// A registered mode with its role.
-pub(crate) struct RegisteredMode<H: Build> {
-    pub(crate) mode: Box<<H as Plugins>::Mode>,
-    pub(crate) role: Role<H>,
+    /// Whether it carries errors alone.
+    pub(crate) const fn carries_errors(&self) -> bool {
+        matches!(self, Self::Errors(_))
+    }
 }
 
 impl<H: Build> Clone for RegisteredMode<H> {
     fn clone(&self) -> Self {
-        Self {
-            mode: dyn_clone::clone_box(&*self.mode),
-            role: self.role.clone(),
+        match self {
+            Self::Clear(mode) => Self::Clear(dyn_clone::clone_box(&**mode)),
+            Self::Jwe(mode, access) => Self::Jwe(dyn_clone::clone_box(&**mode), *access),
+            Self::Errors(mode) => Self::Errors(dyn_clone::clone_box(&**mode)),
         }
     }
 }
@@ -530,10 +565,7 @@ impl<H: Build> RegistryBuilder<H> {
 
     /// A response mode whose answers are in the clear, keyed by its name and channel.
     pub fn mode(&mut self, mode: impl HostedMode<H>) {
-        self.modes.push(RegisteredMode {
-            mode: mode.stored(),
-            role: Role::Clear,
-        });
+        self.modes.push(RegisteredMode::Clear(mode.stored()));
     }
 
     /// A response mode whose answers the core seals as JWEs (§8.3) through the host's `Haip`,
@@ -564,20 +596,15 @@ impl<H: Build> RegistryBuilder<H> {
     where
         H: JweHost,
     {
-        self.modes.push(RegisteredMode {
-            mode: mode.stored(),
-            role: Role::Jwe(H::sealing()),
-        });
+        self.modes
+            .push(RegisteredMode::Jwe(mode.stored(), H::sealing()));
     }
 
     /// A URI response mode's error responses (§8.2, §8.3.1), keyed by its name: a mode
     /// registered here alone carries errors alone (C5 refuses a request naming it). Over the DC
     /// API the core writes A.4's error itself, so `build` refuses a DC API mode registered here.
-    pub fn error_mode(&mut self, mode: impl HostedMode<H>) {
-        self.modes.push(RegisteredMode {
-            mode: mode.stored(),
-            role: Role::Errors,
-        });
+    pub fn error_mode(&mut self, mode: impl HostedErrorMode<H>) {
+        self.modes.push(RegisteredMode::Errors(mode.stored()));
     }
 
     /// Adds a format whose phase 2 the build's host can run.
@@ -760,16 +787,16 @@ impl<H: Build> RegistryBuilder<H> {
             }
         }
         for (k, registered) in modes.iter().enumerate() {
-            let (name, channel) = (registered.mode.name(), registered.mode.channel());
-            let errors = matches!(registered.role, Role::Errors);
+            let (name, channel) = (registered.mode().name(), registered.mode().channel());
+            let errors = registered.carries_errors();
             if errors && channel == ChannelKind::DcApi {
                 return Err(RegistryError::ErrorModeChannel(name));
             }
             if modes.get(..k).is_some_and(|before| {
                 before.iter().any(|other| {
-                    other.mode.name() == name
-                        && other.mode.channel() == channel
-                        && matches!(other.role, Role::Errors) == errors
+                    other.mode().name() == name
+                        && other.mode().channel() == channel
+                        && other.carries_errors() == errors
                 })
             }) {
                 return Err(RegistryError::ModeTwice { name, channel });
@@ -1056,18 +1083,16 @@ impl<H: Has<dyn Platform>> Registry<H> {
     pub(crate) fn mode_metadata(&self, host: &H) -> Result<Vec<ModeMembers>, Fault> {
         self.modes
             .iter()
-            .filter(|registered| registered.mode.channel() == ChannelKind::Uri)
+            .filter(|registered| registered.mode().channel() == ChannelKind::Uri)
             .filter_map(|registered| {
-                let sealer = match registered.role {
-                    Role::Jwe(access) => access(host).agreements(),
-                    Role::Clear => Agreements::NONE,
-                    Role::Errors => return None,
+                let (mode, sealer) = match registered {
+                    RegisteredMode::Jwe(mode, access) => (mode, access(host).agreements()),
+                    RegisteredMode::Clear(mode) => (mode, Agreements::NONE),
+                    RegisteredMode::Errors(_) => return None,
                 };
                 Some(
-                    registered
-                        .mode
-                        .wallet_metadata(&sealer, host)
-                        .map(|members| (registered.mode.metadata_names(), members)),
+                    mode.wallet_metadata(&sealer, host)
+                        .map(|members| (mode.metadata_names(), members)),
                 )
             })
             .collect()
@@ -1331,10 +1356,10 @@ impl<H: Build> Routes for Registry<H> {
                 .iter()
                 .enumerate()
                 .find_map(|(place, registered)| {
-                    let mode = &registered.mode;
+                    let mode = registered.mode();
                     (mode.channel() == channel
                         && mode.name().as_str() == name
-                        && matches!(registered.role, Role::Errors) == errors)
+                        && registered.carries_errors() == errors)
                         .then(|| {
                             let carries = if errors {
                                 Carries::Errors
@@ -1343,7 +1368,6 @@ impl<H: Build> Routes for Registry<H> {
                             };
                             let routed =
                                 RoutedMode::of(ModeHandle::at(place), mode.name(), carries);
-                            let mode: &dyn Mode = mode.upcast();
                             (routed, mode)
                         })
                 })
@@ -1380,12 +1404,13 @@ fn names<H: Build>(
 ) -> Result<(), RegistryError> {
     let mut members: Vec<ParameterName> = Vec::new();
     for registered in modes {
-        if matches!(registered.role, Role::Errors) {
+        if registered.carries_errors() {
             continue;
         }
-        let names = registered.mode.metadata_names();
-        if registered.mode.channel() == ChannelKind::DcApi && !names.is_empty() {
-            return Err(RegistryError::MetadataChannel(registered.mode.name()));
+        let mode = registered.mode();
+        let names = mode.metadata_names();
+        if mode.channel() == ChannelKind::DcApi && !names.is_empty() {
+            return Err(RegistryError::MetadataChannel(mode.name()));
         }
         members.extend_from_slice(names);
     }
