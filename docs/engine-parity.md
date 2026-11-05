@@ -489,11 +489,27 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    the capability negotiation, an issuance flow through the bridges,
    the completion — with W7's notification members — read from the
    channel the transport polls, and the no-PDP fail-closed.
-   **Remaining (the other repos)**: the Kotlin and Swift
-   `WmpUniFFITransport`s over the handle's Transport shape, the
-   AAR/XCFramework packaging CI, and the end-to-end against the
-   deployed stack (the backend adapter's `Pdp`/host-bridge wiring to
-   the real backend).
+   **The rest landed**: the **packaging CI** (ci.yml's
+   `xcframework`/`aar` jobs — the recipes verified on every push;
+   the first runs found and fixed the v4 input change of
+   setup-android and the BSD `wc` padding); the **real e2e**
+   (`engine-adapter-server/tests/e2e.rs` — a wallet client driving a
+   complete pre-authorized issuance and its credential_notification
+   flow through the HTTP+SSE binding, the child asks answered from
+   the stream while the parent POST is in flight, the PDP proxy, the
+   issuer fetches through ServerHttpClient — the drive found and
+   fixed the credential asks' constant flow id);
+   the **SDK transports** opened as PRs:
+   [siros-sdk-kotlin#383](https://github.com/sirosfoundation/siros-sdk-kotlin/pull/383)
+   (the bindings vendored source + `WmpUniFFITransport` + the tests,
+   which run where the native library loads and skip on a plain JVM)
+   and
+   [siros-sdk-swift#264](https://github.com/sirosfoundation/siros-sdk-swift/pull/264)
+   (the same, `#if canImport`-gated so the package builds everywhere
+   today). **Remaining: the first `siros-wallet-core` release tag**
+   (the owner's call) — the release workflow builds the
+   XCFramework/AAR artifacts; the Swift PR's `binaryTarget` line +
+   checksum lands with it.
 
 **The deployment notes (§6.11):** #432 — a multi-replica deployment needs
 shared WMP routing/replay state (the outbox and the flow registry are the
