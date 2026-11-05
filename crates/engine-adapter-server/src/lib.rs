@@ -27,6 +27,7 @@
 
 pub mod config;
 pub mod handler;
+pub mod host_bridge;
 pub mod outbox;
 pub mod ports;
 pub mod token;
@@ -54,6 +55,10 @@ pub struct EngineServer {
     /// from it, and `wmp.session.resume` counts its missed messages from
     /// it.
     pub outbox: Arc<Outbox>,
+    /// The host bridge: the engine's asks as child flows over the peer.
+    /// The remote host (the `Host` port inside the ports) carries it;
+    /// exposed for the tests, which drive an ask end to end.
+    pub bridge: Arc<crate::host_bridge::WmpHostBridge>,
     /// The engine's configuration.
     pub config: config::Config,
 }
@@ -68,17 +73,22 @@ impl EngineServer {
         let store = Arc::new(MemorySessionStore::new());
         let validator = Arc::new(token::TokenValidator::from_config(&config));
         let outbox = Arc::new(Outbox::new());
+        // The flow→session notes: each flow's start records its session,
+        // and the host bridge starts the flow's asks under it.
+        let flows = crate::host_bridge::FlowSessions::new();
 
         // The ports the engine core runs on. The server adapter supplies:
         // the HTTP client (the flow families' fetches; reqwest with rustls
         // on the server, or the TEE's client), the system clock, the OS
-        // RNG, the remote WMP peer as the Host (the wallet client), the
-        // PDP client, the in-memory KV store, and a no-op telemetry.
+        // RNG, the remote wallet (the WMP client) as the Host — its asks
+        // ride child flows through the host bridge — the PDP client, the
+        // in-memory KV store, and a no-op telemetry.
+        let remote_host = Arc::new(crate::ports::RemoteHost::new(flows.clone()));
         let ports = Arc::new(engine_core::Ports {
             http: Arc::new(crate::ports::ServerHttpClient::new(&config)),
             clock: Arc::new(crate::ports::SystemClock),
             rng: Arc::new(crate::ports::OsRng),
-            host: Arc::new(crate::ports::RemoteHost),
+            host: remote_host.clone(),
             pdp: Arc::new(crate::ports::BackendProxyPdp::new(&config)),
             kv: Arc::new(crate::ports::InMemoryKv::default()),
             telemetry: Arc::new(crate::ports::NoopTelemetry),
@@ -91,7 +101,13 @@ impl EngineServer {
         let peer_config = config.clone();
         let _peer_validator = validator.clone();
         let peer_outbox = outbox.clone();
-        let peer = build_peer(&peer_config, &peer_store, ports.clone(), peer_outbox);
+        let peer = build_peer(&peer_config, &peer_store, ports.clone(), peer_outbox, flows);
+
+        // The host bridge: the engine's asks as child flows over the peer,
+        // their completions routed back through the same registry the
+        // dispatch uses. The remote host carries it from here on.
+        let bridge = crate::host_bridge::WmpHostBridge::new(peer.clone());
+        remote_host.set_bridge(bridge.clone());
 
         // Then the runtime over the same ports and peer.
         let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
@@ -102,6 +118,7 @@ impl EngineServer {
             validator,
             runtime,
             outbox,
+            bridge,
             config,
         }
     }
@@ -112,6 +129,7 @@ fn build_peer(
     store: &Arc<MemorySessionStore>,
     ports: Arc<engine_core::Ports>,
     outbox: Arc<Outbox>,
+    flows: Arc<crate::host_bridge::FlowSessions>,
 ) -> Arc<Peer> {
     // The peer needs a handler; the handler needs the runtime; the runtime
     // needs the peer. Break the cycle: build a placeholder peer first, then
@@ -124,7 +142,8 @@ fn build_peer(
         ports,
         placeholder_peer,
     ));
-    let handler = handler::EngineHandler::new(config, store, runtime.clone(), outbox.clone());
+    let handler =
+        handler::EngineHandler::new(config, store, runtime.clone(), outbox.clone(), flows);
     wmp_core::peer::PeerBuilder::new(handler)
         .session_store(store.clone())
         .transport(Arc::new(crate::outbox::OutboxTransport::new(outbox)))

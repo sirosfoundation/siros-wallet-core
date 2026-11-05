@@ -29,6 +29,9 @@ use crate::outbox::{Outbox, OutboxReplayer};
 pub struct EngineHandler {
     session: Arc<SessionHandler>,
     runtime: Arc<engine_core::runtime::FlowRuntime>,
+    /// The flow→session notes: each flow's start records the session it
+    /// runs in, so the host bridge starts the flow's asks under it.
+    flows: Arc<crate::host_bridge::FlowSessions>,
 }
 
 impl EngineHandler {
@@ -41,6 +44,7 @@ impl EngineHandler {
         store: &Arc<MemorySessionStore>,
         runtime: Arc<engine_core::runtime::FlowRuntime>,
         outbox: Arc<Outbox>,
+        flows: Arc<crate::host_bridge::FlowSessions>,
     ) -> Arc<Self> {
         let service = Arc::new(
             SessionService::new(SessionServiceConfig {
@@ -58,6 +62,7 @@ impl EngineHandler {
         Arc::new(Self {
             session: Arc::new(SessionHandler::new(service, system_clock())),
             runtime,
+            flows,
         })
     }
 }
@@ -172,6 +177,10 @@ impl Handler for EngineHandler {
         ctx: &RequestContext,
         params: &FlowStartParams,
     ) -> Result<FlowStartResult, HandlerError> {
+        // The flow's session: the host bridge starts this flow's asks
+        // under it (the child flows' wmp envelopes name the same
+        // session, so the client's answers route back).
+        self.flows.note(&params.flow_id, &params.wmp.session_id);
         // The runtime's start_flow is async; the peer's dispatch is sync.
         // Bridge through the current runtime: block_in_place tells the
         // multi-threaded runtime this thread is going to block, so it can
@@ -204,6 +213,8 @@ impl Handler for EngineHandler {
         ctx: &RequestContext,
         params: &FlowCancelParams,
     ) -> Result<FlowCancelResult, HandlerError> {
+        // The flow is off: its session note goes with it.
+        self.flows.forget(&params.flow_id);
         tokio::task::block_in_place(|| {
             let runtime = self.runtime.clone();
             let ctx = ctx.clone();

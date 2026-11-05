@@ -458,6 +458,15 @@ impl Peer {
         ))
     }
 
+    /// The peer's registry: the profiles, the middleware chain, and the
+    /// routes of active flows. Read-only access for adapters that route
+    /// sub-flow completions through the same machinery the dispatch does
+    /// — the host bridge claims a child flow's route here so the child's
+    /// `wmp.flow.complete`/`error` reaches its pending ask.
+    pub fn registry(&self) -> &Arc<Registry> {
+        &self.registry
+    }
+
     /// Closes the peer and its underlying transport. Idempotent.
     pub fn close(&self) -> Result<(), HandlerError> {
         if self

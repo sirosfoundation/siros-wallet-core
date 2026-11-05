@@ -511,3 +511,200 @@ async fn a_vctm_resolution_that_cannot_fetch_answers_32603_with_the_reason() {
         "the safe reason only, never the transport detail: {response}"
     );
 }
+
+// ─── The host bridge: the engine's asks as child flows (F1) ──────────────────
+//
+// The engine's Host port asks ride child flows: a wmp.flow.start on the
+// stream, the client's wmp.flow.complete the answer — routed back through
+// the same registry the dispatch uses. The full chain, driven end to end:
+// the ask waits, the start streams, the client completes, the ask resolves.
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ask_rides_a_child_flow_and_its_completion_answers_it() {
+    let server = test_server();
+    let session = create_session(&server).await;
+
+    // The SSE stream first — the real client's order: connected before
+    // the flow asks anything.
+    let app = engine_adapter_server::transport::router(server.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/wmp/events?session_id={session}"))
+                .body(Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("serve");
+    assert_eq!(response.status(), StatusCode::OK);
+    use futures_util::StreamExt;
+    let mut stream = response.into_body().into_data_stream();
+
+    // The ask, in a task: the engine flow's shape (a flow worker awaiting
+    // its Host port).
+    let bridge = server.bridge.clone();
+    let ask_session = session.clone();
+    let ask = tokio::spawn(async move {
+        let ctx = wmp_core::context::RequestContext::default();
+        bridge
+            .request(
+                &ctx,
+                "flow-1",
+                &ask_session,
+                "sign",
+                &serde_json::json!({ "flow_id": "flow-1", "to_sign": [1, 2, 3] }),
+                std::time::Duration::from_secs(5),
+            )
+            .await
+    });
+
+    // The start streams: read frames until the child's start arrives,
+    // and parse the child flow id and its params from the data.
+    let mut text = String::new();
+    let mut child = String::new();
+    for _ in 0..32 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("the frame arrives in time");
+        let Some(Ok(bytes)) = frame else { break };
+        text.push_str(&String::from_utf8_lossy(&bytes));
+        // The SSE frame's data line carries the JSON-RPC envelope; the
+        // child start is complete when its data parses with a flow id.
+        for line in text.split("data: ") {
+            let Some(json_text) = line.split("\n").next() else {
+                continue;
+            };
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_text) {
+                if value.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.start") {
+                    if let Some(id) = value.pointer("/params/flow_id").and_then(|v| v.as_str()) {
+                        if id.contains("::sign::") {
+                            child = id.to_owned();
+                        }
+                    }
+                }
+            }
+        }
+        if !child.is_empty() {
+            break;
+        }
+    }
+    assert!(!child.is_empty(), "the child start streamed: {text}");
+
+    // The client's completion: the answer the wallet signed, posted back
+    // through the same POST /wmp route the dispatch serves.
+    let (status, _body) = post_wmp(
+        &server,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "wmp.flow.complete",
+            "params": {
+                "wmp": { "session_id": session, "version": "0.1" },
+                "flow_id": child,
+                "result": { "signature": [4, 3, 2, 1] },
+            }
+        })
+        .to_string(),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "a notification answers empty"
+    );
+
+    // The ask resolves with the client's result.
+    let answer = tokio::time::timeout(std::time::Duration::from_secs(5), ask)
+        .await
+        .expect("the ask resolves in time")
+        .expect("the task joins")
+        .expect("the ask answers");
+    let value: serde_json::Value = serde_json::from_str(answer.get()).expect("the answer is JSON");
+    assert_eq!(
+        value
+            .pointer("/signature/0")
+            .and_then(serde_json::Value::as_i64),
+        Some(4),
+        "the client's answer rode back: {value}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ask_that_times_out_cancels_the_child() {
+    let server = test_server();
+    let session = create_session(&server).await;
+
+    // The SSE stream, to observe the cancel the timeout sends.
+    let app = engine_adapter_server::transport::router(server.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/wmp/events?session_id={session}"))
+                .body(Body::empty())
+                .expect("build"),
+        )
+        .await
+        .expect("serve");
+    use futures_util::StreamExt;
+    let mut stream = response.into_body().into_data_stream();
+
+    // The ask, with nobody answering it: it times out.
+    let bridge = server.bridge.clone();
+    let ask_session = session.clone();
+    let ask = tokio::spawn(async move {
+        let ctx = wmp_core::context::RequestContext::default();
+        bridge
+            .request(
+                &ctx,
+                "flow-1",
+                &ask_session,
+                "consent",
+                &serde_json::json!({ "flow_id": "flow-1" }),
+                std::time::Duration::from_millis(200),
+            )
+            .await
+    });
+
+    // The ask times out.
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), ask)
+        .await
+        .expect("the ask ends in time")
+        .expect("the task joins");
+    assert!(
+        matches!(
+            outcome,
+            Err(engine_adapter_server::host_bridge::HostBridgeError::Timeout)
+        ),
+        "the unanswered ask times out: {outcome:?}"
+    );
+
+    // The cancel streamed: the client is told the ask is off. Read until
+    // the cancel for the consent child arrives.
+    let mut text = String::new();
+    let mut cancelled = false;
+    for _ in 0..32 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
+            .await
+            .expect("the frame arrives in time");
+        let Some(Ok(bytes)) = frame else { break };
+        text.push_str(&String::from_utf8_lossy(&bytes));
+        for line in text.split("data: ") {
+            let Some(json_text) = line.split("\n").next() else {
+                continue;
+            };
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_text) {
+                if value.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.cancel")
+                    && value
+                        .pointer("/params/flow_id")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|id| id.contains("::consent::"))
+                {
+                    cancelled = true;
+                }
+            }
+        }
+        if cancelled {
+            break;
+        }
+    }
+    assert!(cancelled, "the timeout cancelled the child: {text}");
+}
