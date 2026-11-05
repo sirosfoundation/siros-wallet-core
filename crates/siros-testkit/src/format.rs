@@ -21,13 +21,23 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
-use siros_openid4vp::rows::{Env, Frequency, Row, Value as RowValue, WalletText};
+use siros_openid4vp::rows::{Env, Row, Value as RowValue, WalletText};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
 use crate::FAULT;
 use crate::rules::{Excluded, FormatRule};
+
+/// A text of the test format's rows that a transaction profile words: a message of the test app's
+/// own module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
+#[explain(domain = "testkit.format")]
+pub enum DoubleText {
+    /// ISO 20022's `MNTH`.
+    #[error("monthly")]
+    Monthly,
+}
 
 /// A value of every kind PaSO View §3 types but an image, one row each in every card, under the
 /// kind's name: a boolean, a frequency, a date, a time, a date-time, a currency, an amount, a
@@ -39,7 +49,7 @@ fn typed() -> Option<Vec<(&'static str, Text)>> {
     let value = |value: Value| Text::Value(value);
     Some(vec![
         ("boolean", Text::of(&WalletText::Yes)),
-        ("frequency", Text::of(&Frequency::Monthly)),
+        ("frequency", Text::of(&DoubleText::Monthly)),
         ("date", value(Value::Date(Date::new(2026, 9, 2)?))),
         (
             "time",

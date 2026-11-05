@@ -40,3 +40,17 @@ authorize = Erteilen
 payment_details = Zahlungsdetails
 first_collection = Erste Abbuchung
 payment = Zahlung
+
+[frequency]
+inda = untertägig
+dail = täglich
+week = wöchentlich
+towk = alle zwei Wochen
+twmn = zweimal im Monat
+mnth = monatlich
+tomn = alle zwei Monate
+qutr = vierteljährlich
+fomn = alle vier Monate
+semi = halbjährlich
+year = jährlich
+tyea = alle zwei Jahre

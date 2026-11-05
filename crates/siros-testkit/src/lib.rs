@@ -89,7 +89,7 @@ pub use doubles::{
     TestBody, TestChoice, TestHash, TestMode, TestResponseParameters, TestResponseType,
 };
 pub use fixtures::TestScope;
-pub use format::TestFormat;
+pub use format::{DoubleText, TestFormat};
 pub use host::{JweHaip, TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
 pub use jose::TestRequestDecryption;
 pub use post::{TestAnswerReader, TestPostContribution};

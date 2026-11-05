@@ -1,4 +1,5 @@
-# The paso module's English source: the rulebooks' own labels, titles, actions and sections.
+# The paso module's English source: the rulebooks' own labels, titles, actions and sections, and
+# the ISO 20022 frequencies.
 @locale en
 @dir ltr
 ---
@@ -40,3 +41,17 @@ authorize = Authorize
 payment_details = Payment Details
 first_collection = First Collection
 payment = Payment
+
+[frequency]
+inda = intraday
+dail = daily
+week = weekly
+towk = every two weeks
+twmn = twice a month
+mnth = monthly
+tomn = every two months
+qutr = quarterly
+fomn = every four months
+semi = twice a year
+year = yearly
+tyea = every two years

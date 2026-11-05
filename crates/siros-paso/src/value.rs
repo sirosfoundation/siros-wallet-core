@@ -10,7 +10,9 @@ use siros_explain::{
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::Quoted;
-use siros_openid4vp::rows::{Frequency, HttpsUrl, WalletText};
+use siros_openid4vp::rows::{HttpsUrl, WalletText};
+
+use crate::frequency::Frequency;
 
 use crate::markdown::spans;
 

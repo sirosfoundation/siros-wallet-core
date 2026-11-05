@@ -113,7 +113,7 @@ impl CrateModule {
 
 impl siros_explain::Messages for CrateModule {
     fn messages() -> Vec<siros_explain::Message> {
-        [rows::WalletText::messages(), rows::Frequency::messages()].concat()
+        rows::WalletText::messages()
     }
 }
 

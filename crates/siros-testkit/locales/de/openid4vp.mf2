@@ -13,17 +13,3 @@ yes = Ja
 no = Nein
 claim = Angabe
 null = Kein Wert
-
-[frequency]
-inda = untertägig
-dail = täglich
-week = wöchentlich
-towk = alle zwei Wochen
-twmn = zweimal im Monat
-mnth = monatlich
-tomn = alle zwei Monate
-qutr = vierteljährlich
-fomn = alle vier Monate
-semi = halbjährlich
-year = jährlich
-tyea = alle zwei Jahre

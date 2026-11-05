@@ -1,0 +1,7 @@
+# The test app's own module in English: the test format's texts a transaction profile words.
+@locale en
+@dir ltr
+---
+
+[format]
+monthly = monthly

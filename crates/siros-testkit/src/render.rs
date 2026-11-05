@@ -16,6 +16,10 @@ pub const GERMAN_OPENID4VP: &str = include_str!("../locales/de/openid4vp.mf2");
 pub const GERMAN_PASO: &str = include_str!("../locales/de/paso.mf2");
 /// The test app's German source of the `qes` module.
 pub const GERMAN_QES: &str = include_str!("../locales/de/qes.mf2");
+/// The test app's own module's English source.
+const ENGLISH_TESTKIT: &str = include_str!("../locales/en/testkit.mf2");
+/// The test app's own module's German source.
+const GERMAN_TESTKIT: &str = include_str!("../locales/de/testkit.mf2");
 
 /// siros-cldr's en options, which siros-i18n ships.
 const CLDR_EN: &str = include_str!("../../siros-i18n/cldr/en.mf2");
@@ -67,6 +71,17 @@ impl CrateSource {
             messages: siros_openid4vp::CrateModule::messages(),
             english: siros_openid4vp::CrateModule::ENGLISH,
             german: GERMAN_OPENID4VP,
+        }
+    }
+
+    /// The test app's own module, `testkit`: the test doubles' texts.
+    #[must_use]
+    pub fn testkit() -> Self {
+        Self {
+            id: ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "testkit")),
+            messages: crate::DoubleText::messages(),
+            english: ENGLISH_TESTKIT,
+            german: GERMAN_TESTKIT,
         }
     }
 
@@ -177,13 +192,14 @@ impl App {
         })
     }
 
-    /// The package of the main module and the crates' modules, each loaded whole.
+    /// The package of the main module, the test app's own module and the crates' modules, each
+    /// loaded whole.
     ///
     /// # Errors
     ///
     /// [`AppError`]: a module does not load, or the package refuses one.
     pub fn of(crates: &[CrateSource]) -> Result<Self, AppError> {
-        let mut modules = vec![main_module()?];
+        let mut modules = vec![main_module()?, CrateSource::testkit().load()?];
         for source in crates {
             modules.push(source.load()?);
         }

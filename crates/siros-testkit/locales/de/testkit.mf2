@@ -1,0 +1,7 @@
+# The test app's own module in German.
+@locale de
+@dir ltr
+---
+
+[format]
+monthly = monatlich

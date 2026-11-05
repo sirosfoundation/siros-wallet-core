@@ -1,4 +1,4 @@
-# The openid4vp module's English source: the wallet's own texts and the ISO 20022 frequencies.
+# The openid4vp module's English source: the wallet's own texts.
 @locale en
 @dir ltr
 ---
@@ -13,17 +13,3 @@ yes = Yes
 no = No
 claim = claim
 null = None
-
-[frequency]
-inda = intraday
-dail = daily
-week = weekly
-towk = every two weeks
-twmn = twice a month
-mnth = monthly
-tomn = every two months
-qutr = quarterly
-fomn = every four months
-semi = twice a year
-year = yearly
-tyea = every two years

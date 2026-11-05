@@ -5,7 +5,8 @@
 use siros_explain::{Explain, Messages, ModuleId, Text};
 use siros_i18n::{Module, ModuleError};
 use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::rows::{Choice, Env, Frequency, WalletText};
+use siros_openid4vp::rows::{Choice, Env, WalletText};
+use siros_paso::frequency::Frequency;
 use siros_paso::mandate::MandateLabel;
 use siros_paso::rulebook::{Confirm, Section, Title};
 use siros_qes::QesText;

@@ -7,7 +7,8 @@ use serde_json::Value as Json;
 use siros_explain::{
     Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
 };
-use siros_openid4vp::rows::{Frequency, WalletText};
+use siros_openid4vp::rows::WalletText;
+use siros_paso::frequency::Frequency;
 use siros_paso::markdown::{Span, Style, commonmark_html, spans};
 use siros_paso::value::{FormattedKind, Parsed, Written, formatted};
 

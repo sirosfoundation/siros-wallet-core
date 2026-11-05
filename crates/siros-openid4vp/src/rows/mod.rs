@@ -2,13 +2,11 @@
 //! [`Text`] the core renders when it is displayed; a row without a value is a full-text row.
 
 mod env;
-mod frequency;
 mod https_url;
 
 use siros_explain::Text;
 
 pub use env::{Choice, Env, EnvError, Icon, ImageMedia, NotImageMedia, WalletText};
-pub use frequency::Frequency;
 pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
 pub use siros_i18n::{Amounts, Bidi, OnRenderError, RenderOptions};
 

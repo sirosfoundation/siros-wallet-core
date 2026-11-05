@@ -43,6 +43,7 @@ mod conform;
 mod cose;
 pub mod document;
 pub mod entry;
+pub mod frequency;
 pub mod image;
 pub mod labels;
 pub mod locale;
@@ -134,6 +135,7 @@ impl Messages for CrateModule {
             rulebook::Title::messages(),
             rulebook::Confirm::messages(),
             rulebook::Section::messages(),
+            frequency::Frequency::messages(),
         ]
         .concat()
     }

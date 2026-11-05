@@ -1,12 +1,12 @@
-//! ISO 20022's frequency codes, which a payment's recurrence names (TS12 §4.3.1, PaSO View §3
-//! `frequency`).
+//! ISO 20022's frequency codes, PaSO View §3's `frequency` value type (and TS12 §4.3.1's
+//! recurrence).
 
 use siros_explain::Explain;
 
 /// An ISO 20022 frequency code (PaSO View §3 `frequency`): a message of the crate's module, in
 /// the words of its definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.frequency")]
+#[explain(domain = "paso.frequency")]
 pub enum Frequency {
     /// `INDA`.
     #[error("intraday")]
