@@ -258,7 +258,6 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
     let host = PasoHost::at(Timestamp(NOW));
     let authentication = pin_and_device(Timestamp(NOW));
     let members = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .respond(record, &host, &authentication)
         .expect("members");
     let mut names: Vec<String> = members
@@ -420,9 +419,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
         ISSUER,
     );
     let entry = common::entry(&payment(""));
-    let holding = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
-        .with_catalogue(catalogue);
+    let holding = PasoProfile::default().with_catalogue(catalogue);
     let rendered = |profile: &PasoProfile| {
         profile
             .render(
@@ -436,10 +433,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
             .map_err(|outcome| outcome.clause())
     };
     assert_eq!(rendered(&holding), Ok(()));
-    assert_eq!(
-        rendered(&PasoProfile::default().with_languages(siros_testkit::render::languages())),
-        Err("Risk Signals §4.1")
-    );
+    assert_eq!(rendered(&PasoProfile::default()), Err("Risk Signals §4.1"));
 }
 
 #[test]

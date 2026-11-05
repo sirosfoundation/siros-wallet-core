@@ -29,6 +29,9 @@ fn every_rendering_binding_and_response_holds_the_stated_properties() {
     // A path no case reaches checks nothing.
     for needed in [
         "rendered",
+        "display_locale after the first tag",
+        "display_locale a regional tag",
+        "template labels replayed",
         "excluded",
         "not compatible",
         "unsupported",

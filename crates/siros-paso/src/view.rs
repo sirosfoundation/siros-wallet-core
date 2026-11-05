@@ -2,18 +2,18 @@
 //! wallet runs when a type's metadata loads, and the identity and keys phase 1's texts name.
 //!
 //! Each display array is one message of the module, under the key of what it labels: a claim's
-//! `claim_<k>`, a UI label's name. The module supports the languages the display rules serve
-//! among the wallet's ([`crate::locale::languages`]); in each, an array's message is the text of
-//! the entries the language takes from it ([`crate::locale::chain`]): one entry's, or for a
+//! `claim_<k>`, a UI label's name. The module supports each tag of the End-User's priority list
+//! View §4 can select ([`crate::locale::selectable`]); in each, an array's message is the text of
+//! the entries View §4 tries for that tag ([`crate::locale::chain`]): one entry's, or for a
 //! template that an absent claim discards, a `.match` over each such entry's argument `e<j>`
-//! (`live` or `dead`, by its position) whose catch-all is the last entry the language takes. A
-//! plain label is literal text, a `mini_markdown` label its emphasis, strong and underline spans
-//! as MF2 markup, a template label its spans with each `{n}` naming a claim as the argument
-//! `c<n>` of claim n's value kind, absent when the claim is. Each language copies the main
-//! module's options of the formats its arguments call, from the main module's entry that
-//! language takes, and its direction when the main module states one. Its language policy is
-//! `Understood`: View §4 excludes a credential when no language the End-User understands serves
-//! every array.
+//! (`live` or `dead`, by its position) whose catch-all is the last entry tried. A plain label is
+//! literal text, a `mini_markdown` label its emphasis, strong and underline spans as MF2 markup, a
+//! template label its spans with each `{n}` naming a claim as the argument `c<n>` of claim n's
+//! value kind, absent when the claim is. Each tag copies the main module's options of the formats
+//! its arguments call, and its direction when it states one, from the main module's resource
+//! RFC 4647 Lookup finds for the tag; a tag no main resource serves where an argument calls a
+//! format has no source, and a screen showing the module in it refuses it. Its language policy is
+//! `Understood`: View §4 excludes a credential when no tag matches every array.
 
 use std::borrow::Cow;
 
@@ -24,7 +24,7 @@ use siros_explain::{
 use siros_i18n::{LanguagePolicy, LocaleTag};
 use siros_openid4vp::json::Node;
 
-use crate::locale::{ArrayKey, Discarded, chain, languages};
+use crate::locale::{ArrayKey, chain, lookup, selectable};
 use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
 use crate::outcome::Outcome;
@@ -104,7 +104,7 @@ pub struct Converted {
     /// Each array's key, with its template entries' liveness and referenced values as arguments,
     /// and their kinds.
     pub declaration: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
-    /// For each language it supports, once, its resource.
+    /// For each tag it supports, once, its resource.
     pub sources: Keyed<LocaleTag, String>,
     /// View §4's: `Understood`.
     pub policy: LanguagePolicy,
@@ -137,9 +137,6 @@ pub enum ConvertError {
     /// Two main module resources name one locale.
     #[error("two main module resources name {0}")]
     Locale(#[explain(name = "locale")] LocaleTag),
-    /// No main module resource serves a language the converted module supports.
-    #[error("no main module resource serves {0}")]
-    Unserved(#[explain(name = "locale")] LocaleTag),
     /// A display array holds no entry for a language the converted module supports.
     #[error("a display array holds no entry for {0}")]
     NoEntry(#[explain(name = "locale")] LocaleTag),
@@ -190,14 +187,19 @@ struct Converting<'a, 'm> {
     params: Keyed<Cow<'static, str>, ParamKind>,
 }
 
-/// Converts a type's display rules into its defined module, over the main module's resources,
-/// one per language, whose languages bound the module's and whose format options it copies.
+/// Converts a type's display rules into its defined module for the End-User's priority list,
+/// over the main module's resources, one per language, whose format options it copies.
 ///
 /// # Errors
 ///
 /// [`ConvertError`]: the type is no PaSO type, its metadata refuses, a main resource names no
 /// locale or lacks a format the module calls, or a template holds U+FDD0.
-pub fn convert(kind: &str, given: &Node<'_>, main: &[&str]) -> Result<Converted, ConvertError> {
+pub fn convert(
+    kind: &str,
+    given: &Node<'_>,
+    main: &[&str],
+    priority: &[LocaleTag],
+) -> Result<Converted, ConvertError> {
     let family = Family::of(kind).ok_or_else(|| ConvertError::NotPaso(kind.to_owned()))?;
     let (metadata, _) = rulebook_metadata(kind, family, given)?;
     let arrays = arrays(&metadata);
@@ -206,7 +208,13 @@ pub fn convert(kind: &str, given: &Node<'_>, main: &[&str]) -> Result<Converted,
         .enumerate()
         .map(|(index, source)| Language::read(index, source))
         .collect::<Result<Vec<_>, _>>()?;
-    let wallet: Vec<LocaleTag> = main.iter().map(|language| language.tag.clone()).collect();
+    let mut wallet: Vec<LocaleTag> = Vec::new();
+    for language in &main {
+        if wallet.contains(&language.tag) {
+            return Err(ConvertError::Locale(language.tag.clone()));
+        }
+        wallet.push(language.tag.clone());
+    }
     let mut messages: Vec<Converting<'_, '_>> = Vec::new();
     for (array, entries) in &arrays {
         if entries
@@ -246,14 +254,14 @@ pub fn convert(kind: &str, given: &Node<'_>, main: &[&str]) -> Result<Converted,
         }
     }
     let mut sources = Vec::new();
-    for tag in languages(&arrays, &wallet, &Discarded::default()) {
-        let language = main
-            .iter()
-            .find(|language| language.tag == tag)
-            .or_else(|| main.iter().find(|language| tag.filters(&language.tag)))
-            .ok_or_else(|| ConvertError::Unserved(tag.clone()))?;
+    for tag in selectable(&arrays, priority) {
+        let language = lookup(&tag, &wallet)
+            .and_then(|found| main.iter().find(|language| language.tag == *found));
+        if language.is_none() && !formats.is_empty() {
+            continue;
+        }
         let mut text = format!("@locale {}\n", tag.as_str());
-        if let Some(dir) = language.dir {
+        if let Some(dir) = language.and_then(|language| language.dir) {
             text.push_str(&format!("@dir {dir}\n"));
         }
         text.push_str("---\n");
@@ -263,8 +271,8 @@ pub fn convert(kind: &str, given: &Node<'_>, main: &[&str]) -> Result<Converted,
         }
         for format in &formats {
             let (_, options) = language
-                .sections
                 .iter()
+                .flat_map(|language| language.sections.iter())
                 .find(|(name, _)| name == format)
                 .ok_or_else(|| ConvertError::Format {
                     format,
@@ -280,7 +288,7 @@ pub fn convert(kind: &str, given: &Node<'_>, main: &[&str]) -> Result<Converted,
     Ok(Converted {
         module: module_of(given),
         declaration: Keyed::first_of(declaration),
-        sources: Keyed::new(sources).map_err(|repeated| ConvertError::Locale(repeated.0))?,
+        sources: Keyed::first_of(sources),
         policy: LanguagePolicy::Understood,
     })
 }

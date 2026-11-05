@@ -6,9 +6,7 @@
 
 mod common;
 
-use common::{
-    Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, presenting, shown, sri,
-};
+use common::{Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
 use siros_openid4vp::rows::{Amounts, Env, HttpsUrl, Image, ImageRef, Value};
 use siros_paso::outcome::{NotCompatible, Outcome, Unsupported};
 use siros_paso::{Fetch, PasoProfile};
@@ -45,7 +43,7 @@ fn render(entry_json: &str, meta: &str, env: &Env, profile: &PasoProfile) -> Res
         )
         .expect("no fault")?;
     let kind: String = serde_json::from_str(&kind).expect("the type");
-    let screen = Screen::of(&kind, meta, &presenting(env, &rendered.view.locale));
+    let screen = Screen::of(&kind, meta, env, &rendered.view.locale);
     Ok(Seen { rendered, screen })
 }
 
@@ -54,15 +52,13 @@ fn view(rendered: Result<Seen, Outcome>) -> Seen {
 }
 
 fn with_logo(url: &str, content: Vec<u8>) -> PasoProfile {
-    PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
-        .with_resource(
-            HttpsUrl::parse(url).expect("url"),
-            Fetch::Fetched {
-                content,
-                media: "image/png".to_owned(),
-            },
-        )
+    PasoProfile::default().with_resource(
+        HttpsUrl::parse(url).expect("url"),
+        Fetch::Fetched {
+            content,
+            media: "image/png".to_owned(),
+        },
+    )
 }
 
 fn amount(text: &str) -> Option<(&'static str, &str)> {
@@ -156,13 +152,7 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
     let entry_json = &core[1];
     let meta = member(&annex("Payment.md", "A.1")[1], PAY);
     // Payment A.1's metadata titles the screen; the wallet's table formats the amount.
-    let rendered = render(
-        entry_json,
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(entry_json, &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said(("Confirm Payment", "Pay", "Cancel", None))
@@ -185,7 +175,7 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
         entry_json,
         &untitled,
         &env(&["en"], Amounts::Written),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+        &PasoProfile::default(),
     )
     .expect("renders");
     assert_eq!(
@@ -206,13 +196,7 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
 fn generic_a1_renders_in_payload_order_in_english_and_german() {
     let blocks = annex("Generic.md", "A.1");
     let meta = member(&blocks[1], "urn:paso:sca:global:generic:login:1");
-    let rendered = render(
-        &blocks[0],
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said(("Confirm Sign-In", "Sign In", "Cancel", None))
@@ -230,7 +214,7 @@ fn generic_a1_renders_in_payload_order_in_english_and_german() {
         &blocks[0],
         &meta,
         &env(&["de"], Amounts::Formatted),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+        &PasoProfile::default(),
     ));
     assert_eq!(de.labels(), ["Dienstanbieter", "Gerät", "Zweck"]);
     assert_eq!(
@@ -247,12 +231,7 @@ fn generic_a2_needs_its_long_label_shortened_then_shows_its_screen() {
     let blocks = annex("Generic.md", "A.2");
     let meta = member(&blocks[1], "urn:paso:sca:global:generic:aisp:1");
     // Its last label has 69 grapheme clusters, over the 60 of Proof Metadata §3.3.
-    let rendered = render(
-        &blocks[0],
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    );
+    let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default());
     assert_eq!(
         rendered.as_ref().err().map(ToString::to_string).as_deref(),
         Some("claim ['data_recipients_disclosed'] label: 69 grapheme clusters, more than 60")
@@ -266,13 +245,7 @@ fn generic_a2_needs_its_long_label_shortened_then_shows_its_screen() {
         "Recipients of your data have been disclosed separately by the service",
         short,
     );
-    let rendered = render(
-        &blocks[0],
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said(("Authorize Data Sharing", "Authorize", "Cancel", None))
@@ -296,13 +269,7 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
     let blocks = annex("Generic.md", "A.3");
     let meta = member(&blocks[1], "urn:paso:sca:global:generic:emandate:1");
     let hint = "Streaming Co. will be able to collect up to the amount shown each month for up to 24 months.";
-    let rendered = render(
-        &blocks[0],
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said((
@@ -333,7 +300,7 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
         &blocks[0],
         &meta,
         &env(&["de", "en"], Amounts::Formatted),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+        &PasoProfile::default(),
     ));
     assert_eq!(de_en.view.locale.as_str(), "en");
     assert!(matches!(
@@ -341,7 +308,7 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
             &blocks[0],
             &meta,
             &env(&["de"], Amounts::Formatted),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            &PasoProfile::default()
         ),
         Err(Outcome::Excluded(_))
     ));
@@ -352,13 +319,7 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
     let blocks = annex("Generic.md", "A.4");
     let meta = member(&blocks[1], "urn:paso:sca:global:generic:limit-change:1");
     let hint = "Raising your daily limit increases the maximum amount that could be spent if your card is misused.";
-    let rendered = render(
-        &blocks[0],
-        &meta,
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said(("Confirm Limit Change", "Change Limit", "Cancel", Some(hint)))
@@ -376,7 +337,7 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
         &blocks[0],
         &meta,
         &env(&["de"], Amounts::Formatted),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+        &PasoProfile::default(),
     )
     .expect("renders");
     assert_eq!(
@@ -401,13 +362,7 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
 #[test]
 fn mandate_a1_shows_the_rulebooks_claims_in_table_order_then_the_first_collection() {
     let entry_json = &annex("Mandate.md", "A.1")[0];
-    let rendered = render(
-        entry_json,
-        "{}",
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(entry_json, "{}", &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said((
@@ -508,13 +463,7 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
 #[test]
 fn mandate_a3_names_a_delegate_without_limits() {
     let entry_json = &annex("Mandate.md", "A.3")[0];
-    let rendered = render(
-        entry_json,
-        "{}",
-        &en(),
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-    )
-    .expect("renders");
+    let rendered = render(entry_json, "{}", &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
         rendered.text(),
         said((

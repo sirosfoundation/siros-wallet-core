@@ -105,7 +105,6 @@ fn registry_with(more: impl FnOnce(&mut RegistryBuilder<HaipHost>)) -> Registry<
     builder.format(siros_sdjwt::SdJwtVc::new().expect("the SD-JWT VC format"));
     builder.format(siros_mdoc::Mdoc::new().expect("the mdoc format"));
     siros_paso::PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .register(&mut builder)
         .expect("PaSO registers");
     builder.client_prefix(siros_testkit::TestPrefix::Request);

@@ -266,8 +266,14 @@ fn english_text(text: &Text) -> String {
     let types = payment_metadata();
     let given = Node::parse(&types).expect("the types");
     let given = given.get(PAY).expect("Payment A.1's metadata");
-    let app = paso_app(PAY, &given.python_compact().to_string());
-    app.plain(&english(), text).expect("the text renders")
+    let english = english();
+    let app = paso_app(
+        PAY,
+        &given.python_compact().to_string(),
+        english.priority(),
+        &english.priority()[0],
+    );
+    app.plain(&english, text).expect("the text renders")
 }
 
 /// Core A.4: the payment screen of A.1's transaction in English.

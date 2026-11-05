@@ -6,7 +6,7 @@ use siros_explain::{Message, Messages, ModuleId, Text};
 use siros_i18n::{
     BuiltPackage, CURRENCY, Compilers, DATE, Declaration, FormatCompiler, FormatRenderer, Formats,
     Formatted, LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
-    PackageBuilder, PackageError, RenderError, Renderer, Screen,
+    PackageBuilder, PackageError, RenderError, Renderer, Screen, Selected,
 };
 use siros_openid4vp::rows::Env;
 
@@ -168,12 +168,13 @@ pub fn main_module() -> Result<Module, ModuleError> {
     )
 }
 
-/// The test app's package of its modules, in every locale one of them supports, and its render
-/// halves.
+/// The test app's package of its modules, in every locale one of them supports, its render
+/// halves, and the module a profile selected a locale for.
 pub struct App {
     built: BuiltPackage,
     formats: Formats,
     modules: Vec<ModuleId>,
+    selected: Option<Selected>,
 }
 
 impl App {
@@ -198,7 +199,15 @@ impl App {
             built: builder.finish(),
             formats: Formats::new(&RENDERERS)?,
             modules: modules.iter().map(|module| module.id()).collect(),
+            selected: None,
         })
+    }
+
+    /// The app showing a module in the locale its profile selected.
+    #[must_use]
+    pub fn selecting(mut self, selected: Selected) -> Self {
+        self.selected = Some(selected);
+        self
     }
 
     /// The package of the main module, the test app's own module and the crates' modules, each
@@ -245,8 +254,8 @@ impl App {
         Ok(self.renderer(self.modules.clone(), env)?.formatted(text)?)
     }
 
-    /// The renderer of a screen of the package's modules, in the language `env`'s lists choose,
-    /// with `env`'s rendering options.
+    /// The renderer of a screen of the package's modules, its selected module in its profile's
+    /// locale and the others in the language `env`'s lists choose, with `env`'s rendering options.
     ///
     /// # Errors
     ///
@@ -254,7 +263,11 @@ impl App {
     /// format the app does not register.
     pub fn renderer(&self, screen: Vec<ModuleId>, env: &Env) -> Result<Renderer<'_>, AppError> {
         let package = Package::read(self.built.bytes(), self.built.root())?;
-        let located = Screen::new(&package, screen)?.locale(env.priority(), env.fallback())?;
+        let mut shown = Screen::new(&package, screen)?;
+        if let Some(selected) = self.selected.clone() {
+            shown = shown.selecting(selected)?;
+        }
+        let located = shown.locale(env.priority(), env.fallback())?;
         Ok(located.renderer(&self.formats, env.options())?)
     }
 }

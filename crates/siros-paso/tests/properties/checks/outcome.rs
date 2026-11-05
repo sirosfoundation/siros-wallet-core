@@ -10,14 +10,13 @@ use siros_paso::outcome::Outcome;
 
 use crate::common::{Screen, env};
 
-use super::{
-    Tally, arrays, at, complete, concrete, given, kind_of, mandate_claims, preferred, select,
-};
+use super::replay::{Array, Replay, shows_template};
+use super::{Tally, at, concrete, given, kind_of, mandate_claims, select};
 
-/// View §2-4 on one entry rendered for the card: the presentation's language the first locale
-/// of the list as given that the wallet's languages serve (en and de, and no regional tag of
-/// theirs) and that completes every array, each label the entry it matches, label and value
-/// kinds, full-text rows, coverage, the hint, the payment.
+/// View §2-4 on one entry rendered for the card: `display_locale` and each display array's text
+/// against View §4's step 1 replayed over the metadata and the payload (the credential excluded
+/// when no tag of the list matches every array), label and value kinds, full-text rows,
+/// coverage, the hint, the payment.
 pub(super) fn outcome(
     kind: &str,
     entry: &Value,
@@ -34,44 +33,63 @@ pub(super) fn outcome(
     };
     let mandate = kind.contains(":mandate:");
     let meta = given(entry, types).expect("the metadata that rendered");
-    let arrays = arrays(mandate, &meta);
-    let wallet = siros_testkit::render::languages();
-    let served = |locale: &&str| {
-        LocaleTag::parse(locale).is_ok_and(|tag| wallet.iter().any(|known| tag.filters(known)))
-    };
-    let decided = locales
-        .iter()
-        .find(|locale| served(locale) && complete(locale, &arrays));
+    let replay = Replay::of(mandate, &meta, &entry["payload"]);
     let Some(view) = view else {
         tally.add("excluded");
-        assert_eq!(decided, None, "P-locale excluded: {meta}");
+        assert_eq!(
+            replay.select(locales, false),
+            None,
+            "P-locale excluded: {meta}"
+        );
         return;
     };
     tally.add("rendered");
-    // The test app's screen shows the presentation's language.
+    let locale = view.locale.as_str();
+    assert_eq!(
+        replay.select(locales, true).as_deref(),
+        Some(locale),
+        "P-display_locale replayed: {meta}"
+    );
+    if locales.first() != Some(&locale) {
+        tally.add("display_locale after the first tag");
+    }
+    if !locales.contains(&locale) || !["en", "de"].contains(&locale) {
+        tally.add("display_locale a regional tag");
+    }
+    // The test app's screen: the converted module in the selected locale.
     let entry_type = entry["type"].as_str().expect("type");
     let screen = Screen::of(
         entry_type,
         given_text.expect("the metadata's text"),
-        &env(&[view.locale.as_str()], Amounts::Formatted),
+        &env(locales, Amounts::Formatted),
+        &LocaleTag::parse(locale).expect("a tag"),
     );
     // A label's text as written: a mini_markdown label's spans without their styles.
     let written = |label: &Value, text: &str, typed_by: &str| match label
         .get(typed_by)
         .and_then(Value::as_str)
     {
-        Some("mini_markdown") => spans(text).into_iter().map(|span| span.text).collect(),
+        Some("mini_markdown" | "template:mini_markdown") => {
+            spans(text).into_iter().map(|span| span.text).collect()
+        }
         _ => text.to_owned(),
     };
-    // The first such locale, or a later one where absent claims discard its template entries.
-    let locale = view.locale.as_str();
-    let position = |tag: &str| locales.iter().position(|known| *known == tag);
-    assert!(
-        served(&locale)
-            && complete(locale, &arrays)
-            && position(locale) >= decided.and_then(|first| position(first)),
-        "P-locale {locale}: {meta}"
-    );
+    let claim_count = meta["claims"].as_array().map_or(0, Vec::len);
+    // The text the replayed entry gives: as written, or a template's text around its values.
+    let matches = |shown: &str, want: &Value, text_at: &str, typed_by: &str| {
+        let text = want[text_at].as_str().expect("a label's text");
+        let template = want
+            .get(typed_by)
+            .and_then(Value::as_str)
+            .is_some_and(|kind| kind.starts_with("template:"));
+        if template {
+            let shows =
+                shows_template(shown, text, claim_count, |run| written(want, run, typed_by));
+            (shows, true)
+        } else {
+            (shown == written(want, text, typed_by), false)
+        }
+    };
     let payload = &entry["payload"];
     let spec = mandate_claims();
     let claims = if mandate {
@@ -93,13 +111,14 @@ pub(super) fn outcome(
             claim.value_type.clone()
         } else {
             let claim = &claims[row.claim.0];
-            let display = claim["display"].as_array().expect("a displayed claim");
-            if let Some(want) = preferred(display, locale, "display_type") {
-                assert_eq!(
-                    screen.plain(&row.row.label),
-                    written(want, want["name"].as_str().expect("name"), "display_type"),
-                    "P-locale label"
-                );
+            let want = replay
+                .entry(Array::Claim(row.claim.0), locale)
+                .expect("P-replay: the claim's array matches");
+            let shown = screen.plain(&row.row.label);
+            let (shows, template) = matches(&shown, want, "name", "display_type");
+            assert!(shows, "P-replayed label {shown:?} against {want}");
+            if template {
+                tally.add("template labels replayed");
             }
             claim
                 .get("value_type")
@@ -172,13 +191,17 @@ pub(super) fn outcome(
         ]);
     }
     for (key, got) in labels {
-        if let Some(want) = ui_array(key).and_then(|array| preferred(array, locale, "value_type")) {
-            let text = want["value"].as_str().expect("value");
-            assert_eq!(
-                got,
-                Some(written(want, text, "value_type")),
-                "P-locale ui label {key}"
-            );
+        if ui_array(key).is_none() {
+            continue;
+        }
+        let want = replay
+            .entry(Array::Ui(key), locale)
+            .expect("P-replay: the UI label's array matches");
+        let shown = got.expect("P-a UI label the metadata gives shows");
+        let (shows, template) = matches(&shown, want, "value", "value_type");
+        assert!(shows, "P-replayed ui label {key}: {shown:?} against {want}");
+        if template {
+            tally.add("template labels replayed");
         }
     }
     assert_eq!(

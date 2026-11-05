@@ -87,7 +87,7 @@ use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
-use siros_openid4vp::ids::{FormatId, InvalidId, LocaleTag, TypePrefix};
+use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
     HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
@@ -230,13 +230,12 @@ pub struct PasoProfile {
     expired: Vec<String>,
     lacking: Vec<OptionalModule>,
     sealer: Option<Agreements>,
-    languages: Vec<LocaleTag>,
 }
 
 impl Default for PasoProfile {
     /// No resource fetched, the bound 200, PaSO's Default profile, an empty trust store, every
     /// optional module held but those the build compiles without (`COSE_Encrypt` without the
-    /// feature `sealed-signals`), and English, the crates' own language, as the wallet's.
+    /// feature `sealed-signals`).
     fn default() -> Self {
         Self {
             resources: Vec::new(),
@@ -246,7 +245,6 @@ impl Default for PasoProfile {
             expired: Vec::new(),
             lacking: OptionalModule::UNCOMPILED.to_vec(),
             sealer: None,
-            languages: LocaleTag::parse("en").into_iter().collect(),
         }
     }
 }
@@ -277,15 +275,6 @@ impl PasoProfile {
     #[must_use]
     pub fn with_trust(mut self, anchor: TrustAnchor) -> Self {
         self.trust.push(anchor);
-        self
-    }
-
-    /// The profile with the wallet's languages: its main module's, which every crate module
-    /// covers. A presentation takes one of them, or one of their shorter subtag prefixes, and a
-    /// type's converted module ([`view::convert`]) supports those its display rules serve.
-    #[must_use]
-    pub fn with_languages(mut self, languages: Vec<LocaleTag>) -> Self {
-        self.languages = languages;
         self
     }
 
@@ -444,7 +433,6 @@ impl PasoProfile {
             payload: paso.payload,
             given,
             env,
-            languages: &self.languages,
             bound: self.bound,
             resolve: |url: &str| self.resolution(url),
         }

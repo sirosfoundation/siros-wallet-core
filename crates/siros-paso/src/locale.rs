@@ -1,6 +1,8 @@
-//! View §4 under the core's matching (section 4.14 of the design): the entries of a display array
-//! a language takes, by RFC 4647 basic filtering over its tagged entries, then its default entry;
-//! and the languages a type's display rules serve among the wallet's.
+//! View §4: the locale of a transaction's texts. For each tag of the End-User's priority list in
+//! order, every display array takes the entry RFC 4647 §3.4's Lookup finds with the tag as the
+//! range over its tagged entries, else its first entry without a locale; the first tag whose every
+//! array matches is selected. An entry a template with an absent claim discards takes no part
+//! (View §3).
 
 use rustc_hash::FxHashSet;
 use siros_openid4vp::ids::LocaleTag;
@@ -36,30 +38,45 @@ impl Discarded {
 /// An entry of an array, with its position in the array.
 pub(crate) type Placed<'a, 'm> = (usize, &'a Localized<'m>);
 
-/// The entries a language takes from an array, in the order it takes them: the entry whose tag
-/// equals the language, then those whose tags extend it, in the array's order, then the default
-/// entry; up to the first that no absent claim discards, a label other than a template. A tag
-/// outside RFC 4647's grammar matches no language.
-pub(crate) fn chain<'a, 'm>(
-    array: &'a DisplayArray<'m>,
-    language: &LocaleTag,
-) -> Vec<Placed<'a, 'm>> {
+/// The ranges RFC 4647 §3.4's Lookup tries for `range`, in order: the range, then the range
+/// progressively truncated from the end, a single-character subtag removed together with the
+/// subtag after it.
+fn truncations(range: &LocaleTag) -> Vec<&str> {
+    let text = range.as_str();
+    let mut ends: Vec<usize> = vec![text.len()];
+    let subtags: Vec<(usize, &str)> = text
+        .match_indices('-')
+        .map(|(at, _)| at)
+        .zip(text.split('-').skip(1))
+        .collect();
+    let mut kept = subtags.len();
+    while kept > 0 {
+        kept -= 1;
+        while kept > 0 && subtags.get(kept - 1).is_some_and(|(_, s)| s.len() == 1) {
+            kept -= 1;
+        }
+        ends.extend(subtags.get(kept).map(|(at, _)| *at));
+    }
+    ends.into_iter().filter_map(|end| text.get(..end)).collect()
+}
+
+/// The entries View §4 tries for `tag` in an array, in order: for each range Lookup tries, the
+/// entries whose tag equals it, compared case-insensitively, in the array's order; then the
+/// entries without a locale. The list ends with the first label other than a template, which no
+/// absent claim discards.
+pub(crate) fn chain<'a, 'm>(array: &'a DisplayArray<'m>, tag: &LocaleTag) -> Vec<Placed<'a, 'm>> {
     let entries: Vec<Placed<'a, 'm>> = array.entries().iter().enumerate().collect();
-    let tagged = |(_, entry): &Placed<'a, 'm>| match entry.locale {
-        EntryLocale::Tagged(tag) => LocaleTag::parse(tag).ok(),
-        EntryLocale::Default => None,
-    };
-    let equal = entries
-        .iter()
-        .filter(|entry| tagged(entry).as_ref() == Some(language));
-    let extending = entries.iter().filter(|entry| {
-        tagged(entry).is_some_and(|tag| tag != *language && language.filters(&tag))
+    let looked_up = truncations(tag).into_iter().flat_map(|range| {
+        entries.iter().filter(move |(_, entry)| match entry.locale {
+            EntryLocale::Tagged(written) => written.eq_ignore_ascii_case(range),
+            EntryLocale::Default => false,
+        })
     });
     let default = entries
         .iter()
         .filter(|(_, entry)| entry.locale == EntryLocale::Default);
     let mut out = Vec::new();
-    for entry in equal.chain(extending).chain(default) {
+    for entry in looked_up.chain(default) {
         out.push(*entry);
         if !matches!(entry.1.label, LabelForm::Template(_)) {
             break;
@@ -68,44 +85,82 @@ pub(crate) fn chain<'a, 'm>(
     out
 }
 
-/// The languages a type's display rules serve among the wallet's languages: each wallet language
-/// and each of its shorter subtag prefixes, each once, from which every array takes an entry
-/// `discarded` leaves. Every language a presentation can take is one of them: the wallet's
-/// modules serve no other.
-pub(crate) fn languages(
-    arrays: &[(ArrayKey, &DisplayArray<'_>)],
-    wallet: &[LocaleTag],
+/// The entry View §4 matches for `tag` in an array: the first of its [`chain`] that `discarded`
+/// leaves.
+pub(crate) fn matched<'a, 'm>(
+    key: ArrayKey,
+    array: &'a DisplayArray<'m>,
+    tag: &LocaleTag,
     discarded: &Discarded,
+) -> Option<Placed<'a, 'm>> {
+    chain(array, tag)
+        .into_iter()
+        .find(|(position, _)| !discarded.holds(key, *position))
+}
+
+/// View §4: the first tag of the priority list for which every array matches.
+pub(crate) fn select(
+    arrays: &[(ArrayKey, &DisplayArray<'_>)],
+    priority: &[LocaleTag],
+    discarded: &Discarded,
+) -> Option<LocaleTag> {
+    priority
+        .iter()
+        .find(|tag| {
+            arrays
+                .iter()
+                .all(|(key, array)| matched(*key, array, tag, discarded).is_some())
+        })
+        .cloned()
+}
+
+/// The tags of the priority list View §4 can select, each once: those for which every array
+/// matches while no entry is discarded.
+pub(crate) fn selectable(
+    arrays: &[(ArrayKey, &DisplayArray<'_>)],
+    priority: &[LocaleTag],
 ) -> Vec<LocaleTag> {
     let mut out: Vec<LocaleTag> = Vec::new();
-    for tag in prefixes(wallet) {
-        if arrays.iter().all(|(key, array)| {
-            chain(array, &tag)
+    for tag in priority {
+        if !out.contains(tag)
+            && arrays
                 .iter()
-                .any(|(position, _)| !discarded.holds(*key, *position))
-        }) {
-            out.push(tag);
+                .all(|(_, array)| !chain(array, tag).is_empty())
+        {
+            out.push(tag.clone());
         }
     }
     out
 }
 
-/// Each tag and each of its shorter subtag prefixes, shortest first, each once.
-pub(crate) fn prefixes(tags: &[LocaleTag]) -> Vec<LocaleTag> {
-    let mut out: Vec<LocaleTag> = Vec::new();
-    for tag in tags {
-        let text = tag.as_str();
-        let ends = text
-            .match_indices('-')
-            .map(|(at, _)| at)
-            .chain(std::iter::once(text.len()));
-        for end in ends {
-            if let Some(prefix) = text.get(..end).and_then(|head| LocaleTag::parse(head).ok())
-                && !out.contains(&prefix)
-            {
-                out.push(prefix);
-            }
-        }
+/// The tag among `tags` RFC 4647 §3.4's Lookup finds for `range`.
+pub(crate) fn lookup<'t>(range: &LocaleTag, tags: &'t [LocaleTag]) -> Option<&'t LocaleTag> {
+    truncations(range).into_iter().find_map(|truncated| {
+        tags.iter()
+            .find(|tag| tag.as_str().eq_ignore_ascii_case(truncated))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// RFC 4647 §3.4's example range, and a range whose singleton ends a truncation.
+    #[test]
+    fn lookup_truncates_as_rfc_4647_3_4_writes() {
+        let tag = |text: &str| LocaleTag::parse(text).expect("a tag");
+        assert_eq!(
+            truncations(&tag("zh-Hant-CN-x-private1-private2")),
+            [
+                "zh-hant-cn-x-private1-private2",
+                "zh-hant-cn-x-private1",
+                "zh-hant-cn",
+                "zh-hant",
+                "zh"
+            ]
+            .map(|range| tag(range).as_str().to_owned())
+        );
+        assert_eq!(truncations(&tag("de-CH")), ["de-CH", "de"]);
+        assert_eq!(truncations(&tag("en")), ["en"]);
     }
-    out
 }

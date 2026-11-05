@@ -109,28 +109,43 @@ fn default_profile() -> Vec<(String, u64)> {
         .collect()
 }
 
-/// RFC 4647 §3.3.1 basic filtering, case-insensitive: a range matches a tag equal to it or
-/// extending it by further subtags.
-pub fn filters(range: &str, tag: &str) -> bool {
-    let (range, tag) = (range.to_lowercase(), tag.to_lowercase());
-    tag == range || tag.starts_with(&format!("{range}-"))
+/// RFC 4647 §3.4: the ranges Lookup tries for `range`: the range, then truncated from the end,
+/// a single-character subtag dropped together with the subtag after it.
+fn truncations(range: &str) -> Vec<String> {
+    let subtags: Vec<&str> = range.split('-').collect();
+    let mut out = Vec::new();
+    let mut end = subtags.len();
+    while end > 0 {
+        out.push(subtags[..end].join("-"));
+        end -= 1;
+        while end > 0 && subtags[end - 1].len() == 1 {
+            end -= 1;
+        }
+    }
+    out
 }
 
-/// View §4 for one locale as a predicate, under the owner's basic filtering: every array has an
-/// entry whose tag the locale matches, or an entry without a locale.
-pub fn complete(locale: &str, arrays: &[Vec<Value>]) -> bool {
-    arrays.iter().all(|array| {
-        array
-            .iter()
-            .any(|entry| match entry.get("locale").and_then(Value::as_str) {
-                None => true,
-                Some(tag) => filters(locale, tag),
+/// The entry View §4 matches in an array for a locale: the first tagged entry RFC 4647 §3.4's
+/// Lookup finds, compared case-insensitively, else the first entry without a locale.
+fn matched<'a>(array: &'a [Value], locale: &str) -> Option<&'a Value> {
+    truncations(locale)
+        .iter()
+        .find_map(|range| {
+            array.iter().find(|e| {
+                e.get("locale")
+                    .and_then(Value::as_str)
+                    .is_some_and(|tag| tag.eq_ignore_ascii_case(range))
             })
-    })
+        })
+        .or_else(|| array.iter().find(|e| e.get("locale").is_none()))
 }
 
-/// The entry View §4 matches in an array: the one whose tag equals the locale, else the first
-/// whose tag extends it, else the default; `None` with a template entry, which a rendering may
+/// View §4 for one locale as a predicate: every array matches.
+pub fn complete(locale: &str, arrays: &[Vec<Value>]) -> bool {
+    arrays.iter().all(|array| matched(array, locale).is_some())
+}
+
+/// The entry View §4 matches in an array; `None` with a template entry, which a rendering may
 /// discard.
 pub fn preferred<'a>(array: &'a [Value], locale: &str, typed_by: &str) -> Option<&'a Value> {
     if array
@@ -139,18 +154,7 @@ pub fn preferred<'a>(array: &'a [Value], locale: &str, typed_by: &str) -> Option
     {
         return None;
     }
-    fn tagged(e: &Value) -> Option<&str> {
-        e.get("locale").and_then(Value::as_str)
-    }
-    array
-        .iter()
-        .find(|e| tagged(e).is_some_and(|tag| tag.eq_ignore_ascii_case(locale)))
-        .or_else(|| {
-            array
-                .iter()
-                .find(|e| tagged(e).is_some_and(|tag| filters(locale, tag)))
-        })
-        .or_else(|| array.iter().find(|e| e.get("locale").is_none()))
+    matched(array, locale)
 }
 
 /// The value kind a value type shows (View §3), a template's being its inner type's.

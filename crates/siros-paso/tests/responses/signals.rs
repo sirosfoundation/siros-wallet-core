@@ -78,7 +78,7 @@ pub(super) fn the_default_profiles_signals_are_enveloped_fresh_and_encrypted_to_
     let response = answer(
         &request,
         &card,
-        &registry(PasoProfile::default().with_languages(siros_testkit::render::languages())),
+        &registry(PasoProfile::default()),
         &Published::default(),
         &host,
     )
@@ -165,7 +165,6 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
     let additions = crate::common::additions(&credential);
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
     let bound = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .bind(
             Binding {
                 request: &request,
@@ -179,7 +178,16 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
             &en(),
         )
         .expect("binds");
-    let screen = Screen::of(PAY, &meta, &en());
+    let locale = bound
+        .attested
+        .get("display_locale")
+        .expect("display_locale");
+    let screen = Screen::of(
+        PAY,
+        &meta,
+        &en(),
+        &siros_openid4vp::ids::LocaleTag::parse(locale).expect("a tag"),
+    );
     let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(
         (
@@ -216,20 +224,18 @@ pub(super) fn versioned(card: &Card) -> Result<usize, String> {
     let credential = card.credential();
     let additions = crate::common::additions(&credential);
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
-    match PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
-        .bind(
-            Binding {
-                request: &request,
-                query: &request.queries()[0],
-                credential: &credential,
-                entries: &offered,
-                placement: crate::common::placement(&credential.format),
-                additions: &*additions,
-                carriage: Carriage::Carried,
-            },
-            &en(),
-        ) {
+    match PasoProfile::default().bind(
+        Binding {
+            request: &request,
+            query: &request.queries()[0],
+            credential: &credential,
+            entries: &offered,
+            placement: crate::common::placement(&credential.format),
+            additions: &*additions,
+            carriage: Carriage::Carried,
+        },
+        &en(),
+    ) {
         Ok(bound) => Ok(bound.entries.entries()[0].get()),
         Err(NoCandidate::Excluded(exclude)) => Err(exclude.clause().into_owned()),
         Err(NoCandidate::Fault(fault)) => panic!("{fault}"),
@@ -463,10 +469,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
             paso: siros_paso::TestPaso::at(at),
             random_ids: siros_paso::TestRandomIds::default(),
         };
-        let registry = registry_of::<SealerlessHost>(
-            format,
-            PasoProfile::default().with_languages(siros_testkit::render::languages()),
-        );
+        let registry = registry_of::<SealerlessHost>(format, PasoProfile::default());
         let outcome = answer(&request, &card, &registry, &Published::default(), &without);
         if !needs_cose {
             if let Err(outcome) = outcome {
@@ -501,7 +504,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
             )
         };
         let held = PasoHost::at(at);
-        let profile = PasoProfile::default().with_languages(siros_testkit::render::languages());
+        let profile = PasoProfile::default();
         assert_eq!(
             record()
                 .revalidate(&profile, |_: &Resource| Fetch::Unfetched, &held)
@@ -529,7 +532,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         assert_eq!(again.candidates(query).len(), 0);
         let entry = request.entries().first().expect("an entry");
         let rendered = <PasoProfile as ProfileHost<SealerlessHost>>::informed(
-            &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+            &PasoProfile::default(),
             &[data],
         )
         .render(
@@ -581,7 +584,7 @@ pub(super) fn an_sd_jwts_signals_are_sealed_to_the_first_issuer_key_the_haip_mod
         answer(
             &request,
             &card,
-            &registry(PasoProfile::default().with_languages(siros_testkit::render::languages())),
+            &registry(PasoProfile::default()),
             &Published::default(),
             &host_with(Vec::new()),
         )

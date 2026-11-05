@@ -20,6 +20,7 @@ use crate::generate::Case;
 mod members;
 mod outcome;
 mod phase2;
+mod replay;
 
 use members::members;
 use outcome::outcome;
@@ -84,13 +85,6 @@ fn given(entry: &Value, types: &Value) -> Option<Value> {
     }
 }
 
-/// RFC 4647 §3.3.1 basic filtering, case-insensitive: a range matches a tag equal to it or
-/// extending it by further subtags.
-fn filters(range: &str, tag: &str) -> bool {
-    let (range, tag) = (range.to_lowercase(), tag.to_lowercase());
-    tag == range || tag.starts_with(&format!("{range}-"))
-}
-
 /// A claim a rulebook's table states: its path, its value type (`None` for text), whether a
 /// wallet displays it.
 struct TableClaim {
@@ -129,77 +123,6 @@ fn mandate_claims() -> Vec<TableClaim> {
         &["payment_payload"],
     ));
     claims
-}
-
-/// The display arrays of a type's metadata as View §4 reads them: its displayed claims' and its
-/// UI labels'. The Mandate rulebook's own arrays each hold a default entry.
-fn arrays(mandate: bool, meta: &Value) -> Vec<Vec<Value>> {
-    let ui = meta.get("ui_labels");
-    let ui_array = |key: &str| {
-        ui.and_then(|u| u.get(key))
-            .and_then(Value::as_array)
-            .cloned()
-    };
-    let mut out: Vec<Vec<Value>> = if mandate {
-        // The wallet's own labels: one default entry, as its modules cover every language of
-        // the wallet.
-        vec![vec![json!({})]]
-    } else {
-        let claims = meta["claims"].as_array().expect("claims");
-        let mut out: Vec<Vec<Value>> = claims
-            .iter()
-            .filter_map(|claim| claim.get("display").and_then(Value::as_array).cloned())
-            .collect();
-        out.extend(
-            [
-                "transaction_title",
-                "affirmative_action_label",
-                "denial_action_label",
-            ]
-            .into_iter()
-            .filter_map(ui_array),
-        );
-        out
-    };
-    out.extend(ui_array("security_hint"));
-    out
-}
-
-/// View §4 for one locale as a predicate, under the owner's basic filtering: every array has an
-/// entry whose tag the locale matches, or an entry without a locale.
-fn complete(locale: &str, arrays: &[Vec<Value>]) -> bool {
-    arrays.iter().all(|array| {
-        array
-            .iter()
-            .any(|entry| match entry.get("locale").and_then(Value::as_str) {
-                None => true,
-                Some(tag) => filters(locale, tag),
-            })
-    })
-}
-
-/// The entry View §4 matches in an array: the one whose tag equals the locale, else the first
-/// whose tag extends it, else the default; `None` with a template entry, which a rendering may
-/// discard.
-fn preferred<'a>(array: &'a [Value], locale: &str, typed_by: &str) -> Option<&'a Value> {
-    if array
-        .iter()
-        .any(|e| e.get(typed_by).and_then(Value::as_str) == Some("template:mini_markdown"))
-    {
-        return None;
-    }
-    fn tagged(e: &Value) -> Option<&str> {
-        e.get("locale").and_then(Value::as_str)
-    }
-    array
-        .iter()
-        .find(|e| tagged(e).is_some_and(|tag| tag.eq_ignore_ascii_case(locale)))
-        .or_else(|| {
-            array
-                .iter()
-                .find(|e| tagged(e).is_some_and(|tag| filters(locale, tag)))
-        })
-        .or_else(|| array.iter().find(|e| e.get("locale").is_none()))
 }
 
 /// The value kind a value type shows (View §3), a template's being its inner type's.
@@ -281,7 +204,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         Amounts::Written
     };
     let env = env(&case.locales, amounts);
-    let profile = PasoProfile::default().with_languages(siros_testkit::render::languages());
+    let profile = PasoProfile::default();
     let texts: Vec<&str> = case.entries.iter().map(String::as_str).collect();
     let parameters = parameters(&one_query(case.format), &texts, "");
     siros_testkit::signed_request!(let request = &parameters);

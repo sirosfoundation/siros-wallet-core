@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use siros_explain::{Messages, ModuleId};
-use siros_i18n::{Declaration, Module};
+use siros_i18n::{Declaration, LocaleTag, Module, Selected};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::json::Node;
@@ -57,7 +57,6 @@ pub fn registry() -> Result<Registry<HaipHost>, String> {
     builder.format(SdJwtVc::new().map_err(|e| e.to_string())?);
     builder.format(Mdoc::new().map_err(|e| e.to_string())?);
     PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .register(&mut builder)
         .map(drop)
         .map_err(|e| e.to_string())?;
@@ -85,11 +84,13 @@ pub fn placement(
 }
 
 /// The test app of a type's rendering: the main module, the core's and PaSO's modules, and the
-/// module the type's metadata converts to.
-pub fn paso_app(kind: &str, given: &str) -> App {
+/// module the type's metadata converts to for the priority list, shown in the locale View §4
+/// selected.
+pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &LocaleTag) -> App {
     let node = Node::parse(given).expect("the metadata");
     let [en, de] = main_sources();
-    let converted = siros_paso::view::convert(kind, &node, &[&en, &de]).expect("converts");
+    let converted =
+        siros_paso::view::convert(kind, &node, &[&en, &de], priority).expect("converts");
     let sources: Vec<&str> = converted
         .sources
         .entries()
@@ -116,5 +117,8 @@ pub fn paso_app(kind: &str, given: &str) -> App {
         paso.load().expect("PaSO's module"),
         defined,
     ];
-    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
+    let selected = Selected::new(ModuleId::Defined(converted.module), locale.clone());
+    App::new(&modules.iter().collect::<Vec<_>>())
+        .expect("the package")
+        .selecting(selected)
 }

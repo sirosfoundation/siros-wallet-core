@@ -7,7 +7,7 @@ use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
 
-use crate::common::{CUSTOM, PAY, data_png, en, env, png, sri};
+use crate::common::{CUSTOM, PAY, Screen, data_png, en, env, png, sri};
 
 use super::{claims, render, render_with, shown};
 
@@ -128,7 +128,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             &claims(&date),
             r#"{"transaction_id": "t", "d": "2026-02-30"}"#,
             &env(&["de"], Amounts::Formatted),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            &PasoProfile::default()
         ),
         Outcome::NotCompatible(NotCompatible::Value { .. }),
         "View §3"
@@ -251,15 +251,13 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
     let url = "https://cdn.example/l.png";
     let logo = png(32, 32);
     let fetched = |content: Vec<u8>, media: &str| {
-        PasoProfile::default()
-            .with_languages(siros_testkit::render::languages())
-            .with_resource(
-                HttpsUrl::parse(url).expect("url"),
-                Fetch::Fetched {
-                    content,
-                    media: media.to_owned(),
-                },
-            )
+        PasoProfile::default().with_resource(
+            HttpsUrl::parse(url).expect("url"),
+            Fetch::Fetched {
+                content,
+                media: media.to_owned(),
+            },
+        )
     };
     let payload = |logo_value: &str, integrity: Option<&str>| {
         let sibling =
@@ -299,12 +297,10 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
         (
             "its fetch failed",
             payload(url, Some(&sri(&logo))),
-            PasoProfile::default()
-                .with_languages(siros_testkit::render::languages())
-                .with_resource(
-                    HttpsUrl::parse(url).expect("url"),
-                    Fetch::Failed("connection refused".to_owned()),
-                ),
+            PasoProfile::default().with_resource(
+                HttpsUrl::parse(url).expect("url"),
+                Fetch::Failed("connection refused".to_owned()),
+            ),
             ImageFailure::Fetch("connection refused".to_owned()),
         ),
         (
@@ -322,13 +318,13 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
         (
             "neither a Data URL nor https",
             payload("http://cdn.example/l.png", Some(&sri(&logo))),
-            PasoProfile::default().with_languages(siros_testkit::render::languages()),
+            PasoProfile::default(),
             ImageFailure::NeitherDataNorHttps,
         ),
         (
             "bad base64",
             payload("data:image/png;base64,abc", None),
-            PasoProfile::default().with_languages(siros_testkit::render::languages()),
+            PasoProfile::default(),
             ImageFailure::BadBase64,
         ),
         (
@@ -337,7 +333,7 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
                 &format!("data:image/png;base64,{}", "A".repeat(524_292)),
                 None,
             ),
-            PasoProfile::default().with_languages(siros_testkit::render::languages()),
+            PasoProfile::default(),
             ImageFailure::EncodedTooLarge,
         ),
     ];
@@ -373,7 +369,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &claims(&customs.join(", ")),
             payload,
             &en(),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+            &PasoProfile::default(),
         )
     };
     let eleven: Vec<String> = (0..11).map(|k| format!(r#""c{k}": "v""#)).collect();
@@ -420,7 +416,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             "{}",
             r#"{"mandate_id": "M", "mandatee": {"name": "A"}, "action": "B", "valid_until": "2026-06-09", "payment_payload": {"amount": "1.00 EUR"}}"#,
             &en(),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            &PasoProfile::default()
         ),
         Outcome::NotCompatible(NotCompatible::MandatePayment(_)),
         "Mandate §2.2; Payment §1"
@@ -436,7 +432,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &payment,
             r#"{"transaction_id": "t", "amount": "1.00 EUR", "payee": {"name": "P"}}"#,
             &en(),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            &PasoProfile::default()
         ),
         Outcome::NotCompatible(NotCompatible::PaymentRequired(_)),
         "Payment §1; Core §7.4.2 step 2"
@@ -479,9 +475,7 @@ pub(super) fn more_items_than_the_wallets_bound_make_the_entry_not_compatible() 
         }),
         "View §2"
     );
-    let wider = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
-        .with_bound(ItemBound::new(201).expect("bound"));
+    let wider = PasoProfile::default().with_bound(ItemBound::new(201).expect("bound"));
     assert!(render_with(CUSTOM, &meta, &items(198), &en(), &wider).is_ok());
     assert!(
         ItemBound::new(199).is_err(),
@@ -498,31 +492,66 @@ pub(super) fn no_locale_completing_every_array_excludes_the_credential() {
             &meta,
             r#"{"transaction_id": "t", "n": "a"}"#,
             &env(&["de"], Amounts::Formatted),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            &PasoProfile::default()
         ),
         Outcome::Excluded(_),
         "View §4"
     );
-    // A default entry matches every language; the presentation's language is still one the
-    // wallet's modules serve (section 4.14, "One language per presentation"): `de-CH` alone
-    // excludes, the documented practice's `[de-CH, de]` presents in `de`.
-    let defaulted = claims(r#"{"path": ["n"], "display": [{"name": "N"}]}"#);
-    let in_list = |locales: &[&str]| {
-        render_with(
+}
+
+/// I33's known answers: RFC 4647 §3.4's Lookup (`de-CH` over `de` gives `de`, `en-US` over `en`
+/// gives `en`, `en` over `en-GB` gives none) and View §4 (a default entry is a match and the tag
+/// stands; with no match the credential is excluded): the locale selected and the label shown.
+/// A claim's `display`, a priority list, and the locale selected with the label shown, or none.
+type Selection<'c> = (&'c str, &'c [&'c str], Option<(&'c str, &'c str)>);
+
+#[test]
+fn view_4_selects_by_rfc_4647_lookup_and_the_default_entry() {
+    let cases: [Selection<'_>; 6] = [
+        (
+            r#"[{"locale": "de", "name": "N de"}]"#,
+            &["de-CH"],
+            Some(("de-CH", "N de")),
+        ),
+        (
+            r#"[{"locale": "en", "name": "N en"}]"#,
+            &["en-US"],
+            Some(("en-US", "N en")),
+        ),
+        (r#"[{"locale": "en-GB", "name": "N GB"}]"#, &["en"], None),
+        (
+            r#"[{"locale": "en-GB", "name": "N GB"}, {"name": "N default"}]"#,
+            &["en"],
+            Some(("en", "N default")),
+        ),
+        (
+            r#"[{"name": "N default"}]"#,
+            &["de-CH"],
+            Some(("de-CH", "N default")),
+        ),
+        (
+            r#"[{"locale": "fr", "name": "N fr"}, {"locale": "de", "name": "N de"}]"#,
+            &["en", "de-CH", "de"],
+            Some(("de-CH", "N de")),
+        ),
+    ];
+    for (display, priority, want) in cases {
+        let meta = claims(&format!(r#"{{"path": ["n"], "display": {display}}}"#));
+        let env = env(priority, Amounts::Formatted);
+        let rendered = render_with(
             CUSTOM,
-            &defaulted,
+            &meta,
             r#"{"transaction_id": "t", "n": "a"}"#,
-            &env(locales, Amounts::Formatted),
-            &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-        )
-    };
-    decided!(in_list(&["de-CH"]), Outcome::Excluded(_), "View §4");
-    assert_eq!(
-        in_list(&["de-CH", "de"])
-            .expect("renders")
-            .view
-            .locale
-            .as_str(),
-        "de"
-    );
+            &env,
+            &PasoProfile::default(),
+        );
+        let Some((locale, label)) = want else {
+            decided!(rendered, Outcome::Excluded(_), "View §4");
+            continue;
+        };
+        let view = rendered.expect("renders").view;
+        assert_eq!(view.locale.as_str(), locale, "{display} over {priority:?}");
+        let screen = Screen::of(CUSTOM, &meta, &env, &view.locale);
+        assert_eq!(screen.plain(&view.rows[0].row.label), label, "{display}");
+    }
 }

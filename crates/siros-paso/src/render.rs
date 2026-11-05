@@ -1,13 +1,11 @@
 //! One `transaction_data` entry rendered with one type's metadata, in PaSO Core §7.4.2's order:
 //! the metadata (Proof Metadata §3), payload conformance (step 2), images (step 3), templates,
-//! the presentation's language (View §4, decided by siros-i18n's `decide` over the wallet's
-//! languages and the converted module's), then the rows and UI labels (View §2-3) within the
-//! wallet's item bound.
+//! the locale (View §4 over the End-User's priority list), then the rows and UI labels (View
+//! §2-3) within the wallet's item bound.
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Entry, Explain, Keyed, ModuleId, Query, Text};
-use siros_i18n::{LanguagePolicy, NoLanguage, Served, decide};
+use siros_explain::{DefinedModule, Entry, Explain, Keyed, Query, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -17,7 +15,7 @@ use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, writte
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
 use crate::labels::{LabelSlot, LabelText};
-use crate::locale::{ArrayKey, Discarded, chain, languages};
+use crate::locale::{ArrayKey, Discarded, matched, select};
 use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
 use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
@@ -106,7 +104,7 @@ impl PaymentRows {
 /// An entry rendered for a credential.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransactionView {
-    /// The presentation's language, which the response reports (Core §7.2).
+    /// The locale View §4 selected, which the response reports (Core §7.2).
     pub locale: LocaleTag,
     /// The transaction title.
     pub title: Text,
@@ -136,14 +134,13 @@ impl TransactionView {
 }
 
 /// What a rendering reads: the type, the payload, the metadata given for the type, the wallet's
-/// configuration, languages and item bound, and what it knows of https images.
+/// configuration and item bound, and what it knows of https images.
 pub(crate) struct Request<'r, R> {
     pub(crate) kind: &'r str,
     pub(crate) family: Family,
     pub(crate) payload: Payload<'r>,
     pub(crate) given: &'r Node<'r>,
     pub(crate) env: &'r Env,
-    pub(crate) languages: &'r [LocaleTag],
     pub(crate) bound: ItemBound,
     pub(crate) resolve: R,
 }
@@ -176,12 +173,9 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         let discarded = self.discarded(&metadata, &shown)?;
         let arrays = arrays(&metadata);
         let module = view::module_of(self.given);
-        let language = self.language(&arrays, module, &discarded)?;
+        let locale = self.locale(&arrays, &discarded)?;
         let taken = |key: ArrayKey, array: &DisplayArray<'_>| -> Option<usize> {
-            chain(array, &language)
-                .into_iter()
-                .map(|(position, _)| position)
-                .find(|position| !discarded.holds(key, *position))
+            matched(key, array, &locale, &discarded).map(|(position, _)| position)
         };
         let rows = shown
             .into_iter()
@@ -226,7 +220,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             _ => None,
         };
         Ok(TransactionView {
-            locale: language,
+            locale,
             title,
             rows,
             actions: Actions {
@@ -238,51 +232,22 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         })
     }
 
-    /// The presentation's language: siros-i18n's decision over the wallet's languages and the
-    /// languages the converted module supports; View §4's exclusion when no language the
-    /// End-User understands serves both. Then the same decision over the languages whose arrays
-    /// keep an entry the absent claims leave (View §3 template): the module matches every key the
-    /// presentation shows; not compatible when none does.
-    fn language(
+    /// View §4's locale over the End-User's priority list as given: the credential excluded
+    /// when no tag matches every array; not compatible when only the entries absent claims
+    /// discard (View §3 template) stop every tag.
+    fn locale(
         &self,
         arrays: &[(ArrayKey, &DisplayArray<'_>)],
-        module: DefinedModule,
         discarded: &Discarded,
     ) -> Result<LocaleTag, Outcome> {
-        let decided = |served: &[LocaleTag]| {
-            let modules = [
-                Served {
-                    id: ModuleId::Main,
-                    tags: self.languages,
-                    policy: LanguagePolicy::Any,
-                },
-                Served {
-                    id: ModuleId::Defined(module),
-                    tags: served,
-                    policy: LanguagePolicy::Understood,
-                },
-            ];
-            decide(&modules, self.env.priority(), self.env.fallback())
-        };
-        let supported = languages(arrays, self.languages, &Discarded::default());
-        if let Err(NoLanguage::NotUnderstood(_) | NoLanguage::NoFallback) = decided(&supported) {
+        let priority = self.env.priority();
+        if select(arrays, priority, &Discarded::default()).is_none() {
             return Err(Excluded {
-                locales: self
-                    .env
-                    .priority()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
+                locales: priority.iter().map(ToString::to_string).collect(),
             }
             .into());
         }
-        let shown = languages(arrays, self.languages, discarded);
-        match decided(&shown) {
-            Ok(language) => Ok(language.tag().clone()),
-            Err(NoLanguage::NotUnderstood(_) | NoLanguage::NoFallback) => {
-                Err(NotCompatible::TemplatesExhausted.into())
-            }
-        }
+        select(arrays, priority, discarded).ok_or_else(|| NotCompatible::TemplatesExhausted.into())
     }
 
     /// Core §7.4.2 step 3: the instances in order, each image resolved; one that fails makes

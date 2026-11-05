@@ -6,9 +6,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::{
-    CUSTOM, Card, PAY, Screen, Seen, data_png, en, entry, env, png, presenting, shown, sri,
-};
+use common::{CUSTOM, Card, PAY, Screen, Seen, data_png, en, entry, env, png, shown, sri};
 use siros_i18n::Style;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
@@ -25,7 +23,6 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
         format!(r#"{{"type": "{kind}", "credential_ids": ["q"], "payload": {payload}}}"#);
     let env = env(locales, Amounts::Formatted);
     let rendered = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .render(
             &entry(&entry_json),
             &card.credential(),
@@ -33,7 +30,7 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
             &env,
         )
         .expect("no fault")?;
-    let screen = Screen::of(kind, meta, &presenting(&env, &rendered.view.locale));
+    let screen = Screen::of(kind, meta, &env, &rendered.view.locale);
     Ok(Seen { rendered, screen })
 }
 
@@ -307,15 +304,13 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
     let card = Card::sd_jwt(&format!(r#"{{"{CUSTOM}": {meta}}}"#));
     let entry_json =
         format!(r#"{{"type": "{CUSTOM}", "credential_ids": ["q"], "payload": {payload}}}"#);
-    let fetched = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
-        .with_resource(
-            siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
-            Fetch::Fetched {
-                content: logo,
-                media: "image/png".to_owned(),
-            },
-        );
+    let fetched = PasoProfile::default().with_resource(
+        siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
+        Fetch::Fetched {
+            content: logo,
+            media: "image/png".to_owned(),
+        },
+    );
     let rendered = fetched
         .render(
             &entry(&entry_json),

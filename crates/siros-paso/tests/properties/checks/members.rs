@@ -48,7 +48,6 @@ pub(super) fn members(case: &Case, answer: &Answer<'_>, meta: &Value, tally: &mu
         siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
     );
     let members = PasoProfile::default()
-        .with_languages(siros_testkit::render::languages())
         .respond(record, &host, &authentication)
         .expect("the members");
     tally.add("responses");

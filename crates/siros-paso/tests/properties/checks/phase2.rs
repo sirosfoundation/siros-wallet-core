@@ -163,7 +163,7 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
     let format = FormatId::parse(case.format).expect("format");
     let host = PasoHost::at(Timestamp(NOW));
     let published = Published::new(resources());
-    let profile = PasoProfile::default().with_languages(siros_testkit::render::languages());
+    let profile = PasoProfile::default();
     let finding = Answered::new(
         answer.request,
         &credential,
@@ -193,10 +193,8 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         (None, expired.as_deref(), &failed),
         "R-findings"
     );
-    let informed = <PasoProfile as ProfileHost<PasoHost>>::informed(
-        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
-        &[&finding],
-    );
+    let informed =
+        <PasoProfile as ProfileHost<PasoHost>>::informed(&PasoProfile::default(), &[&finding]);
     let offered: Vec<_> = answer
         .request
         .indexed_entries()

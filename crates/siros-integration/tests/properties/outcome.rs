@@ -137,7 +137,7 @@ pub fn check(
     let arrays = arrays(mandate, &meta);
     let locales: Vec<&str> = env.priority().iter().map(|tag| tag.as_str()).collect();
     let Some(view) = view else {
-        // View §4: no locale of the wallet completes every array.
+        // View §4: no tag of the list matches every array.
         assert!(
             !locales.iter().any(|locale| complete(locale, &arrays)),
             "P-locale excluded: {meta}"
@@ -159,9 +159,11 @@ pub fn check(
     let app = paso_app(
         kind,
         &given_text(entry, document_text).expect("the metadata's text"),
+        env.priority(),
+        &view.locale,
     );
     let shown = |text: &Text| app.plain(&practice, text).expect("the text renders");
-    // View §4: the display locale is one of the wallet's and completes every array.
+    // View §4: the display locale is a tag of the list that matches every array.
     let locale = view.locale.as_str();
     assert!(
         locales.contains(&locale) && complete(locale, &arrays),

@@ -11,7 +11,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_explain::{Messages, ModuleId, Text};
-use siros_i18n::{Declaration, Formatted, Module};
+use siros_i18n::{Declaration, Formatted, Module, Selected};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Entry;
@@ -21,7 +21,7 @@ use siros_paso::Rendered;
 use siros_paso::outcome::Outcome;
 use siros_paso::render::{TransactionView, ViewRow};
 use siros_paso::value::ValueKind;
-use siros_testkit::fixtures::OPTIONS;
+use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
 use siros_testkit::render::{App, CrateSource, GERMAN_PASO, compilers, main_module, main_sources};
 use siros_testkit::verifier;
 
@@ -107,18 +107,6 @@ pub fn env(locales: &[&str], amounts: Amounts) -> Env {
             .collect(),
         Vec::new(),
         RenderOptions { amounts, ..OPTIONS },
-        Vec::new(),
-        Choice::First,
-    )
-    .expect("env")
-}
-
-/// `env` at a presentation's language: the record's language, which the screen shows.
-pub fn presenting(env: &Env, language: &LocaleTag) -> Env {
-    Env::new(
-        vec![language.clone()],
-        Vec::new(),
-        env.options(),
         Vec::new(),
         Choice::First,
     )
@@ -287,11 +275,13 @@ pub fn paso_module() -> CrateSource {
     }
 }
 
-/// The module a type's metadata converts to, over the test app's main module.
-pub fn defined(kind: &str, meta: &str) -> Module {
+/// The module a type's metadata converts to for a priority list, over the test app's main
+/// module.
+pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> Module {
     let given = Node::parse(meta).expect("the metadata");
     let [en, de] = main_sources();
-    let converted = siros_paso::view::convert(kind, &given, &[&en, &de]).expect("converts");
+    let converted =
+        siros_paso::view::convert(kind, &given, &[&en, &de], priority).expect("converts");
     let sources: Vec<&str> = converted
         .sources
         .entries()
@@ -316,17 +306,30 @@ pub struct Screen {
 }
 
 impl Screen {
-    /// The screen of a type whose metadata the card gives as `meta`.
-    pub fn of(kind: &str, meta: &str, env: &Env) -> Self {
+    /// The screen of a type whose metadata the card gives as `meta`, converted for `env`'s
+    /// priority list: the converted module in the locale View §4 selected, the others in the
+    /// language the app's practice list chooses, `env`'s list with each tag's generic form.
+    pub fn of(kind: &str, meta: &str, env: &Env, locale: &LocaleTag) -> Self {
+        let converted = defined(kind, meta, env.priority());
+        let selected = Selected::new(converted.id(), locale.clone());
         let modules = [
             main_module().expect("the main module"),
             CrateSource::openid4vp().load().expect("the core's module"),
             paso_module().load().expect("the profile's module"),
-            defined(kind, meta),
+            converted,
         ];
         Self {
-            app: App::new(&modules.iter().collect::<Vec<_>>()).expect("the package"),
-            env: env.clone(),
+            app: App::new(&modules.iter().collect::<Vec<_>>())
+                .expect("the package")
+                .selecting(selected),
+            env: Env::new(
+                with_generic_forms(env.priority()),
+                env.fallback().to_vec(),
+                env.options(),
+                Vec::new(),
+                Choice::First,
+            )
+            .expect("env"),
         }
     }
 

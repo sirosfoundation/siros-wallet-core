@@ -80,13 +80,13 @@ struct Chosen {
 /// A module as the language decision reads it: its identity, the tags of its locale entries in
 /// its order, and its language policy.
 #[derive(Debug, Clone, Copy)]
-pub struct Served<'t> {
+struct Served<'t> {
     /// The module.
-    pub id: ModuleId,
+    id: ModuleId,
     /// Its locale entries' tags.
-    pub tags: &'t [LocaleTag],
+    tags: &'t [LocaleTag],
     /// Its language policy.
-    pub policy: LanguagePolicy,
+    policy: LanguagePolicy,
 }
 
 /// The entry among `entries` the range `tag` matches by RFC 4647 basic filtering: the one whose
@@ -103,15 +103,14 @@ fn matching<'e, E>(
 /// The presentation's language over its modules, the End-User's priority list and the app's
 /// fallback list: the first tag of the priority list every module matches; with none, and no
 /// module enforcing understood languages, the first tag of the fallback list every module
-/// matches. [`Screen::locale`] decides with it over a package's modules; a converter decides with
-/// it over the modules a presentation draws from before a package holds them.
+/// matches.
 ///
 /// # Errors
 ///
 /// [`NoLanguage::NotUnderstood`], naming the first enforcing module, when no tag of the priority
 /// list serves every module and a module enforces; [`NoLanguage::NoFallback`] when no tag of the
 /// fallback list serves every module.
-pub fn decide(
+fn decide(
     modules: &[Served<'_>],
     priority: &[LocaleTag],
     fallback: &[LocaleTag],
