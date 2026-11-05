@@ -43,6 +43,10 @@ kryptering = { version = "0.7", default-features = false, features = ["rustcrypt
 siros-sdjwt = { path = "../siros-sdjwt" }
 siros-dcql = { path = "../siros-dcql" }
 siros-codec = { path = "../siros-codec" }
+# The mini host's held mDL: the mdoc parse/disclose/device-response, and
+# the session transcript its device signature rides (OpenID4VP 1.0,
+# B.2.6).
+siros-mdoc = { path = "../siros-mdoc" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

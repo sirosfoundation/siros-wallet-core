@@ -84,7 +84,7 @@ check-bindings: bindings
 wasm-page:
 	wasm-pack build --target web crates/engine-adapter-wasm --out-dir $(CURDIR)/target/wasm-pkg
 	@mkdir -p target/wasm-page
-	cp crates/engine-adapter-wasm/page/index.html crates/engine-adapter-wasm/page/wallet.js crates/engine-adapter-wasm/page/mini-wallet.json target/wasm-page/
+	cp crates/engine-adapter-wasm/page/index.html crates/engine-adapter-wasm/page/wallet.js crates/engine-adapter-wasm/page/mini-wallet.json crates/engine-adapter-wasm/page/mini-test.crl target/wasm-page/
 	@mkdir -p target/wasm-page/pkg
 	cp -r target/wasm-pkg/* target/wasm-page/pkg/
 	sed 's|../pkg/engine_adapter_wasm.js|./pkg/engine_adapter_wasm.js|' \
