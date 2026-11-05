@@ -209,6 +209,26 @@ async fn push_with_headers(
     })
 }
 
+/// The PAR push's client-auth context: the same identity the code
+/// exchange authenticates with. The AS that names `private_key_jwt`
+/// (RFC 7523, from `token_endpoint_auth_methods_supported`)
+/// authenticates the client at the pushed request too, so the push
+/// carries the same client assertion the token exchange will.
+pub struct ParPushSpec<'a> {
+    /// The flow the push belongs to (the attestation and sign asks).
+    pub flow_id: &'a str,
+    /// The wallet's client_id (the assertion's `iss` and `sub`).
+    pub client_id: &'a str,
+    /// The wallet's registered client key's kid — the assertion's
+    /// `kid`, when the flow start carried one (the app knows the kid
+    /// it registered).
+    pub client_key_kid: Option<&'a str>,
+    /// The Rng port (the assertion's `jti`).
+    pub rng: &'a dyn engine_ports::Rng,
+    /// The Clock port's now (the assertion's `iat` and `exp`).
+    pub now_unix: i64,
+}
+
 /// Pushes with the client-attestation challenge retry (once) — the
 /// P0.6-verified PAR loop: the host supplies the (WIA, PoP) pair (the
 /// WIA from the existing wallet provider, the PoP signed with the
@@ -223,22 +243,58 @@ pub async fn push_authorization_request_with_attestation(
     http: &dyn HttpClient,
     host: &dyn engine_ports::Host,
     as_metadata: &AsMetadata,
-    flow_id: &str,
-    client_id: &str,
+    spec: &ParPushSpec<'_>,
     params: &[(String, String)],
 ) -> Result<String, ParError> {
     let mut attestation = super::attestation::request_client_attestation(
         host,
-        flow_id,
+        spec.flow_id,
         &as_metadata.issuer,
-        client_id,
+        spec.client_id,
         "",
     )
     .await;
 
+    // private_key_jwt (RFC 7523) at the pushed request: the AS's client
+    // authentication policy applies to the PAR endpoint as to the token
+    // endpoint — the same assertion builder, the registered kid, a
+    // fresh single-use `jti` per attempt (RFC 7523 §3).
+    let client_assertion_required = as_metadata
+        .token_endpoint_auth_methods
+        .iter()
+        .any(|m| m == "private_key_jwt");
+
     for attempt in 0..2 {
         let headers = super::attestation::attestation_headers(attestation.as_ref());
-        match push_with_headers(http, &as_metadata.par_endpoint, params, &headers).await {
+        // The pushed parameters, with the client assertion riding as
+        // form members when the AS demands the method (RFC 9126 §2.1:
+        // the pushed set carries the client authentication beside the
+        // authorization parameters).
+        let mut push_params: Vec<(String, String)> = params.to_vec();
+        if client_assertion_required {
+            if let Some(assertion) = super::token::build_client_assertion(
+                host,
+                &super::token::TokenExchangeContext {
+                    flow_id: spec.flow_id,
+                    dpop_key_id: None,
+                    client_key_kid: spec.client_key_kid,
+                    client_id: spec.client_id,
+                    dpop: None,
+                    rng: spec.rng,
+                    now_unix: spec.now_unix,
+                },
+                &as_metadata.issuer,
+            )
+            .await
+            {
+                push_params.push((
+                    "client_assertion_type".to_owned(),
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".to_owned(),
+                ));
+                push_params.push(("client_assertion".to_owned(), assertion));
+            }
+        }
+        match push_with_headers(http, &as_metadata.par_endpoint, &push_params, &headers).await {
             Ok(uri) => return Ok(uri),
             Err(ParError::ChallengeNeeded { response_headers }) if attempt == 0 => {
                 // Resolve the fresh challenge; without one the original
@@ -253,9 +309,9 @@ pub async fn push_authorization_request_with_attestation(
                 };
                 attestation = super::attestation::request_client_attestation(
                     host,
-                    flow_id,
+                    spec.flow_id,
                     &as_metadata.issuer,
-                    client_id,
+                    spec.client_id,
                     &challenge,
                 )
                 .await;
@@ -891,8 +947,13 @@ mod tests {
             &http,
             &host,
             &test_as(),
-            "flow-1",
-            "client-1",
+            &ParPushSpec {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                client_key_kid: None,
+                rng: &TestRng,
+                now_unix: 1_000,
+            },
             &[("response_type".to_owned(), "code".to_owned())],
         )
         .await
@@ -918,6 +979,105 @@ mod tests {
         // The host was asked once, unchallenged.
         let challenges = host.challenges.lock().expect("lock");
         assert_eq!(challenges.len(), 1);
+    }
+
+    /// A host that signs and records the key ids it was asked for.
+    struct SigningHost {
+        key_ids: std::sync::Mutex<Vec<Option<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl engine_ports::Host for SigningHost {
+        async fn request_sign(
+            &self,
+            p: engine_ports::SignParams,
+        ) -> Result<engine_ports::SignResult, engine_ports::HostError> {
+            self.key_ids
+                .lock()
+                .map(|mut ids| ids.push(p.key_id))
+                .map_err(|_| engine_ports::HostError::Cannot("lock".to_owned()))?;
+            Ok(engine_ports::SignResult {
+                signature: vec![1, 2, 3, 4],
+            })
+        }
+        async fn request_match(
+            &self,
+            _params: engine_ports::MatchParams,
+        ) -> Result<engine_ports::MatchResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no match".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _p: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no consent".to_owned()))
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, engine_ports::HostError> {
+            Err(engine_ports::HostError::Cannot("no tx code".to_owned()))
+        }
+        async fn open_authorization(
+            &self,
+            _f: &str,
+            _u: &str,
+        ) -> Result<(), engine_ports::HostError> {
+            Ok(())
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+    }
+
+    #[tokio::test]
+    async fn the_par_push_carries_the_private_key_jwt_assertion_with_the_registered_kid() {
+        // The AS names the method: the pushed request authenticates the
+        // client with the RFC 7523 assertion, signed with the registered
+        // kid (RFC 9126 §2.1 — the client authentication rides the pushed
+        // parameters beside the authorization ones).
+        let mut as_metadata = test_as();
+        as_metadata.token_endpoint_auth_methods = vec!["private_key_jwt".to_owned()];
+        let http = SequencedHttp::new(vec![(
+            "https://as.example/par".to_owned(),
+            HttpResponse {
+                status: 201,
+                headers: Vec::new(),
+                body: br#"{"request_uri":"urn:par:1"}"#.to_vec(),
+            },
+        )]);
+        let host = SigningHost {
+            key_ids: std::sync::Mutex::new(Vec::new()),
+        };
+        let uri = push_authorization_request_with_attestation(
+            &http,
+            &host,
+            &as_metadata,
+            &ParPushSpec {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                client_key_kid: Some("client-key-1"),
+                rng: &TestRng,
+                now_unix: 1_000,
+            },
+            &[("response_type".to_owned(), "code".to_owned())],
+        )
+        .await
+        .expect("push");
+        assert_eq!(uri, "urn:par:1");
+
+        // The pushed form carries the assertion's type and value.
+        let seen = http.seen.lock().expect("lock");
+        assert_eq!(seen.len(), 1);
+        let form = String::from_utf8_lossy(&seen[0].body).into_owned();
+        assert!(form.contains(
+            "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer"
+        ));
+        assert!(form.contains("client_assertion="));
+
+        // The assertion's sign ask named the registered kid.
+        let key_ids = host.key_ids.lock().expect("lock");
+        assert!(
+            key_ids
+                .iter()
+                .any(|id| id.as_deref() == Some("client-key-1")),
+            "the sign asks carried the registered kid: {key_ids:?}"
+        );
     }
 
     #[tokio::test]
@@ -950,8 +1110,13 @@ mod tests {
             &http,
             &host,
             &test_as(),
-            "flow-1",
-            "client-1",
+            &ParPushSpec {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                client_key_kid: None,
+                rng: &TestRng,
+                now_unix: 1_000,
+            },
             &[],
         )
         .await
@@ -994,8 +1159,13 @@ mod tests {
             &http,
             &host,
             &test_as(),
-            "flow-1",
-            "client-1",
+            &ParPushSpec {
+                flow_id: "flow-1",
+                client_id: "client-1",
+                client_key_kid: None,
+                rng: &TestRng,
+                now_unix: 1_000,
+            },
             &[],
         )
         .await

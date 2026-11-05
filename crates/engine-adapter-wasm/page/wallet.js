@@ -173,14 +173,18 @@ async function startOffer(offerUrl) {
     flow_id: flowId,
     flow_type: 'oid4vci',
     // The offer URL plus the wallet's client identity, in the object
-    // form the engine's flow start reads: the registered client_id and
-    // the client key's kid (the private_key_jwt assertion's kid — the
-    // app knows the kid it registered). The offer parser takes the
-    // credential_offer member as the scheme URL directly.
+    // form the engine's flow start reads: the registered client_id, the
+    // client key's kid (the private_key_jwt assertion's kid — the app
+    // knows the kid it registered), and the page's own URL as the
+    // redirect_uri (the authorization-code grant: the AS sends the code
+    // back here, and the load handler resumes the flow from ?code and
+    // ?state). The offer parser takes the credential_offer member as
+    // the scheme URL directly.
     params: {
       credential_offer: offerUrl,
       client_id: e.clientId,
       client_key_kid: e.clientKeyId,
+      redirect_uri: window.location.origin + '/',
     },
   });
   // The authorization-code grant returns with the flow still open: the

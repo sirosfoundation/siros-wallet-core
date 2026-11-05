@@ -591,17 +591,29 @@ async fn start_authorization_code(
 
     // PAR (RFC 9126): push when the AS advertises it, with the client
     // attestation the host supplies (the WIA from the existing wallet
-    // provider, the PoP device-signed). A failure has no fallback when
-    // the AS requires PAR; otherwise fall back to the plain
-    // authorization URL with all parameters.
+    // provider, the PoP device-signed), and the RFC 7523 client
+    // assertion when the AS authenticates the client at the pushed
+    // request (the registered kid the flow start carried). A failure
+    // has no fallback when the AS requires PAR; otherwise fall back to
+    // the plain authorization URL with all parameters.
+    let client_key_kid = offer_params
+        .get("client_key_kid")
+        .and_then(|v| v.as_str())
+        .filter(|kid| !kid.is_empty())
+        .map(str::to_owned);
     let mut request_uri = None;
     if !as_metadata.par_endpoint.is_empty() {
         match auth_code::push_authorization_request_with_attestation(
             ctx.http().as_ref(),
             ctx.host().as_ref(),
             as_metadata,
-            flow_id,
-            &client_id,
+            &auth_code::ParPushSpec {
+                flow_id,
+                client_id: &client_id,
+                client_key_kid: client_key_kid.as_deref(),
+                rng: ctx.rng().as_ref(),
+                now_unix: ctx.clock().now_unix(),
+            },
             &params.params,
         )
         .await
