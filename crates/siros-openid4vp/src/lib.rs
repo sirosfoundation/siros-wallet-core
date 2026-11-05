@@ -179,6 +179,8 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "resolve")]
             resolve::Rejection::messages,
             #[cfg(feature = "resolve")]
+            resolve::RouteBreach::messages,
+            #[cfg(feature = "resolve")]
             authenticate::Unauthenticated::messages,
             #[cfg(feature = "resolve")]
             authenticate::PrefixRefusal::messages,

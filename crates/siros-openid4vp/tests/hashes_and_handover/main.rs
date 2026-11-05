@@ -330,7 +330,7 @@ fn transaction_data_hashes_follow_b_3_3_1() {
 #[test]
 fn a_hash_algorithms_digest_holds_the_octets_it_states() {
     use siros_openid4vp::envelope::Envelope;
-    use siros_openid4vp::hash::HashAlgorithm;
+    use siros_openid4vp::hash::{HashAlgorithm, HashesError};
     use siros_openid4vp::ids::TransactionType;
     use siros_openid4vp::modes::DcApi;
     use siros_openid4vp::resolve::Outcome;
@@ -385,7 +385,18 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
                     serde_json::json!([URL_SAFE_NO_PAD.encode(Sha256::digest(data.as_bytes()))])
                 );
             }
-            (31, Err(Outcome::Fault(_))) => {}
+            (31, Err(Outcome::Fault(fault))) => {
+                let cause = std::error::Error::source(&fault)
+                    .and_then(|cause| cause.downcast_ref::<HashesError>());
+                assert_eq!(
+                    cause,
+                    Some(&HashesError::Digest {
+                        name: Sha2::Sha256.name(),
+                        octets: 31,
+                        stated: 32,
+                    })
+                );
+            }
             (writes, other) => panic!("{writes} octets: {other:?}"),
         }
     }

@@ -6,7 +6,7 @@ use std::ops::Range;
 use siros_explain::AllOf;
 
 use super::selection::{check, derived};
-use super::{Finding, Outcome, Rejection, Response, ResponseData, RouteKey, VpToken};
+use super::{Finding, Outcome, Rejection, Response, ResponseData, RouteBreach, RouteKey, VpToken};
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::envelope::Channel;
 use crate::host::{
@@ -250,13 +250,7 @@ fn seal<'k, 'h, H: CoreHost>(
             let haip = access(host);
             (haip.agreements(), Some(haip))
         }
-        Role::Errors => {
-            return Err(Fault::new(
-                FAULT,
-                detail!("a mode that carries errors routed an answer"),
-            )
-            .into());
-        }
+        Role::Errors => return Err(breach(RouteBreach::ErrorsAnswered)),
     };
     let encrypting = registered
         .mode
@@ -269,26 +263,25 @@ fn seal<'k, 'h, H: CoreHost>(
                 .key()
                 .alg()
                 .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
-            if stated && metadata.lists(enc) {
+            if !stated {
+                Err(breach(RouteBreach::Unstated))
+            } else if !metadata.lists(enc) {
+                Err(breach(RouteBreach::Unlisted))
+            } else {
                 Ok(Some(Sealing {
                     haip,
                     key: RouteKey::of(key, enc),
                 }))
-            } else {
-                Err(Fault::new(
-                    FAULT,
-                    detail!("a mode chose a key or an enc the sealing module does not state, or an enc the Verifier does not list"),
-                )
-                .into())
             }
         }
-        (Encrypting::Jwe { .. }, None) => {
-            Err(Fault::new(FAULT, detail!("a mode in the clear chose a key")).into())
-        }
-        (Encrypting::Plain, Some(_)) => {
-            Err(Fault::new(FAULT, detail!("a JWE mode chose no key")).into())
-        }
+        (Encrypting::Jwe { .. }, None) => Err(breach(RouteBreach::KeyInTheClear)),
+        (Encrypting::Plain, Some(_)) => Err(breach(RouteBreach::NoKey)),
     }
+}
+
+/// Phase 2's fault for a route that breaks its registration.
+fn breach(breach: RouteBreach) -> Outcome {
+    Fault::caused(FAULT, detail!("the routed mode broke its contract"), breach).into()
 }
 
 /// A derived record as phase 2 answers it: the wallet's credential, its query read for phase 2,

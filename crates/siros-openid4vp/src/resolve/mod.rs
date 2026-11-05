@@ -54,6 +54,28 @@ pub enum Finding {
     },
 }
 
+/// How a mode's route breaks its registration, the cause of phase 2's fault: the mode broke its
+/// contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.route_breach")]
+pub enum RouteBreach {
+    /// A mode registered for errors alone routed an answer.
+    #[error("a mode that carries errors routed an answer")]
+    ErrorsAnswered,
+    /// A mode in the clear chose a key.
+    #[error("a mode in the clear chose a key")]
+    KeyInTheClear,
+    /// A JWE mode chose no key.
+    #[error("a JWE mode chose no key")]
+    NoKey,
+    /// A JWE mode chose a key or an `enc` the sealing module does not state.
+    #[error("a mode chose a key or an enc the sealing module does not state")]
+    Unstated,
+    /// A JWE mode chose an `enc` the Verifier does not list (§5.1, §8.3).
+    #[error("a mode chose an enc the Verifier does not list")]
+    Unlisted,
+}
+
 /// Why phase 2 rejects a selection: its ids are no records, or no selection the request allows.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.rejection")]
