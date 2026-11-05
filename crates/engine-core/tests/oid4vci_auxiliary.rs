@@ -15,6 +15,15 @@ fn config_with(advertisement: Value) -> Value {
     })
 }
 
+/// A configuration of the credential format `format`.
+fn config_of(format: &str, advertisement: Value) -> Value {
+    serde_json::json!({
+        "format": format,
+        "proof_types_supported": {"jwt": {}},
+        "auxiliary_data_supported": advertisement,
+    })
+}
+
 fn hash_commitment(alg: &str, path: Value) -> Value {
     serde_json::json!({
         "type": "hash_commitment",
@@ -35,11 +44,10 @@ fn with_paths(format: &str, paths: &[Value]) -> Result<SecretDelivery, SecretDel
         .iter()
         .map(|path| hash_commitment("sha-256", path.clone()))
         .collect();
-    secret_delivery_of(&serde_json::json!({
-        "format": format,
-        "proof_types_supported": {"jwt": {}},
-        "auxiliary_data_supported": {"to_wallet": entries},
-    }))
+    secret_delivery_of(&config_of(
+        format,
+        serde_json::json!({ "to_wallet": entries }),
+    ))
 }
 
 #[test]
@@ -64,8 +72,9 @@ fn an_unsupported_to_wallet_alg_makes_the_configuration_unusable() {
         "to_wallet": [hash_commitment("sha-512", serde_json::json!(["family_name"]))],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(
-        usable(&delivery, &config).is_err(),
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Alg)),
         "the sha-512 entry the wallet cannot check"
     );
 }
@@ -81,7 +90,10 @@ fn an_unsupported_to_wallet_encoding_makes_the_configuration_unusable() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(usable(&delivery, &config).is_err());
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Encoding))
+    );
 }
 
 #[test]
@@ -119,10 +131,9 @@ fn a_required_to_issuer_entry_without_a_carrier_proof_type_refuses() {
         }]},
     });
     let delivery = secret_delivery_of(&config).expect("parses");
-    let refusal = usable(&delivery, &config).expect_err("no carrier");
-    assert!(
-        refusal.reason.contains("jwt or attestation"),
-        "the refusal names the need: {refusal}"
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::NoCarrierProof)
     );
 }
 
@@ -137,8 +148,9 @@ fn a_required_to_issuer_entry_of_an_unrecognised_type_refuses() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(
-        usable(&delivery, &config).is_err(),
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::RequiredToIssuerOfOtherType),
         "a required entry of an unrecognised type"
     );
     // And it is not carried.
@@ -297,7 +309,10 @@ fn an_encoding_is_absent_base64url_base64_or_hex() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(usable(&delivery, &config).is_err());
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Encoding))
+    );
 }
 
 /// A JSON number is the value its decimal text writes (RFC 8259 §6): two
@@ -352,8 +367,9 @@ fn the_duplicate_key_is_the_normal_form() {
 /// namespace and the data element identifier, and a later component is a
 /// map key ("string or integer"), an index or null (C.2). An index is at
 /// most 2^64 − 1, a range limit RFC 8259 §6 allows; an mdoc integer is a
-/// CBOR integer, at least −2^64 (RFC 8949 §3.1). One rule per row, each
-/// path as the issuer's JSON text.
+/// CBOR integer, at least −2^64 (RFC 8949 §3.1). Into a Credential of a
+/// format Appendix A does not define, a pointer keeps Appendix C's grammar
+/// alone. One rule per row, each path as the issuer's JSON text.
 #[test]
 fn a_path_follows_appendix_c_for_its_format() {
     let component = |at, why| Err(ClaimsPathError::Component { at, why });
@@ -428,6 +444,12 @@ fn a_path_follows_appendix_c_for_its_format() {
             r#"["p", -1]"#,
             component(1, ComponentError::Negative),
         ),
+        ("example_format", r#"[-1, null, "p"]"#, Ok(())),
+        (
+            "example_format",
+            r#"["p", true]"#,
+            component(1, ComponentError::WrongType),
+        ),
     ];
     for (format, text, expected) in cases {
         let delivery = with_paths(format, &[path(text)]);
@@ -445,15 +467,30 @@ fn a_path_follows_appendix_c_for_its_format() {
 }
 
 /// A `hash_commitment` path reads by its credential's format (OpenID4VCI
-/// 1.0 Appendix C), and Appendix A defines the formats.
+/// 1.0 Appendix C), and Appendix A defines the formats: in any other
+/// format, the wallet does not recognise the entry. It refuses the
+/// credential for a `to_wallet` entry, and leaves an optional `to_issuer`
+/// entry out (§4.1).
 #[test]
-fn a_path_in_a_format_appendix_a_does_not_define_is_refused() {
-    let delivery = with_paths("example_format", &[path(r#"["p"]"#)]);
-    assert!(
-        matches!(
-            delivery,
-            Err(SecretDeliveryError::UnknownCredentialFormat { list: "to_wallet" })
-        ),
-        "{delivery:?}"
+fn an_entry_in_a_format_appendix_a_does_not_define_is_unrecognised() {
+    let entry = hash_commitment("sha-256", path(r#"["p"]"#));
+
+    let config = config_of(
+        "example_format",
+        serde_json::json!({ "to_wallet": [entry.clone()] }),
     );
+    let delivery = secret_delivery_of(&config).expect("parses");
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Format))
+    );
+
+    let config = config_of(
+        "example_format",
+        serde_json::json!({ "to_issuer": [entry] }),
+    );
+    let delivery = secret_delivery_of(&config).expect("parses");
+    assert!(delivery.to_issuer.is_empty(), "{delivery:?}");
+    assert_eq!(delivery.to_issuer_left_out, [Unrecognised::Format]);
+    assert_eq!(usable(&delivery, &config), Ok(()));
 }

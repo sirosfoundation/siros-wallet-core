@@ -1,6 +1,7 @@
 //! Claims path pointers (OpenID4VCI 1.0 Appendix C): "a non-empty array of strings, nulls and
 //! integers", read by the semantics of the credential's format: Appendix C.1 for a JSON-based
-//! Credential, Appendix C.2 for an ISO mdoc. A pointer is parsed where it enters.
+//! Credential, Appendix C.2 for an ISO mdoc. A pointer into a Credential of a format Appendix A
+//! does not define keeps Appendix C's grammar alone. A pointer is parsed where it enters.
 
 use std::num::IntErrorKind;
 
@@ -20,9 +21,15 @@ pub(crate) enum ClaimsPath {
         namespace: String,
         /// The data element identifier: the second component.
         data_element: String,
-        /// The components that select within the data element's value.
-        within: Vec<MdocComponent>,
+        /// The components that select within the data element's value: a string selects the
+        /// entry of a map with that key, an integer the entry of a map with that key or, when
+        /// non-negative and the selected element is an array, the element at that position,
+        /// and null every element of an array.
+        within: Vec<Component>,
     },
+    /// A pointer into a Credential of a format Appendix A does not define: the components
+    /// Appendix C admits, without semantics.
+    OtherFormat(Vec<Component>),
 }
 
 /// A component of a pointer into a JSON-based Credential (Appendix C.1).
@@ -36,16 +43,16 @@ pub(crate) enum JsonComponent {
     AllElements,
 }
 
-/// A component after the data element identifier of a pointer into an ISO mdoc (Appendix C.2).
+/// A component as Appendix C writes it, in a pointer into an ISO mdoc after its data element
+/// identifier, or into a Credential of a format Appendix A does not define.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum MdocComponent {
-    /// Selects the entry of a map with this text key: a JSON string.
+pub(crate) enum Component {
+    /// A JSON string.
     Key(String),
-    /// Selects the entry of a map with this integer key. A non-negative integer selects the
-    /// element of an array at this position when the selected element is an array.
+    /// A JSON number whose value is an integer.
     Integer(CborInteger),
-    /// Selects every element of an array: JSON `null`.
-    AllElements,
+    /// JSON `null`.
+    Null,
 }
 
 /// An integer of CBOR major type 0 or 1 (RFC 8949 §3.1): from −2^64 to 2^64 − 1.
@@ -58,8 +65,12 @@ pub(crate) enum CborInteger {
 }
 
 impl ClaimsPath {
-    /// The pointer the JSON value `value` writes into a Credential of the format `format`.
-    pub(crate) fn parse(value: &Value, format: CredentialFormat) -> Result<Self, ClaimsPathError> {
+    /// The pointer the JSON value `value` writes into a Credential of the format `format`;
+    /// `None` is a format Appendix A does not define.
+    pub(crate) fn parse(
+        value: &Value,
+        format: Option<CredentialFormat>,
+    ) -> Result<Self, ClaimsPathError> {
         let Value::Array(items) = value else {
             return Err(ClaimsPathError::NotArray);
         };
@@ -67,11 +78,14 @@ impl ClaimsPath {
             return Err(ClaimsPathError::Empty);
         }
         match format {
-            CredentialFormat::JwtVcJson
-            | CredentialFormat::LdpVc
-            | CredentialFormat::JwtVcJsonLd
-            | CredentialFormat::DcSdJwt => Self::parse_json(items),
-            CredentialFormat::MsoMdoc => Self::parse_mdoc(items),
+            Some(
+                CredentialFormat::JwtVcJson
+                | CredentialFormat::LdpVc
+                | CredentialFormat::JwtVcJsonLd
+                | CredentialFormat::DcSdJwt,
+            ) => Self::parse_json(items),
+            Some(CredentialFormat::MsoMdoc) => Self::parse_mdoc(items),
+            None => components(items.iter().enumerate()).map(Self::OtherFormat),
         }
     }
 
@@ -103,14 +117,7 @@ impl ClaimsPath {
         };
         let namespace = name(0)?;
         let data_element = name(1)?;
-        let within = items
-            .iter()
-            .enumerate()
-            .skip(2)
-            .map(|(at, item)| {
-                MdocComponent::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
-            })
-            .collect::<Result<_, _>>()?;
+        let within = components(items.iter().enumerate().skip(2))?;
         Ok(Self::Mdoc {
             namespace,
             data_element,
@@ -139,18 +146,29 @@ impl JsonComponent {
     }
 }
 
-impl MdocComponent {
+/// The components `items` write, each with its position in the pointer.
+fn components<'a>(
+    items: impl Iterator<Item = (usize, &'a Value)>,
+) -> Result<Vec<Component>, ClaimsPathError> {
+    items
+        .map(|(at, item)| {
+            Component::parse(item).map_err(|why| ClaimsPathError::Component { at, why })
+        })
+        .collect()
+}
+
+impl Component {
     /// The component the JSON value `value` writes.
     fn parse(value: &Value) -> Result<Self, ComponentError> {
         match value {
             Value::String(key) => Ok(Self::Key(key.clone())),
-            // Appendix C.2: a map key is a "string or integer", an array index a non-negative
-            // integer.
+            // Appendix C: "integers"; in an ISO mdoc, a map key is a "string or integer" and an
+            // array index a non-negative integer (C.2).
             Value::Number(number) => match whole_number_of(number)? {
                 WholeNumber::InRange(integer) => Ok(Self::Integer(integer)),
                 WholeNumber::Above | WholeNumber::Below => Err(ComponentError::OutOfRange),
             },
-            Value::Null => Ok(Self::AllElements),
+            Value::Null => Ok(Self::Null),
             Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(ComponentError::WrongType),
         }
     }
@@ -319,8 +337,8 @@ pub enum ComponentError {
     /// A negative integer in a pointer into a JSON-based Credential (Appendix C.1).
     #[error("a negative integer in a JSON-based credential's path")]
     Negative,
-    /// An integer above 2^64 − 1, the largest index, or, in a pointer into an ISO mdoc, below
-    /// −2^64, the smallest CBOR integer (RFC 8949 §3.1).
+    /// An integer above 2^64 − 1, the largest index, or, outside a pointer into a JSON-based
+    /// Credential, below −2^64, the smallest CBOR integer (RFC 8949 §3.1).
     #[error("an integer out of range")]
     OutOfRange,
     /// The namespace or the data element identifier of a pointer into an ISO mdoc is no string
