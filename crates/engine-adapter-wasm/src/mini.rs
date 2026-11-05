@@ -76,11 +76,30 @@ fn pid_claims() -> Vec<(&'static str, serde_json::Value)> {
 /// The vct the suites' DCQL queries name.
 const PID_VCT: &str = "urn:eudi:pid:1";
 
-/// Issues the mini host's held PID: a compact SD-JWT VC (RFC 9901)
-/// holder-bound to the device key, with the salted-hash disclosures of
-/// the fixture claims. The trailing `~` marks the key-binding form
-/// (§4.1); the harness's stand-in for a real wallet's stored
+/// The held PID as issued: an SD-JWT VC (RFC 9901) holder-bound to the
+/// device key, the harness's stand-in for a real wallet's stored
 /// credential.
+struct MiniPid {
+    /// The issuer-signed JWT in the JWS compact serialization (RFC 7515
+    /// §7.1).
+    jwt: String,
+    /// The disclosures of the fixture claims, in the issuer's order.
+    disclosures: Vec<PidDisclosure>,
+}
+
+/// A disclosure of the held PID (RFC 9901 §4.2.1).
+struct PidDisclosure {
+    /// The claim name it discloses.
+    name: &'static str,
+    /// The claim's value.
+    value: serde_json::Value,
+    /// The base64url of the JSON array `[salt, name, value]`: the text
+    /// presented and digest-listed in the JWT's `_sd` (§4.2.3).
+    encoded: String,
+}
+
+/// Issues the mini host's held PID, with the salted-hash disclosures of
+/// the fixture claims.
 ///
 /// With a configured PID signing key (the HAIP profile demands the
 /// credential carry its X.509 chain, HAIP-6.1.1), the issuer is that
@@ -90,7 +109,7 @@ const PID_VCT: &str = "urn:eudi:pid:1";
 fn issue_mini_pid(
     device_public: &serde_json::Value,
     pid_signing: Option<&jose_rs::jwk::Jwk>,
-) -> Result<String, String> {
+) -> Result<MiniPid, String> {
     let issuer_key = match pid_signing {
         Some(key) => key.clone(),
         None => jose_rs::jwk::generate::generate_ec("P-256")
@@ -99,10 +118,9 @@ fn issue_mini_pid(
     let issuer_signer = p256_signer(&issuer_key)?;
     let now = (js_sys::Date::now() / 1000.0) as i64;
 
-    // The disclosures (§5.1): base64url of the JSON array
-    // [salt, claim name, value], each digest-listed in `_sd`. The
-    // digest is over the ENCODED disclosure text (§4.2.3) — the bytes a
-    // verifier hashes when it resolves the references.
+    // The disclosures (§5.1), each digest-listed in `_sd`. The digest is
+    // over the ENCODED disclosure text (§4.2.3) — the bytes a verifier
+    // hashes when it resolves the references.
     let mut disclosures = Vec::new();
     let mut digests = Vec::new();
     for (index, (name, value)) in pid_claims().into_iter().enumerate() {
@@ -112,8 +130,12 @@ fn issue_mini_pid(
         let digest =
             kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, encoded.as_bytes())
                 .map_err(|err| format!("the disclosure digest failed: {err}"))?;
-        disclosures.push(encoded);
         digests.push(URL_SAFE_NO_PAD.encode(&digest));
+        disclosures.push(PidDisclosure {
+            name,
+            value,
+            encoded,
+        });
     }
 
     // The issuer JWT: the fixture claims are undisclosed; the device
@@ -148,16 +170,10 @@ fn issue_mini_pid(
     let tbs = format!("{header_text}.{payload_text}");
     let signature = kryptering::Signer::sign(&issuer_signer, tbs.as_bytes())
         .map_err(|err| format!("the PID signing failed: {err}"))?;
-
-    // The compact SD-JWT: the JWT, the disclosures, the trailing `~`
-    // of the key-binding form (§4.1).
-    let mut pid = format!("{tbs}.{}", URL_SAFE_NO_PAD.encode(&signature));
-    for disclosure in disclosures {
-        pid.push('~');
-        pid.push_str(&disclosure);
-    }
-    pid.push('~');
-    Ok(pid)
+    Ok(MiniPid {
+        jwt: format!("{tbs}.{}", URL_SAFE_NO_PAD.encode(&signature)),
+        disclosures,
+    })
 }
 
 /// The KB-JWT's header (RFC 9901 §4.3): ES256, the device key's
@@ -174,55 +190,32 @@ const KB_HEADER: &str = r#"{"typ":"kb+jwt","alg":"ES256"}"#;
 /// that claim's value (a key of an object, an index of an array, null
 /// for every element of an array). `sign` signs the KB-JWT's signing
 /// input with the holder's key and answers ES256's 64-octet `r ‖ s`
-/// (RFC 7518 §3.4). Refused when the PID is not in the key-binding
-/// form, a disclosure is no `[salt, name, value]` array (§4.2.1), a
-/// claim is no §7 path, or the PID holds no claim at a path.
+/// (RFC 7518 §3.4). Refused when a claim is no §7 path or the PID holds
+/// no claim at a path.
 fn present_mini_pid(
-    pid: &str,
+    pid: &MiniPid,
     claims: &[String],
     iat: u64,
     audience: &str,
     nonce: &str,
     sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
 ) -> Result<String, String> {
-    let Some(form) = pid.strip_suffix('~') else {
-        return Err("the held PID is not in the key-binding form (§4.1)".to_owned());
-    };
-    let (jwt, encoded) = match form.split_once('~') {
-        Some((jwt, disclosures)) => (jwt, disclosures.split('~').collect()),
-        None => (form, Vec::new()),
-    };
-    let mut named = Vec::new();
-    for disclosure in encoded {
-        let bytes = URL_SAFE_NO_PAD
-            .decode(disclosure)
-            .map_err(|err| format!("a disclosure of the held PID is no base64url: {err}"))?;
-        let value: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|err| format!("a disclosure of the held PID is no JSON: {err}"))?;
-        let Some([_, serde_json::Value::String(name), claim]) = value.as_array().map(Vec::as_slice)
-        else {
-            return Err(
-                "a disclosure of the held PID is no [salt, name, value] array (§4.2.1)".to_owned(),
-            );
-        };
-        named.push((name.clone(), claim.clone(), disclosure));
-    }
-
-    let mut presented = format!("{jwt}~");
-    let mut chosen: Vec<&str> = Vec::new();
+    let mut presented = format!("{}~", pid.jwt);
+    let mut chosen = Vec::new();
     for claim in claims {
         let path = ClaimsPath::parse(claim)
             .ok_or_else(|| format!("the disclosed claim {claim} is no §7 claims path"))?;
-        let Some((_, _, disclosure)) = named.iter().find(|(name, value, _)| {
-            matches!(path.split_first(), (Component::Key(first), rest)
-                if first == name && resolves(value, rest))
-        }) else {
+        let Some((index, disclosure)) =
+            pid.disclosures.iter().enumerate().find(|(_, disclosure)| {
+                matches!(path.split_first(), (Component::Key(first), rest)
+                    if first == disclosure.name && resolves(&disclosure.value, rest))
+            })
+        else {
             return Err(format!("the held PID holds no claim at {claim}"));
         };
-        let disclosure = *disclosure;
-        if !chosen.contains(&disclosure) {
-            chosen.push(disclosure);
-            presented.push_str(disclosure);
+        if !chosen.contains(&index) {
+            chosen.push(index);
+            presented.push_str(&disclosure.encoded);
             presented.push('~');
         }
     }
@@ -458,7 +451,7 @@ fn tdate(unix: i64) -> Result<Cbor, String> {
 /// (RFC 9360 §2); each map in the core deterministic encoding (RFC 8949
 /// §4.2.1). None when no PID signing key carries an x5c chain:
 /// issuerAuth's unprotected header holds the issuer's x5chain (9.1.2.4).
-/// Refused when the key's x5c is no array of base64 DER certificates.
+/// Refused when the key's x5c is no array of standard-base64 strings.
 fn issue_mini_mdl(
     device_public: &serde_json::Value,
     issuer_signing: Option<&jose_rs::jwk::Jwk>,
@@ -483,7 +476,7 @@ fn issue_mini_mdl(
                 .and_then(|encoded| STANDARD.decode(encoded).ok())
                 .map(Cbor::Bytes)
                 .ok_or_else(|| {
-                    "an x5c entry of the PID signing key is no base64 DER (RFC 7517 §4.7)"
+                    "an x5c entry of the PID signing key is no standard base64 (RFC 7517 §4.7)"
                         .to_owned()
                 })
         })
@@ -603,39 +596,36 @@ fn present_mini_mdl(
     claims: &[String],
     sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
 ) -> Result<String, String> {
-    // The selected elements: the paths' [namespace, claim name] pairs.
-    let paths = claims
-        .iter()
-        .map(|claim| {
-            ClaimsPath::parse(claim)
-                .ok_or_else(|| format!("the disclosed claim {claim:?} is no §7 path"))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let mut selected: Vec<(&str, &str)> = Vec::new();
-    for (claim, path) in claims.iter().zip(&paths) {
-        let Some(element) = path.mdoc_element() else {
+    // The selected items: the issuer's items the paths' [namespace,
+    // element identifier] pairs name, by their index in the mDL.
+    let mut selected = Vec::new();
+    for claim in claims {
+        let path = ClaimsPath::parse(claim)
+            .ok_or_else(|| format!("the disclosed claim {claim:?} is no §7 path"))?;
+        let Some((name_space, identifier)) = path.mdoc_element() else {
             return Err(format!(
                 "the mdoc claim path {claim:?} is not a [namespace, claim] pair"
             ));
         };
-        if selected.contains(&element) {
+        let Some(index) = mdl
+            .items
+            .iter()
+            .position(|item| name_space == MDL_NAMESPACE && identifier == item.identifier)
+        else {
+            return Err(format!("the mDL holds no element at {claim:?}"));
+        };
+        if selected.contains(&index) {
             return Err(format!("the mdoc disclosure selects {claim:?} twice"));
         }
-        selected.push(element);
+        selected.push(index);
     }
     let disclosed: Vec<Cbor> = mdl
         .items
         .iter()
-        .filter(|item| {
-            selected.iter().any(|&(name_space, identifier)| {
-                name_space == MDL_NAMESPACE && identifier == item.identifier
-            })
-        })
-        .map(|item| item.bytes.clone())
+        .enumerate()
+        .filter(|(index, _)| selected.contains(index))
+        .map(|(_, item)| item.bytes.clone())
         .collect();
-    if disclosed.len() != selected.len() {
-        return Err("the mdoc disclosure selects an element the mDL does not hold".to_owned());
-    }
 
     // The OpenID4VPHandover (B.2.6.1): ["OpenID4VPHandover",
     // SHA-256(cbor([client_id, nonce, jwkThumbprint, response_uri]))]
@@ -739,13 +729,13 @@ pub struct MiniHost {
     /// The device key's signer — the OID4VCI proof's and the KB-JWT's
     /// signing key.
     signer: Signer,
-    /// The held PID: a self-issued SD-JWT VC (RFC 9901) with the claims
+    /// The held PID: a self-issued SD-JWT VC with the claims
     /// the suites' DCQL queries ask for, holder-bound to the device key
     /// — the harness's stand-in for a credential a real wallet holds
     /// from its issuer. The presentation's structure and key binding
     /// are what the suites validate; the engine's OID4VP protocol is
     /// the thing under test.
-    pid: String,
+    pid: MiniPid,
     /// The held mDL: a self-issued mso_mdoc (ISO/IEC 18013-5) with the
     /// driver claims the mso_mdoc DCQL queries ask for, the device key
     /// bound as its MSO's deviceKey — the mdoc presentation's answers

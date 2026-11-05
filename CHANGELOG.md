@@ -38,9 +38,10 @@ released version yet.
   the segments. The mDL's is the DeviceResponse of the selected items with
   the device signature over the OpenID4VPHandover's session transcript
   (OpenID4VP B.2.6.1); `ciborium` writes its CBOR in the core deterministic
-  encoding (RFC 8949 §4.2.1). `MiniHost::new` fails on an mDL issuance
-  error, an x5c that is no array of base64 DER certificates among them; a
-  PID signing key without an x5c chain leaves the host without an mDL.
+  encoding (RFC 8949 §4.2.1). A PID signing key without an x5c chain leaves
+  the host without an mDL. `MiniHost::new` fails when the mDL's issuance
+  fails, an x5c that is no array of standard-base64 strings included, and
+  when a public key does not serialize.
 
 ### Not ported
 

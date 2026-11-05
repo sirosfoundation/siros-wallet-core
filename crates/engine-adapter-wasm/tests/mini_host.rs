@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use wasm_bindgen_test::wasm_bindgen_test;
 
 use engine_adapter_wasm::mini::MiniHost;
-use engine_ports::{Host, SignParams, VpParams, VpSelection};
+use engine_ports::{Host, HostError, SignParams, VpParams, VpSelection};
 
 /// The P-256 ES256 verifier over a public JWK.
 fn es256_verifier(public: &jose_rs::jwk::Jwk) -> kryptering::SoftwareVerifier {
@@ -106,6 +106,16 @@ async fn the_client_key_signs_the_assertion_ask() {
     assert!(ok, "the assertion signature verifies with the client key");
 }
 
+/// The fixture issuer's signing key, its x5c the leaf certificate of the
+/// key.
+const ISSUER_JWK: &str = r#"{"kty": "EC", "crv": "P-256", "x": "vbralm3AYpmqPjRNS-r91bxdJMoBIwGMfX9wBFs_j5g", "y": "GxYJ_Mi0seMhvJ7bpavbL_lJKN0SCwHKcWUbZh78AcA", "d": "ms8Mq5Zd4EfJvAnvrFhJgikMWvsti4YYUiAF--d12EI", "kid": "mini-pid-signing-1", "use": "sig", "alg": "ES256", "x5c": ["MIIDLjCCAhagAwIBAgIUaq8n9cw4pH90JI8n0X0CFJNCmlIwDQYJKoZIhvcNAQELBQAwgYQxCzAJBgNVBAYTAlNFMQ0wCwYDVQQIDARUZXN0MRUwEwYDVQQHDAxNaW5pIFRlc3RpbmcxGTAXBgNVBAoMEE1pbmkgV2FsbGV0IFRlc3QxETAPBgNVBAsMCFRlc3QgUEtJMSEwHwYDVQQDDBhNaW5pIFdhbGxldCBUZXN0IFJvb3QgQ0EwHhcNMjYxMTA1MDk0MjA5WhcNMjgxMTA0MDk0MjA5WjCBhTELMAkGA1UEBhMCU0UxDTALBgNVBAgMBFRlc3QxFTATBgNVBAcMDE1pbmkgVGVzdGluZzEZMBcGA1UECgwQTWluaSBXYWxsZXQgVGVzdDEbMBkGA1UECwwSQ3JlZGVudGlhbCBTaWduaW5nMRgwFgYDVQQDDA9taW5pLXBpZC1pc3N1ZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS9utqWbcBimao+NE1L6v3VvF0kygEjAYx9f3AEWz+PmBsWCfzItLHjIbye26Wr2y/5SSjdEgsBynFlG2Ye/AHAo2AwXjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUnpSlTdowQyMshALAnWJ83QaYyi0wHwYDVR0jBBgwFoAUDVgyA7wrtOk4hCwqQXGM/goAkl8wDQYJKoZIhvcNAQELBQADggEBAF8LQN+4cY+MvQJcXyF1W7QB9j+DgOk8OD+f3TOBQPexk3tKYLznDmgei4dZKdcX7Kd1hXh1SQN/HCwKJEho5fuv4JO33Dyksazuz6nAKmnKcFGiXGLPmC5rMLqY1/TotsTEbtXLIddsBz7c0r13wZggac5Mq6GahNc+tF2X0jDuAdGW1DKKo5mCB5GhDVuBBMQ+dG8wT3lEwyEs2rUhVjswv64gr1o+O7lPbFBF7k9FxOaCIGMM2X8Mp/wdSOXWY6ozSMD9kLjULBTyGrvfhmtxilCMPI4j3K2O1p+Ve1LYC08A9a5I+n9ivVxMIt2o1d+yJg9pWtf67pnR8a8HIAg="]}"#;
+
+/// The mini host holding the mDL the fixture issuer signs.
+fn mdl_host() -> MiniHost {
+    MiniHost::new("123456".to_owned(), None, Some(ISSUER_JWK.to_owned()), None)
+        .expect("the mini host builds")
+}
+
 /// The held mDL the host presents authenticates under the fixture
 /// issuer's key (ISO/IEC 18013-5, 9.3.1): its issuerAuth is an ES256
 /// COSE_Sign1 (the identifier -7, RFC 9053 §2.1, which Multipaz maps
@@ -116,16 +126,9 @@ async fn the_client_key_signs_the_assertion_ask() {
 /// each disclosed IssuerSignedItemBytes (9.1.2.5).
 #[wasm_bindgen_test]
 async fn the_issued_mdl_verifies_under_the_issuer_key() {
-    let issuer_text = r#"{"kty": "EC", "crv": "P-256", "x": "vbralm3AYpmqPjRNS-r91bxdJMoBIwGMfX9wBFs_j5g", "y": "GxYJ_Mi0seMhvJ7bpavbL_lJKN0SCwHKcWUbZh78AcA", "d": "ms8Mq5Zd4EfJvAnvrFhJgikMWvsti4YYUiAF--d12EI", "kid": "mini-pid-signing-1", "use": "sig", "alg": "ES256", "x5c": ["MIIDLjCCAhagAwIBAgIUaq8n9cw4pH90JI8n0X0CFJNCmlIwDQYJKoZIhvcNAQELBQAwgYQxCzAJBgNVBAYTAlNFMQ0wCwYDVQQIDARUZXN0MRUwEwYDVQQHDAxNaW5pIFRlc3RpbmcxGTAXBgNVBAoMEE1pbmkgV2FsbGV0IFRlc3QxETAPBgNVBAsMCFRlc3QgUEtJMSEwHwYDVQQDDBhNaW5pIFdhbGxldCBUZXN0IFJvb3QgQ0EwHhcNMjYxMTA1MDk0MjA5WhcNMjgxMTA0MDk0MjA5WjCBhTELMAkGA1UEBhMCU0UxDTALBgNVBAgMBFRlc3QxFTATBgNVBAcMDE1pbmkgVGVzdGluZzEZMBcGA1UECgwQTWluaSBXYWxsZXQgVGVzdDEbMBkGA1UECwwSQ3JlZGVudGlhbCBTaWduaW5nMRgwFgYDVQQDDA9taW5pLXBpZC1pc3N1ZXIwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS9utqWbcBimao+NE1L6v3VvF0kygEjAYx9f3AEWz+PmBsWCfzItLHjIbye26Wr2y/5SSjdEgsBynFlG2Ye/AHAo2AwXjAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDAdBgNVHQ4EFgQUnpSlTdowQyMshALAnWJ83QaYyi0wHwYDVR0jBBgwFoAUDVgyA7wrtOk4hCwqQXGM/goAkl8wDQYJKoZIhvcNAQELBQADggEBAF8LQN+4cY+MvQJcXyF1W7QB9j+DgOk8OD+f3TOBQPexk3tKYLznDmgei4dZKdcX7Kd1hXh1SQN/HCwKJEho5fuv4JO33Dyksazuz6nAKmnKcFGiXGLPmC5rMLqY1/TotsTEbtXLIddsBz7c0r13wZggac5Mq6GahNc+tF2X0jDuAdGW1DKKo5mCB5GhDVuBBMQ+dG8wT3lEwyEs2rUhVjswv64gr1o+O7lPbFBF7k9FxOaCIGMM2X8Mp/wdSOXWY6ozSMD9kLjULBTyGrvfhmtxilCMPI4j3K2O1p+Ve1LYC08A9a5I+n9ivVxMIt2o1d+yJg9pWtf67pnR8a8HIAg="]}"#;
     let issuer: jose_rs::jwk::Jwk =
-        serde_json::from_str(issuer_text).expect("the fixture issuer JWK");
-    let host = MiniHost::new(
-        "123456".to_owned(),
-        None,
-        Some(issuer_text.to_owned()),
-        None,
-    )
-    .expect("the mini host builds");
+        serde_json::from_str(ISSUER_JWK).expect("the fixture issuer JWK");
+    let host = mdl_host();
 
     // The mDL presentation: a DeviceResponse (ISO/IEC 18013-5,
     // 8.3.2.1.2.2) whose document carries the issuerSigned as issued.
@@ -276,6 +279,43 @@ async fn the_key_binding_covers_the_presented_disclosures() {
 
     for claim in [r#"["no_such_claim"]"#, "family_name"] {
         let refused = host.request_vp(vp_params("mini-pid", &[claim])).await;
-        assert!(refused.is_err(), "{claim}");
+        assert!(matches!(refused, Err(HostError::Cannot(_))), "{claim}");
+    }
+}
+
+/// An mDL presentation discloses each element it selects, once (ISO/IEC
+/// 18013-5, 8.3.2.1.2.2): a selection naming an element twice, and one
+/// naming an element the mDL does not hold, are refused.
+#[wasm_bindgen_test]
+async fn the_mdl_presentation_refuses_a_duplicate_or_absent_element() {
+    let host = mdl_host();
+    for claims in [
+        &[
+            r#"["org.iso.18013.5.1","family_name"]"#,
+            r#"["org.iso.18013.5.1","family_name"]"#,
+        ][..],
+        &[r#"["org.iso.18013.5.1","no_such_element"]"#],
+        &[r#"["org.example.other","family_name"]"#],
+    ] {
+        let refused = host.request_vp(vp_params("mini-mdl", claims)).await;
+        assert!(matches!(refused, Err(HostError::Cannot(_))), "{claims:?}");
+    }
+}
+
+/// The issuer's x5c is an array of standard-base64 strings (RFC 7517
+/// §4.7): a PID signing key whose x5c is no array, or holds an entry that
+/// is no string or no standard base64, fails the host's construction.
+#[wasm_bindgen_test]
+fn a_malformed_x5c_fails_the_host() {
+    for x5c in [
+        serde_json::json!("MIIB"),
+        serde_json::json!([42]),
+        serde_json::json!(["not base64!"]),
+    ] {
+        let mut key: serde_json::Value =
+            serde_json::from_str(ISSUER_JWK).expect("the fixture issuer JWK");
+        key["x5c"] = x5c.clone();
+        let built = MiniHost::new("123456".to_owned(), None, Some(key.to_string()), None);
+        assert!(built.is_err(), "{x5c}");
     }
 }
