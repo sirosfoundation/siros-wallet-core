@@ -595,8 +595,12 @@ pub fn approve(
     let request = request_of(&received).expect("request");
     let wallet = wallet(held);
     let env = env("en");
-    let response = Prepared::prepare(&request, &ids, &wallet, profile, &env)?
-        .respond(fetch, &TestHost::default())?;
+    let host = TestHost::default();
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), profile, &host)
+        .expect("authentic");
+    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
+    let response =
+        Prepared::prepare(&authenticated, &ids, &wallet, profile, &env)?.respond(fetch, &host)?;
     let vp_token: Json =
         serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
     Ok(vp_token["xyz123"][0]["members"].clone())

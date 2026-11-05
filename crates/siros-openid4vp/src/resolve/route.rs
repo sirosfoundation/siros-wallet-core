@@ -12,11 +12,11 @@ use crate::authenticate::{Authenticated, BoundEndpoint, VerifierId};
 use crate::envelope::Channel;
 use crate::host::{CoreHost, Haip};
 use crate::ids::{ClientId, Nonce, Origin};
-use crate::matching::UnmetCode;
+use crate::matching::{CoreRule, UnmetCode};
 use crate::plugins::registry::RegisteredMode;
 use crate::plugins::{Build, Fault, Registry};
 use crate::recourse::{DcApiErrors, Reply};
-use crate::refusal::{ErrorCode, ErrorDescription, Refused};
+use crate::refusal::{ErrorCode, ErrorDescription, Refusal, Refused};
 use crate::request::Agreements;
 use crate::routing::{
     Carries, Echo, Encrypting, ModeHost, RoutedMode, VerifierKeys, VerifierMetadata,
@@ -108,17 +108,35 @@ impl<'a, H: CoreHost> Route<'a, H> {
         registry: &'a Registry<H>,
         host: &H,
     ) -> Result<Self, Outcome> {
+        Self::read(authenticated, registry, host).map(|(route, _)| route)
+    }
+
+    /// [`Route::new`]'s route, with the refusal of the answering mode's choice when it refused
+    /// (C7, or C6 for the request's `client_metadata`), which phase 2 answers with.
+    pub(crate) fn read(
+        authenticated: &'a Authenticated<'a>,
+        registry: &'a Registry<H>,
+        host: &H,
+    ) -> Result<(Self, Option<Refusal>), Outcome> {
         let envelope = authenticated.envelope();
         let routing = envelope.routing();
         let answering = routing
             .mode()
             .filter(|mode| mode.carries() == Carries::Answers)
             .copied();
-        let chosen = |mode| choose(authenticated, registry, mode, host);
+        let mut refusal = None;
+        let mut chosen = |mode: Option<RoutedMode>| -> Result<Option<Chosen<'a>>, Outcome> {
+            let Some(mode) = mode else {
+                return Ok(None);
+            };
+            let (chosen, refused) = choose(authenticated, registry, mode, host)?;
+            refusal = refused;
+            Ok(Some(chosen))
+        };
         let channel = match envelope.channel() {
             Channel::DcApi(origin) => ChannelRoute::DcApi {
                 origin,
-                answers: answering.map(chosen).transpose()?,
+                answers: chosen(answering)?,
             },
             Channel::Uri => {
                 let errors = routing
@@ -141,7 +159,7 @@ impl<'a, H: CoreHost> Route<'a, H> {
                     endpoint: uri,
                     client_id,
                     errors,
-                    answers: answering.map(chosen).transpose()?,
+                    answers: chosen(answering)?,
                 }
             }
         };
@@ -149,12 +167,15 @@ impl<'a, H: CoreHost> Route<'a, H> {
             Some(Some(nonce)) if !nonce.is_empty() => Nonce::parse(nonce).ok(),
             _ => None,
         };
-        Ok(Self {
-            authenticated,
-            registry,
-            channel,
-            nonce,
-        })
+        Ok((
+            Self {
+                authenticated,
+                registry,
+                channel,
+                nonce,
+            },
+            refusal,
+        ))
     }
 
     /// The route an Authorization Response takes; `None` when the request names no registered
@@ -413,7 +434,7 @@ fn choose<'a, H: CoreHost>(
     registry: &Registry<H>,
     mode: RoutedMode,
     host: &H,
-) -> Result<Chosen<'a>, Outcome> {
+) -> Result<(Chosen<'a>, Option<Refusal>), Outcome> {
     let (answering, sealer, sealing): (&dyn ModeHost<H>, _, _) = match registered(registry, mode)? {
         RegisteredMode::Clear(answering) => (answering.as_ref(), Agreements::NONE, false),
         RegisteredMode::Jwe(answering, access) => {
@@ -421,14 +442,19 @@ fn choose<'a, H: CoreHost>(
         }
         RegisteredMode::Errors(_) => return Err(breach(RouteBreach::ErrorsAnswered).into()),
     };
-    let Ok(metadata) = authenticated.metadata() else {
-        return Ok(Chosen {
+    let refused = |refusal| {
+        let chosen = Chosen {
             mode,
             encryption: RouteEncryption::Refused,
-        });
+        };
+        Ok((chosen, Some(refusal)))
+    };
+    let metadata = match authenticated.metadata() {
+        Ok(metadata) => metadata,
+        Err(e) => return refused(Refusal::new(CoreRule::ClientMetadata(e.clone()))),
     };
     let encryption = match (answering.encryption(metadata, &sealer, host), sealing) {
-        (Err(_), _) => RouteEncryption::Refused,
+        (Err(refusal), _) => return refused(refusal),
         (Ok(Encrypting::Plain), false) => RouteEncryption::Plain,
         (Ok(Encrypting::Jwe { key, enc }), true) => {
             checked(metadata, &sealer, key, enc).map_err(breach)?
@@ -438,7 +464,7 @@ fn choose<'a, H: CoreHost>(
         }
         (Ok(Encrypting::Plain), true) => return Err(breach(RouteBreach::NoKey).into()),
     };
-    Ok(Chosen { mode, encryption })
+    Ok((Chosen { mode, encryption }, None))
 }
 
 /// A JWE mode's choice as the route binds it, or the breach it commits.

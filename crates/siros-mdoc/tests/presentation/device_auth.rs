@@ -122,7 +122,10 @@ where
     let env = env(&["en"], Vec::new()).expect("env");
     let ids = first_selection(&request, &wallet, &registry, &env).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    Prepared::prepare(&request, &ids, &wallet, &registry, &env)
+    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
+        .expect("authentic");
+    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env)
         .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
         .map(|built| built.response().vp_token().json())
 }

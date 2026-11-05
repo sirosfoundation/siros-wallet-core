@@ -522,14 +522,21 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let text = request("query", "{}", &[], "");
     let received = fixtures::unsigned(&text).expect("received");
     let request = fixtures::request_of(&received).expect("request");
-    let outcome = Prepared::prepare(&request, &[], &Wallet::default(), &registry, &env("en"))
-        .and_then(|prepared| {
-            prepared
-                .respond(
-                    |resource| Published::default().answer(resource),
-                    &TestHost::default(),
-                )
-                .map(drop)
-        });
+    let host = TestHost::default();
+    let authenticated =
+        fixtures::authenticate(request.envelope(), &registry, &host).expect("authentic");
+    let ids = fixtures::selection(&["none"]).expect("one id");
+    let outcome = Prepared::prepare(
+        &authenticated,
+        &ids,
+        &Wallet::default(),
+        &registry,
+        &env("en"),
+    )
+    .and_then(|prepared| {
+        prepared
+            .respond(|resource| Published::default().answer(resource), &host)
+            .map(drop)
+    });
     assert!(matches!(outcome, Err(Outcome::Refused(_))));
 }

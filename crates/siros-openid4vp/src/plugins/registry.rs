@@ -1369,6 +1369,14 @@ impl<H: Build> Registry<H> {
         self.modes.get(handle.place())
     }
 
+    /// The registered response parameters, in registration order.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn response_parameters(
+        &self,
+    ) -> impl Iterator<Item = &<H as Plugins>::ResponseParameters> {
+        self.parameters.iter().map(AsRef::as_ref)
+    }
+
     /// The URI mode of a name registered for errors (`error_mode`).
     #[cfg(feature = "resolve")]
     pub(crate) fn error_mode(&self, name: ModeName) -> Option<RoutedMode> {

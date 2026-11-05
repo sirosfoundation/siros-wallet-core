@@ -195,8 +195,7 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
     .expect("received");
     let encrypted = request_of(&received).expect("request");
     let response = answer(&encrypted, &wallet, &registry, &env);
-    let recorded: Json =
-        serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
+    let recorded: Json = serde_json::from_str(&response.vp_token).expect("vp_token");
     let session = &recorded["q"][0];
     // The session binds the Origin, the nonce, and B.2.6.2's key, to which the core sealed with
     // A128GCM, the Verifier listing no enc (§5.1).
@@ -233,13 +232,8 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
     let plain = parameters(&test_queries(&["q"]), "");
     let received = unsigned(&plain).expect("received");
     let request = request_of(&received).expect("request");
-    let recorded: Json = serde_json::from_str(
-        &answer(&request, &wallet, &registry, &env)
-            .response()
-            .vp_token()
-            .json(),
-    )
-    .expect("vp_token");
+    let recorded: Json = serde_json::from_str(&answer(&request, &wallet, &registry, &env).vp_token)
+        .expect("vp_token");
     assert_eq!(recorded["q"][0]["sealed"], Json::Null);
 }
 
@@ -260,7 +254,7 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     let wallet = Wallet::new(vec![holder.credential()]).expect("wallet");
     let (registry, env) = (registry(Binds::First), env("en"));
     let response = answer(&request, &wallet, &registry, &env);
-    let Delivery::DcApi(data) = response.delivery() else {
+    let Delivery::DcApi(data) = &response.delivery else {
         panic!("a DC API delivery")
     };
     let data: Json = serde_json::from_str(data.as_str()).expect("data");
@@ -344,7 +338,7 @@ fn the_core_seals_section_8_3s_answer_to_the_key_the_rule_chose() {
     let registry = builder.build().expect("registry");
     let env = env("en");
     let built = answer(&request, &wallet, &registry, &env);
-    let Delivery::DcApi(data) = built.delivery() else {
+    let Delivery::DcApi(data) = &built.delivery else {
         panic!("a DC API delivery")
     };
     let data: Json = serde_json::from_str(data.as_str()).expect("data");
@@ -369,7 +363,7 @@ fn the_core_seals_section_8_3s_answer_to_the_key_the_rule_chose() {
     assert_eq!(payload["vp_token"]["q"].as_array().map(Vec::len), Some(1));
     assert_eq!(
         payload,
-        serde_json::from_str::<Json>(&built.response().json()).expect("the response")
+        serde_json::from_str::<Json>(&built.json).expect("the response")
     );
 }
 

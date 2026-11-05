@@ -18,7 +18,7 @@ use siros_openid4vp::host::CoreHost;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Built, Prepared};
+use siros_openid4vp::resolve::{Delivery, Prepared};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet::Wallet;
@@ -209,6 +209,13 @@ fn subresource_integrity_follows_the_w3c_example() {
     );
 }
 
+/// What phase 2 answered: the VP Token's and the Authorization Response's JSON, and the delivery.
+struct Answer {
+    vp_token: String,
+    json: String,
+    delivery: Delivery,
+}
+
 /// The response to the first selection the consent offers, over the default of the registry's
 /// host.
 fn answer<'a, H: CoreHost + Default>(
@@ -216,7 +223,7 @@ fn answer<'a, H: CoreHost + Default>(
     wallet: &'a Wallet<'a>,
     registry: &'a Registry<H>,
     env: &'a Env,
-) -> Built<'a> {
+) -> Answer {
     let accepted = Accepted::new(request, registry).expect("accepted");
     let matched = Match::run(&accepted, wallet, env).expect("match");
     let consent = Consent::of(&matched).expect("consent");
@@ -225,14 +232,20 @@ fn answer<'a, H: CoreHost + Default>(
     let shown = display(&sets, &views, &[]).expect("display");
     let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let ids = shown.select(0, &first).expect("selection").ids();
-    Prepared::prepare(request, &ids, wallet, registry, env)
+    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
+    let host = H::default();
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, &host)
+        .expect("authentic");
+    let built = Prepared::prepare(&authenticated, &ids, wallet, registry, env)
         .and_then(|prepared| {
-            prepared.respond(
-                |resource| Published::default().answer(resource),
-                &H::default(),
-            )
+            prepared.respond(|resource| Published::default().answer(resource), &host)
         })
-        .expect("response")
+        .expect("response");
+    Answer {
+        vp_token: built.response().vp_token().json(),
+        json: built.response().json(),
+        delivery: built.delivery().clone(),
+    }
 }
 
 #[test]
@@ -305,8 +318,7 @@ fn transaction_data_hashes_follow_b_3_3_1() {
             continue;
         };
         let response = answer(&request, &wallet, &registry, &env);
-        let token: Json =
-            serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
+        let token: Json = serde_json::from_str(&response.vp_token).expect("vp_token");
         let proof = &token["q"][0]["proof"];
         assert_eq!(
             proof
@@ -372,13 +384,14 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let shown = display(&sets, &views, &[]).expect("display");
         let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
         let ids = shown.select(0, &first).expect("selection").ids();
-        let outcome =
-            Prepared::prepare(&request, &ids, &wallet, &registry, &env).and_then(|prepared| {
-                prepared.respond(
-                    |resource| Published::default().answer(resource),
-                    &TestHost::default(),
-                )
-            });
+        let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
+        let host = TestHost::default();
+        let authenticated =
+            siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
+                .expect("authentic");
+        let outcome = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env).and_then(
+            |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
+        );
         match (writes, outcome) {
             (32, Ok(response)) => {
                 let token: Json =

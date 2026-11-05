@@ -361,12 +361,13 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     // transaction's.
     assert!(id.contains(r#",[0],{"entries":"0"},"#), "{id}");
     assert_eq!(selection.header(&env).title.text, "entries 0");
-    let response = Prepared::prepare(&request, &[&id], &wallet, &registry, &env)
+    let host = TestHost::default();
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
+        .expect("authentic");
+    let ids = siros_testkit::fixtures::selection(&[&id]).expect("one id");
+    let response = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env)
         .and_then(|prepared| {
-            prepared.respond(
-                |resource| Published::default().answer(resource),
-                &TestHost::default(),
-            )
+            prepared.respond(|resource| Published::default().answer(resource), &host)
         })
         .expect("response");
     // dc_api answers with the response parameters as the DigitalCredential's data (Annex A).

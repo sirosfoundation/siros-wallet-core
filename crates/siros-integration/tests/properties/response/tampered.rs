@@ -6,7 +6,7 @@ use siros_openid4vp::matching::{EntryView, Views};
 use siros_openid4vp::request::{Multiplicity, QuerySet};
 use siros_openid4vp::resolve::{Finding, Outcome, Prepared};
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::Published;
+use siros_testkit::{Published, fixtures};
 
 use crate::dressed::Case;
 use crate::generate::{host, published};
@@ -119,9 +119,15 @@ pub(super) fn tampered(
         }
     }
     let nothing = Published::default();
+    let authenticated = fixtures::authenticate(case.request.envelope(), case.registry, &host(&[]))
+        .expect("authentic");
     for bad in rejected {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        match Prepared::prepare(case.request, &bad, case.wallet, case.registry, case.env)
+        // A selection holds one or more records: an empty one is no value phase 2 takes.
+        let Ok(bad) = fixtures::selection(&bad) else {
+            continue;
+        };
+        match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
             .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
             Err(Outcome::Rejected(_)) => tally.add("tampered selections rejected"),
@@ -130,7 +136,8 @@ pub(super) fn tampered(
     }
     for (bad, at) in diverging {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        match Prepared::prepare(case.request, &bad, case.wallet, case.registry, case.env)
+        let bad = fixtures::selection(&bad).expect("a diverging selection holds records");
+        match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
             .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
             Err(Outcome::Fallback(findings)) => {
@@ -185,7 +192,10 @@ pub(super) fn renewed(
     )
     .expect("a wallet");
     let published = published();
-    match Prepared::prepare(case.request, ids, &wallet, case.registry, case.env)
+    let authenticated =
+        fixtures::authenticate(case.request.envelope(), case.registry, host).expect("authentic");
+    let ids = fixtures::selection(ids).expect("a shown selection holds records");
+    match Prepared::prepare(&authenticated, &ids, &wallet, case.registry, case.env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {
         Err(Outcome::Fallback(findings)) => {

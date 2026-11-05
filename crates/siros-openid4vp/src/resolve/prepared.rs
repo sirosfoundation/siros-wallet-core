@@ -5,54 +5,58 @@ use std::ops::Range;
 
 use siros_explain::AllOf;
 
+use super::route::Route;
 use super::selection::{check, derived};
-use super::{
-    AnswerContent, AuthorizationResponse, Body, Built, Delivery, Finding, ModeRoute, Outcome,
-    Rejection, RouteBreach, RouteKey, VpToken,
-};
+use super::{AuthorizationResponse, Built, Finding, Outcome, Rejection, ResponseMember, VpToken};
+use crate::authenticate::Authenticated;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
-use crate::envelope::Channel;
 use crate::host::{
-    AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Haip,
-    Host, Platform, PresentError, Usable,
+    AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Host,
+    Platform, PresentError, Usable,
 };
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
-use crate::plugins::registry::{DynProfile, Placed, RegisteredMode};
+use crate::plugins::registry::{DynProfile, Placed};
 use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
     ProfileHandle, Registry,
 };
 use crate::refusal::Refused;
-use crate::request::{Agreements, Query, Request};
-use crate::routing::{
-    AnsweredContext, Encrypting, ModeHost, ModeName, QueryContext, VerifierMetadata,
-};
+use crate::request::{ClientMetadata, Query, QueryIndex, Request};
+use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext};
 use crate::rows::Env;
-use crate::session::{Session, SessionBinding};
+use crate::session::Session;
 use crate::wallet::{Credential, Wallet};
 use crate::wallet_metadata::Placement;
 use crate::{FAULT, detail};
 
-/// A selection read, its records derived and checked, each record's query read for phase 2,
-/// and one slot per distinct resource each record's profile revalidates with. Only
-/// [`Prepared::prepare`] makes one; [`Prepared::respond`] consumes it.
+/// A selection read from an authenticated request, its records derived and checked, each
+/// record's query read for phase 2, and one slot per distinct resource each record's profile
+/// revalidates with. Only [`Prepared::prepare`] makes one; [`Prepared::respond`] consumes it.
 #[must_use]
 pub struct Prepared<'p, H: CoreHost> {
-    accepted: Accepted<'p>,
+    authenticated: &'p Authenticated<'p>,
     registry: &'p Registry<H>,
     env: &'p Env,
-    records: Vec<Chosen<'p, H>>,
+    request: Request<'p>,
+    records: Vec<Picked<'p, H>>,
     resources: Slots<Resource>,
 }
 
-/// A record phase 2 answers: its query as its format read it for phase 2, its option, the
-/// wallet's credential, and the transaction it authorizes.
-struct Chosen<'p, H: CoreHost> {
-    query: &'p Query<'p>,
-    answered: Box<dyn AnsweredQuery<H> + 'p>,
+/// A derived record: its query, its option, the wallet's credential, and the transaction it
+/// authorizes.
+struct Picked<'p, H> {
+    query: QueryIndex,
     option: OptionIndex,
     credential: &'p Credential<'p>,
     transacted: Option<Transacted<'p, H>>,
+}
+
+/// A record phase 2 answers: its query as its format read it for phase 2 under the accepted
+/// mode, its option, the wallet's credential, and the transaction it authorizes.
+struct Chosen<'r, 'p, H: CoreHost> {
+    query: &'r Query<'r>,
+    answered: Box<dyn AnsweredQuery<H> + 'r>,
+    picked: &'r Picked<'p, H>,
 }
 
 /// A record's transaction: its profile with the profile's handle, the entries and display facts
@@ -87,18 +91,18 @@ impl<H> Transacted<'_, H> {
 }
 
 /// A record its credential can still present, with the option its format answers it with.
-struct Presenting<'a, 'p, H: CoreHost> {
-    record: &'a Chosen<'p, H>,
+struct Presenting<'a, 'r, 'p, H: CoreHost> {
+    record: &'a Chosen<'r, 'p, H>,
     option: Box<dyn AnsweredOption<H> + 'a>,
 }
 
 impl<'p, H: CoreHost> Prepared<'p, H> {
-    /// Phase 2's first step, from the ids the platform returned; `wallet`, `registry` and
-    /// `env` the data and configuration the wallet registered. The request's rules run again;
-    /// every record is derived with the matcher's code and checked as a selection; each
-    /// record's query is read through its format's [`FormatHost::answer`] under the accepted
-    /// response mode; each record's profile names the resources it revalidates with, one slot
-    /// each, in record order.
+    /// Phase 2's first step, from the ids the End-User chose: the request read from the
+    /// authenticated envelope with its routing, its rules run again; every record derived with
+    /// the matcher's code and checked as a selection; each record's query read through its
+    /// format's [`FormatHost::answer`] under the accepted response mode; each record's profile
+    /// names the resources it revalidates with, one slot each, in record order. `registry` is the
+    /// one the envelope was read with.
     ///
     /// # Errors
     ///
@@ -107,33 +111,40 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     ///
     /// [`FormatHost::answer`]: crate::host::FormatHost::answer
     pub fn prepare(
-        request: &'p Request<'p>,
-        ids: &[&str],
+        authenticated: &'p Authenticated<'p>,
+        ids: &AllOf<&str>,
         wallet: &'p Wallet<'p>,
         registry: &'p Registry<H>,
         env: &'p Env,
     ) -> Result<Self, Outcome> {
-        let accepted = Accepted::new(request, registry)?;
-        let returned = ids
-            .iter()
-            .map(|id| ReturnedRecord::parse(id))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Rejection::from)?;
+        let request = Request::parse(authenticated.envelope())?;
         let mut questions = Vec::new();
         let records = {
+            let accepted = Accepted::new(&request, registry)?;
+            let returned = ids
+                .items()
+                .iter()
+                .map(|id| ReturnedRecord::parse(id))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Rejection::from)?;
             let matched = Match::run(&accepted, wallet, env)?;
             let views = Views::of(&matched, env)?;
             let views = derived(&views, &returned)?;
             check(&accepted, &views)?;
-            views
-                .iter()
-                .map(|view| chosen(&accepted, registry, &matched, wallet, view, &mut questions))
-                .collect::<Result<Vec<_>, _>>()?
+            let read = Read::of(&request, registry, accepted.mode().name())?;
+            let mut records = Vec::new();
+            for view in views {
+                let picked = picked(&accepted, registry, &matched, wallet, view, &mut questions)?;
+                drop(read.chosen(&picked)?);
+                records.push(picked);
+            }
+            records
         };
         Ok(Self {
-            accepted,
+            authenticated,
             registry,
             env,
+            request,
             records,
             resources: Slots::of(questions),
         })
@@ -148,58 +159,60 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// Phase 2's last step: `fetch` answers every resource of [`Prepared::questions`], once, in
     /// order; each credential is checked usable, each record's profile revalidates with its own
     /// resources and each record's option with its format; the End-User authenticates at least
-    /// as strongly as the strongest need of the records' profiles; the presentations are made
-    /// and the response encrypted under the request's mode.
+    /// as strongly as the strongest need of the records' profiles; then the route of the
+    /// authenticated request ([`Route::new`]), the presentations bound to its session, the
+    /// registered response parameters' members after `vp_token` and `state`, and the delivery
+    /// through [`AnswerRoute::answer`](super::AnswerRoute::answer).
     ///
     /// # Errors
     ///
-    /// A finding (Fallback), the End-User unauthenticated or authenticated too weakly, a
-    /// presentation that failed, or a plug-in's fault.
+    /// A finding (Fallback), the End-User unauthenticated or authenticated too weakly, the
+    /// answering mode's refusal under the sealing module's statement (C7), a presentation that
+    /// failed, or a plug-in's fault.
     pub fn respond(
         self,
         fetch: impl FnMut(&Resource) -> Fetch,
         host: &H,
     ) -> Result<Built<'p>, Outcome> {
         let Self {
-            accepted,
+            authenticated,
             registry,
             env,
+            request,
             records,
             resources,
         } = self;
-        let request = accepted.request();
-        let metadata = VerifierMetadata::of(accepted.metadata());
-        let mode = accepted.mode().name();
-        let Routed {
-            mode: answering,
-            sealing,
-        } = route(registry, &accepted, &metadata, host)?;
+        let routing = authenticated.envelope().routing();
+        let mode = routing
+            .mode()
+            .filter(|mode| mode.carries() == Carries::Answers)
+            .ok_or_else(|| Fault::new(FAULT, detail!("an accepted request without its mode")))?
+            .name();
+        let read = Read::of(&request, registry, mode)?;
+        let chosen = records
+            .iter()
+            .map(|picked| read.chosen(picked))
+            .collect::<Result<Vec<_>, _>>()?;
         let filled = resources.fill(fetch);
-        let channel = request.envelope().channel();
-        let binding = match channel {
-            Channel::DcApi(origin) => SessionBinding::DcApi { origin },
-            Channel::Uri => {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!("a URI request reaches phase 2 through its route, which the response side builds"),
-                )
-                .into());
-            }
-        };
-        let session = Session::of(
-            binding,
-            request.nonce(),
-            sealing.as_ref().map(|sealing| sealing.key),
-            metadata.keys(),
-        );
+        let (route, refusal) = Route::read(authenticated, registry, host)?;
+        if let Some(refusal) = refusal {
+            return Err(Outcome::Refused(Refused::one(refusal)));
+        }
+        let answering = route.answering().ok_or_else(|| {
+            Fault::new(
+                FAULT,
+                detail!("the route of an accepted request answers nothing"),
+            )
+        })?;
+        let session = answering.session();
         let phase = Phase {
-            request,
+            request: &request,
             env,
             host,
             mode,
         };
-        let presenting = phase.revalidate(&records, &filled, &session)?;
-        let authentication = phase.authenticate(&records)?;
+        let presenting = phase.revalidate(&chosen, &filled, &session)?;
+        let authentication = phase.authenticate(&chosen)?;
         let mut vp_token = VpToken::default();
         for Presenting { record, option } in &presenting {
             let members = phase.members(record, &authentication)?;
@@ -212,113 +225,120 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                     })?;
             vp_token.push(&record.query.id, presentation);
         }
-        let routing = request.envelope().routing();
-        let response = AuthorizationResponse::of(vp_token, routing.state(), Vec::new());
-        let sealed;
-        let content = match &sealing {
-            None => AnswerContent::Clear(&response),
-            Some(Sealing { haip, key }) => {
-                sealed = haip.encrypt_jwe(key.key(), key.enc(), response.json().as_bytes())?;
-                AnswerContent::Sealed(&sealed)
-            }
-        };
-        let route = ModeRoute::of(sealing.as_ref().map(|sealing| &sealing.key), routing.echo());
-        let delivery = match (channel, answering.answer(&route, &content, host)?) {
-            (Channel::DcApi(_), Body::DcApi(data)) => Delivery::DcApi(data),
-            (_, _) => return Err(breach(RouteBreach::BodyChannel)),
-        };
+        let members = parameters(registry, routing, &session, host)?;
+        let response = AuthorizationResponse::of(vp_token, routing.state(), members);
+        let delivery = answering.answer(&response, host)?;
         Ok(Built::of(response, delivery))
     }
 }
 
-/// The registered mode a request's routing accepted, with what its route seals the answer with.
-struct Routed<'r, 'k, 'h, H> {
-    mode: &'r dyn ModeHost<H>,
-    sealing: Option<Sealing<'k, 'h>>,
+/// The registered response parameters' members, in registration order, each of a name its part
+/// declares, each name once.
+fn parameters<H: CoreHost>(
+    registry: &Registry<H>,
+    routing: &crate::routing::Routing<'_>,
+    session: &Session<'_>,
+    host: &H,
+) -> Result<Vec<ResponseMember>, Fault> {
+    let response_type = routing
+        .response_type()
+        .ok_or_else(|| Fault::new(FAULT, detail!("an accepted request without its type")))?;
+    let mut members: Vec<ResponseMember> = Vec::new();
+    for part in registry.response_parameters() {
+        for member in part.members(response_type, session, host)? {
+            let name = member.name();
+            if !part.names().contains(&name) {
+                return Err(Fault::new(
+                    FAULT,
+                    detail!("a response parameter {name} its part does not declare"),
+                ));
+            }
+            if members.iter().any(|written| written.name() == name) {
+                return Err(Fault::new(
+                    FAULT,
+                    detail!("the response parameter {name} written twice"),
+                ));
+            }
+            members.push(member);
+        }
+    }
+    Ok(members)
 }
 
-/// What a JWE mode's route seals the answer with: the host's `Haip`, and the key the mode chose
-/// among the request's with the content encryption, as the core checked them.
-struct Sealing<'k, 'h> {
-    haip: &'h dyn Haip,
-    key: RouteKey<'k>,
+/// What reading a record's query for phase 2 takes: the request, its metadata, the registry and
+/// the accepted mode.
+struct Read<'r, 'p, H: CoreHost> {
+    request: &'r Request<'r>,
+    metadata: &'r ClientMetadata<'r>,
+    registry: &'p Registry<H>,
+    mode: ModeName,
 }
 
-/// The route of the mode the request's routing accepted, as its registration seals it: the clear,
-/// or for a JWE mode the key and `enc` the mode's key rule chooses under the host's
-/// `Haip::agreements`, refused with the mode's rule when the statement admits none. A route
-/// that breaks its registration (a key in the clear, no key for a JWE mode, a key or `enc` the
-/// statement does not admit, an error mode routing an answer) is a `Fault`.
-fn route<'r, 'k, 'h, H: CoreHost>(
-    registry: &'r Registry<H>,
-    accepted: &Accepted<'_>,
-    metadata: &'k VerifierMetadata<'k>,
-    host: &'h H,
-) -> Result<Routed<'r, 'k, 'h, H>, Outcome> {
-    let routed = accepted.mode();
-    let registered = registry
-        .mode_host(routed.handle())
-        .filter(|registered| registered.mode().name() == routed.name())
-        .ok_or_else(|| {
-            Fault::new(
+impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
+    fn of(
+        request: &'r Request<'r>,
+        registry: &'p Registry<H>,
+        mode: ModeName,
+    ) -> Result<Self, Fault> {
+        let metadata = request.envelope().client_metadata().map_err(|e| {
+            Fault::caused(
                 FAULT,
-                detail!("the request's mode is none the registry holds"),
+                detail!("an accepted request's client_metadata"),
+                e.clone(),
             )
         })?;
-    let (mode, sealer, haip): (&'r dyn ModeHost<H>, _, _) = match registered {
-        RegisteredMode::Clear(mode) => (mode.as_ref(), Agreements::NONE, None),
-        RegisteredMode::Jwe(mode, access) => {
-            let haip = access(host);
-            (mode.as_ref(), haip.agreements(), Some(haip))
-        }
-        RegisteredMode::Errors(_) => return Err(breach(RouteBreach::ErrorsAnswered)),
-    };
-    let encrypting = mode
-        .encryption(metadata, &sealer, host)
-        .map_err(|refusal| Outcome::Refused(Refused::one(refusal)))?;
-    let sealing = match (encrypting, haip) {
-        (Encrypting::Plain, None) => None,
-        (Encrypting::Jwe { key, enc }, Some(haip)) => {
-            if !metadata.keys().holds(&key) {
-                return Err(breach(RouteBreach::Foreign));
-            }
-            let stated = key
-                .key()
-                .alg()
-                .is_some_and(|alg| sealer.admits(key.key().curve(), alg, enc));
-            if !stated {
-                return Err(breach(RouteBreach::Unstated));
-            }
-            if !metadata.lists(enc) {
-                return Err(breach(RouteBreach::Unlisted));
-            }
-            Some(Sealing {
-                haip,
-                key: RouteKey::of(key, enc),
-            })
-        }
-        (Encrypting::Jwe { .. }, None) => return Err(breach(RouteBreach::KeyInTheClear)),
-        (Encrypting::Plain, Some(_)) => return Err(breach(RouteBreach::NoKey)),
-    };
-    Ok(Routed { mode, sealing })
+        Ok(Self {
+            request,
+            metadata,
+            registry,
+            mode,
+        })
+    }
+
+    /// The record with its query read through its format's phase 2 under the accepted mode.
+    fn chosen<'a>(&self, picked: &'a Picked<'p, H>) -> Result<Chosen<'a, 'p, H>, Outcome>
+    where
+        'r: 'a,
+    {
+        let request = self.request;
+        let query = request
+            .query(picked.query)
+            .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
+        let Placed { format, .. } = self
+            .registry
+            .placed_host(&query.format)
+            .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
+        let context = AnsweredContext::of(
+            QueryContext::of(
+                request,
+                Some(self.mode),
+                request.entry_named().contains(picked.query),
+                self.metadata.vp_formats(&query.format).cloned(),
+            ),
+            self.mode,
+        );
+        let answered = format
+            .answer(query, context)
+            .map_err(|refusals| Outcome::Refused(Refused::all(refusals)))?;
+        Ok(Chosen {
+            query,
+            answered,
+            picked,
+        })
+    }
 }
 
-/// Phase 2's fault for a route that breaks its registration.
-fn breach(breach: RouteBreach) -> Outcome {
-    Fault::caused(FAULT, detail!("the routed mode broke its contract"), breach).into()
-}
-
-/// A derived record as phase 2 answers it: the wallet's credential, its query read for phase 2,
-/// and for a transaction its profile's binding with the resources the profile wants, one per
+/// A derived record as phase 2 answers it: the wallet's credential, its query and option, and
+/// for a transaction its profile's binding with the resources the profile wants, one per
 /// distinct URL, appended to `questions`.
-fn chosen<'p, H: CoreHost>(
-    accepted: &Accepted<'p>,
+fn picked<'p, H: CoreHost>(
+    accepted: &Accepted<'_>,
     registry: &'p Registry<H>,
     matched: &Match<'_>,
     wallet: &'p Wallet<'p>,
     view: &EntryView<'_>,
     questions: &mut Vec<Resource>,
-) -> Result<Chosen<'p, H>, Outcome> {
+) -> Result<Picked<'p, H>, Outcome> {
     let request = accepted.request();
     let candidate = matched
         .candidate(view.pick.query, view.pick.candidate)
@@ -331,21 +351,9 @@ fn chosen<'p, H: CoreHost>(
     let query = request
         .query(view.pick.query)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
-    let Placed { format, placement } = registry
+    let Placed { placement, .. } = registry
         .placed_host(&query.format)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
-    let context = AnsweredContext::of(
-        QueryContext::of(
-            request,
-            Some(accepted.mode().name()),
-            request.entry_named().contains(view.pick.query),
-            accepted.metadata().vp_formats(&query.format).cloned(),
-        ),
-        accepted.mode().name(),
-    );
-    let answered = format
-        .answer(query, context)
-        .map_err(|refusals| Outcome::Refused(Refused::all(refusals)))?;
     let transacted = match (&candidate.bound, accepted.transaction(view.pick.query)) {
         (Some(bound), Some(transaction)) => {
             let profile = registry
@@ -372,9 +380,8 @@ fn chosen<'p, H: CoreHost>(
         }
         _ => None,
     };
-    Ok(Chosen {
-        query,
-        answered,
+    Ok(Picked {
+        query: view.pick.query,
         option: view.pick.option,
         credential,
         transacted,
@@ -382,31 +389,32 @@ fn chosen<'p, H: CoreHost>(
 }
 
 /// What `respond`'s steps read: the request, the configuration, the host and the accepted mode.
-struct Phase<'a, 'p, H> {
-    request: &'p Request<'p>,
-    env: &'p Env,
+struct Phase<'a, 'r, H> {
+    request: &'r Request<'r>,
+    env: &'a Env,
     host: &'a H,
     mode: ModeName,
 }
 
-impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
+impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
     /// What the matcher could not check, checked now: each credential can still be presented,
     /// each record's profile revalidates what it assumed with the resources it wanted, and each
     /// record's option what its format assumed. Fallback with every finding.
-    fn revalidate(
+    fn revalidate<'p: 'a>(
         &self,
-        records: &'a [Chosen<'p, H>],
+        records: &'a [Chosen<'r, 'p, H>],
         filled: &Filled<Resource>,
         session: &Session<'_>,
-    ) -> Result<Vec<Presenting<'a, 'p, H>>, Outcome> {
+    ) -> Result<Vec<Presenting<'a, 'r, 'p, H>>, Outcome> {
         let mut findings = Vec::new();
         let mut presenting = Vec::new();
         for (position, record) in records.iter().enumerate() {
-            let Some(credential) = self.host.get::<dyn Platform>().usable(record.credential) else {
+            let credential = record.picked.credential;
+            let Some(credential) = self.host.get::<dyn Platform>().usable(credential) else {
                 findings.push(Finding::Unusable { record: position });
                 continue;
             };
-            if let Some(finding) = self.profile_finding(record, filled, position)? {
+            if let Some(finding) = self.profile_finding(record.picked, filled, position)? {
                 findings.push(finding);
             }
             let option = self.option(record, credential)?;
@@ -424,11 +432,11 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
     /// The record's profile's finding with the resources it wanted; none without a transaction.
     fn profile_finding(
         &self,
-        record: &Chosen<'p, H>,
+        picked: &Picked<'_, H>,
         filled: &Filled<Resource>,
         position: usize,
     ) -> Result<Option<Finding>, Fault> {
-        let Some(transacted) = &record.transacted else {
+        let Some(transacted) = &picked.transacted else {
             return Ok(None);
         };
         let own = filled
@@ -436,7 +444,7 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
             .get(transacted.slots.clone())
             .ok_or_else(|| Fault::new(FAULT, detail!("a record's slots the step lacks")))?;
         let fetched = FetchedRecord::of(
-            transacted.answered(self.request, record.credential, self.mode),
+            transacted.answered(self.request, picked.credential, self.mode),
             Resources::of(own),
         );
         Ok(transacted
@@ -449,12 +457,12 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
     }
 
     /// The record's option as its format answers it for the usable credential.
-    fn option(
+    fn option<'p>(
         &self,
-        record: &'a Chosen<'p, H>,
+        record: &'a Chosen<'r, 'p, H>,
         credential: Usable<'a>,
     ) -> Result<Box<dyn AnsweredOption<H> + 'a>, Fault> {
-        let provided: Vec<Member> = match &record.transacted {
+        let provided: Vec<Member> = match &record.picked.transacted {
             Some(transacted) => transacted
                 .placement
                 .and_then(|placement| transacted.profile.members(placement))
@@ -466,7 +474,7 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
             .answered
             .choose(credential, self.env, &provided)?
             .into_iter()
-            .find(|option| option.option() == record.option)
+            .find(|option| option.option() == record.picked.option)
             .ok_or_else(|| {
                 Fault::new(
                     FAULT,
@@ -477,19 +485,20 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
 
     /// The End-User's authentication, at least as strong as the strongest need of the records'
     /// profiles; refused when the platform's is weaker.
-    fn authenticate(&self, records: &[Chosen<'p, H>]) -> Result<Authentication, Outcome> {
+    fn authenticate(&self, records: &[Chosen<'r, '_, H>]) -> Result<Authentication, Outcome> {
         let need = records
             .iter()
             .filter_map(|record| {
                 record
+                    .picked
                     .transacted
                     .as_ref()
-                    .map(|transacted| (record, transacted))
+                    .map(|transacted| (record.picked, transacted))
             })
-            .map(|(record, transacted)| {
+            .map(|(picked, transacted)| {
                 transacted.profile.authentication(transacted.answered(
                     self.request,
-                    record.credential,
+                    picked.credential,
                     self.mode,
                 ))
             })
@@ -513,15 +522,15 @@ impl<'a, 'p: 'a, H: CoreHost> Phase<'a, 'p, H> {
     /// format; none without a transaction.
     fn members(
         &self,
-        record: &Chosen<'p, H>,
+        record: &Chosen<'r, '_, H>,
         authentication: &Authentication,
     ) -> Result<Members, Outcome> {
-        let Some(transacted) = &record.transacted else {
+        let Some(transacted) = &record.picked.transacted else {
             return Ok(Members::none());
         };
         let profile = transacted.profile;
         let members = profile.respond(
-            transacted.answered(self.request, record.credential, self.mode),
+            transacted.answered(self.request, record.picked.credential, self.mode),
             self.host,
             authentication,
         )?;

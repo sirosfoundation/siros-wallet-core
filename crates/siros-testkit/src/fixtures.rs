@@ -4,15 +4,18 @@
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 
-use siros_explain::Explain;
+use siros_explain::{AllOf, Explain};
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
+use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::hash::{Blake2, K12, Sha2, Sha3};
+use siros_openid4vp::host::Seconds;
 use siros_openid4vp::host::{CoreHost, Haip, Has, RequestDecryption};
 use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
     Origin,
 };
+use siros_openid4vp::jose::{Skew, SkewTooLarge};
 use siros_openid4vp::json::quote;
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
@@ -138,6 +141,58 @@ pub enum FixtureError {
     /// The kit's registry cannot exist.
     #[error(transparent)]
     Registry(#[from] RegistryError),
+    /// The trust configuration's skew is too large.
+    #[error(transparent)]
+    Skew(#[from] SkewTooLarge),
+    /// The request is rejected before or at its Verifier's authentication.
+    #[error("the request is rejected: {0}")]
+    Rejected(#[explain(skip)] String),
+    /// A selection of no record.
+    #[error("a selection holds one or more records")]
+    NoRecord,
+}
+
+/// HAIP's width: a skew of 60 s, unsigned DC API requests accepted, `exp` and `aud` checked
+/// when present.
+///
+/// # Errors
+///
+/// None: 60 s is within the skew's bound.
+pub fn trust_config() -> Result<TrustConfig, FixtureError> {
+    Ok(TrustConfig {
+        skew: Skew::new(Seconds(60))?,
+        origins: OriginPolicy::Accept,
+    })
+}
+
+/// The envelope's request authenticated over the registry and the host: its questions answered
+/// by the trust service double, which permits ([`crate::TestTrust`]), under [`trust_config`].
+///
+/// # Errors
+///
+/// The request breaks an A rule.
+pub fn authenticate<'e, H: CoreHost>(
+    envelope: &'e Envelope<'e>,
+    registry: &'e Registry<H>,
+    host: &H,
+) -> Result<Authenticated<'e>, FixtureError> {
+    let config = trust_config()?;
+    let trust = crate::TestTrust::default();
+    envelope
+        .questions(registry, &config, host)
+        .and_then(|pending| {
+            pending.authenticate(|evaluation| trust.decide(evaluation), &config, host)
+        })
+        .map_err(|rejected| FixtureError::Rejected(rejected.failure().to_string()))
+}
+
+/// The ids of a selection, one or more.
+///
+/// # Errors
+///
+/// No id.
+pub fn selection<'a>(ids: &[&'a str]) -> Result<AllOf<&'a str>, FixtureError> {
+    AllOf::new(ids.to_vec()).ok_or(FixtureError::NoRecord)
 }
 
 /// Request parameters: `dc_api`, the model's nonce, the DCQL query, then `extra` members.
@@ -458,8 +513,9 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     Ok(chosen.ids().into_iter().map(str::to_owned).collect())
 }
 
-/// The VP Token of the response to [`first_selection`], nothing published for phase 2's fetches;
-/// the refusals, the unmet request, the fault or the phase 2 outcome otherwise.
+/// The VP Token of the response to [`first_selection`], the request's envelope authenticated
+/// over the registry ([`authenticate`]), nothing published for phase 2's fetches; the refusals,
+/// the unmet request, the rejection, the fault or the phase 2 outcome otherwise.
 pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
     request: &Request<'_>,
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
@@ -469,8 +525,11 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
 ) -> Result<String, String> {
     let ids = first_selection(request, wallet, registry, env)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let ids = selection(&ids).map_err(|e| e.to_string())?;
+    let authenticated =
+        authenticate(request.envelope(), registry, host).map_err(|e| e.to_string())?;
     let published = crate::Published::default();
-    siros_openid4vp::resolve::Prepared::prepare(request, &ids, wallet, registry, env)
+    siros_openid4vp::resolve::Prepared::prepare(&authenticated, &ids, wallet, registry, env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .map(|built| built.response().vp_token().json())
         .map_err(|e| e.to_string())

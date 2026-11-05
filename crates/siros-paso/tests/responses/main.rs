@@ -121,6 +121,7 @@ where
 {
     let mut builder = Registry::<H>::builder();
     siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.client_prefix(siros_testkit::TestPrefix::Request);
     builder.format(Standing {
         id: FormatId::parse(format.to_owned()).expect("format"),
         inner: TestFormat::new().expect("test format"),
@@ -172,7 +173,10 @@ fn answer<H: CoreHost>(
     let views = Views::of(&matched, &env).expect("views");
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    Prepared::prepare(request, &ids, &wallet, registry, &env)
+    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, host)
+        .expect("authentic");
+    Prepared::prepare(&authenticated, &ids, &wallet, registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .map(|built| built.response().vp_token().json())
 }

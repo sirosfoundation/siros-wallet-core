@@ -130,7 +130,10 @@ fn answer(
         .expect("the chosen entry")
         .entry
         .clone();
-    let built = Prepared::prepare(request, &chosen, &wallet, &registry, &env)
+    let chosen = siros_testkit::fixtures::selection(&chosen).expect("the defaults hold records");
+    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
+        .expect("authentic");
+    let built = Prepared::prepare(&authenticated, &chosen, &wallet, &registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .expect("the wallet answers");
     Answered {

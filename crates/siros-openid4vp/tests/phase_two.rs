@@ -34,6 +34,7 @@ use siros_testkit::{
 };
 
 use common::{Held, entry, env, parameters, registry, request_of, test_queries, unsigned};
+use siros_testkit::fixtures::{authenticate, selection};
 
 /// q (multiple) or r, each named by an entry; c1 and c2 answer q, c3 and c4 answer r.
 fn fixture() -> (String, Vec<Held>) {
@@ -95,8 +96,10 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
     let received = unsigned(text).expect("received");
     let request = request_of(&received).expect("request");
     let registry = registry(Binds::First);
+    let authenticated = authenticate(request.envelope(), &registry, host).expect("authentic");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    Prepared::prepare(&request, ids, &wallet, &registry, &env("en"))
+    let ids = selection(ids).expect("one or more ids");
+    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en"))
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), host)
         })
@@ -119,12 +122,11 @@ fn phase_2_rejects_what_no_selection_allows() {
         records,
         credentials,
     };
-    let cases: [(Vec<&str>, Option<Rejection>); 5] = [
+    let cases: [(Vec<&str>, Option<Rejection>); 4] = [
         (vec![c1, "none"], None),
         (vec![c3, c4], Some(query_records("r", 2, 2))),
         (vec![c1, c1], Some(query_records("q", 2, 1))),
         (vec![c1, c2], Some(Rejection::TwoTransactions)),
-        (vec![], Some(Rejection::NoAlternative(Vec::new()))),
     ];
     for (ids, want) in cases {
         match (outcome(&text, &held, &ids, &TestHost::default()), want) {
@@ -289,7 +291,9 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
         host.platform.now,
         AllOf::one(Factor::Knowledge(Knowledge::Pin(None))),
     ));
-    match Prepared::prepare(&request, &[&ids[0]], &wallet, &registry, &env("en")).and_then(
+    let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+    let ids = selection(&[&ids[0]]).expect("one id");
+    match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en")).and_then(
         |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
     ) {
         Err(Outcome::AuthenticationTooWeak { need, covered }) => {
@@ -364,13 +368,11 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    match Prepared::prepare(&request, &[&ids[0]], &wallet, &registry, &env("en")).and_then(
-        |prepared| {
-            prepared.respond(
-                |resource| Published::default().answer(resource),
-                &TestHost::default(),
-            )
-        },
+    let host = TestHost::default();
+    let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+    let ids = selection(&[&ids[0]]).expect("one id");
+    match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en")).and_then(
+        |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
     ) {
         Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains("extra"), "{fault}"),
         other => panic!("{other:?}"),
@@ -466,7 +468,10 @@ fn sealed<H: CoreHost>(
     registry: &Registry<H>,
     host: &H,
 ) -> Result<Delivery, Outcome> {
-    Prepared::prepare(request, &[id], wallet, registry, &env("en"))
+    let authenticated = authenticate(request.envelope(), registry, host)
+        .map_err(|e| Fault::new(FAULT, detail!("{e}", e = e.to_string())))?;
+    let ids = selection(&[id]).expect("one id");
+    Prepared::prepare(&authenticated, &ids, wallet, registry, &env("en"))
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), host)
         })
@@ -632,5 +637,53 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
             }
             (_, other) => panic!("{choice:?}, sealed route {sealed_route}: {other:?}"),
         }
+    }
+}
+
+/// A registered part's response parameters follow `vp_token` in the Authorization Response
+/// (§8.1); a member of a name it does not declare is a `Fault`.
+#[test]
+fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
+    use siros_openid4vp::json::Node;
+    use siros_openid4vp::resolve::ResponseMember;
+    use siros_openid4vp::wallet_metadata::ParameterName;
+    use siros_testkit::TestResponseParameters;
+
+    const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
+    const AUD: ParameterName = siros_explain::checked!(ParameterName, "aud");
+    let text = parameters(&test_queries(&["q"]), "");
+    let held = [Held::answering("c", &["q"], &[])];
+    let ids = offered(&text, &held);
+    let respond = |writes: ResponseMember| {
+        let mut builder = Registry::<TestHost>::builder();
+        siros_testkit::fixtures::openid4vp(&mut builder);
+        builder.format(TestFormat::new().expect("format"));
+        builder.response_parameters(TestResponseParameters {
+            names: &[ISS],
+            writes: vec![writes],
+        });
+        let registry = builder.build().expect("registry");
+        let received = unsigned(&text).expect("received");
+        let request = request_of(&received).expect("request");
+        let host = TestHost::default();
+        let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
+        let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
+        let ids = selection(&[&ids[0]]).expect("one id");
+        Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en"))
+            .and_then(|prepared| {
+                prepared.respond(|resource| Published::default().answer(resource), &host)
+            })
+            .map(|built| built.response().json())
+    };
+    let issuer = Node::String("https://wallet.example".into());
+    let json = respond(ResponseMember::new(ISS, issuer.clone())).expect("a response");
+    assert!(
+        json.starts_with(r#"{"vp_token":"#)
+            && json.ends_with(r#","iss":"https://wallet.example"}"#),
+        "{json}"
+    );
+    match respond(ResponseMember::new(AUD, issuer)) {
+        Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains("aud"), "{fault}"),
+        other => panic!("{other:?}"),
     }
 }

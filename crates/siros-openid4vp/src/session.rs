@@ -25,8 +25,8 @@ pub enum SessionBinding<'s> {
 }
 
 /// What a presentation binds: the channel's binding, the `nonce`, the key and `enc` the core
-/// sealed the answer to, and the Verifier's keys. Only the core's phase 2 makes one, so each fact
-/// is the authenticated request's:
+/// sealed the answer to, and the Verifier's keys. Only an answering route makes one
+/// (`AnswerRoute::session`), so each fact is the authenticated request's:
 ///
 /// ```compile_fail,E0451
 /// use siros_openid4vp::ids::Nonce;
@@ -101,7 +101,7 @@ impl<'s> Session<'s> {
 
 #[cfg(feature = "test-util")]
 impl<'s> Session<'s> {
-    /// The session a plug-in's tests present under, as phase 2 makes it from a route.
+    /// The session a plug-in's tests present under, as an answering route makes it.
     #[must_use]
     pub const fn new(
         binding: SessionBinding<'s>,
