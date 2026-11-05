@@ -112,7 +112,11 @@ impl WasmEngine {
             Err(err) => return Err(err),
         };
 
-        let kv_config = optional(&config, "kv");
+        // The kv member is an object — `optional` is function-typed (the
+        // callbacks), so `member` reads it raw and the callbacks come
+        // out of it. A config that carries no kv (or no callbacks)
+        // falls back to the in-memory store inside JsKeyValue.
+        let kv_config = member(&config, "kv").ok().filter(|kv| !kv.is_undefined());
         let (kv_get, kv_put, kv_del) = match &kv_config {
             Some(kv) => (
                 optional(kv, "get"),
