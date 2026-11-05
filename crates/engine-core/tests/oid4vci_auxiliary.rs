@@ -3,6 +3,7 @@
 //! pinned by its accept and its refusal.
 use serde_json::Value;
 
+use engine_core::claims_path::{ClaimsPathError, ComponentError};
 use engine_core::oid4vci::auxiliary::*;
 
 fn config_with(advertisement: Value) -> Value {
@@ -20,6 +21,20 @@ fn hash_commitment(alg: &str, path: Value) -> Value {
         "alg": alg,
         "path": path,
     })
+}
+
+/// The path an issuer writes as the JSON text `text`.
+fn path(text: &str) -> Value {
+    serde_json::from_str(text).expect("the path is JSON")
+}
+
+/// The delivery of one `to_wallet` `hash_commitment` entry per path.
+fn with_paths(paths: &[Value]) -> Result<SecretDelivery, SecretDeliveryError> {
+    let entries: Vec<Value> = paths
+        .iter()
+        .map(|path| hash_commitment("sha-256", path.clone()))
+        .collect();
+    secret_delivery_of(&config_with(serde_json::json!({ "to_wallet": entries })))
 }
 
 #[test]
@@ -213,12 +228,6 @@ fn a_missing_alg_or_path_is_malformed() {
         "to_wallet": [{"type": "hash_commitment", "alg": "sha-256"}],
     }));
     assert!(secret_delivery_of(&no_path).is_err());
-    // An empty path is not a claims path either (OpenID4VCI App. C:
-    // non-empty).
-    let empty_path = config_with(serde_json::json!({
-        "to_wallet": [{"type": "hash_commitment", "alg": "sha-256", "path": []}],
-    }));
-    assert!(secret_delivery_of(&empty_path).is_err());
 }
 
 #[test]
@@ -286,37 +295,71 @@ fn an_encoding_is_absent_base64url_base64_or_hex() {
     assert!(usable(&delivery, &config).is_err());
 }
 
+/// A JSON number is the value its decimal text writes (RFC 8259 §6): two
+/// spellings of one index are one path, and the second entry is a duplicate.
 #[test]
 fn the_duplicate_key_is_the_normal_form() {
-    let with_paths = |paths: &[Value]| {
-        let entries: Vec<Value> = paths
-            .iter()
-            .map(|path| hash_commitment("sha-256", path.clone()))
-            .collect();
-        secret_delivery_of(&config_with(serde_json::json!({ "to_wallet": entries })))
-    };
-    // 1.0 is a valid index, and 1 and 1.0 detect as the same path.
-    assert!(with_paths(&[serde_json::json!(["p", 1.0])]).is_ok());
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 1.0])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    assert!(with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 2])]).is_ok());
-    // A negative number is not a path component.
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", -1])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // A non-string, non-integer is not either.
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", true])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // An empty array is not a path.
-    assert!(matches!(
-        with_paths(&[serde_json::json!([])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // null is.
-    assert!(with_paths(&[serde_json::json!([null, "x"])]).is_ok());
+    // (a spelling, the integer it writes)
+    let spellings = [
+        ("1.0", "1"),
+        ("1e0", "1"),
+        ("10e-1", "1"),
+        ("0.1e1", "1"),
+        ("-0", "0"),
+    ];
+    for (spelling, integer) in spellings {
+        let spelled = path(&format!(r#"["p", {spelling}]"#));
+        assert!(
+            with_paths(std::slice::from_ref(&spelled)).is_ok(),
+            "{spelling} is an index"
+        );
+        assert!(
+            matches!(
+                with_paths(&[path(&format!(r#"["p", {integer}]"#)), spelled]),
+                Err(SecretDeliveryError::MalformedAdvertisement(_))
+            ),
+            "{spelling} is the index {integer}"
+        );
+    }
+    assert!(with_paths(&[path(r#"["p", 1]"#), path(r#"["p", 2]"#)]).is_ok());
+}
+
+/// OpenID4VP 1.0 §7: a claims path pointer is "a non-empty array of
+/// strings, nulls and non-negative integers"; the engine caps an index at
+/// 2^64 − 1, a range limit RFC 8259 §6 allows. One rule per row, each path
+/// as the issuer's JSON text.
+#[test]
+fn a_path_is_a_non_empty_array_of_keys_indices_and_nulls() {
+    let component = |at, why| Err(ClaimsPathError::Component { at, why });
+    let cases = [
+        (r#"[null, "x"]"#, Ok(())),
+        (r#"["p", 18446744073709551615]"#, Ok(())),
+        (r#""p""#, Err(ClaimsPathError::NotArray)),
+        ("[]", Err(ClaimsPathError::Empty)),
+        (r#"["p", true]"#, component(1, ComponentError::WrongType)),
+        // binary64 rounds this fraction to 1.
+        (
+            r#"["p", 1.0000000000000001]"#,
+            component(1, ComponentError::Fraction),
+        ),
+        (r#"["p", -1]"#, component(1, ComponentError::Negative)),
+        // 2^64.
+        (
+            r#"["p", 18446744073709551616]"#,
+            component(1, ComponentError::OutOfRange),
+        ),
+    ];
+    for (text, expected) in cases {
+        let delivery = with_paths(&[path(text)]);
+        match expected {
+            Ok(()) => assert!(delivery.is_ok(), "{text}: {delivery:?}"),
+            Err(expected) => assert!(
+                matches!(
+                    delivery,
+                    Err(SecretDeliveryError::MalformedClaimsPath { error, .. }) if error == expected
+                ),
+                "{text}: {delivery:?}"
+            ),
+        }
+    }
 }

@@ -13,6 +13,8 @@
 
 use serde_json::Value;
 
+use crate::claims_path::{ClaimsPath, ClaimsPathError};
+
 /// The one `credential_metadata` member that carries Credential Auxiliary
 /// Data in a response. It MUST NOT appear in issuer metadata (§7).
 pub const AUXILIARY_DATA_MEMBER: &str = "auxiliary_data";
@@ -67,11 +69,22 @@ pub enum SecretDeliveryError {
     /// The `auxiliary_data_supported` advertisement is malformed (§5):
     /// not an object, neither `to_wallet` nor `to_issuer`, a non-empty
     /// array rule broken, a duplicate (type, path), a `hash_commitment`
-    /// entry without a string `alg` or a valid claims path, a value
-    /// where metadata belongs, or a `required` in the wrong place or
-    /// shape.
+    /// entry without a string `alg` or without a `path`, a value where
+    /// metadata belongs, or a `required` in the wrong place or shape.
     #[error("oid4vci: the issuer metadata secret delivery advertisement is malformed: {0}")]
     MalformedAdvertisement(String),
+    /// A `hash_commitment` entry's `path` is no claims path pointer
+    /// (§4.1, OpenID4VP 1.0 §7).
+    #[error(
+        "oid4vci: the issuer metadata secret delivery advertisement is malformed: \
+         {list} has a hash_commitment entry whose path is no claims path pointer: {error}"
+    )]
+    MalformedClaimsPath {
+        /// The entries list: `to_wallet` or `to_issuer`.
+        list: &'static str,
+        /// Why the path is no claims path pointer.
+        error: ClaimsPathError,
+    },
     /// `auxiliary_data` MUST NOT appear in issuer metadata (§7).
     #[error("oid4vci: the issuer metadata secret delivery advertisement is malformed: {0}")]
     AuxiliaryDataInIssuerMetadata(String),
@@ -259,25 +272,28 @@ fn entry_values(raw: &Value) -> Vec<Value> {
 
 /// Parses one entries list (§5): a non-empty array of entry objects, no
 /// two `hash_commitment` entries of the same (type, path).
-fn parse_aux_entries(raw: &Value, list: &str) -> Result<Vec<AuxEntry>, SecretDeliveryError> {
+fn parse_aux_entries(
+    raw: &Value,
+    list: &'static str,
+) -> Result<Vec<AuxEntry>, SecretDeliveryError> {
     let malformed =
         |why: &str| SecretDeliveryError::MalformedAdvertisement(format!("{list} {why}"));
     let Some(entries) = raw.as_array().filter(|entries| !entries.is_empty()) else {
         return Err(malformed("is not a non-empty array"));
     };
 
-    let mut seen: Vec<String> = Vec::new();
+    let mut seen: Vec<ClaimsPath> = Vec::new();
     let mut parsed: Vec<AuxEntry> = Vec::with_capacity(entries.len());
     for entry in entries {
         let parsed_entry = parse_aux_entry(entry, list)?;
         if parsed_entry.typ == AUX_TYPE_HASH_COMMITMENT {
-            // The duplicate key: (type, path) — the entry's path as the
-            // compacted normal form.
-            if let Some(key) = &parsed_entry.path_key {
-                if seen.contains(key) {
+            // The duplicate key: (type, path), the path as its parsed
+            // pointer.
+            if let Some(path) = parsed_entry.path {
+                if seen.contains(&path) {
                     return Err(malformed("has two entries of the same type and path"));
                 }
-                seen.push(key.clone());
+                seen.push(path);
             }
         }
         parsed.push(AuxEntry {
@@ -289,21 +305,24 @@ fn parse_aux_entries(raw: &Value, list: &str) -> Result<Vec<AuxEntry>, SecretDel
     Ok(parsed)
 }
 
-/// One parsed entry, with its duplicate-detection path key.
+/// One parsed entry, with its path for the duplicate detection.
 #[derive(Debug)]
 struct AuxEntryParsed {
     typ: String,
     required: bool,
     sendable: bool,
-    path_key: Option<String>,
+    path: Option<ClaimsPath>,
 }
 
 /// Parses one entry (§5): an object with a string `type`; a
-/// `hash_commitment` entry needs a string `alg` and a valid claims path,
+/// `hash_commitment` entry needs a string `alg` and a claims path pointer,
 /// carries no `opening` or `commitment` at any depth (values, never
 /// metadata), and its `alg`/`encoding` decide whether the wallet can send
 /// it; a `to_issuer` entry may carry a boolean `required`.
-fn parse_aux_entry(entry: &Value, list: &str) -> Result<AuxEntryParsed, SecretDeliveryError> {
+fn parse_aux_entry(
+    entry: &Value,
+    list: &'static str,
+) -> Result<AuxEntryParsed, SecretDeliveryError> {
     let malformed =
         |why: &str| SecretDeliveryError::MalformedAdvertisement(format!("{list} {why}"));
     let Some(object) = entry.as_object() else {
@@ -336,7 +355,7 @@ fn parse_aux_entry(entry: &Value, list: &str) -> Result<AuxEntryParsed, SecretDe
             typ: typ.to_owned(),
             required,
             sendable: false,
-            path_key: None,
+            path: None,
         });
     }
 
@@ -359,9 +378,12 @@ fn parse_aux_entry(entry: &Value, list: &str) -> Result<AuxEntryParsed, SecretDe
             "has a hash_commitment entry without a string alg",
         ));
     }
-    // ... and a valid claims path (OpenID4VCI App. C).
-    let path_key = claims_path_key(object.get("path").unwrap_or(&Value::Null))
-        .ok_or_else(|| malformed("has a hash_commitment entry without a valid claims path"))?;
+    // ... and a claims path pointer (§4.1), parsed here, where it enters.
+    let Some(path) = object.get("path") else {
+        return Err(malformed("has a hash_commitment entry without a path"));
+    };
+    let path = ClaimsPath::parse(path)
+        .map_err(|error| SecretDeliveryError::MalformedClaimsPath { list, error })?;
 
     // The encoding: absent, or one the spec defines.
     let encoding_ok = match object.get("encoding") {
@@ -376,7 +398,7 @@ fn parse_aux_entry(entry: &Value, list: &str) -> Result<AuxEntryParsed, SecretDe
         typ: typ.to_owned(),
         required,
         sendable,
-        path_key: Some(path_key),
+        path: Some(path),
     })
 }
 
@@ -389,32 +411,4 @@ fn contains_member(value: &Value, name: &str) -> bool {
         Value::Array(items) => items.iter().any(|item| contains_member(item, name)),
         _ => false,
     }
-}
-
-/// The normal form of a claims path (OpenID4VCI App. C: a non-empty array
-/// of strings, nulls, and non-negative integers), for the duplicate
-/// detection: `[\"p\", 1]` and `[\"p\", 1.0]` must detect as the same
-/// path.
-fn claims_path_key(raw: &Value) -> Option<String> {
-    let items = raw.as_array()?;
-    if items.is_empty() {
-        return None;
-    }
-    let mut normal = Vec::with_capacity(items.len());
-    for item in items {
-        match item {
-            Value::Null => normal.push(Value::Null),
-            Value::String(text) => normal.push(Value::String(text.clone())),
-            Value::Number(number) => {
-                // A non-negative integer only. A whole float (1.0) is its
-                // integer (the JSON spelling must not change the path).
-                let unsigned = number
-                    .as_u64()
-                    .or_else(|| number.as_f64().filter(|f| *f >= 0.0).map(|f| f as u64))?;
-                normal.push(serde_json::Value::from(unsigned));
-            }
-            _ => return None,
-        }
-    }
-    serde_json::to_string(&normal).ok()
 }
