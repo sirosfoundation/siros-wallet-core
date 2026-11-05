@@ -71,14 +71,17 @@ pub enum RouteBreach {
     /// A JWE mode chose no key.
     #[error("a JWE mode chose no key")]
     NoKey,
+    /// A JWE mode chose a key outside the request's `client_metadata.jwks`.
+    #[error("a JWE mode chose a key the request does not name")]
+    Foreign,
     /// A JWE mode chose a key or an `enc` the sealing module does not state.
     #[error("a mode chose a key or an enc the sealing module does not state")]
     Unstated,
     /// A JWE mode chose an `enc` the Verifier does not list (§5.1, §8.3).
     #[error("a mode chose an enc the Verifier does not list")]
     Unlisted,
-    /// A mode wrote a body of another channel than its own.
-    #[error("a mode wrote a body of another channel than its own")]
+    /// A mode wrote a body of another channel than the request's.
+    #[error("a mode wrote a body of another channel than the request's")]
     BodyChannel,
 }
 

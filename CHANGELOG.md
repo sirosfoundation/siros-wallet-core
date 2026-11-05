@@ -105,8 +105,10 @@ released version yet.
   (`Profile::members(placement)`), naming no format.
 - `Profile`'s phase-2 methods (`wanted`, `informed`, `authentication`) are
   `ProfileHost`'s; each plug-in gates its phase 2 on its own `resolve`.
-- The core refuses a mode's JWE choice whose key or `enc` the sealing module
-  does not state, or whose `enc` the Verifier does not list (§5.1).
+- The core refuses a mode's JWE choice whose key the request does not name
+  (`RouteBreach::Foreign`), whose key or `enc` the sealing module does not
+  state, or whose `enc` the Verifier does not list (§5.1). `siros-testkit`'s
+  `TestChoice::Foreign` chooses a key of other metadata.
 - Phase 2 answers with `Built`: the Authorization Response
   (`AuthorizationResponse`, §8.1's object) and its `Delivery`, the
   DigitalCredential's `data` (`DcApiData`, a JSON object the core reads back)
@@ -120,7 +122,7 @@ released version yet.
   core seals the Authorization Response to the route's key through
   `Haip::encrypt_jwe` and hands the mode the `SealedJwe` alone
   (`AnswerContent`, `ModeRoute`), and refuses a body of another channel than
-  the mode's (`RouteBreach::BodyChannel`). `dc_api` writes the response,
+  the request's (`RouteBreach::BodyChannel`). `dc_api` writes the response,
   `dc_api.jwt` `{"response": JWE}`, `direct_post.jwt` `response=<JWE>`
   (`ResponseForm`). `siros-testkit`'s `TestMode` writes a body of either
   channel (`TestBody`), and `JweHaip` seals with ECDH-ES.

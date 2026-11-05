@@ -175,7 +175,8 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             sealing,
         } = route(registry, &accepted, &metadata, host)?;
         let filled = resources.fill(fetch);
-        let binding = match request.envelope().channel() {
+        let channel = request.envelope().channel();
+        let binding = match channel {
             Channel::DcApi(origin) => SessionBinding::DcApi { origin },
             Channel::Uri => {
                 return Err(Fault::new(
@@ -222,18 +223,11 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             }
         };
         let route = ModeRoute::of(sealing.as_ref().map(|sealing| &sealing.key), routing.echo());
-        let body = answering.answer(&route, &content, host)?;
-        if body.channel() != answering.channel() {
-            return Err(breach(RouteBreach::BodyChannel));
-        }
-        let Body::DcApi(data) = body else {
-            return Err(Fault::new(
-                FAULT,
-                detail!("a URI route's endpoint, which the response side's route binds"),
-            )
-            .into());
+        let delivery = match (channel, answering.answer(&route, &content, host)?) {
+            (Channel::DcApi(_), Body::DcApi(data)) => Delivery::DcApi(data),
+            (_, _) => return Err(breach(RouteBreach::BodyChannel)),
         };
-        Ok(Built::of(response, Delivery::DcApi(data)))
+        Ok(Built::of(response, delivery))
     }
 }
 
@@ -285,6 +279,9 @@ fn route<'r, 'k, 'h, H: CoreHost>(
     let sealing = match (encrypting, haip) {
         (Encrypting::Plain, None) => None,
         (Encrypting::Jwe { key, enc }, Some(haip)) => {
+            if !metadata.keys().holds(&key) {
+                return Err(breach(RouteBreach::Foreign));
+            }
             let stated = key
                 .key()
                 .alg()

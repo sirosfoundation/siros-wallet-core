@@ -3,17 +3,18 @@
 
 use std::num::NonZeroUsize;
 
+use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash::{HashAlgorithm, HashName};
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{Agreements, ContentEncryption, Request};
+use siros_openid4vp::request::{Agreements, ClientMetadata, ContentEncryption, Request};
 use siros_openid4vp::resolve::{AnswerContent, Body, DcApiData, ErrorContent, ModeRoute, PostBody};
 use siros_openid4vp::routing::{
     ChannelKind, Encrypting, ErrorModeHost, Mode, ModeHost, ModeName, ResponseType,
-    ResponseTypeName, VerifierMetadata,
+    ResponseTypeName, VerifierKey, VerifierMetadata,
 };
 use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
@@ -32,9 +33,9 @@ impl ResponseType for TestResponseType {
     }
 }
 
-/// The encryption a [`TestMode`] chooses, which the core checks: a choice the sealing statement
-/// does not admit, an `enc` the Verifier does not list, or a key on a route in the clear, is a
-/// `Fault`.
+/// The encryption a [`TestMode`] chooses, which the core checks: a key the request does not
+/// name, a choice the sealing statement does not admit, an `enc` the Verifier does not list, or a
+/// key on a route in the clear, is a `Fault`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestChoice {
     /// In the clear.
@@ -48,6 +49,31 @@ pub enum TestChoice {
         /// The content encryption.
         enc: ContentEncryption<'static>,
     },
+    /// A P-256 `ECDH-ES` key of other metadata than the request's, and this `enc`.
+    Foreign {
+        /// The content encryption.
+        enc: ContentEncryption<'static>,
+    },
+}
+
+/// The one key of metadata the double reads apart from every request's.
+const FOREIGN: &str = r#"{"jwks":{"keys":[{"kty":"EC","crv":"P-256","kid":"foreign","x":"DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0","y":"XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc","use":"enc","alg":"ECDH-ES"}]}}"#;
+
+/// The key of [`FOREIGN`]; the metadata it lives in is leaked, so it outlives every request.
+fn foreign() -> Result<VerifierKey<'static>, Fault> {
+    let raw: &'static RawValue = serde_json::from_str(FOREIGN)
+        .map_err(|e| Fault::caused(FAULT, detail!("the foreign metadata's JSON"), e))?;
+    let metadata: &'static ClientMetadata<'static> =
+        Box::leak(Box::new(ClientMetadata::parse(Some(raw)).map_err(|e| {
+            Fault::caused(FAULT, detail!("the foreign metadata"), e)
+        })?));
+    let metadata: &'static VerifierMetadata<'static> =
+        Box::leak(Box::new(VerifierMetadata::new(metadata)));
+    metadata
+        .keys()
+        .iter()
+        .next()
+        .ok_or_else(|| Fault::new(FAULT, detail!("the foreign metadata's key")))
 }
 
 /// The channel whose body a [`TestMode`] writes: its own, or the other, which the core refuses.
@@ -134,6 +160,14 @@ impl<H> ModeHost<H> for TestMode {
                 .ok_or_else(|| {
                     Refusal::new(TestRule::invalid_request(format!(
                         "C7 {}: no key at place {place}",
+                        self.name
+                    )))
+                }),
+            TestChoice::Foreign { enc } => foreign()
+                .map(|key| Encrypting::Jwe { key, enc })
+                .map_err(|fault| {
+                    Refusal::new(TestRule::invalid_request(format!(
+                        "C7 {}: {fault}",
                         self.name
                     )))
                 }),

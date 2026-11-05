@@ -558,6 +558,14 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
         (key(ContentEncryption::A128GCM), true, TestBody::Own, None),
         (TestChoice::Plain, false, TestBody::Own, None),
         (
+            TestChoice::Foreign {
+                enc: ContentEncryption::A128GCM,
+            },
+            true,
+            TestBody::Own,
+            Some(RouteBreach::Foreign),
+        ),
+        (
             key(siros_explain::checked!(
                 ContentEncryption<'static>,
                 "A192GCM"

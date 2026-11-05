@@ -335,6 +335,14 @@ impl VerifierKeys<'_> {
             .enumerate()
             .map(|(place, key)| VerifierKey { place, key })
     }
+
+    /// Whether the key is the one these keys hold at its place.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn holds(&self, key: &VerifierKey<'_>) -> bool {
+        self.keys
+            .get(key.place)
+            .is_some_and(|held| std::ptr::addr_eq(held, key.key))
+    }
 }
 
 /// One of the Verifier's keys, by its place among them. Only [`VerifierKeys::iter`] yields one,

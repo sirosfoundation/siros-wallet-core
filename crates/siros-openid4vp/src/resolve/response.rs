@@ -8,7 +8,7 @@ use crate::json::{Node, quote};
 use crate::media::MediaType;
 use crate::refusal::{ErrorCode, ErrorDescription};
 use crate::request::{AgreeableKey, ContentEncryption};
-use crate::routing::{ChannelKind, Echo, State, VerifierKey};
+use crate::routing::{Echo, State, VerifierKey};
 use crate::uri::{FormBody, ResponseUri};
 use crate::wallet_metadata::ParameterName;
 
@@ -341,16 +341,6 @@ pub enum Body {
     DcApi(DcApiData),
     /// A POST body.
     Post(PostBody),
-}
-
-impl Body {
-    /// The channel that carries it.
-    pub(crate) const fn channel(&self) -> ChannelKind {
-        match self {
-            Self::DcApi(_) => ChannelKind::DcApi,
-            Self::Post(_) => ChannelKind::Uri,
-        }
-    }
 }
 
 /// A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]
