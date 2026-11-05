@@ -10,7 +10,7 @@ use siros_openid4vp::host::{
     AnsweredContext, AnsweredQuery, Authentication, AuthenticationNeed, FormatHost, ProfileHost,
 };
 use siros_openid4vp::ids::TransactionType;
-use siros_openid4vp::matching::{Accepted, Consent, Match, Views};
+use siros_openid4vp::matching::{Accepted, Consent, Match, UnmetCode, Views};
 use siros_openid4vp::plugins::{
     Answered, Binding, Bound, BoundEntries, Fault, FetchedRecord, Member, Members, NoCandidate,
     OptionIndex, Profile, Registry,
@@ -349,5 +349,41 @@ fn a_plug_in_failing_or_breaking_its_contract_fails_phase_1() {
             .ok()
             .map(|matched| Views::of(&matched, &env).is_ok());
         assert_eq!(drawn, *want, "case {k}");
+    }
+}
+
+/// The code of an unmet request (§8.5): `vp_formats_not_supported` when every alternative holds
+/// a query whose format excluded the wallet's credential under the Verifier's
+/// `vp_formats_supported`, `access_denied` when a credential answers no query or an alternative
+/// holds queries no format excluded a credential for.
+#[test]
+fn an_unmet_requests_code_tells_unsupported_formats_from_the_rest() {
+    let registry = registry(Binds::First);
+    let env = env("en");
+    let algs = r#""client_metadata":{"vp_formats_supported":{"test":{"algs":["B"]}}}"#;
+    let one = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
+    let either = r#"{"credentials":[{"id":"q","format":"test"},{"id":"r","format":"test"}],"credential_sets":[{"options":[["q"],["r"]]}]}"#;
+    let other = r#"{"credentials":[{"id":"q","format":"test"},{"id":"r","format":"other"}],"credential_sets":[{"options":[["q"],["r"]]}]}"#;
+    let cases = [
+        (one, algs, vec!["q"], UnmetCode::VpFormatsNotSupported),
+        (one, "", vec![], UnmetCode::AccessDenied),
+        (
+            either,
+            algs,
+            vec!["q", "r"],
+            UnmetCode::VpFormatsNotSupported,
+        ),
+        (other, algs, vec!["q"], UnmetCode::AccessDenied),
+    ];
+    for (dcql, extra, answers, code) in cases {
+        let parameters = parameters(dcql, extra);
+        let received = unsigned(&parameters).expect("received");
+        let request = request_of(&received).expect("request");
+        let accepted = Accepted::new(&request, &registry).expect("accepted");
+        let held = Held::answering("c", &answers, &[]);
+        let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
+        let matched = Match::run(&accepted, &wallet, &env).expect("matched");
+        assert!(Consent::of(&matched).is_none(), "{dcql} {answers:?}");
+        assert_eq!(matched.unmet(), code, "{dcql} {extra} {answers:?}");
     }
 }

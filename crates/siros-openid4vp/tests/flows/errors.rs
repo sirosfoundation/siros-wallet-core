@@ -1,5 +1,5 @@
 //! The error's form a rejection replies with: §8.2's plain error POST body by URI, and A.4's
-//! error over the DC API (KA15).
+//! error over the DC API.
 
 use serde_json::Value;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
@@ -39,9 +39,8 @@ fn a_rejections_error_by_uri_is_the_plain_form() {
     assert_eq!(pairs[2].1, "eyJhb-6-sVA");
 }
 
-/// KA15: A.4's example error, `{"error": "invalid_request"}`, for a DC API request refused with
-/// `invalid_request` under `DcApiErrors::Respond`; a cancelled flow under `DcApiErrors::Cancel`
-/// (§15.9.2).
+/// A DC API request U3 rejects before authentication: A.4's `{"error": "invalid_request"}`
+/// under `DcApiErrors::Respond`, a cancelled flow under `DcApiErrors::Cancel` (§15.9.2).
 #[test]
 fn a_dc_api_refusal_is_a_4s_error_or_a_cancelled_flow() {
     let origin = Origin::parse("https://verifier.example").expect("origin");

@@ -4,15 +4,19 @@
 use siros_explain::Explain;
 
 use super::{
-    AnswerContent, AuthorizationResponse, Body, Delivery, ModeRoute, Outcome, RouteBreach,
+    AnswerContent, AuthorizationResponse, Body, DcApiData, Delivery, ErrorContent, ErrorResponse,
+    ModeRoute, Outcome, RouteBreach,
 };
 use super::{RouteKey, Session, SessionBinding};
 use crate::authenticate::{Authenticated, BoundEndpoint, VerifierId};
 use crate::envelope::Channel;
 use crate::host::{CoreHost, Haip};
 use crate::ids::{ClientId, Nonce, Origin};
+use crate::matching::UnmetCode;
 use crate::plugins::registry::RegisteredMode;
 use crate::plugins::{Build, Fault, Registry};
+use crate::recourse::{DcApiErrors, Reply};
+use crate::refusal::{ErrorCode, ErrorDescription, Refused};
 use crate::request::Agreements;
 use crate::routing::{
     Carries, Echo, Encrypting, ModeHost, RoutedMode, VerifierKeys, VerifierMetadata,
@@ -60,7 +64,6 @@ enum ChannelRoute<'a> {
     Uri {
         endpoint: &'a ResponseUri,
         client_id: &'a ClientId<'a>,
-        #[expect(dead_code, reason = "the errors on the route read it")]
         errors: RoutedMode,
         answers: Option<Chosen<'a>>,
     },
@@ -174,13 +177,118 @@ impl<'a, H: CoreHost> Route<'a, H> {
         })
     }
 
+    /// The error of the first refusal: its code, its text sanitized to RFC 6749 Appendix A.8's
+    /// characters as the description (§4.1.2.1), `state` as received. Over the DC API A.4's
+    /// `{"error": code}`, or [`Reply::Cancel`] under [`DcApiErrors::Cancel`] (§15.9.2); by URI
+    /// the error mode's body to the bound `response_uri`, sealed by the core to the route's key
+    /// when the answering mode bound one, else in the clear (§8.3.1).
+    ///
+    /// # Errors
+    ///
+    /// The sealing module or the error mode broke its contract.
+    pub fn refusal(
+        &self,
+        refused: &Refused,
+        policy: DcApiErrors,
+        host: &H,
+    ) -> Result<Reply, Fault> {
+        let first = refused
+            .refusals()
+            .first()
+            .ok_or_else(|| Fault::new(FAULT, detail!("a refusal without a rule")))?;
+        let error = ErrorResponse::of(
+            first.code(),
+            ErrorDescription::sanitized(&first.text()),
+            self.echo().cloned(),
+        );
+        self.reply(&error, policy, host)
+    }
+
+    /// The error of a request the wallet does not meet, under its code, without a description
+    /// (§8.5, §15.4.1); its delivery as [`Route::refusal`]'s.
+    ///
+    /// # Errors
+    ///
+    /// The sealing module or the error mode broke its contract.
+    pub fn unmet(&self, code: UnmetCode, policy: DcApiErrors, host: &H) -> Result<Reply, Fault> {
+        let error = ErrorResponse::of(code.code(), None, self.echo().cloned());
+        self.reply(&error, policy, host)
+    }
+
+    /// `wallet_unavailable` (§8.5), for the component an https link reaches in place of the
+    /// wallet; its delivery as [`Route::refusal`]'s under [`DcApiErrors::Respond`].
+    ///
+    /// # Errors
+    ///
+    /// The sealing module or the error mode broke its contract.
+    pub fn unavailable(&self, host: &H) -> Result<Delivery, Fault> {
+        let error = ErrorResponse::of(ErrorCode::WALLET_UNAVAILABLE, None, self.echo().cloned());
+        self.error(&error, host)
+    }
+
+    /// The error as the policy has it over the DC API, delivered otherwise.
+    fn reply(
+        &self,
+        error: &ErrorResponse<'_>,
+        policy: DcApiErrors,
+        host: &H,
+    ) -> Result<Reply, Fault> {
+        match (&self.channel, policy) {
+            (ChannelRoute::DcApi { .. }, DcApiErrors::Cancel) => Ok(Reply::Cancel),
+            (_, _) => self.error(error, host).map(Reply::Deliver),
+        }
+    }
+
+    /// The error's delivery: A.4's over the DC API, which the core writes; by URI the error
+    /// mode's body around the error the core sealed to the route's key, or the clear error on a
+    /// route the core seals nothing on.
+    fn error(&self, error: &ErrorResponse<'_>, host: &H) -> Result<Delivery, Fault> {
+        let ChannelRoute::Uri {
+            endpoint,
+            errors,
+            answers,
+            ..
+        } = &self.channel
+        else {
+            return Ok(Delivery::DcApi(DcApiData::error(error)));
+        };
+        let RegisteredMode::Errors(mode) = self.registered(*errors)? else {
+            return Err(Fault::new(
+                FAULT,
+                detail!("the route's error mode is registered for answers"),
+            ));
+        };
+        let key = self.key();
+        let sealed;
+        let content = match (key, answers) {
+            (None, _) => ErrorContent::Clear(error),
+            (Some(key), Some(chosen)) => {
+                let RegisteredMode::Jwe(_, access) = self.registered(chosen.mode)? else {
+                    return Err(breach(RouteBreach::KeyInTheClear));
+                };
+                sealed = access(host).encrypt_jwe(key.key(), key.enc(), error.json().as_bytes())?;
+                ErrorContent::Sealed(&sealed)
+            }
+            (Some(_), None) => {
+                return Err(Fault::new(
+                    FAULT,
+                    detail!("a key without an answering mode"),
+                ));
+            }
+        };
+        let body = mode.error(&ModeRoute::of(key, self.echo()), &content, host)?;
+        Ok(Delivery::Post {
+            endpoint: (*endpoint).clone(),
+            body,
+        })
+    }
+
     /// `state` as received.
     fn echo(&self) -> Option<&'a Echo<'a>> {
         self.authenticated.envelope().routing().echo()
     }
 
     /// The key the answering mode bound; `None` on a route the core seals nothing on.
-    #[expect(dead_code, reason = "the errors on the route read it")]
     fn key(&self) -> Option<&RouteKey<'a>> {
         match self.channel.answers().map(|chosen| &chosen.encryption) {
             Some(RouteEncryption::Jwe(key)) => Some(key),

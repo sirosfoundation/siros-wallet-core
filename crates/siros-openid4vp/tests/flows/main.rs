@@ -9,6 +9,7 @@ mod authenticate;
 mod common;
 mod envelope;
 mod errors;
+mod route;
 mod routing;
 mod uri;
 

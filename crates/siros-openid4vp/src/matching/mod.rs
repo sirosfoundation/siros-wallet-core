@@ -22,6 +22,7 @@ pub use rules::{Accepted, CoreRule, Transaction};
 
 use crate::plugins::registry::ErasedProfile;
 use crate::plugins::{Binding, Bound, Carriage, Exclude, Fault, Member, NoCandidate, OptionIndex};
+use crate::refusal::ErrorCode;
 use crate::request::{AgreeableKey, HolderBinding, Query, QueryIndex, Request};
 use crate::rows::Env;
 use crate::wallet::{Credential, Holder, Wallet};
@@ -61,8 +62,43 @@ pub struct Excluded<'m> {
     pub query: QueryIndex,
     /// The credential.
     pub credential: &'m Credential<'m>,
+    /// The plug-in that excluded it.
+    pub by: ExcludedBy,
     /// The plug-in's reason.
     pub exclude: Exclude,
+}
+
+/// The plug-in that excluded a credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExcludedBy {
+    /// The query's format: the Verifier's `vp_formats_supported` admits no algorithm the
+    /// credential's presentation can use (`FormatQuery::admits`).
+    Format,
+    /// The profile of the transaction naming the query binds none of its entries.
+    Profile,
+}
+
+/// The code of a request the wallet does not meet (§8.5, §15.4.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnmetCode {
+    /// `access_denied`: no credentials, a decline, a failed End-User authentication, a failed
+    /// proof, which a Verifier cannot tell apart (§15.4.1, §15.9).
+    AccessDenied,
+    /// `vp_formats_not_supported`: every alternative of the request holds a query whose format
+    /// admits none of the wallet's credentials under the Verifier's `vp_formats_supported`,
+    /// which leaves the Verifier a fallback to another format.
+    VpFormatsNotSupported,
+}
+
+impl UnmetCode {
+    /// The code the Verifier receives.
+    #[must_use]
+    pub const fn code(self) -> ErrorCode {
+        match self {
+            Self::AccessDenied => ErrorCode::ACCESS_DENIED,
+            Self::VpFormatsNotSupported => ErrorCode::VP_FORMATS_NOT_SUPPORTED,
+        }
+    }
 }
 
 /// Each query's candidates.
@@ -91,9 +127,10 @@ impl<'m> Match<'m> {
                 for credential in wallet.credentials().iter().filter(|c| matcher.eligible(c)) {
                     match matcher.consider(credential)? {
                         Considered::Candidate(candidate) => found.push(candidate),
-                        Considered::Excluded(exclude) => excluded.push(Excluded {
+                        Considered::Excluded(by, exclude) => excluded.push(Excluded {
                             query: index,
                             credential,
+                            by,
                             exclude,
                         }),
                         Considered::Unanswered => {}
@@ -142,6 +179,30 @@ impl<'m> Match<'m> {
     pub fn held(&self, query: QueryIndex) -> bool {
         !self.candidates(query).is_empty()
     }
+
+    /// The code of the request when the wallet does not meet it: `vp_formats_not_supported`
+    /// when every alternative holds a query no credential answers and whose format excluded one
+    /// under the Verifier's `vp_formats_supported`; `access_denied` otherwise.
+    #[must_use]
+    pub fn unmet(&self) -> UnmetCode {
+        let unsupported = |query: &QueryIndex| {
+            !self.held(*query)
+                && self
+                    .excluded
+                    .iter()
+                    .any(|excluded| excluded.query == *query && excluded.by == ExcludedBy::Format)
+        };
+        let alternatives = self.accepted.request().alternatives();
+        if !alternatives.is_empty()
+            && alternatives
+                .iter()
+                .all(|alternative| alternative.queries.iter().any(unsupported))
+        {
+            UnmetCode::VpFormatsNotSupported
+        } else {
+            UnmetCode::AccessDenied
+        }
+    }
 }
 
 /// What matching a credential against a query gives.
@@ -150,7 +211,7 @@ enum Considered<'m> {
     /// A candidate.
     Candidate(Candidate<'m>),
     /// A plug-in excluded it.
-    Excluded(Exclude),
+    Excluded(ExcludedBy, Exclude),
     /// It answers no option.
     Unanswered,
 }
@@ -214,11 +275,16 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             .formatted
             .query
             .admits(credential, self.keys)
-            .and_then(|()| self.bind(credential))
-        {
+            .map_err(|refused| (ExcludedBy::Format, refused))
+            .and_then(|()| {
+                self.bind(credential)
+                    .map_err(|refused| (ExcludedBy::Profile, refused))
+            }) {
             Ok(bound) => bound,
-            Err(NoCandidate::Excluded(exclude)) => return Ok(Considered::Excluded(exclude)),
-            Err(NoCandidate::Fault(fault)) => return Err(fault),
+            Err((by, NoCandidate::Excluded(exclude))) => {
+                return Ok(Considered::Excluded(by, exclude));
+            }
+            Err((_, NoCandidate::Fault(fault))) => return Err(fault),
         };
         let provided = match (&bound, self.members) {
             (Some(_), Some(members)) => members,
