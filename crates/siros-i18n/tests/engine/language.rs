@@ -152,13 +152,26 @@ fn known_answers() {
     );
 }
 
-/// What a screen gives: whether the language fell back, the language, and each module's entry.
-type Outcome = Option<(bool, String, Vec<String>)>;
+/// What a screen gives: whether the language fell back, the language, and each module's entry;
+/// or why it has none.
+type Outcome = Result<(bool, String, Vec<String>), Refused>;
+
+/// Why a screen has no language, its module by its index among the screen's modules.
+#[derive(Debug, PartialEq, Eq)]
+enum Refused {
+    /// The selected module holds no entry of its locale.
+    Selected,
+    /// No tag of the list serves every other module, and this one, the first enforcing, enforces.
+    NotUnderstood(u8),
+    /// No tag of the fallback list serves every other module.
+    NoFallback,
+}
 
 /// The language by the rule's words: the first module, when a locale is selected for it, shows
-/// its entry equal to that locale, and none without one; every other module takes the first tag
-/// of the list headed by the selected locale for which it has an entry equal to the tag or
-/// extending it; each module's entry the equal one, else its first match.
+/// its entry equal to that locale, and is refused without one; every other module takes the
+/// first tag of the list headed by the selected locale for which it has an entry equal to the
+/// tag or extending it; each module's entry the equal one, else its first match. With none, the
+/// first module enforcing understood languages refuses, else the fallback list decides.
 fn oracle(
     modules: &[(Vec<&'static str>, LanguagePolicy)],
     selected: Option<&str>,
@@ -175,14 +188,14 @@ fn oracle(
         None => None,
         Some(locale) => Some(
             modules
-                .first()?
-                .0
-                .iter()
-                .find(|t| **t == locale)
-                .map(|t| (*t).to_owned())?,
+                .first()
+                .and_then(|first| first.0.iter().find(|t| **t == locale))
+                .map(|t| (*t).to_owned())
+                .ok_or(Refused::Selected)?,
         ),
     };
-    let others = &modules[usize::from(selected.is_some())..];
+    let skipped = usize::from(selected.is_some());
+    let others = &modules[skipped..];
     let serve = |range: &str| -> Option<Vec<String>> {
         let rest: Option<Vec<String>> = others
             .iter()
@@ -200,17 +213,19 @@ fn oracle(
         .chain(priority.iter().copied())
         .collect();
     if let Some((range, entries)) = headed.iter().find_map(|r| serve(r).map(|e| (*r, e))) {
-        return Some((false, range.to_owned(), entries));
+        return Ok((false, range.to_owned(), entries));
     }
-    if others
+    if let Some(enforcing) = others
         .iter()
-        .any(|(_, policy)| *policy == LanguagePolicy::Understood)
+        .position(|(_, policy)| *policy == LanguagePolicy::Understood)
     {
-        return None;
+        let index = u8::try_from(enforcing + skipped).expect("three modules at most");
+        return Err(Refused::NotUnderstood(index));
     }
     fallback
         .iter()
         .find_map(|r| serve(r).map(|e| (true, (*r).to_owned(), e)))
+        .ok_or(Refused::NoFallback)
 }
 
 #[test]
@@ -257,10 +272,17 @@ fn the_language_is_the_first_tag_every_module_serves() {
             .map(|(tags, policy)| (tags.as_slice(), *policy))
             .collect();
         let got = locate_selected(&borrowed, selected, &priority, &fallback)
-            .ok()
             .map(|(language, entries)| match language {
                 Language::Understood(tag) => (false, tag.to_string(), entries),
                 Language::Fallback(tag) => (true, tag.to_string(), entries),
+            })
+            .map_err(|refused| match refused {
+                NoLanguage::Selected { .. } => Refused::Selected,
+                NoLanguage::NotUnderstood(module) => match module.id() {
+                    ModuleId::Defined(defined) => Refused::NotUnderstood(defined.digest()[0]),
+                    other => panic!("a test module: {other:?}"),
+                },
+                NoLanguage::NoFallback => Refused::NoFallback,
             });
         assert_eq!(
             got,
