@@ -651,7 +651,10 @@ impl engine_ports::Host for ScriptedHost {
                         "the scripted host refuses to present".to_owned(),
                     ));
                 }
-                Ok(engine_ports::VpResult { vp_token: token })
+                Ok(engine_ports::VpResult {
+                    vp_token: token,
+                    refusal: None,
+                })
             }
             Err(reason) => {
                 self.world.fail(reason);

@@ -6,10 +6,12 @@ pub mod as_metadata;
 pub mod attestation;
 pub mod auth_code;
 pub mod auth_params;
+pub mod auxiliary;
 pub mod credential;
 pub mod deferred;
 pub mod dpop;
 pub mod encryption;
+pub mod entitlement;
 pub mod issuer;
 pub mod nonce;
 pub mod offer;
@@ -20,11 +22,61 @@ pub mod types;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 
+use trust::TrustError;
+
 use crate::runtime::{FlowContext, FlowHandler};
 use types::MetadataType;
 
 /// The OID4VCI flow handler: the full S1+S2 issuance flow — parse the
 /// offer, resolve the issuer metadata, discover the AS, exchange the
+/// The AS the flow discovers (#511): the offer's grant-level
+/// `authorization_server` hint — OpenID4VCI 1.0/1.1: "the Wallet MUST NOT
+/// proceed with the flow if the `authorization_server` Credential Offer
+/// parameter value does not match any of the entries in the
+/// `authorization_servers` array" — else the first advertised (the
+/// documented choice when the offer carries no hint and several are
+/// advertised), else the credential issuer itself (the same-origin AS).
+fn select_as_url(
+    offer: &types::CredentialOffer,
+    issuer_metadata: &types::IssuerMetadata,
+) -> Result<String, String> {
+    // The hint: the grant's authorization_server member (either grant
+    // carries it; the first found wins).
+    let hint = offer
+        .grants
+        .as_object()
+        .and_then(|grants| {
+            grants
+                .values()
+                .find_map(|grant| grant.get("authorization_server").and_then(|v| v.as_str()))
+        })
+        .filter(|url| !url.is_empty());
+    match hint {
+        Some(hint) => {
+            // MUST equal (exact string comparison) one of the advertised
+            // entries; a mismatch fails closed.
+            if issuer_metadata
+                .authorization_servers
+                .iter()
+                .any(|url| url == hint)
+            {
+                Ok(hint.to_owned())
+            } else {
+                Err(format!(
+                    "the offer names authorization_server {hint:?} which the issuer metadata does not advertise"
+                ))
+            }
+        }
+        // No hint: the first advertised (the documented choice), else the
+        // credential issuer itself.
+        None => Ok(issuer_metadata
+            .authorization_servers
+            .first()
+            .cloned()
+            .unwrap_or_else(|| offer.credential_issuer.clone())),
+    }
+}
+
 /// pre-authorized code for a token, request the credential with the
 /// host-signed proof, and report the result.
 pub struct Oid4vciFlow;
@@ -97,17 +149,35 @@ impl FlowHandler for Oid4vciFlow {
                 .map_err(|err| flow_error(err.to_string()))?
         };
 
+        // The Go engine's step vocabulary: message steps around each
+        // phase, the drop-in surface the SDK's FlowStepCatalog and the
+        // frontend's UI state machine key on (docs/engine-parity.md §2).
+        let _ = ctx
+            .progress(
+                "parsing_offer",
+                &serde_json::json!({ "message": "parsing the credential offer" }),
+            )
+            .await;
+
         let _ = ctx
             .progress(
                 "offer_parsed",
                 &serde_json::json!({
                     "credential_issuer": offer.credential_issuer,
                     "credential_configuration_ids": offer.credential_configuration_ids,
+                    "grants": offer.grants,
                 }),
             )
             .await;
 
         // ── S1: resolve the issuer metadata ──────────────────────────────
+        let _ = ctx
+            .progress(
+                "fetching_metadata",
+                &serde_json::json!({ "message": "resolving the issuer metadata" }),
+            )
+            .await;
+
         let metadata_type = MetadataType::PreferSigned;
         let issuer_metadata = issuer::resolve_issuer_metadata(
             ctx.http().as_ref(),
@@ -120,7 +190,7 @@ impl FlowHandler for Oid4vciFlow {
 
         let _ = ctx
             .progress(
-                "metadata_resolved",
+                "metadata_fetched",
                 &serde_json::json!({
                     "credential_issuer": issuer_metadata.credential_issuer,
                     "is_signed": issuer_metadata.is_signed,
@@ -129,11 +199,10 @@ impl FlowHandler for Oid4vciFlow {
             .await;
 
         // ── S1: discover the AS metadata ────────────────────────────────
-        let as_url = issuer_metadata
-            .authorization_servers
-            .first()
-            .cloned()
-            .unwrap_or_else(|| offer.credential_issuer.clone());
+        // #511: the offer's grant-level authorization_server hint
+        // selects the AS (and a mismatch fails closed); without a hint,
+        // the first advertised.
+        let as_url = select_as_url(&offer, &issuer_metadata).map_err(flow_error)?;
 
         let as_metadata = as_metadata::discover_as_metadata(ctx.http().as_ref(), &as_url, false)
             .await
@@ -150,6 +219,13 @@ impl FlowHandler for Oid4vciFlow {
             .await;
 
         // ── S3: evaluate the issuer's trust through the PDP ─────────────
+        let _ = ctx
+            .progress(
+                "evaluating_trust",
+                &serde_json::json!({ "message": "evaluating the issuer trust" }),
+            )
+            .await;
+
         // Fail closed: an unreachable PDP or an untrusted issuer refuses
         // the flow. No fallback to client-asserted trust.
         let trust_info = trust::evaluate_issuer_trust(
@@ -158,12 +234,24 @@ impl FlowHandler for Oid4vciFlow {
             &issuer_metadata,
         )
         .await
-        .map_err(|err| flow_error(err.to_string()))?;
+        .map_err(|err| match &err {
+            // The typed -31006 data (go-wmp's NewUntrustedIssuerData):
+            // the class reason, the refused issuer, the PDP's detail,
+            // and the retryable flag.
+            TrustError::Untrusted { issuer, reason } => {
+                HandlerError::Rpc(wmp_core::error::RpcError::new(
+                    wmp_core::error::ERR_FLOW_ERROR,
+                    Some(trust::untrusted_issuer_data(issuer, reason)),
+                ))
+            }
+            _ => HandlerError::Rpc(flow_error(err.to_string())),
+        })?;
 
         let _ = ctx
             .progress(
                 "trust_evaluated",
                 &serde_json::json!({
+                    "issuer_trust_evaluated": true,
                     "issuer": offer.credential_issuer,
                     "trusted": trust_info.trusted,
                     "framework": trust_info.framework,
@@ -171,6 +259,70 @@ impl FlowHandler for Oid4vciFlow {
                 }),
             )
             .await;
+
+        // ── The issuer entitlement check (ARF 6.6.2.3): is the provider
+        // registered to issue what it offers — a question distinct from
+        // the trust decision above, so it runs in addition to it, never
+        // instead of it. The configurations checked are the offer's —
+        // the selection accepts nothing else, so what is issued is what
+        // was checked. A refusal answers -31020; the findings ride the
+        // additive progress inside the check.
+        let entitlement = entitlement::check_entitlement(
+            ctx,
+            &offer.credential_issuer,
+            &issuer_metadata,
+            &offer.credential_configuration_ids,
+        )
+        .await;
+        if !entitlement.allowed {
+            return Err(HandlerError::Rpc(entitlement::not_entitled_data(
+                &offer.credential_issuer,
+                &entitlement,
+            )));
+        }
+
+        // ── The auxiliary-data selection gate (Credential Auxiliary Data
+        // v0.1, #480): the advertisement is read from the selected
+        // configuration BEFORE any authorization or request — an entry the
+        // wallet cannot handle (a to_wallet alg/encoding, a required
+        // to_issuer entry) refuses with the AUXILIARY_DATA_UNSUPPORTED
+        // shape, and a malformed advertisement (an auxiliary_data member
+        // in the issuer's credential_metadata among them) fails closed.
+        // The engine never handles a secret value: the gate reads the
+        // advertisement alone.
+        let configuration_id = offer
+            .credential_configuration_ids
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let configuration = issuer_metadata
+            .credential_configurations
+            .get(&configuration_id)
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let delivery = match auxiliary::secret_delivery_of(&configuration) {
+            Ok(delivery) => delivery,
+            Err(err) => {
+                // The advertisement is malformed (or auxiliary_data rode
+                // the issuer metadata): fail closed, nothing of the
+                // content in the reason.
+                return Err(HandlerError::Rpc(flow_error(err.reason())));
+            }
+        };
+        if let Err(refusal) = auxiliary::usable(&delivery, &configuration) {
+            // The AUXILIARY_DATA_UNSUPPORTED refusal: the typed -31006
+            // data carries the class reason and the retryable flag
+            // (never retryable — a different wallet or the issuer's
+            // out-of-band resolution is the fix).
+            return Err(HandlerError::Rpc(wmp_core::error::RpcError::new(
+                wmp_core::error::ERR_FLOW_ERROR,
+                Some(serde_json::json!({
+                    "reason": "auxiliary_data_unsupported",
+                    "detail": refusal.reason,
+                    "retryable": false,
+                })),
+            )));
+        }
 
         // ── S2: negotiate the response encryption, when the issuer supports it
         // The alg/enc pair from the issuer's credential_response_encryption
@@ -250,6 +402,13 @@ impl FlowHandler for Oid4vciFlow {
         let (_token, credential) = if let Some(refresh) = &renewal_token {
             // ── The renewal grant: the refresh token the previous flow
             // returned, exchanged with the same client-auth loop.
+            let _ = ctx
+                .progress(
+                    "exchanging_token",
+                    &serde_json::json!({ "message": "exchanging the code for a token" }),
+                )
+                .await;
+
             let token = token::exchange_refresh_token(
                 ctx.http().as_ref(),
                 ctx.host().as_ref(),
@@ -270,7 +429,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "token_received",
+                    "token_obtained",
                     &serde_json::json!({
                         "token_type": token.token_type,
                     }),
@@ -290,6 +449,7 @@ impl FlowHandler for Oid4vciFlow {
                 &token,
                 &configuration_id,
                 DeliverParams {
+                    delivery: Some(&delivery),
                     negotiated_encryption: negotiated_encryption.as_ref(),
                     dpop_key: dpop_key.as_ref(),
                     dpop_key_id: dpop_key_id.as_deref(),
@@ -306,6 +466,13 @@ impl FlowHandler for Oid4vciFlow {
                 .unwrap_or_default()
                 .to_owned();
             let tx_code_required = grant.get("tx_code").map(|v| !v.is_null()).unwrap_or(false);
+
+            let _ = ctx
+                .progress(
+                    "exchanging_token",
+                    &serde_json::json!({ "message": "exchanging the code for a token" }),
+                )
+                .await;
 
             let token = token::exchange_pre_authorized_code(
                 ctx.http().as_ref(),
@@ -328,7 +495,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "token_received",
+                    "token_obtained",
                     &serde_json::json!({
                         "token_type": token.token_type,
                     }),
@@ -348,6 +515,7 @@ impl FlowHandler for Oid4vciFlow {
                 &token,
                 &configuration_id,
                 DeliverParams {
+                    delivery: Some(&delivery),
                     negotiated_encryption: negotiated_encryption.as_ref(),
                     dpop_key: dpop_key.as_ref(),
                     dpop_key_id: dpop_key_id.as_deref(),
@@ -373,7 +541,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "authorization_url",
+                    "authorization_required",
                     &serde_json::json!({
                         "authorization_url": authorization.url,
                         "expected_redirect_uri": authorization.redirect_uri,
@@ -748,13 +916,39 @@ async fn resume_authorization_code(
         &issuer_metadata,
     )
     .await
-    .map_err(|err| flow_error(err.to_string()))?;
+    .map_err(|err| match &err {
+        // The typed -31006 data (go-wmp's NewUntrustedIssuerData): the
+        // class reason, the refused issuer, the PDP's detail, and the
+        // retryable flag.
+        TrustError::Untrusted { issuer, reason } => {
+            HandlerError::Rpc(wmp_core::error::RpcError::new(
+                wmp_core::error::ERR_FLOW_ERROR,
+                Some(trust::untrusted_issuer_data(issuer, reason)),
+            ))
+        }
+        _ => flow_error(err.to_string()),
+    })?;
 
-    let as_url = issuer_metadata
-        .authorization_servers
-        .first()
-        .cloned()
-        .unwrap_or_else(|| offer.credential_issuer.clone());
+    // The entitlement check, again, on the resume (ARF 6.6.2.3): the
+    // same additive question after the same fail-closed trust
+    // re-evaluation. The stashed offer's configurations are what the
+    // resumed flow requests.
+    let entitlement = entitlement::check_entitlement(
+        ctx,
+        &offer.credential_issuer,
+        &issuer_metadata,
+        &offer.credential_configuration_ids,
+    )
+    .await;
+    if !entitlement.allowed {
+        return Err(HandlerError::Rpc(entitlement::not_entitled_data(
+            &offer.credential_issuer,
+            &entitlement,
+        )));
+    }
+
+    // #511: the hint selects the AS on the resume path too.
+    let as_url = select_as_url(&offer, &issuer_metadata).map_err(flow_error)?;
     let as_metadata = as_metadata::discover_as_metadata(ctx.http().as_ref(), &as_url, false)
         .await
         .map_err(|err| flow_error(err.to_string()))?;
@@ -779,6 +973,13 @@ async fn resume_authorization_code(
     // The code-for-token exchange, with the stashed verifier, the RFC
     // 8707 resource the authorization request already decided, and the
     // client attestation the host supplies.
+    let _ = ctx
+        .progress(
+            "exchanging_token",
+            &serde_json::json!({ "message": "exchanging the code for a token" }),
+        )
+        .await;
+
     let token = auth_code::exchange_authorization_code_with_attestation(
         ctx.http().as_ref(),
         ctx.host().as_ref(),
@@ -802,7 +1003,7 @@ async fn resume_authorization_code(
 
     let _ = ctx
         .progress(
-            "token_received",
+            "token_obtained",
             &serde_json::json!({
                 "token_type": token.token_type,
             }),
@@ -829,6 +1030,22 @@ async fn resume_authorization_code(
         .cloned()
         .unwrap_or_default();
 
+    // The auxiliary-data selection gate, again on the resume (#480): the
+    // same parse and verdict, before the credential request.
+    let resume_configuration = issuer_metadata
+        .credential_configurations
+        .get(&configuration_id)
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let delivery = auxiliary::secret_delivery_of(&resume_configuration)
+        .map_err(|err| flow_error(err.reason()))?;
+    if let Err(refusal) = auxiliary::usable(&delivery, &resume_configuration) {
+        return Err(flow_error(format!(
+            "auxiliary_data_unsupported: {}",
+            refusal.reason
+        )));
+    }
+
     let credential = request_and_deliver(
         ctx,
         &params.flow_id,
@@ -836,6 +1053,7 @@ async fn resume_authorization_code(
         &token,
         &configuration_id,
         DeliverParams {
+            delivery: Some(&delivery),
             negotiated_encryption: negotiated_encryption.as_ref(),
             dpop_key: dpop_key.as_ref(),
             dpop_key_id: None,
@@ -913,6 +1131,11 @@ struct DeliverParams<'a> {
     /// The reissuance kid: a renewal's proof signs with the existing
     /// keypair the issuer knows.
     reissuance_kid: Option<&'a str>,
+    /// The credential configuration's secret delivery (Credential
+    /// Auxiliary Data v0.1), when it advertised one: the to_issuer
+    /// entries ride the proof, the to_wallet entries ride the
+    /// completion for the client's own response check.
+    delivery: Option<&'a auxiliary::SecretDelivery>,
 }
 
 async fn request_and_deliver(
@@ -930,12 +1153,29 @@ async fn request_and_deliver(
         ))
     };
 
+    // The Go engine's `requesting_credential` message step before the
+    // credential request (docs/engine-parity.md §2).
+    let _ = ctx
+        .progress(
+            "requesting_credential",
+            &serde_json::json!({ "message": "requesting the credential" }),
+        )
+        .await;
+
     // The auxiliary inputs: the encryption offer, and the DPoP binding
     // when the AS issued a DPoP-bound token (a fresh proof over the
     // credential endpoint, `ath`-bound, signed with the same key that
     // proved the token request).
     let aux = credential::CredentialRequestAux {
         encryption: deliver.negotiated_encryption,
+        auxiliary_data_to_issuer: deliver
+            .delivery
+            .map(|delivery| delivery.to_issuer.as_slice())
+            .unwrap_or(&[]),
+        auxiliary_data_to_wallet: deliver
+            .delivery
+            .map(|delivery| delivery.to_wallet.as_slice())
+            .unwrap_or(&[]),
         dpop: deliver.dpop_key.map(|key| credential::ResourceDpop {
             flow_id: ctx.flow_id.as_str(),
             key_id: deliver.dpop_key_id,
@@ -964,6 +1204,19 @@ async fn request_and_deliver(
 
     // The deferred polling, when the issuer deferred.
     let credential = if let Some(transaction_id) = &credential.transaction_id {
+        // The Go engine's `deferred` step (docs/engine-parity.md §2):
+        // the transaction, the issuer's interval, the attempt budget.
+        let _ = ctx
+            .progress(
+                "deferred",
+                &serde_json::json!({
+                    "transaction_id": transaction_id,
+                    "interval": 5,
+                    "max_attempts": 60,
+                    "message": "the issuer deferred the credential; polling",
+                }),
+            )
+            .await;
         let deferred_credential = deferred::poll_deferred_credential(
             ctx.http().as_ref(),
             ctx.host().as_ref(),
@@ -1698,5 +1951,189 @@ mod renewal_flow_tests {
         // The proof was signed with the EXISTING key the issuer knows.
         let key_ids = host.sign_key_ids.lock().expect("lock");
         assert_eq!(key_ids.as_slice(), [Some("kid-original".to_owned())]);
+    }
+}
+
+#[cfg(test)]
+mod as_selection_tests {
+    //! #511: the offer's `authorization_server` hint — the grant-level
+    //! hint selects the AS; a mismatch fails closed; no hint keeps the
+    //! first-advertised choice.
+
+    use super::*;
+
+    fn offer(grants: serde_json::Value) -> types::CredentialOffer {
+        types::CredentialOffer {
+            credential_issuer: "https://issuer.example".to_owned(),
+            credential_configuration_ids: vec!["UniversityDegree".to_owned()],
+            grants,
+        }
+    }
+
+    fn issuer_metadata(servers: &[&str]) -> types::IssuerMetadata {
+        types::IssuerMetadata {
+            credential_issuer: "https://issuer.example".to_owned(),
+            authorization_servers: servers.iter().map(|s| s.to_string()).collect(),
+            ..serde_json::from_value(serde_json::json!({
+                "credential_issuer": "https://issuer.example"
+            }))
+            .expect("the minimal metadata parses")
+        }
+    }
+
+    #[test]
+    fn a_matching_hint_selects_the_hinted_as() {
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://as-2.example"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &issuer_metadata),
+            Ok("https://as-2.example".to_owned()),
+            "the hint selects, not the first"
+        );
+    }
+
+    #[test]
+    fn a_mismatched_hint_fails_closed() {
+        // OpenID4VCI 1.0/1.1: the wallet MUST NOT proceed when the hint
+        // matches no advertised entry.
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://evil.example"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example"]);
+        assert!(
+            select_as_url(&offer, &issuer_metadata).is_err(),
+            "the mismatch fails closed"
+        );
+    }
+
+    #[test]
+    fn an_exact_match_is_required() {
+        // The match is an exact string comparison: a trailing slash or a
+        // scheme difference is a mismatch.
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"authorization_server": "https://as-1.example/"}
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example"]);
+        assert!(select_as_url(&offer, &issuer_metadata).is_err());
+    }
+
+    #[test]
+    fn no_hint_keeps_the_first_advertised() {
+        let offer = offer(serde_json::json!({
+            "authorization_code": {"issuer_state": "x"}
+        }));
+        let metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &metadata),
+            Ok("https://as-1.example".to_owned())
+        );
+        // And no advertised servers at all: the credential issuer itself.
+        let metadata = issuer_metadata(&[]);
+        assert_eq!(
+            select_as_url(&offer, &metadata),
+            Ok("https://issuer.example".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_hint_is_read_from_either_grant() {
+        // The pre-authorized grant carries it too.
+        let offer = offer(serde_json::json!({
+            "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+                "pre-authorized_code": "x",
+                "authorization_server": "https://as-2.example"
+            }
+        }));
+        let issuer_metadata = issuer_metadata(&["https://as-1.example", "https://as-2.example"]);
+        assert_eq!(
+            select_as_url(&offer, &issuer_metadata),
+            Ok("https://as-2.example".to_owned())
+        );
+    }
+}
+
+#[cfg(test)]
+mod aux_gate_tests {
+    //! The auxiliary-data selection gate (#480): the flow-level call the
+    //! start and the resume make — parse + verdict, refused before any
+    //! authorization or request. The pieces are proven in
+    //! auxiliary::tests; this module pins the flow-level shape.
+
+    use super::*;
+
+    #[tokio::test]
+    async fn the_start_flow_gate_refuses_an_unusable_advertisement() {
+        // The start_flow gate is parse + verdict over the selected
+        // configuration; the pieces are proven at the unit level. This
+        // pins the order: the refusal fires before the grant dispatch,
+        // so no token POST happens — the same call the resume makes.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "vct": "https://example/PID",
+            "proof_types_supported": {"jwt": {}},
+            "auxiliary_data_supported": {
+                "to_wallet": [{
+                    "type": "hash_commitment",
+                    "alg": "sha-512",
+                    "path": ["family_name"],
+                }]
+            }
+        });
+        let delivery =
+            auxiliary::secret_delivery_of(&configuration).expect("the advertisement parses");
+        let refusal = auxiliary::usable(&delivery, &configuration)
+            .expect_err("the sha-512 entry the wallet cannot check");
+        assert!(
+            refusal.reason.contains("alg or encoding"),
+            "the refusal names the class: {refusal}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_start_flow_gate_fails_closed_on_auxiliary_data_in_issuer_metadata() {
+        // §7: auxiliary_data MUST NOT appear in the issuer metadata; the
+        // gate fails closed before any request.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "credential_metadata": {"auxiliary_data": {}},
+            "auxiliary_data_supported": {"to_wallet": [{
+                "type": "hash_commitment",
+                "alg": "sha-256",
+                "path": ["family_name"],
+            }]},
+        });
+        assert!(
+            matches!(
+                auxiliary::secret_delivery_of(&configuration),
+                Err(auxiliary::SecretDeliveryError::AuxiliaryDataInIssuerMetadata(_))
+            ),
+            "the §7 rule fails closed at the gate"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_resume_gate_is_the_same_call() {
+        // The resume re-parses from its own metadata — a configuration
+        // that changed to an unusable advertisement between the start
+        // and the redirect is refused on the resume too.
+        let configuration = serde_json::json!({
+            "format": "dc+sd-jwt",
+            "vct": "https://example/PID",
+            "proof_types_supported": {"cwt": {}},
+            "auxiliary_data_supported": {"to_issuer": [{
+                "type": "hash_commitment",
+                "alg": "sha-256",
+                "path": ["family_name"],
+                "required": true,
+            }]},
+        });
+        let delivery =
+            auxiliary::secret_delivery_of(&configuration).expect("the advertisement parses");
+        assert!(
+            auxiliary::usable(&delivery, &configuration).is_err(),
+            "no carrier proof type: the resume refuses too"
+        );
     }
 }

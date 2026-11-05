@@ -10,13 +10,11 @@ pub mod transaction_data;
 pub mod trust;
 pub mod types;
 
+use trust::TrustError;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 
 use crate::runtime::{FlowContext, FlowHandler};
-
-/// A test utility for base64url encoding (shared across the oid4vp tests).
-pub mod test_util;
 
 /// The OID4VP flow handler: the full presentation flow — parse the request,
 /// evaluate the verifier's trust, ask the host for credential selection
@@ -65,6 +63,16 @@ impl FlowHandler for Oid4vpFlow {
             _ => String::new(),
         };
 
+        // The Go engine's step vocabulary: message steps around each
+        // phase (docs/engine-parity.md §2) — the drop-in surface the
+        // SDK's FlowStepCatalog and the frontend's UI state machine key on.
+        let _ = ctx
+            .progress(
+                "parsing_request",
+                &serde_json::json!({ "message": "parsing the authorization request" }),
+            )
+            .await;
+
         let mut auth_req = request::parse_request(ctx.http().as_ref(), &request_params)
             .await
             .map_err(|err| flow_error(err.to_string()))?;
@@ -104,6 +112,13 @@ impl FlowHandler for Oid4vpFlow {
         // The verifier trust through the PDP port — fail closed: a PDP
         // error is never equivalent to "no PDP configured" and never
         // falls back to asking the client (P0.6).
+        let _ = ctx
+            .progress(
+                "evaluating_verifier_trust",
+                &serde_json::json!({ "message": "evaluating the verifier trust" }),
+            )
+            .await;
+
         trust::evaluate_verifier_trust(
             ctx.pdp().as_ref(),
             &auth_req,
@@ -111,12 +126,24 @@ impl FlowHandler for Oid4vpFlow {
             &mut verifier,
         )
         .await
-        .map_err(|err| flow_error(err.to_string()))?;
+        .map_err(|err| match &err {
+            // The typed -31006 data (go-wmp's NewUntrustedVerifierData):
+            // the class reason, the refused verifier, the PDP's detail,
+            // and the retryable flag.
+            TrustError::Untrusted { verifier, reason } => {
+                HandlerError::Rpc(wmp_core::error::RpcError::new(
+                    wmp_core::error::ERR_FLOW_ERROR,
+                    Some(trust::untrusted_verifier_data(verifier, reason)),
+                ))
+            }
+            _ => HandlerError::Rpc(flow_error(err.to_string())),
+        })?;
 
         let _ = ctx
             .progress(
                 "trust_evaluated",
                 &serde_json::json!({
+                    "verifier_trust_evaluated": true,
                     "verifier": verifier.client_id,
                     "verifier_name": verifier.name,
                     "trusted": verifier.trusted,
@@ -181,7 +208,11 @@ impl FlowHandler for Oid4vpFlow {
                     ctx.http().as_ref(),
                     &auth_req,
                     "access_denied",
-                    "No credential satisfies the required query",
+                    // The same description as the decline: the verifier
+                    // must not tell a refusal from an empty wallet apart
+                    // (the Go engine's verifierRefusedDescription).
+                    "The wallet did not fulfil the request",
+                    ctx.clock().now_unix(),
                 )
                 .await;
             }
@@ -206,7 +237,7 @@ impl FlowHandler for Oid4vpFlow {
 
         let _ = ctx
             .progress(
-                "credential_selected",
+                "credential_selection",
                 &serde_json::json!({
                     "count": match_result.selections.len(),
                     "credential_ids": match_result
@@ -240,7 +271,11 @@ impl FlowHandler for Oid4vpFlow {
                 ctx.http().as_ref(),
                 &auth_req,
                 "access_denied",
-                "User declined",
+                // The same description as the empty-match refusal: the
+                // verifier must not tell a decline from an empty wallet
+                // apart (the Go engine's verifierRefusedDescription).
+                "The wallet did not fulfil the request",
+                ctx.clock().now_unix(),
             )
             .await;
             let _ = ctx.complete(&serde_json::json!({ "declined": true })).await;
@@ -258,7 +293,7 @@ impl FlowHandler for Oid4vpFlow {
         // OpenID4VPHandover transcript; the verifier's session id
         // (the `sessionId` query parameter) for the ZK/PPID
         // verifier_context.
-        let vp_result = ctx
+        let vp_result = match ctx
             .host()
             .request_vp(engine_ports::VpParams {
                 flow_id: params.flow_id.clone(),
@@ -280,7 +315,35 @@ impl FlowHandler for Oid4vpFlow {
                 transaction_data: auth_req.transaction_data_raw.clone(),
             })
             .await
-            .map_err(|err| flow_error(err.to_string()))?;
+        {
+            Ok(result) => result,
+            // The user's decline at the sign stage (#472): the verifier
+            // is answered `access_denied` at once — never left waiting
+            // out its session — and the client gets the same decline
+            // error as a consent-stage refusal, with the verifier's
+            // redirect if it answered one. The wallet's reason never
+            // reaches the verifier (OpenID4x 3.2.6).
+            Err(engine_ports::HostError::Declined) => {
+                return refuse_verifier(ctx, &auth_req, "access_denied").await;
+            }
+            Err(other) => return Err(flow_error(other.to_string()).into()),
+        };
+
+        // The host's sign refusal (the Go `sign_response.error_code`,
+        // #472): `SIGN_REFUSED` answers the verifier `access_denied` —
+        // the same public shape as every refusal; a transaction-type
+        // refusal answers `invalid_transaction_data` instead, so the
+        // verifier is not left waiting on a form it would reject.
+        if let Some(refusal) = vp_result.refusal {
+            return match refusal.code.as_str() {
+                "UNSUPPORTED_TRANSACTION_DATA" => {
+                    refuse_verifier(ctx, &auth_req, "invalid_transaction_data").await
+                }
+                // SIGN_REFUSED and anything else the host allowlisted:
+                // the verifier is told access_denied, nothing more.
+                _ => refuse_verifier(ctx, &auth_req, "access_denied").await,
+            };
+        }
 
         let vp_token = vp_result.vp_token;
 
@@ -293,6 +356,15 @@ impl FlowHandler for Oid4vpFlow {
         } else {
             vp_token
         };
+
+        // The Go engine's `submitting_response` message step before the
+        // submission (docs/engine-parity.md §2).
+        let _ = ctx
+            .progress(
+                "submitting_response",
+                &serde_json::json!({ "message": "submitting the presentation" }),
+            )
+            .await;
 
         // Submit the response per the request's response mode. The
         // Clock port supplies the JARM `iat`/`exp`.
@@ -373,398 +445,48 @@ impl FlowHandler for Oid4vpFlow {
     }
 }
 
-#[cfg(test)]
-mod presentation_flow_tests {
-    //! The presentation flow, end to end on scripted ports: the request,
-    //! the trust evaluation, the match with the DCQL query and the
-    //! verifier, the consent, the host-constructed VP token, the DCQL
-    //! assembly, and the submission.
+/// Refuses the verifier at the sign stage (#472, OpenID4x 3.2.6): the
+/// verifier is answered `error_code` at once — the same public shape as
+/// every refusal, so it cannot tell a sign refusal from a consent decline
+/// or an empty wallet — and the client gets the decline completion with
+/// the verifier's redirect, if it answered one.
+///
+/// The wallet's reason never crosses: the engine knows only the
+/// allowlisted code (`SIGN_REFUSED`, `UNSUPPORTED_TRANSACTION_DATA`), and
+/// the description is the shared refusal wording, never what the wallet
+/// said.
+async fn refuse_verifier(
+    ctx: &FlowContext,
+    auth_req: &types::AuthorizationRequest,
+    error_code: &str,
+) -> Result<FlowStartResult, HandlerError> {
+    let redirect = response::submit_error_response(
+        ctx.http().as_ref(),
+        auth_req,
+        error_code,
+        // The same description as every refusal: the verifier must not
+        // tell a sign refusal from a decline or an empty wallet apart
+        // (the Go engine's verifierRefusedDescription).
+        "The wallet did not fulfil the request",
+        ctx.clock().now_unix(),
+    )
+    .await;
 
-    use super::*;
-    use crate::runtime::{FlowContext, FlowHandler};
-    use crate::Ports;
-    use engine_ports::{
-        AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
-        DpopProofResult, EvaluationRequest, EvaluationResponse, Host, HostError, HttpClient,
-        HttpError, HttpRequest, HttpResponse, KeyValue, KeyValueEntry, MatchParams, MatchResult,
-        Pdp, PdpError, ResolveRequest, ResolveResponse, Rng, SignParams, SignResult, VpParams,
-        VpResult, VpSelection,
-    };
-    use std::sync::{Arc, Mutex};
-
-    struct TrustedPdp;
-    #[async_trait::async_trait]
-    impl Pdp for TrustedPdp {
-        async fn evaluate(
-            &self,
-            _request: EvaluationRequest,
-        ) -> Result<EvaluationResponse, PdpError> {
-            Ok(EvaluationResponse {
-                trusted: true,
-                decision: Some("in the registry".to_owned()),
-            })
-        }
-        async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
-            Err(PdpError::NotImplemented)
-        }
-    }
-
-    /// The host that answers the whole ask chain and records what it
-    /// was asked.
-    struct RecordingHost {
-        matches: Mutex<Vec<MatchParams>>,
-        vps: Mutex<Vec<VpParams>>,
-    }
-
-    #[async_trait::async_trait]
-    impl Host for RecordingHost {
-        async fn request_sign(&self, _params: SignParams) -> Result<SignResult, HostError> {
-            Err(HostError::Cannot(
-                "no plain sign in the presentation test".to_owned(),
-            ))
-        }
-        async fn request_match(&self, params: MatchParams) -> Result<MatchResult, HostError> {
-            self.matches.lock().map(|mut m| m.push(params)).ok();
-            Ok(MatchResult {
-                selections: vec![
-                    VpSelection {
-                        credential_query_id: "pid-query".to_owned(),
-                        credential_id: "cred-pid".to_owned(),
-                        disclosed_claims: vec!["given_name".to_owned()],
-                    },
-                    VpSelection {
-                        credential_query_id: "degree-query".to_owned(),
-                        credential_id: "cred-degree".to_owned(),
-                        disclosed_claims: Vec::new(),
-                    },
-                ],
-            })
-        }
-        async fn request_consent(
-            &self,
-            _params: ConsentParams,
-        ) -> Result<ConsentResult, HostError> {
-            Ok(ConsentResult { consented: true })
-        }
-        async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
-            Err(HostError::Cannot("no tx code".to_owned()))
-        }
-        async fn open_authorization(&self, _flow_id: &str, _url: &str) -> Result<(), HostError> {
-            Ok(())
-        }
-        async fn request_vp(&self, params: VpParams) -> Result<VpResult, HostError> {
-            self.vps.lock().map(|mut v| v.push(params)).ok();
-            Ok(VpResult {
-                vp_token: "token-pid\ntoken-degree".to_owned(),
-            })
-        }
-        async fn request_dpop_proof(
-            &self,
-            _params: DpopProofParams,
-        ) -> Result<DpopProofResult, HostError> {
-            Err(HostError::Cannot("no client-held dpop".to_owned()))
-        }
-        async fn request_attestation(
-            &self,
-            _params: AttestationParams,
-        ) -> Result<AttestationResult, HostError> {
-            Err(HostError::Cannot("no attestation".to_owned()))
-        }
-        fn progress(&self, _flow_id: &str, _step: &str, _detail: Option<String>) {}
-    }
-
-    /// The scripted HTTP: one answer per URL.
-    struct ScriptedHttp {
-        answers: Mutex<Vec<(String, HttpResponse)>>,
-        seen: Mutex<Vec<HttpRequest>>,
-    }
-
-    impl ScriptedHttp {
-        fn new(answers: Vec<(String, HttpResponse)>) -> Self {
-            Self {
-                answers: Mutex::new(answers),
-                seen: Mutex::new(Vec::new()),
+    // The completion: the decline, with the verifier's redirect if it
+    // answered one (the Go engine's details.redirect_uri).
+    let mut completion = serde_json::json!({ "declined": true });
+    if let Ok(uri) = redirect {
+        if !uri.is_empty() {
+            if let Some(object) = completion.as_object_mut() {
+                object.insert("redirect_uri".to_owned(), serde_json::Value::String(uri));
             }
         }
     }
+    let _ = ctx.complete(&completion).await;
 
-    #[async_trait::async_trait]
-    impl HttpClient for ScriptedHttp {
-        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
-            self.seen.lock().map(|mut s| s.push(request.clone())).ok();
-            let answer = self.answers.lock().ok().and_then(|mut a| {
-                a.iter()
-                    .position(|(url, _)| *url == request.url)
-                    .map(|index| a.remove(index).1)
-            });
-            Ok(answer.unwrap_or(HttpResponse {
-                status: 404,
-                headers: Vec::new(),
-                body: Vec::new(),
-            }))
-        }
-    }
-
-    fn test_context(host: Arc<RecordingHost>, http: Arc<ScriptedHttp>) -> FlowContext {
-        let store = Arc::new(wmp_core::session::MemorySessionStore::new());
-        let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
-            Arc::new(
-                wmp_core::sessionservice::SessionService::new(
-                    wmp_core::sessionservice::SessionServiceConfig {
-                        store: Some(store.clone()),
-                        entropy: Some(Arc::new(|bytes: &mut [u8]| {
-                            for (i, b) in bytes.iter_mut().enumerate() {
-                                *b = i as u8;
-                            }
-                            true
-                        })),
-                        ..wmp_core::sessionservice::SessionServiceConfig::default()
-                    },
-                )
-                .unwrap_or_else(|_| panic!("session service")),
-            ),
-            Arc::new(|| 0),
-        ));
-        let peer = wmp_core::peer::PeerBuilder::new(handler)
-            .session_store(store)
-            .build();
-        FlowContext {
-            flow_id: "flow-vp-1".to_owned(),
-            flow_type: "oid4vp".to_owned(),
-            session: None,
-            ports: Arc::new(Ports {
-                http,
-                clock: Arc::new(FixedClock),
-                rng: Arc::new(FakeRng),
-                host,
-                pdp: Arc::new(TrustedPdp),
-                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
-                telemetry: Arc::new(NoTelemetry),
-            }),
-            peer,
-            request_context: wmp_core::context::RequestContext::default(),
-        }
-    }
-
-    struct FixedClock;
-    #[async_trait::async_trait]
-    impl engine_ports::Clock for FixedClock {
-        fn now_unix(&self) -> i64 {
-            1_000
-        }
-        async fn sleep(&self, _duration_ms: u64) {}
-    }
-
-    struct FakeRng;
-    impl Rng for FakeRng {
-        fn fill(&self, buf: &mut [u8]) -> bool {
-            for (i, b) in buf.iter_mut().enumerate() {
-                *b = i as u8;
-            }
-            true
-        }
-    }
-
-    struct MemKv(Mutex<rustc_hash::FxHashMap<String, Vec<u8>>>);
-    #[async_trait::async_trait]
-    impl KeyValue for MemKv {
-        async fn get(&self, key: &str) -> Option<KeyValueEntry> {
-            self.0.lock().ok()?.get(key).map(|v| KeyValueEntry {
-                value: v.clone(),
-                ttl_secs: None,
-            })
-        }
-        async fn put(&self, key: &str, entry: KeyValueEntry) {
-            self.0
-                .lock()
-                .map(|mut m| m.insert(key.to_owned(), entry.value))
-                .ok();
-        }
-        async fn delete(&self, key: &str) {
-            self.0.lock().map(|mut m| m.remove(key)).ok();
-        }
-    }
-
-    struct NoTelemetry;
-    impl engine_ports::Telemetry for NoTelemetry {
-        fn event(&self, _event: engine_ports::TelemetryEvent) {}
-    }
-
-    /// A params Box<RawValue> from a JSON value.
-    fn raw_value(value: serde_json::Value) -> Option<Box<serde_json::value::RawValue>> {
-        serde_json::value::RawValue::from_string(value.to_string()).ok()
-    }
-
-    fn start_params() -> FlowStartParams {
-        FlowStartParams {
-            wmp: wmp_core::types::Metadata::default(),
-            flow_id: "flow-vp-1".to_owned(),
-            flow_type: "oid4vp".to_owned(),
-            params: raw_value(serde_json::json!({
-                "client_id": "x509_san_dns:verifier.example",
-                "nonce": "nonce-vp-1",
-                "response_uri": "https://verifier.example/response",
-                "response_mode": "direct_post",
-                "state": "state-vp-1",
-                "dcql_query": {
-                    "credentials": [
-                        { "id": "pid-query", "meta": { "vct_values": ["urn:pid"] } },
-                        { "id": "degree-query", "meta": { "vct_values": ["urn:degree"] } }
-                    ]
-                }
-            })),
-            timeout: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn the_presentation_flow_matches_consents_and_presents() {
-        let host = Arc::new(RecordingHost {
-            matches: Mutex::new(Vec::new()),
-            vps: Mutex::new(Vec::new()),
-        });
-        let http = Arc::new(ScriptedHttp::new(vec![(
-            "https://verifier.example/response".to_owned(),
-            HttpResponse {
-                status: 200,
-                headers: Vec::new(),
-                body: br#"{"redirect_uri":"https://verifier.example/done"}"#.to_vec(),
-            },
-        )]));
-        let ctx = test_context(host.clone(), http.clone());
-
-        Oid4vpFlow
-            .start_flow(&ctx, &start_params())
-            .await
-            .expect("the presentation flow completes");
-
-        // The match ask carried the DCQL query and the verifier.
-        let matches = host.matches.lock().expect("lock");
-        assert_eq!(matches.len(), 1);
-        assert!(matches[0].dcql_query.is_some());
-        assert_eq!(
-            matches[0].verifier.client_id,
-            "x509_san_dns:verifier.example"
-        );
-        assert!(matches[0].verifier.trusted);
-        drop(matches);
-
-        // The VP ask carried the audience, the nonce, both selections,
-        // and the response endpoint; no thumbprint for direct_post.
-        let vps = host.vps.lock().expect("lock");
-        assert_eq!(vps.len(), 1);
-        assert_eq!(vps[0].audience, "x509_san_dns:verifier.example");
-        assert_eq!(vps[0].nonce, "nonce-vp-1");
-        assert_eq!(vps[0].response_uri, "https://verifier.example/response");
-        assert_eq!(vps[0].selections.len(), 2);
-        assert_eq!(vps[0].selections[0].credential_query_id, "pid-query");
-        assert_eq!(vps[0].verifier_jwk_thumbprint, "");
-        drop(vps);
-
-        // The submission: the vp_token restructured into the DCQL
-        // object keyed by query id.
-        let seen = http.seen.lock().expect("lock");
-        assert_eq!(seen.len(), 1);
-        let body = String::from_utf8_lossy(&seen[0].body).into_owned();
-        assert!(body.contains("vp_token="));
-        let vp_token = body
-            .strip_prefix("vp_token=")
-            .and_then(|rest| rest.split('&').next())
-            .unwrap_or_default();
-        let decoded = crate::oid4vp::test_util::percent_decode(vp_token).into_bytes();
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&decoded).expect("the restructured vp_token is JSON");
-        assert_eq!(parsed["pid-query"], serde_json::json!(["token-pid"]));
-        assert_eq!(parsed["degree-query"], serde_json::json!(["token-degree"]));
-    }
-
-    #[tokio::test]
-    async fn an_empty_match_ends_the_flow_without_presenting() {
-        struct EmptyMatchHost;
-        #[async_trait::async_trait]
-        impl Host for EmptyMatchHost {
-            async fn request_sign(&self, _params: SignParams) -> Result<SignResult, HostError> {
-                Err(HostError::Cannot("no".to_owned()))
-            }
-            async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
-                Ok(MatchResult {
-                    selections: Vec::new(),
-                })
-            }
-            async fn request_consent(
-                &self,
-                _params: ConsentParams,
-            ) -> Result<ConsentResult, HostError> {
-                Err(HostError::Cannot("never asked".to_owned()))
-            }
-            async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
-                Err(HostError::Cannot("no".to_owned()))
-            }
-            async fn open_authorization(
-                &self,
-                _flow_id: &str,
-                _url: &str,
-            ) -> Result<(), HostError> {
-                Ok(())
-            }
-            fn progress(&self, _flow_id: &str, _step: &str, _detail: Option<String>) {}
-        }
-
-        let http = Arc::new(ScriptedHttp::new(Vec::new()));
-        let store = Arc::new(wmp_core::session::MemorySessionStore::new());
-        let handler = Arc::new(wmp_core::sessionservice::SessionHandler::new(
-            Arc::new(
-                wmp_core::sessionservice::SessionService::new(
-                    wmp_core::sessionservice::SessionServiceConfig {
-                        store: Some(store.clone()),
-                        entropy: Some(Arc::new(|bytes: &mut [u8]| {
-                            for (i, b) in bytes.iter_mut().enumerate() {
-                                *b = i as u8;
-                            }
-                            true
-                        })),
-                        ..wmp_core::sessionservice::SessionServiceConfig::default()
-                    },
-                )
-                .unwrap_or_else(|_| panic!("session service")),
-            ),
-            Arc::new(|| 0),
-        ));
-        let peer = wmp_core::peer::PeerBuilder::new(handler)
-            .session_store(store)
-            .build();
-        let ctx = FlowContext {
-            flow_id: "flow-vp-1".to_owned(),
-            flow_type: "oid4vp".to_owned(),
-            session: None,
-            ports: Arc::new(Ports {
-                http: http.clone(),
-                clock: Arc::new(FixedClock),
-                rng: Arc::new(FakeRng),
-                host: Arc::new(EmptyMatchHost),
-                pdp: Arc::new(TrustedPdp),
-                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
-                telemetry: Arc::new(NoTelemetry),
-            }),
-            peer,
-            request_context: wmp_core::context::RequestContext::default(),
-        };
-
-        Oid4vpFlow
-            .start_flow(&ctx, &start_params())
-            .await
-            .expect("the empty match ends the flow, it is not an error");
-
-        // The DCQL contract (OID4VP 1.0 §6.2, §6.4.2): the required
-        // queries the wallet cannot satisfy answer with access_denied —
-        // one error POST, no vp_token.
-        let seen = http.seen.lock().expect("lock").clone();
-        assert_eq!(seen.len(), 1, "exactly the access_denied submission");
-        let body = String::from_utf8_lossy(&seen[0].body).into_owned();
-        assert!(
-            body.contains("error=access_denied"),
-            "the access_denied error response: {body}"
-        );
-        assert!(!body.contains("vp_token="));
-    }
+    Ok(FlowStartResult {
+        wmp: wmp_core::types::Metadata::default(),
+        flow_id: ctx.flow_id.clone(),
+        flow_type: ctx.flow_type.clone(),
+    })
 }

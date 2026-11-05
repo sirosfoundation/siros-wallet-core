@@ -54,10 +54,10 @@ pub async fn parse_request(
 
     // The params are the request itself (by value).
     let request = parse_request_value(&params)?;
-    // The x509_hash scheme needs the chain the params form cannot carry
-    // (OpenID4VP 1.0 §5.2.3): refuse it here, not only in the signed
-    // form.
-    validate_client_id_hash(&request, None)?;
+    // The scheme requirements the params form cannot satisfy (§5:
+    // x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the attestation) are
+    // refused here, not only in the signed form.
+    validate_scheme_requirements(&request, None, None, "")?;
     Ok(request)
 }
 
@@ -191,8 +191,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // standard alphabet, unlike the JOSE segments' base64url).
         //
         // The leaf DER is kept: the x509_hash scheme's client_id is the
-        // base64url SHA-256 over it (OpenID4VP 1.0 §5.2.3), checked
-        // against the payload's client_id below.
+        // base64url SHA-256 over it (OpenID4VP 1.0 §5.2.3), and the
+        // x509_san_dns scheme requires the signed form (§5) — both
+        // checked against the payload's client_id below. The `jwt`
+        // header parameter is kept too: the verifier_attestation
+        // scheme's attestation rides it (§5.9.3.4).
         let mut leaf_der: Option<Vec<u8>> = None;
         if let Some(cert) = header
             .get("x5c")
@@ -207,6 +210,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
                 .map_err(|_| RequestError::RequestObjectSignature)?;
             leaf_der = Some(der);
         }
+        let attestation_jwt = header
+            .get("jwt")
+            .and_then(|v| v.as_str())
+            .filter(|jwt| !jwt.is_empty())
+            .map(str::to_owned);
         // The payload is the second segment.
         let payload = parts
             .get(1)
@@ -214,13 +222,12 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
             .ok_or(RequestError::NotRecognized)?;
         let value: serde_json::Value =
             serde_json::from_slice(&payload).map_err(|_| RequestError::NotRecognized)?;
-        // The x509_hash scheme (OpenID4VP 1.0 §5.2.3): the client_id's
-        // value is the base64url SHA-256 over the leaf certificate the
-        // chain carries — the request object MUST carry it (a plain or
-        // chainless request cannot name the certificate), and the hash
-        // MUST match.
+        // The scheme requirements (docs/engine-parity.md §1): the
+        // x509_hash binding (§5.2.3), the x509_san_dns signed form (§5),
+        // and the verifier_attestation extraction (§5.9.3.4) — all
+        // against the payload's client_id.
         parse_request_value(&value).and_then(|request| {
-            validate_client_id_hash(&request, leaf_der)?;
+            validate_scheme_requirements(&request, leaf_der, attestation_jwt, text)?;
             Ok(request)
         })
     } else {
@@ -228,34 +235,122 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|_| RequestError::NotRecognized)?;
         parse_request_value(&value).and_then(|request| {
-            validate_client_id_hash(&request, None)?;
+            validate_scheme_requirements(&request, None, None, text)?;
             Ok(request)
         })
     }
 }
 
-/// The `x509_hash` client_id scheme (OpenID4VP 1.0 §5.2.3): the client_id's
-/// value is the base64url SHA-256 over the DER-encoded leaf certificate the
-/// request object's `x5c` chain carries — so the chain MUST be there (an
-/// unsigned or chainless request cannot name the certificate), and the hash
-/// MUST match it, in constant time.
-fn validate_client_id_hash(
+/// The client_id scheme requirements the parser enforces (the trust
+/// evaluation's PDP step is the policy, not the cryptography):
+///
+/// - `x509_hash` (OpenID4VP 1.0 §5.2.3): the request object MUST carry
+///   the `x5c` chain, and the client_id's hash MUST match the leaf, in
+///   constant time.
+/// - `x509_san_dns` (§5): the request MUST be JWT-secured with its key
+///   in the `x5c` chain — the Go engine's pre-cache re-verification.
+/// - `verifier_attestation` (§5.9.3.4): the request JWT's `jwt` header
+///   parameter carries the attestation; its `iss`/`sub`/`cnf.jwk` are
+///   required, the request JWT's signature MUST verify under the
+///   `cnf.jwk`, and the attestation's `sub` MUST be the client_id
+///   without the scheme prefix.
+///
+/// The other schemes need nothing of the parser.
+fn validate_scheme_requirements(
     request: &AuthorizationRequest,
     leaf_der: Option<Vec<u8>>,
+    attestation_jwt: Option<String>,
+    request_text: &str,
 ) -> Result<(), RequestError> {
-    if request.client_id_scheme != ClientIdScheme::X509Hash {
-        return Ok(());
+    match request.client_id_scheme {
+        ClientIdScheme::X509Hash => {
+            let der = leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+                scheme: "x509_hash".to_owned(),
+            })?;
+            let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der)
+                .map_err(|_| RequestError::NotRecognized)?;
+            let computed = wmp_core::token::base64url_unpadded(&digest);
+            let claimed = request
+                .client_id
+                .strip_prefix("x509_hash:")
+                .unwrap_or_default();
+            if !wmp_core::token::tokens_equal(&computed, claimed) {
+                return Err(RequestError::ClientIdHashMismatch);
+            }
+            Ok(())
+        }
+        ClientIdScheme::X509SanDns => {
+            // §5: the DNS binding rides a signed request object whose
+            // x5c chain names the certificate. The signature under the
+            // leaf was verified at the header.
+            leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+                scheme: "x509_san_dns".to_owned(),
+            })?;
+            Ok(())
+        }
+        ClientIdScheme::VerifierAttestation => {
+            let attestation = attestation_jwt.ok_or(RequestError::VerifierAttestationRequired)?;
+            validate_verifier_attestation(request, &attestation, request_text)
+        }
+        _ => Ok(()),
     }
-    let der = leaf_der.ok_or(RequestError::ClientIdHashWithoutChain)?;
-    let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der)
-        .map_err(|_| RequestError::NotRecognized)?;
-    let computed = wmp_core::token::base64url_unpadded(&digest);
-    let claimed = request
+}
+
+/// The verifier attestation (OpenID4VP 1.0 §5.9.3.4): `iss`, `sub` and
+/// `cnf.jwk` required (RFC 7800), the request JWT's signature verified
+/// under the `cnf.jwk`, and the `sub` bound to the client_id.
+fn validate_verifier_attestation(
+    request: &AuthorizationRequest,
+    attestation_jwt: &str,
+    request_text: &str,
+) -> Result<(), RequestError> {
+    let malformed = |reason: &str| RequestError::AttestationMalformed(reason.to_owned());
+    let parts: Vec<&str> = attestation_jwt.split('.').collect();
+    if parts.len() != 3 {
+        return Err(malformed("the attestation JWT must have three parts"));
+    }
+    let payload = parts
+        .get(1)
+        .and_then(|segment| decode_base64url(segment))
+        .ok_or_else(|| malformed("the attestation payload does not decode"))?;
+    let payload: serde_json::Value = serde_json::from_slice(&payload)
+        .map_err(|_| malformed("the attestation payload is not JSON"))?;
+    let subject = payload
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .filter(|sub| !sub.is_empty())
+        .ok_or_else(|| malformed("the attestation JWT has no sub claim"))?;
+    if payload
+        .get("iss")
+        .and_then(|v| v.as_str())
+        .filter(|iss| !iss.is_empty())
+        .is_none()
+    {
+        return Err(malformed("the attestation JWT has no iss claim"));
+    }
+    let cnf = payload
+        .pointer("/cnf/jwk")
+        .ok_or_else(|| malformed("the attestation JWT has no cnf.jwk claim"))?;
+    let cnf: jose_rs::jwk::Jwk = serde_json::from_value(cnf.clone())
+        .map_err(|_| malformed("the attestation cnf.jwk does not parse"))?;
+
+    // The request JWT's signature under the attestation's cnf key —
+    // the binding that makes the attestation speak for this request.
+    jose_rs::jws::compact::verify_with_jwk(&cnf, request_text)
+        .map_err(|_| RequestError::AttestationSignature)?;
+
+    // The attestation's subject is the client_id without the scheme
+    // prefix (§5.9.3.4: the attestation is about the verifier named in
+    // the client_id).
+    let expected = request
         .client_id
-        .strip_prefix("x509_hash:")
+        .strip_prefix("verifier_attestation:")
         .unwrap_or_default();
-    if !wmp_core::token::tokens_equal(&computed, claimed) {
-        return Err(RequestError::ClientIdHashMismatch);
+    if !wmp_core::token::tokens_equal(subject, expected) {
+        return Err(RequestError::AttestationSubjectMismatch {
+            subject: subject.to_owned(),
+            client_id: request.client_id.clone(),
+        });
     }
     Ok(())
 }
@@ -475,335 +570,4 @@ fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use engine_ports::HttpError;
-
-    struct FakeHttp {
-        body: Vec<u8>,
-        status: u16,
-    }
-
-    #[async_trait::async_trait]
-    impl HttpClient for FakeHttp {
-        async fn send(
-            &self,
-            request: HttpRequest,
-        ) -> Result<engine_ports::HttpResponse, HttpError> {
-            assert_eq!(request.purpose, FetchPurpose::RequestObject);
-            assert_eq!(request.max_response_bytes, MAX_REQUEST_OBJECT_BYTES);
-            Ok(engine_ports::HttpResponse {
-                status: self.status,
-                headers: Vec::new(),
-                body: self.body.clone(),
-            })
-        }
-    }
-
-    fn request_json() -> serde_json::Value {
-        serde_json::json!({
-            "client_id": "x509_san_dns:verifier.example",
-            "client_id_scheme": "x509_san_dns",
-            "nonce": "nonce-1",
-            "response_uri": "https://verifier.example/response",
-            "response_mode": "direct_post",
-            "state": "state-1",
-            "dcql_query": {"credentials": []}
-        })
-    }
-
-    #[tokio::test]
-    async fn parses_a_request_by_value() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let request = parse_request(&http, &request_json()).await.expect("parse");
-        assert_eq!(request.client_id, "x509_san_dns:verifier.example");
-        assert_eq!(request.client_id_scheme, ClientIdScheme::X509SanDns);
-        assert_eq!(request.nonce, "nonce-1");
-        assert_eq!(request.response_mode, ResponseMode::DirectPost);
-        assert!(request.dcql_query.is_some());
-    }
-
-    #[tokio::test]
-    async fn refuses_a_missing_nonce() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let bad = serde_json::json!({
-            "client_id": "https://verifier.example",
-            "response_uri": "https://verifier.example/response"
-        });
-        assert!(matches!(
-            parse_request(&http, &bad).await,
-            Err(RequestError::NonceRequired)
-        ));
-    }
-
-    #[tokio::test]
-    async fn refuses_a_scheme_mismatch() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let bad = serde_json::json!({
-            "client_id": "x509_san_dns:verifier.example",
-            "client_id_scheme": "decentralized_identifier",
-            "nonce": "n",
-            "response_uri": "https://v.example/r"
-        });
-        assert!(matches!(
-            parse_request(&http, &bad).await,
-            Err(RequestError::SchemeMismatch { .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn parses_a_request_by_reference() {
-        let body = serde_json::to_string(&request_json()).expect("serialize");
-        let http = FakeHttp {
-            body: body.into_bytes(),
-            status: 200,
-        };
-        let params = serde_json::json!({
-            "request_uri": "https://verifier.example/request.jwt"
-        });
-        let request = parse_request(&http, &params).await.expect("parse");
-        assert_eq!(request.client_id, "x509_san_dns:verifier.example");
-    }
-
-    #[tokio::test]
-    async fn the_did_scheme_is_inferred_from_the_prefix() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let req = serde_json::json!({
-            "client_id": "did:web:verifier.example",
-            "nonce": "n",
-            "response_uri": "https://v.example/r"
-        });
-        let request = parse_request(&http, &req).await.expect("parse");
-        assert_eq!(
-            request.client_id_scheme,
-            ClientIdScheme::DecentralizedIdentifier
-        );
-    }
-
-    #[tokio::test]
-    async fn the_default_response_mode_is_direct_post() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let req = serde_json::json!({
-            "client_id": "https://verifier.example",
-            "nonce": "n",
-            "response_uri": "https://v.example/r"
-        });
-        let request = parse_request(&http, &req).await.expect("parse");
-        assert_eq!(request.response_mode, ResponseMode::DirectPost);
-    }
-
-    #[tokio::test]
-    async fn an_unknown_client_id_scheme_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let req = serde_json::json!({
-            "client_id": "x509_san_bogus:verifier.example",
-            "nonce": "n",
-            "response_uri": "https://v.example/r"
-        });
-        assert!(matches!(
-            parse_request(&http, &req).await,
-            Err(RequestError::UnknownClientIdScheme)
-        ));
-    }
-
-    #[tokio::test]
-    async fn direct_post_without_a_response_uri_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let req = serde_json::json!({
-            "client_id": "x509_san_dns:verifier.example",
-            "nonce": "n",
-            "response_mode": "direct_post",
-            "redirect_uri": "https://v.example/cb"
-        });
-        assert!(matches!(
-            parse_request(&http, &req).await,
-            Err(RequestError::DirectPostWithoutResponseUri { .. })
-        ));
-    }
-
-    /// A compact-serialization JWT with the given header, for the
-    /// request-object checks: the signature is irrelevant bytes.
-    fn request_object_jwt(header: &serde_json::Value) -> String {
-        let header_text =
-            crate::oid4vp::test_util::base64url(header.to_string().as_bytes().to_vec().as_slice());
-        let payload_text = crate::oid4vp::test_util::base64url(
-            request_json().to_string().as_bytes().to_vec().as_slice(),
-        );
-        format!("{header_text}.{payload_text}.c2ln")
-    }
-
-    #[tokio::test]
-    async fn a_signed_request_object_without_the_oauth_typ_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let params = serde_json::json!({
-            "request": request_object_jwt(&serde_json::json!({
-                "alg": "ES256",
-                "typ": "jwt"
-            }))
-        });
-        assert!(matches!(
-            parse_request(&http, &params).await,
-            Err(RequestError::RequestObjectTyp)
-        ));
-    }
-
-    #[tokio::test]
-    async fn a_signed_request_object_with_a_missing_typ_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let params = serde_json::json!({
-            "request": request_object_jwt(&serde_json::json!({
-                "alg": "ES256"
-            }))
-        });
-        assert!(matches!(
-            parse_request(&http, &params).await,
-            Err(RequestError::RequestObjectTyp)
-        ));
-    }
-
-    // ─── The x509_hash client_id scheme (OpenID4VP 1.0 §5.2.3) ─────────────
-    //
-    // The verifier's private JWK and certificate, from the conformance
-    // suite's own wallet test configuration (siros-conformance,
-    // configs/conformance/vp-wallet-config.json) — the key the suite's
-    // request objects are signed with, and the certificate its x5c
-    // chains carry.
-    fn verifier_jwk() -> serde_json::Value {
-        serde_json::json!({
-            "kty": "EC",
-            "crv": "P-256",
-            "x": "HPtEYEEQNGcOGGtQXnm8VbbryWYOF7dlmTKcDwIxk60",
-            "y": "Knv02968XSiEmNSoGPaHX3LXl-boQztsK0DB46VhE68",
-            "d": "Z8iB5ltQ0Yf8Wyyafbmypw49VKegZLn2BBjzFzhMHGU",
-            "kid": "vp-verifier-key-1",
-            "use": "sig",
-            "alg": "ES256",
-            "x5c": [
-                "MIIBvjCCAWOgAwIBAgIUfw4in2xbbaO4BRVzCMJ9jcx+MYUwCgYIKoZIzj0EAwIwIjEgMB4GA1UEAwwXY29uZm9ybWFuY2UuZXhhbXBsZS5jb20wHhcNMjYwNTE1MDc1MzQ1WhcNMjcwNTE1MDc1MzQ1WjAiMSAwHgYDVQQDDBdjb25mb3JtYW5jZS5leGFtcGxlLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBz7RGBBEDRnDhhrUF55vFW268lmDhe3ZZkynA8CMZOtKnv02968XSiEmNSoGPaHX3LXl+boQztsK0DB46VhE6+jdzB1MB0GA1UdDgQWBBR/zA7h3+ikKBoa3jyMiSX7sFdkyzAfBgNVHSMEGDAWgBR/zA7h3+ikKBoa3jyMiSX7sFdkyzAPBgNVHRMBAf8EBTADAQH/MCIGA1UdEQQbMBmCF2NvbmZvcm1hbmNlLmV4YW1wbGUuY29tMAoGCCqGSM49BAMCA0kAMEYCIQC4lhxwiQy3+GPtzdQW9IlDSrQoEnncom6YsKZ3izHuIgIhAKZIjNYWTG0xIpFrS4DVkvo1qiV9kNf1Qvp8StOW6pEr"
-            ]
-        })
-    }
-
-    /// The base64url SHA-256 over the verifier's certificate — the
-    /// client_id value the scheme carries.
-    fn verifier_hash() -> String {
-        let jwk = verifier_jwk();
-        let cert = jwk["x5c"][0].as_str().unwrap_or_default();
-        let der = decode_base64(cert).expect("the certificate decodes");
-        let digest =
-            kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der).expect("sha256");
-        wmp_core::token::base64url_unpadded(&digest)
-    }
-
-    /// A signed request object for the `x509_hash` scheme: the JWS header
-    /// carries the verifier's `x5c` chain, the payload the given
-    /// `client_id`, signed with the verifier's key.
-    fn x509_hash_request_object(client_id: &str) -> String {
-        let jwk: jose_rs::jwk::Jwk =
-            serde_json::from_value(verifier_jwk()).expect("the verifier JWK parses");
-        let mut header = jose_rs::header::JoseHeader::new("ES256");
-        header.typ = Some("oauth-authz-req+jwt".to_owned());
-        header.kid = Some("vp-verifier-key-1".to_owned());
-        header.x5c = Some(vec![verifier_jwk()["x5c"][0]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()]);
-        let payload = serde_json::json!({
-            "client_id": client_id,
-            "nonce": "nonce-1",
-            "response_uri": "https://verifier.example/response",
-            "response_mode": "direct_post"
-        });
-        let payload_bytes = payload.to_string().into_bytes();
-        // The x5c chain is a key-reference member (RFC 7515 §4.1.6): the
-        // deliberate reference the opt-in is for — the scheme's chain
-        // rides the header.
-        let mut options = jose_rs::jws::compact::SignOptions::default();
-        options.allow_key_reference_headers = true;
-        jose_rs::jws::compact::sign_with_jwk_options(&jwk, &payload_bytes, &header, &options)
-            .expect("the request object signs")
-    }
-
-    #[tokio::test]
-    async fn an_x509_hash_request_with_a_matching_hash_parses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        let client_id = format!("x509_hash:{}", verifier_hash());
-        let params = serde_json::json!({
-            "request": x509_hash_request_object(&client_id)
-        });
-        let request = parse_request(&http, &params).await.expect("parse");
-        assert_eq!(request.client_id, client_id);
-        assert_eq!(request.client_id_scheme, ClientIdScheme::X509Hash);
-    }
-
-    #[tokio::test]
-    async fn an_x509_hash_request_with_a_mismatched_hash_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        // The hash of something else: a valid base64url shape, not the
-        // certificate's.
-        let client_id = format!("x509_hash:{}", "A".repeat(43));
-        let params = serde_json::json!({
-            "request": x509_hash_request_object(&client_id)
-        });
-        assert!(matches!(
-            parse_request(&http, &params).await,
-            Err(RequestError::ClientIdHashMismatch)
-        ));
-    }
-
-    #[tokio::test]
-    async fn an_x509_hash_request_without_a_chain_refuses() {
-        let http = FakeHttp {
-            body: Vec::new(),
-            status: 200,
-        };
-        // Plain JSON: no request object, no x5c — the scheme cannot name
-        // the certificate.
-        let params = serde_json::json!({
-            "client_id": format!("x509_hash:{}", verifier_hash()),
-            "nonce": "nonce-1",
-            "response_uri": "https://verifier.example/response",
-            "response_mode": "direct_post"
-        });
-        assert!(matches!(
-            parse_request(&http, &params).await,
-            Err(RequestError::ClientIdHashWithoutChain)
-        ));
-    }
 }

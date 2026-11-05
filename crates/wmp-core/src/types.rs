@@ -5,16 +5,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-/// The protocol version of this implementation.
-pub const VERSION: &str = "0.1";
-
-/// The protocol versions this crate offers, by default.
-///
-/// go-wmp holds this as a mutable package variable; the mirror exposes it as
-/// a constant, and everything that wants a different set says so in its
-/// configuration.
-pub const SUPPORTED_VERSIONS: &[&str] = &[VERSION];
-
 /// The `wmp` envelope present in every WMP message.
 ///
 /// Timestamps (`timestamp`, `expires_at`, `deliver_after`) are carried as

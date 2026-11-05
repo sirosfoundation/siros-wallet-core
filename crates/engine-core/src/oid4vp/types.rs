@@ -126,10 +126,43 @@ pub enum RequestError {
         "oid4vp: x509_hash: the client_id hash does not match the request object's certificate"
     )]
     ClientIdHashMismatch,
-    /// The `x509_hash` client_id scheme requires a signed request object
-    /// carrying the certificate chain (OpenID4VP 1.0 §5.2.3).
-    #[error("oid4vp: x509_hash: the request object carries no x5c certificate chain")]
-    ClientIdHashWithoutChain,
+    /// The scheme requires a signed request object carrying the
+    /// certificate chain (§5: x509_san_dns; §5.2.3: x509_hash), and the
+    /// request carried none.
+    #[error(
+        "oid4vp: the {scheme} client_id scheme requires a signed request object carrying the certificate chain"
+    )]
+    SchemeRequiresRequestObject {
+        /// The scheme that demanded the signed form.
+        scheme: String,
+    },
+    /// The `verifier_attestation` scheme's request JWT carries no
+    /// `jwt` header parameter (OpenID4VP 1.0 §5.9.3.4).
+    #[error(
+        "oid4vp: verifier_attestation: the request JWT carries no attestation in its jwt header parameter"
+    )]
+    VerifierAttestationRequired,
+    /// The attestation JWT is malformed: missing `iss`/`sub`/`cnf.jwk`
+    /// or not a three-part compact JWT (§5.9.3.4, RFC 7800).
+    #[error("oid4vp: verifier_attestation: {0}")]
+    AttestationMalformed(String),
+    /// The request JWT's signature does not verify under the
+    /// attestation's `cnf.jwk` (§5.9.3.4).
+    #[error(
+        "oid4vp: verifier_attestation: the request JWT signature does not verify under the attestation cnf key"
+    )]
+    AttestationSignature,
+    /// The attestation's `sub` is not the client_id without the scheme
+    /// prefix (§5.9.3.4).
+    #[error(
+        "oid4vp: verifier_attestation: attestation sub {subject:?} does not match client_id {client_id:?}"
+    )]
+    AttestationSubjectMismatch {
+        /// The attestation's subject.
+        subject: String,
+        /// The client_id the request named.
+        client_id: String,
+    },
     /// The `direct_post`/`direct_post.jwt` response mode requires a
     /// `response_uri` (OpenID4VP §5: the redirect_uri belongs to the
     /// `query`/`fragment` channel).
@@ -205,6 +238,12 @@ pub enum ResponseError {
     /// No response URI or redirect URI in the request.
     #[error("oid4vp: no response endpoint in request")]
     NoEndpoint,
+    /// The response endpoint is not an http/https URL: the request names
+    /// where the wallet POSTs the presentation, and anything else
+    /// (a file:, an internal scheme, a malformed URL) is refused before
+    /// the transport — the Go engine's endpoint sanitization.
+    #[error("oid4vp: the response endpoint {0:?} is not an http/https URL")]
+    InvalidEndpoint(String),
     /// The response mode is unsupported.
     #[error("oid4vp: unsupported response_mode: {0}")]
     UnsupportedMode(String),

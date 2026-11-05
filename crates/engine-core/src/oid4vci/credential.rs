@@ -36,6 +36,12 @@ pub struct CredentialResponse {
     /// notification MUST echo this exact value.
     #[serde(default)]
     pub notification_id: Option<String>,
+    /// The response-level `credential_metadata` (the 1.0/1.1 member),
+    /// kept raw: the plain-secret check reads it (Auxiliary Data v0.1
+    /// §7.1 — auxiliary_data MUST NOT travel a plain response), the
+    /// display data is the client's to take.
+    #[serde(default)]
+    pub credential_metadata: Option<serde_json::Value>,
 }
 
 /// Why the credential request refused.
@@ -56,6 +62,15 @@ pub enum CredentialError {
     /// The response is a JWE but the wallet offered no key (§7.3).
     #[error("oid4vci: the response is encrypted but no key was offered")]
     EncryptedWithoutKey,
+    /// A plain response carried auxiliary_data (Credential Auxiliary Data
+    /// v0.1 §7.1): a Secret Value travelled unencrypted — nothing was
+    /// stored, nothing logged.
+    #[error("oid4vci: auxiliary_data arrived in a plain response; the issuer must encrypt it")]
+    PlainSecret,
+    /// The issuer rejected the auxiliary data (v0.1 §8): an entry
+    /// conflicts with a value it holds for the subject. Never retried.
+    #[error("oid4vci: the issuer reported an auxiliary_data_conflict")]
+    AuxiliaryDataConflict,
     /// The wallet offered a key and the issuer answered plain (§7.3:
     /// the issuer MUST encrypt when a key was offered). The P0.6
     /// verification found the Go engine accepts this; the Rust core
@@ -107,6 +122,14 @@ pub struct CredentialRequestAux<'a> {
     /// EXISTING keypair the issuer knows (ARF ISSU_65 same-key
     /// re-signing) — the key id on the host's sign ask.
     pub reissuance_kid: Option<&'a str>,
+    /// The advertised `to_issuer` auxiliary-data entries the wallet can
+    /// send (Credential Auxiliary Data v0.1 §6): verbatim, riding the
+    /// proof JWT's `auxiliary_data` member — the engine places them
+    /// (it builds the TBS), so no opening can enter by construction.
+    pub auxiliary_data_to_issuer: &'a [serde_json::Value],
+    /// The advertised `to_wallet` entries, verbatim, so the client can
+    /// check its response against them (§7.2).
+    pub auxiliary_data_to_wallet: &'a [serde_json::Value],
     /// The Clock port's now (the proof's `iat`).
     pub now_unix: i64,
 }
@@ -132,12 +155,25 @@ pub async fn request_credential(
     let dpop = aux.and_then(|aux| aux.dpop.as_ref());
     // Build the proof's to-be-signed input: a JWT with the `nonce` and
     // the `credential_issuer` audience (OpenID4VCI §7.5, JWT proof).
-    let proof_payload = serde_json::json!({
+    let mut proof_payload = serde_json::json!({
         "iss": metadata.credential_issuer,
         "aud": metadata.credential_issuer,
         "iat": aux.map(|aux| aux.now_unix).unwrap_or_default(),
         "nonce": nonce.unwrap_or_default(),
     });
+    // The advertised to_issuer entries ride the proof (§6): the engine
+    // places them verbatim — it builds the TBS, so a secret can never
+    // enter (the parse already refused an opening in the advertisement,
+    // and the host signs what the engine built, byte for byte).
+    let to_issuer = aux.map(|aux| aux.auxiliary_data_to_issuer).unwrap_or(&[]);
+    if !to_issuer.is_empty() {
+        if let Some(object) = proof_payload.as_object_mut() {
+            object.insert(
+                "auxiliary_data".to_owned(),
+                serde_json::Value::Array(to_issuer.to_vec()),
+            );
+        }
+    }
     // The proof header identifies the signing key (OpenID4VCI 1.0
     // §7.5.1: exactly one of `jwk`, `kid`, or `x5c` — the unregistered
     // device key travels as the `jwk`, with the RFC 7638 thumbprint as
@@ -380,8 +416,29 @@ pub async fn request_credential(
     let value: serde_json::Value =
         serde_json::from_slice(&response.body).map_err(|_| CredentialError::NotJson)?;
 
+    // The conflict relay (Credential Auxiliary Data v0.1 §8, the issuer's
+    // `auxiliary_data_conflict`): an entry conflicts with a value the
+    // issuer holds for the subject; retrying never helps, the issuer
+    // resolves it out of band. The issuer's code rides unchanged under
+    // `error`; no other issuer text is relayed.
+    if value.get("error").and_then(|v| v.as_str()) == Some("auxiliary_data_conflict") {
+        return Err(CredentialError::AuxiliaryDataConflict);
+    }
+
     let credential_response: CredentialResponse =
         serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?;
+
+    // The plain-secret check (v0.1 §7.1): a PLAIN response carrying
+    // auxiliary_data travelled a Secret Value unencrypted — the flow
+    // refuses, nothing of the content logged. A plain response is here
+    // only when the wallet offered no key, so the check is unconditional
+    // on the plain path (an encrypted response was decrypted above; the
+    // member is the client's to read there).
+    if let Some(metadata) = credential_response.credential_metadata.as_ref() {
+        if super::auxiliary::has_auxiliary_data_member(metadata) {
+            return Err(CredentialError::PlainSecret);
+        }
+    }
 
     Ok(credential_response)
 }
@@ -677,6 +734,7 @@ mod tests {
             credential_configurations: serde_json::json!({}),
             signed_metadata: None,
             is_signed: false,
+            raw: Vec::new(),
         }
     }
 
@@ -823,6 +881,8 @@ mod tests {
             &test_token(),
             "UniversityDegree",
             Some(&CredentialRequestAux {
+                auxiliary_data_to_issuer: &[],
+                auxiliary_data_to_wallet: &[],
                 encryption: Some(&encryption),
                 dpop: None,
                 reissuance_kid: None,
@@ -855,6 +915,8 @@ mod tests {
                 &test_token(),
                 "UniversityDegree",
                 Some(&CredentialRequestAux {
+                    auxiliary_data_to_issuer: &[],
+                    auxiliary_data_to_wallet: &[],
                     encryption: Some(&encryption),
                     dpop: None,
                     reissuance_kid: None,
@@ -1172,6 +1234,8 @@ mod tests {
         };
 
         let aux = CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
             encryption: None,
             reissuance_kid: None,
             now_unix: 1_000,
@@ -1209,7 +1273,7 @@ mod tests {
             .map(|(_, v)| v.clone())
             .expect("a DPoP header");
         let payload = proof.split('.').nth(1).unwrap_or_default();
-        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let decoded = jose_rs::base64url::decode(payload).expect("base64url");
         let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
         assert_eq!(claims["ath"], super::super::dpop::ath_of("at-dpop"));
         assert_eq!(claims["htm"], "POST");
@@ -1263,6 +1327,8 @@ mod tests {
         };
 
         let aux = CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
             encryption: None,
             reissuance_kid: None,
             now_unix: 1_000,
@@ -1302,7 +1368,7 @@ mod tests {
             .expect("the retried request carries a proof");
         let decode = |proof: &str| {
             let payload = proof.split('.').nth(1).unwrap_or_default();
-            let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+            let decoded = jose_rs::base64url::decode(payload).expect("base64url");
             let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
             claims
         };
@@ -1347,6 +1413,8 @@ mod tests {
         };
 
         let aux = CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
             encryption: None,
             reissuance_kid: None,
             now_unix: 1_000,
@@ -1369,7 +1437,7 @@ mod tests {
         let jwt = request["proofs"]["jwt"][0].as_str().expect("the proof jwt");
         let decode = |part: usize| {
             let payload = jwt.split('.').nth(part).unwrap_or_default();
-            crate::oid4vp::test_util::base64url_decode(payload.as_bytes())
+            jose_rs::base64url::decode(payload).expect("base64url")
         };
         let header: Value = serde_json::from_slice(&decode(0)).expect("the JOSE header");
         let claims: Value = serde_json::from_slice(&decode(1)).expect("the claims");
@@ -1421,6 +1489,8 @@ mod tests {
             headers: std::sync::Mutex::new(Vec::new()),
         };
         let aux = CredentialRequestAux {
+            auxiliary_data_to_issuer: &[],
+            auxiliary_data_to_wallet: &[],
             encryption: None,
             reissuance_kid: None,
             now_unix: 1_000,

@@ -123,6 +123,13 @@ pub struct IssuerMetadata {
     /// Whether the document was served in the signed form.
     #[serde(default, skip_serializing)]
     pub is_signed: bool,
+    /// The document as resolved — the JSON text (the signed form: the
+    /// verified payload) — carrying every member as published, including
+    /// the members this type does not model (`issuer_info`, ETSI TS
+    /// 119 472-3): the ports that evaluate them (the entitlement PDP)
+    /// receive the document, not the model.
+    #[serde(default, skip_serializing)]
+    pub raw: Vec<u8>,
 }
 
 /// Why the issuer metadata resolution refused.

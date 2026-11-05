@@ -159,6 +159,9 @@ fn parse_metadata(body: &[u8], headers: &[(String, String)]) -> Result<IssuerMet
             let metadata: IssuerMetadata = serde_json::from_slice(&payload).map_err(|_| ())?;
             return Ok(IssuerMetadata {
                 is_signed: true,
+                // The raw document is the verified payload: the evaluator
+                // reads the members this type does not model from it.
+                raw: payload,
                 ..metadata
             });
         }
@@ -168,6 +171,8 @@ fn parse_metadata(body: &[u8], headers: &[(String, String)]) -> Result<IssuerMet
     // The unsigned form: the body IS the metadata.
     let mut metadata: IssuerMetadata = serde_json::from_value(value).map_err(|_| ())?;
     metadata.is_signed = false;
+    // The raw document is the body as fetched.
+    metadata.raw = body.to_vec();
     Ok(metadata)
 }
 

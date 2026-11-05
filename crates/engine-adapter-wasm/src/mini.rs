@@ -14,8 +14,9 @@
 //! fall back to the engine's own behaviours, exactly as an SDK host
 //! without those capabilities would.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine as _;
+use ciborium::Value as Cbor;
 use engine_ports::{
     AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
     DpopProofResult, Host, HostError, MatchParams, MatchResult, SignParams, SignResult, VpParams,
@@ -296,6 +297,385 @@ fn resolves(value: &serde_json::Value, rest: &[serde_json::Value]) -> bool {
     !selected.is_empty()
 }
 
+/// The doctype the mini mDL carries (ISO/IEC 18013-5, Annex A): the
+/// suite's mso_mdoc DCQL queries name it in `doctype_value`.
+const MDL_DOCTYPE: &str = "org.iso.18013.5.1.mDL";
+/// The namespace the mini mDL's driver-claims live in (ISO/IEC
+/// 18013-5, A.1): the suite's mso_mdoc DCQL paths start with it.
+const MDL_NAMESPACE: &str = "org.iso.18013.5.1";
+
+/// The mini mDL's driver claims: the mDL's mandatory family and given
+/// names (ISO/IEC 18013-5, A.4.1.1), the fixtures behind the mso_mdoc
+/// DCQL query's claim paths.
+const MDL_CLAIMS: [(&str, &str); 2] = [("family_name", "Smith"), ("given_name", "Alice")];
+
+/// The held mDL as issued (ISO/IEC 18013-5, 8.3.2.1.2.2): the parts of
+/// its `IssuerSigned` a presentation copies.
+struct MiniMdl {
+    /// `issuerAuth`: the fixture issuer's `COSE_Sign1` over the MSO
+    /// (9.1.2.4).
+    issuer_auth: Cbor,
+    /// The [`MDL_NAMESPACE`] items, in the issuer's order.
+    items: Vec<IssuedItem>,
+}
+
+/// An item of the held mDL.
+struct IssuedItem {
+    /// The element identifier.
+    identifier: &'static str,
+    /// `IssuerSignedItemBytes`: `#6.24(bstr .cbor IssuerSignedItem)`
+    /// (8.3.2.1.2.2), its digest in the MSO's `valueDigests`.
+    bytes: Cbor,
+}
+
+/// The encoding of `value` (RFC 8949 §4.1): the shortest heads and
+/// definite lengths.
+fn cbor(value: &Cbor) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    ciborium::ser::into_writer(value, &mut out)
+        .map_err(|err| format!("the CBOR does not encode: {err}"))?;
+    Ok(out)
+}
+
+/// A map in the core deterministic encoding's order (RFC 8949 §4.2.1):
+/// its keys sorted by their encodings, bytewise.
+fn cbor_map(entries: Vec<(Cbor, Cbor)>) -> Result<Cbor, String> {
+    let mut keyed = entries
+        .into_iter()
+        .map(|(key, value)| Ok((cbor(&key)?, key, value)))
+        .collect::<Result<Vec<_>, String>>()?;
+    keyed.sort_by(|(a, ..), (b, ..)| a.cmp(b));
+    Ok(Cbor::Map(
+        keyed
+            .into_iter()
+            .map(|(_, key, value)| (key, value))
+            .collect(),
+    ))
+}
+
+/// `#6.24(bstr .cbor value)`: an embedded data item (RFC 8949
+/// §3.4.5.1).
+fn embedded(value: &Cbor) -> Result<Cbor, String> {
+    Ok(Cbor::Tag(24, Box::new(Cbor::Bytes(cbor(value)?))))
+}
+
+fn text(value: &str) -> Cbor {
+    Cbor::Text(value.to_owned())
+}
+
+fn integer(value: i64) -> Cbor {
+    Cbor::Integer(value.into())
+}
+
+/// The protected header of an ES256 `COSE_Sign1`, `{1: -7}`: `alg`
+/// (RFC 9052 §3.1) is ES256 (RFC 9053 §2.1).
+const ES256_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
+
+/// The `Sig_structure` a `COSE_Sign1` signs (RFC 9052 §4.4):
+/// `["Signature1", protected, external_aad = h'', payload]`.
+fn sig_structure(protected: &[u8], payload: &[u8]) -> Result<Vec<u8>, String> {
+    cbor(&Cbor::Array(vec![
+        text("Signature1"),
+        Cbor::Bytes(protected.to_vec()),
+        Cbor::Bytes(Vec::new()),
+        Cbor::Bytes(payload.to_vec()),
+    ]))
+}
+
+/// The UTC seconds a `tdate` writes with a four-digit year:
+/// 0000-01-01T00:00:00Z to 9999-12-31T23:59:59Z.
+const TDATE_SECONDS: std::ops::RangeInclusive<i64> = -62_167_219_200..=253_402_300_799;
+
+/// A `tdate` (RFC 8949 §3.4.1), the form of validityInfo's times
+/// (ISO/IEC 18013-5, 9.1.2.4): tag 0 over the UTC second `unix` names,
+/// `YYYY-MM-DDThh:mm:ssZ`, read off the JS Date. Refused outside
+/// [`TDATE_SECONDS`].
+fn tdate(unix: i64) -> Result<Cbor, String> {
+    if !TDATE_SECONDS.contains(&unix) {
+        return Err("the clock is out of range".to_owned());
+    }
+    let date = js_sys::Date::new(&JsValue::from_f64(unix as f64 * 1000.0));
+    let time = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        date.get_utc_full_year(),
+        date.get_utc_month() + 1,
+        date.get_utc_date(),
+        date.get_utc_hours(),
+        date.get_utc_minutes(),
+        date.get_utc_seconds()
+    );
+    Ok(Cbor::Tag(0, Box::new(Cbor::Text(time))))
+}
+
+/// Issues the mini host's held mDL: an `IssuerSigned` (ISO/IEC
+/// 18013-5, 8.3.2.1.2.2) with the MSO (9.1.2) the fixture issuer
+/// signs, its `valueDigests` listing the items, the device key bound
+/// as the MSO's `deviceKey`, and the issuer's `COSE_Sign1`
+/// (`issuerAuth`, 9.1.2.4) carrying the fixture issuer's `x5chain`
+/// (RFC 9360 §2); each map in the core deterministic encoding (RFC 8949
+/// §4.2.1). None when no PID signing key carries an x5c chain:
+/// issuerAuth's unprotected header holds the issuer's x5chain (9.1.2.4).
+fn issue_mini_mdl(
+    device_public: &serde_json::Value,
+    issuer_signing: Option<&jose_rs::jwk::Jwk>,
+) -> Result<Option<MiniMdl>, String> {
+    // The x5c entries are standard-base64 DER (RFC 7515 §4.1.6),
+    // unlike the JOSE segments' base64url.
+    let chained = issuer_signing.and_then(|key| {
+        let certificates: Vec<Cbor> = key
+            .extra
+            .get("x5c")?
+            .as_array()?
+            .iter()
+            .filter_map(|der| {
+                der.as_str()
+                    .and_then(|encoded| STANDARD.decode(encoded).ok())
+            })
+            .map(Cbor::Bytes)
+            .collect();
+        (!certificates.is_empty()).then_some((key, certificates))
+    });
+    let Some((issuer_key, certificates)) = chained else {
+        return Ok(None);
+    };
+    let now = (js_sys::Date::now() / 1000.0) as i64;
+    // The device key's COSE_Key coordinates (EC2: {1: 2, -1: 1, -2: x,
+    // -3: y}, RFC 9053 §2): the 32-byte big-endian coordinates of the
+    // bound device key.
+    let coordinate = |name: &str| -> Result<Cbor, String> {
+        device_public
+            .get(name)
+            .and_then(|v| v.as_str())
+            .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
+            .filter(|bytes| bytes.len() == 32)
+            .map(Cbor::Bytes)
+            .ok_or_else(|| format!("the device key's {name} does not parse"))
+    };
+    let device_key = cbor_map(vec![
+        (integer(1), integer(2)),
+        (integer(-1), integer(1)),
+        (integer(-2), coordinate("x")?),
+        (integer(-3), coordinate("y")?),
+    ])?;
+
+    // The MSO's validity: 180 days — strictly inside the fixture DS
+    // certificate's own validity (ISO/IEC 18013-5 §9.3.1: an mdoc reader
+    // may reject a credential whose validUntil exceeds the document
+    // signer certificate's notAfter).
+    let signed = tdate(now)?;
+    let until = tdate(now + 15_552_000)?;
+
+    // The items (8.3.2.1.2.2, Table 5): digestID, random,
+    // elementIdentifier, elementValue — each `#6.24(bstr .cbor
+    // IssuerSignedItem)` in its namespace's array, its digest in the
+    // MSO's valueDigests.
+    let mut items = Vec::new();
+    let mut digests = Vec::new();
+    for (index, (name, value)) in MDL_CLAIMS.into_iter().enumerate() {
+        let random: Vec<u8> = (0..16)
+            .map(|byte| (now.wrapping_mul(index as i64 + byte as i64)) as u8)
+            .collect();
+        let bytes = embedded(&cbor_map(vec![
+            (text("digestID"), Cbor::Integer(index.into())),
+            (text("random"), Cbor::Bytes(random)),
+            (text("elementIdentifier"), text(name)),
+            (text("elementValue"), text(value)),
+        ])?)?;
+        let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &cbor(&bytes)?)
+            .map_err(|err| format!("the item digest failed: {err}"))?;
+        digests.push((Cbor::Integer(index.into()), Cbor::Bytes(digest)));
+        items.push(IssuedItem {
+            identifier: name,
+            bytes,
+        });
+    }
+
+    // The MSO (9.1.2): the docType, SHA-256, the device key, the
+    // valueDigests, the validity.
+    let mso = cbor_map(vec![
+        (text("version"), text("1.0")),
+        (text("docType"), text(MDL_DOCTYPE)),
+        (text("digestAlgorithm"), text("SHA-256")),
+        (
+            text("deviceKeyInfo"),
+            cbor_map(vec![(text("deviceKey"), device_key)])?,
+        ),
+        (
+            text("valueDigests"),
+            cbor_map(vec![(text(MDL_NAMESPACE), cbor_map(digests)?)])?,
+        ),
+        (
+            text("validityInfo"),
+            cbor_map(vec![
+                (text("signed"), signed.clone()),
+                (text("validFrom"), signed),
+                (text("validUntil"), until),
+            ])?,
+        ),
+    ])?;
+    // MobileSecurityObjectBytes = #6.24(bstr .cbor MSO) (9.1.2.1).
+    let payload = cbor(&embedded(&mso)?)?;
+
+    // issuerAuth = COSE_Sign1 (9.1.2.4): the protected header {alg: -7}
+    // (ES256), the x5chain at label 33 (RFC 9360 §2), the tagged MSO as
+    // the payload, and the issuer's ES256 signature over its
+    // Sig_structure.
+    let issuer_signer = p256_signer(issuer_key)?;
+    let signature =
+        kryptering::Signer::sign(&issuer_signer, &sig_structure(&ES256_PROTECTED, &payload)?)
+            .map_err(|err| format!("the mDL issuerAuth signing failed: {err}"))?;
+    let issuer_auth = Cbor::Array(vec![
+        Cbor::Bytes(ES256_PROTECTED.to_vec()),
+        cbor_map(vec![(integer(33), Cbor::Array(certificates))])?,
+        Cbor::Bytes(payload),
+        Cbor::Bytes(signature),
+    ]);
+    Ok(Some(MiniMdl { issuer_auth, items }))
+}
+
+/// The held mDL presented to a verifier: the base64url of the
+/// `DeviceResponse` (ISO/IEC 18013-5, 8.3.2.1.2.2) of the selected
+/// items, in the issuer's order and as issued, bound to the request by
+/// the device key's ES256 signature over the session transcript of the
+/// `OpenID4VPHandover` (OpenID4VP 1.0, B.2.6.1): `[null, null,
+/// ["OpenID4VPHandover", SHA-256(cbor([client_id, nonce, thumb|null,
+/// response_uri]))]]`; each map in the core deterministic encoding (RFC
+/// 8949 §4.2.1). Each claim is a claims path (OpenID4VP §7)
+/// JSON-encoded, its keys a namespace then an element identifier
+/// (B.4.1). `sign` signs the device signature's `Sig_structure` with
+/// the device key and answers ES256's 64-octet `r ‖ s` (RFC 7518
+/// §3.4). Refused when a claim is no array of keys or holds fewer than
+/// two, an element is selected twice or is no item of the mDL, or the
+/// verifier's thumbprint is no base64url.
+fn present_mini_mdl(
+    mdl: &MiniMdl,
+    params: &VpParams,
+    claims: &[String],
+    sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<String, String> {
+    // The selected elements: the paths' [namespace, claim name] pairs.
+    let mut selected: Vec<(String, String)> = Vec::new();
+    for claim in claims {
+        let path: Vec<String> = serde_json::from_str(claim)
+            .map_err(|_| format!("the disclosed claim {claim:?} is no §7 path"))?;
+        let Some((name_space, identifier)) = path.first().zip(path.get(1)) else {
+            return Err(format!(
+                "the mdoc claim path {claim:?} is not a [namespace, claim] pair"
+            ));
+        };
+        let element = (name_space.clone(), identifier.clone());
+        if selected.contains(&element) {
+            return Err(format!("the mdoc disclosure selects {claim:?} twice"));
+        }
+        selected.push(element);
+    }
+    let disclosed: Vec<Cbor> = mdl
+        .items
+        .iter()
+        .filter(|item| {
+            selected.iter().any(|(name_space, identifier)| {
+                name_space == MDL_NAMESPACE && identifier == item.identifier
+            })
+        })
+        .map(|item| item.bytes.clone())
+        .collect();
+    if disclosed.len() != selected.len() {
+        return Err("the mdoc disclosure selects an element the mDL does not hold".to_owned());
+    }
+
+    // The OpenID4VPHandover (B.2.6.1): ["OpenID4VPHandover",
+    // SHA-256(cbor([client_id, nonce, jwkThumbprint, response_uri]))]
+    // — the thumbprint of the verifier's encryption key for an
+    // encrypted response (`direct_post.jwt`), `null` otherwise. The
+    // engine hands it over base64url; the handover carries the raw
+    // digest.
+    let thumbprint = if params.verifier_jwk_thumbprint.is_empty() {
+        Cbor::Null
+    } else {
+        Cbor::Bytes(
+            URL_SAFE_NO_PAD
+                .decode(&params.verifier_jwk_thumbprint)
+                .map_err(|err| format!("the thumbprint does not decode: {err}"))?,
+        )
+    };
+    let info = cbor(&Cbor::Array(vec![
+        text(&params.audience),
+        text(&params.nonce),
+        thumbprint,
+        text(&params.response_uri),
+    ]))?;
+    let handover_digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &info)
+        .map_err(|err| format!("the handover digest: {err}"))?;
+    // SessionTranscript = [null, null, Handover] (B.2.6).
+    let transcript = Cbor::Array(vec![
+        Cbor::Null,
+        Cbor::Null,
+        Cbor::Array(vec![
+            text("OpenID4VPHandover"),
+            Cbor::Bytes(handover_digest),
+        ]),
+    ]);
+
+    // DeviceNameSpacesBytes = #6.24(bstr .cbor {}): the response carries
+    // no DeviceSigned element.
+    let device_name_spaces = embedded(&Cbor::Map(Vec::new()))?;
+    // The device signature (9.1.3.4, 9.1.3.6): the device key — the
+    // MSO's deviceKey — signs DeviceAuthenticationBytes =
+    // #6.24(bstr .cbor ["DeviceAuthentication", SessionTranscript,
+    // DocType, DeviceNameSpacesBytes]), a detached payload.
+    let authentication = embedded(&Cbor::Array(vec![
+        text("DeviceAuthentication"),
+        transcript,
+        text(MDL_DOCTYPE),
+        device_name_spaces.clone(),
+    ]))?;
+    let signature = sign(&sig_structure(&ES256_PROTECTED, &cbor(&authentication)?)?)?;
+    if signature.len() != 64 {
+        return Err(format!(
+            "the mDL device signature has {} octets, where ES256's has 64",
+            signature.len()
+        ));
+    }
+
+    // The document: issuerSigned holds the disclosed items and
+    // issuerAuth as issued, `nameSpaces` left out when none is
+    // disclosed; deviceSigned holds deviceSignature, a COSE_Sign1 with
+    // the protected header {1: -7} and a null payload.
+    let mut issuer_signed = vec![(text("issuerAuth"), mdl.issuer_auth.clone())];
+    if !disclosed.is_empty() {
+        issuer_signed.push((
+            text("nameSpaces"),
+            cbor_map(vec![(text(MDL_NAMESPACE), Cbor::Array(disclosed))])?,
+        ));
+    }
+    let device_signature = Cbor::Array(vec![
+        Cbor::Bytes(ES256_PROTECTED.to_vec()),
+        Cbor::Map(Vec::new()),
+        Cbor::Null,
+        Cbor::Bytes(signature),
+    ]);
+    let document = cbor_map(vec![
+        (text("docType"), text(MDL_DOCTYPE)),
+        (text("issuerSigned"), cbor_map(issuer_signed)?),
+        (
+            text("deviceSigned"),
+            cbor_map(vec![
+                (text("nameSpaces"), device_name_spaces),
+                (
+                    text("deviceAuth"),
+                    cbor_map(vec![(text("deviceSignature"), device_signature)])?,
+                ),
+            ])?,
+        ),
+    ])?;
+    let response = cbor_map(vec![
+        (text("version"), text("1.0")),
+        (text("documents"), Cbor::Array(vec![document])),
+        (text("status"), integer(0)),
+    ])?;
+    Ok(URL_SAFE_NO_PAD.encode(cbor(&response)?))
+}
+
 /// The built-in mini host: `{"host": "mini"}` in the engine config
 /// selects it.
 pub struct MiniHost {
@@ -312,6 +692,15 @@ pub struct MiniHost {
     /// are what the suites validate; the engine's OID4VP protocol is
     /// the thing under test.
     pid: String,
+    /// The held mDL: a self-issued mso_mdoc (ISO/IEC 18013-5) with the
+    /// driver claims the mso_mdoc DCQL queries ask for, the device key
+    /// bound as its MSO's deviceKey — the mdoc presentation's answers
+    /// (the `DeviceResponse` of ISO/IEC 18013-5, 8.3.2.1.2.2). None when
+    /// no PID signing key with an x5c chain is configured: issuerAuth
+    /// carries the issuer's x5chain (9.1.2.4), which only the configured
+    /// fixture issuer has, so a harness without it holds no mdoc (the
+    /// mso_mdoc queries match nothing) and still starts.
+    mdl: Option<MiniMdl>,
     /// The wallet's registered client key, when the plan's
     /// configuration supplies one: the private_key_jwt assertion's
     /// signing key.
@@ -376,11 +765,17 @@ impl MiniHost {
         let device_public: serde_json::Value =
             serde_json::from_str(&public_text).unwrap_or_default();
         let pid = issue_mini_pid(&device_public, pid_signing.as_ref())?;
+        // The held mDL: a harness with no PID signing key (no x5c chain
+        // for the issuerAuth) holds no mdoc; the mso_mdoc queries then
+        // match nothing, but the host starts (the SD-JWT presentations
+        // work without it).
+        let mdl = issue_mini_mdl(&device_public, pid_signing.as_ref())?;
 
         Ok(Self {
             key,
             signer,
             pid,
+            mdl,
             client_signer,
             client_key_kid,
             client_key,
@@ -482,7 +877,21 @@ impl Host for MiniHost {
                 .pointer("/meta/vct_values")
                 .and_then(|v| v.as_array())
                 .is_some_and(|values| values.iter().any(|v| v.as_str() == Some(PID_VCT)));
-            if format != Some("dc+sd-jwt") || !vct_matches {
+            // The mso_mdoc DCQL query (OpenID4VP 1.0, B.4.1): the
+            // doctype the mDL carries selects it, and the paths are
+            // [namespace, claim name] pairs.
+            let doctype_matches = entry
+                .pointer("/meta/doctype_value")
+                .and_then(|v| v.as_str())
+                .is_some_and(|doctype| doctype == MDL_DOCTYPE);
+            let (credential_id, matches) = match format {
+                Some("dc+sd-jwt") if vct_matches => ("mini-pid", true),
+                // Only when the mdoc is held: a harness with no PID
+                // signing key matches nothing for mso_mdoc.
+                Some("mso_mdoc") if doctype_matches && self.mdl.is_some() => ("mini-mdl", true),
+                _ => ("", false),
+            };
+            if !matches {
                 continue;
             }
             // The claims the query asks for, as the paths the
@@ -501,7 +910,7 @@ impl Host for MiniHost {
             }
             selections.push(engine_ports::VpSelection {
                 credential_query_id: id,
-                credential_id: "mini-pid".to_owned(),
+                credential_id: credential_id.to_owned(),
                 disclosed_claims,
             });
         }
@@ -520,6 +929,23 @@ impl Host for MiniHost {
 
         let mut tokens = Vec::new();
         for selection in &params.selections {
+            // The mdoc presentation (OpenID4VP 1.0, B.4): the mso_mdoc
+            // answer is a `DeviceResponse` (ISO/IEC 18013-5, 8.3.2.1.2.2)
+            // — the selected items, the issuerAuth as issued, and the
+            // device key's ES256 signature over the session transcript
+            // of the request's OpenID4VPHandover (B.2.6.1) — base64url.
+            if selection.credential_id == "mini-mdl" {
+                let mdl = self.mdl.as_ref().ok_or_else(|| {
+                    HostError::Cannot("the mini host holds no mdoc (no PID signing key)".to_owned())
+                })?;
+                let token = present_mini_mdl(mdl, &params, &selection.disclosed_claims, |input| {
+                    kryptering::Signer::sign(&self.signer, input)
+                        .map_err(|err| format!("the mDL device signing failed: {err}"))
+                })
+                .map_err(HostError::Cannot)?;
+                tokens.push(token);
+                continue;
+            }
             // The disclosed claims' paths, as the DCQL names them, JSON-encoded
             // (§7); the KB-JWT's signature: the device key — the holder.
             let token = present_mini_pid(
@@ -538,6 +964,7 @@ impl Host for MiniHost {
         }
         Ok(VpResult {
             vp_token: tokens.join("\n"),
+            refusal: None,
         })
     }
 
@@ -617,149 +1044,4 @@ impl Host for MiniHost {
 /// The Arc helper the dispatcher's ports need.
 pub fn arc(host: MiniHost) -> std::sync::Arc<dyn engine_ports::Host> {
     std::sync::Arc::new(host)
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
-mod tests {
-    use super::*;
-
-    /// The client key the plan registers (the OIDF suite's fixture
-    /// shape): the host must sign the assertion with THIS key when
-    /// the ask names the registered kid, and the signature must
-    /// verify against the key's public members.
-    #[wasm_bindgen_test::wasm_bindgen_test]
-    async fn the_client_key_signs_the_assertion_ask() {
-        let jwk = r#"{"kty": "EC", "x": "ktT77AqMntawPyU772lBg8nd7cwENrYyOL_KWbYN8Jc", "y": "67lPXEq5gJdimDYD0AacxLfRfIm2-fSNd3HBqyXXvBI", "crv": "P-256", "d": "KJEKZo2PQq6E40P6HMenViCVBRXoWD2FDyevRsJnlG0", "kid": "client-key-1", "use": "sig", "alg": "ES256"}"#;
-        let host = MiniHost::new("123456".to_owned(), Some(jwk.to_owned()), None, None)
-            .expect("the mini host builds");
-        let tbs = "header.payload";
-        let sign = host
-            .request_sign(SignParams {
-                flow_id: "flow-1".to_owned(),
-                to_sign: tbs.as_bytes().to_vec(),
-                key_id: Some("client-key-1".to_owned()),
-                algorithm: "ES256".to_owned(),
-            })
-            .await
-            .expect("the client key signs");
-        assert_eq!(sign.signature.len(), 64, "the raw JOSE signature");
-
-        // The signature must verify with the client key's public half.
-        let public: jose_rs::jwk::Jwk = serde_json::from_value(serde_json::json!({
-            "kty": "EC",
-            "x": "ktT77AqMntawPyU772lBg8nd7cwENrYyOL_KWbYN8Jc",
-            "y": "67lPXEq5gJdimDYD0AacxLfRfIm2-fSNd3HBqyXXvBI",
-            "crv": "P-256",
-            "kid": "client-key-1",
-        }))
-        .expect("the public JWK");
-        let key = jose_rs::jwk::jwk_to_software_key(&public).expect("the public converts");
-        let verifier = kryptering::SoftwareVerifier::new(
-            kryptering::SignatureAlgorithm::Ecdsa(
-                kryptering::EcCurve::P256,
-                kryptering::HashAlgorithm::Sha256,
-            ),
-            key,
-        )
-        .expect("the verifier");
-        let ok = kryptering::Verifier::verify(&verifier, tbs.as_bytes(), &sign.signature)
-            .expect("verify runs");
-        assert!(ok, "the assertion signature verifies with the client key");
-    }
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod presentation {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine as _;
-    use sha2::{Digest, Sha256};
-
-    use super::present_mini_pid;
-
-    fn disclosure(name: &str, value: serde_json::Value) -> String {
-        URL_SAFE_NO_PAD.encode(serde_json::json!(["salt", name, value]).to_string())
-    }
-
-    fn decoded(segment: &str) -> serde_json::Value {
-        let bytes = URL_SAFE_NO_PAD
-            .decode(segment)
-            .expect("a base64url segment");
-        serde_json::from_slice(&bytes).expect("a JSON segment")
-    }
-
-    /// RFC 9901 §4 and §4.3: the presentation holds the issuer JWT and
-    /// the disclosure of the claim each path names, each followed by
-    /// `~`; the KB-JWT's `sd_hash` is SHA-256 (sha2, independent of the
-    /// signer's digest) over exactly those bytes, and the holder signs
-    /// the KB-JWT's own header and payload. A path into a claim's object
-    /// (OpenID4VP §7.2) presents that claim's disclosure. A claim the PID
-    /// does not hold, and a claim that is no §7 path, are refused before
-    /// anything is signed.
-    #[test]
-    fn the_key_binding_covers_the_presented_disclosures() {
-        let given = disclosure("given_name", serde_json::json!("Alice"));
-        let family = disclosure("family_name", serde_json::json!("Smith"));
-        let place = disclosure(
-            "place_of_birth",
-            serde_json::json!({"locality": "Stockholm", "country": "SE"}),
-        );
-        let pid = format!("h.p.s~{given}~{family}~{place}~");
-        let mut signed = Vec::new();
-        let token = present_mini_pid(
-            &pid,
-            &[r#"["family_name"]"#.to_owned()],
-            1_700_000_000,
-            "x509_san_dns:verifier.example",
-            "n-0S6_WzA2Mj",
-            |input| {
-                signed = input.to_vec();
-                Ok(vec![7; 64])
-            },
-        )
-        .expect("the PID presents");
-
-        let prefix = format!("h.p.s~{family}~");
-        let kb_jwt = token
-            .strip_prefix(&prefix)
-            .expect("the JWT and family_name lead");
-        let [header, payload, signature] = kb_jwt.split('.').collect::<Vec<_>>()[..] else {
-            panic!("the KB-JWT is no compact JWS: {kb_jwt}");
-        };
-        assert_eq!(signed, format!("{header}.{payload}").into_bytes());
-        assert_eq!(
-            URL_SAFE_NO_PAD.decode(signature).expect("base64url"),
-            vec![7; 64]
-        );
-        assert_eq!(
-            decoded(header),
-            serde_json::json!({"typ": "kb+jwt", "alg": "ES256"})
-        );
-        assert_eq!(
-            decoded(payload),
-            serde_json::json!({
-                "iat": 1_700_000_000_u64,
-                "aud": "x509_san_dns:verifier.example",
-                "nonce": "n-0S6_WzA2Mj",
-                "sd_hash": URL_SAFE_NO_PAD.encode(Sha256::digest(prefix.as_bytes())),
-            })
-        );
-
-        let nested = present_mini_pid(
-            &pid,
-            &[r#"["place_of_birth","locality"]"#.to_owned()],
-            0,
-            "aud",
-            "nonce",
-            |_| Ok(vec![7; 64]),
-        )
-        .expect("a path into place_of_birth presents");
-        assert!(nested.starts_with(&format!("h.p.s~{place}~")), "{nested}");
-
-        for claim in [r#"["birthdate"]"#, "family_name"] {
-            let refused = present_mini_pid(&pid, &[claim.to_owned()], 0, "aud", "nonce", |_| {
-                panic!("a refused presentation is never signed")
-            });
-            assert!(refused.is_err(), "{claim}");
-        }
-    }
 }

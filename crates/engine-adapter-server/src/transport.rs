@@ -25,6 +25,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 
+use tokio_stream::StreamExt;
+
 use crate::EngineServer;
 use wmp_core::context::RequestContext;
 
@@ -239,19 +241,71 @@ async fn ws_loop(
 }
 /// (wmp-transport.md §4.3). The stream stays open until the client
 /// disconnects or the server shuts down.
+///
+/// **The replay (§4.3.2):** a client reconnecting with `Last-Event-ID: <n>`
+/// gets the events it missed first, then the live stream. A `Last-Event-ID`
+/// the log no longer retains — the retention window passed it, or the
+/// session's log is empty and the client is not at 0 — answers `410 Gone`
+/// (the client must resume the session instead).
+///
+/// **The redaction:** the log itself withholds `refresh_token`, `dpop_jwk`
+/// and `dpop_key_id` from `wmp.flow.complete` results (go-wmp's replay
+/// redaction), so nothing streams or replays them.
 async fn get_events(
-    State(_server): State<Arc<EngineServer>>,
-) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    // The notifications come from the peer's outbound end — flow progress,
-    // sub-flow requests, completions — drained here as SSE events. The
-    // flow families write to it through the peer's `notify` when they land.
-    // Until then the stream stays open (the keep-alive pings the client).
-    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
-    let stream = tokio_stream::wrappers::ReceiverStream::new(receiver);
-    // Hold the sender so the stream does not close: the peer's outbound
-    // notifications feed it when the flow families land.
-    std::mem::forget(sender);
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    State(server): State<Arc<EngineServer>>,
+    headers: HeaderMap,
+    query: axum::extract::Query<rustc_hash::FxHashMap<String, String>>,
+) -> Response {
+    // The session the stream belongs to: the `session_id` query parameter.
+    let Some(session) = query.get("session_id").cloned() else {
+        return (StatusCode::BAD_REQUEST, "session_id is required").into_response();
+    };
+    // The session must exist: a stream for a session nobody created has
+    // nothing to stream and nothing to resume into.
+    if wmp_core::session::SessionStore::get(&*server.store, &session).is_none() {
+        return (StatusCode::NOT_FOUND, "no such session").into_response();
+    }
+
+    // The client's last received event id: the `Last-Event-ID` header
+    // (§4.3.2), else a fresh stream from now.
+    let last_id = headers
+        .get("last-event-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    // The replayed gap, oldest first. A gap the log cannot fill is `410
+    // Gone`: the client is behind the retention window and must resume the
+    // session (the resumption token carries the state forward).
+    let replayed = match server.outbox.replay(&session, last_id) {
+        Ok(events) => events,
+        Err(_) => {
+            return (
+                StatusCode::GONE,
+                "the event log cannot replay from the last event id; resume the session",
+            )
+                .into_response();
+        }
+    };
+
+    // The stream: the replayed events, then the live broadcast.
+    let live = server.outbox.subscribe(&session);
+    let replayed_stream = tokio_stream::iter(replayed);
+    let live_stream =
+        tokio_stream::wrappers::BroadcastStream::new(live).filter_map(|event| event.ok());
+    let stream = replayed_stream
+        .chain(live_stream)
+        .map(|event: crate::outbox::LoggedEvent| {
+            Ok::<Event, Infallible>(
+                Event::default()
+                    .event("wmp")
+                    .id(event.id.to_string())
+                    .data(String::from_utf8_lossy(&event.data)),
+            )
+        });
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 /// `GET /healthz` — liveness: the process is up.
@@ -282,9 +336,18 @@ fn bearer_principal(
         .and_then(|v| v.strip_prefix("Bearer "))?;
 
     match validator.validate(raw_token) {
-        Ok(validated) => Some(wmp_core::principal::Principal::new(
+        // The full token identity: the subject, the tenant, the token's
+        // `jti` and `tac`, and its lifecycle claims (`iat`, the
+        // `auth_invalid_before` stamp) — the #319 gate's stateless
+        // inputs, stamped here so the flow-start gate reads them off the
+        // principal.
+        Ok(validated) => Some(wmp_core::principal::Principal::with_token_claims(
             validated.subject,
             validated.tenant,
+            validated.jti,
+            validated.tac,
+            validated.iat,
+            validated.auth_invalid_before,
         )),
         Err(_) => None,
     }

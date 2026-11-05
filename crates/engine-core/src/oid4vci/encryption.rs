@@ -405,6 +405,7 @@ mod tests {
             interval: None,
             nonce: None,
             notification_id: None,
+            credential_metadata: None,
         };
         let plaintext = serde_json::to_vec(&credential_response).expect("serialize");
         let jwe = jose_rs::jwe::compact::encrypt_with_jwk_header(

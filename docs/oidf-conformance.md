@@ -64,9 +64,26 @@ pinned by `vp.oidf.x509-hash.basic.001` and
 `vp.oidf.x509-hash.mismatch.001` (provenance `oidf`, plan
 `x03k3BO5eKEsQ`, suite 5.3.4).
 
+**The iso_mdl format (2026-11-05)** — the OID4VP wallet plan's mdoc variant
+(`x509_san_dns` / `direct_post` / `request_uri_signed` / `plain_vp`)
+green against the raw engine: the mso_mdoc DCQL query's
+`[namespace, claim name]` paths select the mDL's `IssuerSignedItem`s, and
+the presentation answer is the base64url `DeviceResponse`
+(ISO/IEC 18013-5, 8.3.2.1.2.2) — the selected items as issued, the
+`issuerAuth` COSE_Sign1 as issued (ES256: the protected header
+`{alg: -7}`, major type 1 encoding `-1-n`), and the device key's
+signature over the session transcript of the request's
+`OpenID4VPHandover` (OpenID4VP 1.0, B.2.6.1). 6 PASSED,
+`request-uri-method-post` SKIPPED by the suite, the eight negative
+modules REVIEW. The fixtures carry the ISO 18013-5 document-signer
+profile (B.1–B.3): the DS certificate (ECDSA-SHA256, critical
+`1.0.18013.5.1.2` mdlDS EKU, IAN, CRL DP) and a real CRL (AKI, CRL
+number, ≤90-day nextUpdate) served by the harness nginx with the
+RFC 2585 §4.2 content type. The wire is pinned by
+`vp.oidf.mdoc.basic.001` (provenance `oidf`, plan `OzBNWDaDeiAn7`).
+
 **Remaining:** the dc_api response modes (the W3C Digital Credentials
-API browser flow) and the iso_mdl format (the mdoc presentation path in
-the mini host). The runs are published on the Pages site under
+API browser flow). The runs are published on the Pages site under
 `runs/mini-wallet-phase1-2026-11-04`,
 `runs/mini-wallet-vp-phase2-2026-11-04`,
 `runs/mini-wallet-authcode-2026-11-05` and
