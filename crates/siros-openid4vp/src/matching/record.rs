@@ -7,10 +7,13 @@ use crate::ids::{CredentialId, QueryId};
 use crate::json::{JsonError, Node, quote};
 use crate::plugins::{Attested, OptionIndex};
 use crate::request::{EntryIndex, RequestDigest};
-use crate::rows::{Language, RenderingInputs};
+use crate::rows::{Amounts, Bidi, Language, ModuleName, RenderingInputs};
 
 /// A record's id: the JSON array `[query, credential, option, entries, attested, request,
-/// rendering]`, `rendering` the object `{"language": tag, "fallback": bool}`.
+/// rendering]`, `rendering` the object of its rendering inputs, members in this order:
+/// `language` (the tag), `fallback` (whether the language fell back), `modules` (each module's
+/// name and the hexadecimal SHA-256 of its sources), `amounts` (`formatted` or `written`), `bidi`
+/// (`default` or `none`) and `renderer` (the renderer's version).
 /// As an array it differs from "none" and from every static box's id; its pick tells it from
 /// every other entry of its slot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -73,19 +76,15 @@ impl<'m> Record<'m> {
                     .collect()
             })
             .unwrap_or_default();
-        let (language, fallback) = match inputs.language() {
-            Language::Understood(tag) => (tag, false),
-            Language::Fallback(tag) => (tag, true),
-        };
         let id = format!(
-            "[{},{},{},[{}],{{{}}},{},{{\"language\":{},\"fallback\":{fallback}}}]",
+            "[{},{},{},[{}],{{{}}},{},{}]",
             quote(query.as_str()),
             quote(credential.as_str()),
             option.0,
             indexes.join(","),
             pairs.join(","),
             quote(request.as_str()),
-            quote(language.as_str()),
+            Written::of(inputs).json(),
         );
         Self {
             query,
@@ -103,6 +102,141 @@ impl<'m> Record<'m> {
     #[must_use]
     pub fn id(&self) -> &RecordId {
         &self.id
+    }
+
+    /// The rendering input `returned` names differently, when it names this record's other
+    /// items as this record does: the language, its fallback flag, a module's digest or its
+    /// presence, the amounts, the bidi strategy, or the renderer's version, in that order.
+    #[must_use]
+    pub fn other_input(&self, returned: &ReturnedRecord<'_>) -> Option<RenderingInput> {
+        let own = Node::parse(self.id.as_str()).ok()?;
+        let theirs = Node::parse(returned.as_str()).ok()?;
+        let (Some([own_items @ .., _]), Some([their_items @ .., rendering])) =
+            (own.as_array(), theirs.as_array())
+        else {
+            return None;
+        };
+        if own_items != their_items {
+            return None;
+        }
+        Written::of(self.inputs).first_other(rendering)
+    }
+}
+
+/// A rendering input a returned record names differently from the record phase 2 derives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderingInput {
+    /// The language.
+    Language,
+    /// Whether the language fell back.
+    Fallback,
+    /// A module, by its name: its digest, or its presence among the modules.
+    Module(String),
+    /// How amounts show.
+    Amounts,
+    /// The bidi strategy.
+    Bidi,
+    /// The renderer's version.
+    Renderer,
+}
+
+/// A record's rendering inputs as its id writes them.
+struct Written<'i> {
+    inputs: &'i RenderingInputs,
+    language: &'i str,
+    fallback: bool,
+    amounts: &'static str,
+    bidi: &'static str,
+}
+
+impl<'i> Written<'i> {
+    fn of(inputs: &'i RenderingInputs) -> Self {
+        let (language, fallback) = match inputs.language() {
+            Language::Understood(tag) => (tag.as_str(), false),
+            Language::Fallback(tag) => (tag.as_str(), true),
+        };
+        Self {
+            inputs,
+            language,
+            fallback,
+            amounts: match inputs.amounts() {
+                Amounts::Formatted => "formatted",
+                Amounts::Written => "written",
+            },
+            bidi: match inputs.bidi() {
+                Bidi::Default => "default",
+                Bidi::None => "none",
+            },
+        }
+    }
+
+    /// Each module's name and its digest in hexadecimal, in the inputs' order.
+    fn modules(&self) -> impl Iterator<Item = (String, String)> + '_ {
+        self.inputs.modules().entries().iter().map(|entry| {
+            let digest = entry
+                .value()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            (ModuleName::of(*entry.key()).to_string(), digest)
+        })
+    }
+
+    fn json(&self) -> String {
+        let modules: Vec<String> = self
+            .modules()
+            .map(|(name, digest)| format!("{}:{}", quote(&name), quote(&digest)))
+            .collect();
+        format!(
+            "{{\"language\":{},\"fallback\":{},\"modules\":{{{}}},\"amounts\":{},\"bidi\":{},\"renderer\":{}}}",
+            quote(self.language),
+            self.fallback,
+            modules.join(","),
+            quote(self.amounts),
+            quote(self.bidi),
+            self.inputs.renderer(),
+        )
+    }
+
+    /// The first input `rendering` names otherwise than these, by its members of those names.
+    fn first_other(&self, rendering: &Node<'_>) -> Option<RenderingInput> {
+        let text = |name: &str| rendering.get(name).and_then(Node::as_str);
+        if text("language") != Some(self.language) {
+            return Some(RenderingInput::Language);
+        }
+        if rendering.get("fallback") != Some(&Node::Bool(self.fallback)) {
+            return Some(RenderingInput::Fallback);
+        }
+        let theirs = rendering.get("modules").and_then(Node::as_object);
+        for (name, digest) in self.modules() {
+            let named = theirs.and_then(|modules| modules.get(&name));
+            if named.and_then(Node::as_str) != Some(digest.as_str()) {
+                return Some(RenderingInput::Module(name));
+            }
+        }
+        let own: Vec<String> = self.modules().map(|(name, _)| name).collect();
+        if let Some(extra) = theirs.and_then(|modules| {
+            modules
+                .names()
+                .find(|name| !own.iter().any(|known| known == name))
+                .map(str::to_owned)
+        }) {
+            return Some(RenderingInput::Module(extra));
+        }
+        if text("amounts") != Some(self.amounts) {
+            return Some(RenderingInput::Amounts);
+        }
+        if text("bidi") != Some(self.bidi) {
+            return Some(RenderingInput::Bidi);
+        }
+        let renderer = rendering.get("renderer").and_then(|node| match node {
+            Node::Number(number) => number.as_u64(),
+            _ => None,
+        });
+        if renderer != Some(u64::from(self.inputs.renderer())) {
+            return Some(RenderingInput::Renderer);
+        }
+        None
     }
 }
 

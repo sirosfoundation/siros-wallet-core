@@ -25,7 +25,7 @@ pub use route::{AnswerRoute, Route, Unroutable};
 use siros_explain::{AllOf, Explain, Explained};
 
 use crate::host::{AuthenticationNeed, Categories};
-use crate::matching::RecordError;
+use crate::matching::{RecordError, RenderingInput};
 use crate::plugins::{Fault, FindingData, ProfileFinding};
 use crate::refusal::{QuotedList, Refused};
 use crate::session::{Session, SessionBinding};
@@ -37,6 +37,15 @@ pub enum Finding {
     Diverged {
         /// The record's position.
         record: usize,
+    },
+    /// The record is one the wallet derives, its texts rendered with another input than the
+    /// wallet's: a package built before the app changed a module, the language preferences or
+    /// the options, or by another renderer.
+    Rendered {
+        /// The record's position.
+        record: usize,
+        /// The first input that differs.
+        input: RenderingInput,
     },
     /// Its credential can no longer be presented.
     Unusable {

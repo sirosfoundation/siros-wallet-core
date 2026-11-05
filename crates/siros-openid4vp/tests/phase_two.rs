@@ -188,6 +188,64 @@ fn phase_2_falls_back_on_a_record_it_does_not_derive() {
     }
 }
 
+/// I31: phase 2 refuses a pick whose rendering inputs differ from its own, naming the input, and
+/// renders nothing to compare: one fixture per input.
+#[test]
+fn phase_2_refuses_a_pick_rendered_with_other_inputs() {
+    use siros_openid4vp::matching::RenderingInput;
+    let (text, held) = fixture();
+    let ids = offered(&text, &held);
+    let c1 = ids[0].as_str();
+    let digest_at = c1.find(r#""openid4vp":""#).expect("the core's module") + 13;
+    let mut altered_digest = c1.to_owned();
+    let flipped = if &c1[digest_at..=digest_at] == "0" {
+        "1"
+    } else {
+        "0"
+    };
+    altered_digest.replace_range(digest_at..=digest_at, flipped);
+    let cases = [
+        (
+            c1.replace(r#""language":"en""#, r#""language":"de""#),
+            RenderingInput::Language,
+        ),
+        (
+            c1.replace(r#""fallback":false"#, r#""fallback":true"#),
+            RenderingInput::Fallback,
+        ),
+        (
+            altered_digest,
+            RenderingInput::Module("openid4vp".to_owned()),
+        ),
+        (
+            c1.replace(r#""modules":{"#, r#""modules":{"extra":"00","#),
+            RenderingInput::Module("extra".to_owned()),
+        ),
+        (
+            c1.replace(r#""amounts":"formatted""#, r#""amounts":"written""#),
+            RenderingInput::Amounts,
+        ),
+        (
+            c1.replace(r#""bidi":"none""#, r#""bidi":"default""#),
+            RenderingInput::Bidi,
+        ),
+        (
+            c1.replace(r#""renderer":1}"#, r#""renderer":2}"#),
+            RenderingInput::Renderer,
+        ),
+    ];
+    for (id, want) in &cases {
+        assert_ne!(id, c1, "{want:?} alters the pick");
+        match outcome(&text, &held, &[id], &TestHost::default()) {
+            Err(Outcome::Fallback(findings)) => assert!(
+                matches!(findings.items(), [Finding::Rendered { record: 0, input }] if input == want),
+                "{want:?}: {findings:?}"
+            ),
+            other => panic!("{want:?}: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn phase_2_falls_back_on_what_no_longer_holds() {
     let (text, held) = fixture();

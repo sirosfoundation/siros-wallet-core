@@ -331,9 +331,24 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
     );
     assert!(ReturnedRecord::parse(record.id().as_str()).is_ok());
     let read: serde_json::Value = serde_json::from_str(record.id().as_str()).expect("json");
+    let modules: serde_json::Map<String, serde_json::Value> = inputs
+        .modules()
+        .entries()
+        .iter()
+        .map(|entry| {
+            let hex: String = entry.value().iter().map(|b| format!("{b:02x}")).collect();
+            (
+                siros_openid4vp::rows::ModuleName::of(*entry.key()).to_string(),
+                serde_json::json!(hex),
+            )
+        })
+        .collect();
+    assert_eq!(modules.len(), 3, "main, testkit and openid4vp");
+    let rendering = serde_json::json!({"language": "de", "fallback": false, "modules": modules,
+        "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER});
     assert_eq!(
         read,
-        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), {"language": "de", "fallback": false}])
+        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), rendering])
     );
     // An id is a record in that shape only: each of these breaks it in one field.
     for malformed in [

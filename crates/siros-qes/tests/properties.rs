@@ -364,7 +364,10 @@ fn fails_on(
         .iter()
         .filter_map(|finding| match finding {
             Finding::Revalidation { finding, .. } => finding.data::<FailedDocuments>(),
-            Finding::Diverged { .. } | Finding::Unusable { .. } | Finding::Format { .. } => None,
+            Finding::Diverged { .. }
+            | Finding::Rendered { .. }
+            | Finding::Unusable { .. }
+            | Finding::Format { .. } => None,
         })
         .flat_map(FailedDocuments::documents)
         .any(|document| document.href == href && document.fetched == Fetched::Failed)

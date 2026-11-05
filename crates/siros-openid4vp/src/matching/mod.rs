@@ -17,7 +17,7 @@ pub use display::{
     option_items, wallet_header,
 };
 pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
-pub use record::{Record, RecordError, RecordId, ReturnedRecord};
+pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};
 pub use rules::{Accepted, CoreRule, Transaction};
 
 use crate::plugins::registry::ErasedProfile;

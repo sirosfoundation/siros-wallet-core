@@ -533,9 +533,8 @@ impl NoLanguage {
     }
 }
 
-/// A module an error names: its identity, and its name as the message shows it: `main`, a
-/// crate's domain, or a defined module's plug-in and digest in hexadecimal. Only the crate makes
-/// one.
+/// A module by its identity and its name: `main`, a crate's domain, or a defined module's plug-in
+/// and digest in hexadecimal.
 #[cfg(feature = "render")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleName {
@@ -546,7 +545,8 @@ pub struct ModuleName {
 #[cfg(feature = "render")]
 impl ModuleName {
     /// The name of `id`.
-    pub(crate) fn of(id: ModuleId) -> Self {
+    #[must_use]
+    pub fn of(id: ModuleId) -> Self {
         Self {
             id,
             name: module_name(id),

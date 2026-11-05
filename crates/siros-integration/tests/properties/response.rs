@@ -242,7 +242,7 @@ pub fn check(
                 .map(|finding| match finding {
                     Finding::Unusable { record } => (*record, Found::Unusable),
                     Finding::Revalidation { record, finding } => (*record, found(finding)),
-                    Finding::Diverged { record } => {
+                    Finding::Diverged { record } | Finding::Rendered { record, .. } => {
                         panic!("R-phase 2 derives every record: {record} diverged")
                     }
                     Finding::Format { record, .. } => {
@@ -423,9 +423,10 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
         .iter()
         .filter_map(|finding| match finding {
             Finding::Unusable { record } => Some(records[*record].record.credential.as_str()),
-            Finding::Diverged { .. } | Finding::Revalidation { .. } | Finding::Format { .. } => {
-                None
-            }
+            Finding::Diverged { .. }
+            | Finding::Rendered { .. }
+            | Finding::Revalidation { .. }
+            | Finding::Format { .. } => None,
         })
         .collect();
     let informed = oracle::informed(case.registry, findings).expect("each profile informed");
@@ -444,7 +445,9 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
         let (record, revalidated) = match finding {
             Finding::Unusable { record } => (*record, false),
             Finding::Revalidation { record, .. } => (*record, true),
-            Finding::Diverged { record } => panic!("R-fallback: {record} diverged"),
+            Finding::Diverged { record } | Finding::Rendered { record, .. } => {
+                panic!("R-fallback: {record} diverged")
+            }
             Finding::Format { record, .. } => panic!("R-fallback: {record}, a format's finding"),
         };
         let view = records[record];

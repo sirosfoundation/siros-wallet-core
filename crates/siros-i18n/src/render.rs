@@ -60,7 +60,8 @@ pub struct RenderOptions {
 pub struct RenderingInputs {
     language: Language,
     modules: Keyed<ModuleId, [u8; 32]>,
-    options: RenderOptions,
+    amounts: Amounts,
+    bidi: Bidi,
     renderer: u16,
 }
 
@@ -77,10 +78,16 @@ impl RenderingInputs {
         &self.modules
     }
 
-    /// The rendering options.
+    /// How amounts show.
     #[must_use]
-    pub const fn options(&self) -> RenderOptions {
-        self.options
+    pub const fn amounts(&self) -> Amounts {
+        self.amounts
+    }
+
+    /// The bidi strategy.
+    #[must_use]
+    pub const fn bidi(&self) -> Bidi {
+        self.bidi
     }
 
     /// The renderer's version.
@@ -128,13 +135,14 @@ impl<'m> Renderer<'m> {
     }
 
     /// The inputs a record commits to: the language and its fallback flag, each module's digest,
-    /// the rendering options, and the renderer's version.
+    /// the rendering options that change a text (amounts and bidi), and the renderer's version.
     #[must_use]
     pub fn inputs(&self) -> RenderingInputs {
         RenderingInputs {
             language: self.language.clone(),
             modules: self.chosen.map(|chosen| chosen.digest),
-            options: self.options,
+            amounts: self.options.amounts,
+            bidi: self.options.bidi,
             renderer: RENDERER,
         }
     }

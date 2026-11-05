@@ -8,7 +8,8 @@ use crate::matching::{Accepted, EntryView, ReturnedRecord, Views};
 use crate::request::{Multiplicity, QuerySet};
 
 /// The records the wallet derives for the returned ids; Fallback naming each id that is none of
-/// them.
+/// them, and the input each id that names a derived record with other rendering inputs names
+/// otherwise. Nothing renders to compare.
 pub(super) fn derived<'v>(
     views: &'v Views<'v>,
     returned: &[ReturnedRecord<'_>],
@@ -17,9 +18,15 @@ pub(super) fn derived<'v>(
         returned.iter().map(|id| views.by_id(id.as_str())).collect();
     let diverged: Vec<Finding> = records
         .iter()
+        .zip(returned)
         .enumerate()
-        .filter(|(_, view)| view.is_none())
-        .map(|(record, _)| Finding::Diverged { record })
+        .filter(|(_, (view, _))| view.is_none())
+        .map(
+            |(record, (_, id))| match views.iter().find_map(|view| view.record.other_input(id)) {
+                Some(input) => Finding::Rendered { record, input },
+                None => Finding::Diverged { record },
+            },
+        )
         .collect();
     AllOf::new(diverged).map_or_else(
         || Ok(records.into_iter().flatten().collect()),

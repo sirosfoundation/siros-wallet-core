@@ -48,7 +48,10 @@ pub fn informed<H: siros_openid4vp::host::CoreHost>(
         .iter()
         .filter_map(|finding| match finding {
             Finding::Revalidation { finding, .. } => Some(finding),
-            Finding::Diverged { .. } | Finding::Unusable { .. } | Finding::Format { .. } => None,
+            Finding::Diverged { .. }
+            | Finding::Rendered { .. }
+            | Finding::Unusable { .. }
+            | Finding::Format { .. } => None,
         })
         .collect();
     registry
