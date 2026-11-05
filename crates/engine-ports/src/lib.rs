@@ -730,9 +730,302 @@ pub trait Pdp: Send + Sync {
 
     /// Resolves a URL to a metadata document (the `/v1/resolve` shape).
     async fn resolve(&self, request: ResolveRequest) -> Result<ResolveResponse, PdpError>;
+
+    /// Evaluates the issuer's entitlement (ARF 6.6.2.3): is the provider
+    /// registered to issue what it offers. A question distinct from
+    /// trust, with its own wire shapes.
+    ///
+    /// The default implementation is [`PdpError::NotImplemented`], which
+    /// the caller treats as "not evaluated" — the findings never arise,
+    /// the flow proceeds — so a minimal PDP keeps every flow working and
+    /// the backend's implementation answers the check.
+    async fn evaluate_entitlement(
+        &self,
+        _request: EntitlementRequest,
+    ) -> Result<EntitlementDecision, PdpError> {
+        Err(PdpError::NotImplemented)
+    }
 }
 
 // ─── TokenProvider ──────────────────────────────────────────────────────
+
+// ─── The issuer entitlement (ARF 6.6.2.3) ─────────────────────────────────
+//
+// The wallet-side registration check: is the provider entitled to issue
+// what it offers. A question distinct from trust (a trusted issuer can
+// still be unregistered), so it rides its own PDP operation with its own
+// wire shapes.
+
+/// What a failed entitlement check does (the mode, ARF 6.6.2.3): `warn`
+/// records findings and allows issuance (the default — the ARF obligation
+/// applies 24 months after the amending Regulation), `fail` refuses, `off`
+/// skips evaluation. The mode lives with the evaluator: the PDP
+/// implementation applies its own configured mode to the answer it returns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EntitlementMode {
+    /// Records failures and still allows issuance (the default).
+    #[default]
+    Warn,
+    /// Turns the same failures into a refusal to request issuance.
+    Fail,
+    /// Skips evaluation entirely.
+    Off,
+}
+
+impl EntitlementMode {
+    /// Parses a configured mode name, defaulting to warn — an
+    /// unrecognised value becomes warn rather than off, so a typo cannot
+    /// silently disable the check.
+    #[must_use]
+    pub fn parse(configured: &str) -> Self {
+        match configured {
+            "off" => Self::Off,
+            "fail" => Self::Fail,
+            _ => Self::Warn,
+        }
+    }
+
+    /// The mode's wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Fail => "fail",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// Why an entitlement evaluation failed (the finding's code — a caller acts
+/// on the code, never on a sentence).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntitlementCode {
+    /// The issuer metadata was signed by no certificate chain.
+    NoAccessCertificate,
+    /// The chain's leaf does not meet the WRPAC profile.
+    NotWrpac,
+    /// The issuer metadata carries no registration certificate.
+    NoRegistrationCertificate,
+    /// The registration certificate is not a readable `rc-wrp+jwt`.
+    RegistrationMalformed,
+    /// The registration certificate is not current.
+    RegistrationExpired,
+    /// The registration certificate's validity is not conformant
+    /// (GEN-5.2.4-08's cap).
+    RegistrationOverlong,
+    /// The registration certificate describes another provider.
+    BindingMismatch,
+    /// The registered entitlements name no provider role.
+    NotProvider,
+    /// The provider is not registered for an offered credential.
+    TypeNotRegistered,
+    /// The registration certificate's signature was not verified (or
+    /// nobody checked): its claims are not used.
+    RegistrationUnverified,
+    /// The signature is valid but the signer is no trusted Registrar.
+    RegistrarNotTrusted,
+    /// Nothing established that the chain that signed the metadata is
+    /// trusted.
+    AccessCertificateNotTrusted,
+}
+
+impl EntitlementCode {
+    /// The code's wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoAccessCertificate => "no_access_certificate",
+            Self::NotWrpac => "access_certificate_not_wrpac",
+            Self::NoRegistrationCertificate => "no_registration_certificate",
+            Self::RegistrationMalformed => "registration_certificate_malformed",
+            Self::RegistrationExpired => "registration_certificate_expired",
+            Self::RegistrationOverlong => "registration_certificate_validity_too_long",
+            Self::BindingMismatch => "registration_certificate_not_bound",
+            Self::NotProvider => "not_an_attestation_provider",
+            Self::TypeNotRegistered => "attestation_type_not_registered",
+            Self::RegistrationUnverified => "registration_certificate_unverified",
+            Self::RegistrarNotTrusted => "registrar_not_trusted",
+            Self::AccessCertificateNotTrusted => "access_certificate_not_trusted",
+        }
+    }
+}
+
+/// One thing that did not check out. The message is the code's own —
+/// never issuer text; `credential_type` is the offered type when the
+/// finding is about one (issuer-controlled: bounded).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntitlementFinding {
+    /// The finding's code.
+    pub code: EntitlementCode,
+    /// The code's message.
+    pub message: String,
+    /// The offered type, bounded, when the finding is about one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_type: Option<String>,
+}
+
+/// The bounded entitlement decision (the #526 relay shape): the verdict
+/// and the findings, never the registration certificate's own content
+/// (`entitlements`, `subject` — issuer-controlled and display-only).
+///
+/// The bounds are part of the type (AGENTS.md's "Types"): a
+/// [`BoundedEntitlementDecision`] cannot carry more than 16 findings, a
+/// message beyond 256 bytes, or a credential type beyond 128 bytes —
+/// whatever the evaluator returned.
+pub const MAX_ENTITLEMENT_FINDINGS: usize = 16;
+/// The bound on a finding message, in bytes.
+pub const MAX_FINDING_MESSAGE_BYTES: usize = 256;
+/// The bound on a finding's credential type, in bytes.
+pub const MAX_FINDING_TYPE_BYTES: usize = 128;
+
+/// The entitlement evaluation's input: the evidence the evaluator (the
+/// PDP implementation) needs — the issuer's identifier, the raw issuer
+/// metadata document (the evaluator reads the `issuer_info` registration
+/// certificate from it, ETSI TS 119 472-3: the core does not model that
+/// member), the signing key material, and the configurations the wallet
+/// is about to request.
+///
+/// The shape mirrors the Go evaluator's input (`pkg/issuertrust`'s
+/// `Evaluate`: `Metadata` the raw document, `SignerX5C` the resolver's
+/// signing chain) — with the chain in the form [`Pdp::evaluate`]
+/// already receives, so one evaluator handles both questions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitlementRequest {
+    /// The issuer's identifier (the metadata's `credential_issuer`).
+    pub issuer: String,
+    /// The raw issuer metadata document, as resolved (the signed form:
+    /// the verified payload), carrying the members the core does not
+    /// model (`issuer_info` among them).
+    pub metadata: Vec<u8>,
+    /// The metadata's signing key material, as [`Pdp::evaluate`] received
+    /// it: the signed metadata JWT, or the inline `jwks`. The WRPAC — the
+    /// access certificate the entitlement check reads — is the chain that
+    /// signed this document.
+    pub key_material: Vec<u8>,
+    /// The configurations the flow is about to request (the offer's
+    /// configuration ids): the evaluator matches these against the
+    /// registration's entitlements.
+    pub offers: Vec<EntitlementOffer>,
+}
+
+/// One offered credential the evaluator matches against the
+/// registration: the format identifier and the type (`vct` for
+/// SD-JWT, `doctype` for mdoc).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntitlementOffer {
+    /// The OpenID4VCI credential format identifier, e.g. `dc+sd-jwt`.
+    pub format: String,
+    /// The `vct` or `doctype`. May be empty, in which case the evaluator
+    /// matches the format alone.
+    pub credential_type: String,
+}
+
+/// The entitlement evaluator's decision, as the flow and the wire carry
+/// it — already bounded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundedEntitlementDecision {
+    /// Whether issuance may proceed. In warn mode it stays true even with
+    /// findings, so a wallet can still surface them.
+    pub allowed: bool,
+    /// Which mode produced the decision, so "passed" reads apart from
+    /// "would have failed but we are in warn mode".
+    pub mode: EntitlementMode,
+    /// False when there was nothing to evaluate against — no registration
+    /// certificate, or mode off. Deliberately distinct from `allowed`:
+    /// "not checked" must never read as "checked and fine".
+    pub evaluated: bool,
+    /// The findings, at most [`MAX_ENTITLEMENT_FINDINGS`].
+    pub findings: Vec<EntitlementFinding>,
+    /// True when more findings arose than the bound carries.
+    pub findings_truncated: bool,
+}
+
+/// The unbounded decision the evaluator returns, before the relay bounds
+/// it: the registration certificate's own content (`entitlements`,
+/// `subject`) rides here — display-only, stripped by
+/// [`EntitlementDecision::bounded`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitlementDecision {
+    /// The verdict and the mode, as [`BoundedEntitlementDecision`].
+    pub allowed: bool,
+    /// The mode that produced the decision.
+    pub mode: EntitlementMode,
+    /// Whether anything was evaluated.
+    pub evaluated: bool,
+    /// The findings (unbounded in the evaluator's own answer).
+    #[serde(default)]
+    pub findings: Vec<EntitlementFinding>,
+    /// True when the findings were truncated upstream.
+    #[serde(default)]
+    pub findings_truncated: bool,
+}
+
+/// The no-evaluation decision: `Evaluated=false`, `Allowed=true`, mode
+/// off — nothing was checked, nothing refused. The answer a minimal PDP
+/// gives (its operation is not implemented), so the flow proceeds the
+/// way the ARF's grace period intends.
+#[must_use]
+pub fn entitlement_not_evaluated() -> EntitlementDecision {
+    EntitlementDecision {
+        allowed: true,
+        mode: EntitlementMode::Off,
+        evaluated: false,
+        findings: Vec::new(),
+        findings_truncated: false,
+    }
+}
+
+impl EntitlementDecision {
+    /// The bounded relay form (#526): the verdict and the findings, the
+    /// issuer-controlled display content (`entitlements`, `subject`)
+    /// stripped, the findings capped at [`MAX_ENTITLEMENT_FINDINGS`] with
+    /// `findings_truncated` set, the messages and types cut on rune
+    /// boundaries. Nothing of the registration certificate's own content
+    /// is relayed.
+    #[must_use]
+    pub fn bounded(&self) -> BoundedEntitlementDecision {
+        let mut findings = Vec::new();
+        let mut truncated = self.findings_truncated;
+        for finding in &self.findings {
+            if findings.len() >= MAX_ENTITLEMENT_FINDINGS {
+                truncated = true;
+                break;
+            }
+            findings.push(EntitlementFinding {
+                code: finding.code,
+                message: bound_text(&finding.message, MAX_FINDING_MESSAGE_BYTES),
+                credential_type: finding
+                    .credential_type
+                    .as_deref()
+                    .map(|text| bound_text(text, MAX_FINDING_TYPE_BYTES)),
+            });
+        }
+        BoundedEntitlementDecision {
+            allowed: self.allowed,
+            mode: self.mode,
+            evaluated: self.evaluated,
+            findings,
+            findings_truncated: truncated,
+        }
+    }
+}
+
+/// Cuts `text` to at most `max` bytes on a char boundary, dropping
+/// control and non-printable characters.
+#[must_use]
+fn bound_text(text: &str, max: usize) -> String {
+    let mut out = String::with_capacity(text.len().min(max));
+    for ch in text.chars() {
+        if !ch.is_control() && !ch.is_whitespace() || ch == ' ' {
+            if out.len() + ch.len_utf8() > max {
+                break;
+            }
+            out.push(ch);
+        }
+    }
+    out
+}
 
 /// Supplies the bearer token the engine's `BackendProxy` PDP implementation
 /// presents to the backend's proxy.

@@ -11,6 +11,7 @@ pub mod credential;
 pub mod deferred;
 pub mod dpop;
 pub mod encryption;
+pub mod entitlement;
 pub mod issuer;
 pub mod nonce;
 pub mod offer;
@@ -258,6 +259,27 @@ impl FlowHandler for Oid4vciFlow {
                 }),
             )
             .await;
+
+        // ── The issuer entitlement check (ARF 6.6.2.3): is the provider
+        // registered to issue what it offers — a question distinct from
+        // the trust decision above, so it runs in addition to it, never
+        // instead of it. The configurations checked are the offer's —
+        // the selection accepts nothing else, so what is issued is what
+        // was checked. A refusal answers -31020; the findings ride the
+        // additive progress inside the check.
+        let entitlement = entitlement::check_entitlement(
+            ctx,
+            &offer.credential_issuer,
+            &issuer_metadata,
+            &offer.credential_configuration_ids,
+        )
+        .await;
+        if !entitlement.allowed {
+            return Err(HandlerError::Rpc(entitlement::not_entitled_data(
+                &offer.credential_issuer,
+                &entitlement,
+            )));
+        }
 
         // ── The auxiliary-data selection gate (Credential Auxiliary Data
         // v0.1, #480): the advertisement is read from the selected
@@ -906,6 +928,24 @@ async fn resume_authorization_code(
         }
         _ => flow_error(err.to_string()),
     })?;
+
+    // The entitlement check, again, on the resume (ARF 6.6.2.3): the
+    // same additive question after the same fail-closed trust
+    // re-evaluation. The stashed offer's configurations are what the
+    // resumed flow requests.
+    let entitlement = entitlement::check_entitlement(
+        ctx,
+        &offer.credential_issuer,
+        &issuer_metadata,
+        &offer.credential_configuration_ids,
+    )
+    .await;
+    if !entitlement.allowed {
+        return Err(HandlerError::Rpc(entitlement::not_entitled_data(
+            &offer.credential_issuer,
+            &entitlement,
+        )));
+    }
 
     // #511: the hint selects the AS on the resume path too.
     let as_url = select_as_url(&offer, &issuer_metadata).map_err(flow_error)?;

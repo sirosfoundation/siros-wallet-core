@@ -734,6 +734,7 @@ mod tests {
             credential_configurations: serde_json::json!({}),
             signed_metadata: None,
             is_signed: false,
+            raw: Vec::new(),
         }
     }
 
