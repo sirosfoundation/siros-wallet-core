@@ -538,5 +538,19 @@ fn phase_2_answers_no_request_the_rules_refuse() {
             .respond(|resource| Published::default().answer(resource), &host)
             .map(drop)
     });
-    assert!(matches!(outcome, Err(Outcome::Refused(_))));
+    let Err(Outcome::Refused(refused)) = outcome else {
+        panic!("{outcome:?}")
+    };
+    let said: Vec<Said> = refused
+        .into_refusals()
+        .into_iter()
+        .map(Said::from)
+        .collect();
+    assert_eq!(
+        said,
+        [Said {
+            text: "C5 response_mode 'query' is no DC API response mode".to_owned(),
+            code: ErrorCode::INVALID_REQUEST,
+        }]
+    );
 }
