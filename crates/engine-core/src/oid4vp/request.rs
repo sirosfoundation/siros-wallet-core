@@ -54,10 +54,10 @@ pub async fn parse_request(
 
     // The params are the request itself (by value).
     let request = parse_request_value(&params)?;
-    // The x509_hash scheme needs the chain the params form cannot carry
-    // (OpenID4VP 1.0 §5.2.3): refuse it here, not only in the signed
-    // form.
-    validate_client_id_hash(&request, None)?;
+    // The scheme requirements the params form cannot satisfy (§5:
+    // x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the attestation) are
+    // refused here, not only in the signed form.
+    validate_scheme_requirements(&request, None, None, "")?;
     Ok(request)
 }
 
@@ -191,8 +191,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // standard alphabet, unlike the JOSE segments' base64url).
         //
         // The leaf DER is kept: the x509_hash scheme's client_id is the
-        // base64url SHA-256 over it (OpenID4VP 1.0 §5.2.3), checked
-        // against the payload's client_id below.
+        // base64url SHA-256 over it (OpenID4VP 1.0 §5.2.3), and the
+        // x509_san_dns scheme requires the signed form (§5) — both
+        // checked against the payload's client_id below. The `jwt`
+        // header parameter is kept too: the verifier_attestation
+        // scheme's attestation rides it (§5.9.3.4).
         let mut leaf_der: Option<Vec<u8>> = None;
         if let Some(cert) = header
             .get("x5c")
@@ -207,6 +210,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
                 .map_err(|_| RequestError::RequestObjectSignature)?;
             leaf_der = Some(der);
         }
+        let attestation_jwt = header
+            .get("jwt")
+            .and_then(|v| v.as_str())
+            .filter(|jwt| !jwt.is_empty())
+            .map(str::to_owned);
         // The payload is the second segment.
         let payload = parts
             .get(1)
@@ -214,13 +222,12 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
             .ok_or(RequestError::NotRecognized)?;
         let value: serde_json::Value =
             serde_json::from_slice(&payload).map_err(|_| RequestError::NotRecognized)?;
-        // The x509_hash scheme (OpenID4VP 1.0 §5.2.3): the client_id's
-        // value is the base64url SHA-256 over the leaf certificate the
-        // chain carries — the request object MUST carry it (a plain or
-        // chainless request cannot name the certificate), and the hash
-        // MUST match.
+        // The scheme requirements (docs/engine-parity.md §1): the
+        // x509_hash binding (§5.2.3), the x509_san_dns signed form (§5),
+        // and the verifier_attestation extraction (§5.9.3.4) — all
+        // against the payload's client_id.
         parse_request_value(&value).and_then(|request| {
-            validate_client_id_hash(&request, leaf_der)?;
+            validate_scheme_requirements(&request, leaf_der, attestation_jwt, text)?;
             Ok(request)
         })
     } else {
@@ -228,34 +235,122 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|_| RequestError::NotRecognized)?;
         parse_request_value(&value).and_then(|request| {
-            validate_client_id_hash(&request, None)?;
+            validate_scheme_requirements(&request, None, None, text)?;
             Ok(request)
         })
     }
 }
 
-/// The `x509_hash` client_id scheme (OpenID4VP 1.0 §5.2.3): the client_id's
-/// value is the base64url SHA-256 over the DER-encoded leaf certificate the
-/// request object's `x5c` chain carries — so the chain MUST be there (an
-/// unsigned or chainless request cannot name the certificate), and the hash
-/// MUST match it, in constant time.
-fn validate_client_id_hash(
+/// The client_id scheme requirements the parser enforces (the trust
+/// evaluation's PDP step is the policy, not the cryptography):
+///
+/// - `x509_hash` (OpenID4VP 1.0 §5.2.3): the request object MUST carry
+///   the `x5c` chain, and the client_id's hash MUST match the leaf, in
+///   constant time.
+/// - `x509_san_dns` (§5): the request MUST be JWT-secured with its key
+///   in the `x5c` chain — the Go engine's pre-cache re-verification.
+/// - `verifier_attestation` (§5.9.3.4): the request JWT's `jwt` header
+///   parameter carries the attestation; its `iss`/`sub`/`cnf.jwk` are
+///   required, the request JWT's signature MUST verify under the
+///   `cnf.jwk`, and the attestation's `sub` MUST be the client_id
+///   without the scheme prefix.
+///
+/// The other schemes need nothing of the parser.
+fn validate_scheme_requirements(
     request: &AuthorizationRequest,
     leaf_der: Option<Vec<u8>>,
+    attestation_jwt: Option<String>,
+    request_text: &str,
 ) -> Result<(), RequestError> {
-    if request.client_id_scheme != ClientIdScheme::X509Hash {
-        return Ok(());
+    match request.client_id_scheme {
+        ClientIdScheme::X509Hash => {
+            let der = leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+                scheme: "x509_hash".to_owned(),
+            })?;
+            let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der)
+                .map_err(|_| RequestError::NotRecognized)?;
+            let computed = wmp_core::token::base64url_unpadded(&digest);
+            let claimed = request
+                .client_id
+                .strip_prefix("x509_hash:")
+                .unwrap_or_default();
+            if !wmp_core::token::tokens_equal(&computed, claimed) {
+                return Err(RequestError::ClientIdHashMismatch);
+            }
+            Ok(())
+        }
+        ClientIdScheme::X509SanDns => {
+            // §5: the DNS binding rides a signed request object whose
+            // x5c chain names the certificate. The signature under the
+            // leaf was verified at the header.
+            leaf_der.ok_or(RequestError::SchemeRequiresRequestObject {
+                scheme: "x509_san_dns".to_owned(),
+            })?;
+            Ok(())
+        }
+        ClientIdScheme::VerifierAttestation => {
+            let attestation = attestation_jwt.ok_or(RequestError::VerifierAttestationRequired)?;
+            validate_verifier_attestation(request, &attestation, request_text)
+        }
+        _ => Ok(()),
     }
-    let der = leaf_der.ok_or(RequestError::ClientIdHashWithoutChain)?;
-    let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der)
-        .map_err(|_| RequestError::NotRecognized)?;
-    let computed = wmp_core::token::base64url_unpadded(&digest);
-    let claimed = request
+}
+
+/// The verifier attestation (OpenID4VP 1.0 §5.9.3.4): `iss`, `sub` and
+/// `cnf.jwk` required (RFC 7800), the request JWT's signature verified
+/// under the `cnf.jwk`, and the `sub` bound to the client_id.
+fn validate_verifier_attestation(
+    request: &AuthorizationRequest,
+    attestation_jwt: &str,
+    request_text: &str,
+) -> Result<(), RequestError> {
+    let malformed = |reason: &str| RequestError::AttestationMalformed(reason.to_owned());
+    let parts: Vec<&str> = attestation_jwt.split('.').collect();
+    if parts.len() != 3 {
+        return Err(malformed("the attestation JWT must have three parts"));
+    }
+    let payload = parts
+        .get(1)
+        .and_then(|segment| decode_base64url(segment))
+        .ok_or_else(|| malformed("the attestation payload does not decode"))?;
+    let payload: serde_json::Value = serde_json::from_slice(&payload)
+        .map_err(|_| malformed("the attestation payload is not JSON"))?;
+    let subject = payload
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .filter(|sub| !sub.is_empty())
+        .ok_or_else(|| malformed("the attestation JWT has no sub claim"))?;
+    if payload
+        .get("iss")
+        .and_then(|v| v.as_str())
+        .filter(|iss| !iss.is_empty())
+        .is_none()
+    {
+        return Err(malformed("the attestation JWT has no iss claim"));
+    }
+    let cnf = payload
+        .pointer("/cnf/jwk")
+        .ok_or_else(|| malformed("the attestation JWT has no cnf.jwk claim"))?;
+    let cnf: jose_rs::jwk::Jwk = serde_json::from_value(cnf.clone())
+        .map_err(|_| malformed("the attestation cnf.jwk does not parse"))?;
+
+    // The request JWT's signature under the attestation's cnf key —
+    // the binding that makes the attestation speak for this request.
+    jose_rs::jws::compact::verify_with_jwk(&cnf, request_text)
+        .map_err(|_| RequestError::AttestationSignature)?;
+
+    // The attestation's subject is the client_id without the scheme
+    // prefix (§5.9.3.4: the attestation is about the verifier named in
+    // the client_id).
+    let expected = request
         .client_id
-        .strip_prefix("x509_hash:")
+        .strip_prefix("verifier_attestation:")
         .unwrap_or_default();
-    if !wmp_core::token::tokens_equal(&computed, claimed) {
-        return Err(RequestError::ClientIdHashMismatch);
+    if !wmp_core::token::tokens_equal(subject, expected) {
+        return Err(RequestError::AttestationSubjectMismatch {
+            subject: subject.to_owned(),
+            client_id: request.client_id.clone(),
+        });
     }
     Ok(())
 }
@@ -503,10 +598,12 @@ mod tests {
         }
     }
 
+    /// The plain-params parse fixture: the redirect_uri scheme — the
+    /// x509_san_dns scheme now requires the signed request form (§5),
+    /// which a plain JSON object cannot carry.
     fn request_json() -> serde_json::Value {
         serde_json::json!({
-            "client_id": "x509_san_dns:verifier.example",
-            "client_id_scheme": "x509_san_dns",
+            "client_id": "https://verifier.example",
             "nonce": "nonce-1",
             "response_uri": "https://verifier.example/response",
             "response_mode": "direct_post",
@@ -522,8 +619,8 @@ mod tests {
             status: 200,
         };
         let request = parse_request(&http, &request_json()).await.expect("parse");
-        assert_eq!(request.client_id, "x509_san_dns:verifier.example");
-        assert_eq!(request.client_id_scheme, ClientIdScheme::X509SanDns);
+        assert_eq!(request.client_id, "https://verifier.example");
+        assert_eq!(request.client_id_scheme, ClientIdScheme::RedirectUri);
         assert_eq!(request.nonce, "nonce-1");
         assert_eq!(request.response_mode, ResponseMode::DirectPost);
         assert!(request.dcql_query.is_some());
@@ -574,7 +671,7 @@ mod tests {
             "request_uri": "https://verifier.example/request.jwt"
         });
         let request = parse_request(&http, &params).await.expect("parse");
-        assert_eq!(request.client_id, "x509_san_dns:verifier.example");
+        assert_eq!(request.client_id, "https://verifier.example");
     }
 
     #[tokio::test]
@@ -803,7 +900,206 @@ mod tests {
         });
         assert!(matches!(
             parse_request(&http, &params).await,
-            Err(RequestError::ClientIdHashWithoutChain)
+            Err(RequestError::SchemeRequiresRequestObject { .. })
+        ));
+    }
+
+    /// Signs a compact JWT with the given header and payload under the
+    /// test verifier key — the request-object form for the attestation
+    /// checks (the header carries what the test names).
+    fn signed_jwt(header: &serde_json::Value, payload: &serde_json::Value) -> String {
+        let jwk: jose_rs::jwk::Jwk =
+            serde_json::from_value(verifier_jwk()).expect("the verifier JWK parses");
+        let signer = {
+            let software = jose_rs::jwk::jwk_to_software_key(&jwk).expect("the key converts");
+            kryptering::SoftwareSigner::new(
+                kryptering::SignatureAlgorithm::Ecdsa(
+                    kryptering::EcCurve::P256,
+                    kryptering::HashAlgorithm::Sha256,
+                ),
+                software,
+            )
+            .expect("the signer builds")
+        };
+        let h = wmp_core::token::base64url_unpadded(header.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        let p = wmp_core::token::base64url_unpadded(payload.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        let tbs = format!("{h}.{p}");
+        let signature =
+            kryptering::Signer::sign(&signer, tbs.as_bytes()).expect("the request signs");
+        format!("{tbs}.{}", wmp_core::token::base64url_unpadded(&signature))
+    }
+
+    /// The verifier attestation JWT (OpenID4VP 1.0 §5.9.3.4): `iss`,
+    /// `sub`, `cnf.jwk` — the public form of the test verifier key —
+    /// and the `redirect_uris` the attestation names.
+    fn attestation_jwt(subject: &str) -> String {
+        let public: serde_json::Value = {
+            let mut jwk = verifier_jwk();
+            jwk.as_object_mut()
+                .expect("the JWK is an object")
+                .remove("d");
+            jwk
+        };
+        let header = serde_json::json!({ "alg": "ES256", "typ": "jwt" });
+        let payload = serde_json::json!({
+            "iss": "https://attester.example",
+            "sub": subject,
+            "cnf": { "jwk": public },
+            "redirect_uris": ["https://verifier.example/response"],
+        });
+        let h = wmp_core::token::base64url_unpadded(header.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        let p = wmp_core::token::base64url_unpadded(payload.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        // The attestation's own signature is the PDP's to verify (the
+        // engine checks the REQUEST against cnf.jwk); a placeholder
+        // stands in the third segment.
+        format!("{h}.{p}.YXR0ZXN0YXRpb24")
+    }
+
+    /// A signed request object for the verifier_attestation scheme: the
+    /// header carries the attestation in its `jwt` parameter, the
+    /// payload the given client_id.
+    fn attested_request_object(attestation: &str, client_id: &str) -> String {
+        let header = serde_json::json!({
+            "typ": "oauth-authz-req+jwt",
+            "alg": "ES256",
+            "kid": "vp-verifier-key-1",
+            "jwt": attestation,
+        });
+        let payload = serde_json::json!({
+            "client_id": client_id,
+            "nonce": "nonce-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post",
+        });
+        signed_jwt(&header, &payload)
+    }
+
+    #[tokio::test]
+    async fn an_x509_san_dns_request_without_the_signed_form_refuses() {
+        // §5: the DNS binding rides a signed request object whose x5c
+        // chain names the certificate; the plain params form refuses.
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let params = serde_json::json!({
+            "client_id": "x509_san_dns:verifier.example",
+            "nonce": "n",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post",
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::SchemeRequiresRequestObject { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_verifier_attestation_request_with_a_matching_subject_parses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let client_id = "verifier_attestation:attested-verifier-1";
+        let jwt = attested_request_object(&attestation_jwt("attested-verifier-1"), client_id);
+        let params = serde_json::json!({ "request": jwt });
+        let request = parse_request(&http, &params).await.expect("parse");
+        assert_eq!(request.client_id, client_id);
+        assert_eq!(
+            request.client_id_scheme,
+            ClientIdScheme::VerifierAttestation
+        );
+    }
+
+    #[tokio::test]
+    async fn a_verifier_attestation_request_with_a_mismatched_subject_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        // The attestation names another verifier than the client_id.
+        let client_id = "verifier_attestation:attested-verifier-1";
+        let jwt = attested_request_object(&attestation_jwt("someone-else"), client_id);
+        let params = serde_json::json!({ "request": jwt });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::AttestationSubjectMismatch { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_verifier_attestation_request_signed_by_another_key_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        // The request JWT is signed by a key the attestation's cnf does
+        // not name: the binding that makes the attestation speak for
+        // this request is absent.
+        let client_id = "verifier_attestation:attested-verifier-1";
+        let header = serde_json::json!({
+            "typ": "oauth-authz-req+jwt",
+            "alg": "ES256",
+            "jwt": attestation_jwt("attested-verifier-1"),
+        });
+        let payload = serde_json::json!({
+            "client_id": client_id,
+            "nonce": "nonce-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post",
+        });
+        // A fresh key signs — not the attestation's cnf key.
+        let other = jose_rs::jwk::generate::generate_ec("P-256").expect("the other key");
+        let software = jose_rs::jwk::jwk_to_software_key(&other).expect("the key converts");
+        let signer = kryptering::SoftwareSigner::new(
+            kryptering::SignatureAlgorithm::Ecdsa(
+                kryptering::EcCurve::P256,
+                kryptering::HashAlgorithm::Sha256,
+            ),
+            software,
+        )
+        .expect("the signer builds");
+        let h = wmp_core::token::base64url_unpadded(header.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        let p = wmp_core::token::base64url_unpadded(payload.to_string().as_bytes())
+            .as_str()
+            .to_owned();
+        let tbs = format!("{h}.{p}");
+        let signature = kryptering::Signer::sign(&signer, tbs.as_bytes()).expect("signs");
+        let jwt = format!("{tbs}.{}", wmp_core::token::base64url_unpadded(&signature));
+
+        let params = serde_json::json!({ "request": jwt });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::AttestationSignature)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_verifier_attestation_request_without_the_attestation_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        // Plain params: no header, no attestation.
+        let params = serde_json::json!({
+            "client_id": "verifier_attestation:attested-verifier-1",
+            "nonce": "nonce-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post",
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::VerifierAttestationRequired)
         ));
     }
 }

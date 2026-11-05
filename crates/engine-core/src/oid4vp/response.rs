@@ -35,6 +35,19 @@ pub async fn submit_response(
         return Err(ResponseError::NoEndpoint);
     };
 
+    // The endpoint sanitization: the request names where the wallet
+    // POSTs the presentation, and only http/https URLs are posted to —
+    // anything else (another scheme, a malformed URL) is refused before
+    // the transport. The Go engine's sanitizeEndpointURL.
+    let scheme = endpoint
+        .split_once(':')
+        .map(|(scheme, _)| scheme)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return Err(ResponseError::InvalidEndpoint(endpoint.clone()));
+    }
+
     match auth_req.response_mode {
         ResponseMode::DirectPost => submit_direct_post(http, &endpoint, auth_req, vp_token).await,
         ResponseMode::DirectPostJwt => {

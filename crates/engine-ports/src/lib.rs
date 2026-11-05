@@ -264,6 +264,11 @@ impl ClientIdScheme {
             Self::X509Hash
         } else if client_id.starts_with("did:") {
             Self::DecentralizedIdentifier
+        } else if client_id.starts_with("decentralized_identifier:") {
+            // OpenID4VP 1.0's name for the scheme the drafts called
+            // "did": the same scheme (the Go engine's
+            // ClientIDSchemeDecentralizedIdentifier alias).
+            Self::DecentralizedIdentifier
         } else if client_id.starts_with("verifier_attestation:") {
             Self::VerifierAttestation
         } else if client_id.starts_with("http://") || client_id.starts_with("https://") {

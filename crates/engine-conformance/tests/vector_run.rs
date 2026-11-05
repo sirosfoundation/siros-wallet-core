@@ -181,6 +181,14 @@ fn preauth_script() -> serde_json::Value {
             "wmp_out": {
                 "expect": {
                     "method": "wmp.flow.progress",
+                    "params": { "flow_id": "flow-selftest-1", "step": "parsing_offer" }
+                }
+            }
+        },
+        {
+            "wmp_out": {
+                "expect": {
+                    "method": "wmp.flow.progress",
                     "params": {
                         "flow_id": "flow-selftest-1",
                         "step": "offer_parsed",
@@ -196,7 +204,15 @@ fn preauth_script() -> serde_json::Value {
             "wmp_out": {
                 "expect": {
                     "method": "wmp.flow.progress",
-                    "params": { "flow_id": "flow-selftest-1", "step": "metadata_resolved" }
+                    "params": { "flow_id": "flow-selftest-1", "step": "fetching_metadata" }
+                }
+            }
+        },
+        {
+            "wmp_out": {
+                "expect": {
+                    "method": "wmp.flow.progress",
+                    "params": { "flow_id": "flow-selftest-1", "step": "metadata_fetched" }
                 }
             }
         },
@@ -212,6 +228,14 @@ fn preauth_script() -> serde_json::Value {
             "wmp_out": {
                 "expect": {
                     "method": "wmp.flow.progress",
+                    "params": { "flow_id": "flow-selftest-1", "step": "evaluating_trust" }
+                }
+            }
+        },
+        {
+            "wmp_out": {
+                "expect": {
+                    "method": "wmp.flow.progress",
                     "params": { "flow_id": "flow-selftest-1", "step": "trust_evaluated" }
                 }
             }
@@ -220,7 +244,23 @@ fn preauth_script() -> serde_json::Value {
             "wmp_out": {
                 "expect": {
                     "method": "wmp.flow.progress",
-                    "params": { "flow_id": "flow-selftest-1", "step": "token_received" }
+                    "params": { "flow_id": "flow-selftest-1", "step": "exchanging_token" }
+                }
+            }
+        },
+        {
+            "wmp_out": {
+                "expect": {
+                    "method": "wmp.flow.progress",
+                    "params": { "flow_id": "flow-selftest-1", "step": "token_obtained" }
+                }
+            }
+        },
+        {
+            "wmp_out": {
+                "expect": {
+                    "method": "wmp.flow.progress",
+                    "params": { "flow_id": "flow-selftest-1", "step": "requesting_credential" }
                 }
             }
         },

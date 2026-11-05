@@ -65,6 +65,16 @@ impl FlowHandler for Oid4vpFlow {
             _ => String::new(),
         };
 
+        // The Go engine's step vocabulary: message steps around each
+        // phase (docs/engine-parity.md §2) — the drop-in surface the
+        // SDK's FlowStepCatalog and the frontend's UI state machine key on.
+        let _ = ctx
+            .progress(
+                "parsing_request",
+                &serde_json::json!({ "message": "parsing the authorization request" }),
+            )
+            .await;
+
         let mut auth_req = request::parse_request(ctx.http().as_ref(), &request_params)
             .await
             .map_err(|err| flow_error(err.to_string()))?;
@@ -104,6 +114,13 @@ impl FlowHandler for Oid4vpFlow {
         // The verifier trust through the PDP port — fail closed: a PDP
         // error is never equivalent to "no PDP configured" and never
         // falls back to asking the client (P0.6).
+        let _ = ctx
+            .progress(
+                "evaluating_verifier_trust",
+                &serde_json::json!({ "message": "evaluating the verifier trust" }),
+            )
+            .await;
+
         trust::evaluate_verifier_trust(
             ctx.pdp().as_ref(),
             &auth_req,
@@ -117,6 +134,7 @@ impl FlowHandler for Oid4vpFlow {
             .progress(
                 "trust_evaluated",
                 &serde_json::json!({
+                    "verifier_trust_evaluated": true,
                     "verifier": verifier.client_id,
                     "verifier_name": verifier.name,
                     "trusted": verifier.trusted,
@@ -181,7 +199,10 @@ impl FlowHandler for Oid4vpFlow {
                     ctx.http().as_ref(),
                     &auth_req,
                     "access_denied",
-                    "No credential satisfies the required query",
+                    // The same description as the decline: the verifier
+                    // must not tell a refusal from an empty wallet apart
+                    // (the Go engine's verifierRefusedDescription).
+                    "The wallet did not fulfil the request",
                 )
                 .await;
             }
@@ -206,7 +227,7 @@ impl FlowHandler for Oid4vpFlow {
 
         let _ = ctx
             .progress(
-                "credential_selected",
+                "credential_selection",
                 &serde_json::json!({
                     "count": match_result.selections.len(),
                     "credential_ids": match_result
@@ -240,7 +261,10 @@ impl FlowHandler for Oid4vpFlow {
                 ctx.http().as_ref(),
                 &auth_req,
                 "access_denied",
-                "User declined",
+                // The same description as the empty-match refusal: the
+                // verifier must not tell a decline from an empty wallet
+                // apart (the Go engine's verifierRefusedDescription).
+                "The wallet did not fulfil the request",
             )
             .await;
             let _ = ctx.complete(&serde_json::json!({ "declined": true })).await;
@@ -293,6 +317,15 @@ impl FlowHandler for Oid4vpFlow {
         } else {
             vp_token
         };
+
+        // The Go engine's `submitting_response` message step before the
+        // submission (docs/engine-parity.md §2).
+        let _ = ctx
+            .progress(
+                "submitting_response",
+                &serde_json::json!({ "message": "submitting the presentation" }),
+            )
+            .await;
 
         // Submit the response per the request's response mode. The
         // Clock port supplies the JARM `iat`/`exp`.
@@ -601,7 +634,10 @@ mod presentation_flow_tests {
             flow_id: "flow-vp-1".to_owned(),
             flow_type: "oid4vp".to_owned(),
             params: raw_value(serde_json::json!({
-                "client_id": "x509_san_dns:verifier.example",
+                // The redirect_uri scheme: the x509_san_dns scheme now
+                // requires the signed request form (§5), which the plain
+                // params cannot carry.
+                "client_id": "https://verifier.example",
                 "nonce": "nonce-vp-1",
                 "response_uri": "https://verifier.example/response",
                 "response_mode": "direct_post",
@@ -642,10 +678,7 @@ mod presentation_flow_tests {
         let matches = host.matches.lock().expect("lock");
         assert_eq!(matches.len(), 1);
         assert!(matches[0].dcql_query.is_some());
-        assert_eq!(
-            matches[0].verifier.client_id,
-            "x509_san_dns:verifier.example"
-        );
+        assert_eq!(matches[0].verifier.client_id, "https://verifier.example");
         assert!(matches[0].verifier.trusted);
         drop(matches);
 
@@ -653,7 +686,7 @@ mod presentation_flow_tests {
         // and the response endpoint; no thumbprint for direct_post.
         let vps = host.vps.lock().expect("lock");
         assert_eq!(vps.len(), 1);
-        assert_eq!(vps[0].audience, "x509_san_dns:verifier.example");
+        assert_eq!(vps[0].audience, "https://verifier.example");
         assert_eq!(vps[0].nonce, "nonce-vp-1");
         assert_eq!(vps[0].response_uri, "https://verifier.example/response");
         assert_eq!(vps[0].selections.len(), 2);

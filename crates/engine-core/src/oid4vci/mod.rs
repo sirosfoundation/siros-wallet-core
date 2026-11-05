@@ -97,17 +97,35 @@ impl FlowHandler for Oid4vciFlow {
                 .map_err(|err| flow_error(err.to_string()))?
         };
 
+        // The Go engine's step vocabulary: message steps around each
+        // phase, the drop-in surface the SDK's FlowStepCatalog and the
+        // frontend's UI state machine key on (docs/engine-parity.md §2).
+        let _ = ctx
+            .progress(
+                "parsing_offer",
+                &serde_json::json!({ "message": "parsing the credential offer" }),
+            )
+            .await;
+
         let _ = ctx
             .progress(
                 "offer_parsed",
                 &serde_json::json!({
                     "credential_issuer": offer.credential_issuer,
                     "credential_configuration_ids": offer.credential_configuration_ids,
+                    "grants": offer.grants,
                 }),
             )
             .await;
 
         // ── S1: resolve the issuer metadata ──────────────────────────────
+        let _ = ctx
+            .progress(
+                "fetching_metadata",
+                &serde_json::json!({ "message": "resolving the issuer metadata" }),
+            )
+            .await;
+
         let metadata_type = MetadataType::PreferSigned;
         let issuer_metadata = issuer::resolve_issuer_metadata(
             ctx.http().as_ref(),
@@ -120,7 +138,7 @@ impl FlowHandler for Oid4vciFlow {
 
         let _ = ctx
             .progress(
-                "metadata_resolved",
+                "metadata_fetched",
                 &serde_json::json!({
                     "credential_issuer": issuer_metadata.credential_issuer,
                     "is_signed": issuer_metadata.is_signed,
@@ -150,6 +168,13 @@ impl FlowHandler for Oid4vciFlow {
             .await;
 
         // ── S3: evaluate the issuer's trust through the PDP ─────────────
+        let _ = ctx
+            .progress(
+                "evaluating_trust",
+                &serde_json::json!({ "message": "evaluating the issuer trust" }),
+            )
+            .await;
+
         // Fail closed: an unreachable PDP or an untrusted issuer refuses
         // the flow. No fallback to client-asserted trust.
         let trust_info = trust::evaluate_issuer_trust(
@@ -164,6 +189,7 @@ impl FlowHandler for Oid4vciFlow {
             .progress(
                 "trust_evaluated",
                 &serde_json::json!({
+                    "issuer_trust_evaluated": true,
                     "issuer": offer.credential_issuer,
                     "trusted": trust_info.trusted,
                     "framework": trust_info.framework,
@@ -250,6 +276,13 @@ impl FlowHandler for Oid4vciFlow {
         let (_token, credential) = if let Some(refresh) = &renewal_token {
             // ── The renewal grant: the refresh token the previous flow
             // returned, exchanged with the same client-auth loop.
+            let _ = ctx
+                .progress(
+                    "exchanging_token",
+                    &serde_json::json!({ "message": "exchanging the code for a token" }),
+                )
+                .await;
+
             let token = token::exchange_refresh_token(
                 ctx.http().as_ref(),
                 ctx.host().as_ref(),
@@ -270,7 +303,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "token_received",
+                    "token_obtained",
                     &serde_json::json!({
                         "token_type": token.token_type,
                     }),
@@ -307,6 +340,13 @@ impl FlowHandler for Oid4vciFlow {
                 .to_owned();
             let tx_code_required = grant.get("tx_code").map(|v| !v.is_null()).unwrap_or(false);
 
+            let _ = ctx
+                .progress(
+                    "exchanging_token",
+                    &serde_json::json!({ "message": "exchanging the code for a token" }),
+                )
+                .await;
+
             let token = token::exchange_pre_authorized_code(
                 ctx.http().as_ref(),
                 ctx.host().as_ref(),
@@ -328,7 +368,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "token_received",
+                    "token_obtained",
                     &serde_json::json!({
                         "token_type": token.token_type,
                     }),
@@ -373,7 +413,7 @@ impl FlowHandler for Oid4vciFlow {
 
             let _ = ctx
                 .progress(
-                    "authorization_url",
+                    "authorization_required",
                     &serde_json::json!({
                         "authorization_url": authorization.url,
                         "expected_redirect_uri": authorization.redirect_uri,
@@ -779,6 +819,13 @@ async fn resume_authorization_code(
     // The code-for-token exchange, with the stashed verifier, the RFC
     // 8707 resource the authorization request already decided, and the
     // client attestation the host supplies.
+    let _ = ctx
+        .progress(
+            "exchanging_token",
+            &serde_json::json!({ "message": "exchanging the code for a token" }),
+        )
+        .await;
+
     let token = auth_code::exchange_authorization_code_with_attestation(
         ctx.http().as_ref(),
         ctx.host().as_ref(),
@@ -802,7 +849,7 @@ async fn resume_authorization_code(
 
     let _ = ctx
         .progress(
-            "token_received",
+            "token_obtained",
             &serde_json::json!({
                 "token_type": token.token_type,
             }),
@@ -930,6 +977,15 @@ async fn request_and_deliver(
         ))
     };
 
+    // The Go engine's `requesting_credential` message step before the
+    // credential request (docs/engine-parity.md §2).
+    let _ = ctx
+        .progress(
+            "requesting_credential",
+            &serde_json::json!({ "message": "requesting the credential" }),
+        )
+        .await;
+
     // The auxiliary inputs: the encryption offer, and the DPoP binding
     // when the AS issued a DPoP-bound token (a fresh proof over the
     // credential endpoint, `ath`-bound, signed with the same key that
@@ -964,6 +1020,19 @@ async fn request_and_deliver(
 
     // The deferred polling, when the issuer deferred.
     let credential = if let Some(transaction_id) = &credential.transaction_id {
+        // The Go engine's `deferred` step (docs/engine-parity.md §2):
+        // the transaction, the issuer's interval, the attempt budget.
+        let _ = ctx
+            .progress(
+                "deferred",
+                &serde_json::json!({
+                    "transaction_id": transaction_id,
+                    "interval": 5,
+                    "max_attempts": 60,
+                    "message": "the issuer deferred the credential; polling",
+                }),
+            )
+            .await;
         let deferred_credential = deferred::poll_deferred_credential(
             ctx.http().as_ref(),
             ctx.host().as_ref(),
