@@ -190,6 +190,16 @@ impl App {
         Self::new(&modules.iter().collect::<Vec<_>>())
     }
 
+    /// The language `env`'s lists choose for every module of the package.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the modules.
+    pub fn language(&self, env: &Env) -> Result<LocaleTag, AppError> {
+        let renderer = self.renderer(self.modules.clone(), env)?;
+        Ok(renderer.inputs().language().tag().clone())
+    }
+
     /// A text as plain text, over every module of the package, in the language `env`'s lists
     /// choose.
     ///

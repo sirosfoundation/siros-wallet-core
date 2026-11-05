@@ -175,12 +175,12 @@ impl Profile for TestProfile {
             .map_err(|e| Fault::caused(FAULT, detail!("bound entries"), e))?;
         let rows = vec![
             Row::new(
-                Text::Name("reference"),
+                Text::Raw("Reference".to_owned()),
                 Value::Text(Text::Raw(reference.clone())),
             )
-            .in_section(Text::Name("section")),
+            .in_section(Text::Raw("Section".to_owned())),
             Row::new(
-                Text::Name("logo"),
+                Text::Raw("Logo".to_owned()),
                 Value::Image(Image::Embedded(ImageRef {
                     source: "data:image/png".to_owned(),
                     media: "image/png".to_owned(),
@@ -188,10 +188,10 @@ impl Profile for TestProfile {
                     height: 1,
                 })),
             )
-            .in_section(Text::Name("section")),
+            .in_section(Text::Raw("Section".to_owned())),
         ];
         let transaction = (first == Some(true)).then(|| TransactionHeader {
-            counterparty: Text::Name("merchant"),
+            counterparty: Text::Raw("Merchant".to_owned()),
             amount: Text::Raw("1.00 EUR".to_owned()),
             rows: Vec::new(),
         });
@@ -199,8 +199,8 @@ impl Profile for TestProfile {
             entries,
             header: Header {
                 title: Text::Raw(format!("entries {reference}")),
-                confirm: Text::Name("confirm"),
-                cancel: Text::Name("cancel"),
+                confirm: Text::Raw("Confirm".to_owned()),
+                cancel: Text::Raw("Cancel".to_owned()),
             },
             attested: Attested::new(vec![("entries".to_owned(), reference.clone())])
                 .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
