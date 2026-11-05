@@ -7,9 +7,11 @@
 use std::sync::Arc;
 
 use wmp_core::context::RequestContext;
+use wmp_core::error::{RpcError, ERR_INVALID_PARAMS, ERR_METHOD_NOT_FOUND};
 use wmp_core::handler::Handler;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
+use wmp_core::resolve::new_vctm_resolve_result;
 use wmp_core::session::MemorySessionStore;
 use wmp_core::sessionservice::{Clock, SessionHandler, SessionService, SessionServiceConfig};
 
@@ -89,6 +91,72 @@ impl Handler for EngineHandler {
         params: &SessionAuthenticateParams,
     ) -> Result<SessionAuthenticateResult, HandlerError> {
         self.session.session_authenticate(ctx, params)
+    }
+
+    // ── Resolve: the vctm lookup (WMP Core 5.8) ─────────────────────────
+
+    /// `wmp.resolve` (WMP Core 5.8): the `vctm` lookup. The uri names a
+    /// fetchable type metadata document (the Go engine's direct-URL path
+    /// — its registry is the backend's, which the standalone engine does
+    /// not carry) — fetched through the engine's own `HttpClient` port,
+    /// with the port's transport rules, and projected to the six members
+    /// a vctm resolution carries (Core 5.8.1).
+    ///
+    /// An empty uri answers `-32602`; a lookup that cannot produce a
+    /// document — the fetch refused, a non-200, a document that cannot be
+    /// carried — answers `-32603` with `reason: metadata_fetch_error`,
+    /// never the raw body. A resolution type the engine does not serve
+    /// answers `-32601`.
+    fn resolve(
+        &self,
+        _ctx: &RequestContext,
+        params: &ResolveParams,
+    ) -> Result<ResolveResult, HandlerError> {
+        if params.r#type != RESOLVE_TYPE_VCTM {
+            return Err(RpcError::code(ERR_METHOD_NOT_FOUND).into());
+        }
+        if params.uri.is_empty() {
+            return Err(RpcError::code(ERR_INVALID_PARAMS).into());
+        }
+        let fetch_error = || {
+            HandlerError::Rpc(RpcError::new(
+                wmp_core::error::ERR_INTERNAL_ERROR,
+                Some(serde_json::json!({
+                    "reason": wmp_core::resolve::RESOLVE_REASON_METADATA_FETCH_ERROR,
+                })),
+            ))
+        };
+        // The vctm fetch: bounded, the port's transport rules
+        // (allow_plaintext refused). A 410-style per-fetch SSE route does
+        // not apply here: the document is the engine's own answer.
+        let response = tokio::task::block_in_place(|| {
+            let ports = self.runtime.ports();
+            let uri = params.uri.clone();
+            tokio::runtime::Handle::current().block_on(async move {
+                engine_ports::HttpClient::send(
+                    ports.http.as_ref(),
+                    engine_ports::HttpRequest {
+                        method: "GET".to_owned(),
+                        url: uri,
+                        headers: vec![("accept".to_owned(), "application/json".to_owned())],
+                        body: Vec::new(),
+                        purpose: engine_ports::FetchPurpose::IssuerMetadata,
+                        max_response_bytes: 1 << 20,
+                        redirects: engine_ports::RedirectPolicy::Max(5),
+                        allow_plaintext: false,
+                        timeout_ms: 10_000,
+                    },
+                )
+                .await
+            })
+        })
+        .map_err(|_| fetch_error())?;
+        if response.status != 200 {
+            return Err(fetch_error());
+        }
+        // The projection to the carried members (the vct, name,
+        // description, display, claims, schema), else the fetch error.
+        new_vctm_resolve_result(&params.wmp.session_id, &params.uri, &response.body)
     }
 
     // ── Flow methods: the FlowRuntime ───────────────────────────────────

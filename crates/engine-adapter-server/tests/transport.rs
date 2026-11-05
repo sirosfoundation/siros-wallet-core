@@ -388,3 +388,126 @@ async fn a_reconnect_replays_the_events_it_missed() {
         "the event the client already saw does not replay: {text}"
     );
 }
+
+// ─── The wmp.resolve vctm lookup (WMP Core 5.8) ─────────────────────────────
+//
+// The engine fetches the uri through its own HttpClient port (the Go
+// engine's direct-URL path) and projects the document to the six members
+// a vctm resolution carries (Core 5.8.1). The lookup failure answers
+// -32603 with reason metadata_fetch_error, never the raw body.
+
+/// One HTTP request answered with a fixed JSON body: the vctm document
+/// server for the resolve tests.
+async fn serve_once(document: &'static str) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("address");
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut buffer = [0u8; 4096];
+        let _ = socket.read(&mut buffer).await;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+            document.len(),
+            document
+        );
+        let _ = socket.write_all(response.as_bytes()).await;
+    });
+    format!("http://{addr}/vct/PID")
+}
+
+async fn post_resolve(server: &Arc<EngineServer>, uri: &str) -> (StatusCode, Vec<u8>) {
+    post_wmp(
+        server,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "req-resolve",
+            "method": "wmp.resolve",
+            "params": {
+                "wmp": { "version": "0.1" },
+                "type": "vctm",
+                "uri": uri,
+            }
+        })
+        .to_string(),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vctm_resolution_projects_the_document_s_members() {
+    // The local document server: the config's allow_plaintext gates the
+    // http fetch (the port's transport rules).
+    let uri = serve_once(
+        r#"{"vct":"https://registry.example/vct/PID","name":"PID","description":"Identity","claims":{"given_name":{"display":"Given name"}},"schema":{"type":"object"},"extra":"dropped"}"#,
+    )
+    .await;
+    let server = Arc::new(EngineServer::new(engine_adapter_server::config::Config {
+        allow_plaintext: true,
+        ..engine_adapter_server::config::Config::default()
+    }));
+
+    let (status, body) = post_resolve(&server, &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+    let result = response.get("result").cloned().unwrap_or_default();
+    assert_eq!(
+        result.get("type").and_then(serde_json::Value::as_str),
+        Some("vctm")
+    );
+    let metadata = result.get("metadata").cloned().unwrap_or_default();
+    let object = metadata.as_object().cloned().unwrap_or_default();
+    // The carried members (Core 5.8.1): vct, name, description, claims —
+    // and nothing else (the schema member here, the extra member
+    // dropped).
+    assert!(object.contains_key("vct"));
+    assert!(object.contains_key("name"));
+    assert!(object.contains_key("description"));
+    assert!(object.contains_key("claims"));
+    assert!(
+        !object.contains_key("extra"),
+        "the members a vctm resolution does not carry are dropped: {metadata}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vctm_resolution_of_an_empty_uri_answers_32602() {
+    let server = test_server();
+    let (status, body) = post_resolve(&server, "").await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+    assert_eq!(
+        response
+            .pointer("/error/code")
+            .and_then(serde_json::Value::as_i64),
+        Some(-32602)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vctm_resolution_that_cannot_fetch_answers_32603_with_the_reason() {
+    // A port that refuses the fetch: plaintext refused (the config's
+    // default), so the http document server is unreachable through the
+    // port's rules.
+    let uri = serve_once("{}").await;
+    let server = test_server();
+    let (status, body) = post_resolve(&server, &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_slice(&body).expect("parse");
+    assert_eq!(
+        response
+            .pointer("/error/code")
+            .and_then(serde_json::Value::as_i64),
+        Some(-32603),
+        "a refused fetch is a resolution error: {response}"
+    );
+    assert_eq!(
+        response
+            .pointer("/error/data/reason")
+            .and_then(serde_json::Value::as_str),
+        Some("metadata_fetch_error"),
+        "the safe reason only, never the transport detail: {response}"
+    );
+}
