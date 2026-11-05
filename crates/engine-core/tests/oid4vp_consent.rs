@@ -237,6 +237,9 @@ fn vet_context(mode: ConsentCheckMode, telemetry: Arc<RecordingTelemetry>) -> Fl
             kv: Arc::new(NoopKv),
             telemetry,
             consent_check: mode,
+            notifications: Arc::new(
+                engine_core::oid4vci::notification::NotificationContexts::default(),
+            ),
         }),
         peer,
         request_context: wmp_core::context::RequestContext::default(),
@@ -293,6 +296,9 @@ fn flow_context(
             kv: Arc::new(NoopKv),
             telemetry,
             consent_check: mode,
+            notifications: Arc::new(
+                engine_core::oid4vci::notification::NotificationContexts::default(),
+            ),
         }),
         peer,
         request_context: wmp_core::context::RequestContext::default(),

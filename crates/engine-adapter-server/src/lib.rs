@@ -93,6 +93,9 @@ impl EngineServer {
             kv: Arc::new(crate::ports::InMemoryKv::default()),
             telemetry: Arc::new(crate::ports::NoopTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            notifications: std::sync::Arc::new(
+                engine_core::oid4vci::notification::NotificationContexts::default(),
+            ),
         });
 
         // Build the peer first (the FlowRuntime sends through it). The
@@ -110,8 +113,26 @@ impl EngineServer {
         let bridge = crate::host_bridge::WmpHostBridge::new(peer.clone());
         remote_host.set_bridge(bridge.clone());
 
-        // Then the runtime over the same ports and peer.
+        // Then the runtime over the same ports and peer — with the
+        // flow families registered (the drop-in server: a flow type
+        // nobody registered answers -31005, core §10.3). The
+        // credential_notification family rides the same notification
+        // context store its Ports carry.
         let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
+        if let Err(err) = runtime.register(Arc::new(engine_core::oid4vci::Oid4vciFlow)) {
+            eprintln!("engine-server: register the oid4vci family: {err}");
+            std::process::exit(1);
+        }
+        if let Err(err) = runtime.register(Arc::new(engine_core::oid4vp::Oid4vpFlow)) {
+            eprintln!("engine-server: register the oid4vp family: {err}");
+            std::process::exit(1);
+        }
+        if let Err(err) = runtime.register(Arc::new(
+            engine_core::oid4vci::notification::CredentialNotificationFlow,
+        )) {
+            eprintln!("engine-server: register the credential_notification family: {err}");
+            std::process::exit(1);
+        }
 
         Self {
             peer,

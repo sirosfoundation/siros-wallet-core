@@ -192,6 +192,9 @@ mod presentation_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -414,6 +417,9 @@ mod presentation_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -549,6 +555,9 @@ mod untrusted_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -731,6 +740,9 @@ mod sign_refusal_tests {
                 )),
                 telemetry: Arc::new(super::presentation_flow_tests::NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    engine_core::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),

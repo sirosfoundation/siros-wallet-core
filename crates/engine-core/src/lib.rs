@@ -87,4 +87,12 @@ pub struct Ports {
     /// policy — the adapter parses its configured value; the default
     /// is warn.
     pub consent_check: engine_ports::ConsentCheckMode,
+    /// The notification context registry (#527/#528): the ephemeral,
+    /// in-process store the OID4VCI completions register their
+    /// issuance contexts in and the `credential_notification` flows
+    /// forward from. Never persisted (the Go engine's rule): the
+    /// default is in-memory, and a store-backed adapter would breach
+    /// the design before it helped — the context carries the
+    /// issuance access token.
+    pub notifications: std::sync::Arc<crate::oid4vci::notification::NotificationContexts>,
 }

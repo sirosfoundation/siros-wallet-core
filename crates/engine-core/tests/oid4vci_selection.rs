@@ -298,6 +298,9 @@ fn test_context(
             kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
             telemetry: Arc::new(NoopTelemetry),
             consent_check: engine_ports::ConsentCheckMode::Warn,
+            notifications: std::sync::Arc::new(
+                engine_core::oid4vci::notification::NotificationContexts::default(),
+            ),
         }),
         peer,
         request_context: wmp_core::context::RequestContext::default(),

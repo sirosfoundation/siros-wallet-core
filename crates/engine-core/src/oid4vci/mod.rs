@@ -14,6 +14,7 @@ pub mod encryption;
 pub mod entitlement;
 pub mod issuer;
 pub mod nonce;
+pub mod notification;
 pub mod offer;
 pub mod selection;
 pub mod token;
@@ -606,6 +607,34 @@ impl FlowHandler for Oid4vciFlow {
                 }
             }
         }
+
+        // ── The notification context (#527): the issuer advertised a
+        // notification endpoint and returned a `notification_id`, so
+        // the engine retains the issuance context — the endpoint, the
+        // access token, the DPoP signing means — for the wallet's
+        // later `credential_notification` flow (WMP OpenID4x 3.4).
+        // The completion tells the wallet what it needs to start one:
+        // the endpoint and the id. Nothing is retained otherwise.
+        if let Some(token) = _token.as_ref() {
+            if let Some(response) = credential.as_ref() {
+                let members = notification::register(
+                    ctx,
+                    &params.flow_id,
+                    &issuer_metadata,
+                    token,
+                    response,
+                    dpop_key.as_ref(),
+                    dpop_key_id.as_deref(),
+                );
+                if let (Some(object), Some(notification)) =
+                    (completion.as_object_mut(), members.as_object())
+                {
+                    for (key, value) in notification {
+                        object.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
         let _ = ctx.complete(&completion).await;
 
         Ok(FlowStartResult {
@@ -1098,6 +1127,27 @@ async fn resume_authorization_code(
             }
         }
     }
+
+    // ── The notification context, again on the resume (#527): the
+    // same registration as the flow start's completion, so a wallet
+    // that finished its issuance over the authorization-code round
+    // trip can notify too. The flow id is the issuance's (the stash
+    // key), and the client-held DPoP key id does not survive the
+    // round trip (the resume's exchange signs engine-held).
+    let members = notification::register(
+        ctx,
+        &params.flow_id,
+        &issuer_metadata,
+        &token,
+        &credential,
+        dpop_key.as_ref(),
+        None,
+    );
+    if let (Some(object), Some(notification)) = (completion.as_object_mut(), members.as_object()) {
+        for (key, value) in notification {
+            object.insert(key.clone(), value.clone());
+        }
+    }
     let _ = ctx.complete(&completion).await;
 
     Ok(FlowActionResult {
@@ -1540,6 +1590,9 @@ mod auth_code_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoopTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    crate::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -1933,6 +1986,9 @@ mod renewal_flow_tests {
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
                 consent_check: engine_ports::ConsentCheckMode::Warn,
+                notifications: std::sync::Arc::new(
+                    crate::oid4vci::notification::NotificationContexts::default(),
+                ),
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),

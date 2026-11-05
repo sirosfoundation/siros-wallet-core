@@ -152,7 +152,10 @@ pub enum DpopError {
 ///
 /// One key spans the flow: the token request's proofs and the resource
 /// requests' `ath`-bound proofs are signed by the same key, which is
-/// what makes the DPoP binding hold.
+/// what makes the DPoP binding hold. The notification context retains
+/// the key past the flow's completion (the credential_notification flow
+/// signs its proofs with it), so it is `Clone`.
+#[derive(Clone)]
 pub struct DpopKey {
     /// The private JWK (flow-scoped, never serialized out of the core).
     private: jose_rs::jwk::Jwk,
