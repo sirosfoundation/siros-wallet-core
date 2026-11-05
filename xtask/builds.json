@@ -67,8 +67,25 @@
       ],
       "fewer_than": 96,
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "dc-api"
+            ]
+          },
+          {
+            "name": "siros-sdjwt",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {
@@ -143,8 +160,25 @@
       "fewer_than": 96,
       "differs_from": "SD-JWT over the DC API, unsigned",
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "dc-api"
+            ]
+          },
+          {
+            "name": "siros-mdoc",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {
@@ -217,8 +251,25 @@
         }
       ],
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "match"
+            ]
+          },
+          {
+            "name": "siros-sdjwt",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {
@@ -301,8 +352,30 @@
         }
       ],
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "dc-api",
+              "transaction-data"
+            ]
+          },
+          {
+            "name": "siros-sdjwt",
+            "features": []
+          },
+          {
+            "name": "siros-paso",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {
@@ -378,8 +451,30 @@
         }
       ],
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "dc-api",
+              "transaction-data"
+            ]
+          },
+          {
+            "name": "siros-sdjwt",
+            "features": []
+          },
+          {
+            "name": "siros-mdoc",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {
@@ -466,8 +561,30 @@
         }
       ],
       "matcher": {
-        "without": [
-          "siros-i18n"
+        "crates": [
+          {
+            "name": "siros-openid4vp",
+            "features": [
+              "dc-api",
+              "transaction-data"
+            ]
+          },
+          {
+            "name": "siros-sdjwt",
+            "features": []
+          },
+          {
+            "name": "siros-paso",
+            "features": []
+          },
+          {
+            "name": "siros-credman",
+            "features": []
+          }
+        ],
+        "forbid": [
+          "siros-openid4vp/resolve",
+          "siros-credman/register"
         ],
         "exact": [
           {

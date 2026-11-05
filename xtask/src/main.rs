@@ -4,7 +4,7 @@
 //!   features it turns on) compiles none of the crates and crate features its row excludes, each
 //!   crate its row lists as exact with those features alone, fewer crates than its row's bound,
 //!   and another set of crates than the build its row names. A row's `matcher` is the build of
-//!   the same crates less those it leaves out, held to its own exact crates. A
+//!   its own crates, held to its build's exclusions and its own, and to its own exact crates. A
 //!   build is a probe package, written under `target/xtask/`, that depends on its crates; `cargo
 //!   tree -e normal` lists what it compiles, over the workspace's lock file, each crate counted
 //!   once per version.
@@ -65,12 +65,14 @@ struct Build {
     matcher: Option<Matcher>,
 }
 
-/// A build's matcher: the build's crates less those it leaves out, and the crates it compiles
-/// with exactly the features listed.
+/// A build's matcher: its crates (the core and the plug-ins without `resolve`, siros-credman),
+/// what it compiles none of beside its build's exclusions, and the crates it compiles with exactly
+/// the features listed.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Matcher {
-    without: Vec<String>,
+    crates: Vec<Dependency>,
+    forbid: Vec<String>,
     exact: Vec<Dependency>,
 }
 
@@ -333,20 +335,24 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
         );
         holds &= found.is_empty() && inexact.is_empty() && bounded && distinct;
         if let Some(matcher) = &build.matcher {
-            let crates: Vec<Dependency> = build
-                .crates
+            let tree = Tree::of(&probe(
+                workspace,
+                &format!("matcher-{place}"),
+                &matcher.crates,
+            )?)?;
+            let forbid: Vec<String> = build
+                .forbid
                 .iter()
-                .filter(|dependency| !matcher.without.contains(&dependency.name))
+                .chain(&matcher.forbid)
                 .cloned()
                 .collect();
-            let tree = Tree::of(&probe(workspace, &format!("matcher-{place}"), &crates)?)?;
-            let found = tree.forbidden(&build.forbid);
+            let found = tree.forbidden(&forbid);
             let inexact = tree.inexact(&matcher.exact);
             println!(
                 "build {} matcher: {} crates; forbidden {}; inexact {}",
                 build.name,
                 tree.crates.len(),
-                listed(&found, build.forbid.len()),
+                listed(&found, forbid.len()),
                 listed(&inexact, matcher.exact.len()),
             );
             holds &= found.is_empty() && inexact.is_empty();
