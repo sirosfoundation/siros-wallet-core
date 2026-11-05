@@ -81,4 +81,10 @@ pub struct Ports {
     pub kv: std::sync::Arc<dyn engine_ports::KeyValue>,
     /// The telemetry the engine reports to (default: no-op).
     pub telemetry: std::sync::Arc<dyn engine_ports::Telemetry>,
+    /// The presentation consent policy (the Go
+    /// `presentation.dcql_consent_check`): how a match answer that
+    /// does not fit the DCQL query it was sent is treated. Deployment
+    /// policy — the adapter parses its configured value; the default
+    /// is warn.
+    pub consent_check: engine_ports::ConsentCheckMode,
 }

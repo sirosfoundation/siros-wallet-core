@@ -147,6 +147,7 @@ pub fn run_vector(vector: &VectorFile) -> Verdict {
         pdp: Arc::new(ScriptedPdp::new(&setup)),
         kv: Arc::new(MemoryKv::new()),
         telemetry: Arc::new(NoTelemetry),
+        consent_check: engine_ports::ConsentCheckMode::Warn,
     });
     let runtime = Arc::new(engine_core::runtime::FlowRuntime::new(ports, peer.clone()));
     if let Err(err) = runtime.register(Arc::new(engine_core::oid4vci::Oid4vciFlow)) {

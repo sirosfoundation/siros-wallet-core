@@ -92,6 +92,7 @@ impl EngineServer {
             pdp: Arc::new(crate::ports::BackendProxyPdp::new(&config)),
             kv: Arc::new(crate::ports::InMemoryKv::default()),
             telemetry: Arc::new(crate::ports::NoopTelemetry),
+            consent_check: engine_ports::ConsentCheckMode::Warn,
         });
 
         // Build the peer first (the FlowRuntime sends through it). The

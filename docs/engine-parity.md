@@ -331,10 +331,9 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    wasm self-test. **#511 — the offer's `authorization_server` hint**
    (`select_as_url`, both grant paths + the resume): a grant-level hint
    MUST match a metadata entry exactly (else fail closed); absent + several
-   advertised: the documented first-entry choice. **Remaining from §2:
-   the `awaiting_selection` step + the multi-config `select_credential`
-   action path** — folded into W6 (the consent/selection wave), where the
-   selection UX belongs.
+   advertised: the documented first-entry choice. **The `awaiting_selection` step + the
+   multi-config `select_credential` action path** — landed with W6
+   (the consent/selection wave).
 2. **W2 — the bridge (#163): COMPLETE.** ✅ the SSE event pump (`id:`
    lines, `Last-Event-ID` replay, `410 Gone`, the
    `refresh_token`/`dpop_jwk`/`dpop_key_id` redaction, and the replayer
@@ -404,8 +403,33 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    too. **Remaining: the backend adapter's `evaluate_entitlement`**
    (the WRPAC/WRPRC rulebook evaluation on `go-trust`'s rpcert,
    mirroring `pkg/issuertrust`) — lands with the adapter work in W9.
-6. **W6 — the consent component (#525)**: the SDK-side DCQL vetting and
-   selection handle.
+6. **W6 — COMPLETE (the consent component #525 + the selection)**:
+   `oid4vp/consent.rs` — the DCQL vetting of the host's match answer
+   (the Go `checkConsentAgainstDCQL`, its fixture table ported case
+   for case): the four reason classes, `always_disclosed`, the bounds
+   (a 32-element path, a 512-byte entry, a 64-character logged id),
+   the bare and `.`-joined entry spellings, the memoised wildcard
+   matcher, the `credential_sets` options constraint. The mode
+   (`presentation.dcql_consent_check`: off/warn/enforce, the default
+   warn) rides `Ports` — `engine_ports::ConsentCheckMode`. Warn
+   records the violation (telemetry: the reason class and the query id
+   alone, never a claim name) and proceeds; enforce answers the
+   verifier `access_denied` before the consent UI is asked — the
+   two-ask split vets at the match answer, where the Go single ask
+   vets after. The transport's selection handle (OpenID4x 3.2.3.1)
+   rides `MatchResult.handle` into `VpParams.selection_handle`,
+   unchanged. `oid4vci/selection.rs` — the `awaiting_selection` step
+   and the host ask (`Host::request_credential_selection`, default
+   refusal): exactly one resolvable configuration auto-selects (no
+   progress, no ask); more emits the progress with the
+   `available_credentials` (the Go wire names) and asks. The answer is
+   constrained to the offer — stronger than the Go engine's
+   metadata-wide check — because the entitlement check evaluated the
+   offered configurations: a selection outside the offer refuses. The
+   auth-code stash carries the selection; the resume requests the
+   stashed configuration, no second ask. The selected configuration
+   threads the auxiliary gate, the authorization request (the scope)
+   and the credential request — the blinded `first()` is gone.
 7. **W7 — the notification flow (#527/#528)**: the flow type, the context
    store with single-use/spend-after-contact/TTL semantics, the DPoP
    sub-flow, the capability advert.

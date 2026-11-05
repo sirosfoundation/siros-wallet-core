@@ -2,6 +2,7 @@
 //! selection, transaction data, VP signing, and response submission — S4's
 //! presentation flow, built on the same `FlowHandler` seam.
 
+pub mod consent;
 pub mod dcql;
 pub mod jarm;
 pub mod request;
@@ -249,6 +250,46 @@ impl FlowHandler for Oid4vpFlow {
             )
             .await;
 
+        // ── The consent policy (#525, the Go consentPolicy.Decide):
+        // the host's answer is vetted against the query it was sent
+        // before anything is signed. The Go engine vets the one
+        // answer its single ask carries; this core's match and
+        // consent asks are two, so the vetting sits on the match
+        // answer — a refused answer never reaches the consent UI.
+        // An `enforce` deployment refuses the presentation: the
+        // verifier is answered `access_denied`, as a decline is, and
+        // the flow ends with the refusal's reason class. `warn`
+        // records the violation (telemetry: the reason class and the
+        // query id alone) and proceeds; `off` compares nothing. A
+        // query that cannot be interpreted is a violation, never a
+        // pass.
+        if let Some(violation) =
+            consent::vet(ctx, auth_req.dcql_query.as_ref(), &match_result.selections).await
+        {
+            let _ = response::submit_error_response(
+                ctx.http().as_ref(),
+                &auth_req,
+                "access_denied",
+                // The same description as every refusal: the verifier
+                // must not tell a refused consent from a decline or an
+                // empty wallet apart.
+                "The wallet did not fulfil the request",
+                ctx.clock().now_unix(),
+            )
+            .await;
+            let _ = ctx
+                .complete(&serde_json::json!({
+                    "refused": true,
+                    "reason": violation.reason,
+                }))
+                .await;
+            return Ok(FlowStartResult {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: params.flow_id.clone(),
+                flow_type: params.flow_type.clone(),
+            });
+        }
+
         // Ask the host's user for consent.
         let consent = ctx
             .host()
@@ -313,6 +354,10 @@ impl FlowHandler for Oid4vpFlow {
                 verifier_session_id: trust::query_param(&outer_request_uri, "sessionId")
                     .unwrap_or_default(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
+                // The transport's selection handle, unchanged (WMP
+                // OpenID4x 3.2.3.1): the answer's correlation rides
+                // back so the transport's ask matches its answer.
+                selection_handle: match_result.handle.clone(),
             })
             .await
         {

@@ -740,7 +740,12 @@ impl Host for MiniHost {
                 disclosed_claims,
             });
         }
-        Ok(MatchResult { selections })
+        Ok(MatchResult {
+            selections,
+            // The mini host has no transport handle: the ask is
+            // answered in-process.
+            handle: None,
+        })
     }
 
     /// The presentation: the held PID's SD-JWT with the selected

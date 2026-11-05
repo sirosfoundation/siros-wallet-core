@@ -15,6 +15,7 @@ pub mod entitlement;
 pub mod issuer;
 pub mod nonce;
 pub mod offer;
+pub mod selection;
 pub mod token;
 pub mod trust;
 pub mod types;
@@ -281,6 +282,36 @@ impl FlowHandler for Oid4vciFlow {
             )));
         }
 
+        // ── The credential configuration selection (the Go engine's
+        // `awaitCredentialSelection`, docs/engine-parity.md §2's gap
+        // B1): which of the offer's configurations the wallet issues.
+        // Exactly one resolvable configuration auto-selects (no ask);
+        // more than one is the user's choice — the
+        // `awaiting_selection` progress with the
+        // `available_credentials`, then the host's answer. The answer
+        // is constrained to the offer: what is issued is what the
+        // entitlement check above evaluated. The selection runs BEFORE
+        // any authorization or request, so the advertisement the
+        // gate below reads — and the credential request — name the
+        // selected configuration.
+        let selection = selection::select_configuration(
+            ctx,
+            &params.flow_id,
+            &issuer_metadata,
+            &offer.credential_configuration_ids,
+        )
+        .await
+        .map_err(|err| match err {
+            selection::SelectionError::Declined => {
+                flow_error("the user declined the selection".to_owned())
+            }
+            selection::SelectionError::Invalid => {
+                flow_error("invalid credential configuration".to_owned())
+            }
+        })?;
+        let configuration_id = selection.configuration_id;
+        let configuration = selection.configuration;
+
         // ── The auxiliary-data selection gate (Credential Auxiliary Data
         // v0.1, #480): the advertisement is read from the selected
         // configuration BEFORE any authorization or request — an entry the
@@ -290,16 +321,6 @@ impl FlowHandler for Oid4vciFlow {
         // in the issuer's credential_metadata among them) fails closed.
         // The engine never handles a secret value: the gate reads the
         // advertisement alone.
-        let configuration_id = offer
-            .credential_configuration_ids
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        let configuration = issuer_metadata
-            .credential_configurations
-            .get(&configuration_id)
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
         let delivery = match auxiliary::secret_delivery_of(&configuration) {
             Ok(delivery) => delivery,
             Err(err) => {
@@ -436,12 +457,8 @@ impl FlowHandler for Oid4vciFlow {
                 )
                 .await;
 
-            let configuration_id = offer
-                .credential_configuration_ids
-                .first()
-                .cloned()
-                .unwrap_or_default();
-
+            // The selected configuration (the selection above), not a
+            // second reading of the offer.
             let credential = request_and_deliver(
                 ctx,
                 &params.flow_id,
@@ -502,12 +519,8 @@ impl FlowHandler for Oid4vciFlow {
                 )
                 .await;
 
-            let configuration_id = offer
-                .credential_configuration_ids
-                .first()
-                .cloned()
-                .unwrap_or_default();
-
+            // The selected configuration (the selection above), not a
+            // second reading of the offer.
             let credential = request_and_deliver(
                 ctx,
                 &params.flow_id,
@@ -536,6 +549,7 @@ impl FlowHandler for Oid4vciFlow {
                 &offer,
                 &as_metadata,
                 &issuer_metadata,
+                &configuration_id,
             )
             .await?;
 
@@ -648,6 +662,11 @@ struct AuthorizationStash {
     redirect_uri: String,
     client_id: String,
     resource: Option<String>,
+    /// The selected credential configuration — the user's choice, made
+    /// before the redirect: the resume requests the same one, never a
+    /// re-derivation (and never a second ask) after the browser
+    /// roundtrip.
+    configuration_id: String,
     /// The original offer params, as the flow start received them — the
     /// resume re-parses the offer from this (the stateless resume).
     offer_params: serde_json::Value,
@@ -669,6 +688,7 @@ async fn start_authorization_code(
     offer: &types::CredentialOffer,
     as_metadata: &types::AsMetadata,
     issuer_metadata: &types::IssuerMetadata,
+    configuration_id: &str,
 ) -> Result<AuthorizationHandoff, HandlerError> {
     let flow_error = |reason: String| {
         HandlerError::Rpc(wmp_core::error::RpcError::new(
@@ -713,15 +733,11 @@ async fn start_authorization_code(
     let state = auth_code::generate_state(ctx.rng().as_ref())
         .ok_or_else(|| flow_error("the Rng port could not generate the state".to_owned()))?;
 
-    // The selected configuration's scope, when it declares one.
-    let configuration_id = offer
-        .credential_configuration_ids
-        .first()
-        .cloned()
-        .unwrap_or_default();
+    // The selected configuration's scope, when it declares one — the
+    // selection's choice, not a re-derivation from the offer.
     let scope = issuer_metadata
         .credential_configurations
-        .get(&configuration_id)
+        .get(configuration_id)
         .and_then(|config| config.get("scope"))
         .and_then(|v| v.as_str());
 
@@ -819,6 +835,7 @@ async fn start_authorization_code(
         redirect_uri,
         client_id,
         resource,
+        configuration_id: configuration_id.to_owned(),
         offer_params: offer_params.clone(),
     };
     ctx.kv()
@@ -1024,11 +1041,11 @@ async fn resume_authorization_code(
         }
     }
 
-    let configuration_id = offer
-        .credential_configuration_ids
-        .first()
-        .cloned()
-        .unwrap_or_default();
+    // The selected configuration, as the stash carried it across the
+    // redirect — the user's choice before the authorization, not a
+    // re-derivation (and never a second ask) after the browser
+    // roundtrip.
+    let configuration_id = stash.configuration_id.clone();
 
     // The auxiliary-data selection gate, again on the resume (#480): the
     // same parse and verdict, before the credential request.
@@ -1373,6 +1390,7 @@ mod auth_code_flow_tests {
                     credential_id: "cred-1".to_owned(),
                     disclosed_claims: Vec::new(),
                 }],
+                handle: None,
             })
         }
         async fn request_consent(&self, _p: ConsentParams) -> Result<ConsentResult, HostError> {
@@ -1521,6 +1539,7 @@ mod auth_code_flow_tests {
                 pdp: Arc::new(TrustedPdp),
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoopTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),
@@ -1913,6 +1932,7 @@ mod renewal_flow_tests {
                 pdp: Arc::new(TrustedPdp),
                 kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
                 telemetry: Arc::new(NoTelemetry),
+                consent_check: engine_ports::ConsentCheckMode::Warn,
             }),
             peer,
             request_context: wmp_core::context::RequestContext::default(),

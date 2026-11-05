@@ -146,6 +146,7 @@ impl WasmEngine {
             pdp: std::sync::Arc::new(JsPdp::new(required(&pdp, "evaluate")?)),
             kv: std::sync::Arc::new(JsKeyValue::new(kv_get, kv_put, kv_del)),
             telemetry: std::sync::Arc::new(NoTelemetry),
+            consent_check: engine_ports::ConsentCheckMode::Warn,
         });
 
         let clock: wmp_core::sessionservice::Clock = match now {
