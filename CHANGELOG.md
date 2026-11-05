@@ -137,8 +137,8 @@ released version yet.
   `Reply`), and §8.2's plain form by URI.
 - Phase 2 answers an authenticated request through its route.
   `Prepared::prepare` takes the `Authenticated` and the ids the End-User
-  chose, one or more (`AllOf<&str>`), and reads the request from the
-  authenticated envelope. `Route::new` binds the authenticated endpoint, the
+  chose, none when every credential set is optional (§6.4.2), and reads the
+  request from the authenticated envelope. `Route::new` binds the authenticated endpoint, the
   registered modes the request names and the key the answering mode chose,
   checked; `Route::answering` gives the `AnswerRoute`, whose `answer` seals,
   has the mode wrap the content and delivers to the bound endpoint, and whose
@@ -156,9 +156,8 @@ released version yet.
   `RegistryBuilder::response_parameters`) under names the registry checks
   (`NamePlace::ResponseParameter`, `CORE_RESPONSE`); phase 2 writes them
   after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is
-  the double; its `fixtures::authenticate`, `fixtures::selection` and
-  `fixtures::trust_config` give a test an authenticated request and a
-  selection.
+  the double; its `fixtures::authenticate` and `fixtures::trust_config` give
+  a test an authenticated request.
 - The consent entry's icon is of any image media type; `siros-credman` draws
   PNG and JPEG and the card's icon otherwise.
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads

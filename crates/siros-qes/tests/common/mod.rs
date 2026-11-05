@@ -598,7 +598,6 @@ pub fn approve(
     let host = TestHost::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), profile, &host)
         .expect("authentic");
-    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
     let response =
         Prepared::prepare(&authenticated, &ids, &wallet, profile, &env)?.respond(fetch, &host)?;
     let vp_token: Json =

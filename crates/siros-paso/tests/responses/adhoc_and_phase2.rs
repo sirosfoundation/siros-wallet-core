@@ -321,8 +321,8 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
         let authenticated =
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
                 .expect("authentic");
-        let ids = siros_testkit::fixtures::selection(&[id]).expect("one id");
-        match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env).and_then(
+        let ids: &[&str] = &[id];
+        match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env).and_then(
             |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
         ) {
             Ok(_) => Ok(()),

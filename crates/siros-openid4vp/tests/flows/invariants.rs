@@ -13,7 +13,6 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::Value;
-use siros_explain::AllOf;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{Authenticated, BoundEndpoint};
 use siros_openid4vp::envelope::Envelope;
@@ -633,7 +632,6 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         return;
     };
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let ids = AllOf::new(ids).expect("a selection holds records");
     let built =
         Prepared::prepare(&authenticated, &ids, &wallet, registry, &env).and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
@@ -787,7 +785,6 @@ fn delivery_bytes(under: &Under, registry: &Registry<TestHost>, case: &Case) -> 
     let env = env("en");
     let ids = first_selection(&request, &wallet, registry, &env).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let ids = AllOf::new(ids).expect("records");
     let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env)
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)

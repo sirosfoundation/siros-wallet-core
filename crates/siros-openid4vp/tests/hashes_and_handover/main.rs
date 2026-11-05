@@ -232,7 +232,6 @@ fn answer<'a, H: CoreHost + Default>(
     let shown = display(&sets, &views, &[]).expect("display");
     let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let ids = shown.select(0, &first).expect("selection").ids();
-    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
     let host = H::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, &host)
         .expect("authentic");
@@ -384,7 +383,6 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let shown = display(&sets, &views, &[]).expect("display");
         let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
         let ids = shown.select(0, &first).expect("selection").ids();
-        let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
         let host = TestHost::default();
         let authenticated =
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)

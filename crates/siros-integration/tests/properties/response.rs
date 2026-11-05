@@ -212,19 +212,8 @@ pub fn check(
     let authenticated =
         siros_testkit::fixtures::authenticate(case.request.envelope(), case.registry, host)
             .expect("authentic");
-    // A selection holds one or more records: the platform returns no empty one.
-    let Ok(selection) = siros_testkit::fixtures::selection(ids) else {
-        tally.add("selections holding no record");
-        return;
-    };
-    match Prepared::prepare(
-        &authenticated,
-        &selection,
-        case.wallet,
-        case.registry,
-        case.env,
-    )
-    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    match Prepared::prepare(&authenticated, ids, case.wallet, case.registry, case.env)
+        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {
         Err(Outcome::Fallback(findings)) => {
             let mut got: Vec<(usize, Found)> = findings

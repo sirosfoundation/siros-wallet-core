@@ -143,7 +143,6 @@ fn delivered(
     let request = Request::parse(authenticated.envelope()).expect("the request");
     let ids = first_selection(&request, &wallet, registry, &env).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let ids = fixtures::selection(&ids).expect("one or more records");
     Prepared::prepare(authenticated, &ids, &wallet, registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .map(|built| built.delivery().clone())

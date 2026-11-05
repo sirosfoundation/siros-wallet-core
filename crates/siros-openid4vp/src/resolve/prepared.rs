@@ -97,8 +97,8 @@ struct Presenting<'a, 'r, 'p, H: CoreHost> {
 }
 
 impl<'p, H: CoreHost> Prepared<'p, H> {
-    /// Phase 2's first step, from the ids the End-User chose: the request read from the
-    /// authenticated envelope with its routing, its rules run again; every record derived with
+    /// Phase 2's first step, from the ids the End-User chose, none when the request's every
+    /// credential set is optional (§6.4.2): the request read from the authenticated envelope with its routing, its rules run again; every record derived with
     /// the matcher's code and checked as a selection; each record's query read through its
     /// format's [`FormatHost::answer`] under the accepted response mode; each record's profile
     /// names the resources it revalidates with, one slot each, in record order. `registry` is the
@@ -112,7 +112,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// [`FormatHost::answer`]: crate::host::FormatHost::answer
     pub fn prepare(
         authenticated: &'p Authenticated<'p>,
-        ids: &AllOf<&str>,
+        ids: &[&str],
         wallet: &'p Wallet<'p>,
         registry: &'p Registry<H>,
         env: &'p Env,
@@ -122,7 +122,6 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let records = {
             let accepted = Accepted::new(&request, registry)?;
             let returned = ids
-                .items()
                 .iter()
                 .map(|id| ReturnedRecord::parse(id))
                 .collect::<Result<Vec<_>, _>>()

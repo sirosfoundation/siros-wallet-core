@@ -173,7 +173,6 @@ fn answer<H: CoreHost>(
     let views = Views::of(&matched, &env).expect("views");
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    let ids = siros_testkit::fixtures::selection(&ids).expect("one or more ids");
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, host)
         .expect("authentic");
     Prepared::prepare(&authenticated, &ids, &wallet, registry, &env)

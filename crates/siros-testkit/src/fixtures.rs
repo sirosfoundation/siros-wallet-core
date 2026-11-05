@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 
-use siros_explain::{AllOf, Explain};
+use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
@@ -147,9 +147,6 @@ pub enum FixtureError {
     /// The request is rejected before or at its Verifier's authentication.
     #[error("the request is rejected: {0}")]
     Rejected(#[explain(skip)] String),
-    /// A selection of no record.
-    #[error("a selection holds one or more records")]
-    NoRecord,
 }
 
 /// HAIP's width: a skew of 60 s, unsigned DC API requests accepted, `exp` and `aud` checked
@@ -184,15 +181,6 @@ pub fn authenticate<'e, H: CoreHost>(
             pending.authenticate(|evaluation| trust.decide(evaluation), &config, host)
         })
         .map_err(|rejected| FixtureError::Rejected(rejected.failure().to_string()))
-}
-
-/// The ids of a selection, one or more.
-///
-/// # Errors
-///
-/// No id.
-pub fn selection<'a>(ids: &[&'a str]) -> Result<AllOf<&'a str>, FixtureError> {
-    AllOf::new(ids.to_vec()).ok_or(FixtureError::NoRecord)
 }
 
 /// Request parameters: `dc_api`, the model's nonce, the DCQL query, then `extra` members.
@@ -525,7 +513,6 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
 ) -> Result<String, String> {
     let ids = first_selection(request, wallet, registry, env)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let ids = selection(&ids).map_err(|e| e.to_string())?;
     let authenticated =
         authenticate(request.envelope(), registry, host).map_err(|e| e.to_string())?;
     let published = crate::Published::default();

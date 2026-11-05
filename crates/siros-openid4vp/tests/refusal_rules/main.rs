@@ -525,10 +525,10 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let host = TestHost::default();
     let authenticated =
         fixtures::authenticate(request.envelope(), &registry, &host).expect("authentic");
-    let ids = fixtures::selection(&["none"]).expect("one id");
+    let ids: &[&str] = &["none"];
     let outcome = Prepared::prepare(
         &authenticated,
-        &ids,
+        ids,
         &Wallet::default(),
         &registry,
         &env("en"),

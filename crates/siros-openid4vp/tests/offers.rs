@@ -364,8 +364,8 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let host = TestHost::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
         .expect("authentic");
-    let ids = siros_testkit::fixtures::selection(&[&id]).expect("one id");
-    let response = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env)
+    let ids: &[&str] = &[&id];
+    let response = Prepared::prepare(&authenticated, ids, &wallet, &registry, &env)
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         })

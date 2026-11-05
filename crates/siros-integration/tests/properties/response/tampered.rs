@@ -123,10 +123,6 @@ pub(super) fn tampered(
         .expect("authentic");
     for bad in rejected {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        // A selection holds one or more records: an empty one is no value phase 2 takes.
-        let Ok(bad) = fixtures::selection(&bad) else {
-            continue;
-        };
         match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
             .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
@@ -136,7 +132,6 @@ pub(super) fn tampered(
     }
     for (bad, at) in diverging {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        let bad = fixtures::selection(&bad).expect("a diverging selection holds records");
         match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
             .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
@@ -194,8 +189,7 @@ pub(super) fn renewed(
     let published = published();
     let authenticated =
         fixtures::authenticate(case.request.envelope(), case.registry, host).expect("authentic");
-    let ids = fixtures::selection(ids).expect("a shown selection holds records");
-    match Prepared::prepare(&authenticated, &ids, &wallet, case.registry, case.env)
+    match Prepared::prepare(&authenticated, ids, &wallet, case.registry, case.env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {
         Err(Outcome::Fallback(findings)) => {

@@ -118,10 +118,6 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
         return;
     };
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let Ok(ids) = fixtures::selection(&ids) else {
-        tally.add("URI requests refused or unmet");
-        return;
-    };
     match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &dressed.env) {
         Ok(prepared) => {
             drop(prepared);
@@ -147,14 +143,14 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     };
     let foreign: Vec<&str> = foreign.iter().map(String::as_str).collect();
     // An empty selection names no record (an optional set's "none").
-    let Ok(foreign) = fixtures::selection(&foreign) else {
+    if foreign.is_empty() {
         return;
-    };
+    }
     match Prepared::prepare(&authenticated, &foreign, &wallet, &registry, &dressed.env) {
         Err(Outcome::Fallback(findings)) => {
             assert_eq!(
                 findings.items().len(),
-                foreign.items().len(),
+                foreign.len(),
                 "R-records: every foreign record diverges"
             );
             assert!(

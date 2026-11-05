@@ -34,7 +34,7 @@ use siros_testkit::{
 };
 
 use common::{Held, entry, env, parameters, registry, request_of, test_queries, unsigned};
-use siros_testkit::fixtures::{authenticate, selection};
+use siros_testkit::fixtures::authenticate;
 
 /// q (multiple) or r, each named by an entry; c1 and c2 answer q, c3 and c4 answer r.
 fn fixture() -> (String, Vec<Held>) {
@@ -98,8 +98,7 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
     let registry = registry(Binds::First);
     let authenticated = authenticate(request.envelope(), &registry, host).expect("authentic");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    let ids = selection(ids).expect("one or more ids");
-    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en"))
+    Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en"))
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), host)
         })
@@ -122,11 +121,12 @@ fn phase_2_rejects_what_no_selection_allows() {
         records,
         credentials,
     };
-    let cases: [(Vec<&str>, Option<Rejection>); 4] = [
+    let cases: [(Vec<&str>, Option<Rejection>); 5] = [
         (vec![c1, "none"], None),
         (vec![c3, c4], Some(query_records("r", 2, 2))),
         (vec![c1, c1], Some(query_records("q", 2, 1))),
         (vec![c1, c2], Some(Rejection::TwoTransactions)),
+        (vec![], Some(Rejection::NoAlternative(Vec::new()))),
     ];
     for (ids, want) in cases {
         match (outcome(&text, &held, &ids, &TestHost::default()), want) {
@@ -134,6 +134,17 @@ fn phase_2_rejects_what_no_selection_allows() {
             (Err(Outcome::Rejected(rejection)), Some(want)) => assert_eq!(rejection, want),
             (other, _) => panic!("{ids:?}: {other:?}"),
         }
+    }
+    // §6.4.2: no record meets a request whose every credential set is optional, and §8.1's
+    // `vp_token` then holds no query.
+    let optional = parameters(
+        r#"{"credentials": [{"id": "q", "format": "test"}],
+            "credential_sets": [{"options": [["q"]], "required": false}]}"#,
+        "",
+    );
+    match outcome(&optional, &held, &[], &TestHost::default()) {
+        Ok(vp_token) => assert_eq!(vp_token, "{}"),
+        other => panic!("{other:?}"),
     }
 }
 
@@ -292,8 +303,8 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
         AllOf::one(Factor::Knowledge(Knowledge::Pin(None))),
     ));
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
-    let ids = selection(&[&ids[0]]).expect("one id");
-    match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en")).and_then(
+    let ids: &[&str] = &[&ids[0]];
+    match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en")).and_then(
         |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
     ) {
         Err(Outcome::AuthenticationTooWeak { need, covered }) => {
@@ -370,8 +381,8 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let host = TestHost::default();
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
-    let ids = selection(&[&ids[0]]).expect("one id");
-    match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en")).and_then(
+    let ids: &[&str] = &[&ids[0]];
+    match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en")).and_then(
         |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
     ) {
         Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains("extra"), "{fault}"),
@@ -470,8 +481,8 @@ fn sealed<H: CoreHost>(
 ) -> Result<Delivery, Outcome> {
     let authenticated = authenticate(request.envelope(), registry, host)
         .map_err(|e| Fault::new(FAULT, detail!("{e}", e = e.to_string())))?;
-    let ids = selection(&[id]).expect("one id");
-    Prepared::prepare(&authenticated, &ids, wallet, registry, &env("en"))
+    let ids: &[&str] = &[id];
+    Prepared::prepare(&authenticated, ids, wallet, registry, &env("en"))
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), host)
         })
@@ -668,8 +679,8 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
         let host = TestHost::default();
         let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-        let ids = selection(&[&ids[0]]).expect("one id");
-        Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env("en"))
+        let ids: &[&str] = &[&ids[0]];
+        Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en"))
             .and_then(|prepared| {
                 prepared.respond(|resource| Published::default().answer(resource), &host)
             })

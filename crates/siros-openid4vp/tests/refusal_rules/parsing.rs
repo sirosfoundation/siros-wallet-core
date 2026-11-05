@@ -63,10 +63,10 @@ fn every_parse_refuses_a_member_named_twice() {
     let host = TestHost::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
         .expect("authentic");
-    let ids = siros_testkit::fixtures::selection(&[returned]).expect("one id");
+    let ids: &[&str] = &[returned];
     let outcome = Prepared::prepare(
         &authenticated,
-        &ids,
+        ids,
         &Wallet::default(),
         &registry,
         &env("en"),
