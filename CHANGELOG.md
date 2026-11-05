@@ -28,8 +28,8 @@ released version yet.
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
   1.89, then each crate with and without its default features. The workspace
   resolves with resolver 3. Both container images build on Rust 1.99.1, the
-  pinned toolchain. The production image runs on
-  `gcr.io/distroless/static-debian12`.
+  pinned toolchain. The production image compiles its C dependencies for musl
+  with musl-gcc and runs on `gcr.io/distroless/static-debian12`.
 - `engine-adapter-sdk` links UniFFI and tokio in every build; the
   `tokio-runtime` feature and the default features leave.
 - `siros-zkp-req-nym-auth` is renamed to `siros-zkp-catalogues` on import. The
