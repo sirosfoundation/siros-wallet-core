@@ -230,7 +230,7 @@ fn data(text: String) -> Result<Body, Fault> {
         .map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))
 }
 
-/// The JWE a JWE mode wraps; a `Fault` for a clear answer, which its route never holds.
+/// The JWE a JWE mode wraps. A clear answer on its route is a `Fault`.
 #[cfg(all(feature = "resolve", any(feature = "dc-api", feature = "uri")))]
 fn sealed<'a>(mode: ModeName, content: &AnswerContent<'a>) -> Result<&'a SealedJwe, Fault> {
     match content {
@@ -242,7 +242,7 @@ fn sealed<'a>(mode: ModeName, content: &AnswerContent<'a>) -> Result<&'a SealedJ
     }
 }
 
-/// The form body of the members, which no form of the core makes serde_urlencoded refuse.
+/// The form body of the members. A `NotForm` refusal is a `Fault`.
 #[cfg(feature = "uri")]
 fn form(members: &impl serde::Serialize) -> Result<PostBody, Fault> {
     FormBody::of(members)

@@ -189,7 +189,7 @@ impl<'r> Rejected<'r> {
     ///
     /// # Errors
     ///
-    /// A URI route in a build without the feature `uri`, which receives no request by URI.
+    /// A URI route in a build without the feature `uri`.
     pub fn reply(&self, policy: DcApiErrors) -> Result<Reply, Fault> {
         let (Some(code), Some(route)) = (self.failure.code(), &self.route) else {
             return Ok(Reply::Cancel);
