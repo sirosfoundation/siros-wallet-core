@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     # The wallet core, presentation side — ported from siros-dc-matcher PRs #54/#55.
     "crates/siros-codec",
@@ -30,10 +30,8 @@ edition = "2021"
 license = "BSD-2-Clause"
 repository = "https://github.com/sirosfoundation/siros-wallet-core"
 authors = ["SIROS Foundation"]
-# The floor of every library crate: the published siros-dcql and the crates
-# that build into wallet-embedded artifacts promise it. Checked by the msrv
-# CI job. If you raise a floor, raise it here and say why.
-rust-version = "1.82"
+# The floor of every crate: aes 0.9.4 declares 1.89. Checked by the msrv CI job.
+rust-version = "1.89"
 
 [workspace.dependencies]
 siros-codec = { path = "crates/siros-codec" }

@@ -54,7 +54,7 @@ Key words: MUST, MUST NOT, SHOULD and MAY as in RFC 2119.
 - **R-G7 Determinism.** With the same inputs and the same effect results, every operation MUST give the same output. Randomness enters only as an input or an effect result.
 - **R-G8 Rules in code.** Matching rules MUST be code, versioned with the binary. No rule MAY travel as data in the picker registration.
 - **R-G9 Build constraints.**
-  - Everything the picker links MUST build with Rust 1.82.
+  - Everything the picker links MUST build with Rust 1.89.
   - `matcher.wasm` MUST stay at or below 409,600 bytes (400 KiB).
   - Library code MUST deny `unwrap`, `expect`, indexing and `panic`.
   - Library code MUST hold no interior mutability.

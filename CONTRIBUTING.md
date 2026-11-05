@@ -60,20 +60,17 @@ structural resemblance to the oracle as a blocker.
 The [README's build section](README.md#build-and-test) lists what CI checks.
 
 `proving/` is a second workspace: the proof backends and the browser presenter,
-which depend on edition-2024 crates (`zk-cred-longfellow`, `zk-cred-vega`) that
-Cargo 1.82 cannot read, so they stay out of the root workspace and its 1.82
-floor. The `proving/` workspace holds a 1.95 floor of its own. Run its commands
-from there.
+whose dependencies need Rust 1.95, above the root workspace's floor. Run its
+commands from there.
 
 `siros-dcql` is published to crates.io and therefore may not depend on any other
 crate in this workspace. CI enforces this with `cargo publish --dry-run`; please
 do not work around it.
 
-Rust 1.82 is the floor of every crate in this workspace. The MSRV job checks
-them on 1.82: `siros-presentation` without its `wallet` feature,
-`siros-transaction-data` and `siros-trust` with and without their `wallet` and
-`chain` features. If you raise a floor, raise it in the manifest that owns it
-and say why there.
+Rust 1.89 is the floor of every crate in this workspace. The MSRV job checks
+the workspace on 1.89, then each crate with its default features and with
+`--no-default-features`. If you raise a floor, raise it in the manifest that
+owns it and say why there.
 
 Nothing panics outside the tests: a type makes the impossible state
 unrepresentable, or the caller receives an error. CI holds each crate to it with

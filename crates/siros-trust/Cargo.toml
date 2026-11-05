@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 # Without `chain`: the admission rule over a credential's recorded facts, for the credential
-# picker, checked on 1.82 in CI.
+# picker, checked on 1.89 in CI.
 rust-version.workspace = true
 
 [features]
