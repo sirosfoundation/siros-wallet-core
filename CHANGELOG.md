@@ -22,6 +22,14 @@ released version yet.
   `engine-conformance`) and the engine specification under
   `docs/engine-spec.md`. The spike is gated on the PR 163 rework landing on
   go-wallet-backend `main`.
+- `siros-explain` and `siros-explain-derive`: errors and texts as messages.
+  `Explain` gives a text's stable `MessageId` and its arguments under
+  distinct names, each of the kind its type declares through `IntoArg`; a
+  type without `IntoArg`, a secret's, is no argument. `#[derive(Explain)]`
+  writes it beside `thiserror::Error`, and `Messages` declares each message's
+  English template and parameter kinds. `Text` holds a message unrendered;
+  `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
+  second), and amounts in ISO 4217 currencies. Edition 2024, unpublished.
 
 ### Changed
 

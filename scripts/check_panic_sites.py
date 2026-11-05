@@ -28,6 +28,10 @@ by name:
     integer 0: `checked_div` and `checked_rem` take a divisor that may be 0.
     The check reads no types, so it flags a float divisor too.
 
+A `const` item's type and initialiser and an inline `const { }` block run in
+the compiler, where a panic is error E0080 and fails the build: the check
+reads them as build-time code.
+
 Test code is exempt: the integration tests, benches and examples, an item
 under `#[test]` or under a `#[cfg(...)]` that implies `test` or a feature in
 TEST_FEATURES, the module files such an item declares, and a file or inline
@@ -97,6 +101,9 @@ METHODS = {method.name: method for method in [
               "div_euclid", "rem_euclid", "div_ceil", "div_floor", "next_multiple_of"),
     *_methods(RADIX, "to_digit", "is_digit", "from_digit", "from_str_radix"),
 ]}
+
+# Keywords after `const` that make a function: its body runs.
+CONST_QUALIFIED = frozenset({"fn", "unsafe", "extern", "async"})
 
 # Keywords after which `[` opens an array or a slice pattern, never an index.
 NOT_AN_OPERAND = frozenset({"as", "box", "break", "const", "continue", "dyn", "else", "enum",
@@ -317,11 +324,34 @@ class _Scanner:
                 closer = matching_closer(items, index + 2)
                 self.scan(index + 3, closer, in_test, (*inline, name))
                 return closer + 1
+        if token.is_ident("const"):
+            build_time = self.build_time_end(index, end)
+            if build_time is not None:
+                return build_time
         if not in_test:
             what = _site_at(items, index)
             if what is not None:
                 self.walk.sites.append(Site(self.module.path, token.line, f"{what} panics"))
         return index + 1
+
+    def build_time_end(self, index: int, end: int) -> int | None:
+        """The index after the code at `index` that only the compiler runs, an inline `const`
+        block or a `const` item's type and initialiser, and None when `index` starts neither. A
+        panic there fails the build (E0080)."""
+        items = self.items
+        if index + 2 >= end:
+            return None
+        follower = items[index + 1]
+        if follower.is_punct("{"):
+            return matching_closer(items, index + 1) + 1
+        before = items[index - 1] if index > 0 else None
+        at_item = before is None or before.is_ident("pub") or (
+            before.kind is Kind.PUNCT and before.text in (";", "{", "}", "]", ")"))
+        named = follower.is_punct("_") or (
+            follower.kind is Kind.IDENT and follower.text not in CONST_QUALIFIED)
+        if at_item and named and items[index + 2].is_punct(":"):
+            return _item_end(items, index)
+        return None
 
     def attribute(self, index: int, end: int, in_test: bool, inline: tuple[str, ...]) -> int:
         items = self.items

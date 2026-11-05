@@ -1,0 +1,31 @@
+[package]
+name = "siros-explain"
+version = "0.1.0"
+description = "Errors as messages: a stable identifier and typed, named arguments the core renders"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["derive"]
+# `#[derive(Explain)]`, beside `#[derive(thiserror::Error)]`.
+derive = ["dep:siros-explain-derive"]
+
+[dependencies]
+siros-explain-derive = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+# The ISO 4217 table, which the build script remaps; the crate is not linked.
+iso_currency = { workspace = true }
+
+[dev-dependencies]
+# The tests and the examples use the derive whatever the build's features.
+siros-explain = { path = ".", features = ["derive"] }
+iso_currency = { workspace = true }
+
+[lints]
+workspace = true
