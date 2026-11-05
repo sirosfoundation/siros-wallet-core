@@ -31,7 +31,7 @@ six files (22 vectors).
 | --- | --- | --- |
 | `errors.go` | `error.rs` | WMP + JSON-RPC error codes, standard messages, `RpcError` |
 | `jsonrpc.go` | `jsonrpc.rs` | Request/Response/Message over `RawValue`; 1 MiB size cap, depth cap 32, strict end-of-input, batch |
-| `version.go` | `version.rs` | `MAJOR.MINOR` parse (no leading zeros, ≤6 digits), negotiation, the `-32602`/`-31013` rejection split |
+| `version.go` | `version.rs` | `Version`, the parsed `MAJOR.MINOR` (no leading zeros, ≤6 digits); `VERSION` and `SUPPORTED_VERSIONS`; negotiation over typed versions; the `-32602`/`-31013` rejection split |
 | `token.go` | `token.rs` | 192-bit resumption token; **entropy is injected by the caller** (no ambient RNG), base64url unpadded; constant-time compare |
 | `principal.go` | `principal.rs` | Subject/tenant, opaque claims, the `owner key`; Rust has no request context — the `Principal` is passed explicitly |
 | `types.go` | `types.rs` | The `wmp` envelope (`Metadata`), identity assertions, trust hints, relay entries, delegates, security mode, capabilities and their parameter types |

@@ -28,7 +28,8 @@ use crate::handler::HandlerError;
 use crate::methods::*;
 use crate::profile::{PeerContext, Profile};
 use crate::subflow::{Outcome, SubFlow, SubFlowError};
-use crate::types::{Metadata, VERSION};
+use crate::types::Metadata;
+use crate::version::VERSION;
 
 /// A flow's worker: runs in its own thread and uses the [`FlowContext`] to
 /// communicate with the remote peer. Returns `Ok` on success.
@@ -296,7 +297,7 @@ impl FlowContext {
             .lock()
             .ok()
             .and_then(|peer| peer.as_ref().map(|p| p.version_for(&self.session_id)))
-            .unwrap_or_else(|| VERSION.to_owned());
+            .unwrap_or_else(|| VERSION.to_string());
         Metadata {
             version,
             session_id: self.session_id(),
