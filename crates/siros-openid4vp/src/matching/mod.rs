@@ -51,8 +51,19 @@ pub struct Candidate<'m> {
     pub credential: &'m Credential<'m>,
     /// The query's options it answers, in the Verifier's order.
     pub options: Vec<OptionIndex>,
-    /// The transaction it authorizes for the query.
-    pub bound: Option<Bound>,
+    /// The transaction it authorizes for the query with the profile's binding: present for each
+    /// candidate of a query transaction data names.
+    pub bound: Option<TransactionBinding<'m>>,
+}
+
+/// A candidate's transaction: its query's `Transaction` and the `Bound` the transaction's profile
+/// gave the credential, one value. Phase 2 reads a record's transaction from it alone.
+#[derive(Debug, Clone)]
+pub struct TransactionBinding<'m> {
+    /// The transaction data naming the query.
+    pub transaction: &'m Transaction,
+    /// The entries and display facts the profile bound.
+    pub bound: Bound,
 }
 
 /// A credential a plug-in excluded for a query.
@@ -123,7 +134,7 @@ impl<'m> Match<'m> {
         let mut excluded = Vec::new();
         for (index, query) in accepted.request().indexed_queries() {
             let mut found = Vec::new();
-            if let Some(matcher) = QueryMatcher::of(accepted, index, query, &keys, env) {
+            if let Some(matcher) = QueryMatcher::of(accepted, index, query, &keys, env)? {
                 for credential in wallet.credentials().iter().filter(|c| matcher.eligible(c)) {
                     match matcher.consider(credential)? {
                         Considered::Candidate(candidate) => found.push(candidate),
@@ -229,27 +240,45 @@ struct QueryMatcher<'m, 'k> {
 }
 
 impl<'m, 'k> QueryMatcher<'m, 'k> {
-    /// The matcher of a query whose format has a plug-in.
+    /// The matcher of a query whose format has a plug-in; `None` for another query.
+    ///
+    /// # Errors
+    ///
+    /// The transaction naming the query names a profile the registry does not hold.
     fn of(
         accepted: &'m Accepted<'m>,
         index: QueryIndex,
         query: &'m Query<'m>,
         keys: &'k [AgreeableKey<'k>],
         env: &'k Env,
-    ) -> Option<Self> {
-        let formatted = accepted.plan(index)?.formatted.as_ref()?;
-        let transaction = accepted.transaction(index).and_then(|t| {
-            accepted
-                .registry()
-                .profile_ref(t.profile)
-                .map(|profile| (t, profile))
-        });
+    ) -> Result<Option<Self>, Fault> {
+        let Some(formatted) = accepted
+            .plan(index)
+            .and_then(|plan| plan.formatted.as_ref())
+        else {
+            return Ok(None);
+        };
+        let transaction = accepted
+            .transaction(index)
+            .map(|t| {
+                accepted
+                    .registry()
+                    .profile_ref(t.profile)
+                    .map(|profile| (t, profile))
+                    .ok_or_else(|| {
+                        Fault::new(
+                            FAULT,
+                            detail!("a transaction names a profile the registry does not hold"),
+                        )
+                    })
+            })
+            .transpose()?;
         let members = transaction.and_then(|(_, profile)| {
             formatted
                 .placement
                 .and_then(|placement| profile.members(placement))
         });
-        Some(Self {
+        Ok(Some(Self {
             query,
             request: accepted.request(),
             formatted,
@@ -257,7 +286,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             members,
             keys,
             env,
-        })
+        }))
     }
 
     /// OpenID4VP §6.1: the query's format, an issuer the query trusts, and a key the credential
@@ -318,8 +347,12 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         })
     }
 
-    /// The entries the profile binds to the credential, for a query transaction data names.
-    fn bind(&self, credential: &'m Credential<'m>) -> Result<Option<Bound>, NoCandidate> {
+    /// The entries the profile binds to the credential with the transaction, for a query
+    /// transaction data names.
+    fn bind(
+        &self,
+        credential: &'m Credential<'m>,
+    ) -> Result<Option<TransactionBinding<'m>>, NoCandidate> {
         let Some((transaction, profile)) = self.transaction else {
             return Ok(None);
         };
@@ -346,7 +379,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             .iter()
             .all(|entry| transaction.entries.contains(entry))
         {
-            Ok(Some(bound))
+            Ok(Some(TransactionBinding { transaction, bound }))
         } else {
             Err(Fault::new(
                 FAULT,

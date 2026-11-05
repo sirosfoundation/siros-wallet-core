@@ -150,7 +150,10 @@ released version yet.
   and `wallet_unavailable` on the route: A.4's error over the DC API, the
   error mode's body by URI, sealed by the core when the route bound a key.
   `Match::unmet` derives the code from the exclusions' plug-in
-  (`ExcludedBy`). The envelope holds `client_metadata` as read
+  (`ExcludedBy`). A candidate holds its query's transaction and the
+  profile's binding as one value (`Candidate::bound`,
+  `TransactionBinding`), from which phase 2 reads a record's transaction.
+  The envelope holds `client_metadata` as read
   (`Envelope::client_metadata`), and `Authenticated` the Verifier's keys.
 - An extension adds Authorization Response parameters (`ResponseParameters`,
   `ResponseParametersHost`, `HostedResponseParameters`,

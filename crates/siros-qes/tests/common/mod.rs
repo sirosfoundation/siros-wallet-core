@@ -537,7 +537,15 @@ pub fn phase_one(
                     candidate
                         .bound
                         .as_ref()
-                        .map(|bound| bound.entries.entries().iter().map(|e| e.get()).collect())
+                        .map(|binding| {
+                            binding
+                                .bound
+                                .entries
+                                .entries()
+                                .iter()
+                                .map(|e| e.get())
+                                .collect()
+                        })
                         .unwrap_or_default(),
                 )
             })

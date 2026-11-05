@@ -83,7 +83,7 @@ impl<'m> Views<'m> {
             };
             let options = formatted.query.options();
             for (k, candidate) in matched.candidates(index).iter().enumerate() {
-                let bound = candidate.bound.as_ref();
+                let bound = candidate.bound.as_ref().map(|binding| &binding.bound);
                 for option in &candidate.options {
                     let (everyone, chosen) = option_items(options, &candidate.options, *option);
                     let entries = bound.map_or(&[][..], |bound| bound.entries.entries());

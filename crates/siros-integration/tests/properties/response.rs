@@ -201,7 +201,7 @@ pub fn check(
         let bound: &[EntryIndex] = candidate
             .bound
             .as_ref()
-            .map_or(&[], |bound| bound.entries.entries());
+            .map_or(&[], |binding| binding.bound.entries.entries());
         assert_eq!(
             view.record.entries, bound,
             "R-record entries are the bound ones"
@@ -437,7 +437,7 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
                 && back
                     .bound
                     .as_ref()
-                    .is_some_and(|bound| bound.entries.entries() != view.record.entries)),
+                    .is_some_and(|binding| binding.bound.entries.entries() != view.record.entries)),
             "R-fallback offers the failed record again"
         );
     }

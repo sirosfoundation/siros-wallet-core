@@ -17,7 +17,7 @@ use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Host,
     Platform, PresentError, Usable,
 };
-use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, Views};
+use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, TransactionBinding, Views};
 use crate::plugins::registry::{DynProfile, Placed};
 use crate::plugins::{
     Answered, Attested, BoundEntries, Fault, FetchedRecord, Member, Members, OptionIndex,
@@ -159,19 +159,23 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         self.resources.questions()
     }
 
-    /// Phase 2's last step: `fetch` answers every resource of [`Prepared::questions`], once, in
-    /// order; each credential is checked usable, each record's profile revalidates with its own
-    /// resources and each record's option with its format; the End-User authenticates at least
-    /// as strongly as the strongest need of the records' profiles; then the route of the
-    /// authenticated request ([`Route::new`]), the presentations bound to its session, the
+    /// Phase 2's last step, in order: each record's query read again through its format's
+    /// [`FormatHost::answer`]; `fetch` answers every resource of [`Prepared::questions`], once,
+    /// in order; the route of the authenticated request ([`Route::new`]), whose answering mode's
+    /// refusal (C7, or C6 for `client_metadata`) ends the step; under the route's session each
+    /// credential checked usable, each record's profile revalidating with its own resources and
+    /// each record's option with its format; the End-User authenticating at least as strongly as
+    /// the strongest need of the records' profiles; the presentations bound to the session, the
     /// registered response parameters' members after `vp_token` and `state`, and the delivery
     /// through [`AnswerRoute::answer`](super::AnswerRoute::answer).
     ///
     /// # Errors
     ///
-    /// A finding (Fallback), the End-User unauthenticated or authenticated too weakly, the
-    /// answering mode's refusal under the sealing module's statement (C7), a presentation that
-    /// failed, or a plug-in's fault.
+    /// The answering mode's refusal (C7, or C6), a finding (Fallback), the End-User
+    /// unauthenticated or authenticated too weakly, a presentation that failed, or a plug-in's
+    /// fault.
+    ///
+    /// [`FormatHost::answer`]: crate::host::FormatHost::answer
     pub fn respond(
         self,
         fetch: impl FnMut(&Resource) -> Fetch,
@@ -359,8 +363,8 @@ fn picked<'p, H: CoreHost>(
     let Placed { placement, .. } = registry
         .placed_host(&query.format)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
-    let transacted = match (&candidate.bound, accepted.transaction(view.pick.query)) {
-        (Some(bound), Some(transaction)) => {
+    let transacted = match &candidate.bound {
+        Some(TransactionBinding { transaction, bound }) => {
             let profile = registry
                 .profile_host(transaction.profile)
                 .ok_or_else(|| Fault::new(FAULT, detail!("a transaction has no profile")))?;
@@ -383,14 +387,7 @@ fn picked<'p, H: CoreHost>(
                 slots: start..questions.len(),
             })
         }
-        (None, None) => None,
-        (Some(_), None) | (None, Some(_)) => {
-            return Err(Fault::new(
-                FAULT,
-                detail!("a candidate bound for a query without a transaction, or unbound for one"),
-            )
-            .into());
-        }
+        None => None,
     };
     Ok(Picked {
         query: view.pick.query,

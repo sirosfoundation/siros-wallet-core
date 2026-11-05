@@ -394,7 +394,7 @@ fn bound_entries(candidate: &Candidate<'_>) -> Vec<EntryIndex> {
     candidate
         .bound
         .as_ref()
-        .map(|bound| bound.entries.entries().to_vec())
+        .map(|binding| binding.bound.entries.entries().to_vec())
         .unwrap_or_default()
 }
 
@@ -476,7 +476,7 @@ fn boxes(
                 case.env,
             )
             .expect("no fault");
-        let Some(bound) = &candidate.bound else {
+        let Some(bound) = candidate.bound.as_ref().map(|binding| &binding.bound) else {
             assert!(view.record.entries.is_empty(), "P-record without entries");
             assert_eq!(
                 CredmanEntry::of(&view.entry),
