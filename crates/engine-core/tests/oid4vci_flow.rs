@@ -700,17 +700,21 @@ mod as_selection_tests {
     const ISSUER_METADATA_URL: &str = "https://issuer.example/.well-known/openid-credential-issuer";
     const AS_METADATA_PATH: &str = "/.well-known/oauth-authorization-server";
 
-    /// Serves the issuer metadata advertising `servers`, records every
-    /// other fetch (the AS discovery), and answers it 500, which ends
-    /// the flow.
+    /// Records every fetch, serves the issuer metadata advertising
+    /// `servers`, and answers every other fetch (the AS discovery) 500,
+    /// which ends the flow.
     struct AsRecordingHttp {
         servers: Vec<String>,
-        as_fetches: Mutex<Vec<String>>,
+        fetches: Mutex<Vec<String>>,
     }
 
     #[async_trait::async_trait]
     impl HttpClient for AsRecordingHttp {
         async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
+            self.fetches
+                .lock()
+                .expect("fetches")
+                .push(request.url.clone());
             if request.url == ISSUER_METADATA_URL {
                 let body = serde_json::json!({
                     "credential_issuer": "https://issuer.example",
@@ -725,10 +729,6 @@ mod as_selection_tests {
                     body: body.to_string().into_bytes(),
                 });
             }
-            self.as_fetches
-                .lock()
-                .map(|mut fetches| fetches.push(request.url.clone()))
-                .ok();
             Ok(HttpResponse {
                 status: 500,
                 headers: Vec::new(),
@@ -739,11 +739,11 @@ mod as_selection_tests {
 
     /// The AS the flow started with the offer `grants` discovers, given
     /// the issuer metadata's `authorization_servers`; `None` when the
-    /// flow refuses before any AS discovery.
+    /// flow refuses between the issuer metadata and the AS discovery.
     async fn select_as_url(grants: serde_json::Value, servers: &[&str]) -> Option<String> {
         let http = Arc::new(AsRecordingHttp {
             servers: servers.iter().map(|s| s.to_string()).collect(),
-            as_fetches: Mutex::new(Vec::new()),
+            fetches: Mutex::new(Vec::new()),
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
@@ -761,12 +761,19 @@ mod as_selection_tests {
             })),
             timeout: None,
         };
-        assert!(
-            Oid4vciFlow.start_flow(&ctx, &params).await.is_err(),
-            "the flow ends at the AS discovery or before"
+        match Oid4vciFlow.start_flow(&ctx, &params).await {
+            Err(wmp_core::handler::HandlerError::Rpc(error)) => {
+                assert_eq!(error.code, wmp_core::error::ERR_FLOW_ERROR);
+            }
+            other => panic!("the flow ends with a flow error, got {other:?}"),
+        }
+        let fetches = http.fetches.lock().expect("fetches").clone();
+        assert_eq!(
+            fetches.first().map(String::as_str),
+            Some(ISSUER_METADATA_URL),
+            "the flow resolves the issuer metadata first"
         );
-        let fetches = http.as_fetches.lock().expect("fetches").clone();
-        fetches.first().map(|url| {
+        fetches.get(1).map(|url| {
             url.strip_suffix(AS_METADATA_PATH)
                 .expect("the RFC 8414 discovery URL comes first")
                 .to_owned()

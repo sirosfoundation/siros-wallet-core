@@ -99,7 +99,7 @@ async fn an_unreachable_pdp_fails_closed() {
 
 /// Records the key material the evaluation hands the PDP, and trusts.
 struct KeyMaterialPdp {
-    key_material: std::sync::Mutex<Vec<u8>>,
+    key_material: std::sync::Mutex<Option<Vec<u8>>>,
 }
 
 #[async_trait::async_trait]
@@ -108,10 +108,7 @@ impl Pdp for KeyMaterialPdp {
         &self,
         request: EvaluationRequest,
     ) -> Result<engine_ports::EvaluationResponse, PdpError> {
-        self.key_material
-            .lock()
-            .map(|mut material| *material = request.key_material)
-            .ok();
+        *self.key_material.lock().expect("key material") = Some(request.key_material);
         Ok(engine_ports::EvaluationResponse {
             trusted: true,
             decision: None,
@@ -129,13 +126,13 @@ impl Pdp for KeyMaterialPdp {
 /// The key material the issuer trust evaluation of `metadata` sends.
 async fn key_material_of(metadata: &IssuerMetadata) -> Vec<u8> {
     let pdp = KeyMaterialPdp {
-        key_material: std::sync::Mutex::new(Vec::new()),
+        key_material: std::sync::Mutex::new(None),
     };
     evaluate_issuer_trust(&pdp, "https://issuer.example", metadata)
         .await
         .expect("trusted");
-    let material = pdp.key_material.lock().expect("key material").clone();
-    material
+    let material = pdp.key_material.lock().expect("key material").take();
+    material.expect("the evaluation calls the PDP")
 }
 
 #[tokio::test]

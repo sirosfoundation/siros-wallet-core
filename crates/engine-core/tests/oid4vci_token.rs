@@ -3,6 +3,9 @@ use engine_core::oid4vci::types::AsMetadata;
 use engine_ports::{FetchPurpose, Host, HttpClient, HttpError, HttpRequest};
 use engine_ports::{HostError, SignParams, SignResult};
 
+/// The token response limit stated on `exchange_pre_authorized_code`.
+const TOKEN_LIMIT: usize = 1024 * 1024;
+
 struct FakeHttp {
     status: u16,
     body: Vec<u8>,
@@ -12,6 +15,7 @@ struct FakeHttp {
 impl HttpClient for FakeHttp {
     async fn send(&self, request: HttpRequest) -> Result<engine_ports::HttpResponse, HttpError> {
         assert_eq!(request.purpose, FetchPurpose::Token);
+        assert_eq!(request.max_response_bytes, TOKEN_LIMIT);
         Ok(engine_ports::HttpResponse {
             status: self.status,
             headers: Vec::new(),

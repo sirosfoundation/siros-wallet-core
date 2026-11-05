@@ -295,18 +295,28 @@ fn the_duplicate_key_is_the_normal_form() {
             .collect();
         secret_delivery_of(&config_with(serde_json::json!({ "to_wallet": entries })))
     };
-    // 1 and 1.0 detect as the same path.
+    // 1.0 is a valid index, and 1 and 1.0 detect as the same path.
+    assert!(with_paths(&[serde_json::json!(["p", 1.0])]).is_ok());
     assert!(matches!(
         with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 1.0])]),
         Err(SecretDeliveryError::MalformedAdvertisement(_))
     ));
     assert!(with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 2])]).is_ok());
     // A negative number is not a path component.
-    assert!(with_paths(&[serde_json::json!(["p", -1])]).is_err());
+    assert!(matches!(
+        with_paths(&[serde_json::json!(["p", -1])]),
+        Err(SecretDeliveryError::MalformedAdvertisement(_))
+    ));
     // A non-string, non-integer is not either.
-    assert!(with_paths(&[serde_json::json!(["p", true])]).is_err());
+    assert!(matches!(
+        with_paths(&[serde_json::json!(["p", true])]),
+        Err(SecretDeliveryError::MalformedAdvertisement(_))
+    ));
     // An empty array is not a path.
-    assert!(with_paths(&[serde_json::json!([])]).is_err());
+    assert!(matches!(
+        with_paths(&[serde_json::json!([])]),
+        Err(SecretDeliveryError::MalformedAdvertisement(_))
+    ));
     // null is.
     assert!(with_paths(&[serde_json::json!([null, "x"])]).is_ok());
 }

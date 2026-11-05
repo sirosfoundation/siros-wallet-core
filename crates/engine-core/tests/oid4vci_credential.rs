@@ -14,6 +14,8 @@ struct FakeHttp {
 impl HttpClient for FakeHttp {
     async fn send(&self, request: HttpRequest) -> Result<engine_ports::HttpResponse, HttpError> {
         assert_eq!(request.purpose, FetchPurpose::Credential);
+        // docs/engine-spec.md §Fetch policy: every request carries a size limit.
+        assert!(request.max_response_bytes < usize::MAX);
         Ok(engine_ports::HttpResponse {
             status: self.status,
             headers: Vec::new(),
