@@ -5,7 +5,8 @@ use serde_json::value::RawValue;
 use crate::error::{RpcError, ERR_INTERNAL_ERROR, ERR_INVALID_PARAMS};
 use crate::handler::HandlerError;
 use crate::methods::{ResolveParams, ResolveResult};
-use crate::types::{Metadata, VERSION};
+use crate::types::Metadata;
+use crate::version::VERSION;
 
 /// The `data.reason` of the error a vctm lookup answers with when it cannot
 /// produce a document (WMP Core 5.8.1).
@@ -124,7 +125,7 @@ pub fn new_vctm_resolve_result(
     })?;
     Ok(ResolveResult {
         wmp: Metadata {
-            version: VERSION.to_owned(),
+            version: VERSION.to_string(),
             session_id: session_id.to_owned(),
             ..Metadata::default()
         },
@@ -151,7 +152,7 @@ pub fn new_unknown_resolve_result(
         .map_err(|_| HandlerError::Rpc(RpcError::code(ERR_INTERNAL_ERROR)))?;
     Ok(ResolveResult {
         wmp: Metadata {
-            version: VERSION.to_owned(),
+            version: VERSION.to_string(),
             session_id: session_id.to_owned(),
             ..Metadata::default()
         },
