@@ -19,11 +19,12 @@
 //! **A query that cannot be interpreted is a violation**: "cannot
 //! compare" never means "allowed". The vetting parses the query once,
 //! each claims path by OpenID4VP 1.0 §7 for its Credential Query's
-//! `format`, and compares the answer with the parsed query. The bounds
-//! are part of the contract: a claim path beyond
-//! [`MAX_CLAIM_PATH_ELEMS`] elements or an entry beyond
-//! [`MAX_CLAIM_ENTRY_LEN`] bytes cannot be compared, so it is refused —
-//! in enforce mode — never read as authorised.
+//! `format`, and compares the answer with the parsed query; a disclosed
+//! claim spelled as the JSON text of its path is parsed the same way
+//! and compared as a path. The bounds are part of the contract: a
+//! claim path beyond [`MAX_CLAIM_PATH_ELEMS`] elements or an entry
+//! beyond [`MAX_CLAIM_ENTRY_LEN`] bytes cannot be compared, so it is
+//! refused — in enforce mode — never read as authorised.
 
 use std::borrow::Cow;
 
@@ -199,6 +200,9 @@ struct Query<'a> {
 
 /// One Credential Query (OpenID4VP 1.0 §6.1), as the vetting reads it.
 struct CredentialQuery<'a> {
+    /// `format`, when OpenID4VCI 1.0 Appendix A defines it: how its
+    /// claims paths, and the disclosed claims spelled as paths, read.
+    format: Option<CredentialFormat>,
     /// `multiple`: more than one Credential may answer the query.
     multiple: bool,
     /// `claims` (§6.3): none when absent.
@@ -345,6 +349,7 @@ impl<'a> CredentialQuery<'a> {
             })
             .collect();
         Ok(Self {
+            format,
             multiple: credential
                 .get("multiple")
                 .and_then(Value::as_bool)
@@ -367,7 +372,7 @@ impl<'a> CredentialQuery<'a> {
             // No claim sets: the claims authorise jointly.
             let paths: Vec<&PresentationClaimsPath> =
                 self.claims.iter().map(|claim| &claim.path).collect();
-            return all_allowed(&paths, disclosed);
+            return all_allowed(&paths, self.format, disclosed);
         }
         // The claim sets: the disclosed entries must fit inside one set's
         // claim paths (a subset of one combination).
@@ -381,7 +386,7 @@ impl<'a> CredentialQuery<'a> {
                 })
                 .map(|claim| &claim.path)
                 .collect();
-            all_allowed(&paths, disclosed)
+            all_allowed(&paths, self.format, disclosed)
         })
     }
 }
@@ -407,17 +412,31 @@ impl<'a> ClaimsQuery<'a> {
 }
 
 /// Whether every disclosed entry is authorised by one of the
-/// requested claim paths.
+/// requested claim paths, each parsed for the Credential Query's
+/// format `format`.
 ///
-/// Clients spell an entry two ways: the wallet-frontend joins the
-/// whole path with `.` (`["eu.pid","given_name"]` →
-/// `"eu.pid.given_name"`, a null wildcard joins as the empty string),
+/// Clients spell an entry three ways, and each is accepted. The
+/// engine's mini host sends the JSON text of the claims path pointer
+/// (`["eu.pid","given_name"]`): it is parsed for `format` as the
+/// requested paths are, and compared with them as a path ([`covers`]).
+/// A text that OpenID4VP 1.0 §7 refuses names no requested claim. The
+/// wallet-frontend joins the whole path with `.`
+/// (`"eu.pid.given_name"`, a null wildcard joins as the empty string),
 /// while the Kotlin and Swift SDKs send only the last path element
-/// (`"given_name"`). Both are accepted. A null path element matches
-/// any element; an entry that is a descendant of a requested path (the
-/// requested claim is an object) is a subset and is accepted.
-fn all_allowed(paths: &[&PresentationClaimsPath], disclosed: &[String]) -> bool {
-    let spelled: Vec<Vec<PathElem<'_>>> = paths.iter().map(|path| path_elems(path)).collect();
+/// (`"given_name"`). In those two spellings, a null path element
+/// matches any element, and an entry that is a descendant of a
+/// requested path (the requested claim is an object) is a subset and
+/// is accepted.
+fn all_allowed(
+    paths: &[&PresentationClaimsPath],
+    format: Option<CredentialFormat>,
+    disclosed: &[String],
+) -> bool {
+    let requested: Vec<Vec<Step<'_>>> = paths.iter().map(|path| steps(path)).collect();
+    let spelled: Vec<Vec<PathElem<'_>>> = requested
+        .iter()
+        .map(|steps| steps.iter().map(|step| step.spelled()).collect())
+        .collect();
     disclosed.iter().all(|entry| {
         // Never selectively disclosable: legitimate without a request.
         if ALWAYS_DISCLOSED.contains(&entry.as_str()) {
@@ -426,8 +445,101 @@ fn all_allowed(paths: &[&PresentationClaimsPath], disclosed: &[String]) -> bool 
         if entry.len() > MAX_CLAIM_ENTRY_LEN {
             return false;
         }
-        spelled.iter().any(|elems| path_allows(elems, entry))
+        match serde_json::from_str::<Value>(entry) {
+            // The JSON text of a claims path pointer.
+            Ok(value @ Value::Array(_)) => {
+                PresentationClaimsPath::parse(&value, format).is_ok_and(|path| {
+                    let disclosed = steps(&path);
+                    always_disclosed(&disclosed)
+                        || requested
+                            .iter()
+                            .any(|requested| covers(requested, &disclosed))
+                })
+            }
+            // A claim name: the path's last element, or its elements
+            // joined with `.`.
+            _ => spelled.iter().any(|elems| path_allows(elems, entry)),
+        }
     })
+}
+
+/// One component of a parsed claims path, as the vetting compares
+/// paths. A pointer into an ISO mdoc has two keys, the namespace and
+/// the data element identifier, and a pointer into a Credential of
+/// another format compares as a pointer into a JSON-based Credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step<'a> {
+    /// A string component.
+    Key(&'a str),
+    /// A non-negative integer component.
+    Index(u64),
+    /// A null component: every element of an array.
+    All,
+}
+
+impl<'a> Step<'a> {
+    /// The step as a claim name spells it: a key as itself, an index
+    /// in decimal, whatever its spelling in the query, and a null as a
+    /// wildcard.
+    fn spelled(self) -> PathElem<'a> {
+        match self {
+            Self::Key(key) => PathElem::Text(Cow::Borrowed(key)),
+            Self::Index(index) => PathElem::Text(Cow::Owned(index.to_string())),
+            Self::All => PathElem::Wildcard,
+        }
+    }
+}
+
+/// The steps of a parsed claims path.
+fn steps(path: &PresentationClaimsPath) -> Vec<Step<'_>> {
+    match path {
+        PresentationClaimsPath::Json(components) => components
+            .iter()
+            .map(|component| match component {
+                JsonComponent::Key(key) => Step::Key(key),
+                JsonComponent::Index(index) => Step::Index(*index),
+                JsonComponent::AllElements => Step::All,
+            })
+            .collect(),
+        PresentationClaimsPath::Mdoc {
+            namespace,
+            data_element,
+        } => vec![Step::Key(namespace), Step::Key(data_element)],
+        PresentationClaimsPath::OtherFormat(components) => components
+            .iter()
+            .map(|component| match component {
+                PresentationComponent::Key(key) => Step::Key(key),
+                PresentationComponent::Integer(integer) => Step::Index(*integer),
+                PresentationComponent::Null => Step::All,
+            })
+            .collect(),
+    }
+}
+
+/// Whether the requested path authorises the disclosed path, both as
+/// their steps: each requested step selects the disclosed step at its
+/// position, a null any index, and the disclosed path may continue
+/// into the requested claim's value. OpenID4VP 1.0 §7.3:
+/// `["degrees", null, "type"]` selects "All type claims in the degrees
+/// array", and `["address"]` selects "The claim address with its
+/// sub-claims as the value".
+fn covers(requested: &[Step<'_>], disclosed: &[Step<'_>]) -> bool {
+    // A claims path has one component at least (§7).
+    !requested.is_empty()
+        && requested.len() <= disclosed.len()
+        && requested
+            .iter()
+            .zip(disclosed)
+            .all(|(requested, disclosed)| match requested {
+                Step::All => matches!(disclosed, Step::Index(_) | Step::All),
+                Step::Key(_) | Step::Index(_) => requested == disclosed,
+            })
+}
+
+/// Whether a disclosed path is a top-level claim that is never
+/// selectively disclosable.
+fn always_disclosed(disclosed: &[Step<'_>]) -> bool {
+    matches!(disclosed, [Step::Key(name)] if ALWAYS_DISCLOSED.contains(name))
 }
 
 /// Whether one requested claim path, spelled as its matcher elements,
@@ -449,8 +561,8 @@ fn path_allows(elems: &[PathElem<'_>], entry: &str) -> bool {
     bare || match_joined_path(entry, elems)
 }
 
-/// One `claims[].path` component, in the form the matcher reads: text
-/// (a string, or a non-negative integer's decimal form) or a wildcard
+/// One `claims[].path` component, as a claim name spells it: text (a
+/// string, or a non-negative integer's decimal form) or a wildcard
 /// (null).
 #[derive(Debug, Clone)]
 enum PathElem<'a> {
@@ -459,38 +571,6 @@ enum PathElem<'a> {
     /// A null component: it matches any run up to a dot boundary,
     /// including none.
     Wildcard,
-}
-
-/// The matcher elements of a parsed path: an integer component as its
-/// decimal form, whatever its spelling in the query.
-fn path_elems(path: &PresentationClaimsPath) -> Vec<PathElem<'_>> {
-    match path {
-        PresentationClaimsPath::Json(components) => components
-            .iter()
-            .map(|component| match component {
-                JsonComponent::Key(key) => PathElem::Text(Cow::Borrowed(key)),
-                JsonComponent::Index(index) => PathElem::Text(Cow::Owned(index.to_string())),
-                JsonComponent::AllElements => PathElem::Wildcard,
-            })
-            .collect(),
-        PresentationClaimsPath::Mdoc {
-            namespace,
-            data_element,
-        } => vec![
-            PathElem::Text(Cow::Borrowed(namespace)),
-            PathElem::Text(Cow::Borrowed(data_element)),
-        ],
-        PresentationClaimsPath::OtherFormat(components) => components
-            .iter()
-            .map(|component| match component {
-                PresentationComponent::Key(key) => PathElem::Text(Cow::Borrowed(key)),
-                PresentationComponent::Integer(integer) => {
-                    PathElem::Text(Cow::Owned(integer.to_string()))
-                }
-                PresentationComponent::Null => PathElem::Wildcard,
-            })
-            .collect(),
-    }
 }
 
 /// Whether `entry` is the `.`-joined form of the path `elems` spell, or

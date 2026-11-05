@@ -813,6 +813,60 @@ async fn a_claims_query_follows_section_7_for_its_format() {
     }
 }
 
+/// A disclosed claim spelled as the JSON text of its claims path
+/// pointer, as the engine's mini host spells it, is parsed for its
+/// query's format and compared with the requested paths as a path. The
+/// first row is the engine-vectors repository's
+/// `vp.oidf.mdoc.basic.001`: its request's DCQL query and its host's
+/// disclosed claim, in a presentation the vector completes. The other
+/// rows follow OpenID4VP 1.0 §7: §7.2.1 admits no third component into
+/// an mdoc, `["degrees", null, "type"]` selects "All type claims in the
+/// degrees array", and `["address"]` selects "The claim address with
+/// its sub-claims as the value" (§7.3). A top-level claim that is never
+/// selectively disclosable needs no request in this spelling either.
+#[tokio::test]
+async fn a_disclosed_claim_spelled_as_its_path_is_compared_as_a_path() {
+    let mdoc = r#"{"credentials":[{"id":"mdl-query","format":"mso_mdoc",
+        "meta":{"doctype_value":"org.iso.18013.5.1.mDL"},
+        "claims":[{"path":["org.iso.18013.5.1","given_name"]}]}]}"#;
+    let degrees = r#"{"credentials":[{"id":"pid","format":"dc+sd-jwt",
+        "claims":[{"path":["degrees",null,"type"]}]}]}"#;
+    let address = r#"{"credentials":[{"id":"pid","format":"dc+sd-jwt",
+        "claims":[{"path":["address"]}]}]}"#;
+    // (the query, the disclosed claim, whether the query authorises it)
+    let cases = [
+        (mdoc, r#"["org.iso.18013.5.1", "given_name"]"#, true),
+        (mdoc, r#"["org.iso.18013.5.1", "family_name"]"#, false),
+        (mdoc, r#"["org.iso.18013.5.1", "given_name", 0]"#, false),
+        (degrees, r#"["degrees", 1, "type"]"#, true),
+        (degrees, r#"["degrees", 1, "university"]"#, false),
+        // The parent: every claim of every degree.
+        (degrees, r#"["degrees"]"#, false),
+        (address, r#"["address", "street_address"]"#, true),
+        (address, r#"["vct"]"#, true),
+    ];
+    for (query, claim, authorised) in cases {
+        let query: serde_json::Value = serde_json::from_str(query).expect("the query is JSON");
+        let id = query
+            .pointer("/credentials/0/id")
+            .and_then(serde_json::Value::as_str)
+            .expect("the query names its credential query");
+        let ctx = vet_context(
+            ConsentCheckMode::Enforce,
+            Arc::new(RecordingTelemetry::default()),
+        );
+        let reason = consent::vet(&ctx, Some(&query), &[sel(id, &[claim])])
+            .await
+            .map(|violation| violation.reason);
+        let expected = if authorised {
+            None
+        } else {
+            Some(Reason::ClaimOutside)
+        };
+        assert_eq!(reason, expected, "{claim}");
+    }
+}
+
 /// The modes: `warn` records the violation (telemetry: the reason
 /// class and the query id alone) and proceeds; `enforce` refuses on
 /// it; `off` compares nothing and records nothing (the Go
