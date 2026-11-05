@@ -458,12 +458,12 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 let template = instance.value.as_str().ok_or_else(|| {
                     NotCompatible::TemplateNotString(concrete_text(&instance.path))
                 })?;
-                let text = Template(template).interpolate(
+                Some(Value::Text(Template(template).value(
+                    kind,
                     &metadata.claims,
                     self.payload.node(),
                     &instance.nulls,
-                )?;
-                Some(formatted(kind, &Node::String(Cow::Owned(text)))?)
+                )?))
             }
         };
         let section = match instance.placement {

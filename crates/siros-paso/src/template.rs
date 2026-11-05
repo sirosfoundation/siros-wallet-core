@@ -1,14 +1,16 @@
 //! View §3 `template:`: placeholders `{n}` naming the claim at index `n` of the metadata's
 //! `claims`, each `null` of the referenced path resolved to the referencing instance's index. A
 //! template label names each referenced value as an argument of its converted message
-//! ([`crate::view`]); a template value interpolates the referenced values as written, in one
-//! pass, before its inner value type reads it.
+//! ([`crate::view`]). A template value of an inner text kind sets each referenced value of a
+//! typed kind in the template as its typed text (step 3); an inner kind that parses its text
+//! reads the interpolation as written, as its value type takes precedence over theirs.
 
 use std::borrow::Cow;
 use std::ops::Range;
 
-use crate::value::{FormattedKind, ValueKind, formatted};
-use siros_explain::{Entry, Text};
+use crate::markdown::spans;
+use crate::value::{BadValue, FormattedKind, ValueKind, Written, formatted};
+use siros_explain::{AllOf, Entry, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
@@ -170,6 +172,95 @@ impl Template<'_> {
         Ok(out)
     }
 
+    /// A template value of the inner kind `kind`, its interpolation as written held to `kind`
+    /// first. Of `text` and `mini_markdown`, the template's text (a `mini_markdown` one without
+    /// its styles, read after the values written as text are set in it) with each value of a
+    /// typed kind as its typed text; of another kind, the interpolation read by the kind.
+    pub(crate) fn value(
+        &self,
+        kind: FormattedKind,
+        claims: &[ClaimMeta<'_>],
+        payload: &Node<'_>,
+        nulls: &[usize],
+    ) -> Result<Text, NotCompatible> {
+        let interpolated = self.interpolate(claims, payload, nulls)?;
+        let (_, read) =
+            formatted(kind, Written::Text(&interpolated)).map_err(|bad| NotCompatible::Value {
+                value_type: kind_name(ValueKind::Formatted(kind)),
+                bad,
+            })?;
+        if !matches!(kind, FormattedKind::Text | FormattedKind::MiniMarkdown) {
+            return Ok(read);
+        }
+        let mut parts: Vec<Part> = Vec::new();
+        let mut copied = 0;
+        for placeholder in placeholders(self.0) {
+            let Some(reference) = Reference::of(&placeholder, claims) else {
+                continue;
+            };
+            let value = reference
+                .read(payload, nulls)?
+                .ok_or(NotCompatible::TemplatesExhausted)?;
+            parts.push(Part::Written(
+                self.0
+                    .get(copied..placeholder.span.start)
+                    .unwrap_or_default()
+                    .to_owned(),
+            ));
+            let typed = text(reference.value_type(), value)?;
+            parts.push(match (&typed, kind) {
+                (Text::Value(_) | Text::Query(_), _) => Part::Typed(typed),
+                (_, FormattedKind::MiniMarkdown) => Part::Written(value_written(value)),
+                (Text::Raw(shown), _) => Part::Written(shown.clone()),
+                _ => Part::Typed(typed),
+            });
+            copied = placeholder.span.end;
+        }
+        parts.push(Part::Written(
+            self.0.get(copied..).unwrap_or_default().to_owned(),
+        ));
+        if parts.iter().all(|part| matches!(part, Part::Written(_))) {
+            return Ok(read);
+        }
+        let slot = slot(&parts).ok_or_else(|| NotCompatible::Value {
+            value_type: kind_name(ValueKind::Formatted(kind)),
+            bad: BadValue {
+                kind: kind.as_str(),
+                written: Written::Text(self.0).to_string(),
+                why: "holds every character of the Supplementary Private Use Area-A".to_owned(),
+            },
+        })?;
+        let mut marked = String::new();
+        let mut typed = Vec::new();
+        for part in parts {
+            match part {
+                Part::Written(text) => marked.push_str(&text),
+                Part::Typed(text) => {
+                    marked.push(slot);
+                    typed.push(text);
+                }
+            }
+        }
+        let plain = if kind == FormattedKind::MiniMarkdown {
+            spans(&marked).into_iter().map(|span| span.text).collect()
+        } else {
+            marked
+        };
+        let mut typed = typed.into_iter();
+        let mut items = Vec::new();
+        for (k, piece) in plain.split(slot).enumerate() {
+            if k > 0
+                && let Some(text) = typed.next()
+            {
+                items.push(text);
+            }
+            if !piece.is_empty() {
+                items.push(Text::Raw(piece.to_owned()));
+            }
+        }
+        Ok(AllOf::new(items).map_or(read, Text::Joined))
+    }
+
     /// Each referenced value as its message's argument, under its claim's name, by its value
     /// type, absent when the payload lacks it.
     pub(crate) fn arguments(
@@ -191,6 +282,23 @@ impl Template<'_> {
         }
         Ok(args)
     }
+}
+
+/// A part of a template value: text shown as written, or a value's typed text.
+enum Part {
+    Written(String),
+    Typed(Text),
+}
+
+/// A character of Unicode's Supplementary Private Use Area-A that no written part holds: where
+/// a typed value stands while a `mini_markdown` value is read; `None` when the parts hold all
+/// 65,534.
+fn slot(parts: &[Part]) -> Option<char> {
+    ('\u{F0000}'..='\u{FFFFD}').find(|c| {
+        !parts
+            .iter()
+            .any(|part| matches!(part, Part::Written(text) if text.contains(*c)))
+    })
 }
 
 /// A referenced value as written: a string's text, any other JSON value's compact text.

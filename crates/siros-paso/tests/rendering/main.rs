@@ -137,8 +137,9 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         )),
         ["Name", "Quantity", "Quantity"]
     );
-    // A template value: interpolated with the referenced values as written, then read by its
-    // inner type; a mini_markdown value shows its text without its styles.
+    // A template value: each referenced value formatted by its value type (View §3 template step
+    // 3: CLDR's en amount), the result read by its inner type; a mini_markdown value shows its
+    // text without its styles.
     let note = claims(&format!(
         r#"{amount}, {{"path": ["note"], "value_type": "template:mini_markdown", "display": [{{"locale": "en", "name": "Note"}}]}}"#
     ));
@@ -149,7 +150,7 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
     .expect("renders");
     assert_eq!(
         rendered.rows()[1].1,
-        Some(("mini_markdown", "Pay 49.99 EUR now".to_owned()))
+        Some(("mini_markdown", "Pay €49.99 now".to_owned()))
     );
     // A template label names the referenced value as its message's argument, formatted by its
     // type, inside the label's styles.
