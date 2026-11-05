@@ -232,6 +232,98 @@ proceeds.
 | **#512** | The AuthZEN proxy resolving the wrong authorization server | Backend (the `/v1/evaluate` proxy route); the engine's `Pdp` port is unaffected. |
 | **#445** | Trust doc comments | Backend. |
 
+### §6.12 W4's design survey — Credential Auxiliary Data v0.1 (#480, surveyed 2026-11-05)
+
+The Go implementation (`feat/aux-data-secret-members`,
+`internal/engine/auxiliary_data.go`, 583 lines + a 1084-line test)
+surveyed against this core. Spec: nym_auth_rulebook PR #12 (Credential
+Auxiliary Data v0.1) §§3–7. **The engine never handles a secret value**:
+an issuer delivers it in an encrypted response the client decrypts;
+`auxiliary_data` is the one credential_metadata member that carries
+Secret Values (§8.4) — the engine decides from the advertisement alone
+whether the response MUST be encrypted.
+
+**The pieces to port (the W4 wave):**
+
+1. **`auxiliary_data_supported` parsing (§5, `parseAuxiliaryDataSupported`)**:
+   an object with at least one of `to_wallet`/`to_issuer`, each a
+   non-empty array of entries; an entry is an object with a string
+   `type`; at most one entry per (type, path); `to_issuer` entries may
+   carry a boolean `required` (a `required` in `to_wallet` is
+   malformed); a `hash_commitment` entry needs a string `alg` and a
+   valid claims path (OpenID4VCI App. C: a non-empty array of strings,
+   nulls, non-negative integers), and MUST NOT carry `opening` or
+   `commitment` at any depth (values, never metadata). An unrecognised
+   type is ignored (§3) — only its `required` is read, and only in
+   `to_issuer` (a required entry the wallet cannot send makes the
+   configuration unusable).
+
+2. **`secretDelivery` — what the engine takes from one configuration**
+   (`secretDeliveryOf`): `requireEncryption` (any `to_wallet`
+   `hash_commitment`: §7.1, a Secret Value MUST NOT travel unencrypted
+   — the credential response encryption becomes required);
+   `to_issuer` (the verbatim entries the wallet can send — a
+   `hash_commitment` entry with unsupported `alg` or `encoding` is
+   dropped, or the whole config refused when it is `required`);
+   `toWallet` (verbatim, for the client's own response checking, §7.2);
+   `unusable` (why not); `requiredToIssuer` (a proof that can carry
+   auxiliary_data is needed: the config must declare a `jwt` or
+   `attestation` proof type, `carriesAuxiliaryData`).
+
+3. **The selection refusal (`configRefusal` → `usable` → the flow)**: a
+   `to_wallet` `hash_commitment` with an unsupported `alg`/`encoding`,
+   or a required `to_issuer` entry the wallet cannot send (§§4.1, 5)
+   → the flow fails `AUXILIARY_DATA_UNSUPPORTED` (the
+   `ErrCodeAuxiliaryDataUnsupported` equivalent: a refusal BEFORE any
+   authorization or request — at the selection point). A required
+   `to_issuer` with no carrying proof type → the same refusal.
+
+4. **The `auxiliary_data` MUST-NOT rule (§7)**:
+   `auxiliary_data` MUST NOT appear in issuer metadata
+   (`credential_metadata`) — `checkIssuerCredentialMetadata` →
+   `errMalformedAdvertisement` (fail closed). A PLAIN response
+   carrying it → the flow refuses (the client's secret travelled
+   unencrypted, §7.1) — `refusePlainSecretMembers`.
+
+5. **The proof ask carries the aux data**: `auxiliary_data_to_issuer`
+   (the verbatim sendable entries) and `auxiliary_data_to_wallet` (the
+   advertised entries) ride `generate_proof` — the host places them
+   in its key proofs. The engine's one check before forwarding
+   (`checkProofsForwardNoOpening`): no `hash_commitment` entry carries
+   an `opening` — an opening IS the secret; the engine never relays a
+   secret, its own safety property. When `to_issuer` is advertised the
+   engine has promised to inspect: a proof it cannot inspect (a
+   non-jwt/attestation type, an unreadable JWT, a non-array
+   auxiliary_data) is refused, not forwarded unexamined. Whether the
+   entries are ACCEPTABLE (§6.4: the same entries in every proof, the
+   path/alg match, the commitment length, every required entry sent)
+   is the issuer's — deliberately not re-implemented, so the two
+   cannot drift.
+
+6. **The conflict relay**: an issuer HTTP 400 whose body carries
+   `auxiliary_data_conflict` → the flow error
+   `AUXILIARY_DATA_CONFLICT` (a fixed message, the issuer's own
+   operator-reset text never retried) — the client is told what to do,
+   not retried.
+
+7. **Strict offer decode (`pkg/strictjson`)**: the credential offer
+   decodes with unknown-member rejection (the superseded SIROS secret
+   shapes — `secret_seed`, `holder_commitments`, `psc` — are ordinary
+   unknown members now).
+
+**The Rust shape (the plan):** a new
+`engine-core/src/oid4vci/auxiliary.rs` — `SecretDelivery::of(config)`
+(the parsed advertisement + the usability verdict), the selection
+refusal threaded into the flow after `trust_evaluated` (before the
+grant dispatch), the `auxiliary_data_to_*` members on the proof ask
+(the `request_sign` path carries them), the `opening`-check on the
+proofs before forwarding, the `refuse_plain` check on the response,
+and the conflict relay on the 400. The `VpResult`-style ports follow:
+whatever the host needs to carry aux entries into its proofs rides the
+existing sign ask. The suite evidence: the mini-wallet's host places
+the entries in its proofs; the vectors pin the advert parse and the
+three refusals (unusable, required-without-proof-type, plain-secret).
+
 ## 7. The fix waves (revised after the PR and issue triages)
 
 1. **W1 — engine-core parity: COMPLETE.** The step vocabulary, scheme
