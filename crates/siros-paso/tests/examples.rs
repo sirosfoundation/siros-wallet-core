@@ -166,7 +166,7 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
     let rendered = render(
         entry_json,
         &untitled,
-        &env(&["en"], Amounts::Raw),
+        &env(&["en"], Amounts::Written),
         &PasoProfile::default(),
     )
     .expect("renders");

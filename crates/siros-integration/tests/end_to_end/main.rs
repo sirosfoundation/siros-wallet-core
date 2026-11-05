@@ -26,10 +26,10 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Delivery, Prepared};
-use siros_openid4vp::rows::{Amounts, Choice, Env};
+use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Published;
-use siros_testkit::fixtures::{Held, NONCE, ORIGIN, parameters};
+use siros_testkit::fixtures::{Held, NONCE, OPTIONS, ORIGIN, parameters};
 use siros_testkit::reading::model_shape;
 use siros_testkit::verifier::{self, ISSUER};
 
@@ -83,9 +83,13 @@ fn member(json: &str, name: &str) -> String {
 /// An English wallet showing amounts as written.
 fn english() -> Env {
     Env::new(
-        [LocaleTag::parse("en").expect("en")],
+        vec![LocaleTag::parse("en").expect("en")],
         Vec::new(),
-        Amounts::Raw,
+        RenderOptions {
+            amounts: Amounts::Written,
+            ..OPTIONS
+        },
+        Vec::new(),
         Choice::First,
     )
     .expect("the configuration")

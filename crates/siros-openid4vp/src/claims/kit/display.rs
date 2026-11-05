@@ -10,13 +10,13 @@ use crate::text::atoms::python_space;
 use crate::text::lookup;
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
-/// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 Lookup over the priority list,
-/// then basic filtering (a tag under the range), then the entry without a locale, then the
-/// first entry.
+/// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority
+/// list, the entry equal to a tag else the first extending it, then the entry without a locale,
+/// then the first entry.
 #[must_use]
 pub fn format_entry<'n, 'e>(
     entries: &'n [Node<'e>],
-    locales: &[&LocaleTag<'_>],
+    locales: &[LocaleTag],
 ) -> Option<&'n Node<'e>> {
     let tagged: Vec<(&str, &Node<'e>)> = entries
         .iter()
@@ -28,7 +28,7 @@ pub fn format_entry<'n, 'e>(
         })
         .collect();
     let tags: Vec<&str> = tagged.iter().map(|(tag, _)| *tag).collect();
-    let looked_up = locales.iter().find_map(|locale| {
+    let matched = locales.iter().find_map(|locale| {
         lookup(locale, &tags).and_then(|tag| {
             tagged
                 .iter()
@@ -36,20 +36,8 @@ pub fn format_entry<'n, 'e>(
                 .map(|(_, entry)| *entry)
         })
     });
-    let filtered = || {
-        locales.iter().find_map(|locale| {
-            let range = format!("{}-", locale.as_str().to_lowercase());
-            tagged
-                .iter()
-                .find(|(tag, _)| tag.to_lowercase().starts_with(&range))
-                .map(|(_, entry)| *entry)
-        })
-    };
     let untagged = || entries.iter().find(|entry| entry.get("locale").is_none());
-    looked_up
-        .or_else(filtered)
-        .or_else(untagged)
-        .or_else(|| entries.first())
+    matched.or_else(untagged).or_else(|| entries.first())
 }
 
 pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>] {
@@ -63,7 +51,7 @@ fn label_of(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
     described: &[(ClaimPath<'_>, &Node<'_>)],
-    locales: &[&LocaleTag<'_>],
+    locales: &[LocaleTag],
 ) -> Option<String> {
     let (_, claim) = described
         .iter()
@@ -87,7 +75,7 @@ pub(super) fn value_rows(
     path: &[Concrete<'_>],
     value: &Node<'_>,
     described: &[(ClaimPath<'_>, &Node<'_>)],
-    locales: &[&LocaleTag<'_>],
+    locales: &[LocaleTag],
     inherited: Option<&str>,
 ) -> Vec<Row> {
     let label = label_of(format, path, described, locales)

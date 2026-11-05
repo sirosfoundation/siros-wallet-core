@@ -5,9 +5,10 @@ use std::num::NonZeroU32;
 
 use siros_explain::Explain;
 
+use siros_i18n::RenderOptions;
+
 use crate::ids::LocaleTag;
 use crate::media::{MediaType, NotMediaType};
-use crate::text::lookup;
 
 /// The locales of the wallet's string table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -19,16 +20,15 @@ pub enum TableLocale {
 }
 
 impl TableLocale {
-    const TAGS: [&'static str; 2] = ["en", "de"];
-
-    /// The table locale RFC 4647 Lookup selects for a display locale.
+    /// The table locale whose language serves a display locale: its tag, as a basic language
+    /// range, matches the display locale (`en` serves `en-US`).
     #[must_use]
-    pub fn of(display: &LocaleTag<'_>) -> Option<Self> {
-        match lookup(display, &Self::TAGS).copied() {
-            Some("en") => Some(Self::En),
-            Some("de") => Some(Self::De),
-            _ => None,
-        }
+    pub fn of(display: &LocaleTag) -> Option<Self> {
+        let serves = |tag: &str| LocaleTag::parse(tag).is_ok_and(|tag| tag.filters(display));
+        [(Self::En, "en"), (Self::De, "de")]
+            .into_iter()
+            .find(|(_, tag)| serves(tag))
+            .map(|(locale, _)| locale)
     }
 }
 
@@ -78,7 +78,7 @@ impl WalletText {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisplayLocale {
     /// The language tag.
-    pub tag: LocaleTag<'static>,
+    pub tag: LocaleTag,
     /// The table locale it selects.
     pub table: TableLocale,
 }
@@ -86,7 +86,7 @@ pub struct DisplayLocale {
 impl DisplayLocale {
     /// The display locale of a tag; `None` when the wallet's table has no locale for it.
     #[must_use]
-    pub fn of(tag: LocaleTag<'static>) -> Option<Self> {
+    pub fn of(tag: LocaleTag) -> Option<Self> {
         TableLocale::of(&tag).map(|table| Self { tag, table })
     }
 
@@ -173,15 +173,6 @@ impl Icon {
     };
 }
 
-/// How the display formats amounts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Amounts {
-    /// From the wallet's table where it has a format.
-    Formatted,
-    /// As written.
-    Raw,
-}
-
 /// How the platform offers the consent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Choice {
@@ -198,50 +189,81 @@ pub enum EnvError {
     /// The priority list is empty.
     #[error("the wallet's locale priority list is empty")]
     NoLocale,
-    /// The wallet's table has no locale for the first tag of the priority list.
-    #[error("the wallet's priority list holds {0}, which the table lacks")]
+    /// Neither the priority list nor the fallback list holds a tag the wallet's table serves.
+    #[error(
+        "neither the priority list from {0} nor the fallback list holds a tag the table serves"
+    )]
     NotInTable(#[explain(name = "locale")] String),
 }
 
-/// The wallet's configuration the display reads.
+/// The wallet's configuration the display reads: the End-User's language priority list, the
+/// app's fallback list, the rendering options, the icons resolved at issuance and the offer
+/// shape.
+///
+/// The core uses the priority list as given: a presentation is in the first language of the list
+/// that every module it draws from matches by RFC 4647 basic filtering (§3.3.1), where a tag
+/// matches an equal tag and the tags extending it, so `en` matches `en-GB` and `en-US` matches
+/// no `en`. Modules tag their texts by language, and by region only for a regional variant. An
+/// app therefore puts each tag's generic form right after it, the language with its script when
+/// the tag names one: `[en-US, en]`, `[zh-Hant-TW, zh-Hant]`. The fallback list holds the
+/// languages the app shows when no tag of the priority list serves every module and none of
+/// them requires a language the End-User understands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Env {
+    priority: Vec<LocaleTag>,
+    fallback: Vec<LocaleTag>,
     first: DisplayLocale,
-    later: Vec<LocaleTag<'static>>,
+    options: RenderOptions,
     icons: Vec<(String, Icon)>,
-    amounts: Amounts,
     choice: Choice,
 }
 
 impl Env {
-    /// The configuration: a non-empty priority list whose first tag the wallet's table serves,
-    /// the icons resolved at issuance by logo URI, the amounts mode and the offer shape.
+    /// The configuration: a non-empty priority list, the fallback list, the rendering options,
+    /// the icons resolved at issuance by logo URI and the offer shape. The wallet's own strings
+    /// take the first tag of the priority list, then of the fallback list, that the wallet's
+    /// table serves.
+    ///
+    /// # Errors
+    ///
+    /// [`EnvError::NoLocale`] for an empty priority list; [`EnvError::NotInTable`] when neither
+    /// list holds a tag the table serves.
     pub fn new(
-        locales: impl IntoIterator<Item = LocaleTag<'static>>,
+        priority: Vec<LocaleTag>,
+        fallback: Vec<LocaleTag>,
+        options: RenderOptions,
         icons: Vec<(String, Icon)>,
-        amounts: Amounts,
         choice: Choice,
     ) -> Result<Self, EnvError> {
-        let mut locales = locales.into_iter();
-        let tag = locales.next().ok_or(EnvError::NoLocale)?;
-        let shown = tag.as_str().to_owned();
-        let first = DisplayLocale::of(tag).ok_or(EnvError::NotInTable(shown))?;
-        let later = locales.collect();
+        let shown = priority.first().ok_or(EnvError::NoLocale)?.to_string();
+        let first = priority
+            .iter()
+            .chain(&fallback)
+            .find_map(|tag| DisplayLocale::of(tag.clone()))
+            .ok_or(EnvError::NotInTable(shown))?;
         Ok(Self {
+            priority,
+            fallback,
             first,
-            later,
+            options,
             icons,
-            amounts,
             choice,
         })
     }
 
-    /// The priority list.
-    pub fn locales(&self) -> impl Iterator<Item = &LocaleTag<'static>> {
-        std::iter::once(&self.first.tag).chain(&self.later)
+    /// The End-User's priority list, as given.
+    #[must_use]
+    pub fn priority(&self) -> &[LocaleTag] {
+        &self.priority
     }
 
-    /// The first locale of the priority list, which the wallet's own strings use.
+    /// The app's fallback list.
+    #[must_use]
+    pub fn fallback(&self) -> &[LocaleTag] {
+        &self.fallback
+    }
+
+    /// The locale the wallet's own strings use.
     #[must_use]
     pub const fn first(&self) -> &DisplayLocale {
         &self.first
@@ -256,10 +278,10 @@ impl Env {
             .map_or(&Icon::DEFAULT, |(_, icon)| icon)
     }
 
-    /// The amounts mode.
+    /// The rendering options.
     #[must_use]
-    pub const fn amounts(&self) -> Amounts {
-        self.amounts
+    pub const fn options(&self) -> RenderOptions {
+        self.options
     }
 
     /// The offer shape.

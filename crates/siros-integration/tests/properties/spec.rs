@@ -109,31 +109,29 @@ fn default_profile() -> Vec<(String, u64)> {
         .collect()
 }
 
-/// RFC 4647 §3.4's Lookup truncations of a tag without single-character subtags, lower-cased.
-pub fn chain(tag: &str) -> Vec<String> {
-    let subtags: Vec<&str> = tag.split('-').collect();
-    (1..=subtags.len())
-        .rev()
-        .map(|kept| subtags[..kept].join("-").to_lowercase())
-        .collect()
+/// RFC 4647 §3.3.1 basic filtering, case-insensitive: a range matches a tag equal to it or
+/// extending it by further subtags.
+pub fn filters(range: &str, tag: &str) -> bool {
+    let (range, tag) = (range.to_lowercase(), tag.to_lowercase());
+    tag == range || tag.starts_with(&format!("{range}-"))
 }
 
-/// View §4 for one locale as a predicate: every array has an entry whose tag is one of the
-/// locale's truncations, or an entry without a locale.
+/// View §4 for one locale as a predicate, under the owner's basic filtering: every array has an
+/// entry whose tag the locale matches, or an entry without a locale.
 pub fn complete(locale: &str, arrays: &[Vec<Value>]) -> bool {
-    let chain = chain(locale);
     arrays.iter().all(|array| {
         array
             .iter()
             .any(|entry| match entry.get("locale").and_then(Value::as_str) {
                 None => true,
-                Some(tag) => chain.contains(&tag.to_lowercase()),
+                Some(tag) => filters(locale, tag),
             })
     })
 }
 
-/// The entry View §4 matches in an array: the one tagged with the earliest truncation, else the
-/// default; `None` with a template entry, which a rendering may discard.
+/// The entry View §4 matches in an array: the one whose tag equals the locale, else the first
+/// whose tag extends it, else the default; `None` with a template entry, which a rendering may
+/// discard.
 pub fn preferred<'a>(array: &'a [Value], locale: &str, typed_by: &str) -> Option<&'a Value> {
     if array
         .iter()
@@ -141,14 +139,16 @@ pub fn preferred<'a>(array: &'a [Value], locale: &str, typed_by: &str) -> Option
     {
         return None;
     }
-    chain(locale)
+    fn tagged(e: &Value) -> Option<&str> {
+        e.get("locale").and_then(Value::as_str)
+    }
+    array
         .iter()
-        .find_map(|truncation| {
-            array.iter().find(|e| {
-                e.get("locale")
-                    .and_then(Value::as_str)
-                    .is_some_and(|tag| tag.to_lowercase() == *truncation)
-            })
+        .find(|e| tagged(e).is_some_and(|tag| tag.eq_ignore_ascii_case(locale)))
+        .or_else(|| {
+            array
+                .iter()
+                .find(|e| tagged(e).is_some_and(|tag| filters(locale, tag)))
         })
         .or_else(|| array.iter().find(|e| e.get("locale").is_none()))
 }

@@ -14,7 +14,8 @@ use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia};
+use siros_openid4vp::rows::{Choice, Env, Icon, ImageMedia};
+use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
 
@@ -23,7 +24,7 @@ const MDOC: ClaimsTest = ClaimsTest {
     label: "name",
 };
 
-fn tag(text: &'static str) -> LocaleTag<'static> {
+fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
 }
 
@@ -62,9 +63,10 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
     let items: Vec<Item> = (0..4).map(|k| Item::new(k).expect("item")).collect();
     let card_in = |locales: &[&'static str]| {
         let env = Env::new(
-            locales.iter().copied().map(tag),
+            locales.iter().copied().map(tag).collect(),
+            Vec::new(),
+            OPTIONS,
             vec![(logo.to_owned(), icon.clone())],
-            Amounts::Formatted,
             Choice::First,
         )
         .expect("env");
@@ -98,7 +100,7 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             ["Given Name", "Surname", "birth_date", "organ_donor"]
         )
     );
-    // RFC 4647 Lookup over the priority list: de selects no entry, ja-JP the card's and
+    // RFC 4647 basic filtering over the priority list: de selects no entry, ja-JP the card's and
     // given_name's; family_name has neither, so its first entry.
     assert_eq!(
         card_in(&["de", "ja-JP"]),
@@ -110,21 +112,23 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
 }
 
 #[test]
-fn locale_selection_tries_lookup_then_basic_filtering_then_the_untagged_entry() {
+fn locale_selection_tries_basic_filtering_then_the_untagged_entry() {
     let entries = r#"[{"locale": "de-DE", "name": "de-DE"}, {"locale": "en", "name": "en"}, {"name": "default"}]"#;
     let entries = Node::parse(entries).expect("entries");
-    let pick = |tags: &[&LocaleTag<'_>]| {
+    let pick = |tags: &[LocaleTag]| {
         format_entry(entries.as_array().expect("array"), tags)
             .and_then(|e| e.get("name"))
             .and_then(Node::as_str)
             .map(str::to_owned)
     };
-    // RFC 4647 Lookup: en-US finds en. Basic filtering: de finds de-DE. Else the entry without a locale.
-    assert_eq!(pick(&[&tag("en-US")]).as_deref(), Some("en"));
-    assert_eq!(pick(&[&tag("de")]).as_deref(), Some("de-DE"));
-    assert_eq!(pick(&[&tag("fr")]).as_deref(), Some("default"));
+    // RFC 4647 §3.3.1 basic filtering: en-US matches no en, de matches de-DE; else the entry
+    // without a locale.
+    assert_eq!(pick(&[tag("en-US")]).as_deref(), Some("default"));
+    assert_eq!(pick(&[tag("en-US"), tag("en")]).as_deref(), Some("en"));
+    assert_eq!(pick(&[tag("de")]).as_deref(), Some("de-DE"));
+    assert_eq!(pick(&[tag("fr")]).as_deref(), Some("default"));
     assert_eq!(
-        pick(&[&tag("fr"), &tag("de")]).as_deref(),
+        pick(&[tag("fr"), tag("de")]).as_deref(),
         Some("de-DE"),
         "a later locale of the list before the default"
     );
@@ -387,7 +391,14 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
     let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
-    let env = Env::new([tag("en")], Vec::new(), Amounts::Formatted, Choice::First).expect("env");
+    let env = Env::new(
+        vec![tag("en")],
+        Vec::new(),
+        OPTIONS,
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env");
     let items: Vec<Item> = (0..3).map(|k| Item::new(k).expect("item")).collect();
     let card = query
         .card(

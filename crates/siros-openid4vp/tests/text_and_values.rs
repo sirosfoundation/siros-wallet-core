@@ -1,4 +1,5 @@
-//! The text rules against their standards' own data: RFC 4647 §3.4's Lookup examples,
+//! The text rules against their standards' own data: RFC 4647 §3.3.1's basic filtering and the
+//! owner's rule over a priority list,
 //! CommonMark 0.31.2's emphasis examples (`data/commonmark-0.31.2-spec.json`, spec.commonmark.org
 //! 0.31.2, SHA-256 d431b29d97b6f73e69d547109cf5081578fac931e72afe95639ebe766c1b2a20), and the
 //! value kinds of PaSO View §3 formatted as its examples show them.
@@ -9,9 +10,10 @@ use siros_openid4vp::rows::{
     Amounts, Choice, Date, Env, EnvError, FormattedKind, HttpsUrl, Label, Parsed, Shown,
     TableLocale, Value, Written,
 };
-use siros_openid4vp::text::{Span, Style, commonmark_html, lookup, lookup_chain, spans};
+use siros_openid4vp::text::{Span, Style, commonmark_html, lookup, spans};
+use siros_testkit::fixtures::OPTIONS;
 
-fn tag(text: &'static str) -> LocaleTag<'static> {
+fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
 }
 
@@ -30,23 +32,26 @@ const STRONG: Style = Style::STRONG;
 const PLAIN: Style = Style::PLAIN;
 const UNDERLINE: Style = Style::UNDERLINE;
 
+/// I33's known answers: RFC 4647 §3.3.1 basic filtering, the equal tag first, else the first tag
+/// extending the range; the owner's rule: "en should match enUS or enGB", "but not the other way
+/// around".
 #[test]
-fn rfc_4647_lookup_follows_the_sections_examples() {
-    assert_eq!(
-        lookup_chain("zh-Hant-CN-x-private1-private2"),
-        [
-            "zh-Hant-CN-x-private1-private2",
-            "zh-Hant-CN-x-private1",
-            "zh-Hant-CN",
-            "zh-Hant",
-            "zh"
-        ]
-    );
-    // §3.4: de-ch finds de or de-CH, never de-CH-1996.
-    let range = tag("de-ch");
-    assert_eq!(lookup(&range, &["de-CH-1996", "de"]), Some(&"de"));
-    assert_eq!(lookup(&range, &["de-CH", "de"]), Some(&"de-CH"));
-    assert_eq!(lookup(&range, &["de-CH-1996"]), None);
+fn a_range_matches_an_equal_tag_else_the_first_extending_it() {
+    let cases: [(&str, &[&str], Option<&str>); 6] = [
+        ("en", &["en-GB"], Some("en-GB")),
+        ("en", &["en-US", "en-GB"], Some("en-US")),
+        ("en", &["en-GB", "en"], Some("en")),
+        ("en-US", &["en"], None),
+        ("en-US", &["en-GB"], None),
+        ("en-GB", &["en"], None),
+    ];
+    for (range, tags, want) in cases {
+        assert_eq!(
+            lookup(&tag(range), tags).copied(),
+            want,
+            "{range} over {tags:?}"
+        );
+    }
     assert!(
         LocaleTag::parse("*").is_err(),
         "a priority list holds concrete tags"
@@ -258,7 +263,7 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
             K::CurrencyAmount,
             T("1.50 EUR"),
             TableLocale::En,
-            Amounts::Raw
+            Amounts::Written
         )
         .as_deref(),
         Some("1.50 EUR")
@@ -325,15 +330,20 @@ fn a_value_keeps_its_parsed_form() {
 
 #[test]
 fn a_configuration_that_cannot_exist_is_refused() {
-    let none: [LocaleTag<'static>; 0] = [];
     assert_eq!(
-        Env::new(none, Vec::new(), Amounts::Formatted, Choice::First),
+        Env::new(Vec::new(), Vec::new(), OPTIONS, Vec::new(), Choice::First),
         Err(EnvError::NoLocale)
     );
     assert_eq!(
-        Env::new([tag("fr")], Vec::new(), Amounts::Formatted, Choice::First),
+        Env::new(
+            vec![tag("fr")],
+            vec![tag("es")],
+            OPTIONS,
+            Vec::new(),
+            Choice::First
+        ),
         Err(EnvError::NotInTable("fr".to_owned())),
-        "a locale the wallet's table lacks"
+        "neither list holds a locale the wallet's table serves"
     );
 }
 

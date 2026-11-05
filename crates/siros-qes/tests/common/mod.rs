@@ -25,11 +25,12 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::{Refusal, Refused};
 use siros_openid4vp::request::{AgreeableKey, Query, Request};
 use siros_openid4vp::resolve::{Outcome, Prepared};
-use siros_openid4vp::rows::{Amounts, Choice, Env, HttpsUrl, Label, Parsed, Row, Value};
+use siros_openid4vp::rows::{Choice, Env, HttpsUrl, Label, Parsed, Row, Value};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder, Wallet};
 use siros_qes::QesProfile;
 use siros_testkit::FAULT;
+use siros_testkit::fixtures::OPTIONS;
 use siros_testkit::{Published, PublishedResource, TestHost};
 
 /// The Origin of the requests.
@@ -155,9 +156,10 @@ pub use siros_testkit::fixtures::{request_of, unsigned};
 /// The wallet's configuration with one locale.
 pub fn env(locale: &'static str) -> Env {
     Env::new(
-        [LocaleTag::parse(locale).expect("tag")],
+        vec![LocaleTag::parse(locale).expect("tag")],
         Vec::new(),
-        Amounts::Formatted,
+        OPTIONS,
+        Vec::new(),
         Choice::First,
     )
     .expect("env")

@@ -171,13 +171,18 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         let shown = self.images(&metadata, &rulebook)?;
         let discarded = self.discarded(&metadata, &shown)?;
         let arrays = arrays(&metadata);
-        if select(&arrays, self.env.locales(), &Discarded::default()).is_none() {
+        if select(&arrays, self.env.priority(), &Discarded::default()).is_none() {
             return Err(Excluded {
-                locales: self.env.locales().map(ToString::to_string).collect(),
+                locales: self
+                    .env
+                    .priority()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
             }
             .into());
         }
-        let selection = select(&arrays, self.env.locales(), &discarded)
+        let selection = select(&arrays, self.env.priority(), &discarded)
             .ok_or(NotCompatible::TemplatesExhausted)?;
         let rows = shown
             .into_iter()
@@ -333,7 +338,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 self.payload.node(),
                 nulls,
                 selection.locale.table,
-                self.env.amounts(),
+                self.env.options().amounts,
             )?,
         };
         LabelText::parse(&text, slot)
@@ -381,7 +386,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                     self.payload.node(),
                     &instance.nulls,
                     selection.locale.table,
-                    self.env.amounts(),
+                    self.env.options().amounts,
                 )?;
                 Some(self.formatted(kind, &Node::String(Cow::Owned(text)), selection)?)
             }
@@ -415,7 +420,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             kind,
             written(value),
             selection.locale.table,
-            self.env.amounts(),
+            self.env.options().amounts,
         )
         .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),

@@ -240,8 +240,8 @@ impl<'q> ClaimsQuery<'q> {
         shown: Shown<'_>,
         env: &Env,
     ) -> Result<Card, PathError> {
-        let locales: Vec<&LocaleTag<'_>> = env.locales().collect();
-        let entry = format_entry(metadata(view, "display"), &locales);
+        let locales = env.priority();
+        let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
@@ -252,8 +252,8 @@ impl<'q> ClaimsQuery<'q> {
             );
         let subtitle = view.get("issuer").and_then(Node::as_str).map(str::to_owned);
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
-        let mut rows = self.claim_rows(format, shown.everyone, view, &locales)?;
-        rows.extend(self.claim_rows(format, shown.chosen, view, &locales)?);
+        let mut rows = self.claim_rows(format, shown.everyone, view, locales)?;
+        rows.extend(self.claim_rows(format, shown.chosen, view, locales)?);
         Ok(Card {
             icon,
             title,
@@ -269,7 +269,7 @@ impl<'q> ClaimsQuery<'q> {
         format: &impl ClaimsFormat,
         items: &[Item],
         view: &Node<'_>,
-        locales: &[&LocaleTag<'_>],
+        locales: &[LocaleTag],
     ) -> Result<Vec<Row>, PathError> {
         let described: Vec<(ClaimPath<'_>, &Node<'_>)> = metadata(view, "claims")
             .iter()

@@ -1,5 +1,5 @@
 //! View §4: the first locale of the wallet's list for which every display array has an entry,
-//! by RFC 4647 Lookup over its tagged entries, else its default entry.
+//! by RFC 4647 basic filtering over its tagged entries, else its default entry.
 
 use rustc_hash::FxHashSet;
 use siros_openid4vp::ids::LocaleTag;
@@ -53,11 +53,11 @@ impl<'a, 'm> Selection<'a, 'm> {
 }
 
 /// The first locale of the list, among those the wallet's table serves, for which every array
-/// matches: Lookup over the array's tagged entries not discarded, else its first default entry
-/// not discarded. `None` when no locale matches every array.
+/// matches: basic filtering over the array's tagged entries not discarded, else its first default
+/// entry not discarded. `None` when no locale matches every array.
 pub(crate) fn select<'l, 'a, 'm>(
     arrays: &[(ArrayKey, &'a DisplayArray<'m>)],
-    locales: impl IntoIterator<Item = &'l LocaleTag<'static>>,
+    locales: impl IntoIterator<Item = &'l LocaleTag>,
     discarded: &Discarded,
 ) -> Option<Selection<'a, 'm>> {
     locales.into_iter().find_map(|tag| {
@@ -74,7 +74,7 @@ pub(crate) fn select<'l, 'a, 'm>(
 fn matched<'a, 'm>(
     key: ArrayKey,
     array: &'a DisplayArray<'m>,
-    tag: &LocaleTag<'_>,
+    tag: &LocaleTag,
     discarded: &Discarded,
 ) -> Option<&'a Localized<'m>> {
     let live: Vec<&'a Localized<'m>> = array

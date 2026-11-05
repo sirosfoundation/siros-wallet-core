@@ -6,6 +6,10 @@ use std::fmt;
 
 use siros_explain::Explain;
 
+/// A language tag of the wallet's priority and fallback lists, and of a module's locales, and a
+/// text that is none.
+pub use siros_i18n::{InvalidTag, LocaleTag};
+
 /// A string that breaks the rule of the identifier it was parsed as.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp")]
@@ -122,12 +126,6 @@ text_id!(
     ClientId,
     "Client Identifier",
     |text| !text.is_empty() && text.bytes().all(|b| (0x20..=0x7e).contains(&b))
-);
-text_id!(
-    /// A language tag of the wallet's priority list (RFC 4647 §2.1): non-empty and concrete.
-    LocaleTag,
-    "language tag",
-    |text| !text.is_empty() && text != "*"
 );
 text_id!(
     /// The key a plug-in's document carries in a credential's registration.

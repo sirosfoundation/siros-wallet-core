@@ -181,6 +181,14 @@ released version yet.
   1.89, then each crate with and without its default features. The workspace
   resolves with resolver 3. Both container images build on Rust 1.99.1, the
   pinned toolchain.
+- `siros-openid4vp::text::lookup` is RFC 4647 §3.3.1 basic filtering: a range
+  matches the tag equal to it, else the first tag extending it (`en` matches
+  `en-GB`, `en-US` matches no `en`). A credential's display entry and
+  `siros-paso`'s View §4 selection match by it. `Env::new` takes the End-User's
+  priority list as given, the app's fallback list and `siros-i18n`'s
+  `RenderOptions`, whose `Amounts` replaces the core's; its documentation
+  states the app's practice of putting each tag's generic form after it.
+  `ids::LocaleTag` is `siros-i18n`'s.
 
 ### Removed
 

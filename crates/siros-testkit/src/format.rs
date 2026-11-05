@@ -293,7 +293,7 @@ impl FormatQuery for TestQuery<'_> {
         let view = view(credential)?;
         let locale = env.first().table;
         let format = |kind, written| {
-            Value::format(kind, written, locale, env.amounts())
+            Value::format(kind, written, locale, env.options().amounts)
                 .map_err(|e| Fault::caused(FAULT, detail!("a test value"), e))
         };
         let mut rows = vec![

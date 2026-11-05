@@ -12,8 +12,8 @@ use siros_openid4vp::hash::{Blake2, K12, Sha2, Sha3};
 use siros_openid4vp::host::Seconds;
 use siros_openid4vp::host::{CoreHost, Haip, Has, RequestDecryption};
 use siros_openid4vp::ids::{
-    AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
-    Origin,
+    AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, InvalidTag,
+    LocaleTag, Origin,
 };
 use siros_openid4vp::jose::{Skew, SkewTooLarge};
 use siros_openid4vp::json::quote;
@@ -26,7 +26,9 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
-use siros_openid4vp::rows::{Amounts, Choice, Env, EnvError, Icon, ImageMedia};
+use siros_openid4vp::rows::{
+    Amounts, Bidi, Choice, Env, EnvError, Icon, ImageMedia, OnRenderError, RenderOptions,
+};
 use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
 use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::{
@@ -109,6 +111,9 @@ pub enum FixtureError {
     /// An identifier breaks its rule.
     #[error(transparent)]
     Id(#[from] InvalidId),
+    /// A text that is no language tag.
+    #[error(transparent)]
+    Tag(#[from] InvalidTag),
     /// The configuration breaks its rule.
     #[error(transparent)]
     Env(#[from] EnvError),
@@ -388,14 +393,51 @@ pub fn icon(uri: &str, size: u32) -> Option<(String, Icon)> {
     ))
 }
 
-/// The wallet's configuration: its priority list, its icons by logo URI, amounts formatted,
-/// each slot's default preselected.
+/// A priority list as an app writes it from the platform's: each tag followed by its generic
+/// form, the language with its script when the tag names one, unless the list already holds it
+/// earlier (`[en-US, de-CH]` gives `[en-US, en, de-CH, de]`).
+#[must_use]
+pub fn with_generic_forms(tags: &[LocaleTag]) -> Vec<LocaleTag> {
+    let mut out: Vec<LocaleTag> = Vec::with_capacity(tags.len() * 2);
+    for tag in tags {
+        let mut subtags = tag.as_str().split('-');
+        let language = subtags.next().unwrap_or_default();
+        let generic = match subtags.next() {
+            Some(script)
+                if script.len() == 4 && script.bytes().all(|b| b.is_ascii_alphabetic()) =>
+            {
+                format!("{language}-{script}")
+            }
+            _ => language.to_owned(),
+        };
+        for candidate in [Some(tag.clone()), LocaleTag::parse(&generic).ok()]
+            .into_iter()
+            .flatten()
+        {
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
+
+/// The rendering options of the fixtures: amounts formatted, no isolation characters, no entry
+/// for a text that does not render.
+pub const OPTIONS: RenderOptions = RenderOptions {
+    amounts: Amounts::Formatted,
+    bidi: Bidi::None,
+    on_error: OnRenderError::NoEntry,
+};
+
+/// The wallet's configuration: its priority list, no fallback list, its icons by logo URI,
+/// [`OPTIONS`], each slot's default preselected.
 pub fn env(locales: &[&'static str], icons: Vec<(String, Icon)>) -> Result<Env, FixtureError> {
     let tags = locales
         .iter()
-        .map(|tag| LocaleTag::parse(*tag))
+        .map(|tag| LocaleTag::parse(tag))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Env::new(tags, icons, Amounts::Formatted, Choice::First)?)
+    Ok(Env::new(tags, Vec::new(), OPTIONS, icons, Choice::First)?)
 }
 
 /// A credential's registration: its id, format and view, its documents by key, whether it is

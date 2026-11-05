@@ -129,7 +129,7 @@ fn appendix_b_2_shows_its_card_and_claim_labels() {
             rows(&de)
         )
     );
-    // en: Lookup finds nothing under en-US, basic filtering finds en-US.
+    // en: basic filtering finds en-US, the first tag extending it.
     let (title, _, name) = card(&view, &leaves[..1], &["en"]);
     assert_eq!(
         (title.as_str(), name),

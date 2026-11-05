@@ -12,9 +12,10 @@ use siros_openid4vp::ids::{
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::plugins::{Fault, Member};
-use siros_openid4vp::rows::{Amounts, Choice, Env};
+use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::{Credential, Document, Facts, HeldAuthority, Holder};
 use siros_testkit::TestHost;
+use siros_testkit::fixtures::OPTIONS;
 use siros_testkit::rules::TestRule;
 use siros_testkit::{Binds, TestFormat, TestProfile};
 
@@ -61,9 +62,10 @@ pub fn registry(binds: Binds) -> Registry<TestHost> {
 /// The wallet's configuration with one locale.
 pub fn env(locale: &'static str) -> Env {
     Env::new(
-        [LocaleTag::parse(locale).expect("tag")],
+        vec![LocaleTag::parse(locale).expect("tag")],
         Vec::new(),
-        Amounts::Formatted,
+        OPTIONS,
+        Vec::new(),
         Choice::First,
     )
     .expect("env")

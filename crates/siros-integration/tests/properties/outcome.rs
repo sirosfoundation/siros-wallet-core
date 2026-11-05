@@ -102,7 +102,7 @@ pub fn check(
     let mandate = kind.contains(":mandate:");
     let meta = given(entry, document).expect("the metadata that rendered");
     let arrays = arrays(mandate, &meta);
-    let locales: Vec<&str> = env.locales().map(|tag| tag.as_str()).collect();
+    let locales: Vec<&str> = env.priority().iter().map(|tag| tag.as_str()).collect();
     let Some(view) = view else {
         // View §4: no locale of the wallet completes every array.
         assert!(

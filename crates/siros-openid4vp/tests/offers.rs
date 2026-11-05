@@ -9,9 +9,10 @@ use siros_openid4vp::matching::{
 };
 use siros_openid4vp::plugins::OptionIndex;
 use siros_openid4vp::request::{Item, ItemSet, Request};
-use siros_openid4vp::rows::{Amounts, Choice, Env};
+use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
+use siros_testkit::fixtures::OPTIONS;
 
 use common::{Held, PASO_A5, env, parameters, registry, request_of, unsigned, vector};
 
@@ -23,9 +24,10 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
     let registry = registry(Binds::First);
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = Env::new(
-        [LocaleTag::parse("en").expect("tag")],
+        vec![LocaleTag::parse("en").expect("tag")],
         Vec::new(),
-        Amounts::Formatted,
+        OPTIONS,
+        Vec::new(),
         choice,
     )
     .expect("env");

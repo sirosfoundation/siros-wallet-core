@@ -13,11 +13,12 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Entry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Label, LabelKind, Row, Value};
+use siros_openid4vp::rows::{Amounts, Choice, Env, Label, LabelKind, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
 use siros_paso::outcome::Outcome;
 use siros_paso::render::TransactionView;
+use siros_testkit::fixtures::OPTIONS;
 use siros_testkit::verifier;
 
 /// The Payment rulebook's type.
@@ -98,9 +99,11 @@ pub fn env(locales: &[&str], amounts: Amounts) -> Env {
     Env::new(
         locales
             .iter()
-            .map(|tag| LocaleTag::parse((*tag).to_owned()).expect("tag")),
+            .map(|tag| LocaleTag::parse(tag).expect("tag"))
+            .collect(),
         Vec::new(),
-        amounts,
+        RenderOptions { amounts, ..OPTIONS },
+        Vec::new(),
         Choice::First,
     )
     .expect("env")

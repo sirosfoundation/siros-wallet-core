@@ -7,9 +7,9 @@ use siros_openid4vp::arrival::{DcApiProtocol, Received};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::StaticEntry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, Label, Row};
+use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, Label, RenderOptions, Row};
 use siros_openid4vp::wallet::Holder;
-use siros_testkit::fixtures::{self, Held, ORIGIN};
+use siros_testkit::fixtures::{self, Held, OPTIONS, ORIGIN, with_generic_forms};
 use siros_testkit::verifier::{self, ISSUER};
 use std::borrow::Cow;
 use std::num::NonZeroU32;
@@ -374,16 +374,23 @@ pub(super) fn dress(
         ("t9", "urn:example:unknown:1"),
     ];
     let count = rng.random_range(1..=2);
-    let locales: Vec<LocaleTag<'static>> = sample(rng, &["en", "de", "en-US", "de-CH"], count)
+    let locales: Vec<LocaleTag> = sample(rng, &["en", "de", "en-US", "de-CH"], count)
         .into_iter()
         .map(|tag| LocaleTag::parse(tag).expect("a tag"))
         .collect();
     let amounts = if rng.random_bool(0.5) {
         Amounts::Formatted
     } else {
-        Amounts::Raw
+        Amounts::Written
     };
-    let env = Env::new(locales, icons(), amounts, Choice::First).expect("the configuration");
+    let env = Env::new(
+        with_generic_forms(&locales),
+        Vec::new(),
+        RenderOptions { amounts, ..OPTIONS },
+        icons(),
+        Choice::First,
+    )
+    .expect("the configuration");
     let formats: Vec<(String, &'static str)> = request
         .queries
         .iter()

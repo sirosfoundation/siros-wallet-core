@@ -81,7 +81,7 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
 
 /// A value of a kind other than an image, parsed; its text in English with amounts as written.
 pub(crate) fn parsed(kind: FormattedKind, value: &Node<'_>) -> Result<Value, NotCompatible> {
-    Value::format(kind, written(value), TableLocale::En, Amounts::Raw).map_err(|bad| {
+    Value::format(kind, written(value), TableLocale::En, Amounts::Written).map_err(|bad| {
         NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad,

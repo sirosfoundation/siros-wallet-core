@@ -8,7 +8,9 @@ use std::fmt;
 use siros_explain::Explain;
 
 use super::Value;
-use super::env::{Amounts, TableLocale, WalletText};
+use siros_i18n::Amounts;
+
+use super::env::{TableLocale, WalletText};
 use super::https_url::HttpsUrl;
 use crate::json::Node;
 use crate::refusal::Quoted;
@@ -500,7 +502,7 @@ impl Amount {
     }
 
     fn text(&self, written: &str, locale: TableLocale, amounts: Amounts) -> String {
-        if amounts == Amounts::Raw || self.currency.code != "EUR" || locale != TableLocale::En {
+        if amounts == Amounts::Written || self.currency.code != "EUR" || locale != TableLocale::En {
             return written.to_owned();
         }
         let digits = self.whole.as_bytes();
