@@ -38,6 +38,14 @@ pub enum ModuleError {
     /// The declaration holds two different messages under one identifier.
     #[error("the declaration of {0} holds two messages")]
     Declaration(#[explain(name = "message")] String),
+    /// A converter's declaration names a parameter outside the tokens.
+    #[error("the declaration of {key} names the parameter {name}, which is no token")]
+    ParameterName {
+        /// The message.
+        key: String,
+        /// The parameter's name.
+        name: String,
+    },
     /// A source gives a key twice.
     #[error("{key} is given twice in {locale}")]
     Repeated {

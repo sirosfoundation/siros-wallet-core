@@ -56,7 +56,7 @@ impl Declaration {
     ///
     /// # Errors
     ///
-    /// [`ModuleError::Declaration`] for a parameter name outside the tokens
+    /// [`ModuleError::ParameterName`] for a parameter name outside the tokens
     /// (`siros_explain::tokens`).
     pub fn defined(
         messages: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
@@ -66,7 +66,10 @@ impl Declaration {
             let mut params = Vec::with_capacity(entry.value().entries().len());
             for param in entry.value().entries() {
                 if !tokens(param.key(), 1) {
-                    return Err(ModuleError::Declaration(entry.key().as_str().to_owned()));
+                    return Err(ModuleError::ParameterName {
+                        key: entry.key().as_str().to_owned(),
+                        name: param.key().clone().into_owned(),
+                    });
                 }
                 params.push(ParamForm {
                     name: param.key().clone().into_owned(),

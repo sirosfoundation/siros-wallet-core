@@ -46,6 +46,8 @@ const CLASSED: &[(&str, &str, Class)] = &[
     ("i18n.module.locale", "locale", Class::Received),
     ("i18n.module.outside", "message", Class::Received),
     ("i18n.module.declaration", "message", Class::Received),
+    ("i18n.module.parameter_name", "key", Class::Received),
+    ("i18n.module.parameter_name", "name", Class::Received),
     ("i18n.module.repeated", "key", Class::Received),
     ("i18n.module.repeated", "locale", Class::Received),
     ("i18n.module.missing", "key", Class::Received),

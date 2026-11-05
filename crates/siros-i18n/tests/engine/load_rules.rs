@@ -272,7 +272,10 @@ fn declarations_and_registrations_refuse_their_fixtures() {
             Keyed::new(vec![Entry::new(key.clone(), param("1x"))]).expect("one key")
         )
         .expect_err("refused"),
-        ModuleError::Declaration("label".to_owned())
+        ModuleError::ParameterName {
+            key: "label".to_owned(),
+            name: "1x".to_owned(),
+        }
     );
     assert!(
         Declaration::defined(Keyed::new(vec![Entry::new(key, param("c1"))]).expect("one key"))
