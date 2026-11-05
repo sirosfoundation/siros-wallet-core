@@ -47,7 +47,8 @@
         "sponge-cursor",
         "der_derive",
         "flagset"
-      ]
+      ],
+      "fewer_than": 96
     },
     {
       "name": "mdoc over the DC API, unsigned",
@@ -89,7 +90,9 @@
         "sponge-cursor",
         "der_derive",
         "flagset"
-      ]
+      ],
+      "fewer_than": 96,
+      "differs_from": "SD-JWT over the DC API, unsigned"
     },
     {
       "name": "SD-JWT by URI with siros-x509",

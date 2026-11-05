@@ -108,7 +108,7 @@ cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
-cargo xtask builds   # each build of xtask/builds.json compiles none of the crates it excludes
+cargo xtask builds   # each build of xtask/builds.json against the crates it excludes and its count
 cargo xtask alone    # each crate alone, with and without its default features
 ```
 

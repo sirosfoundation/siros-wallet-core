@@ -1,9 +1,11 @@
 //! The workspace's build gates, run as `cargo xtask <command>`:
 //!
 //! - `builds`: each build of `xtask/builds.json` (the crates an app depends on, each with the
-//!   features it turns on) compiles none of the crates and crate features its row excludes. A
+//!   features it turns on) compiles none of the crates and crate features its row excludes, fewer
+//!   crates than its row's bound, and another set of crates than the build its row names. A
 //!   build is a probe package, written under `target/xtask/`, that depends on its crates; `cargo
-//!   tree -e normal` lists what it compiles, over the workspace's lock file.
+//!   tree -e normal` lists what it compiles, over the workspace's lock file, each crate counted
+//!   once per version.
 //! - `alone`: each crate the table lists builds alone, with and without its default features, and
 //!   `cargo tree -e normal` of it names exactly the workspace crates its row gives.
 //!
@@ -46,14 +48,17 @@ struct Table {
     alone: Vec<Alone>,
 }
 
-/// A build: the crates an app depends on, and the crates, or `crate/feature` pairs, it must not
-/// compile.
+/// A build: the crates an app depends on, the crates, or `crate/feature` pairs, it must not
+/// compile, the count of crates it stays below, and the build whose set of crates it differs
+/// from.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Build {
     name: String,
     crates: Vec<Dependency>,
     forbid: Vec<String>,
+    fewer_than: Option<usize>,
+    differs_from: Option<String>,
 }
 
 /// A crate a build depends on, without its default features, with the features it turns on.
@@ -194,9 +199,11 @@ impl Workspace {
 /// The probe package's name, which the trees leave out.
 const PROBE: &str = "xtask-build-probe";
 
-/// Each build's tree against its excluded crates; true when every build compiles none of them.
+/// Each build's tree against its row: none of its excluded crates, fewer crates than its bound,
+/// another set than the build it names; true when every build holds.
 fn builds(workspace: &Workspace) -> Result<bool, Failure> {
     let table = workspace.table()?;
+    let mut compiled_sets: Vec<(&str, Vec<(String, String)>)> = Vec::new();
     let mut holds = true;
     for (place, build) in table.builds.iter().enumerate() {
         let manifest = probe(workspace, place, build)?;
@@ -226,19 +233,45 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
             })
             .map(String::as_str)
             .collect();
+        let bounded = build.fewer_than.is_none_or(|bound| crates.len() < bound);
+        let distinct = match &build.differs_from {
+            None => true,
+            Some(other) => {
+                let (_, theirs) = compiled_sets
+                    .iter()
+                    .find(|(name, _)| name == other)
+                    .ok_or_else(|| {
+                        Failure::Read(format!(
+                            "{} differs from {other}, which no earlier row names",
+                            build.name
+                        ))
+                    })?;
+                *theirs != crates
+            }
+        };
         println!(
-            "build {}: {} crates; forbidden {} of {}{}",
+            "build {}: {} crates{}; forbidden {} of {}{}{}",
             build.name,
             crates.len(),
+            build
+                .fewer_than
+                .map(|bound| format!(" (fewer than {bound}: {})", verdict(bounded)))
+                .unwrap_or_default(),
             found.len(),
             build.forbid.len(),
             if found.is_empty() {
                 String::new()
             } else {
                 format!(": {}", found.join(", "))
-            }
+            },
+            build
+                .differs_from
+                .as_ref()
+                .map(|other| format!("; differs from {other}: {}", verdict(distinct)))
+                .unwrap_or_default(),
         );
-        holds &= found.is_empty();
+        holds &= found.is_empty() && bounded && distinct;
+        compiled_sets.push((build.name.as_str(), crates));
     }
     Ok(holds)
 }
