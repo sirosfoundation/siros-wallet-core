@@ -73,6 +73,8 @@ siros-wallet-engine/
     ├── siros-presentation/
     ├── siros-explain/         # the message contract: errors and texts the wallet renders
     ├── siros-explain-derive/
+    ├── siros-i18n/            # the i18n engine: MF2 modules rendered through format modules
+    ├── siros-cldr/            # writes CLDR format options as module sections
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/

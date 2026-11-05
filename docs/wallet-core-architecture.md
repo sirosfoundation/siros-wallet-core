@@ -72,7 +72,7 @@ Dependencies point downward through the layers:
 
 | Layer | Components |
 |---|---|
-| L0 | codec |
+| L0 | codec, messages |
 | L1 | DCQL, SD-JWT, mdoc, OpenID4VP, `zkp_req`, nym_auth, trust |
 | L2 | wallet state, credential, display, transaction data |
 | L3 | presentation |
@@ -268,7 +268,7 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 - **D1.** It is the only metadata merger: it MUST remove `auxiliary_data` before any merge (privatedata §5A.3).
 - **D2.** Each display array MUST resolve by PaSO View §4: RFC 4647 Lookup with the wallet's language, then the entry without `locale`. The format-specific display falls back to `credential_metadata` per language (D3). One function serves credential display and transaction data.
 - **D3.** Format-specific display (SD-JWT VC type metadata) wins over OpenID4VCI `credential_metadata`, which is the fallback (OpenID4VCI 1.0 §12.2.4).
-- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). The UI formats dates and numbers for its locale.
+- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). Numbers, amounts, dates and lists format through the messages component (§4.19).
 - **D5.** A credential claim's bytes are shown by their length.
 
 ### 4.12 Transaction data
@@ -381,7 +381,7 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 
 ### 4.17 User interface (each platform)
 
-**Responsibility:** rendering views, collecting the selection, locale formatting of dates and numbers.
+**Responsibility:** rendering views and collecting the selection. Texts and formatted values come from the messages component (§4.19).
 
 **Requirement:** it MUST render only what a view contains and MUST return selections in the core's selection form.
 
@@ -408,6 +408,17 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
   An entry of any other type admits nothing. A malformed `aki` value makes the query invalid. Admission MUST be the constructor of an `AdmittedIssuer` witness that names the query and the chain's first certificate.
 - **TR4. Provision.** The host supplies the store (H4), with every list, federation statement and certificate in it. The store is global, the same for every request and channel, because the DC API gives the picker nothing per request.
 - **TR5. Picker facts.** At registration the wallet resolves each credential against the store. The projection records the credential's AKI keyIdentifiers and the `type` and `value` of every store entry that admits it. The picker admits an issuer from these facts alone, with the same rule. The picker has no clock: its facts hold at registration time (K2). The wallet registers again when the store, the wallet state, the wallet's language or a credential's metadata changes.
+
+### 4.19 Messages (siros-i18n)
+
+**Responsibility:** rendering every text the End-User sees, at display, in the language of the screen: the core's errors and texts (siros-explain's `Text`), with their numbers, amounts, dates, times and lists formatted for that language. The wallet supplies the messages; the core ships none.
+
+**Requirements:**
+- **M1. Modules.** A module's sources are Unicode MessageFormat 2 resources, one per locale. Loading MUST parse a module whole and refuse it at the first rule it breaks against its declaration (the keys and argument kinds of its siros-explain `Messages`) and its format options.
+- **M2. Format options.** A module MUST define, in each of its languages, the options of each format its messages use. siros-cldr writes them from CLDR 49.0.0.
+- **M3. Language.** One language MUST serve every text of a screen: the first tag of the End-User's priority list that every module of the screen matches by RFC 4647 basic filtering, else the first such tag of the app's fallback list.
+- **M4. Output.** Rendering writes formatted spans or plain text; the platform lays them out.
+- **M5. Packages.** A package's identity MUST be the RFC 9162 Merkle tree root of its entries, and each entry MUST be checked against that root when it is read.
 
 ## 5. Boundary contracts
 

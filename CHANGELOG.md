@@ -47,6 +47,9 @@ released version yet.
 - `siros-cldr` writes a language's format options from CLDR's JSON release
   49.0.0 as a resource head and `[formats.<format>]` sections.
 - CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
+- The architecture contract's messages component (§4.19, layer L0): the core
+  renders each text at display and formats its numbers, amounts, dates and
+  lists; the UI lays out the result (D4, §4.17).
 
 ### Changed
 
