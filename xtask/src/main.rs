@@ -1,8 +1,9 @@
 //! The workspace's build gates, run as `cargo xtask <command>`:
 //!
 //! - `builds`: each build of `xtask/builds.json` (the crates an app depends on, each with the
-//!   features it turns on) compiles none of the crates and crate features its row excludes, fewer
-//!   crates than its row's bound, and another set of crates than the build its row names. A
+//!   features it turns on) compiles none of the crates and crate features its row excludes, each
+//!   crate its row lists as exact with those features alone, fewer crates than its row's bound,
+//!   and another set of crates than the build its row names. A
 //!   build is a probe package, written under `target/xtask/`, that depends on its crates; `cargo
 //!   tree -e normal` lists what it compiles, over the workspace's lock file, each crate counted
 //!   once per version.
@@ -49,19 +50,21 @@ struct Table {
 }
 
 /// A build: the crates an app depends on, the crates, or `crate/feature` pairs, it must not
-/// compile, the count of crates it stays below, and the build whose set of crates it differs
-/// from.
+/// compile, the crates it compiles with exactly the features listed, the count of crates it stays
+/// below, and the build whose set of crates it differs from.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Build {
     name: String,
     crates: Vec<Dependency>,
     forbid: Vec<String>,
+    exact: Vec<Dependency>,
     fewer_than: Option<usize>,
     differs_from: Option<String>,
 }
 
-/// A crate a build depends on, without its default features, with the features it turns on.
+/// A crate and features: one a build depends on, without its default features, with the features
+/// it turns on; or one a build compiles with these features and no other.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Dependency {
@@ -199,8 +202,9 @@ impl Workspace {
 /// The probe package's name, which the trees leave out.
 const PROBE: &str = "xtask-build-probe";
 
-/// Each build's tree against its row: none of its excluded crates, fewer crates than its bound,
-/// another set than the build it names; true when every build holds.
+/// Each build's tree against its row: none of its excluded crates, each exact crate with its
+/// features alone, fewer crates than its bound, another set than the build it names; true when
+/// every build holds.
 fn builds(workspace: &Workspace) -> Result<bool, Failure> {
     let table = workspace.table()?;
     let mut compiled_sets: Vec<(&str, Vec<(String, String)>)> = Vec::new();
@@ -233,6 +237,21 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
             })
             .map(String::as_str)
             .collect();
+        let inexact: Vec<String> = build
+            .exact
+            .iter()
+            .filter_map(|exact| {
+                let mut compiled: Vec<&str> = features
+                    .iter()
+                    .filter(|(name, _)| *name == exact.name)
+                    .map(|(_, feature)| feature.as_str())
+                    .collect();
+                compiled.sort_unstable();
+                let mut want: Vec<&str> = exact.features.iter().map(String::as_str).collect();
+                want.sort_unstable();
+                (compiled != want).then(|| format!("{} [{}]", exact.name, compiled.join(", ")))
+            })
+            .collect();
         let bounded = build.fewer_than.is_none_or(|bound| crates.len() < bound);
         let distinct = match &build.differs_from {
             None => true,
@@ -250,7 +269,7 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
             }
         };
         println!(
-            "build {}: {} crates{}; forbidden {} of {}{}{}",
+            "build {}: {} crates{}; forbidden {} of {}{}; inexact {} of {}{}{}",
             build.name,
             crates.len(),
             build
@@ -264,13 +283,20 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
             } else {
                 format!(": {}", found.join(", "))
             },
+            inexact.len(),
+            build.exact.len(),
+            if inexact.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", inexact.join(", "))
+            },
             build
                 .differs_from
                 .as_ref()
                 .map(|other| format!("; differs from {other}: {}", verdict(distinct)))
                 .unwrap_or_default(),
         );
-        holds &= found.is_empty() && bounded && distinct;
+        holds &= found.is_empty() && inexact.is_empty() && bounded && distinct;
         compiled_sets.push((build.name.as_str(), crates));
     }
     Ok(holds)

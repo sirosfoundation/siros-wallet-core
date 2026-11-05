@@ -56,6 +56,8 @@ coset = { workspace = true, optional = true }
 serde_urlencoded = { workspace = true, optional = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
+# The renderer and the format modules the core's own messages call: counts and lists.
+siros-i18n = { workspace = true, features = ["render", "number", "list"] }
 rustc-hash = { workspace = true }
 dyn-clone = { workspace = true }
 idna = { workspace = true }

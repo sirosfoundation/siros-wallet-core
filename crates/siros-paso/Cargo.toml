@@ -28,6 +28,8 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
+# The format modules PaSO View's values render through: amounts and dates.
+siros-i18n = { workspace = true, features = ["number", "currency", "date"] }
 rustc-hash = { workspace = true }
 unicode-segmentation = { workspace = true }
 serde_json = { workspace = true, optional = true }

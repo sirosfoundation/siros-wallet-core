@@ -49,7 +49,8 @@ released version yet.
   phase 1's `Format`, `Profile` and `Mode` in every build, and under `resolve`
   a host holding a `Platform` takes plug-ins with their phase 2 over it.
 - `cargo xtask builds` checks that each build of the design's section 4.11
-  compiles none of the crates its row excludes, and that the SD-JWT and the
+  compiles none of the crates its row excludes, siros-i18n with the features
+  its row names alone, and that the SD-JWT and the
   mdoc DC API builds each compile fewer than 96 crates, two different sets; `cargo xtask alone` checks
   each crate alone, with and without its default features, and the workspace
   crates it names. CI runs both.

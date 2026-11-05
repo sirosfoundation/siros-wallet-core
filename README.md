@@ -68,7 +68,9 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 Each mechanism of the core is a feature, which the crates that use it turn on;
 a build compiles what it registers. The right column names the core's features
 each crate turns on: those it always turns on, then `feature: core features`
-for each of its own features that turns more on.
+for each of its own features that turns more on. The core turns on siros-i18n's
+`render`, `number` and `list`, siros-paso its `number`, `currency` and `date`;
+the app turns on `load`.
 
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims | test-util
