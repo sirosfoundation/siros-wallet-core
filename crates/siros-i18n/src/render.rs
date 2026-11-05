@@ -200,6 +200,16 @@ impl<'m> Renderer<'m> {
         self.formatted(text).map(|formatted| formatted.plain())
     }
 
+    /// Whether the text reads as held: the package holds it precomputed in the renderer's
+    /// language and options, and every module its rendering drew from is the screen's.
+    ///
+    /// # Errors
+    ///
+    /// [`RenderError::Package`] for a held entry the package refuses.
+    pub fn holds(&self, text: &Text) -> Result<bool, RenderError> {
+        Ok(self.precomputed(text)?.is_some())
+    }
+
     /// The text as the package holds it precomputed in the renderer's language and options, when
     /// every module its rendering drew from is the screen's.
     fn precomputed(&self, text: &Text) -> Result<Option<Formatted>, RenderError> {

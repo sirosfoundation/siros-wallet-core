@@ -33,6 +33,12 @@ impl<'p> Rendering<'p> {
         }
     }
 
+    /// The modules every entry draws from: the app's main module and its crate modules.
+    #[must_use]
+    pub const fn own(&self) -> &'p [ModuleId] {
+        self.modules
+    }
+
     /// An entry's renderer: the app's modules and the module its profile selected a locale for,
     /// that module in its locale and the others in the language `Screen::locale` decides over
     /// `env`'s priority list headed by that locale, `env`'s fallback list and the modules'

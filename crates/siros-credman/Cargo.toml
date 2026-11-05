@@ -9,12 +9,20 @@ authors.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# The registration writer's part: the package of the modules with the texts no request changes
+# precomputed, through siros-i18n's loader.
+register = ["siros-i18n/load"]
+
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }
 siros-explain = { workspace = true }
+# The matcher's renderer, which the entry emission renders each text through.
+siros-i18n = { workspace = true, features = ["render"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+siros-credman = { path = ".", features = ["register"] }
 siros-testkit = { workspace = true }
 
 [lints]

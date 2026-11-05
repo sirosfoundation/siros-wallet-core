@@ -8,7 +8,7 @@ use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
 use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
 use crate::request::Item;
-use crate::rows::{Env, WalletText};
+use crate::rows::{Env, Selected, WalletText};
 use crate::{FAULT, detail};
 
 /// The header of a request without a transaction: the wallet's own.
@@ -56,6 +56,8 @@ pub struct EntryView<'m> {
     pub entry: ConsentEntry,
     /// The transaction's header.
     pub header: Option<&'m Header>,
+    /// The module whose texts show in the locale the transaction's profile selected.
+    pub selected: Option<&'m Selected>,
 }
 
 /// Every consent entry: one per query, candidate and answerable option.
@@ -112,6 +114,7 @@ impl<'m> Views<'m> {
                         record,
                         entry: ConsentEntry::new(card, bound.map(|bound| bound.overlay.clone())),
                         header: bound.map(|bound| &bound.header),
+                        selected: bound.and_then(|bound| bound.selected.as_ref()),
                     });
                 }
             }

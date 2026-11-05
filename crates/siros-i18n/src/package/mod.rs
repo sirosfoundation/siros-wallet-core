@@ -123,6 +123,28 @@ impl<'p> Package<'p> {
         Ok(package)
     }
 
+    /// Where each entry lies in the bytes, entry 0 the manifest: what a reader reads of an entry
+    /// beside its audit path, which an auditor of the bytes a reader reads takes.
+    ///
+    /// # Errors
+    ///
+    /// The [`PackageError`] of the manifest.
+    pub fn spans(&self) -> Result<Vec<std::ops::Range<usize>>, PackageError> {
+        let manifest = self.manifest()?;
+        let bounds = PackageError::Bounds { entry: 0 };
+        let start = self.data().ok_or(bounds.clone())?;
+        let data = start.checked_add(self.manifest).ok_or(bounds.clone())?;
+        let mut spans = Vec::with_capacity(self.entries);
+        spans.push(start..data);
+        for entry in 1..self.entries {
+            let location = manifest.location(entry)?;
+            let begin = data.checked_add(location.offset).ok_or(bounds.clone())?;
+            let end = begin.checked_add(location.length).ok_or(bounds.clone())?;
+            spans.push(begin..end);
+        }
+        Ok(spans)
+    }
+
     /// Its RFC 9162 Merkle tree root: its identity.
     #[must_use]
     pub const fn root(&self) -> [u8; 32] {

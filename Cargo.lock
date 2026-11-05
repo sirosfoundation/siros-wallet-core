@@ -3334,7 +3334,9 @@ dependencies = [
 name = "siros-credman"
 version = "0.1.0"
 dependencies = [
+ "siros-credman",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
  "siros-testkit",
  "thiserror 2.0.21",

@@ -5,6 +5,9 @@
 //!
 //! - [`CredmanEntry::of`]: a consent entry's Standard or Payment entry; [`Field::of`]: a row's
 //!   field.
+//! - [`emit`]: the matcher's entry emission, every text of every entry plain, read from the
+//!   registration's package as held or rendered from its compiled messages; [`register`]
+//!   (feature `register`): the package the registration writer builds.
 //! - [`WalletDisplay::of`] (A9): whether a set needs the wallet's display. [`Delegation::of`]
 //!   (K4): the delegation the matcher sends for every entry of the set.
 //!   [`Fulfilment::check`] (A9): the background fulfilment of a set that needs the wallet's
@@ -32,14 +35,20 @@
 )]
 
 mod delegation;
+mod emit;
 mod entry;
 mod field;
+#[cfg(feature = "register")]
+pub mod register;
 
 use siros_explain::{Message, Messages};
 
 pub use delegation::{
     Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
     WalletDisplayNeeded,
+};
+pub use emit::{
+    Emission, EmitError, Emitted, NotEmitted, PaymentShown, Shown, StandardShown, emit,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};
@@ -49,6 +58,12 @@ pub struct CrateMessages;
 
 impl Messages for CrateMessages {
     fn messages() -> Vec<Message> {
-        [NoName::messages(), WalletDisplayNeeded::messages()].concat()
+        [
+            NoName::messages(),
+            WalletDisplayNeeded::messages(),
+            NotEmitted::messages(),
+            EmitError::messages(),
+        ]
+        .concat()
     }
 }

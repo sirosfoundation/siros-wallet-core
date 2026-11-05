@@ -119,6 +119,15 @@ pub fn written(text: &Text) -> Option<&str> {
     }
 }
 
+/// The test app's render halves.
+///
+/// # Errors
+///
+/// [`RenderError::Registered`] when two share a format.
+pub fn formats() -> Result<Formats, RenderError> {
+    Formats::new(&RENDERERS)
+}
+
 /// The test app's load halves.
 ///
 /// # Errors
@@ -205,7 +214,7 @@ impl App {
         }
         Ok(Self {
             built: builder.finish(),
-            formats: Formats::new(&RENDERERS)?,
+            formats: formats()?,
             own: modules
                 .iter()
                 .map(|module| module.id())
