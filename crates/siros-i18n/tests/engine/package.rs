@@ -5,7 +5,7 @@
 use siros_explain::{Count, Domain, Message, ModuleId, Text, Value, checked};
 use siros_i18n::{
     Bidi, BuiltPackage, Compilers, Declaration, FORMAT, Formats, Formatted, LanguagePolicy, Module,
-    Package, PackageBuilder, PackageError, RenderError, Screen,
+    Package, PackageBuilder, PackageError, RegistrationBuilder, RenderError, Screen,
 };
 
 use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
@@ -277,6 +277,85 @@ fn each_package_rule_refuses_its_fixture() {
         Package::read(built.bytes(), root).expect_err("another root"),
         PackageError::Root
     );
+    let mut registering =
+        RegistrationBuilder::new(vec![tag("en")], Vec::new(), options(Bidi::None))
+            .expect("a registration");
+    assert_eq!(
+        RegistrationBuilder::new(Vec::new(), vec![tag("en")], options(Bidi::None))
+            .expect_err("no priority list"),
+        PackageError::NoLocale
+    );
+    assert!(matches!(
+        registering.credential("c", &[FIXTURE]).expect_err("not added"),
+        PackageError::Module(module) if module.id() == FIXTURE
+    ));
+    registering.module(&module, None).expect("a module");
+    registering
+        .credential("c", &[FIXTURE])
+        .expect("a credential");
+    assert_eq!(
+        registering
+            .credential("c", &[FIXTURE])
+            .expect_err("a credential twice"),
+        PackageError::RepeatedCredential("c".to_owned())
+    );
+    registering
+        .transaction("t", FIXTURE)
+        .expect("a transaction type");
+    assert_eq!(
+        registering
+            .transaction("t", FIXTURE)
+            .expect_err("a transaction type twice"),
+        PackageError::RepeatedTransaction("t".to_owned())
+    );
+}
+
+/// A registration's package records its lists, its options, its transaction types and each
+/// credential's candidate languages: the tags of each list that every module of its card matches
+/// by RFC 4647 §3.3.1 basic filtering, in the list's order.
+#[test]
+fn a_registration_records_its_inputs_and_each_credentials_candidates() {
+    let fixture = fixture();
+    let main = main_module(&["en-GB", "de"]);
+    let priority = vec![tag("en-US"), tag("en"), tag("fr"), tag("de")];
+    let fallback = vec![tag("en-GB"), tag("de")];
+    let mut builder =
+        RegistrationBuilder::new(priority.clone(), fallback.clone(), options(Bidi::Default))
+            .expect("a registration");
+    builder.module(&fixture, None).expect("a module");
+    builder.module(&main, None).expect("a module");
+    builder
+        .credential("both", &[FIXTURE, ModuleId::Main])
+        .expect("a credential");
+    builder
+        .credential("main", &[ModuleId::Main])
+        .expect("a credential");
+    builder
+        .transaction("t", FIXTURE)
+        .expect("a transaction type");
+    let built = builder.finish();
+    let package = Package::read(built.bytes(), built.root()).expect("a package");
+    let registration = package
+        .registration()
+        .expect("a manifest")
+        .expect("a registration");
+    assert_eq!(registration.priority(), priority.as_slice());
+    assert_eq!(registration.fallback(), fallback.as_slice());
+    assert_eq!(registration.options(), options(Bidi::Default));
+    assert!(registration.transacts(FIXTURE) && !registration.transacts(ModuleId::Main));
+    let both = registration.credential("both").expect("registered");
+    assert!(both.draws_from(&[ModuleId::Main, FIXTURE]) && !both.draws_from(&[FIXTURE]));
+    assert_eq!(both.candidates().understood(), &[tag("en"), tag("de")]);
+    assert_eq!(both.candidates().fallback(), &[tag("de")]);
+    let main = registration.credential("main").expect("registered");
+    assert_eq!(main.candidates().understood(), &[tag("en"), tag("de")]);
+    assert_eq!(main.candidates().fallback(), &[tag("en-GB"), tag("de")]);
+    assert!(registration.credential("absent").is_none());
+    let live = PackageBuilder::new(vec![tag("en")])
+        .expect("a builder")
+        .finish();
+    let live = Package::read(live.bytes(), live.root()).expect("a package");
+    assert_eq!(live.registration(), Ok(None));
 }
 
 #[test]
