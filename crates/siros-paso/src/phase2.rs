@@ -123,6 +123,7 @@ impl PasoFinding {
     }
 }
 
+#[cfg(feature = "resolve")]
 use crate::value::ValueKind;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::claims::Concrete;

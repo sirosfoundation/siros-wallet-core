@@ -287,80 +287,69 @@ pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<Modul
     let given = Node::parse(meta).expect("the metadata");
     let [en, de] = main_sources();
     let converted = siros_paso::view::convert(kind, &given, &[&en, &de], priority).ok()?;
+    Some(loaded(converted))
+}
+
+/// A converted module, loaded as the test app loads it.
+pub fn loaded(converted: siros_paso::view::Converted) -> Module {
     let sources: Vec<&str> = converted
         .sources
         .entries()
         .iter()
         .map(|entry| entry.value().as_str())
         .collect();
-    Some(
-        Module::load(
-            ModuleId::Defined(converted.module),
-            &Declaration::defined(converted.declaration).expect("a declaration"),
-            &sources,
-            converted.policy,
-            &compilers().expect("compilers"),
-        )
-        .expect("the converted module loads"),
+    Module::load(
+        ModuleId::Defined(converted.module),
+        &Declaration::defined(converted.declaration).expect("a declaration"),
+        &sources,
+        converted.policy,
+        &compilers().expect("compilers"),
     )
+    .expect("the converted module loads")
 }
 
-/// The test app as a wallet registers its cards for an `Env`: the main module, the core's and the
+/// The test app as a wallet renders a request for an `Env`: the main module, the core's and the
 /// profile's modules, the module each type of each card's PaSO document converts to, and the
-/// module of each further (type, metadata) pair, such as ad-hoc metadata's.
-pub fn wallet_app(cards: &[&Card], further: &[(&str, &str)], env: &Env) -> App {
-    let mut modules = vec![
-        main_module().expect("the main module"),
-        CrateSource::openid4vp().load().expect("the core's module"),
-        paso_module().load().expect("the profile's module"),
-    ];
-    let mut converted: Vec<(String, String)> = Vec::new();
-    for card in cards {
-        let node = siros_paso::document::PasoDocument::json(card.document.as_bytes())
-            .expect("the document");
-        let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
-        for (kind, meta) in document.types() {
-            converted.push((kind.to_owned(), meta.python_compact().to_string()));
-        }
-    }
-    converted.extend(
-        further
-            .iter()
-            .map(|(kind, meta)| ((*kind).to_owned(), (*meta).to_owned())),
-    );
-    for (kind, meta) in &converted {
-        let Some(module) = self::converted(kind, meta, env.priority()) else {
-            continue;
-        };
-        if modules.iter().all(|known| known.id() != module.id()) {
-            modules.push(module);
-        }
-    }
-    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
-}
-
-/// [`wallet_app`] with the ad-hoc metadata each entry of the request carries, which the wallet
-/// converts when the request arrives.
+/// modules of the ad-hoc metadata each entry of the request carries, which the wallet converts
+/// when the request arrives (`siros_paso::view::carried`).
 pub fn request_app(
     request: &siros_openid4vp::request::Request<'_>,
     cards: &[&Card],
     env: &Env,
 ) -> App {
-    let adhoc: Vec<(String, String)> = request
-        .entries()
-        .iter()
-        .filter_map(|entry| {
-            let jwt = entry.members().get("metadata")?.as_str()?;
-            let jws = siros_paso::adhoc::Jws::parse(jwt).ok()?;
-            let meta = jws.metadata()?.python_compact().to_string();
-            Some((entry.kind().as_str().to_owned(), meta))
-        })
-        .collect();
-    let further: Vec<(&str, &str)> = adhoc
-        .iter()
-        .map(|(kind, meta)| (kind.as_str(), meta.as_str()))
-        .collect();
-    wallet_app(cards, &further, env)
+    let [en, de] = main_sources();
+    let carried = siros_paso::view::carried(request, &[&en, &de], env.priority())
+        .expect("the main module's resources");
+    app_with(cards, carried.into_iter().map(loaded).collect(), env)
+}
+
+/// The test app of the main module, the core's and the profile's modules, each card's converted
+/// modules and `further`.
+fn app_with(cards: &[&Card], further: Vec<Module>, env: &Env) -> App {
+    let mut modules = vec![
+        main_module().expect("the main module"),
+        CrateSource::openid4vp().load().expect("the core's module"),
+        paso_module().load().expect("the profile's module"),
+    ];
+    for card in cards {
+        let node = siros_paso::document::PasoDocument::json(card.document.as_bytes())
+            .expect("the document");
+        let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
+        for (kind, meta) in document.types() {
+            let meta = meta.python_compact().to_string();
+            if let Some(module) = self::converted(kind, &meta, env.priority())
+                && modules.iter().all(|known| known.id() != module.id())
+            {
+                modules.push(module);
+            }
+        }
+    }
+    for module in further {
+        if modules.iter().all(|known| known.id() != module.id()) {
+            modules.push(module);
+        }
+    }
+    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
 }
 
 /// The test app of a type's renderings in an `Env`: the main module, the core's and the

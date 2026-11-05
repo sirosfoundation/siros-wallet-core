@@ -95,22 +95,25 @@ fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<Module> 
     let node = Node::parse(given).expect("the metadata");
     let [en, de] = main_sources();
     let converted = siros_paso::view::convert(kind, &node, &[&en, &de], priority).ok()?;
+    Some(loaded(converted))
+}
+
+/// A converted module, loaded as the test app loads it.
+fn loaded(converted: siros_paso::view::Converted) -> Module {
     let sources: Vec<&str> = converted
         .sources
         .entries()
         .iter()
         .map(|entry| entry.value().as_str())
         .collect();
-    Some(
-        Module::load(
-            ModuleId::Defined(converted.module),
-            &Declaration::defined(converted.declaration).expect("a declaration"),
-            &sources,
-            converted.policy,
-            &compilers().expect("compilers"),
-        )
-        .expect("the converted module loads"),
+    Module::load(
+        ModuleId::Defined(converted.module),
+        &Declaration::defined(converted.declaration).expect("a declaration"),
+        &sources,
+        converted.policy,
+        &compilers().expect("compilers"),
     )
+    .expect("the converted module loads")
 }
 
 /// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
@@ -169,17 +172,19 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App 
                 .map(|(kind, meta)| (kind.to_owned(), meta.python_compact().to_string())),
         );
     }
-    metadata.extend(request.entries().iter().filter_map(|entry| {
-        let jwt = entry.members().get("metadata")?.as_str()?;
-        let jws = siros_paso::adhoc::Jws::parse(jwt).ok()?;
-        let meta = jws.metadata()?.python_compact().to_string();
-        Some((entry.kind().as_str().to_owned(), meta))
-    }));
     let mut modules = own_modules();
     for (kind, meta) in &metadata {
         if let Some(module) = converted(kind, meta, env.priority())
             && modules.iter().all(|known| known.id() != module.id())
         {
+            modules.push(module);
+        }
+    }
+    let [en, de] = main_sources();
+    let carried = siros_paso::view::carried(request, &[&en, &de], env.priority())
+        .expect("the main module's resources");
+    for module in carried.into_iter().map(loaded) {
+        if modules.iter().all(|known| known.id() != module.id()) {
             modules.push(module);
         }
     }

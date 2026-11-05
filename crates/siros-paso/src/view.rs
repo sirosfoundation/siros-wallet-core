@@ -145,6 +145,56 @@ pub enum ConvertError {
     MixedOwn,
 }
 
+/// The defined modules of the ad-hoc metadata a request's entries carry (Proof Metadata §5),
+/// converted as [`convert`] converts a type's metadata, each once. A registration's package holds
+/// no such module, so the matcher excludes such an entry (`Unrendered::Module`); the wallet calls
+/// this when the request arrives and loads each module into the package `Match::run` and phase 2
+/// render with. An entry whose JWT does not parse or whose metadata does not convert gives no
+/// module: the profile's binding refuses it, or the core excludes it.
+///
+/// # Errors
+///
+/// The [`ConvertError`] of the main module's resources: a resource names no locale or names one
+/// twice, or lacks a format a module calls.
+pub fn carried(
+    request: &siros_openid4vp::request::Request<'_>,
+    main: &[&str],
+    priority: &[LocaleTag],
+) -> Result<Vec<Converted>, ConvertError> {
+    let mut modules: Vec<Converted> = Vec::new();
+    for entry in request.entries() {
+        let Some(jwt) = entry.members().get("metadata").and_then(Node::as_str) else {
+            continue;
+        };
+        let Ok(jws) = crate::adhoc::Jws::parse(jwt) else {
+            continue;
+        };
+        let Some(metadata) = jws.metadata() else {
+            continue;
+        };
+        match convert(entry.kind().as_str(), metadata, main, priority) {
+            Ok(converted) => {
+                if modules.iter().all(|known| known.module != converted.module) {
+                    modules.push(converted);
+                }
+            }
+            Err(
+                main @ (ConvertError::Main(_)
+                | ConvertError::Format { .. }
+                | ConvertError::Locale(_)),
+            ) => return Err(main),
+            Err(
+                ConvertError::NotPaso(_)
+                | ConvertError::Metadata(_)
+                | ConvertError::Reserved
+                | ConvertError::NoEntry(_)
+                | ConvertError::MixedOwn,
+            ) => {}
+        }
+    }
+    Ok(modules)
+}
+
 /// One language of the main module: its tag, its direction when it states one, and its format
 /// sections.
 struct Language<'s> {
