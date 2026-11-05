@@ -35,6 +35,10 @@ use super::types::{AuthorizationRequest, ResponseError};
 /// The self-issued issuer for the JARM response (JARM §4.1).
 pub const SELF_ISSUED_ISS: &str = "https://self-issued.me/v2";
 
+/// The error response's lifetime: five minutes (the JARM `exp` claim's
+/// window — the same bound the Go engine's success path uses).
+const RESPONSE_LIFETIME_SECS: i64 = 300;
+
 /// The default `enc` when the client metadata declares none.
 pub const DEFAULT_CONTENT_ENCRYPTION: &str = "A128GCM";
 
@@ -109,6 +113,125 @@ pub fn build_jarm_claims(vp_token: &str, _client_id: &str, state: &str, _now_uni
         claims.insert("state".to_owned(), Value::String(state.to_owned()));
     }
     Value::Object(claims)
+}
+
+/// Builds the JARM **error** claims (RFC 9447 §2.1, the #441 contract):
+/// the JWT's own claims — `iss` (the self-issued wallet), `aud` (the
+/// verifier's client_id), `exp` — beside the error response parameters
+/// (`error`, `error_description`, `state`).
+///
+/// Unlike the success path's claims (§8.3: the response parameters only,
+/// the suite's `ValidateJWEBodyDoesNotIncludeIssExpAud` refuses the JWT
+/// claims there), the error response is the JARM standard shape: a
+/// direct_post.jwt verifier rejects the plain form an error would
+/// otherwise ride, so its session never ends — the error must arrive as
+/// the JWT the mode demands.
+pub fn build_jarm_error_claims(
+    error: &str,
+    error_description: &str,
+    client_id: &str,
+    state: &str,
+    now_unix: i64,
+) -> Value {
+    let mut claims = serde_json::Map::new();
+    claims.insert("iss".to_owned(), Value::String(SELF_ISSUED_ISS.to_owned()));
+    if !client_id.is_empty() {
+        claims.insert("aud".to_owned(), Value::String(client_id.to_owned()));
+    }
+    claims.insert(
+        "exp".to_owned(),
+        Value::Number(serde_json::Number::from(now_unix + RESPONSE_LIFETIME_SECS)),
+    );
+    claims.insert("error".to_owned(), Value::String(error.to_owned()));
+    if !error_description.is_empty() {
+        claims.insert(
+            "error_description".to_owned(),
+            Value::String(error_description.to_owned()),
+        );
+    }
+    if !state.is_empty() {
+        claims.insert("state".to_owned(), Value::String(state.to_owned()));
+    }
+    Value::Object(claims)
+}
+
+/// Submits the JARM **error** response (#441): the error claims, encrypted
+/// with the same key selection the success path uses, POSTed as
+/// `response=<jwe>` — the direct_post.jwt mode's only acceptable error
+/// shape. A key that cannot be selected or an encryption that cannot be
+/// built is **not sent** (the same rule as the success path): a
+/// direct_post.jwt verifier rejects the plain form, so sending it would
+/// not end the session either.
+pub async fn submit_jarm_error_response(
+    http: &dyn engine_ports::HttpClient,
+    auth_req: &AuthorizationRequest,
+    error_code: &str,
+    error_description: &str,
+    now_unix: i64,
+) -> Result<String, ResponseError> {
+    let endpoint = if !auth_req.response_uri.is_empty() {
+        auth_req.response_uri.clone()
+    } else if !auth_req.redirect_uri.is_empty() {
+        auth_req.redirect_uri.clone()
+    } else {
+        return Err(ResponseError::NoEndpoint);
+    };
+
+    let metadata = auth_req.client_metadata.clone();
+    let Some(metadata) = metadata else {
+        return Err(ResponseError::Jarm(JarmError::NoEncryptionKey(
+            "no client_metadata for the direct_post.jwt error response".to_owned(),
+        )));
+    };
+    let jwk = select_verifier_jwk(&metadata).map_err(ResponseError::Jarm)?;
+    let (alg, enc) = resolve_algorithms(Some(&metadata), &jwk).map_err(ResponseError::Jarm)?;
+    let claims = build_jarm_error_claims(
+        error_code,
+        error_description,
+        &auth_req.client_id,
+        &auth_req.state,
+        now_unix,
+    );
+    let jwe = encrypt_jarm_response(&claims, &jwk, alg, enc).map_err(ResponseError::Jarm)?;
+
+    // POST response=<jwe>, the same §6.2 shape as the success path.
+    let form = format!("response={}", super::response::url_encode(&jwe));
+    let response = http
+        .send(engine_ports::HttpRequest {
+            method: "POST".to_owned(),
+            url: endpoint,
+            headers: vec![(
+                "content-type".to_owned(),
+                "application/x-www-form-urlencoded".to_owned(),
+            )],
+            body: form.into_bytes(),
+            purpose: engine_ports::FetchPurpose::DirectPost,
+            max_response_bytes: super::response::MAX_REPLY_BYTES,
+            redirects: engine_ports::RedirectPolicy::None,
+            allow_plaintext: false,
+            timeout_ms: 10_000,
+        })
+        .await
+        .map_err(|err| ResponseError::Fetch(err.to_string()))?;
+
+    if (200..300).contains(&response.status) {
+        let body: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
+        if let Some(redirect) = body.get("redirect_uri").and_then(Value::as_str) {
+            if !redirect.is_empty() {
+                return Ok(redirect.to_owned());
+            }
+        }
+        return Ok(String::new());
+    }
+    if (300..400).contains(&response.status) {
+        let location = response
+            .headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+            .map(|(_, value)| value.clone());
+        return Ok(location.unwrap_or_default());
+    }
+    Ok(String::new())
 }
 
 /// The base64url SHA-256 thumbprint (RFC 7638) of the verifier's

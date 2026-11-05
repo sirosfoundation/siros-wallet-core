@@ -408,12 +408,39 @@ pub struct VpResult {
     /// The VP token: newline-separated per selection, or a pre-formed
     /// JSON object.
     pub vp_token: String,
+    /// The sign refusal, when the host answered with a refusal instead
+    /// of a token (the Go `sign_response.error_code`, #472): the
+    /// engine answers the verifier `access_denied` at once.
+    pub refusal: Option<SignRefusal>,
+}
+
+/// A sign-stage refusal with its allowlisted code (the Go
+/// `SignError.Code` — only the code crosses, never the wallet's
+/// free-form reason).
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SignRefusal {
+    /// The refusal's code: `SIGN_REFUSED` (the user declined at the
+    /// sign step) or `UNSUPPORTED_TRANSACTION_DATA` (the client
+    /// refuses a transaction type only it can judge).
+    pub code: String,
 }
 
 impl From<VpResult> for engine_ports::VpResult {
     fn from(r: VpResult) -> Self {
         Self {
             vp_token: r.vp_token,
+            refusal: r
+                .refusal
+                .map(|refusal| engine_ports::SignRefusal { code: refusal.code }),
+        }
+    }
+}
+
+impl From<engine_ports::VpResult> for VpResult {
+    fn from(r: engine_ports::VpResult) -> Self {
+        Self {
+            vp_token: r.vp_token,
+            refusal: r.refusal.map(|refusal| SignRefusal { code: refusal.code }),
         }
     }
 }

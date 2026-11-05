@@ -64,14 +64,23 @@ pub async fn submit_response(
     }
 }
 
-/// Submits the decline / error response: a plain form POST, never
-/// encrypted — per the P0.6-verified behaviour ("No client encrypts a
-/// decline").
+/// Submits the decline / error response (#441: the mode's shape):
+///
+/// - **`direct_post.jwt`**: the error as a JARM response — the error
+///   claims (`iss`, `aud`, `exp`, `error`, `error_description`,
+///   `state`) encrypted with the same key selection the success path
+///   uses, POSTed as `response=<jwe>`. A plain form would be rejected
+///   by the mode's verifier, so its session would never end.
+/// - **`query` / `fragment`**: the error redirect — the error
+///   parameters in the URL's query or fragment.
+/// - **`direct_post`** (and the default): the plain form POST — the
+///   mode's own shape.
 pub async fn submit_error_response(
     http: &dyn HttpClient,
     auth_req: &AuthorizationRequest,
     error_code: &str,
     error_description: &str,
+    now_unix: i64,
 ) -> Result<String, ResponseError> {
     let endpoint = if !auth_req.response_uri.is_empty() {
         auth_req.response_uri.clone()
@@ -81,6 +90,48 @@ pub async fn submit_error_response(
         return Err(ResponseError::NoEndpoint);
     };
 
+    // The response mode dispatch: the error answer rides the mode's
+    // shape, exactly as the success answer does.
+    match auth_req.response_mode {
+        ResponseMode::DirectPostJwt => {
+            super::jarm::submit_jarm_error_response(
+                http,
+                auth_req,
+                error_code,
+                error_description,
+                now_unix,
+            )
+            .await
+        }
+        ResponseMode::Query => Ok(build_error_redirect(
+            &endpoint,
+            auth_req,
+            error_code,
+            error_description,
+            '?',
+        )),
+        ResponseMode::Fragment => Ok(build_error_redirect(
+            &endpoint,
+            auth_req,
+            error_code,
+            error_description,
+            '#',
+        )),
+        ResponseMode::DirectPost => {
+            submit_plain_error(http, &endpoint, auth_req, error_code, error_description).await
+        }
+    }
+}
+
+/// The plain-form error POST: `error`, `error_description`, `state` —
+/// the direct_post mode's error shape.
+async fn submit_plain_error(
+    http: &dyn HttpClient,
+    endpoint: &str,
+    auth_req: &AuthorizationRequest,
+    error_code: &str,
+    error_description: &str,
+) -> Result<String, ResponseError> {
     let mut form = format!("error={}", url_encode(error_code));
     if !error_description.is_empty() {
         form.push_str(&format!(
@@ -95,7 +146,7 @@ pub async fn submit_error_response(
     let response = http
         .send(HttpRequest {
             method: "POST".to_owned(),
-            url: endpoint.clone(),
+            url: endpoint.to_owned(),
             headers: vec![(
                 "content-type".to_owned(),
                 "application/x-www-form-urlencoded".to_owned(),
@@ -111,6 +162,29 @@ pub async fn submit_error_response(
         .map_err(|err| ResponseError::Fetch(err.to_string()))?;
 
     Ok(String::from_utf8_lossy(&response.body).into_owned())
+}
+
+/// The error redirect for the `query`/`fragment` modes: the error
+/// parameters in the URL's query (`?`) or fragment (`#`) — the Go
+/// engine's `buildErrorRedirect`.
+fn build_error_redirect(
+    endpoint: &str,
+    auth_req: &AuthorizationRequest,
+    error_code: &str,
+    error_description: &str,
+    separator: char,
+) -> String {
+    let mut params = format!("error={}", url_encode(error_code));
+    if !error_description.is_empty() {
+        params.push_str(&format!(
+            "&error_description={}",
+            url_encode(error_description)
+        ));
+    }
+    if !auth_req.state.is_empty() {
+        params.push_str(&format!("&state={}", url_encode(&auth_req.state)));
+    }
+    format!("{endpoint}{separator}{params}")
 }
 
 /// The `direct_post` submission: a plain form POST with `vp_token` and
@@ -277,6 +351,7 @@ mod tests {
             &test_request(ResponseMode::DirectPost),
             "access_denied",
             "User declined",
+            1_000,
         )
         .await
         .expect("submit");
@@ -325,5 +400,99 @@ mod tests {
             submit_response(&http, &req, "vp", 0).await,
             Err(ResponseError::NoEndpoint)
         ));
+    }
+
+    // ─── #441: the mode-dispatched error responses ───────────────────────────
+
+    #[tokio::test]
+    async fn a_direct_post_jwt_error_rides_the_response_parameter_as_jarm() {
+        // The mode's only acceptable error shape: the error claims,
+        // JARM-encrypted to the verifier's key, in response=<jwe>.
+        // A plain form would be rejected, so the verifier's session
+        // would never end.
+        let http = FakeHttp {
+            status: 200,
+            body: Vec::new(),
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        let mut request = test_request(ResponseMode::DirectPostJwt);
+        // The verifier's encryption key, in the metadata the JARM path
+        // selects from.
+        request.client_metadata = Some(serde_json::json!({
+            "jwks": {"keys": [serde_json::json!({
+                "kty": "EC", "crv": "P-256",
+                "x": "ktT77AqMntawPyU772lBg8nd7cwENrYyOL_KWbYN8Jc",
+                "y": "67lPXEq5gJdimDYD0AacxLfRfIm2-fSNd3HBqyXXvBI",
+                "use": "enc", "alg": "ECDH-ES",
+            })]},
+            "authorization_encrypted_response_alg": "ECDH-ES",
+            "authorization_encrypted_response_enc": "A128GCM",
+        }));
+        submit_error_response(
+            &http,
+            &request,
+            "access_denied",
+            "The wallet did not fulfil the request",
+            1_000,
+        )
+        .await
+        .expect("the JARM error submits");
+        let calls = http.calls.lock().expect("lock");
+        assert_eq!(calls.len(), 1);
+        let body = String::from_utf8_lossy(&calls[0].1);
+        assert!(
+            body.starts_with("response="),
+            "the error rides the response parameter: {body}"
+        );
+        assert!(
+            !body.contains("error=access_denied"),
+            "the error parameters ride INSIDE the JWE, not as plain form: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_query_error_is_a_redirect_with_the_query_parameters() {
+        let http = FakeHttp {
+            status: 200,
+            body: Vec::new(),
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        let redirect = submit_error_response(
+            &http,
+            &test_request(ResponseMode::Query),
+            "access_denied",
+            "The wallet did not fulfil the request",
+            1_000,
+        )
+        .await
+        .expect("the redirect builds");
+        assert!(redirect.starts_with("https://verifier.example/response?"));
+        assert!(redirect.contains("error=access_denied"));
+        assert!(redirect.contains("state=state-1"));
+        // No POST: the redirect carries the answer.
+        let calls = http.calls.lock().expect("lock");
+        assert!(calls.is_empty(), "the query mode redirects: {calls:?}");
+    }
+
+    #[tokio::test]
+    async fn a_fragment_error_is_a_redirect_with_the_fragment_parameters() {
+        let http = FakeHttp {
+            status: 200,
+            body: Vec::new(),
+            calls: std::sync::Mutex::new(Vec::new()),
+        };
+        let redirect = submit_error_response(
+            &http,
+            &test_request(ResponseMode::Fragment),
+            "access_denied",
+            "The wallet did not fulfil the request",
+            1_000,
+        )
+        .await
+        .expect("the redirect builds");
+        assert!(redirect.contains('#'), "the fragment separator: {redirect}");
+        assert!(redirect.contains("error=access_denied"));
+        let calls = http.calls.lock().expect("lock");
+        assert!(calls.is_empty());
     }
 }

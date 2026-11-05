@@ -835,6 +835,7 @@ impl Host for MiniHost {
         }
         Ok(VpResult {
             vp_token: tokens.join("\n"),
+            refusal: None,
         })
     }
 

@@ -215,6 +215,7 @@ impl FlowHandler for Oid4vpFlow {
                     // must not tell a refusal from an empty wallet apart
                     // (the Go engine's verifierRefusedDescription).
                     "The wallet did not fulfil the request",
+                    ctx.clock().now_unix(),
                 )
                 .await;
             }
@@ -277,6 +278,7 @@ impl FlowHandler for Oid4vpFlow {
                 // verifier must not tell a decline from an empty wallet
                 // apart (the Go engine's verifierRefusedDescription).
                 "The wallet did not fulfil the request",
+                ctx.clock().now_unix(),
             )
             .await;
             let _ = ctx.complete(&serde_json::json!({ "declined": true })).await;
@@ -294,7 +296,7 @@ impl FlowHandler for Oid4vpFlow {
         // OpenID4VPHandover transcript; the verifier's session id
         // (the `sessionId` query parameter) for the ZK/PPID
         // verifier_context.
-        let vp_result = ctx
+        let vp_result = match ctx
             .host()
             .request_vp(engine_ports::VpParams {
                 flow_id: params.flow_id.clone(),
@@ -316,7 +318,35 @@ impl FlowHandler for Oid4vpFlow {
                 transaction_data: auth_req.transaction_data_raw.clone(),
             })
             .await
-            .map_err(|err| flow_error(err.to_string()))?;
+        {
+            Ok(result) => result,
+            // The user's decline at the sign stage (#472): the verifier
+            // is answered `access_denied` at once — never left waiting
+            // out its session — and the client gets the same decline
+            // error as a consent-stage refusal, with the verifier's
+            // redirect if it answered one. The wallet's reason never
+            // reaches the verifier (OpenID4x 3.2.6).
+            Err(engine_ports::HostError::Declined) => {
+                return refuse_verifier(ctx, &auth_req, "access_denied").await;
+            }
+            Err(other) => return Err(flow_error(other.to_string()).into()),
+        };
+
+        // The host's sign refusal (the Go `sign_response.error_code`,
+        // #472): `SIGN_REFUSED` answers the verifier `access_denied` —
+        // the same public shape as every refusal; a transaction-type
+        // refusal answers `invalid_transaction_data` instead, so the
+        // verifier is not left waiting on a form it would reject.
+        if let Some(refusal) = vp_result.refusal {
+            return match refusal.code.as_str() {
+                "UNSUPPORTED_TRANSACTION_DATA" => {
+                    refuse_verifier(ctx, &auth_req, "invalid_transaction_data").await
+                }
+                // SIGN_REFUSED and anything else the host allowlisted:
+                // the verifier is told access_denied, nothing more.
+                _ => refuse_verifier(ctx, &auth_req, "access_denied").await,
+            };
+        }
 
         let vp_token = vp_result.vp_token;
 
@@ -418,6 +448,52 @@ impl FlowHandler for Oid4vpFlow {
     }
 }
 
+/// Refuses the verifier at the sign stage (#472, OpenID4x 3.2.6): the
+/// verifier is answered `error_code` at once — the same public shape as
+/// every refusal, so it cannot tell a sign refusal from a consent decline
+/// or an empty wallet — and the client gets the decline completion with
+/// the verifier's redirect, if it answered one.
+///
+/// The wallet's reason never crosses: the engine knows only the
+/// allowlisted code (`SIGN_REFUSED`, `UNSUPPORTED_TRANSACTION_DATA`), and
+/// the description is the shared refusal wording, never what the wallet
+/// said.
+async fn refuse_verifier(
+    ctx: &FlowContext,
+    auth_req: &types::AuthorizationRequest,
+    error_code: &str,
+) -> Result<FlowStartResult, HandlerError> {
+    let redirect = response::submit_error_response(
+        ctx.http().as_ref(),
+        auth_req,
+        error_code,
+        // The same description as every refusal: the verifier must not
+        // tell a sign refusal from a decline or an empty wallet apart
+        // (the Go engine's verifierRefusedDescription).
+        "The wallet did not fulfil the request",
+        ctx.clock().now_unix(),
+    )
+    .await;
+
+    // The completion: the decline, with the verifier's redirect if it
+    // answered one (the Go engine's details.redirect_uri).
+    let mut completion = serde_json::json!({ "declined": true });
+    if let Ok(uri) = redirect {
+        if !uri.is_empty() {
+            if let Some(object) = completion.as_object_mut() {
+                object.insert("redirect_uri".to_owned(), serde_json::Value::String(uri));
+            }
+        }
+    }
+    let _ = ctx.complete(&completion).await;
+
+    Ok(FlowStartResult {
+        wmp: wmp_core::types::Metadata::default(),
+        flow_id: ctx.flow_id.clone(),
+        flow_type: ctx.flow_type.clone(),
+    })
+}
+
 #[cfg(test)]
 mod presentation_flow_tests {
     //! The presentation flow, end to end on scripted ports: the request,
@@ -501,6 +577,7 @@ mod presentation_flow_tests {
             self.vps.lock().map(|mut v| v.push(params)).ok();
             Ok(VpResult {
                 vp_token: "token-pid\ntoken-degree".to_owned(),
+                refusal: None,
             })
         }
         async fn request_dpop_proof(
@@ -636,8 +713,23 @@ mod presentation_flow_tests {
     }
 
     /// A params Box<RawValue> from a JSON value.
-    fn raw_value(value: serde_json::Value) -> Option<Box<serde_json::value::RawValue>> {
+    pub(super) fn raw_value(value: serde_json::Value) -> Option<Box<serde_json::value::RawValue>> {
         serde_json::value::RawValue::from_string(value.to_string()).ok()
+    }
+
+    /// The refusal tests' request: a redirect_uri-scheme request (no
+    /// signed form needed — the refusal is at the sign stage).
+    pub(super) fn refusal_request_json() -> serde_json::Value {
+        serde_json::json!({
+            "client_id": "https://verifier.example",
+            "nonce": "nonce-refusal-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post",
+            "state": "state-refusal-1",
+            "dcql_query": {"credentials": [
+                {"id": "pid-query", "meta": {"vct_values": ["urn:pid"]}}
+            ]},
+        })
     }
 
     pub(super) fn start_params() -> FlowStartParams {
@@ -963,6 +1055,207 @@ mod untrusted_flow_tests {
             data.get("retryable").and_then(serde_json::Value::as_bool),
             Some(false),
             "never retryable: {data}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sign_refusal_tests {
+    //! The sign-stage refusal (#472): a host that refuses at `request_vp`
+    //! — by the user's decline, or by the answer's refusal code — answers
+    //! the verifier `access_denied` at once and completes the flow with
+    //! the decline, never a partial vp_token.
+
+    use super::*;
+    use crate::runtime::{FlowContext, FlowHandler};
+    use crate::Ports;
+    use engine_ports::{
+        ConsentParams, ConsentResult, EvaluationRequest, EvaluationResponse, Host, HostError,
+        HttpClient, HttpError, HttpRequest, HttpResponse, MatchParams, MatchResult, Pdp, PdpError,
+        ResolveRequest, ResolveResponse, SignParams, SignResult, VpParams, VpResult, VpSelection,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// A PDP that trusts everything.
+    struct TrustedPdp;
+    #[async_trait::async_trait]
+    impl Pdp for TrustedPdp {
+        async fn evaluate(
+            &self,
+            _request: EvaluationRequest,
+        ) -> Result<EvaluationResponse, PdpError> {
+            Ok(EvaluationResponse {
+                trusted: true,
+                decision: None,
+            })
+        }
+        async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
+            Err(PdpError::NotImplemented)
+        }
+    }
+
+    /// The recording HTTP: the verifier's error POST lands here.
+    struct RecordingHttp {
+        posts: Mutex<Vec<(String, Vec<u8>)>>,
+    }
+    #[async_trait::async_trait]
+    impl HttpClient for RecordingHttp {
+        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
+            if request.method == "POST" {
+                self.posts
+                    .lock()
+                    .map(|mut p| p.push((request.url, request.body)))
+                    .ok();
+            }
+            Ok(HttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: br#"{"redirect_uri":"https://verifier.example/after"}"#.to_vec(),
+            })
+        }
+    }
+
+    /// A host that refuses the VP ask: by the user's decline (an
+    /// `Err`), or by the answer's refusal code (an `Ok` with
+    /// `refusal` set).
+    struct RefusingHost {
+        by_error: bool,
+    }
+    #[async_trait::async_trait]
+    impl Host for RefusingHost {
+        async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+            Err(HostError::Cannot("refusing".to_owned()))
+        }
+        async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
+            Ok(MatchResult {
+                selections: vec![VpSelection {
+                    credential_query_id: "pid-query".to_owned(),
+                    credential_id: "cred-pid-001".to_owned(),
+                    disclosed_claims: Vec::new(),
+                }],
+            })
+        }
+        async fn request_consent(&self, _p: ConsentParams) -> Result<ConsentResult, HostError> {
+            Ok(ConsentResult { consented: true })
+        }
+        async fn request_tx_code(&self, _f: &str) -> Result<String, HostError> {
+            Ok("1234".to_owned())
+        }
+        async fn open_authorization(&self, _f: &str, _u: &str) -> Result<(), HostError> {
+            Ok(())
+        }
+        async fn request_vp(&self, _params: VpParams) -> Result<VpResult, HostError> {
+            if self.by_error {
+                // The user's decline at the sign stage.
+                Err(HostError::Declined)
+            } else {
+                // The answer's refusal code (#472's
+                // sign_response.error_code).
+                Ok(VpResult {
+                    vp_token: String::new(),
+                    refusal: Some(engine_ports::SignRefusal::sign_refused()),
+                })
+            }
+        }
+        fn progress(&self, _f: &str, _s: &str, _d: Option<String>) {}
+    }
+
+    fn refusal_context(host: Arc<RefusingHost>, http: Arc<RecordingHttp>) -> FlowContext {
+        let store = Arc::new(wmp_core::session::MemorySessionStore::new());
+        let peer = wmp_core::peer::PeerBuilder::new(Arc::new(
+            wmp_core::sessionservice::SessionHandler::new(
+                Arc::new(
+                    wmp_core::sessionservice::SessionService::new(
+                        wmp_core::sessionservice::SessionServiceConfig {
+                            store: Some(store.clone()),
+                            entropy: Some(Arc::new(|bytes: &mut [u8]| {
+                                for (i, b) in bytes.iter_mut().enumerate() {
+                                    *b = i as u8;
+                                }
+                                true
+                            })),
+                            ..wmp_core::sessionservice::SessionServiceConfig::default()
+                        },
+                    )
+                    .unwrap_or_else(|_| panic!("session service")),
+                ),
+                Arc::new(|| 0),
+            ),
+        ))
+        .session_store(store)
+        .build();
+        FlowContext {
+            flow_id: "flow-refusal-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            session: None,
+            ports: Arc::new(Ports {
+                http,
+                clock: Arc::new(super::presentation_flow_tests::FixedClock),
+                rng: Arc::new(super::presentation_flow_tests::FakeRng),
+                host,
+                pdp: Arc::new(TrustedPdp),
+                kv: Arc::new(super::presentation_flow_tests::MemKv(
+                    std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
+                )),
+                telemetry: Arc::new(super::presentation_flow_tests::NoTelemetry),
+            }),
+            peer,
+            request_context: wmp_core::context::RequestContext::default(),
+        }
+    }
+
+    fn refusal_start_params() -> FlowStartParams {
+        FlowStartParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-refusal-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            params: super::presentation_flow_tests::raw_value(
+                super::presentation_flow_tests::refusal_request_json(),
+            ),
+            timeout: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_users_decline_at_the_sign_stage_answers_the_verifier_access_denied() {
+        let host = Arc::new(RefusingHost { by_error: true });
+        let http = Arc::new(RecordingHttp {
+            posts: Mutex::new(Vec::new()),
+        });
+        let ctx = refusal_context(host, http.clone());
+        let flow = Oid4vpFlow;
+        // The flow completes (not errors): the refusal is a completion
+        // with declined:true, the verifier answered.
+        flow.start_flow(&ctx, &refusal_start_params())
+            .await
+            .expect("the refusal completes the flow");
+        // The verifier was POSTed the access_denied.
+        let posts = http.posts.lock().expect("lock");
+        assert!(
+            posts
+                .iter()
+                .any(|(_, body)| String::from_utf8_lossy(body).contains("error=access_denied")),
+            "the verifier got the access_denied: {posts:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sign_refusal_code_answers_the_verifier_access_denied() {
+        let host = Arc::new(RefusingHost { by_error: false });
+        let http = Arc::new(RecordingHttp {
+            posts: Mutex::new(Vec::new()),
+        });
+        let ctx = refusal_context(host, http.clone());
+        let flow = Oid4vpFlow;
+        flow.start_flow(&ctx, &refusal_start_params())
+            .await
+            .expect("the refusal completes the flow");
+        let posts = http.posts.lock().expect("lock");
+        assert!(
+            posts
+                .iter()
+                .any(|(_, body)| String::from_utf8_lossy(body).contains("error=access_denied")),
+            "the verifier got the access_denied: {posts:?}"
         );
     }
 }
