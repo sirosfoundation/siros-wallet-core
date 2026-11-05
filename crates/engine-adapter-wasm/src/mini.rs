@@ -14,6 +14,9 @@
 //! fall back to the engine's own behaviours, exactly as an SDK host
 //! without those capabilities would.
 
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use ciborium::Value as Cbor;
 use engine_ports::{
     AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
     DpopProofResult, Host, HostError, MatchParams, MatchResult, SignParams, SignResult, VpParams,
@@ -36,6 +39,12 @@ fn p256_signer(jwk: &jose_rs::jwk::Jwk) -> Result<Signer, String> {
         software,
     )
     .map_err(|err| format!("the key does not sign: {err}"))
+}
+
+/// The public members of `jwk` as JSON.
+fn public_json(jwk: &jose_rs::jwk::Jwk) -> Result<serde_json::Value, String> {
+    serde_json::to_value(jwk.to_public_jwk())
+        .map_err(|err| format!("the public key does not serialize: {err}"))
 }
 
 /// The claims the mini PID carries, selectively disclosed (RFC 9901
@@ -92,21 +101,19 @@ fn issue_mini_pid(
 
     // The disclosures (§5.1): base64url of the JSON array
     // [salt, claim name, value], each digest-listed in `_sd`. The
-    // digest is over the ENCODED disclosure text (§4.2.3) — the same
-    // bytes `SdJwt::parse` hashes when it resolves the references.
+    // digest is over the ENCODED disclosure text (§4.2.3) — the bytes a
+    // verifier hashes when it resolves the references.
     let mut disclosures = Vec::new();
     let mut digests = Vec::new();
     for (index, (name, value)) in pid_claims().into_iter().enumerate() {
         let salt = format!("mini-pid-salt-{now}-{index}");
         let disclosure = serde_json::json!([salt, name, value]).to_string();
-        let encoded = siros_codec::base64url::encode(disclosure.as_bytes())
-            .as_str()
-            .to_owned();
+        let encoded = URL_SAFE_NO_PAD.encode(disclosure.as_bytes());
         let digest =
             kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, encoded.as_bytes())
                 .map_err(|err| format!("the disclosure digest failed: {err}"))?;
         disclosures.push(encoded);
-        digests.push(siros_codec::base64url::encode(&digest).as_str().to_owned());
+        digests.push(URL_SAFE_NO_PAD.encode(&digest));
     }
 
     // The issuer JWT: the fixture claims are undisclosed; the device
@@ -136,28 +143,201 @@ fn issue_mini_pid(
         "_sd_alg": "sha-256",
         "_sd": digests,
     });
-    let header_text = siros_codec::base64url::encode(header.to_string().as_bytes())
-        .as_str()
-        .to_owned();
-    let payload_text = siros_codec::base64url::encode(payload.to_string().as_bytes())
-        .as_str()
-        .to_owned();
+    let header_text = URL_SAFE_NO_PAD.encode(header.to_string().as_bytes());
+    let payload_text = URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes());
     let tbs = format!("{header_text}.{payload_text}");
     let signature = kryptering::Signer::sign(&issuer_signer, tbs.as_bytes())
         .map_err(|err| format!("the PID signing failed: {err}"))?;
 
     // The compact SD-JWT: the JWT, the disclosures, the trailing `~`
     // of the key-binding form (§4.1).
-    let mut pid = format!(
-        "{tbs}.{}",
-        siros_codec::base64url::encode(&signature).as_str()
-    );
+    let mut pid = format!("{tbs}.{}", URL_SAFE_NO_PAD.encode(&signature));
     for disclosure in disclosures {
         pid.push('~');
         pid.push_str(&disclosure);
     }
     pid.push('~');
     Ok(pid)
+}
+
+/// The KB-JWT's header (RFC 9901 §4.3): ES256, the device key's
+/// algorithm.
+const KB_HEADER: &str = r#"{"typ":"kb+jwt","alg":"ES256"}"#;
+
+/// The held PID as presented to a verifier (RFC 9901 §4): the issuer
+/// JWT, then the disclosures `claims` select in their order, each once
+/// and followed by `~`, then the KB-JWT (§4.3) over `iat`, the
+/// verifier's `audience` and `nonce`, and the `sd_hash` of what precedes
+/// it under the PID's `_sd_alg`, sha-256. Each claim is a claims path
+/// (OpenID4VP §7) JSON-encoded: its first component names the PID's
+/// claim whose disclosure is presented, and the rest resolve inside
+/// that claim's value (a key of an object, an index of an array, null
+/// for every element of an array). `sign` signs the KB-JWT's signing
+/// input with the holder's key and answers ES256's 64-octet `r ‖ s`
+/// (RFC 7518 §3.4). Refused when the PID is not in the key-binding
+/// form, a disclosure is no `[salt, name, value]` array (§4.2.1), a
+/// claim is no §7 path, or the PID holds no claim at a path.
+fn present_mini_pid(
+    pid: &str,
+    claims: &[String],
+    iat: u64,
+    audience: &str,
+    nonce: &str,
+    sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<String, String> {
+    let Some(form) = pid.strip_suffix('~') else {
+        return Err("the held PID is not in the key-binding form (§4.1)".to_owned());
+    };
+    let (jwt, encoded) = match form.split_once('~') {
+        Some((jwt, disclosures)) => (jwt, disclosures.split('~').collect()),
+        None => (form, Vec::new()),
+    };
+    let mut named = Vec::new();
+    for disclosure in encoded {
+        let bytes = URL_SAFE_NO_PAD
+            .decode(disclosure)
+            .map_err(|err| format!("a disclosure of the held PID is no base64url: {err}"))?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|err| format!("a disclosure of the held PID is no JSON: {err}"))?;
+        let Some([_, serde_json::Value::String(name), claim]) = value.as_array().map(Vec::as_slice)
+        else {
+            return Err(
+                "a disclosure of the held PID is no [salt, name, value] array (§4.2.1)".to_owned(),
+            );
+        };
+        named.push((name.clone(), claim.clone(), disclosure));
+    }
+
+    let mut presented = format!("{jwt}~");
+    let mut chosen: Vec<&str> = Vec::new();
+    for claim in claims {
+        let path = ClaimsPath::parse(claim)
+            .ok_or_else(|| format!("the disclosed claim {claim} is no §7 claims path"))?;
+        let Some((_, _, disclosure)) = named.iter().find(|(name, value, _)| {
+            matches!(path.split_first(), (Component::Key(first), rest)
+                if first == name && resolves(value, rest))
+        }) else {
+            return Err(format!("the held PID holds no claim at {claim}"));
+        };
+        let disclosure = *disclosure;
+        if !chosen.contains(&disclosure) {
+            chosen.push(disclosure);
+            presented.push_str(disclosure);
+            presented.push('~');
+        }
+    }
+
+    let sd_hash =
+        kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, presented.as_bytes())
+            .map_err(|err| format!("the sd_hash digest failed: {err}"))?;
+    let payload = serde_json::json!({
+        "iat": iat,
+        "aud": audience,
+        "nonce": nonce,
+        "sd_hash": URL_SAFE_NO_PAD.encode(&sd_hash),
+    });
+    let signing_input = format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(KB_HEADER),
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+    let signature = sign(signing_input.as_bytes())?;
+    if signature.len() != 64 {
+        return Err(format!(
+            "the KB-JWT signature has {} octets, where ES256's has 64",
+            signature.len()
+        ));
+    }
+    presented.push_str(&signing_input);
+    presented.push('.');
+    presented.push_str(&URL_SAFE_NO_PAD.encode(&signature));
+    Ok(presented)
+}
+
+/// A component of a claims path (OpenID4VP §7).
+enum Component {
+    /// A string: the member of an object with this key.
+    Key(String),
+    /// A non-negative integer: the element of an array at this index.
+    Index(usize),
+    /// Null: every element of an array.
+    All,
+}
+
+/// A claims path (OpenID4VP §7): a non-empty sequence of components.
+struct ClaimsPath {
+    first: Component,
+    rest: Vec<Component>,
+}
+
+impl ClaimsPath {
+    /// The path a JSON array of string keys, non-negative integer indices
+    /// and nulls encodes; None for any other JSON and for the empty
+    /// array.
+    fn parse(encoded: &str) -> Option<Self> {
+        let serde_json::Value::Array(components) = serde_json::from_str(encoded).ok()? else {
+            return None;
+        };
+        let mut components = components.into_iter().map(|component| match component {
+            serde_json::Value::String(key) => Some(Component::Key(key)),
+            serde_json::Value::Number(index) => index
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .map(Component::Index),
+            serde_json::Value::Null => Some(Component::All),
+            _ => None,
+        });
+        let first = components.next()??;
+        let rest = components.collect::<Option<Vec<_>>>()?;
+        Some(Self { first, rest })
+    }
+
+    fn split_first(&self) -> (&Component, &[Component]) {
+        (&self.first, &self.rest)
+    }
+
+    /// The mdoc element the path names (OpenID4VP B.4.1): a namespace
+    /// then an element identifier, its first two components; None when a
+    /// component is no key or the path holds fewer than two.
+    fn mdoc_element(&self) -> Option<(&str, &str)> {
+        let mut keys = self.rest.iter().map(|component| match component {
+            Component::Key(key) => Some(key.as_str()),
+            Component::Index(_) | Component::All => None,
+        });
+        let Component::Key(name_space) = &self.first else {
+            return None;
+        };
+        let identifier = keys.next()??;
+        keys.all(|key| key.is_some())
+            .then_some((name_space.as_str(), identifier))
+    }
+}
+
+/// Whether the rest of a claims path selects an element inside a claim's
+/// value, processed as OpenID4VP §7.2 does: a key selects each selected
+/// object's member, an index each selected array's element, null every
+/// element of each selected array; an element missing its key or index
+/// leaves the selection, an element of another type ends it, and an
+/// empty selection at the end selects nothing.
+fn resolves(value: &serde_json::Value, rest: &[Component]) -> bool {
+    let mut selected = vec![value];
+    for component in rest {
+        let mut next = Vec::new();
+        for item in selected {
+            match (component, item) {
+                (Component::Key(key), serde_json::Value::Object(members)) => {
+                    next.extend(members.get(key));
+                }
+                (Component::Index(index), serde_json::Value::Array(items)) => {
+                    next.extend(items.get(*index));
+                }
+                (Component::All, serde_json::Value::Array(items)) => next.extend(items),
+                _ => return false,
+            }
+        }
+        selected = next;
+    }
+    !selected.is_empty()
 }
 
 /// The doctype the mini mDL carries (ISO/IEC 18013-5, Annex A): the
@@ -172,48 +352,168 @@ const MDL_NAMESPACE: &str = "org.iso.18013.5.1";
 /// DCQL query's claim paths.
 const MDL_CLAIMS: [(&str, &str); 2] = [("family_name", "Smith"), ("given_name", "Alice")];
 
+/// The held mDL as issued (ISO/IEC 18013-5, 8.3.2.1.2.2): the parts of
+/// its `IssuerSigned` a presentation copies.
+struct MiniMdl {
+    /// `issuerAuth`: the fixture issuer's `COSE_Sign1` over the MSO
+    /// (9.1.2.4).
+    issuer_auth: Cbor,
+    /// The [`MDL_NAMESPACE`] items, in the issuer's order.
+    items: Vec<IssuedItem>,
+}
+
+/// An item of the held mDL.
+struct IssuedItem {
+    /// The element identifier.
+    identifier: &'static str,
+    /// `IssuerSignedItemBytes`: `#6.24(bstr .cbor IssuerSignedItem)`
+    /// (8.3.2.1.2.2), its digest in the MSO's `valueDigests`.
+    bytes: Cbor,
+}
+
+/// The encoding of `value` (RFC 8949 §4.1): the shortest heads and
+/// definite lengths.
+fn cbor(value: &Cbor) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    ciborium::ser::into_writer(value, &mut out)
+        .map_err(|err| format!("the CBOR does not encode: {err}"))?;
+    Ok(out)
+}
+
+/// A map in the core deterministic encoding's order (RFC 8949 §4.2.1):
+/// its keys sorted by their encodings, bytewise.
+fn cbor_map(entries: Vec<(Cbor, Cbor)>) -> Result<Cbor, String> {
+    let mut keyed = entries
+        .into_iter()
+        .map(|(key, value)| Ok((cbor(&key)?, key, value)))
+        .collect::<Result<Vec<_>, String>>()?;
+    keyed.sort_by(|(a, ..), (b, ..)| a.cmp(b));
+    Ok(Cbor::Map(
+        keyed
+            .into_iter()
+            .map(|(_, key, value)| (key, value))
+            .collect(),
+    ))
+}
+
+/// `#6.24(bstr .cbor value)`: an embedded data item (RFC 8949
+/// §3.4.5.1).
+fn embedded(value: &Cbor) -> Result<Cbor, String> {
+    Ok(Cbor::Tag(24, Box::new(Cbor::Bytes(cbor(value)?))))
+}
+
+fn text(value: &str) -> Cbor {
+    Cbor::Text(value.to_owned())
+}
+
+fn integer(value: i64) -> Cbor {
+    Cbor::Integer(value.into())
+}
+
+/// The protected header of an ES256 `COSE_Sign1`, `{1: -7}`: `alg`
+/// (RFC 9052 §3.1) is ES256 (RFC 9053 §2.1).
+const ES256_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
+
+/// The `Sig_structure` a `COSE_Sign1` signs (RFC 9052 §4.4):
+/// `["Signature1", protected, external_aad = h'', payload]`.
+fn sig_structure(protected: &[u8], payload: &[u8]) -> Result<Vec<u8>, String> {
+    cbor(&Cbor::Array(vec![
+        text("Signature1"),
+        Cbor::Bytes(protected.to_vec()),
+        Cbor::Bytes(Vec::new()),
+        Cbor::Bytes(payload.to_vec()),
+    ]))
+}
+
+/// The UTC seconds a `tdate` writes with a four-digit year:
+/// 0000-01-01T00:00:00Z to 9999-12-31T23:59:59Z.
+const TDATE_SECONDS: std::ops::RangeInclusive<i64> = -62_167_219_200..=253_402_300_799;
+
+/// A `tdate` (RFC 8949 §3.4.1), the form of validityInfo's times
+/// (ISO/IEC 18013-5, 9.1.2.4): tag 0 over the UTC second `unix` names,
+/// `YYYY-MM-DDThh:mm:ssZ`, read off the JS Date. Refused outside
+/// [`TDATE_SECONDS`].
+fn tdate(unix: i64) -> Result<Cbor, String> {
+    if !TDATE_SECONDS.contains(&unix) {
+        return Err("the clock is out of range".to_owned());
+    }
+    let date = js_sys::Date::new(&JsValue::from_f64(unix as f64 * 1000.0));
+    let time = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        date.get_utc_full_year(),
+        date.get_utc_month() + 1,
+        date.get_utc_date(),
+        date.get_utc_hours(),
+        date.get_utc_minutes(),
+        date.get_utc_seconds()
+    );
+    Ok(Cbor::Tag(0, Box::new(Cbor::Text(time))))
+}
+
 /// Issues the mini host's held mDL: an `IssuerSigned` (ISO/IEC
 /// 18013-5, 8.3.2.1.2.2) with the MSO (9.1.2) the fixture issuer
 /// signs, its `valueDigests` listing the items, the device key bound
 /// as the MSO's `deviceKey`, and the issuer's `COSE_Sign1`
 /// (`issuerAuth`, 9.1.2.4) carrying the fixture issuer's `x5chain`
-/// (RFC 9360 §2) — the base64url of the `IssuerSigned` CBOR, the form
-/// `Mdoc::parse` reads back.
+/// (RFC 9360 §2); each map in the core deterministic encoding (RFC 8949
+/// §4.2.1). None when no PID signing key carries an x5c chain:
+/// issuerAuth's unprotected header holds the issuer's x5chain (9.1.2.4).
+/// Refused when the key's x5c is no array of base64 DER certificates.
 fn issue_mini_mdl(
     device_public: &serde_json::Value,
     issuer_signing: Option<&jose_rs::jwk::Jwk>,
-) -> Result<String, String> {
+) -> Result<Option<MiniMdl>, String> {
+    let Some((issuer_key, chain)) =
+        issuer_signing.and_then(|key| Some((key, key.extra.get("x5c")?)))
+    else {
+        return Ok(None);
+    };
+    let serde_json::Value::Array(chain) = chain else {
+        return Err("the PID signing key's x5c is no array (RFC 7517 §4.7)".to_owned());
+    };
+    if chain.is_empty() {
+        return Ok(None);
+    }
+    // The x5c entries are standard-base64 DER (RFC 7517 §4.7), unlike
+    // the JOSE segments' base64url.
+    let certificates = chain
+        .iter()
+        .map(|der| {
+            der.as_str()
+                .and_then(|encoded| STANDARD.decode(encoded).ok())
+                .map(Cbor::Bytes)
+                .ok_or_else(|| {
+                    "an x5c entry of the PID signing key is no base64 DER (RFC 7517 §4.7)"
+                        .to_owned()
+                })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let now = (js_sys::Date::now() / 1000.0) as i64;
     // The device key's COSE_Key coordinates (EC2: {1: 2, -1: 1, -2: x,
     // -3: y}, RFC 9053 §2): the 32-byte big-endian coordinates of the
     // bound device key.
-    let coordinate = |name: &str| -> Result<Vec<u8>, String> {
+    let coordinate = |name: &str| -> Result<Cbor, String> {
         device_public
             .get(name)
             .and_then(|v| v.as_str())
-            .and_then(|encoded| {
-                let bytes = siros_codec::base64url::decode(encoded).ok()?;
-                <[u8; 32]>::try_from(bytes.as_slice()).ok()
-            })
-            .map(|coordinate| coordinate.to_vec())
+            .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
+            .filter(|bytes| bytes.len() == 32)
+            .map(Cbor::Bytes)
             .ok_or_else(|| format!("the device key's {name} does not parse"))
     };
-    let x = coordinate("x")?;
-    let y = coordinate("y")?;
+    let device_key = cbor_map(vec![
+        (integer(1), integer(2)),
+        (integer(-1), integer(1)),
+        (integer(-2), coordinate("x")?),
+        (integer(-3), coordinate("y")?),
+    ])?;
 
-    let time = siros_codec::date::DateTime::from_unix(now)
-        .ok_or_else(|| "the clock is out of range".to_owned())?;
     // The MSO's validity: 180 days — strictly inside the fixture DS
     // certificate's own validity (ISO/IEC 18013-5 §9.3.1: an mdoc reader
     // may reject a credential whose validUntil exceeds the document
     // signer certificate's notAfter).
-    let until = siros_codec::date::DateTime::from_unix(now + 15_552_000)
-        .ok_or_else(|| "the clock is out of range".to_owned())?;
-    let date = |t: siros_codec::date::DateTime| {
-        // validityInfo's FullDate (ISO/IEC 18013-5, 9.1.2.4): tag 0, a
-        // `YYYY-MM-DDThh:mm:ssZ` text.
-        siros_codec::cbor::Value::Tag(0, Box::new(siros_codec::cbor::Value::Text(t.to_string())))
-    };
+    let signed = tdate(now)?;
+    let until = tdate(now + 15_552_000)?;
 
     // The items (8.3.2.1.2.2, Table 5): digestID, random,
     // elementIdentifier, elementValue — each `#6.24(bstr .cbor
@@ -221,191 +521,213 @@ fn issue_mini_mdl(
     // MSO's valueDigests.
     let mut items = Vec::new();
     let mut digests = Vec::new();
-    for (index, (name, value)) in MDL_CLAIMS.iter().enumerate() {
+    for (index, (name, value)) in MDL_CLAIMS.into_iter().enumerate() {
         let random: Vec<u8> = (0..16)
             .map(|byte| (now.wrapping_mul(index as i64 + byte as i64)) as u8)
             .collect();
-        let item = siros_codec::cbor::Value::Map(vec![
-            (
-                siros_codec::cbor::Value::text("digestID"),
-                siros_codec::cbor::Value::Unsigned(index as u64),
-            ),
-            (
-                siros_codec::cbor::Value::text("random"),
-                siros_codec::cbor::Value::Bytes(random),
-            ),
-            (
-                siros_codec::cbor::Value::text("elementIdentifier"),
-                siros_codec::cbor::Value::Text((*name).to_owned()),
-            ),
-            (
-                siros_codec::cbor::Value::text("elementValue"),
-                siros_codec::cbor::Value::Text((*value).to_owned()),
-            ),
-        ]);
-        let item = siros_codec::cbor::Value::Tag(
-            24,
-            Box::new(siros_codec::cbor::Value::Bytes(item.encode())),
-        );
-        let digest =
-            kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, item.encode().as_slice())
-                .map_err(|err| format!("the item digest failed: {err}"))?;
-        items.push(item);
-        digests.push((index as u64, digest));
+        let bytes = embedded(&cbor_map(vec![
+            (text("digestID"), Cbor::Integer(index.into())),
+            (text("random"), Cbor::Bytes(random)),
+            (text("elementIdentifier"), text(name)),
+            (text("elementValue"), text(value)),
+        ])?)?;
+        let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &cbor(&bytes)?)
+            .map_err(|err| format!("the item digest failed: {err}"))?;
+        digests.push((Cbor::Integer(index.into()), Cbor::Bytes(digest)));
+        items.push(IssuedItem {
+            identifier: name,
+            bytes,
+        });
     }
 
     // The MSO (9.1.2): the docType, SHA-256, the device key, the
     // valueDigests, the validity.
-    let mso = siros_codec::cbor::Value::Map(vec![
+    let mso = cbor_map(vec![
+        (text("version"), text("1.0")),
+        (text("docType"), text(MDL_DOCTYPE)),
+        (text("digestAlgorithm"), text("SHA-256")),
         (
-            siros_codec::cbor::Value::text("version"),
-            siros_codec::cbor::Value::text("1.0"),
+            text("deviceKeyInfo"),
+            cbor_map(vec![(text("deviceKey"), device_key)])?,
         ),
         (
-            siros_codec::cbor::Value::text("docType"),
-            siros_codec::cbor::Value::Text(MDL_DOCTYPE.to_owned()),
+            text("valueDigests"),
+            cbor_map(vec![(text(MDL_NAMESPACE), cbor_map(digests)?)])?,
         ),
         (
-            siros_codec::cbor::Value::text("digestAlgorithm"),
-            siros_codec::cbor::Value::Text("SHA-256".to_owned()),
+            text("validityInfo"),
+            cbor_map(vec![
+                (text("signed"), signed.clone()),
+                (text("validFrom"), signed),
+                (text("validUntil"), until),
+            ])?,
         ),
-        (
-            siros_codec::cbor::Value::text("deviceKeyInfo"),
-            siros_codec::cbor::Value::Map(vec![(
-                siros_codec::cbor::Value::text("deviceKey"),
-                // COSE_Key (RFC 9053 §2): {1: kty = 2 (EC2), -1: crv =
-                // 1 (P-256), -2: x, -3: y}.
-                siros_codec::cbor::Value::Map(vec![
-                    (
-                        siros_codec::cbor::Value::Unsigned(1),
-                        siros_codec::cbor::Value::Unsigned(2),
-                    ),
-                    (
-                        siros_codec::cbor::Value::Negative(0),
-                        siros_codec::cbor::Value::Unsigned(1),
-                    ),
-                    (
-                        siros_codec::cbor::Value::Negative(1),
-                        siros_codec::cbor::Value::Bytes(x),
-                    ),
-                    (
-                        siros_codec::cbor::Value::Negative(2),
-                        siros_codec::cbor::Value::Bytes(y),
-                    ),
-                ]),
-            )]),
-        ),
-        (
-            siros_codec::cbor::Value::text("valueDigests"),
-            siros_codec::cbor::Value::Map(vec![(
-                siros_codec::cbor::Value::Text(MDL_NAMESPACE.to_owned()),
-                siros_codec::cbor::Value::Map(
-                    digests
-                        .into_iter()
-                        .map(|(id, digest)| {
-                            (
-                                siros_codec::cbor::Value::Unsigned(id),
-                                siros_codec::cbor::Value::Bytes(digest),
-                            )
-                        })
-                        .collect(),
-                ),
-            )]),
-        ),
-        (
-            siros_codec::cbor::Value::text("validityInfo"),
-            siros_codec::cbor::Value::Map(vec![
-                (siros_codec::cbor::Value::text("signed"), date(time)),
-                (siros_codec::cbor::Value::text("validFrom"), date(time)),
-                (siros_codec::cbor::Value::text("validUntil"), date(until)),
-            ]),
-        ),
-    ]);
+    ])?;
     // MobileSecurityObjectBytes = #6.24(bstr .cbor MSO) (9.1.2.1).
-    let payload =
-        siros_codec::cbor::Value::Tag(24, Box::new(siros_codec::cbor::Value::Bytes(mso.encode())))
-            .encode();
-
-    // The fixture issuer: the PID's signing key when the harness
-    // carries one (the HAIP form's x5c chain rides issuerAuth);
-    // without one a fresh generated key signs a chainless issuerAuth.
-    let issuer_key = match issuer_signing {
-        Some(key) => key.clone(),
-        None => jose_rs::jwk::generate::generate_ec("P-256")
-            .map_err(|err| format!("the mDL issuer key generation failed: {err}"))?,
-    };
-    let issuer_signer = p256_signer(&issuer_key)?;
+    let payload = cbor(&embedded(&mso)?)?;
 
     // issuerAuth = COSE_Sign1 (9.1.2.4): the protected header {alg: -7}
-    // (ES256; major type 1 encodes -1-n, so -7 is content 6), the x5chain
-    // at label 33 (RFC 9360 §2) when the issuer key carries one, the
-    // tagged MSO as the payload, and the ES256 signature over the
-    // Sig_structure ["Signature1", protected, external_aad = h'', payload]
-    // (RFC 9052 §4.4).
-    let protected = siros_codec::cbor::Value::Map(vec![(
-        siros_codec::cbor::Value::Unsigned(1),
-        siros_codec::cbor::Value::Negative(6),
-    )])
-    .encode();
-    let mut unprotected = Vec::new();
-    if let Some(chain) = issuer_key.extra.get("x5c").and_then(|v| v.as_array()) {
-        // The x5c entries are standard-base64 DER (RFC 7515 §4.1.6),
-        // unlike the JOSE segments' base64url.
-        let certificates: Vec<siros_codec::cbor::Value> = chain
-            .iter()
-            .filter_map(|der| {
-                der.as_str()
-                    .and_then(|text| siros_codec::base64::decode(text).ok())
-                    .map(siros_codec::cbor::Value::Bytes)
-            })
-            .collect();
-        if !certificates.is_empty() {
-            unprotected.push((
-                siros_codec::cbor::Value::Unsigned(33),
-                siros_codec::cbor::Value::Array(certificates),
+    // (ES256), the x5chain at label 33 (RFC 9360 §2), the tagged MSO as
+    // the payload, and the issuer's ES256 signature over its
+    // Sig_structure.
+    let issuer_signer = p256_signer(issuer_key)?;
+    let signature =
+        kryptering::Signer::sign(&issuer_signer, &sig_structure(&ES256_PROTECTED, &payload)?)
+            .map_err(|err| format!("the mDL issuerAuth signing failed: {err}"))?;
+    let issuer_auth = Cbor::Array(vec![
+        Cbor::Bytes(ES256_PROTECTED.to_vec()),
+        cbor_map(vec![(integer(33), Cbor::Array(certificates))])?,
+        Cbor::Bytes(payload),
+        Cbor::Bytes(signature),
+    ]);
+    Ok(Some(MiniMdl { issuer_auth, items }))
+}
+
+/// The held mDL presented to a verifier: the base64url of the
+/// `DeviceResponse` (ISO/IEC 18013-5, 8.3.2.1.2.2) of the selected
+/// items, in the issuer's order and as issued, bound to the request by
+/// the device key's ES256 signature over the session transcript of the
+/// `OpenID4VPHandover` (OpenID4VP 1.0, B.2.6.1): `[null, null,
+/// ["OpenID4VPHandover", SHA-256(cbor([client_id, nonce, thumb|null,
+/// response_uri]))]]`; each map in the core deterministic encoding (RFC
+/// 8949 §4.2.1). Each claim is a claims path (OpenID4VP §7)
+/// JSON-encoded, its keys a namespace then an element identifier
+/// (B.4.1). `sign` signs the device signature's `Sig_structure` with
+/// the device key and answers ES256's 64-octet `r ‖ s` (RFC 7518
+/// §3.4). Refused when a claim is no array of keys or holds fewer than
+/// two, an element is selected twice or is no item of the mDL, or the
+/// verifier's thumbprint is no base64url.
+fn present_mini_mdl(
+    mdl: &MiniMdl,
+    params: &VpParams,
+    claims: &[String],
+    sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<String, String> {
+    // The selected elements: the paths' [namespace, claim name] pairs.
+    let paths = claims
+        .iter()
+        .map(|claim| {
+            ClaimsPath::parse(claim)
+                .ok_or_else(|| format!("the disclosed claim {claim:?} is no §7 path"))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut selected: Vec<(&str, &str)> = Vec::new();
+    for (claim, path) in claims.iter().zip(&paths) {
+        let Some(element) = path.mdoc_element() else {
+            return Err(format!(
+                "the mdoc claim path {claim:?} is not a [namespace, claim] pair"
             ));
+        };
+        if selected.contains(&element) {
+            return Err(format!("the mdoc disclosure selects {claim:?} twice"));
         }
+        selected.push(element);
     }
-    // The Sig_structure (RFC 9052 §4.4): ["Signature1", protected,
-    // external_aad = h'', payload] — the protected header and the
-    // payload as they appear in the COSE_Sign1, bstr headers
-    // included (the verifier signs over the same concatenation).
-    let protected_bstr = siros_codec::cbor::Value::Bytes(protected.clone()).encode();
-    let payload_bstr = siros_codec::cbor::Value::Bytes(payload.clone()).encode();
-    let sig_structure = [
-        &[0x84, 0x6a][..],
-        b"Signature1",
-        protected_bstr.as_slice(),
-        &[0x40][..],
-        payload_bstr.as_slice(),
-    ]
-    .concat();
-    let signature = kryptering::Signer::sign(&issuer_signer, &sig_structure)
-        .map_err(|err| format!("the mDL issuerAuth signing failed: {err}"))?;
-    let issuer_auth = siros_codec::cbor::Value::Array(vec![
-        siros_codec::cbor::Value::Bytes(protected),
-        siros_codec::cbor::Value::Map(unprotected),
-        siros_codec::cbor::Value::Bytes(payload),
-        siros_codec::cbor::Value::Bytes(signature),
+    let disclosed: Vec<Cbor> = mdl
+        .items
+        .iter()
+        .filter(|item| {
+            selected.iter().any(|&(name_space, identifier)| {
+                name_space == MDL_NAMESPACE && identifier == item.identifier
+            })
+        })
+        .map(|item| item.bytes.clone())
+        .collect();
+    if disclosed.len() != selected.len() {
+        return Err("the mdoc disclosure selects an element the mDL does not hold".to_owned());
+    }
+
+    // The OpenID4VPHandover (B.2.6.1): ["OpenID4VPHandover",
+    // SHA-256(cbor([client_id, nonce, jwkThumbprint, response_uri]))]
+    // — the thumbprint of the verifier's encryption key for an
+    // encrypted response (`direct_post.jwt`), `null` otherwise. The
+    // engine hands it over base64url; the handover carries the raw
+    // digest.
+    let thumbprint = if params.verifier_jwk_thumbprint.is_empty() {
+        Cbor::Null
+    } else {
+        Cbor::Bytes(
+            URL_SAFE_NO_PAD
+                .decode(&params.verifier_jwk_thumbprint)
+                .map_err(|err| format!("the thumbprint does not decode: {err}"))?,
+        )
+    };
+    let info = cbor(&Cbor::Array(vec![
+        text(&params.audience),
+        text(&params.nonce),
+        thumbprint,
+        text(&params.response_uri),
+    ]))?;
+    let handover_digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &info)
+        .map_err(|err| format!("the handover digest: {err}"))?;
+    // SessionTranscript = [null, null, Handover] (B.2.6).
+    let transcript = Cbor::Array(vec![
+        Cbor::Null,
+        Cbor::Null,
+        Cbor::Array(vec![
+            text("OpenID4VPHandover"),
+            Cbor::Bytes(handover_digest),
+        ]),
     ]);
 
-    // IssuerSigned (8.3.2.1.2.2): the nameSpaces and the issuerAuth.
-    let issuer_signed = siros_codec::cbor::Value::Map(vec![
+    // DeviceNameSpacesBytes = #6.24(bstr .cbor {}): the response carries
+    // no DeviceSigned element.
+    let device_name_spaces = embedded(&Cbor::Map(Vec::new()))?;
+    // The device signature (9.1.3.4, 9.1.3.6): the device key — the
+    // MSO's deviceKey — signs DeviceAuthenticationBytes =
+    // #6.24(bstr .cbor ["DeviceAuthentication", SessionTranscript,
+    // DocType, DeviceNameSpacesBytes]), a detached payload.
+    let authentication = embedded(&Cbor::Array(vec![
+        text("DeviceAuthentication"),
+        transcript,
+        text(MDL_DOCTYPE),
+        device_name_spaces.clone(),
+    ]))?;
+    let signature = sign(&sig_structure(&ES256_PROTECTED, &cbor(&authentication)?)?)?;
+    if signature.len() != 64 {
+        return Err(format!(
+            "the mDL device signature has {} octets, where ES256's has 64",
+            signature.len()
+        ));
+    }
+
+    // The document: issuerSigned holds the disclosed items and
+    // issuerAuth as issued, `nameSpaces` left out when none is
+    // disclosed; deviceSigned holds deviceSignature, a COSE_Sign1 with
+    // the protected header {1: -7} and a null payload.
+    let mut issuer_signed = vec![(text("issuerAuth"), mdl.issuer_auth.clone())];
+    if !disclosed.is_empty() {
+        issuer_signed.push((
+            text("nameSpaces"),
+            cbor_map(vec![(text(MDL_NAMESPACE), Cbor::Array(disclosed))])?,
+        ));
+    }
+    let device_signature = Cbor::Array(vec![
+        Cbor::Bytes(ES256_PROTECTED.to_vec()),
+        Cbor::Map(Vec::new()),
+        Cbor::Null,
+        Cbor::Bytes(signature),
+    ]);
+    let document = cbor_map(vec![
+        (text("docType"), text(MDL_DOCTYPE)),
+        (text("issuerSigned"), cbor_map(issuer_signed)?),
         (
-            siros_codec::cbor::Value::text("nameSpaces"),
-            siros_codec::cbor::Value::Map(vec![(
-                siros_codec::cbor::Value::Text(MDL_NAMESPACE.to_owned()),
-                siros_codec::cbor::Value::Array(items),
-            )]),
+            text("deviceSigned"),
+            cbor_map(vec![
+                (text("nameSpaces"), device_name_spaces),
+                (
+                    text("deviceAuth"),
+                    cbor_map(vec![(text("deviceSignature"), device_signature)])?,
+                ),
+            ])?,
         ),
-        (siros_codec::cbor::Value::text("issuerAuth"), issuer_auth),
-    ])
-    .encode();
-    let encoded = siros_codec::base64url::encode(&issuer_signed);
-    // The round trip: what the host hands out must parse back.
-    siros_mdoc::Mdoc::parse(encoded.as_str())
-        .map_err(|err| format!("the issued mDL does not parse: {err}"))?;
-    Ok(encoded.as_str().to_owned())
+    ])?;
+    let response = cbor_map(vec![
+        (text("version"), text("1.0")),
+        (text("documents"), Cbor::Array(vec![document])),
+        (text("status"), integer(0)),
+    ])?;
+    Ok(URL_SAFE_NO_PAD.encode(cbor(&response)?))
 }
 
 /// The built-in mini host: `{"host": "mini"}` in the engine config
@@ -413,7 +735,7 @@ fn issue_mini_mdl(
 pub struct MiniHost {
     /// The device key's public JWK (the plan's key registration and the
     /// tests' verification).
-    key: jose_rs::jwk::Jwk,
+    device_public: serde_json::Value,
     /// The device key's signer — the OID4VCI proof's and the KB-JWT's
     /// signing key.
     signer: Signer,
@@ -428,11 +750,11 @@ pub struct MiniHost {
     /// driver claims the mso_mdoc DCQL queries ask for, the device key
     /// bound as its MSO's deviceKey — the mdoc presentation's answers
     /// (the `DeviceResponse` of ISO/IEC 18013-5, 8.3.2.1.2.2). None when
-    /// no PID signing key is configured: the mdoc parser requires the
-    /// issuerAuth's x5chain, which only the configured fixture issuer
-    /// carries, so a harness without it simply holds no mdoc (the
-    /// mso_mdoc queries match nothing), rather than refusing to start.
-    mdl: Option<String>,
+    /// no PID signing key with an x5c chain is configured: issuerAuth
+    /// carries the issuer's x5chain (9.1.2.4), which only the configured
+    /// fixture issuer has, so a harness without it holds no mdoc (the
+    /// mso_mdoc queries match nothing) and still starts.
+    mdl: Option<MiniMdl>,
     /// The wallet's registered client key, when the plan's
     /// configuration supplies one: the private_key_jwt assertion's
     /// signing key.
@@ -470,9 +792,7 @@ impl MiniHost {
                 let kid = jwk.kid.clone();
                 // The public form: the private member never leaves the
                 // host (the engine only ever sees the public JWK).
-                let public = jwk.to_public_jwk();
-                let text = public.to_json().unwrap_or_default();
-                let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                let value = public_json(&jwk)?;
                 (Some(p256_signer(&jwk)?), kid, Some(value))
             }
             None => (None, None, None),
@@ -492,19 +812,16 @@ impl MiniHost {
         };
 
         // The held PID: the device key's public JWK binds the holder.
-        let public = key.to_public_jwk();
-        let public_text = public.to_json().unwrap_or_default();
-        let device_public: serde_json::Value =
-            serde_json::from_str(&public_text).unwrap_or_default();
+        let device_public = public_json(&key)?;
         let pid = issue_mini_pid(&device_public, pid_signing.as_ref())?;
-        // The held mDL: best-effort — a harness with no PID signing key
-        // (no x5c chain for the issuerAuth) holds no mdoc; the mso_mdoc
-        // queries then match nothing, but the host starts (the SD-JWT
-        // presentations work without it).
-        let mdl = issue_mini_mdl(&device_public, pid_signing.as_ref()).ok();
+        // The held mDL: a harness with no PID signing key (no x5c chain
+        // for the issuerAuth) holds no mdoc; the mso_mdoc queries then
+        // match nothing, but the host starts (the SD-JWT presentations
+        // work without it).
+        let mdl = issue_mini_mdl(&device_public, pid_signing.as_ref())?;
 
         Ok(Self {
-            key,
+            device_public,
             signer,
             pid,
             mdl,
@@ -519,103 +836,7 @@ impl MiniHost {
     /// The device key's public JWK — for the plan's key registration, if
     /// the suite asks for it.
     pub fn public_jwk(&self) -> serde_json::Value {
-        let public = self.key.to_public_jwk();
-        let text = public.to_json().unwrap_or_default();
-        serde_json::from_str(&text).unwrap_or_default()
-    }
-
-    /// Presents the held mDL for one selection: the `DeviceResponse`
-    /// (ISO/IEC 18013-5, 8.3.2.1.2.2) of the selected items, bound to
-    /// the request by the device key's ES256 signature over the
-    /// session transcript of the `OpenID4VPHandover` (OpenID4VP 1.0,
-    /// B.2.6.1) — `[null, null, ["OpenID4VPHandover",
-    /// SHA-256(cbor([client_id, nonce, thumb|null, response_uri]))]]`,
-    /// base64url-encoded.
-    fn present_mdl(
-        &self,
-        params: &VpParams,
-        selection: &engine_ports::VpSelection,
-    ) -> Result<String, HostError> {
-        let mdl = self
-            .mdl
-            .as_deref()
-            .and_then(|encoded| siros_mdoc::Mdoc::parse(encoded).ok())
-            .ok_or_else(|| {
-                HostError::Cannot("the mini host holds no mdoc (no PID signing key)".to_owned())
-            })?;
-        // The selected elements: the paths' [namespace, claim name]
-        // pairs.
-        let mut selected: Vec<(String, String)> = Vec::new();
-        for claim in &selection.disclosed_claims {
-            let path: Vec<String> = serde_json::from_str(claim).map_err(|_| {
-                HostError::Cannot(format!("the disclosed claim {claim:?} is no §7 path"))
-            })?;
-            // The path components: keys — a namespace then a claim
-            // name for mdoc (OpenID4VP 1.0, B.4.1); anything else
-            // is no mdoc element.
-            let Some((name_space, identifier)) = path.first().zip(path.get(1)) else {
-                return Err(HostError::Cannot(format!(
-                    "the mdoc claim path {claim:?} is not a [namespace, claim] pair"
-                )));
-            };
-            selected.push((name_space.clone(), identifier.clone()));
-        }
-        let elements: Vec<siros_mdoc::ElementId<'_>> = selected
-            .iter()
-            .map(|(name_space, identifier)| siros_mdoc::ElementId {
-                name_space,
-                identifier,
-            })
-            .collect();
-        let disclosure = mdl
-            .disclose(&elements, Vec::new())
-            .map_err(|err| HostError::Cannot(format!("the mdoc disclosure: {err}")))?;
-
-        // The OpenID4VPHandover (B.2.6.1): ["OpenID4VPHandover",
-        // SHA-256(cbor([client_id, nonce, jwkThumbprint, response_uri]))]
-        // — the thumbprint of the verifier's encryption key for an
-        // encrypted response (`direct_post.jwt`), `null` otherwise. The
-        // engine hands it over base64url; the handover carries the raw
-        // digest.
-        let mut thumbprint = siros_codec::cbor::Value::Null;
-        if !params.verifier_jwk_thumbprint.is_empty() {
-            let digest =
-                siros_codec::base64url::decode(&params.verifier_jwk_thumbprint).map_err(|err| {
-                    HostError::Cannot(format!("the thumbprint does not decode: {err}"))
-                })?;
-            thumbprint = siros_codec::cbor::Value::Bytes(digest);
-        }
-        let info = siros_codec::cbor::Value::Array(vec![
-            siros_codec::cbor::Value::text(&params.audience),
-            siros_codec::cbor::Value::text(&params.nonce),
-            thumbprint,
-            siros_codec::cbor::Value::text(&params.response_uri),
-        ]);
-        let handover_digest =
-            kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, info.encode().as_slice())
-                .map_err(|err| HostError::Cannot(format!("the handover digest: {err}")))?;
-        let handover = siros_codec::cbor::Value::Array(vec![
-            siros_codec::cbor::Value::text("OpenID4VPHandover"),
-            siros_codec::cbor::Value::Bytes(handover_digest),
-        ]);
-        // SessionTranscript = [null, null, Handover] (B.2.6).
-        let transcript = siros_codec::cbor::Value::Array(vec![
-            siros_codec::cbor::Value::Null,
-            siros_codec::cbor::Value::Null,
-            handover,
-        ]);
-        let session = siros_mdoc::SessionTranscript::new(transcript.encode());
-
-        // The device signature: the device key — the MSO's deviceKey —
-        // signs the DeviceAuthentication (ISO/IEC 18013-5, 8.3.2.1.2.2).
-        let signing_input = disclosure.signing_input(&session);
-        let signature = kryptering::Signer::sign(&self.signer, signing_input.as_bytes())
-            .map_err(|err| HostError::Cannot(format!("the mDL device signing failed: {err}")))?;
-        let signature = siros_codec::signature::Es256Signature::parse(&signature)
-            .map_err(|err| HostError::Cannot(format!("the mDL device signature: {err}")))?;
-        let response = disclosure.device_response(&signature);
-        let encoded = siros_codec::base64url::encode(&response);
-        Ok(encoded.as_str().to_owned())
+        self.device_public.clone()
     }
 }
 
@@ -755,12 +976,8 @@ impl Host for MiniHost {
     /// DCQL vp_token contract (OID4VP §8.1).
     async fn request_vp(&self, params: VpParams) -> Result<VpResult, HostError> {
         let now = (js_sys::Date::now() / 1000.0) as i64;
-        let time = siros_codec::date::DateTime::from_unix(now)
-            .ok_or_else(|| HostError::Cannot("the clock is out of range".to_owned()))?;
-        let iat = siros_sdjwt::NumericDate::of(time)
-            .map_err(|err| HostError::Cannot(format!("the iat is out of range: {err}")))?;
-        let audience = siros_sdjwt::Audience::new(&params.audience);
-        let nonce = siros_sdjwt::KbNonce::new(&params.nonce);
+        let iat = u64::try_from(now)
+            .map_err(|_| HostError::Cannot("the clock is before the epoch".to_owned()))?;
 
         let mut tokens = Vec::new();
         for selection in &params.selections {
@@ -770,60 +987,32 @@ impl Host for MiniHost {
             // device key's ES256 signature over the session transcript
             // of the request's OpenID4VPHandover (B.2.6.1) — base64url.
             if selection.credential_id == "mini-mdl" {
-                tokens.push(self.present_mdl(&params, selection)?);
+                let mdl = self.mdl.as_ref().ok_or_else(|| {
+                    HostError::Cannot("the mini host holds no mdoc (no PID signing key)".to_owned())
+                })?;
+                let token = present_mini_mdl(mdl, &params, &selection.disclosed_claims, |input| {
+                    kryptering::Signer::sign(&self.signer, input)
+                        .map_err(|err| format!("the mDL device signing failed: {err}"))
+                })
+                .map_err(HostError::Cannot)?;
+                tokens.push(token);
                 continue;
             }
-            let sd_jwt = siros_sdjwt::SdJwt::parse(&self.pid)
-                .map_err(|err| HostError::Cannot(format!("the held PID does not parse: {err}")))?;
-            // The disclosed claims' paths, as the DCQL names them: the
-            // JSON-encoded component arrays — keys, indices and nulls
-            // (§7) all preserved.
-            let mut pointers = Vec::new();
-            for claim in &selection.disclosed_claims {
-                let components: Vec<siros_dcql::PathComponent> = serde_json::from_str(claim)
-                    .ok()
-                    .and_then(|value: serde_json::Value| {
-                        let array = value.as_array()?;
-                        if array.is_empty() {
-                            return None; // §7: a pointer MUST be non-empty
-                        }
-                        let mut components = Vec::new();
-                        for component in array {
-                            match component {
-                                serde_json::Value::String(key) => {
-                                    components.push(siros_dcql::PathComponent::Key(key.clone()));
-                                }
-                                serde_json::Value::Number(index) => {
-                                    let index = index.as_u64()?; // a negative index is no §7 component
-                                    components.push(siros_dcql::PathComponent::Index(index));
-                                }
-                                serde_json::Value::Null => {
-                                    components.push(siros_dcql::PathComponent::Null);
-                                }
-                                _ => return None, // not a §7 component
-                            }
-                        }
-                        Some(components)
-                    })
-                    .ok_or_else(|| {
-                        HostError::Cannot(format!("the disclosed claim {claim:?} is no §7 path"))
-                    })?;
-                let path = siros_dcql::ClaimPath::new(components)
-                    .map_err(|err| HostError::Cannot(format!("the claim path: {err}")))?;
-                pointers.push(path);
-            }
-            let presentation = sd_jwt
-                .select(&pointers)
-                .map_err(|err| HostError::Cannot(format!("the disclosure selection: {err}")))?;
-            let key_binding = presentation
-                .key_binding(iat, &audience, &nonce, &[])
-                .map_err(|err| HostError::Cannot(format!("the key binding: {err}")))?;
-            // The KB-JWT's signature: the device key — the holder.
-            let signature = kryptering::Signer::sign(&self.signer, key_binding.signing_input())
-                .map_err(|err| HostError::Cannot(format!("the KB-JWT signing failed: {err}")))?;
-            let signature = siros_codec::signature::Es256Signature::parse(&signature)
-                .map_err(|err| HostError::Cannot(format!("the KB-JWT signature: {err}")))?;
-            tokens.push(key_binding.assemble(&signature));
+            // The disclosed claims' paths, as the DCQL names them, JSON-encoded
+            // (§7); the KB-JWT's signature: the device key — the holder.
+            let token = present_mini_pid(
+                &self.pid,
+                &selection.disclosed_claims,
+                iat,
+                &params.audience,
+                &params.nonce,
+                |input| {
+                    kryptering::Signer::sign(&self.signer, input)
+                        .map_err(|err| format!("the KB-JWT signing failed: {err}"))
+                },
+            )
+            .map_err(HostError::Cannot)?;
+            tokens.push(token);
         }
         Ok(VpResult {
             vp_token: tokens.join("\n"),
