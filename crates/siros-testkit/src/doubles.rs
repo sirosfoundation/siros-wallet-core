@@ -4,7 +4,7 @@
 use std::num::NonZeroUsize;
 
 use sha2::{Digest, Sha256};
-use siros_openid4vp::hash::{HashAlgorithm, HashDigest, HashName};
+use siros_openid4vp::hash::{HashAlgorithm, HashName};
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, ContentEncryption, Request};
@@ -149,9 +149,7 @@ impl HashAlgorithm for TestHash {
     fn octets(&self) -> NonZeroUsize {
         self.octets
     }
-}
 
-impl HashDigest for TestHash {
     fn digest(&self, data: &[u8]) -> Vec<u8> {
         Sha256::digest(data)
             .iter()

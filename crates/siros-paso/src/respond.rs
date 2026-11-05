@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::detail;
-use siros_openid4vp::hash::{HashAlgorithm, HashDigest, Sha2};
+use siros_openid4vp::hash::{HashAlgorithm, Sha2};
 use siros_openid4vp::host::{Authentication, Haip, Has, MayHave, Platform, Seconds, Timestamp};
 use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::plugins::{Attested, Fault, JsonText, MemberValue, Members};

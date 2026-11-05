@@ -13,7 +13,7 @@ use k12::{ExtendableOutput, Kt128, Kt256};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256, Sha512};
 use sha3::Sha3_256;
-use siros_openid4vp::hash::{Blake2, HostedHash, K12, Sha2, Sha3};
+use siros_openid4vp::hash::{Blake2, HashAlgorithm, K12, Sha2, Sha3};
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
@@ -31,23 +31,23 @@ fn hex(bytes: &[u8]) -> String {
 
 #[test]
 fn every_named_hash_matches_its_standards_examples() {
-    let algorithms: Vec<Box<dyn HostedHash>> = Sha2::ALL
+    let algorithms: Vec<Box<dyn HashAlgorithm>> = Sha2::ALL
         .into_iter()
-        .map(|algorithm| Box::new(algorithm) as Box<dyn HostedHash>)
+        .map(|algorithm| Box::new(algorithm) as Box<dyn HashAlgorithm>)
         .chain(
             Sha3::ALL
                 .into_iter()
-                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+                .map(|a| Box::new(a) as Box<dyn HashAlgorithm>),
         )
         .chain(
             Blake2::ALL
                 .into_iter()
-                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+                .map(|a| Box::new(a) as Box<dyn HashAlgorithm>),
         )
         .chain(
             K12::ALL
                 .into_iter()
-                .map(|a| Box::new(a) as Box<dyn HostedHash>),
+                .map(|a| Box::new(a) as Box<dyn HashAlgorithm>),
         )
         .collect();
     let digest = |name: &str, message: &[u8]| {

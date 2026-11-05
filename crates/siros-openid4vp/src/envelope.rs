@@ -14,8 +14,8 @@ use crate::hash::Hashes;
 use crate::ids::{ClientId, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
-use crate::plugins::Registry;
 use crate::plugins::registry::Routes;
+use crate::plugins::{Build, Registry};
 use crate::routing::{ChannelKind, Routing};
 use crate::scope::Scopes;
 
@@ -222,7 +222,7 @@ impl<'r> Envelope<'r> {
     /// # Errors
     ///
     /// The U rule the request breaks.
-    pub fn parse<H>(
+    pub fn parse<H: Build>(
         received: &'r Received<'r>,
         registry: &'r Registry<H>,
     ) -> Result<Self, Unreadable> {

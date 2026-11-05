@@ -67,7 +67,11 @@ fn offered(text: &str, held: &[Held]) -> Vec<String> {
 }
 
 /// The ids the consent offers over a registry, which reads the request.
-fn offered_in<H>(text: &str, held: &[Held], registry: &Registry<H>) -> Vec<String> {
+fn offered_in<H: siros_openid4vp::plugins::Build>(
+    text: &str,
+    held: &[Held],
+    registry: &Registry<H>,
+) -> Vec<String> {
     let received = unsigned(text).expect("received");
     let envelope = Envelope::parse(&received, registry).expect("envelope");
     let request = Request::parse(&envelope).expect("request");

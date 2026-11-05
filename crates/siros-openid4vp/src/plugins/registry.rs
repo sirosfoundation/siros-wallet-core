@@ -16,7 +16,7 @@ use super::{Format, Member, Profile};
 use crate::authenticate::{HostedPrefix, ObjectRule};
 use crate::hash::HashName;
 #[cfg(feature = "transaction-data")]
-use crate::hash::HostedHash;
+use crate::hash::{HashAlgorithm, Hashes};
 #[cfg(feature = "uri")]
 use crate::host::EphemeralKey;
 #[cfg(feature = "request-decryption")]
@@ -24,7 +24,7 @@ use crate::host::RequestDecryption;
 #[cfg(feature = "resolve")]
 use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
-use crate::host::{Haip, Has};
+use crate::host::{Haip, Has, Platform};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
 #[cfg(feature = "uri")]
 use crate::request::Agreements;
@@ -168,15 +168,15 @@ pub enum RegistryError {
 
 /// A registered format and the placement it stated when the registry was built, which the
 /// registry checked each profile's members against and which matching and phase 2 read.
-struct RegisteredFormat<H> {
-    format: Box<dyn HostedFormat<H>>,
+struct RegisteredFormat<H: Build> {
+    format: Box<<H as Plugins>::Format>,
     placement: Option<Placement>,
 }
 
-impl<H> Clone for RegisteredFormat<H> {
+impl<H: Build> Clone for RegisteredFormat<H> {
     fn clone(&self) -> Self {
         Self {
-            format: self.format.clone(),
+            format: dyn_clone::clone_box(&*self.format),
             placement: self.placement,
         }
     }
@@ -190,81 +190,195 @@ pub(crate) struct Placed<'r, F: ?Sized> {
     pub(crate) placement: Option<Placement>,
 }
 
-/// The matcher's build: a registry without a host.
+/// The matcher's build: a registry of phase 1's plug-ins, without a host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoHost;
 
-/// A format of a registry: phase 1's [`Format`] under `match`; under `resolve`, a format whose
-/// phase 2 runs over the build's host `H` ([`FormatHost`]).
-#[cfg(feature = "resolve")]
-pub trait HostedFormat<H>: FormatHost<H> {}
+/// A registry's host, which fixes what the registry takes of each plug-in: [`NoHost`] takes
+/// phase 1's [`Format`], [`Profile`] and [`Mode`] in every build; under `resolve`, a host holding
+/// a [`Platform`](crate::host::Platform) takes a plug-in whose phase 2 runs over it
+/// ([`FormatHost`](crate::host::FormatHost), [`ProfileHost`](crate::host::ProfileHost),
+/// [`ModeHost`](crate::routing::ModeHost)). The core implements it for those hosts alone.
+pub trait Build: Plugins {}
+
+impl<H: Plugins> Build for H {}
+
+/// What a registry stores of each plug-in for its host: [`Build`]'s sealed part.
+mod sealed {
+    use super::{ErasedProfile, Format, Mode};
+
+    /// The stored plug-ins of a host's registry.
+    pub trait Plugins: Sized {
+        /// A stored format.
+        type Format: ?Sized + Format + Upcast<dyn Format>;
+        /// A stored profile.
+        type Profile: ?Sized + ErasedProfile + Upcast<dyn ErasedProfile>;
+        /// A stored response mode.
+        type Mode: ?Sized + Mode + Upcast<dyn Mode>;
+        /// How a JWE mode's registration reaches the host's sealing module.
+        type Sealing: Copy;
+    }
+
+    /// A stored plug-in as phase 1 reads it.
+    pub trait Upcast<T: ?Sized> {
+        /// The plug-in's phase 1.
+        fn upcast(&self) -> &T;
+    }
+}
+
+use sealed::{Plugins, Upcast};
+
+impl Upcast<dyn Format> for dyn Format {
+    fn upcast(&self) -> &(dyn Format + 'static) {
+        self
+    }
+}
+
+impl Upcast<dyn Mode> for dyn Mode {
+    fn upcast(&self) -> &(dyn Mode + 'static) {
+        self
+    }
+}
+
+impl Upcast<dyn ErasedProfile> for dyn ErasedProfile {
+    fn upcast(&self) -> &(dyn ErasedProfile + 'static) {
+        self
+    }
+}
+
+impl Plugins for NoHost {
+    type Format = dyn Format;
+    type Profile = dyn ErasedProfile;
+    type Mode = dyn Mode;
+    type Sealing = ();
+}
 
 #[cfg(feature = "resolve")]
-impl<H, F: FormatHost<H>> HostedFormat<H> for F {}
-
-/// A format of a registry: phase 1's [`Format`] under `match`; under `resolve`, a format whose
-/// phase 2 runs over the build's host `H`.
-#[cfg(not(feature = "resolve"))]
-pub trait HostedFormat<H>: Format {}
-
-#[cfg(not(feature = "resolve"))]
-impl<H, F: Format> HostedFormat<H> for F {}
-
-dyn_clone::clone_trait_object!(<H> HostedFormat<H>);
-
-/// A profile of a registry: phase 1's [`Profile`] under `match`; under `resolve`, a profile
-/// whose phase 2 runs over the build's host `H` ([`ProfileHost`]).
-#[cfg(feature = "resolve")]
-pub trait HostedProfile<H>: ProfileHost<H> {}
+impl<H> Upcast<dyn Format> for dyn FormatHost<H> {
+    fn upcast(&self) -> &(dyn Format + 'static) {
+        self
+    }
+}
 
 #[cfg(feature = "resolve")]
-impl<H, P: ProfileHost<H>> HostedProfile<H> for P {}
-
-/// A profile of a registry: phase 1's [`Profile`] under `match`; under `resolve`, a profile
-/// whose phase 2 runs over the build's host `H`.
-#[cfg(not(feature = "resolve"))]
-pub trait HostedProfile<H>: Profile {}
-
-#[cfg(not(feature = "resolve"))]
-impl<H, P: Profile> HostedProfile<H> for P {}
-
-/// A response mode of a registry: phase 1's [`Mode`] under `match`; under `resolve`, a mode whose
-/// phase 2 runs over the build's host `H` ([`ModeHost`]).
-#[cfg(feature = "resolve")]
-pub trait HostedMode<H>: ModeHost<H> {}
+impl<H> Upcast<dyn Mode> for dyn ModeHost<H> {
+    fn upcast(&self) -> &(dyn Mode + 'static) {
+        self
+    }
+}
 
 #[cfg(feature = "resolve")]
-impl<H, M: ModeHost<H>> HostedMode<H> for M {}
+impl<H> Upcast<dyn ErasedProfile> for dyn DynProfile<H> {
+    fn upcast(&self) -> &(dyn ErasedProfile + 'static) {
+        self
+    }
+}
 
-/// A response mode of a registry: phase 1's [`Mode`] under `match`; under `resolve`, a mode whose
-/// phase 2 runs over the build's host `H`.
-#[cfg(not(feature = "resolve"))]
-pub trait HostedMode<H>: Mode {}
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>> Plugins for H {
+    type Format = dyn FormatHost<H>;
+    type Profile = dyn DynProfile<H>;
+    type Mode = dyn ModeHost<H>;
+    type Sealing = HaipAccess<H>;
+}
 
-#[cfg(not(feature = "resolve"))]
-impl<H, M: Mode> HostedMode<H> for M {}
+/// A format the registry of the host `H` takes: a [`Format`] for [`NoHost`]; under `resolve`, a
+/// format whose phase 2 runs over `H` ([`FormatHost`](crate::host::FormatHost)).
+pub trait HostedFormat<H: Build>: 'static {
+    /// The format as the registry stores it.
+    #[doc(hidden)]
+    fn stored(self) -> Box<<H as Plugins>::Format>;
+}
 
-dyn_clone::clone_trait_object!(<H> HostedMode<H>);
+impl<F: Format + 'static> HostedFormat<NoHost> for F {
+    fn stored(self) -> Box<dyn Format> {
+        Box::new(self)
+    }
+}
 
-/// The host's `Haip`, as the registration of a JWE mode keeps its accessor.
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>, F: FormatHost<H> + 'static> HostedFormat<H> for F {
+    fn stored(self) -> Box<dyn FormatHost<H>> {
+        Box::new(self)
+    }
+}
+
+/// A profile the registry of the host `H` takes: a [`Profile`] for [`NoHost`]; under `resolve`,
+/// a profile whose phase 2 runs over `H` ([`ProfileHost`](crate::host::ProfileHost)).
+pub trait HostedProfile<H: Build>: 'static {
+    /// The profile as the registry stores it.
+    #[doc(hidden)]
+    fn stored(self) -> Box<<H as Plugins>::Profile>;
+}
+
+impl<P: Profile> HostedProfile<NoHost> for P {
+    fn stored(self) -> Box<dyn ErasedProfile> {
+        Box::new(self)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>, P: ProfileHost<H>> HostedProfile<H> for P {
+    fn stored(self) -> Box<dyn DynProfile<H>> {
+        Box::new(self)
+    }
+}
+
+/// A response mode the registry of the host `H` takes: a [`Mode`] for [`NoHost`]; under
+/// `resolve`, a mode whose phase 2 runs over `H` ([`ModeHost`](crate::routing::ModeHost)).
+pub trait HostedMode<H: Build>: 'static {
+    /// The mode as the registry stores it.
+    #[doc(hidden)]
+    fn stored(self) -> Box<<H as Plugins>::Mode>;
+}
+
+impl<M: Mode + 'static> HostedMode<NoHost> for M {
+    fn stored(self) -> Box<dyn Mode> {
+        Box::new(self)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>, M: ModeHost<H> + 'static> HostedMode<H> for M {
+    fn stored(self) -> Box<dyn ModeHost<H>> {
+        Box::new(self)
+    }
+}
+
+/// A host whose registry takes a JWE mode: [`NoHost`]; under `resolve`, a host holding the
+/// `Haip` that seals the mode's answers.
+pub trait JweHost: Build {
+    /// How the registration reaches the sealing module.
+    #[doc(hidden)]
+    fn sealing() -> <Self as Plugins>::Sealing;
+}
+
+impl JweHost for NoHost {
+    fn sealing() {}
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform> + Has<dyn Haip>> JweHost for H {
+    fn sealing() -> HaipAccess<H> {
+        |host| Has::<dyn Haip>::module(host)
+    }
+}
+
+/// The host's `Haip`, as the registration of a JWE mode or a prefix keeps its accessor.
 #[cfg(feature = "resolve")]
 pub(crate) type HaipAccess<H> = fn(&H) -> &dyn Haip;
 
-/// A JWE mode's registration in the match build, which holds no module.
-#[cfg(not(feature = "resolve"))]
-pub(crate) type HaipAccess<H> = std::marker::PhantomData<fn(&H)>;
-
 /// What a registered mode carries and how its answers are sealed.
-pub(crate) enum Role<H> {
+pub(crate) enum Role<H: Build> {
     /// Answers in the clear (`mode`).
     Clear,
     /// Answers the core seals as JWEs through the host's `Haip` (`jwe_mode`).
-    Jwe(HaipAccess<H>),
+    Jwe(<H as Plugins>::Sealing),
     /// A URI mode's errors alone (`error_mode`).
     Errors,
 }
 
-impl<H> Clone for Role<H> {
+impl<H: Build> Clone for Role<H> {
     fn clone(&self) -> Self {
         match self {
             Self::Clear => Self::Clear,
@@ -275,27 +389,27 @@ impl<H> Clone for Role<H> {
 }
 
 /// A registered mode with its role.
-pub(crate) struct RegisteredMode<H> {
-    pub(crate) mode: Box<dyn HostedMode<H>>,
+pub(crate) struct RegisteredMode<H: Build> {
+    pub(crate) mode: Box<<H as Plugins>::Mode>,
     pub(crate) role: Role<H>,
 }
 
-impl<H> Clone for RegisteredMode<H> {
+impl<H: Build> Clone for RegisteredMode<H> {
     fn clone(&self) -> Self {
         Self {
-            mode: self.mode.clone(),
+            mode: dyn_clone::clone_box(&*self.mode),
             role: self.role.clone(),
         }
     }
 }
 
 /// The plug-ins: formats by identifier, profiles by exact type identifier and by type prefix.
-/// `H` is the build's host: [`NoHost`] in the matcher's build; under `resolve` a format enters
-/// only as a [`FormatHost<H>`](crate::host::FormatHost), a profile as a
-/// [`ProfileHost<H>`](crate::host::ProfileHost).
-pub struct Registry<H = NoHost> {
+/// `H` is the registry's host ([`Build`]): [`NoHost`] for the matcher, whose registry takes
+/// phase 1's plug-ins; under `resolve`, the wallet's host, whose registry takes plug-ins with
+/// their phase 2 over it.
+pub struct Registry<H: Build = NoHost> {
     #[cfg(feature = "transaction-data")]
-    hashes: Vec<Box<dyn HostedHash>>,
+    hashes: Vec<Box<dyn HashAlgorithm>>,
     scopes: Vec<ScopeEntry>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
@@ -304,7 +418,7 @@ pub struct Registry<H = NoHost> {
         not(feature = "match"),
         expect(dead_code, reason = "matching and phase 2 read the profiles")
     )]
-    profiles: Vec<Box<dyn DynProfile<H>>>,
+    profiles: Vec<Box<<H as Plugins>::Profile>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
     #[cfg(feature = "signed")]
@@ -319,7 +433,7 @@ pub struct Registry<H = NoHost> {
     readers: Vec<Box<dyn AnswerReader>>,
 }
 
-impl<H> fmt::Debug for Registry<H> {
+impl<H: Build> fmt::Debug for Registry<H> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Registry")
             .field(
@@ -337,15 +451,15 @@ impl<H> fmt::Debug for Registry<H> {
 }
 
 /// Collects the plug-ins of a [`Registry`].
-pub struct RegistryBuilder<H = NoHost> {
+pub struct RegistryBuilder<H: Build = NoHost> {
     #[cfg(feature = "transaction-data")]
-    hashes: Vec<Box<dyn HostedHash>>,
+    hashes: Vec<Box<dyn HashAlgorithm>>,
     #[cfg(feature = "uri")]
     scopes: Vec<Box<dyn ScopeQuery>>,
     response_types: Vec<Box<dyn ResponseType>>,
     modes: Vec<RegisteredMode<H>>,
-    formats: Vec<Box<dyn HostedFormat<H>>>,
-    profiles: Vec<Box<dyn DynProfile<H>>>,
+    formats: Vec<Box<<H as Plugins>::Format>>,
+    profiles: Vec<Box<<H as Plugins>::Profile>>,
     exact: Vec<(TransactionType<'static>, ProfileHandle)>,
     prefixes: Vec<(TypePrefix<'static>, ProfileHandle)>,
     #[cfg(feature = "signed")]
@@ -362,7 +476,7 @@ pub struct RegistryBuilder<H = NoHost> {
     readers: Vec<Box<dyn AnswerReader>>,
 }
 
-impl<H> Default for RegistryBuilder<H> {
+impl<H: Build> Default for RegistryBuilder<H> {
     fn default() -> Self {
         Self {
             #[cfg(feature = "transaction-data")]
@@ -391,12 +505,12 @@ impl<H> Default for RegistryBuilder<H> {
     }
 }
 
-impl<H> RegistryBuilder<H> {
+impl<H: Build> RegistryBuilder<H> {
     /// A transaction data hash algorithm (B.3.3.1), keyed by its name; `build` refuses a name
     /// registered twice, and a registry with a transaction data profile and without `sha-256`
     /// (feature `transaction-data`).
     #[cfg(feature = "transaction-data")]
-    pub fn hash(&mut self, algorithm: impl HostedHash + 'static) {
+    pub fn hash(&mut self, algorithm: impl HashAlgorithm + 'static) {
         self.hashes.push(Box::new(algorithm));
     }
 
@@ -415,9 +529,9 @@ impl<H> RegistryBuilder<H> {
     }
 
     /// A response mode whose answers are in the clear, keyed by its name and channel.
-    pub fn mode(&mut self, mode: impl HostedMode<H> + 'static) {
+    pub fn mode(&mut self, mode: impl HostedMode<H>) {
         self.modes.push(RegisteredMode {
-            mode: Box::new(mode),
+            mode: mode.stored(),
             role: Role::Clear,
         });
     }
@@ -446,45 +560,35 @@ impl<H> RegistryBuilder<H> {
     /// let mut builder = Registry::<Bare>::builder();
     /// builder.jwe_mode(siros_openid4vp::modes::DcApiJwt);
     /// ```
-    #[cfg(feature = "resolve")]
-    pub fn jwe_mode(&mut self, mode: impl HostedMode<H> + 'static)
+    pub fn jwe_mode(&mut self, mode: impl HostedMode<H>)
     where
-        H: Has<dyn Haip>,
+        H: JweHost,
     {
         self.modes.push(RegisteredMode {
-            mode: Box::new(mode),
-            role: Role::Jwe(|host| Has::<dyn Haip>::module(host)),
-        });
-    }
-
-    /// A response mode whose answers are sealed as JWEs (§8.3), keyed by its name and channel.
-    #[cfg(not(feature = "resolve"))]
-    pub fn jwe_mode(&mut self, mode: impl HostedMode<H> + 'static) {
-        self.modes.push(RegisteredMode {
-            mode: Box::new(mode),
-            role: Role::Jwe(std::marker::PhantomData),
+            mode: mode.stored(),
+            role: Role::Jwe(H::sealing()),
         });
     }
 
     /// A URI response mode's error responses (§8.2, §8.3.1), keyed by its name: a mode
     /// registered here alone carries errors alone (C5 refuses a request naming it). Over the DC
     /// API the core writes A.4's error itself, so `build` refuses a DC API mode registered here.
-    pub fn error_mode(&mut self, mode: impl HostedMode<H> + 'static) {
+    pub fn error_mode(&mut self, mode: impl HostedMode<H>) {
         self.modes.push(RegisteredMode {
-            mode: Box::new(mode),
+            mode: mode.stored(),
             role: Role::Errors,
         });
     }
 
     /// Adds a format whose phase 2 the build's host can run.
-    pub fn format(&mut self, format: impl HostedFormat<H> + 'static) {
-        self.formats.push(Box::new(format));
+    pub fn format(&mut self, format: impl HostedFormat<H>) {
+        self.formats.push(format.stored());
     }
 
     /// Adds a profile whose phase 2 the build's host can run, to register under types or
     /// prefixes.
     pub fn profile(&mut self, profile: impl HostedProfile<H>) -> ProfileHandle {
-        self.profiles.push(Box::new(profile));
+        self.profiles.push(profile.stored());
         ProfileHandle(self.profiles.len() - 1)
     }
 
@@ -819,7 +923,7 @@ impl<H> RegistryBuilder<H> {
     }
 }
 
-impl<H> Registry<H> {
+impl<H: Build> Registry<H> {
     /// A builder.
     #[must_use]
     pub fn builder() -> RegistryBuilder<H> {
@@ -854,34 +958,6 @@ impl<H> Registry<H> {
             .map(|registered| registered.prefix.name())
     }
 
-    /// Each registered URI mode's `wallet_metadata` members with the names it declared, in
-    /// registration order, each written under what its registration seals with: the `Haip`
-    /// statement of a JWE mode, none of a mode in the clear.
-    ///
-    /// # Errors
-    ///
-    /// A mode broke its contract.
-    #[cfg(feature = "uri")]
-    pub(crate) fn mode_metadata(&self, host: &H) -> Result<Vec<ModeMembers>, Fault> {
-        self.modes
-            .iter()
-            .filter(|registered| registered.mode.channel() == ChannelKind::Uri)
-            .filter_map(|registered| {
-                let sealer = match registered.role {
-                    Role::Jwe(access) => access(host).agreements(),
-                    Role::Clear => Agreements::NONE,
-                    Role::Errors => return None,
-                };
-                Some(
-                    registered
-                        .mode
-                        .wallet_metadata(&sealer, host)
-                        .map(|members| (registered.mode.metadata_names(), members)),
-                )
-            })
-            .collect()
-    }
-
     /// The registered POST contributions, in registration order.
     #[cfg(feature = "uri")]
     pub(crate) fn contributions(&self) -> impl Iterator<Item = &dyn HostedPostContribution<H>> {
@@ -912,7 +988,7 @@ impl<H> Registry<H> {
     pub(crate) fn formats(&self) -> impl Iterator<Item = &dyn Format> {
         self.formats
             .iter()
-            .map(|registered| -> &dyn Format { registered.format.as_ref() })
+            .map(|registered| registered.format.upcast())
     }
 
     fn registered(&self, id: &FormatId<'_>) -> Option<&RegisteredFormat<H>> {
@@ -921,7 +997,7 @@ impl<H> Registry<H> {
             .find(|registered| registered.format.id() == *id)
     }
 
-    fn plugged(&self, id: &FormatId<'_>) -> Option<&dyn HostedFormat<H>> {
+    fn plugged(&self, id: &FormatId<'_>) -> Option<&<H as Plugins>::Format> {
         self.registered(id)
             .map(|registered| registered.format.as_ref())
     }
@@ -930,20 +1006,7 @@ impl<H> Registry<H> {
     #[cfg(feature = "match")]
     pub(crate) fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>> {
         self.registered(id).map(|registered| {
-            let format: &dyn Format = registered.format.as_ref();
-            Placed {
-                format,
-                placement: registered.placement,
-            }
-        })
-    }
-
-    /// The format with an identifier, with its phase 2 over the build's host, and the placement
-    /// it stated at registration.
-    #[cfg(feature = "resolve")]
-    pub(crate) fn placed_host(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn FormatHost<H>>> {
-        self.registered(id).map(|registered| {
-            let format: &dyn FormatHost<H> = registered.format.as_ref();
+            let format: &dyn Format = registered.format.upcast();
             Placed {
                 format,
                 placement: registered.placement,
@@ -954,15 +1017,7 @@ impl<H> Registry<H> {
     /// The format with an identifier.
     #[must_use]
     pub fn format(&self, id: &FormatId<'_>) -> Option<&dyn Format> {
-        self.plugged(id).map(|format| -> &dyn Format { format })
-    }
-
-    /// The format with an identifier, with its phase 2 over the build's host.
-    #[cfg(feature = "resolve")]
-    #[must_use]
-    pub fn format_host(&self, id: &FormatId<'_>) -> Option<&dyn FormatHost<H>> {
-        self.plugged(id)
-            .map(|format| -> &dyn FormatHost<H> { format })
+        self.plugged(id).map(Upcast::upcast)
     }
 
     /// The profile registered for the exact type identifier, else for its longest registered
@@ -984,9 +1039,57 @@ impl<H> Registry<H> {
 
     #[cfg(feature = "match")]
     pub(crate) fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
-        self.profiles
-            .get(handle.0)
-            .map(|profile| -> &dyn ErasedProfile { profile.as_ref() })
+        self.profiles.get(handle.0).map(|profile| profile.upcast())
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>> Registry<H> {
+    /// Each registered URI mode's `wallet_metadata` members with the names it declared, in
+    /// registration order, each written under what its registration seals with: the `Haip`
+    /// statement of a JWE mode, none of a mode in the clear.
+    ///
+    /// # Errors
+    ///
+    /// A mode broke its contract.
+    #[cfg(feature = "uri")]
+    pub(crate) fn mode_metadata(&self, host: &H) -> Result<Vec<ModeMembers>, Fault> {
+        self.modes
+            .iter()
+            .filter(|registered| registered.mode.channel() == ChannelKind::Uri)
+            .filter_map(|registered| {
+                let sealer = match registered.role {
+                    Role::Jwe(access) => access(host).agreements(),
+                    Role::Clear => Agreements::NONE,
+                    Role::Errors => return None,
+                };
+                Some(
+                    registered
+                        .mode
+                        .wallet_metadata(&sealer, host)
+                        .map(|members| (registered.mode.metadata_names(), members)),
+                )
+            })
+            .collect()
+    }
+
+    /// The format with an identifier, with its phase 2 over the build's host, and the placement
+    /// it stated at registration.
+    pub(crate) fn placed_host(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn FormatHost<H>>> {
+        self.registered(id).map(|registered| {
+            let format: &dyn FormatHost<H> = registered.format.as_ref();
+            Placed {
+                format,
+                placement: registered.placement,
+            }
+        })
+    }
+
+    /// The format with an identifier, with its phase 2 over the build's host.
+    #[must_use]
+    pub fn format_host(&self, id: &FormatId<'_>) -> Option<&dyn FormatHost<H>> {
+        self.plugged(id)
+            .map(|format| -> &dyn FormatHost<H> { format })
     }
 
     #[cfg(feature = "resolve")]
@@ -997,7 +1100,6 @@ impl<H> Registry<H> {
     /// The registry with each profile informed of its findings, for the request's re-run of
     /// phase 1 and the phase 2 that follows it. Refused when a finding comes from a profile this
     /// registry does not hold.
-    #[cfg(feature = "resolve")]
     pub fn informed(&self, findings: &[&ProfileFinding]) -> Result<Self, InformError> {
         let mut found: Vec<(&dyn DynProfile<H>, Vec<&dyn FindingData>)> = self
             .profiles
@@ -1160,43 +1262,11 @@ impl<H> Post<H> {
     }
 }
 
-impl<H> Registry<H> {
+impl<H: Build> Registry<H> {
     /// The registered mode a handle names, with its role.
     #[cfg(feature = "resolve")]
     pub(crate) fn mode_host(&self, handle: ModeHandle) -> Option<&RegisteredMode<H>> {
         self.modes.get(handle.place())
-    }
-}
-
-#[cfg(feature = "transaction-data")]
-/// The registered algorithms, in registration order, as the request carries them from the
-/// registry its envelope was read with.
-#[derive(Clone, Copy)]
-pub struct Hashes<'r>(&'r [Box<dyn HostedHash>]);
-
-#[cfg(feature = "transaction-data")]
-impl<'r> Hashes<'r> {
-    /// The registry's algorithms.
-    pub(crate) const fn of(algorithms: &'r [Box<dyn HostedHash>]) -> Self {
-        Self(algorithms)
-    }
-
-    /// The algorithm of a Hash Name String.
-    #[must_use]
-    pub fn named(&self, name: &str) -> Option<&'r dyn HostedHash> {
-        self.0
-            .iter()
-            .find(|algorithm| algorithm.name().as_str() == name)
-            .map(AsRef::as_ref)
-    }
-}
-
-#[cfg(feature = "transaction-data")]
-impl fmt::Debug for Hashes<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.0.iter().map(|algorithm| algorithm.name()))
-            .finish()
     }
 }
 
@@ -1215,7 +1285,7 @@ pub(crate) trait Routes {
     fn scopes(&self) -> Scopes<'_>;
 }
 
-impl<H> Routes for Registry<H> {
+impl<H: Build> Routes for Registry<H> {
     fn response_type(&self, name: &str) -> Option<ResponseTypeName> {
         self.response_types
             .iter()
@@ -1241,7 +1311,7 @@ impl<H> Routes for Registry<H> {
                             };
                             let routed =
                                 RoutedMode::of(ModeHandle::at(place), mode.name(), carries);
-                            let mode: &dyn Mode = mode.as_ref();
+                            let mode: &dyn Mode = mode.upcast();
                             (routed, mode)
                         })
                 })
@@ -1272,7 +1342,10 @@ struct Declared {
 /// The names registered parts declare: a DC API mode declares none (`MetadataChannel`); each name
 /// once in its place (`NameTwice`), none the core writes there (`NameReserved`):
 /// [`CORE_METADATA`], [`CORE_PARAMETERS`] and [`CORE_ANSWER`].
-fn names<H>(modes: &[RegisteredMode<H>], mut declared: Declared) -> Result<(), RegistryError> {
+fn names<H: Build>(
+    modes: &[RegisteredMode<H>],
+    mut declared: Declared,
+) -> Result<(), RegistryError> {
     let mut members: Vec<ParameterName> = Vec::new();
     for registered in modes {
         if matches!(registered.role, Role::Errors) {
@@ -1341,7 +1414,7 @@ pub(crate) trait Catalog {
 }
 
 #[cfg(feature = "match")]
-impl<H> Catalog for Registry<H> {
+impl<H: Build> Catalog for Registry<H> {
     fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>> {
         Self::placed(self, id)
     }
@@ -1391,7 +1464,7 @@ pub struct InformError;
 type Informed<'f, H> = Box<dyn FnOnce() -> Box<dyn DynProfile<H>> + 'f>;
 
 /// A [`Profile`] with its finding type erased.
-pub(crate) trait ErasedProfile: Send + Sync {
+pub trait ErasedProfile: Send + Sync {
     #[cfg(feature = "match")]
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
     fn members(&self, placement: Placement) -> Option<&[Member]>;
@@ -1416,12 +1489,10 @@ impl<P: Profile> ErasedProfile for P {
 }
 
 /// An [`ErasedProfile`] with phase 2's methods over the build's host `H`.
-pub(crate) trait DynProfile<H>: ErasedProfile {
-    #[cfg(feature = "resolve")]
+#[cfg(feature = "resolve")]
+pub trait DynProfile<H>: ErasedProfile {
     fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
-    #[cfg(feature = "resolve")]
     fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
-    #[cfg(feature = "resolve")]
     fn revalidate(
         &self,
         handle: ProfileHandle,
@@ -1430,10 +1501,8 @@ pub(crate) trait DynProfile<H>: ErasedProfile {
     ) -> Result<Option<ProfileFinding>, Fault>;
     /// Reads the findings as the profile's finding type, refused when one is another type. The
     /// result makes the profile informed of them, or its clone when there are none.
-    #[cfg(feature = "resolve")]
     fn read<'f>(&'f self, findings: &[&'f dyn FindingData])
     -> Result<Informed<'f, H>, InformError>;
-    #[cfg(feature = "resolve")]
     fn respond(
         &self,
         record: Answered<'_>,
@@ -1441,9 +1510,6 @@ pub(crate) trait DynProfile<H>: ErasedProfile {
         authentication: &Authentication,
     ) -> Result<Members, Fault>;
 }
-
-#[cfg(not(feature = "resolve"))]
-impl<H, P: Profile> DynProfile<H> for P {}
 
 #[cfg(feature = "resolve")]
 impl<H, P: ProfileHost<H>> DynProfile<H> for P {

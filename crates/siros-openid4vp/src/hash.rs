@@ -1,8 +1,8 @@
 //! Transaction data hashes (OpenID4VP B.3.3.1; feature `transaction-data`): the entry's
 //! `transaction_data_hashes_alg` and the response's `transaction_data_hashes`, one hash per entry
 //! the presentation authorizes, with the algorithm used. The IANA "Named Information Hash
-//! Algorithm Registry" B.3.3.1 names is open, so an algorithm is a plug-in the registry takes:
-//! phase 1 reads its name (`HashAlgorithm`), phase 2 its digest (`HashDigest`). The core's SHA-2
+//! Algorithm Registry" B.3.3.1 names is open, so an algorithm is a plug-in the registry takes
+//! ([`HashAlgorithm`]): phase 1 reads its name, phase 2 its digest. The core's SHA-2
 //! algorithms (`Sha2`) are peers of any extension's, beside SHA-3, BLAKE2 and KangarooTwelve,
 //! each behind the feature that links its crate (`sha3`, `blake2`, `k12`). [`HashName`] compiles
 //! in every build: the registry's refusals carry it.
@@ -13,15 +13,15 @@ use std::num::NonZeroUsize;
 
 #[cfg(all(feature = "transaction-data", feature = "resolve"))]
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-#[cfg(all(feature = "blake2", feature = "resolve"))]
+#[cfg(feature = "blake2")]
 use blake2::{Blake2b, Blake2b512, Blake2s256, digest::consts::U32};
 #[cfg(feature = "transaction-data")]
 use dyn_clone::DynClone;
-#[cfg(all(feature = "k12", feature = "resolve"))]
+#[cfg(feature = "k12")]
 use k12::{ExtendableOutput, Kt128, Kt256};
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
+#[cfg(feature = "transaction-data")]
 use sha2::{Digest, Sha256, Sha384, Sha512};
-#[cfg(all(feature = "sha3", feature = "resolve"))]
+#[cfg(feature = "sha3")]
 use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
 #[cfg(feature = "transaction-data")]
 use siros_explain::Explain;
@@ -89,55 +89,60 @@ impl siros_explain::IntoArg for HashName {
 }
 
 #[cfg(feature = "transaction-data")]
-/// A transaction data hash algorithm as phase 1 reads it: its name, which B.3.3.1's rule matches
-/// against each entry's `transaction_data_hashes_alg`, and its digest's length.
+/// A transaction data hash algorithm: its name, which B.3.3.1's rule matches against each entry's
+/// `transaction_data_hashes_alg` in phase 1, its digest's length, and the digest phase 2 writes.
 ///
 /// # Implementing
 ///
 /// `name` and `octets` are constants; the registry refuses a name registered twice
 /// (`RegistryError::HashTwice`), and a build that registers a transaction data profile without
 /// `sha-256`, B.3.3.1's default (`Sha256Absent`). The matcher's and the wallet's registries come
-/// from one registration function generic over the host, so both name the same algorithms. The
-/// phase-2 half is [`HashDigest`]; the core refuses a digest of another length than `octets`
-/// with a [`HashesError::Digest`].
+/// from one registration function generic over the host, so both name the same algorithms.
+/// `digest` hashes the bytes as given; the core refuses a digest of another length than `octets`
+/// with a `HashesError::Digest`.
 pub trait HashAlgorithm: DynClone + Send + Sync {
     /// The Hash Name String.
     fn name(&self) -> HashName;
     /// The digest's length in octets.
     fn octets(&self) -> NonZeroUsize;
-}
-
-/// A transaction data hash algorithm's digest (phase 2, feature `resolve`).
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
-pub trait HashDigest: HashAlgorithm {
     /// The digest of the entry's bytes as received.
     fn digest(&self, data: &[u8]) -> Vec<u8>;
 }
 
-/// An algorithm the registry takes: [`HashDigest`] under `resolve`, [`HashAlgorithm`] in the
-/// match build.
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
-pub trait HostedHash: HashDigest {}
-
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
-impl<A: HashDigest> HostedHash for A {}
-
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
-dyn_clone::clone_trait_object!(HostedHash);
-
-/// An algorithm the registry takes: [`HashDigest`] under `resolve`, [`HashAlgorithm`] in the
-/// match build.
-#[cfg(all(feature = "transaction-data", not(feature = "resolve")))]
-pub trait HostedHash: HashAlgorithm {}
-
-#[cfg(all(feature = "transaction-data", not(feature = "resolve")))]
-impl<A: HashAlgorithm> HostedHash for A {}
-
-#[cfg(all(feature = "transaction-data", not(feature = "resolve")))]
-dyn_clone::clone_trait_object!(HostedHash);
+#[cfg(feature = "transaction-data")]
+dyn_clone::clone_trait_object!(HashAlgorithm);
 
 #[cfg(feature = "transaction-data")]
-pub use crate::plugins::registry::Hashes;
+/// The registered algorithms, in registration order, as the request carries them from the
+/// registry its envelope was read with.
+#[derive(Clone, Copy)]
+pub struct Hashes<'r>(&'r [Box<dyn HashAlgorithm>]);
+
+#[cfg(feature = "transaction-data")]
+impl<'r> Hashes<'r> {
+    /// The registry's algorithms.
+    pub(crate) const fn of(algorithms: &'r [Box<dyn HashAlgorithm>]) -> Self {
+        Self(algorithms)
+    }
+
+    /// The algorithm of a Hash Name String.
+    #[must_use]
+    pub fn named(&self, name: &str) -> Option<&'r dyn HashAlgorithm> {
+        self.0
+            .iter()
+            .find(|algorithm| algorithm.name().as_str() == name)
+            .map(AsRef::as_ref)
+    }
+}
+
+#[cfg(feature = "transaction-data")]
+impl fmt::Debug for Hashes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list()
+            .entries(self.0.iter().map(|algorithm| algorithm.name()))
+            .finish()
+    }
+}
 
 #[cfg(feature = "transaction-data")]
 /// The digest lengths of the hash families, one or more octets each.
@@ -236,10 +241,7 @@ impl HashAlgorithm for Sha2 {
             Self::Sha512 => octets!(64),
         }
     }
-}
 
-#[cfg(all(feature = "transaction-data", feature = "resolve"))]
-impl HashDigest for Sha2 {
     fn digest(&self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha256 => Sha256::digest(data).to_vec(),
@@ -298,10 +300,7 @@ impl HashAlgorithm for Sha3 {
             Self::Sha3_512 => octets!(64),
         }
     }
-}
 
-#[cfg(all(feature = "sha3", feature = "resolve"))]
-impl HashDigest for Sha3 {
     fn digest(&self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Sha3_224 => Sha3_224::digest(data).to_vec(),
@@ -346,10 +345,7 @@ impl HashAlgorithm for Blake2 {
             Self::Blake2b512 => octets!(64),
         }
     }
-}
 
-#[cfg(all(feature = "blake2", feature = "resolve"))]
-impl HashDigest for Blake2 {
     fn digest(&self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Blake2s256 => Blake2s256::digest(data).to_vec(),
@@ -391,10 +387,7 @@ impl HashAlgorithm for K12 {
             Self::K12_512 => octets!(64),
         }
     }
-}
 
-#[cfg(all(feature = "k12", feature = "resolve"))]
-impl HashDigest for K12 {
     fn digest(&self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::K12_256 => {
@@ -465,7 +458,7 @@ pub fn rule(entry: &Entry<'_>, hashes: Hashes<'_>) -> Option<HashesAlgRule> {
 /// One registered algorithm every entry allows, an entry without a list allowing sha-256 alone:
 /// the first of the first entry's that the others allow and the registry holds.
 #[must_use]
-pub fn algorithm<'h>(entries: &[&Entry<'_>], hashes: Hashes<'h>) -> Option<&'h dyn HostedHash> {
+pub fn algorithm<'h>(entries: &[&Entry<'_>], hashes: Hashes<'h>) -> Option<&'h dyn HashAlgorithm> {
     let allowed = |entry: &Entry<'_>| -> Vec<String> {
         match listed(entry)
             .and_then(Node::as_array)

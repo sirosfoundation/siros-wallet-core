@@ -8,7 +8,7 @@ use siros_explain::Explain;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::hash::{Blake2, K12, Sha2, Sha3};
-use siros_openid4vp::host::{Haip, Has, RequestDecryption};
+use siros_openid4vp::host::{CoreHost, Haip, Has, RequestDecryption};
 use siros_openid4vp::ids::{
     AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, InvalidId, LocaleTag,
     Origin,
@@ -17,7 +17,7 @@ use siros_openid4vp::json::quote;
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
 use siros_openid4vp::plugins::Fault;
-use siros_openid4vp::plugins::{Registry, RegistryBuilder, RegistryError};
+use siros_openid4vp::plugins::{Build, HostedMode, Registry, RegistryBuilder, RegistryError};
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
@@ -231,7 +231,10 @@ pub fn data_of<'a>(
 /// Request Object POST and the scope query double ([`TestScope`]), as the flows' tests run them: `vp_token`; `dc_api` in the clear; `dc_api.jwt` and `direct_post.jwt` sealed
 /// through the host's `Haip`; the errors of `direct_post.jwt` and of `direct_post`; the POST of
 /// `wallet_metadata` with encrypted Request Objects through the host's `RequestDecryption`.
-pub fn openid4vp<H: Has<dyn Haip> + Has<dyn RequestDecryption>>(builder: &mut RegistryBuilder<H>) {
+pub fn openid4vp<H>(builder: &mut RegistryBuilder<H>)
+where
+    H: CoreHost + Has<dyn Haip> + Has<dyn RequestDecryption>,
+{
     hashes(builder);
     builder.response_type(VpToken);
     builder.mode(DcApi);
@@ -261,7 +264,7 @@ impl ScopeQuery for TestScope {
 
 /// Registers the seventeen hash algorithms of the IANA registry B.3.3.1 names, as the
 /// differential's build registers them (I9).
-pub fn hashes<H>(builder: &mut RegistryBuilder<H>) {
+pub fn hashes<H: Build>(builder: &mut RegistryBuilder<H>) {
     for algorithm in Sha2::ALL {
         builder.hash(algorithm);
     }
@@ -278,7 +281,12 @@ pub fn hashes<H>(builder: &mut RegistryBuilder<H>) {
 
 /// Registers OpenID4VP's response type and the modes a build without `Haip` answers in:
 /// `vp_token`, `dc_api`, and the errors of `direct_post`; and the hash algorithms ([`hashes`]).
-pub fn openid4vp_clear<H>(builder: &mut RegistryBuilder<H>) {
+pub fn openid4vp_clear<H>(builder: &mut RegistryBuilder<H>)
+where
+    H: Build,
+    DcApi: HostedMode<H>,
+    DirectPost: HostedMode<H>,
+{
     hashes(builder);
     builder.response_type(VpToken);
     builder.mode(DcApi);
@@ -424,7 +432,7 @@ impl Held {
 
 /// The ids of the first selection the consent offers, each slot's first entry chosen (the slot's
 /// default); the refusals, the unmet request or the fault otherwise.
-pub fn first_selection<H>(
+pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     request: &Request<'_>,
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,

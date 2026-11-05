@@ -26,6 +26,8 @@ use crate::ids::{ClientId, Origin};
 #[cfg(feature = "signed")]
 use crate::jose::{Signed, TimeError, Validity};
 use crate::json::{Node, Object};
+#[cfg(feature = "signed")]
+use crate::plugins::Build;
 use crate::plugins::Registry;
 #[cfg(feature = "signed")]
 use crate::plugins::registry::HaipAccess;
@@ -259,7 +261,7 @@ impl<'e> Envelope<'e> {
     /// the prefix's rule, A7 for an `alg` the `Haip` the prefix's registration bounded does not
     /// state.
     #[cfg(feature = "signed")]
-    fn claim<H>(
+    fn claim<H: Build>(
         &'e self,
         registry: &'e Registry<H>,
         host: &H,

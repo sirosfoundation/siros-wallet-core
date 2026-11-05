@@ -40,7 +40,7 @@ impl From<Fault> for OracleError {
 
 /// The registry the wallet re-runs a fallback's consent with: the registry phase 2 ran with, its
 /// profiles informed of their findings.
-pub fn informed<H>(
+pub fn informed<H: siros_openid4vp::host::CoreHost>(
     registry: &Registry<H>,
     findings: &[Finding],
 ) -> Result<Registry<H>, OracleError> {

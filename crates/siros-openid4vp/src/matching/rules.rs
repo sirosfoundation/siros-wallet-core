@@ -7,7 +7,7 @@ use siros_explain::{AllOf, Explain};
 
 use crate::envelope::Channel;
 use crate::plugins::registry::{Catalog, Placed};
-use crate::plugins::{Format, FormatQuery, ProfileHandle, Registry};
+use crate::plugins::{Build, Format, FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
 use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
@@ -110,7 +110,10 @@ impl<'q> Accepted<'q> {
     /// Runs the rules; refused with every rule the request breaks, in order: C1 to C4, C8, the
     /// routing's rules at C5's place, C6, the named mode's own rules (a JWE mode's C7), each
     /// format's, each profile's. The mode is the one the request's envelope routed it to.
-    pub fn new<H>(request: &'q Request<'q>, registry: &'q Registry<H>) -> Result<Self, Refused> {
+    pub fn new<H: Build>(
+        request: &'q Request<'q>,
+        registry: &'q Registry<H>,
+    ) -> Result<Self, Refused> {
         let registry: &'q dyn Catalog = registry;
         let mut refusals = entry_rules(request, registry);
         refusals.extend(one_transaction(request));

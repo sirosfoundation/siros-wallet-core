@@ -13,7 +13,7 @@ use crate::host::EphemeralKey;
 use crate::jose::CompactJws;
 #[cfg(feature = "request-decryption")]
 use crate::jose::{CompactJwe, JwsError};
-use crate::plugins::{Fault, Registry};
+use crate::plugins::{Build, Fault, Registry};
 use crate::recourse::{self, Rejected};
 use crate::wallet_metadata::{MetadataRefused, RequestUriPost, WalletMetadata};
 
@@ -165,7 +165,7 @@ impl<'a> Fetch<'a> {
 /// or a POST that posted none, or one that does not decrypt; U10 for a plaintext beyond ASCII,
 /// which holds no compact serialization (RFC 7515 §7.1).
 #[cfg(feature = "request-decryption")]
-fn decrypted<H>(
+fn decrypted<H: Build>(
     body: &str,
     method: FetchMethod,
     registry: &Registry<H>,
@@ -190,7 +190,7 @@ fn decrypted<H>(
 /// A compact JWE Request Object: U11, as the build registers no encrypted Request Objects and so
 /// posts no key.
 #[cfg(not(feature = "request-decryption"))]
-fn decrypted<H>(
+fn decrypted<H: Build>(
     _body: &str,
     _method: FetchMethod,
     _registry: &Registry<H>,

@@ -32,7 +32,7 @@ use crate::{FAULT, detail};
 /// and one slot per distinct resource each record's profile revalidates with. Only
 /// [`Prepared::prepare`] makes one; [`Prepared::respond`] consumes it.
 #[must_use]
-pub struct Prepared<'p, H> {
+pub struct Prepared<'p, H: CoreHost> {
     accepted: Accepted<'p>,
     registry: &'p Registry<H>,
     env: &'p Env,
@@ -42,7 +42,7 @@ pub struct Prepared<'p, H> {
 
 /// A record phase 2 answers: its query as its format read it for phase 2, its option, the
 /// wallet's credential, and the transaction it authorizes.
-struct Chosen<'p, H> {
+struct Chosen<'p, H: CoreHost> {
     query: &'p Query<'p>,
     answered: Box<dyn AnsweredQuery<H> + 'p>,
     option: OptionIndex,
@@ -82,7 +82,7 @@ impl<H> Transacted<'_, H> {
 }
 
 /// A record its credential can still present, with the option its format answers it with.
-struct Presenting<'a, 'p, H> {
+struct Presenting<'a, 'p, H: CoreHost> {
     record: &'a Chosen<'p, H>,
     option: Box<dyn AnsweredOption<H> + 'a>,
 }
@@ -228,7 +228,7 @@ struct Sealing<'k, 'h> {
 /// `Haip::agreements`, refused with the mode's rule when the statement admits none. A route
 /// that breaks its registration (a key in the clear, no key for a JWE mode, a key or `enc` the
 /// statement does not admit, an error mode routing an answer) is a `Fault`.
-fn seal<'k, 'h, H>(
+fn seal<'k, 'h, H: CoreHost>(
     registry: &Registry<H>,
     accepted: &Accepted<'_>,
     metadata: &'k VerifierMetadata<'k>,
@@ -294,7 +294,7 @@ fn seal<'k, 'h, H>(
 /// A derived record as phase 2 answers it: the wallet's credential, its query read for phase 2,
 /// and for a transaction its profile's binding with the resources the profile wants, one per
 /// distinct URL, appended to `questions`.
-fn chosen<'p, H>(
+fn chosen<'p, H: CoreHost>(
     accepted: &Accepted<'p>,
     registry: &'p Registry<H>,
     matched: &Match<'_>,

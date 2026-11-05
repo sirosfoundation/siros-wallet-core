@@ -50,8 +50,8 @@ use siros_openid4vp::consent::Overlay;
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::{InvalidId, TransactionType};
 use siros_openid4vp::plugins::{
-    Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FaultDomain, HostedProfile,
-    Member, NoCandidate, Profile, RegistryBuilder,
+    Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
+    HostedProfile, Member, NoCandidate, Profile, RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Entry, EntryIndex, Request};
@@ -158,6 +158,7 @@ impl QesProfile {
 /// Registers the profile for [`TYPE`], by its exact identifier.
 pub fn register<H>(builder: &mut RegistryBuilder<H>, profile: QesProfile) -> Result<(), InvalidId>
 where
+    H: Build,
     QesProfile: HostedProfile<H>,
 {
     let kind = TransactionType::parse(TYPE)?;

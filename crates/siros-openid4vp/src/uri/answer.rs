@@ -6,7 +6,7 @@ use siros_explain::{Explain, Explained};
 
 use super::RedirectTarget;
 use crate::json::{Node, Object};
-use crate::plugins::Registry;
+use crate::plugins::{Build, Registry};
 use crate::wallet_metadata::ParameterName;
 
 /// Members of the Response URI's answer a profile or a deployment defines (§8.2: "Additional
@@ -91,7 +91,7 @@ impl ResponseUriAnswer {
     ///
     /// [`AnswerError`]: no JSON object with unique member names, a `redirect_uri` that is no
     /// string holding a URI with a scheme, or a reader's refusal.
-    pub fn parse<H>(body: &str, registry: &Registry<H>) -> Result<Self, AnswerError> {
+    pub fn parse<H: Build>(body: &str, registry: &Registry<H>) -> Result<Self, AnswerError> {
         let node = Node::parse(body).map_err(|_| AnswerError::NotObject)?;
         let object = node.as_object().ok_or(AnswerError::NotObject)?;
         let redirect = object

@@ -30,7 +30,7 @@ released version yet.
   cases as peers: response types and response modes (`ResponseType`, `Mode`,
   `ModeHost`; `vp_token` and the modes `dc_api`, `dc_api.jwt`,
   `direct_post.jwt`, `direct_post`), transaction data hash algorithms
-  (`HashAlgorithm`, `HashDigest`; `Sha2`, `Sha3`, `Blake2`, `K12`), scope
+  (`HashAlgorithm`; `Sha2`, `Sha3`, `Blake2`, `K12`), scope
   queries (`ScopeQuery`, §5.5), rules on a Request Object's claims
   (`ObjectRule`, A14), the `request_uri` POST and encrypted Request Objects
   (`RequestPost`, `EncryptedRequests`). The registry refuses each conflict:
@@ -44,7 +44,10 @@ released version yet.
   SD-JWT DC API build links no CBOR, COSE, form encoding, curve arithmetic or
   hash beyond SHA-2. `siros-paso`'s `sealed-signals` holds its `COSE_Encrypt`
   sealing, `siros-qes`'s `sha3` its SHA-3 approval hashes. A feature changes
-  no signature: a crate compiles the same when another turns it on.
+  no signature: a crate compiles the same when another turns it on. The
+  registry's host fixes what it takes of each plug-in (`Build`): `NoHost` takes
+  phase 1's `Format`, `Profile` and `Mode` in every build, and under `resolve`
+  a host holding a `Platform` takes plug-ins with their phase 2 over it.
 - `cargo xtask builds` checks that each build of the design's section 4.11
   compiles none of the crates its row excludes; `cargo xtask alone` checks
   each crate alone, with and without its default features, and the workspace

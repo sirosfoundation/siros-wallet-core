@@ -85,8 +85,8 @@ use siros_openid4vp::detail;
 use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
-    Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FaultDomain, HostedProfile,
-    Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
+    Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
+    HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
@@ -309,6 +309,7 @@ impl PasoProfile {
     /// ```
     pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> Result<ProfileHandle, InvalidId>
     where
+        H: Build,
         Self: HostedProfile<H>,
     {
         let prefix = TypePrefix::parse(PASO)?;

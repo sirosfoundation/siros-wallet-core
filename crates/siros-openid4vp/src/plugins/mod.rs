@@ -27,12 +27,12 @@ use siros_explain::{AllOf, Args, Explain, Explained, Message, MessageId, Message
 #[cfg(feature = "resolve")]
 pub use answered::{Answered, FetchedRecord};
 pub use members::{JsonText, Member, MemberTwice, MemberValue, Members};
+pub use registry::{
+    Build, HostedFormat, HostedMode, HostedProfile, JweHost, NoHost, ProfileHandle, Registry,
+    RegistryBuilder, RegistryError,
+};
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};
-pub use registry::{
-    HostedFormat, HostedMode, HostedProfile, NoHost, ProfileHandle, Registry, RegistryBuilder,
-    RegistryError,
-};
 
 use crate::consent::{Card, Header, Overlay};
 use crate::ids::FormatId;
