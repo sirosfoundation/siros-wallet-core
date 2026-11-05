@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::markdown::spans;
-use crate::value::{BadValue, FormattedKind, ValueKind, Written, formatted};
+use crate::value::{BadValue, Breach, FormattedKind, ValueKind, Written, formatted};
 use siros_explain::{AllOf, Entry, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
@@ -227,7 +227,7 @@ impl Template<'_> {
             bad: BadValue {
                 kind: kind.as_str(),
                 written: Written::Text(self.0).to_string(),
-                why: "holds every character of the Supplementary Private Use Area-A".to_owned(),
+                why: Breach::NoSlot,
             },
         })?;
         let mut marked = String::new();

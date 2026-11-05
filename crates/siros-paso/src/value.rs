@@ -154,8 +154,52 @@ pub struct BadValue {
     pub kind: &'static str,
     /// The value as written, quoted.
     pub written: String,
-    /// What it lacks.
-    pub why: String,
+    /// The rule it breaks.
+    pub why: Breach,
+}
+
+/// The rule of its kind a written value breaks (View §3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "paso.value")]
+pub enum Breach {
+    /// A boolean that is no JSON boolean.
+    #[error("not a JSON boolean")]
+    NotBoolean,
+    /// A value of a text kind that is no JSON string.
+    #[error("not a string")]
+    NotString,
+    /// A frequency outside ISO 20022's codes.
+    #[error("not a frequency code")]
+    NotFrequency,
+    /// A date outside ISO 8601's calendar dates.
+    #[error("not an ISO 8601 calendar date")]
+    NotDate,
+    /// A time outside ISO 8601's times.
+    #[error("not an ISO 8601 time")]
+    NotTime,
+    /// A date-time outside ISO 8601's.
+    #[error("not an ISO 8601 date-time")]
+    NotDateTime,
+    /// A currency outside ISO 4217's table.
+    #[error("not an ISO 4217 code of the table")]
+    NotCurrency,
+    /// An amount that is no number, a space and a code of ISO 4217's table.
+    #[error("not 'number CODE'")]
+    NotAmount,
+    /// An amount whose number is not ISO 4217's form for its currency: digits without a sign or
+    /// a leading zero, then exactly its minor units as fractional digits.
+    #[error("the number needs {0} fractional digits (ISO 4217)")]
+    NumberForm(#[explain(name = "digits")] u8),
+    /// An amount whose number exceeds an exact decimal's 38 digits.
+    #[error("the number exceeds 38 digits")]
+    TooLong,
+    /// A URL that is no https URL.
+    #[error("not an https URL")]
+    NotUrl,
+    /// A template value holding every character of the Supplementary Private Use Area-A, one of
+    /// which marks a typed value while it is read.
+    #[error("holds every character of the Supplementary Private Use Area-A")]
+    NoSlot,
 }
 
 /// A written value of a kind other than an image, parsed, and its text: a typed value for a date,
@@ -167,10 +211,10 @@ pub struct BadValue {
 ///
 /// [`BadValue`]: the written value does not conform to the kind.
 pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, Text), BadValue> {
-    let bad = |why: &str| BadValue {
+    let bad = |why: Breach| BadValue {
         kind: kind.as_str(),
         written: written.to_string(),
-        why: why.to_owned(),
+        why,
     };
     let text = match written {
         Written::Text(text) => text,
@@ -182,54 +226,54 @@ pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, T
             };
             return Ok((Parsed::Boolean(value), Text::of(&answer)));
         }
-        _ if kind == FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
-        _ => return Err(bad("not a string")),
+        _ if kind == FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
+        _ => return Err(bad(Breach::NotString)),
     };
     let typed = |parsed: Parsed, value: siros_explain::Value| (parsed, Text::Value(value));
     Ok(match kind {
-        FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
+        FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
         FormattedKind::Text => (Parsed::Text, Text::Raw(text.to_owned())),
         FormattedKind::MiniMarkdown => {
             let plain: String = spans(text).into_iter().map(|span| span.text).collect();
             (Parsed::MiniMarkdown, Text::Raw(plain))
         }
         FormattedKind::Frequency => {
-            let frequency = Frequency::parse(text).ok_or_else(|| bad("not a frequency code"))?;
+            let frequency = Frequency::parse(text).ok_or_else(|| bad(Breach::NotFrequency))?;
             (Parsed::Frequency(frequency), Text::of(&frequency))
         }
         FormattedKind::Date => {
-            let date = date(text).ok_or_else(|| bad("not an ISO 8601 calendar date"))?;
+            let date = date(text).ok_or_else(|| bad(Breach::NotDate))?;
             typed(Parsed::Date(date), siros_explain::Value::Date(date))
         }
         FormattedKind::Time => {
-            let (at, offset) = time(text).ok_or_else(|| bad("not an ISO 8601 time"))?;
+            let (at, offset) = time(text).ok_or_else(|| bad(Breach::NotTime))?;
             typed(
                 Parsed::Time(at, offset),
                 siros_explain::Value::Time { at, offset },
             )
         }
         FormattedKind::DateTime => {
-            let at = date_time(text).ok_or_else(|| bad("not an ISO 8601 date-time"))?;
+            let at = date_time(text).ok_or_else(|| bad(Breach::NotDateTime))?;
             typed(Parsed::DateTime(at), siros_explain::Value::DateTime(at))
         }
         FormattedKind::Currency => {
             let currency = Currency::from_code(text)
                 .filter(|currency| currency.minor_units().is_some())
-                .ok_or_else(|| bad("not an ISO 4217 code of the table"))?;
+                .ok_or_else(|| bad(Breach::NotCurrency))?;
             typed(
                 Parsed::Currency(currency),
                 siros_explain::Value::Currency(currency),
             )
         }
         FormattedKind::CurrencyAmount => {
-            let amount = amount(text).map_err(|why| bad(&why))?;
+            let amount = amount(text).map_err(bad)?;
             typed(
                 Parsed::CurrencyAmount(amount),
                 siros_explain::Value::Amount(amount),
             )
         }
         FormattedKind::Url => {
-            let url = HttpsUrl::parse(text).map_err(|_| bad("not an https URL"))?;
+            let url = HttpsUrl::parse(text).map_err(|_| bad(Breach::NotUrl))?;
             let shown = Text::Raw(url.ascii().to_owned());
             (Parsed::Url(url), shown)
         }
@@ -359,12 +403,12 @@ fn date_time(text: &str) -> Option<DateTime> {
 }
 
 /// An amount `number CODE`: no sign, no leading zero, exactly the currency's minor units.
-fn amount(text: &str) -> Result<Amount, String> {
-    let not_amount = || "not 'number CODE'".to_owned();
+fn amount(text: &str) -> Result<Amount, Breach> {
+    let not_amount = || Breach::NotAmount;
     let (number, code) = text.split_once(' ').ok_or_else(not_amount)?;
     let currency = Currency::from_code(code).ok_or_else(not_amount)?;
     let digits = currency.minor_units().ok_or_else(not_amount)?;
-    let wrong = || format!("the number needs {digits} fractional digits (ISO 4217)");
+    let wrong = || Breach::NumberForm(digits);
     let (whole, fraction) = match number.split_once('.') {
         Some((whole, fraction)) if digits > 0 && fraction.len() == usize::from(digits) => {
             (whole, fraction)
@@ -380,7 +424,7 @@ fn amount(text: &str) -> Result<Amount, String> {
     }
     let units: i128 = format!("{whole}{fraction}")
         .parse()
-        .map_err(|_| "the number exceeds 38 digits".to_owned())?;
+        .map_err(|_| Breach::TooLong)?;
     let value = Decimal::new(units, digits).ok_or_else(wrong)?;
     Ok(Amount::new(value, currency))
 }

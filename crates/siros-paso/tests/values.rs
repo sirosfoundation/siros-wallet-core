@@ -10,7 +10,7 @@ use siros_explain::{
 use siros_openid4vp::rows::WalletText;
 use siros_paso::frequency::Frequency;
 use siros_paso::markdown::{Span, Style, commonmark_html, spans};
-use siros_paso::value::{FormattedKind, Parsed, Written, formatted};
+use siros_paso::value::{Breach, FormattedKind, Parsed, Written, formatted};
 
 fn styled(parts: &[(&str, Style)]) -> Vec<Span> {
     parts
@@ -136,8 +136,11 @@ fn mini_markdown_keeps_every_other_construct_literal() {
     );
 }
 
-fn text_of(kind: FormattedKind, written: Written<'_>) -> Option<Text> {
-    formatted(kind, written).ok().map(|(_, text)| text)
+/// A value's text, or the rule it breaks.
+fn shown(kind: FormattedKind, written: Written<'_>) -> Result<Text, Breach> {
+    formatted(kind, written)
+        .map(|(_, text)| text)
+        .map_err(|bad| bad.why)
 }
 
 fn date(year: u16, month: u8, day: u8) -> Text {
@@ -161,10 +164,10 @@ fn offset(minutes: i16) -> Offset {
     Offset::new(minutes).expect("an offset")
 }
 
-/// What a value of a kind shows: a text its source fixes, or a refusal.
+/// What a value of a kind shows: a text its source fixes, or a refusal for the rule it breaks.
 enum Want {
     Is(Text),
-    Refused,
+    Refused(Breach),
 }
 
 /// PaSO View §3's value kinds: each conforming value parses into the typed value ISO 8601 and
@@ -179,13 +182,13 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
     let raw = |text: &str| Is(Text::Raw(text.to_owned()));
     let table: [(K, Written<'_>, Want); 31] = [
         (K::Boolean, B(true), Is(Text::of(&WalletText::Yes))),
-        (K::Boolean, T("true"), Refused),
-        (K::Date, B(true), Refused),
+        (K::Boolean, T("true"), Refused(Breach::NotBoolean)),
+        (K::Date, B(true), Refused(Breach::NotString)),
         (K::Frequency, T("MNTH"), Is(Text::of(&Frequency::Monthly))),
-        (K::Frequency, T("MONTHLY"), Refused),
+        (K::Frequency, T("MONTHLY"), Refused(Breach::NotFrequency)),
         (K::Date, T("2026-09-02"), Is(date(2026, 9, 2))),
         (K::Date, T("20260902"), Is(date(2026, 9, 2))),
-        (K::Date, T("2026-02-30"), Refused),
+        (K::Date, T("2026-02-30"), Refused(Breach::NotDate)),
         (
             K::Time,
             T("10:15:30Z"),
@@ -194,9 +197,9 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
                 offset: Some(offset(0)),
             })),
         ),
-        (K::Time, T("25:00"), Refused),
-        (K::Time, T("10:00+24:00"), Refused),
-        (K::Time, T("10"), Refused),
+        (K::Time, T("25:00"), Refused(Breach::NotTime)),
+        (K::Time, T("10:00+24:00"), Refused(Breach::NotTime)),
+        (K::Time, T("10"), Refused(Breach::NotTime)),
         (
             K::DateTime,
             T("2026-06-02T10:15:30+02:00"),
@@ -206,7 +209,11 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
                 Some(offset(120)),
             )))),
         ),
-        (K::DateTime, T("2026-06-02 10:15"), Refused),
+        (
+            K::DateTime,
+            T("2026-06-02 10:15"),
+            Refused(Breach::NotDateTime),
+        ),
         (
             K::Currency,
             T("EUR"),
@@ -214,7 +221,7 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
                 Currency::from_code("EUR").expect("EUR"),
             ))),
         ),
-        (K::Currency, T("EURO"), Refused),
+        (K::Currency, T("EURO"), Refused(Breach::NotCurrency)),
         (
             K::CurrencyAmount,
             T("1234567.50 EUR"),
@@ -227,13 +234,37 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
         ),
         (K::CurrencyAmount, T("0.50 EUR"), Is(amount(50, 2, "EUR"))),
         (K::CurrencyAmount, T("100 JPY"), Is(amount(100, 0, "JPY"))),
-        (K::CurrencyAmount, T("EUR 45.00"), Refused),
-        (K::CurrencyAmount, T("49.9 EUR"), Refused),
-        (K::CurrencyAmount, T("49 EUR"), Refused),
-        (K::CurrencyAmount, T("012.00 EUR"), Refused),
-        (K::CurrencyAmount, T("100. JPY"), Refused),
+        (
+            K::CurrencyAmount,
+            T("EUR 45.00"),
+            Refused(Breach::NotAmount),
+        ),
+        (
+            K::CurrencyAmount,
+            T("49.9 EUR"),
+            Refused(Breach::NumberForm(2)),
+        ),
+        (
+            K::CurrencyAmount,
+            T("49 EUR"),
+            Refused(Breach::NumberForm(2)),
+        ),
+        (
+            K::CurrencyAmount,
+            T("012.00 EUR"),
+            Refused(Breach::NumberForm(2)),
+        ),
+        (
+            K::CurrencyAmount,
+            T("100. JPY"),
+            Refused(Breach::NumberForm(0)),
+        ),
         (K::MiniMarkdown, T("*a*"), raw("a")),
-        (K::MiniMarkdown, Written::Other(&other), Refused),
+        (
+            K::MiniMarkdown,
+            Written::Other(&other),
+            Refused(Breach::NotString),
+        ),
         (K::Text, T("plain"), raw("plain")),
         (
             K::Url,
@@ -245,13 +276,13 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
             T("https://shop.example/a"),
             raw("https://shop.example/a"),
         ),
-        (K::Url, T("http://shop.example"), Refused),
+        (K::Url, T("http://shop.example"), Refused(Breach::NotUrl)),
     ];
     for (kind, written, want) in table {
-        let got = text_of(kind, written);
+        let got = shown(kind, written);
         match want {
-            Is(text) => assert_eq!(got, Some(text), "{kind:?} {written}"),
-            Refused => assert_eq!(got, None, "{kind:?} {written}"),
+            Is(text) => assert_eq!(got, Ok(text), "{kind:?} {written}"),
+            Refused(breach) => assert_eq!(got, Err(breach), "{kind:?} {written}"),
         }
     }
 }
@@ -272,40 +303,40 @@ fn a_value_keeps_its_parsed_form() {
 }
 
 /// ISO 8601's calendar and clock, RFC 3339 §5.7's leap second at 23:59:60 UTC on a month's last
-/// day, and UTS #46's A-labels.
+/// day (IERS Bulletin C 52 placed one at the end of 2016-12-31), and UTS #46's A-labels.
 #[test]
 fn calendar_dates_times_and_urls_follow_iso_8601_and_uts_46() {
     use FormattedKind as K;
     use Written::Text as T;
     let day = |year, month, day| date(year, month, day);
-    let cases: [(K, &str, Option<Text>); 22] = [
-        (K::Date, "2026-01-31", Some(day(2026, 1, 31))),
-        (K::Date, "2023-02-28", Some(day(2023, 2, 28))),
-        (K::Date, "2026-09/02", None),
-        (K::Date, "2026-+1-02", None),
-        (K::Date, "2026-13-01", None),
-        (K::Date, "2024-02-29", Some(day(2024, 2, 29))),
-        (K::Date, "2023-02-29", None),
-        (K::Date, "1900-02-29", None),
-        (K::Date, "2000-02-29", Some(day(2000, 2, 29))),
-        (K::Date, "2026-04-31", None),
-        (K::Date, "0000-01-01", None),
+    let cases: [(K, &str, Result<Text, Breach>); 22] = [
+        (K::Date, "2026-01-31", Ok(day(2026, 1, 31))),
+        (K::Date, "2023-02-28", Ok(day(2023, 2, 28))),
+        (K::Date, "2026-09/02", Err(Breach::NotDate)),
+        (K::Date, "2026-+1-02", Err(Breach::NotDate)),
+        (K::Date, "2026-13-01", Err(Breach::NotDate)),
+        (K::Date, "2024-02-29", Ok(day(2024, 2, 29))),
+        (K::Date, "2023-02-29", Err(Breach::NotDate)),
+        (K::Date, "1900-02-29", Err(Breach::NotDate)),
+        (K::Date, "2000-02-29", Ok(day(2000, 2, 29))),
+        (K::Date, "2026-04-31", Err(Breach::NotDate)),
+        (K::Date, "0000-01-01", Err(Breach::NotDate)),
         // A leap second needs the date that places it.
-        (K::Time, "23:59:60.5-05:30", None),
+        (K::Time, "23:59:60.5-05:30", Err(Breach::NotTime)),
         (
             K::Time,
             "07:05",
-            Some(Text::Value(Typed::Time {
+            Ok(Text::Value(Typed::Time {
                 at: time(7, 5, None),
                 offset: None,
             })),
         ),
-        (K::Time, "7:05", None),
-        (K::Time, "10:15:30.", None),
+        (K::Time, "7:05", Err(Breach::NotTime)),
+        (K::Time, "10:15:30.", Err(Breach::NotTime)),
         (
             K::DateTime,
             "2016-12-31T23:59:60.5Z",
-            Some(Text::Value(Typed::DateTime(
+            Ok(Text::Value(Typed::DateTime(
                 DateTime::leap(
                     Date::new(2016, 12, 31).expect("a date"),
                     23,
@@ -313,27 +344,31 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_uts_46() {
                     Fraction::new(500_000_000, 1).expect("a fraction"),
                     offset(0),
                 )
-                .expect("RFC 3339 Appendix D's leap second"),
+                .expect("IERS Bulletin C 52's leap second"),
             ))),
         ),
-        (K::DateTime, "2016-12-30T23:59:60Z", None),
-        (K::DateTime, "2016-12-31T23:59:60", None),
+        (
+            K::DateTime,
+            "2016-12-30T23:59:60Z",
+            Err(Breach::NotDateTime),
+        ),
+        (K::DateTime, "2016-12-31T23:59:60", Err(Breach::NotDateTime)),
         (
             K::Url,
             "https://user@bücher.example:8443/x",
-            Some(Text::Raw(
+            Ok(Text::Raw(
                 "https://user@xn--bcher-kva.example:8443/x".to_owned(),
             )),
         ),
         (
             K::Url,
             "https://Ü@bücher.example/",
-            Some(Text::Raw("https://Ü@xn--bcher-kva.example/".to_owned())),
+            Ok(Text::Raw("https://Ü@xn--bcher-kva.example/".to_owned())),
         ),
-        (K::Url, "https://shop.example/a b", None),
-        (K::Url, "https://", None),
+        (K::Url, "https://shop.example/a b", Err(Breach::NotUrl)),
+        (K::Url, "https://", Err(Breach::NotUrl)),
     ];
     for (kind, written, want) in cases {
-        assert_eq!(text_of(kind, T(written)), want, "{kind:?} {written}");
+        assert_eq!(shown(kind, T(written)), want, "{kind:?} {written}");
     }
 }

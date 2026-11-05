@@ -153,6 +153,7 @@ impl Messages for CrateMessages {
             labels::Directional::messages,
             labels::LabelViolation::messages,
             value::BadValue::messages,
+            value::Breach::messages,
             image::ImageFailure::messages,
             adhoc::AdhocFailure::messages,
             entry::EntryRule::messages,
