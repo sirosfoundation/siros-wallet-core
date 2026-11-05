@@ -183,19 +183,7 @@ fn issue_mini_mdl(
     device_public: &serde_json::Value,
     issuer_signing: Option<&jose_rs::jwk::Jwk>,
 ) -> Result<String, String> {
-    issue_mini_mdl_at(
-        (js_sys::Date::now() / 1000.0) as i64,
-        device_public,
-        issuer_signing,
-    )
-}
-
-/// [`issue_mini_mdl`] at a given time.
-fn issue_mini_mdl_at(
-    now: i64,
-    device_public: &serde_json::Value,
-    issuer_signing: Option<&jose_rs::jwk::Jwk>,
-) -> Result<String, String> {
+    let now = (js_sys::Date::now() / 1000.0) as i64;
     // The device key's COSE_Key coordinates (EC2: {1: 2, -1: 1, -2: x,
     // -3: y}, RFC 9053 §2): the 32-byte big-endian coordinates of the
     // bound device key.
