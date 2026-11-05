@@ -172,19 +172,73 @@ Aligned after the conformance milestones unless noted:
 | **F4** | both SDKs | `WmpUniFFITransport` does not exist in either checkout (the core docs claim "written"); no `org.siros:siros-wallet-core` coordinate; AAR/XCFramework packaging has no CI. |
 | **F5** | wallet-frontend | No WMP transport, no wasm module consumption, and the flow result shapes (`issuer_metadata`, `authorization_url`, … in `mapOID4VCIResponse`) would need synthesizing from `wmp.flow.complete` results — a frontend transport to write. |
 
-## 6. The fix waves
+## 6. The open go-wallet-backend engine PRs (the 2026-11-05 triage)
 
-1. **Engine-core parity (this wave)**: the step vocabulary (§2 renames +
-   additions incl. `awaiting_selection` + auto-select), scheme enforcement
-   (`decentralized_identifier:` prefix, x509_san_dns JWT+x5c requirement,
-   verifier_attestation extraction/check), decline/no-match description
-   alignment, response-endpoint sanitization. Vectors updated.
-2. **Trust plumbing**: the eval-context map on `EvaluationRequest`; DID
-   resolution behind `resolve` + engine-side JWT verification (§1 A2).
-3. **Server adapter**: the WMP Host bridge (F1) — the remote drop-in.
-4. **SDK adapter**: port wiring + the missing Host callbacks (F2, F3).
-5. **SDK/frontend integration** (F4, F5) + real testing: the SDK transports,
-   the frontend wasm transport, then end-to-end against the deployed stack.
+The scope has moved: **siros-wallet-core is the primary target for WMP
+deployment** (wasm, cloud, native); `go-wallet-backend --mode=engine` and
+the legacy WS protocol retire together. The open engine PRs on
+go-wallet-backend are therefore triaged against the Rust core, their
+issues tracked here, and the PRs closed with a reference to the move.
+Backend-only PRs (#319 lifecycle — one engine seam, see §6.10; #450, #453,
+#479, #533, #536) stay open: they touch `internal/{service,api,storage}`,
+not the engine.
+
+| PR | What it adds | Rust core today | Wave |
+|---|---|---|---|
+| **#163** the WMP bridge | go-wmp v0.13.0 thin bridge: `SessionService` (single-use rotating tokens, owner binding), HTTP+SSE with `id:`/`Last-Event-ID` replay + `410 Gone` + **redaction** (withholds `refresh_token`/`dpop_jwk`), per-request TAC (`Principal{user,tenant,jti,TAC}`; −31002), the OpenID4x profile + step/action translation (3.1.2/3.2.2), sub-flow routing, `wmp.resolve` vctm (six members), typed −31006 data (`{reason, retryable}`), transaction_data −31005, deliver-on-orchestrator −31008 | **Partial**: wmp-core mirrors the go-wmp mechanics (sessionservice, peer, subflow, resolve, −31020); adapter-server has the routes (POST /wmp, WS, SSE). **Missing: the bridge** — the SSE event pump is an empty stub (no `id:`/replay/`410`/redaction), no OpenID4x profile/translation, `Principal` carries no jti/TAC, no Host↔WMP sub-flow bridge (F1), no typed −31006 wire mapping, `wmp.resolve`/`wmp.credential.notification` unserved, no capability advert | **W2 (the keystone)** |
+| **#472** sign-stage refusal | `sign_response` `error_code:"SIGN_REFUSED"` ends `RequestSign` immediately: verifier gets `access_denied` (no description, +state), client `flow_error` `PRESENTATION_ERROR` + `details.redirect_uri`; WMP-rejected sub-flow → same answer; nothing of the wallet's text relayed | **Gap**: `request_vp` decline maps to −31006 `{"reason":"engine: declined by the user"}` — **the verifier is never told**; `SubFlowError::rejected()` (wmp-core) exists unused | W3 |
+| **#480** auxiliary data v0.1 | `auxiliary_data_supported.{to_wallet,to_issuer}` advert, `AUXILIARY_DATA_UNSUPPORTED` selection refusal, `auxiliary_data_to_issuer`/`_to_wallet` in the proof ask, required `credential_response_encryption` with a `to_wallet` commitment, strict offer decode, HTTP 400 `auxiliary_data_conflict` → `AUXILIARY_DATA_CONFLICT` (never retried) | **Split**: the wallet-side secret rules live in siros-presentation/siros-display (hash_commitment/ssc); response encryption exists. **The engine-side negotiation is absent** — no advert parsing, no selection refusal, no request members, no conflict relay | W4 |
+| **#522** issuer entitlement (ARF 6.6.2.3) | After the trust decision: WRPAC/WRPRC registration check per offered configuration (`pkg/issuertrust`), modes `fail`/`warn`/`off`, findings (≤16, truncated) as progress or `ISSUER_NOT_ENTITLED` refusal | **Absent** — only the `-31020` constant exists (`ERR_ISSUER_NOT_ENTITLED`, wmp-core); no rulebook parsing, no engine call site, no findings | W5 |
+| **#525** consent component | One transport-independent OID4VP consent component (DCQL vetting `dcql_consent_check`, selection handle, observer) | **Different architecture**: consent is the Host-port ask; decline→`access_denied` exists; DCQL vetting/selection-handle absent | W6 (SDK-side) |
+| **#526** entitlement→WMP mapping | `ISSUER_NOT_ENTITLED` → −31020 + `{issuer, issuer_entitlement}` data; `UNTRUSTED_ISSUER` → −31006 `{reason:"untrusted_issuer", retryable:false}`; bounding/filtering of findings | **Absent** (only the code constant) — folds into W5 | W5 |
+| **#527** credential_notification flow (OpenID4x 3.4) | The client-initiated notification as a **flow**: context store (bound to the issuance session+principal, single use per `notification_id`, ≤256 ids, TTL 5 min), capability advert, DPoP `sign_client_auth` sub-flow for client-held keys (htu = endpoint without query/fragment), failure reasons, completion gains `notification_endpoint` + `credentials[].notification_id`; legacy method kept | **Absent** (gap E1): the legacy `wmp.credential.notification` method dispatches (no-op default); the engine's own in-flow §10/§11.1 best-effort send exists (`deferred.rs`). No flow, no context store, no single-use semantics, no capability advert | W7 |
+| **#528** DPoP notification after flow end | The context is spent only after the issuer was actually contacted; a refused/timed-out `sign_client_auth` **restores** it (original expiry); retry until TTL | Absent by consequence of the above — must come with W7 | W7 |
+| **#529** entitlement wiring into the bridge | `errorWire` → #526's mapping; one terminal error per flow (never −31020 and −31006 together); malformed findings dropped, never relayed as a trust result | Nothing to wire until W2/W5 — the rules fold into both | W2+W5 |
+
+### §6.10 The #319 engine seam (stays open, needs a decision)
+
+#319 (wallet-instance revocation) is backend lifecycle work, but its engine
+seam — the token cut-off consulted at **every flow start**
+(`User.AuthInvalidBefore`), the anonymous-token refusal on oid4vci/oid4vp
+flow starts, and the engine session store erased by the cascade — must be
+replicated in the Rust server adapter (a `TokenProvider`-per-user gate on
+`FlowRuntime::start_flow`) **or** guaranteed by the Go middleware in front
+of the Rust engine. Recorded as an architecture decision for the W2 bridge:
+`bearer_principal` today validates signature→`{subject, tenant}` only.
+
+## 7. The fix waves (revised after the PR triage)
+
+1. **W1 — engine-core parity (partially landed)**: the step vocabulary,
+   scheme enforcement, description/sanitization alignment — landed with
+   vectors + wasm self-test. **Remaining from §2: the `awaiting_selection`
+   step + the single-config auto-select** (a multi-config offer needs the
+   `select_credential` action path, like the auth-code grant's two-call
+   resume).
+2. **W2 — the bridge (#163)**: the SSE event pump (`id:` lines,
+   `Last-Event-ID` replay, `410 Gone`, redaction), the OpenID4x profile +
+   step/action translation, the TAC-aware Principal + session-access
+   checks (−31002), the Host↔WMP sub-flow bridge (F1 — today every ask
+   refuses), the typed −31006 wire data, `wmp.resolve`/capability serving,
+   and the #319 seam decision (§6.10).
+3. **W3 — the sign-stage refusal (#472)**: `request_vp` decline/rejected
+   answers the verifier `access_denied` (+state) and the client
+   `PRESENTATION_ERROR` + `redirect_uri`.
+4. **W4 — auxiliary data (#480, engine half)**: the advert, the selection
+   refusal, the request members, the conflict relay, strict offer decode.
+5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
+   (WRPAC/WRPRC, registrar PDP action), the engine call site + modes +
+   findings, the −31020 wire data with bounding.
+6. **W6 — the consent component (#525)**: the SDK-side DCQL vetting and
+   selection handle.
+7. **W7 — the notification flow (#527/#528)**: the flow type, the context
+   store with single-use/spend-after-contact/TTL semantics, the DPoP
+   sub-flow, the capability advert.
+8. **W8 — trust plumbing** (from §3): the eval-context map on
+   `EvaluationRequest`; DID resolution behind `resolve` + engine-side JWT
+   verification.
+9. **W9 — SDK adapter + transports + real testing**: port wiring (F2/F3),
+   `WmpUniFFITransport`, the AAR/XCFramework CI, then end-to-end against
+   the deployed stack.
 
 The suite evidence stands: everything in §4 marked suite-validated is green
 against the OIDF plans (four OID4VCI + OID4VP variants incl. HAIP and
