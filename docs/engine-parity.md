@@ -214,12 +214,16 @@ of the Rust engine. Recorded as an architecture decision for the W2 bridge:
    step + the single-config auto-select** (a multi-config offer needs the
    `select_credential` action path, like the auth-code grant's two-call
    resume).
-2. **W2 — the bridge (#163)**: the SSE event pump (`id:` lines,
-   `Last-Event-ID` replay, `410 Gone`, redaction), the OpenID4x profile +
+2. **W2 — the bridge (#163)**: ✅ the SSE event pump (`id:` lines,
+   `Last-Event-ID` replay, `410 Gone`, the `refresh_token`/`dpop_jwk`/
+   `dpop_key_id` redaction, and the replayer — `wmp.session.resume`'s
+   `missed_messages` counts from the same log); ✅ `wmp.resolve` vctm
+   serving (the six-member projection, `-32603` with
+   `metadata_fetch_error`, `-32602`). Remaining: the OpenID4x profile +
    step/action translation, the TAC-aware Principal + session-access
    checks (−31002), the Host↔WMP sub-flow bridge (F1 — today every ask
-   refuses), the typed −31006 wire data, `wmp.resolve`/capability serving,
-   and the #319 seam decision (§6.10).
+   refuses), the typed −31006 wire data, the capability advert, and the
+   #319 seam decision (§6.10).
 3. **W3 — the sign-stage refusal (#472)**: `request_vp` decline/rejected
    answers the verifier `access_denied` (+state) and the client
    `PRESENTATION_ERROR` + `redirect_uri`.
