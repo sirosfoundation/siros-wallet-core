@@ -214,23 +214,24 @@ released version yet.
   (`ClientBinding::name`, `Verifier::name`). `Text::Joined` shows texts one
   after another, each as it shows alone. A row's
   value is an image or a `Text`. `siros-credman`'s `Field::of`, `SetFacts::of`
-  and `Fulfilment::check` take the caller's plain-text rendering.
-- `siros-paso` converts a type's display rules into a defined module
-  (`view::convert`): one message per display array (`claim_<k>`, a UI label's
-  name) in each language the rules serve among the wallet's languages and
-  their shorter subtag prefixes, the entry that language takes by basic
-  filtering, then the default entry; a template entry an absent claim
-  discards selected by its argument `e<j>`. A `mini_markdown` label is its MF2
-  markup, a template label's `{n}` the argument `c<n>` of claim n's value
-  kind; each language copies the main module's format options, and its
-  direction when the main module states one. Its texts name the module by
-  the metadata's SHA-256. The presentation's language is `siros-i18n`'s
-  `decide`, the decision `Screen::locale` makes, over the wallet's languages
-  (`PasoProfile::with_languages`, English by default) and the module's, then
-  over the languages whose arrays keep an entry the absent claims leave;
-  `display_locale` attests it. A template value of an inner text or
-  `mini_markdown` kind sets each referenced value of a typed kind as its
-  typed text (View §3 step 3). A `mini_markdown` value shows its text without
+  and `Fulfilment::check` take the caller's plain-text rendering (`text_of`).
+- `siros-paso` selects a transaction's locale as PaSO View §4 writes it, over
+  `Env`'s priority list as given: for each tag in order, every display array
+  takes the entry RFC 4647 §3.4's Lookup finds over its tagged entries, else
+  its first entry without a locale, the entries a template with an absent
+  claim discards left out; the first tag whose every array matches is
+  `display_locale`, and none excludes the credential. It converts a type's
+  display rules into a defined module for the priority list
+  (`view::convert`): one message per display array (`claim_<k>`, a UI
+  label's name) in each tag View §4 can select, the entries View §4 tries for
+  it; a template entry an absent claim discards selected by its argument
+  `e<j>`. A `mini_markdown` label is its MF2 markup, a template label's `{n}`
+  the argument `c<n>` of claim n's value kind; each tag copies the format
+  options and direction of the main resource Lookup finds for it. Its texts
+  name the module by the metadata's SHA-256, and its binding reports the
+  module at `display_locale` (`Bound::selected`). A template value of an
+  inner text or `mini_markdown` kind sets each referenced value of a typed
+  kind as its typed text (View §3 step 3). A `mini_markdown` value shows its text without
   its styles. A time of day holds seconds 00 to 59; a date-time's second 60 is
   RFC 3339's leap second. A value's refusal names the rule it breaks
   (`value::Breach`).
@@ -246,9 +247,29 @@ released version yet.
   fetch's and an ad-hoc JWT's encoding failure.
 - `siros-i18n`'s `Declaration::defined` declares a converted module's keys and
   arguments, a parameter name outside the tokens refused with
-  `ModuleError::ParameterName`; `siros-i18n`'s `decide` and `Served` give the
-  language decision over any modules' tags; `siros-explain` adds
-  `Keyed::first_of`, `DefinedKey::numbered` and `ParamKind::new`.
+  `ModuleError::ParameterName`; `siros-explain` adds `Keyed::first_of`,
+  `DefinedKey::numbered` and `ParamKind::new`.
+- Each consent entry's texts take one language. `Screen::selecting` shows the
+  module a profile selected a locale for in that locale, refused with
+  `NoLanguage::Selected` when the module holds none, and `Screen::locale`
+  decides the other modules over the priority list headed by it.
+  `Match::run` and `Prepared::prepare` take the `Rendering` the app built (the
+  package, the render halves, the app's modules beside the defined ones); an
+  entry no language serves, or whose selected module the package lacks, is
+  excluded (`ExcludedBy::Language`).
+- A record commits to its rendering inputs: its id's last item writes the
+  language and its fallback flag, each module's name and digest, the amounts,
+  the bidi strategy and the renderer's version (`RenderingInputs`, which holds
+  the options that change a text). Phase 2 answers only byte-equal records,
+  and a pick naming a derived record with other inputs falls back with
+  `Finding::Rendered` naming the first input that differs.
+- `siros-credman::emit` is the matcher's entry emission: every choice of a
+  display as Credential Manager draws it, plain text through the
+  registration's package, every entry rendered before the first is added and
+  `RenderOptions::on_error` applied; the feature `register` writes the
+  package with each card's texts precomputed. `Renderer::holds` tells a held
+  text and `Package::spans` places each entry. `siros-testkit`'s `App` renders
+  as the core's renderer of an entry, the selection given per call.
 
 ### Removed
 

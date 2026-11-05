@@ -2955,8 +2955,8 @@ PaSO's rule applies.
 | Level 4 | Internal | View §2 |
 | A payment's `amount` and `payee.name`; an action's `action` | Displayed at every level; the payment's two in its header (RTS Art. 5(1)(a)) | Payment rulebook |
 | A field without claim metadata | Internal | View §2 |
-| Claim labels: `display` entries with `lang`, `label`, `description` | `lang` read as the entry's locale, `label` as its name; `description` unused | Proof Metadata §3.1 |
-| Locale matching, which TS12 leaves open | RFC 4647 basic filtering over every label array, one language for the presentation (section 4.14); no language excludes the credential (§3.3.1: cease) | View §4 |
+| Claim labels: `display` entries with `lang`, `label`, `description` | `lang` read as the entry's locale, `label` as its name; `description` unused. TS12 was not written for View §4's Lookup, so its tags convert as TS12 means them: an entry whose array holds no entry under its language's generic tag (the tag without its region and variants, its script kept) is that language's text and converts under the generic tag, the first such entry in the array's order when several regions of one language stand alone. WE BUILD's claim labels tagged `en-GB` beside no `en` are English and convert to `en` | Proof Metadata §3.1 |
+| Locale matching, which TS12 leaves open | View §4 as written over the converted tags: the first tag of the priority list for which every label array matches by RFC 4647 Lookup or its default entry (section 4.14); no tag excludes the credential (§3.3.1: cease) | View §4 |
 | Label lengths in "characters" | §3.3.3's 30, 30, 50 and 250 in extended grapheme clusters; claim labels 60; PaSO's rules on directional and control characters | Proof Metadata §3.3 |
 | `transaction_title`, `denial_action_label` absent | The wallet's title and denial label (§3.3.3) | Proof Metadata §3.2 |
 | `security_hint` | Shown exactly; absent, none | Proof Metadata §3.2 |
@@ -3918,54 +3918,74 @@ pub trait Sink { fn text(&mut self, text: &str); fn open(&mut self, style: Style
 
 **One language per presentation.** A presentation's texts come from several modules: the
 wallet's own, a credential's type metadata, a transaction type's PaSO or TS12 metadata. Each
-module covers its own languages, and metadata can lack the wallet's. The presentation is in one
-language all the same.
+module covers its own languages, and metadata can lack the wallet's. PaSO View §4 fixes the
+language of a transaction's texts; the presentation's other texts follow it wherever the wallet
+covers it.
 
 - **The priority list** is the languages the End-User understands, in order, as the app gives
   it; the core uses it as given. `Env` holds it, and the registration holds it for the matcher.
   `Env`'s documentation suggests the app's practice: put each tag's generic form right after it,
   the language with its script if the tag names one (`[en-US, en]`; `zh-Hant-TW` then
   `zh-Hant`), so that texts tagged by language match a reader whose platform names a region.
-- **The language.** The presentation's language is the first tag of the list for which every
-  module the presentation draws from matches every key it shows: by the matching rule below over
-  the module's tags, or, in a PaSO module, by an array's default entry (View §4). The wallet's own
-  modules are among them, so every text of the presentation, the wallet's included, is in that
-  language: View §4's switch of the entire interface to a language the user understands, made
-  the rule. PaSO's `display_locale` is that tag.
+- **PaSO's locale.** siros-paso selects a transaction's locale as View §4 writes it, for PaSO's
+  metadata and for TS12's, which converts to it with its tags read as TS12 means them (section
+  4.10.2's display table). For each tag of the priority list in order,
+  every `display` array of the transaction type's claims and UI labels takes the entry RFC 4647
+  Lookup (§3.4) finds with the tag as the range over the array's tagged entries, else its first
+  entry without a locale (its default entry); an entry a template with an absent claim discards
+  takes no part (View §3). The first tag whose every array matches is selected, its matched
+  entries render, and no later tag is tried. A default entry is a match: the tag stands when some
+  or all arrays matched through their default entries. When no tag matches every array the
+  credential is excluded (View §4); when only discarded entries stop every tag, the entry is not
+  compatible (View §3). The selected tag is `display_locale` (Core §6.1, §7.2): the selector of
+  the metadata's i18n entries, which a verifier replays over the metadata the record commits to
+  (`metadata_integrity`) and the payload to reconstruct the entries the End-User saw. The owner:
+  "for paso, the point is to save the selector for the i18n entries so it can be
+  deterministically replayed", and "paso should be respected as written, figure it out, it was
+  well studied". A profile that selects its texts' locale itself reports it with its binding; the
+  core names no profile.
+- **The language.** The wallet's own modules, a credential's type metadata and every other module
+  of the presentation take one language: the first tag, over the priority list headed by the
+  locale a profile selected, for which every such module matches every key it shows, by the
+  matching rule below. The presentation is in PaSO's locale whenever the wallet covers it: View
+  §4's switch of the entire interface to a language the user understands. When the wallet does
+  not cover it, PaSO's texts stay in PaSO's locale and the other texts take the first tag of the
+  End-User's list they match.
 - **Enforcement.** Whether the presentation must stay in a language the End-User understands is a
-  module's language policy. PaSO and TS12 set it for their modules (View §4 excludes the
-  credential when no locale matches; TS12 §3.3.1 ceases): siros-paso's and siros-ts12's
-  converters set `Converted::policy` to `Understood`, and `Module::load` takes a defined module's
-  policy from its converted module. For a module no specification governs, the app answers
-  through `Platform::language_policy`, and the registration records the answers for the
-  matcher. When no tag of the priority list serves every module and one of them enforces, the
-  entry is excluded. When none enforces, the presentation takes the first tag of the app's
-  fallback list that every module matches, and the record marks the fallback; with none, or an
-  empty fallback list, the entry is excluded. The wallet offers the languages of its
-  translations, each crate module covers them (I30), so the wallet's own texts never narrow the
-  choice.
-- **No second language.** A module that lacks the presentation's language excludes the entry or
-  moves the whole presentation to a fallback tag; it never shows one of its other languages. A
-  PaSO default entry is View §4's one exception: it matches every language, its text carries no
-  tag, and the issuer answers for it, as for a `Raw` text.
-- **One decision.** One function decides the language, `Screen::locale`, over the priority and
-  fallback lists, the modules and their policies. The registration writer uses it for each credential's candidate
-  languages, the matcher with the request's transaction type, phase 2 when it re-derives. The
-  record holds the language and whether it fell back, and phase 2 answers only byte-equal
-  records, so the consent screen is in the picker's language.
-- **Matching.** A tag of the priority list matches an entry whose tag equals it or extends it,
-  RFC 4647 basic filtering (§3.3.1): `en` matches `en`, `en-US` and `en-GB`; `en-US` matches
-  `en-US` and its extensions, and never `en` or `en-GB`. Among several matching entries, the one
-  equal to the tag, else the first in the array's order. A module tags its texts by language
-  (`en`), and by region only for a regional variant (`en-GB`); the wallet's own modules do. The
-  rule replaces View §4's Lookup, and View §4's text changes with it. The owner set it: "en
-  should match enUS or enGB", "but not the other way around", and "it is expected modules define
-  things as en and only en-US or en-GB if they want more precise variants, wallets should request
-  an array in roder of preference, and if they request a specific they should generally also put
-  the generic after [en-US, en]". WE BUILD's TS12 example, its claim labels tagged `en-GB` and
-  its action labels `en`, is presented in `en` to a list `[en-US, en]` or `[en-GB, en]`: the
-  specific tag misses one array, and `en` matches both. A list of `en-US` alone matches neither
-  array, and the entry is excluded.
+  module's language policy. PaSO and TS12 set it for their transactions through View §4's
+  exclusion (TS12 §3.3.1 ceases). For a module no specification governs, the app answers through
+  `Platform::language_policy`, and the registration records the answers for the matcher. When no
+  tag serves every module and one of them enforces, the entry is excluded. When none enforces,
+  the presentation takes the first tag of the app's fallback list that every module matches, and
+  the record marks the fallback; with none, or an empty fallback list, the entry is excluded. The
+  wallet offers the languages of its translations, each crate module covers them (I30), so the
+  wallet's own texts never narrow the choice.
+- **No second language within a module.** A module shows one language: PaSO's arrays the entries
+  View §4 matched for PaSO's locale, every other module the presentation's language. A module
+  that lacks the presentation's language excludes the entry or moves the presentation's language
+  to a fallback tag; it never shows one of its other languages. A PaSO default entry carries no
+  tag, and the issuer answers for its text, as for a `Raw` text.
+- **One decision each.** siros-paso's View §4 selection decides PaSO's locale, and
+  `Screen::locale` the presentation's language, over the priority list headed by the profile's
+  locale, the fallback list, the modules and their policies. The registration writer uses them
+  for each credential's candidate languages, the matcher with the request's transaction type,
+  phase 2 when it re-derives. The record holds PaSO's locale (`display_locale`), the language and
+  whether it fell back, and phase 2 answers only byte-equal records, so the consent screen is in
+  the picker's languages.
+- **Matching.** For the modules `Screen::locale` decides over, a tag of the priority list matches
+  an entry whose tag equals it or extends it, RFC 4647 basic filtering (§3.3.1): `en` matches
+  `en`, `en-US` and `en-GB`; `en-US` matches `en-US` and its extensions, and never `en` or
+  `en-GB`. Among several matching entries, the one equal to the tag, else the first in the
+  array's order. A module tags its texts by language (`en`), and by region only for a regional
+  variant (`en-GB`); the wallet's own modules do. The owner set it: "en should match enUS or
+  enGB", "but not the other way around", and "it is expected modules define things as en and
+  only en-US or en-GB if they want more precise variants, wallets should request an array in
+  roder of preference, and if they request a specific they should generally also put the generic
+  after [en-US, en]". PaSO's arrays keep View §4's Lookup over the tags their authors wrote for
+  it. WE BUILD's TS12 example tags its claim labels `en-GB` beside no `en` and its action labels
+  `en`; TS12 was not written for PaSO, and its `en-GB` labels are English, which siros-ts12's
+  conversion tags `en`. View §4 then presents the example to every list whose Lookup reaches
+  `en` (`[en-US, en]`, `[en-US]`, `[en-GB]`, `[en]`) and excludes it for a list without English.
 
 **Texts.** A consent entry (`Card`, `Overlay`, `TransactionHeader`), a row, a record and the
 matcher's pick hold `Text`, the unrendered form. The 16 `String` fields become `Text`; siros-credman's
@@ -5278,7 +5298,7 @@ lists the files). A line can hold one call; a file several.
 | PaSO View's vocabulary leaves the core for siros-paso's conversion (`LabelKind`, `FormattedKind`, `ValueKind`, `Parsed`, `Label`, `Value::Formatted`, the `mini_markdown` parser); the uses outside siros-paso become `Text` | 65 | 10 |
 | `Env`'s `Amounts` → a rendering input the record commits to | 19 | 7 |
 | `Env::new` takes the priority list as given, the fallback list and `RenderOptions`; `DisplayLocale` and `EnvError::NotInTable` are removed | 14 | 12 |
-| `text::lookup` → RFC 4647 basic filtering (section 4.14): a tag matches an equal tag, else the first tag extending it; siros-paso's View §4 selection calls it | 1 function | 1 |
+| `text::lookup` → RFC 4647 basic filtering (section 4.14): a tag matches an equal tag, else the first tag extending it, for the modules `Screen::locale` decides over; siros-paso's View §4 selection keeps RFC 4647 Lookup, its own | 1 function | 1 |
 | oracle `export.py`: a signed request becomes a JWS over its parameters, with `client_id` `test:verifier` (`req.signed`) | 4 | 2 |
 | oracle `wire_digest`: the same formula over the new JWS text | 10 | 3 |
 
@@ -5434,7 +5454,7 @@ section 4.5's recourse says.
 | I30 | Modules are complete and compatible (section 4.14). | The crate modules with their English sources, and the corpus's PaSO and type metadata converted: every one loads. One fixture per load rule, each refused for its rule and no other: a message that does not parse (`Syntax`), a key missing in a supported locale (`Missing`), an undeclared argument (`Argument`), a function that refuses the argument's kind or its own options (`Kind`), a function no registered format module provides (`Function`), a format option missing in a supported locale (`Option`), an option text its format refuses (`OptionText`), markup naming a style the renderer does not apply (`Markup`), a locale's source given twice (`Locale`), a declaration with two different messages under one identifier (`Declaration`), two load halves sharing a `FormatId` or a function (`Compiler`). An argument name twice cannot be declared: `Names` refuses it when the crate builds (I27), and a converter declares a defined module's arguments in a `Keyed`. A crate module's declaration equals its code's `Messages`: two equal sets of keys and argument kinds. Each crate module's keys equal the messages of every `Explain` type that I27's source check counts. |
 | I31 | Rendering is verifiable. | Over the differentials' corpus, the matcher's build and the wallet's build render byte-equal texts from the same `Text` and rendering inputs (the language and its fallback flag, each module's digest, the rendering options, the renderer's version): 0 differences. A module altered after its digest was taken is refused when it loads. Phase 2 refuses a pick whose rendering inputs differ from its own. The en and de texts of `f718dc3`'s tables equal the new rendering, or each difference is classed. |
 | I32 | `Raw` is the last resort. | Every `Text::Raw` construction and every `Explain` field whose argument kind is `Raw` in the shipped crates is classed: a text an issuer or a Verifier wrote outside any module, or a received value without a type. Unclassed: 0. |
-| I33 | One language per presentation (section 4.14). | A property over priority lists, module tag sets, default entries and enforcement: the language is the first tag of the list every module matches; with no such tag, an enforcing module excludes the entry, and without one the fallback is a language every module covers, marked in the record; every rendered text of the presentation comes from its module's entry for that language or a PaSO default entry. Known answers, from RFC 4647 §3.3.1 and the list's rule: `en` over `[en-GB]` gives `en-GB`, over `[en-US, en-GB]` gives `en-US`, over `[en-GB, en]` gives `en`; `en-US` over `[en]`, `en-US` over `[en-GB]` and `en-GB` over `[en]` give none. The core uses the list as given: WE BUILD's TS12 example is presented in `en` to `[en-US, en]` and `[en-GB, en]`, and excluded for `[en-US]`. Over the corpus, PaSO's `display_locale` equals the record's language, and the picker's and the consent's languages are equal: 0 differences. |
+| I33 | One language per presentation where PaSO View §4 allows it (section 4.14). | PaSO's locale, a property over priority lists, display arrays, default entries and discarded template entries, against a selection the test writes from View §4: the first tag whose every array matches by RFC 4647 Lookup or its default entry, the credential excluded with none. Known answers from RFC 4647 §3.4: `de-CH` over `[de]` gives `de`; `en-US` over `[en]` gives `en`; `en` over `[en-GB]` gives none, and the default entry answers. WE BUILD's TS12 example, its `en-GB` claim labels converted to `en`, is presented to `[en-US, en]`, `[en-US]`, `[en-GB]` and `[en]` under the list's first tag, and excluded for `[de]`; an array of `en-GB` and `en-US` labels beside no `en` converts its first to `en` and keeps the second. Replaying `display_locale` by View §4's step 1 over the metadata and the payload gives the consent's entries: 0 differences. The language, a property over priority lists, profile locales, module tag sets and enforcement: the first tag of the list headed by the profile's locale that every module matches; with none, an enforcing module excludes the entry, and without one the fallback is a language every module covers, marked in the record; every text of those modules comes from its module's entry for that language. Known answers from RFC 4647 §3.3.1 and the list's rule: `en` over `[en-GB]` gives `en-GB`, over `[en-US, en-GB]` gives `en-US`, over `[en-GB, en]` gives `en`; `en-US` over `[en]`, `en-US` over `[en-GB]` and `en-GB` over `[en]` give none. Over the corpus, the picker's and the consent's languages and PaSO locales are equal: 0 differences. |
 | I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside idna's UTS #46 back end (`idna_adapter` with icu_normalizer, icu_properties and the crates they pull in), which section 4.9.3 requires: its unicode-rs back end adds +136,360 bytes to the matcher. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
 | I35 | Dates and times render as ICU4X renders them. | For every locale the wallet ships, the renderer's dates and times at each length, with the options the CLDR tool writes, equal ICU4X 2.4's `DateTimeFormatter` over the same CLDR release, for each day of 2000 to 2030 at 00:00, 09:05, 12:00 and 23:59, and for 4 March and 31 December of every year 0 to 3000 and of 9999: 0 differences. Classed: German `full` dates before year 1000, where CLDR 49's pattern holds the field `Y` and ICU4X writes a literal `Y`. In the per-merge tier (`#[ignore]`). |
 | I36 | Numbers, plural categories, currencies and lists render as ICU4X renders them. | For every locale the wallet ships: plural categories and number texts for the 153 values of the probe (integers, decimals with and without trailing zeros, negatives, large numbers); an amount in every ISO 4217 currency; and- and or-lists of one to five items, the special-case initials included: each, with the options the CLDR tool writes, equal to ICU4X 2.4 over the same CLDR release: 0 differences. Classed: the German cells where CLDR 49 sets a symbol to its code and ICU4X's datagen falls back to root's symbol (PHP's symbol, SYP's narrow symbol, XXX's symbol and narrow symbol). In the per-merge tier (`#[ignore]`). |
@@ -6388,7 +6408,7 @@ every workspace run passes; the branch's base is green from its merge of origin/
 | 2 | The presentation core | (a) The plan's crates with names of their own arrive as they are: siros-openid4vp, siros-x509, siros-paso, siros-qes, siros-testkit, siros-explain, siros-explain-derive, siros-i18n, siros-cldr. Each takes edition 2024, its lints at its root, `publish = false` and `repository.workspace`. The 7 panic sites are fixed, the differential tests move to the harness, and `clippy.toml` takes the union. (b) The colleague's crates and `proving/` move off siros-codec, siros-dcql and siros-oid4vp onto the core (section 10.5). siros-trust and siros-wallet-state take the core's types and their own internals. The deterministic encoder arrives. (c) The plan's siros-mdoc and siros-sdjwt replace the base's. siros-mdoc carries the stored mdoc's reader with Annex D's known answer, and siros-zkp-catalogues moves onto it. siros-credential, siros-display, siros-transaction-data and siros-presentation leave. siros-integration arrives without siros-zkp-req. (d) siros-codec, siros-dcql and siros-oid4vp leave. `docs/wallet-core-design.md` replaces the architecture document; AGENTS.md, CONTRIBUTING.md, README and CHANGELOG follow. | R1, R2, R3, R4, R6. The imported tests pass: `a307cca`'s 248, less the moved differential tests and siros-zkp-req's, each named. siros-integration passes without siros-zkp-req, I25's removal case. The Annex D DeviceResponse reads through siros-mdoc. |
 | 3 | The modular core | Section 6's commits 1 to 12, each its own commit. A moved type takes every caller, the colleague's crates included: commit 6 moves their handover imports to siros-mdoc. Commit 9 carries A9 and K4 into siros-credman. | Each commit builds alone. The plan's I1, I14, I22, I23, I25, I39 and I40 at their commits; R2 to R6. I10 waits on the owner's trade. |
 | 4 | The response side | Section 6's response side: `ModeHost` with `wallet_metadata` and `answer` beside `encryption`, `ErrorModeHost` and `error_mode` over `HostedErrorMode`, `ModeTwice` over the registrations' `TypeId`s; the route over the `Authenticated`'s `VerifierMetadata` and the envelope's `nonce`, `ChannelRoute` with the session's binding facts, `AnswerRoute` with `session`, `Unroutable`; the sealing and `RouteBreach`'s seven causes; `ResponseParameters` in every build with `ResponseParametersHost`, `HostedResponseParameters`, `RegisteredParameters`, `ParameterBreach`, `CORE_RESPONSE`, `NamePlace::ResponseParameter` and `TestResponseParameters`; `FormBody::of` over `impl Serialize` with `NotForm`, `MediaType::form`, the bodies, `ResponseForm::of`, `ErrorForm::of`, the deliveries with `ResponseUriAnswer::parse` and `ErrorDescription::sanitized`; `Rejected::reply`, `DcApiErrors`, `Reply`; `UnmetCode` and `Match::unmet` over `ExcludedBy`; phase 1's `Candidate::bound` holding a `TransactionBinding`, from which `prepare` builds a record's `Transacted`; `Prepared::prepare` over the `Authenticated` with the ids as a slice and URI modes; the core's four modes; siros-testkit's `JweHaip`, `TestBody`, `TestChoice::Foreign`, `fixtures::authenticate`; `ResponseData` leaves. | KA6 (jose-rs 0.10), KA8, KA13, KA15, KA18 in F5; `prepare`'s arms over a candidate's binding beside `Accepted::transaction`: 0; I1; I2, its property run per registered mode, the core's four and 24 `TestMode` variants; I5; section 8.2's recourse and extension-output fixtures; section 5.4's flows F5 and F10 to F12 end to end in siros-integration (`flows.rs`), F10 to F12 without siros-ts12, F11 and F12 over PaSO Core A.1's payment entry; R4, R6. |
-| 5 | Rendering | Decision 19's rows of section 6's second table: `TableLocale` tables → MF2 messages; box and row texts → `Text`, the 16 `String` fields and the sites that build them; PaSO View's vocabulary leaving the core for siros-paso's conversion; `Env`'s `Amounts` as a rendering input the record commits to; `Env::new` with the priority list, the fallback list and `RenderOptions`; `text::lookup` → RFC 4647 basic filtering. The siros-i18n edges of section 4.11's crate table: the core's (`render`, `number`, `list`) and siros-paso's (`number`, `currency`, `date`), which siros-ts12 reaches through siros-paso; I39's siros-i18n column. siros-sdjwt's loading of a type metadata document's `display` (section 4.14) lands with milestone 6, which lands the `dc+sd-jwt` document. | I28, I31, I32, I33, I37, I38; I6's PaSO View part; I39's siros-i18n column; R4, R6. |
+| 5 | Rendering | Decision 19's rows of section 6's second table: `TableLocale` tables → MF2 messages; box and row texts → `Text`, the 16 `String` fields and the sites that build them; PaSO View's vocabulary leaving the core for siros-paso's conversion; `Env`'s `Amounts` as a rendering input the record commits to; `Env::new` with the priority list, the fallback list and `RenderOptions`; `text::lookup` → RFC 4647 basic filtering for the core's modules, siros-paso's View §4 selection on RFC 4647 Lookup as PaSO writes it. The siros-i18n edges of section 4.11's crate table: the core's (`render`, `number`, `list`) and siros-paso's (`number`, `currency`, `date`), which siros-ts12 reaches through siros-paso; I39's siros-i18n column. siros-sdjwt's loading of a type metadata document's `display` (section 4.14) lands with milestone 6, which lands the `dc+sd-jwt` document. | I28, I31, I32, I33, I37, I38; I6's PaSO View part; I39's siros-i18n column; R4, R6. |
 | 6 | The formats on the wire | siros-sdjwt: the issued SD-JWT (S1 to S4), its `dc+sd-jwt` document, whose `display` loads as a defined module (section 4.14, "PaSO's rules load as a module"), its view with validity, in place of the stand-in presentation. siros-mdoc: the view from a stored mdoc, with validity. The harness reads the wire presentations back into the model's shape, as section 4.9.4's `Rebuild` does for mdoc. | RFC 9901 A.1 to A.4 and §5: the processed claims and the presentations equal the RFC's. A disclosure removed after the Key Binding JWT is signed fails `sd_hash`, refused for that cause. For every view the testkit's issuers issue, the registration's view equals it: 0 differences over the corpus. R4, R6. |
 | 7 | Registration | siros-trust writes the core's `Facts`, and the rule moves to `Facts::admits`. siros-wallet-state chooses a batch's instance (C5). The claims kit merges metadata (D1, D3), shows bytes by their length (D5), and reads every metadata text through `DisplayText`. | The private data specification's fixtures and vectors pass (W1 to W4). Annex D's Document Signer is admitted by its `aki` and by a store entry. One rule: `fn admit` in siros-trust outside `AdmittedIssuer`, 0. `auxiliary_data` in a registered view, over the fixtures: 0. `DisplayText`'s refused set equals unicode-general-category's Cc, Cf, Zl, Zp, Co and Cn. R4, R6. |
 | 8 | WE BUILD | Section 6's WE BUILD commits: the core's part, siros-paso's seams, siros-ts12 with its TS12 entry, which F11 and F12 run in place of PaSO Core A.1's payment entry, siros-webuild, the WE BUILD build in siros-integration. | KA21 to KA24; I16 to I21; section 8.2's siros-ts12 fixtures; R4, R6. |
@@ -6492,6 +6512,13 @@ At source level, each with the reason the build reads it no further (`trace/sour
   points to, the trust service's.
 - PaSO, draft 2 (`1004b26`): siros-paso's specification, whose engine siros-ts12 renders through
   (section 4.10.3).
+- PaSO's Log Module (draft 2, `proof/paso-proof-log.md`): the caller's audit log, built from the
+  core's inputs and outputs. The request as received is `Received`. The metadata JWTs and the
+  resources are the ones the caller supplies; the record attests `metadata_integrity`, and every
+  fetch is the caller's (`Prepared::questions`). The Authorization Response and the bytes
+  delivered are `Built::response` and `Built::delivery`, the time `Platform::now`. §5's replay
+  runs phases 1 and 2 again over the logged inputs, trust answers and `Env` included, with the
+  logged choices; the record's rendering inputs refuse a replay whose modules changed (I31).
 - WE BUILD's Interoperability Test Bed (nxd-wallet-conformance-backend `179507e`): the oracle of
   KA23 and I21.
 
