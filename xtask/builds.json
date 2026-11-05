@@ -65,7 +65,22 @@
           ]
         }
       ],
-      "fewer_than": 96
+      "fewer_than": 96,
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "mdoc over the DC API, unsigned",
@@ -126,7 +141,22 @@
         }
       ],
       "fewer_than": 96,
-      "differs_from": "SD-JWT over the DC API, unsigned"
+      "differs_from": "SD-JWT over the DC API, unsigned",
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "SD-JWT by URI with siros-x509",
@@ -185,7 +215,22 @@
             "render"
           ]
         }
-      ]
+      ],
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "siros-paso with SD-JWT",
@@ -254,7 +299,24 @@
             "render"
           ]
         }
-      ]
+      ],
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "HAIP",
@@ -314,7 +376,22 @@
             "render"
           ]
         }
-      ]
+      ],
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     },
     {
       "name": "WE BUILD",
@@ -387,7 +464,24 @@
             "render"
           ]
         }
-      ]
+      ],
+      "matcher": {
+        "without": [
+          "siros-i18n"
+        ],
+        "exact": [
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "list",
+              "number",
+              "render"
+            ]
+          }
+        ]
+      }
     }
   ],
   "alone": [

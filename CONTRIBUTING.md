@@ -70,8 +70,8 @@ owns it and say why there.
 
 A build compiles what it registers. `cargo xtask builds` checks each build of
 `xtask/builds.json`, the design's section 4.11, against the crates it must not
-compile, the features siros-i18n compiles with, and the count of crates it
-stays below; `cargo xtask alone` checks each crate alone and the workspace
+compile, the features siros-i18n compiles with in the wallet's build and in the
+matcher's, and the count of crates it stays below; `cargo xtask alone` checks each crate alone and the workspace
 crates it names. A change that adds a feature or a dependency edge updates the table
 in the same pull request.
 

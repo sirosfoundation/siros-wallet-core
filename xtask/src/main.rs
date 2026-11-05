@@ -3,7 +3,8 @@
 //! - `builds`: each build of `xtask/builds.json` (the crates an app depends on, each with the
 //!   features it turns on) compiles none of the crates and crate features its row excludes, each
 //!   crate its row lists as exact with those features alone, fewer crates than its row's bound,
-//!   and another set of crates than the build its row names. A
+//!   and another set of crates than the build its row names. A row's `matcher` is the build of
+//!   the same crates less those it leaves out, held to its own exact crates. A
 //!   build is a probe package, written under `target/xtask/`, that depends on its crates; `cargo
 //!   tree -e normal` lists what it compiles, over the workspace's lock file, each crate counted
 //!   once per version.
@@ -61,11 +62,94 @@ struct Build {
     exact: Vec<Dependency>,
     fewer_than: Option<usize>,
     differs_from: Option<String>,
+    matcher: Option<Matcher>,
+}
+
+/// A build's matcher: the build's crates less those it leaves out, and the crates it compiles
+/// with exactly the features listed.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Matcher {
+    without: Vec<String>,
+    exact: Vec<Dependency>,
+}
+
+/// What one probe compiles: its crates, each once, and each crate's features.
+struct Tree {
+    crates: Vec<(String, String)>,
+    features: Vec<(String, String)>,
+}
+
+impl Tree {
+    /// The tree of a probe's manifest.
+    fn of(manifest: &Path) -> Result<Self, Failure> {
+        let manifest = manifest.to_string_lossy();
+        let tree = |edges: &str| {
+            cargo(&[
+                "tree",
+                "--offline",
+                "-e",
+                edges,
+                "--prefix",
+                "none",
+                "--manifest-path",
+                &manifest,
+            ])
+        };
+        Ok(Self {
+            crates: compiled(&tree("normal")?),
+            features: enabled(&tree("normal,features")?),
+        })
+    }
+
+    /// The excluded crates and `crate/feature` pairs it compiles.
+    fn forbidden<'b>(&self, forbid: &'b [String]) -> Vec<&'b str> {
+        forbid
+            .iter()
+            .filter(|forbidden| match forbidden.split_once('/') {
+                Some(pair) => self
+                    .features
+                    .iter()
+                    .any(|(name, feature)| (name.as_str(), feature.as_str()) == pair),
+                None => self.crates.iter().any(|(name, _)| name == *forbidden),
+            })
+            .map(String::as_str)
+            .collect()
+    }
+
+    /// Each exact crate it compiles with other features, with the features it compiles.
+    fn inexact(&self, exact: &[Dependency]) -> Vec<String> {
+        exact
+            .iter()
+            .filter_map(|exact| {
+                let mut compiled: Vec<&str> = self
+                    .features
+                    .iter()
+                    .filter(|(name, _)| *name == exact.name)
+                    .map(|(_, feature)| feature.as_str())
+                    .collect();
+                compiled.sort_unstable();
+                let mut want: Vec<&str> = exact.features.iter().map(String::as_str).collect();
+                want.sort_unstable();
+                (compiled != want).then(|| format!("{} [{}]", exact.name, compiled.join(", ")))
+            })
+            .collect()
+    }
+}
+
+/// `n of m`, with the failing entries named.
+fn listed(found: &[impl AsRef<str>], of: usize) -> String {
+    let named: Vec<&str> = found.iter().map(AsRef::as_ref).collect();
+    if named.is_empty() {
+        format!("0 of {of}")
+    } else {
+        format!("{} of {of}: {}", named.len(), named.join(", "))
+    }
 }
 
 /// A crate and features: one a build depends on, without its default features, with the features
 /// it turns on; or one a build compiles with these features and no other.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Dependency {
     name: String,
@@ -203,55 +287,18 @@ impl Workspace {
 const PROBE: &str = "xtask-build-probe";
 
 /// Each build's tree against its row: none of its excluded crates, each exact crate with its
-/// features alone, fewer crates than its bound, another set than the build it names; true when
-/// every build holds.
+/// features alone, fewer crates than its bound, another set than the build it names; its
+/// matcher's tree none of the excluded crates and each of its exact crates with its features
+/// alone; true when every build holds.
 fn builds(workspace: &Workspace) -> Result<bool, Failure> {
     let table = workspace.table()?;
     let mut compiled_sets: Vec<(&str, Vec<(String, String)>)> = Vec::new();
     let mut holds = true;
     for (place, build) in table.builds.iter().enumerate() {
-        let manifest = probe(workspace, place, build)?;
-        let manifest = manifest.to_string_lossy();
-        let tree = |edges: &str| {
-            cargo(&[
-                "tree",
-                "--offline",
-                "-e",
-                edges,
-                "--prefix",
-                "none",
-                "--manifest-path",
-                &manifest,
-            ])
-        };
-        let crates = compiled(&tree("normal")?);
-        let features = enabled(&tree("normal,features")?);
-        let found: Vec<&str> = build
-            .forbid
-            .iter()
-            .filter(|forbidden| match forbidden.split_once('/') {
-                Some(pair) => features
-                    .iter()
-                    .any(|(name, feature)| (name.as_str(), feature.as_str()) == pair),
-                None => crates.iter().any(|(name, _)| name == *forbidden),
-            })
-            .map(String::as_str)
-            .collect();
-        let inexact: Vec<String> = build
-            .exact
-            .iter()
-            .filter_map(|exact| {
-                let mut compiled: Vec<&str> = features
-                    .iter()
-                    .filter(|(name, _)| *name == exact.name)
-                    .map(|(_, feature)| feature.as_str())
-                    .collect();
-                compiled.sort_unstable();
-                let mut want: Vec<&str> = exact.features.iter().map(String::as_str).collect();
-                want.sort_unstable();
-                (compiled != want).then(|| format!("{} [{}]", exact.name, compiled.join(", ")))
-            })
-            .collect();
+        let tree = Tree::of(&probe(workspace, &format!("build-{place}"), &build.crates)?)?;
+        let found = tree.forbidden(&build.forbid);
+        let inexact = tree.inexact(&build.exact);
+        let crates = tree.crates;
         let bounded = build.fewer_than.is_none_or(|bound| crates.len() < bound);
         let distinct = match &build.differs_from {
             None => true,
@@ -269,27 +316,15 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
             }
         };
         println!(
-            "build {}: {} crates{}; forbidden {} of {}{}; inexact {} of {}{}{}",
+            "build {}: {} crates{}; forbidden {}; inexact {}{}",
             build.name,
             crates.len(),
             build
                 .fewer_than
                 .map(|bound| format!(" (fewer than {bound}: {})", verdict(bounded)))
                 .unwrap_or_default(),
-            found.len(),
-            build.forbid.len(),
-            if found.is_empty() {
-                String::new()
-            } else {
-                format!(": {}", found.join(", "))
-            },
-            inexact.len(),
-            build.exact.len(),
-            if inexact.is_empty() {
-                String::new()
-            } else {
-                format!(": {}", inexact.join(", "))
-            },
+            listed(&found, build.forbid.len()),
+            listed(&inexact, build.exact.len()),
             build
                 .differs_from
                 .as_ref()
@@ -297,6 +332,25 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
                 .unwrap_or_default(),
         );
         holds &= found.is_empty() && inexact.is_empty() && bounded && distinct;
+        if let Some(matcher) = &build.matcher {
+            let crates: Vec<Dependency> = build
+                .crates
+                .iter()
+                .filter(|dependency| !matcher.without.contains(&dependency.name))
+                .cloned()
+                .collect();
+            let tree = Tree::of(&probe(workspace, &format!("matcher-{place}"), &crates)?)?;
+            let found = tree.forbidden(&build.forbid);
+            let inexact = tree.inexact(&matcher.exact);
+            println!(
+                "build {} matcher: {} crates; forbidden {}; inexact {}",
+                build.name,
+                tree.crates.len(),
+                listed(&found, build.forbid.len()),
+                listed(&inexact, matcher.exact.len()),
+            );
+            holds &= found.is_empty() && inexact.is_empty();
+        }
         compiled_sets.push((build.name.as_str(), crates));
     }
     Ok(holds)
@@ -304,18 +358,18 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
 
 /// Writes the probe package of a build under `target/xtask/`, over the workspace's lock file;
 /// its manifest's path.
-fn probe(workspace: &Workspace, place: usize, build: &Build) -> Result<PathBuf, Failure> {
-    let directory = workspace
-        .root
-        .join("target")
-        .join("xtask")
-        .join(format!("build-{place}"));
+fn probe(
+    workspace: &Workspace,
+    directory: &str,
+    crates: &[Dependency],
+) -> Result<PathBuf, Failure> {
+    let directory = workspace.root.join("target").join("xtask").join(directory);
     let source = directory.join("src");
     fs::create_dir_all(&source).map_err(|e| Failure::Io(source.clone(), e))?;
     let mut manifest = format!(
         "[package]\nname = \"{PROBE}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\n"
     );
-    for dependency in &build.crates {
+    for dependency in crates {
         let path = workspace.directory(&dependency.name)?;
         let features: Vec<String> = dependency
             .features
