@@ -111,22 +111,22 @@ impl FieldName {
 }
 
 impl Field {
-    /// The field of a row, its label's and its value's texts as `plain` renders them, plain text
+    /// The field of a row, its label's and its value's texts as `text_of` renders them, plain text
     /// with the styles dropped: Credential Manager draws plain text. A full-text row shows its
     /// label alone; an image shows clipped, as a field holds text alone.
     ///
     /// # Errors
     ///
-    /// `plain`'s error, outside; [`NoName`] inside: the label is white space alone.
+    /// `text_of`'s error, outside; [`NoName`] inside: the label is white space alone.
     pub fn of<E>(
         row: &Row,
-        plain: &mut impl FnMut(&Text) -> Result<String, E>,
+        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
     ) -> Result<Result<Self, NoName>, E> {
-        let name = plain(&row.label)?;
+        let name = text_of(&row.label)?;
         let value = match &row.value {
             None => None,
             Some(Value::Image(_)) => Some(FieldText::partial("")),
-            Some(Value::Text(text)) => Some(FieldText::fit(&plain(text)?)),
+            Some(Value::Text(text)) => Some(FieldText::fit(&text_of(text)?)),
         };
         Ok(FieldName::fit(&name).map(|name| Self { name, value }))
     }

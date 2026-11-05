@@ -118,17 +118,17 @@ impl WalletDisplayNeeded {
 
 impl SetFacts {
     /// The facts of a set of the display of a request carrying `transactions`, its static entries
-    /// left out: they disclose nothing. `plain` renders each row's texts as Credential Manager
+    /// left out: they disclose nothing. `text_of` renders each row's texts as Credential Manager
     /// draws them.
     ///
     /// # Errors
     ///
-    /// `plain`'s first error.
+    /// `text_of`'s first error.
     pub fn of<E>(
         set: &[Vec<Choice<'_>>],
         presentable: Presentable<'_>,
         transactions: TransactionData,
-        plain: &mut impl FnMut(&Text) -> Result<String, E>,
+        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
     ) -> Result<Self, E> {
         let entries = || {
             set.iter().flatten().filter_map(|choice| match choice {
@@ -138,7 +138,7 @@ impl SetFacts {
         };
         let mut whole = true;
         for row in entries().flat_map(|view| view.entry.rows()) {
-            whole &= Field::of(row, plain)?.is_ok_and(|field| field.extent() == Extent::Whole);
+            whole &= Field::of(row, text_of)?.is_ok_and(|field| field.extent() == Extent::Whole);
         }
         Ok(Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential)),
@@ -188,11 +188,11 @@ impl Delegation {
 impl Fulfilment {
     /// A9 in the wallet: a background fulfilment of a set of the display of a request carrying
     /// `transactions` that needs the wallet's display is refused; on the wallet's display every
-    /// set stands. `plain` renders each row's texts as Credential Manager drew them.
+    /// set stands. `text_of` renders each row's texts as Credential Manager drew them.
     ///
     /// # Errors
     ///
-    /// `plain`'s first error, outside; [`WalletDisplayNeeded`] inside: the set needs the wallet's
+    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside: the set needs the wallet's
     /// display, or the display holds no such set.
     pub fn check<E>(
         self,
@@ -200,7 +200,7 @@ impl Fulfilment {
         set: usize,
         presentable: Presentable<'_>,
         transactions: TransactionData,
-        plain: &mut impl FnMut(&Text) -> Result<String, E>,
+        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
     ) -> Result<Result<(), WalletDisplayNeeded>, E> {
         let Self::Background(host) = self else {
             return Ok(Ok(()));
@@ -213,7 +213,7 @@ impl Fulfilment {
             }
             .into()));
         };
-        let facts = SetFacts::of(slots, presentable, transactions, plain)?;
+        let facts = SetFacts::of(slots, presentable, transactions, text_of)?;
         Ok(match WalletDisplay::of(facts, host) {
             WalletDisplay::NotNeeded => Ok(()),
             WalletDisplay::Needed => Err(WalletDisplayNeeded::Needed { set }),
