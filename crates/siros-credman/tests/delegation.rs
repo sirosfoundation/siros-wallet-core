@@ -69,7 +69,10 @@ fn judged(
     let wallet = Wallet::new(credentials).expect("wallet");
     let env = env(&["en"], Vec::new()).expect("env");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, env.choice());

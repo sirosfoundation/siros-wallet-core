@@ -223,6 +223,8 @@ impl siros_explain::Messages for CrateMessages {
             wallet_metadata::MetadataRefused::messages,
             #[cfg(feature = "resolve")]
             resolve::Outcome::messages,
+            #[cfg(feature = "match")]
+            rendering::Unrendered::messages,
         ];
         declared
             .iter()
@@ -244,6 +246,8 @@ pub mod host;
 pub mod matching;
 #[cfg(feature = "resolve")]
 pub mod recourse;
+#[cfg(feature = "match")]
+pub mod rendering;
 #[cfg(feature = "resolve")]
 pub mod resolve;
 #[cfg(feature = "resolve")]

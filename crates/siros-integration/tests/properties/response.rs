@@ -71,6 +71,7 @@ fn record_id(
     entries: &[usize],
     attested: &[(String, String)],
     request: &str,
+    rendering: &str,
 ) -> String {
     let entries: Vec<String> = entries.iter().map(ToString::to_string).collect();
     let pairs: Vec<String> = attested
@@ -78,7 +79,7 @@ fn record_id(
         .map(|(name, text)| format!("{}:{}", quote(name), quote(text)))
         .collect();
     format!(
-        "[{},{},{option},[{}],{{{}}},{}]",
+        "[{},{},{option},[{}],{{{}}},{},{rendering}]",
         quote(query),
         quote(credential),
         entries.join(","),
@@ -87,7 +88,8 @@ fn record_id(
     )
 }
 
-/// A record's fields: query, credential, option, entries, attested pairs, request digest.
+/// A record's fields: query, credential, option, entries, attested pairs, request digest, and
+/// the rendering inputs as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Fields {
     query: String,
@@ -96,6 +98,7 @@ struct Fields {
     entries: Vec<usize>,
     attested: Vec<(String, String)>,
     request: String,
+    rendering: String,
 }
 
 impl Fields {
@@ -111,16 +114,24 @@ impl Fields {
                 .map(|attested| attested.pairs().to_vec())
                 .unwrap_or_default(),
             request: record.request.as_str().to_owned(),
+            rendering: Self::parse(record.id().as_str()).rendering,
         }
     }
 
     /// The fields an id holds, read as JSON.
     fn parse(id: &str) -> Self {
         let node = Node::parse(id).expect("a record id is JSON");
-        let [query, credential, option, entries, attested, request] =
-            node.as_array().expect("a record id is an array")
+        let [
+            query,
+            credential,
+            option,
+            entries,
+            attested,
+            request,
+            rendering,
+        ] = node.as_array().expect("a record id is an array")
         else {
-            panic!("a record id has six items: {id}");
+            panic!("a record id has seven items: {id}");
         };
         let number = |node: &Node<'_>| match node {
             Node::Number(n) => usize::try_from(n.as_u64().expect("a natural")).expect("an index"),
@@ -149,6 +160,7 @@ impl Fields {
                 })
                 .collect(),
             request: request.as_str().expect("a digest").to_owned(),
+            rendering: rendering.python_compact().to_string(),
         }
     }
 
@@ -160,6 +172,7 @@ impl Fields {
             &self.entries,
             &self.attested,
             &self.request,
+            &self.rendering,
         )
     }
 }
@@ -212,8 +225,15 @@ pub fn check(
     let authenticated =
         siros_testkit::fixtures::authenticate(case.request.envelope(), case.registry, host)
             .expect("authentic");
-    match Prepared::prepare(&authenticated, ids, case.wallet, case.registry, case.env)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    match Prepared::prepare(
+        &authenticated,
+        ids,
+        case.wallet,
+        case.registry,
+        case.env,
+        case.rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {
         Err(Outcome::Fallback(findings)) => {
             let mut got: Vec<(usize, Found)> = findings
@@ -419,7 +439,7 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     )
     .expect("a wallet");
     let accepted = Accepted::new(case.request, &informed).expect("accepted");
-    let again = Match::run(&accepted, &kept, case.env).expect("no fault");
+    let again = Match::run(&accepted, &kept, case.env, case.rendering).expect("no fault");
     for finding in findings {
         let (record, revalidated) = match finding {
             Finding::Unusable { record } => (*record, false),

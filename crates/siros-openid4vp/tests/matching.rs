@@ -35,7 +35,11 @@ fn holder_binding_and_carriage_decide_candidates() {
         let registry = registry(Binds::First);
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &env).expect("match");
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
         let q = request.indexed_queries().next().expect("query").0;
         matched
             .candidates(q)
@@ -85,7 +89,12 @@ fn holder_binding_and_carriage_decide_candidates() {
     let other = Held::answering("other", &["r"], &[]);
     let wallet = Wallet::new(vec![other.credential()]).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    assert!(Consent::of(&Match::run(&accepted, &wallet, &env).expect("match")).is_none());
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    assert!(
+        Consent::of(&Match::run(&accepted, &wallet, &env, &rendering).expect("match")).is_none()
+    );
 }
 
 /// How a scripted format answers.
@@ -233,7 +242,10 @@ fn a_format_answers_with_the_members_the_transaction_provides() {
     let env = env("en");
     let registry = scripted(Script::WhenProvided);
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let ids = |k: usize| -> Vec<String> {
         let q = request.indexed_queries().nth(k).expect("query").0;
         matched
@@ -345,7 +357,11 @@ fn a_plug_in_failing_or_breaking_its_contract_fails_phase_1() {
     for (k, (registry, held, want)) in cases.iter().enumerate() {
         let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
         let accepted = Accepted::new(&request, registry).expect("accepted");
-        let drawn = Match::run(&accepted, &wallet, &env)
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let drawn = Match::run(&accepted, &wallet, &env, &rendering)
             .ok()
             .map(|matched| Views::of(&matched, &env).is_ok());
         assert_eq!(drawn, *want, "case {k}");
@@ -382,7 +398,11 @@ fn an_unmet_requests_code_tells_unsupported_formats_from_the_rest() {
         let accepted = Accepted::new(&request, &registry).expect("accepted");
         let held = Held::answering("c", &answers, &[]);
         let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
-        let matched = Match::run(&accepted, &wallet, &env).expect("matched");
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("matched");
         assert!(Consent::of(&matched).is_none(), "{dcql} {answers:?}");
         assert_eq!(matched.unmet(), code, "{dcql} {extra} {answers:?}");
     }

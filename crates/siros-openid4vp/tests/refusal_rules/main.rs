@@ -526,12 +526,16 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let authenticated =
         fixtures::authenticate(request.envelope(), &registry, &host).expect("authentic");
     let ids: &[&str] = &["none"];
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
     let outcome = Prepared::prepare(
         &authenticated,
         ids,
         &Wallet::default(),
         &registry,
         &env("en"),
+        &rendering,
     )
     .and_then(|prepared| {
         prepared

@@ -62,8 +62,16 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
     )
     .expect("wallet");
     let accepted = Accepted::new(request, &registry).expect("accepted");
-    let matched =
-        Match::run(&accepted, &wallet, &env(&["en"], Vec::new()).expect("env")).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(
+        &accepted,
+        &wallet,
+        &env(&["en"], Vec::new()).expect("env"),
+        &rendering,
+    )
+    .expect("match");
     let answers = request
         .indexed_queries()
         .map(|(index, query)| {
@@ -473,8 +481,16 @@ fn shape(dcql: &str, held: &[Held]) -> Vec<Vec<Vec<String>>> {
     )
     .expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched =
-        Match::run(&accepted, &wallet, &env(&["en"], Vec::new()).expect("env")).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(
+        &accepted,
+        &wallet,
+        &env(&["en"], Vec::new()).expect("env"),
+        &rendering,
+    )
+    .expect("match");
     let consent = Consent::of(&matched).expect("consent");
     flatten(&matched, &consent)
         .iter()

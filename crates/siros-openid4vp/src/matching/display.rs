@@ -93,6 +93,7 @@ impl<'m> Views<'m> {
                         entries,
                         bound.map(|b| &b.attested),
                         digest,
+                        &candidate.inputs,
                     );
                     let card = formatted.query.draw(
                         candidate.credential,

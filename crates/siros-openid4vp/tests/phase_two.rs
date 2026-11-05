@@ -78,7 +78,10 @@ fn offered_in<H: siros_openid4vp::plugins::Build>(
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::LetChoose);
@@ -98,11 +101,19 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
     let registry = registry(Binds::First);
     let authenticated = authenticate(request.envelope(), &registry, host).expect("authentic");
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
-    Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en"))
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), host)
-        })
-        .map(|built| built.response().vp_token().json())
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    Prepared::prepare(
+        &authenticated,
+        ids,
+        &wallet,
+        &registry,
+        &env("en"),
+        &rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
+    .map(|built| built.response().vp_token().json())
 }
 
 #[test]
@@ -214,7 +225,11 @@ fn phase_2_falls_back_on_what_no_longer_holds() {
             assert_eq!(bare.informed(&[finding]).map(drop), Err(InformError));
             let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
-            let matched = Match::run(&accepted, &wallet, &env("en")).expect("match");
+            let app =
+                siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                    .expect("the test app");
+            let rendering = app.rendering().expect("the rendering");
+            let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
             let q = request.indexed_queries().next().expect("q").0;
             let ids: Vec<&str> = matched
                 .candidates(q)
@@ -304,9 +319,19 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
     ));
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en")).and_then(
-        |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
-    ) {
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    match Prepared::prepare(
+        &authenticated,
+        ids,
+        &wallet,
+        &registry,
+        &env("en"),
+        &rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
+    {
         Err(Outcome::AuthenticationTooWeak { need, covered }) => {
             assert_eq!(need, AuthenticationNeed::Strong);
             assert_eq!(covered.count(), 1);
@@ -382,9 +407,19 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     let host = TestHost::default();
     let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
     let ids: &[&str] = &[&ids[0]];
-    match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en")).and_then(
-        |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
-    ) {
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    match Prepared::prepare(
+        &authenticated,
+        ids,
+        &wallet,
+        &registry,
+        &env("en"),
+        &rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
+    {
         Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains("extra"), "{fault}"),
         other => panic!("{other:?}"),
     }
@@ -482,11 +517,19 @@ fn sealed<H: CoreHost>(
     let authenticated = authenticate(request.envelope(), registry, host)
         .map_err(|e| Fault::new(FAULT, detail!("{e}", e = e.to_string())))?;
     let ids: &[&str] = &[id];
-    Prepared::prepare(&authenticated, ids, wallet, registry, &env("en"))
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), host)
-        })
-        .map(|built| built.delivery().clone())
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    Prepared::prepare(
+        &authenticated,
+        ids,
+        wallet,
+        registry,
+        &env("en"),
+        &rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
+    .map(|built| built.delivery().clone())
 }
 
 /// Whether the DC API data wraps a JWE: `{"response": JWE}` (A.2, §8.3).
@@ -719,11 +762,22 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
         let authenticated = authenticate(request.envelope(), &registry, &host).expect("authentic");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let ids: &[&str] = &[&ids[0]];
-        Prepared::prepare(&authenticated, ids, &wallet, &registry, &env("en"))
-            .and_then(|prepared| {
-                prepared.respond(|resource| Published::default().answer(resource), &host)
-            })
-            .map(|built| built.response().json())
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        Prepared::prepare(
+            &authenticated,
+            ids,
+            &wallet,
+            &registry,
+            &env("en"),
+            &rendering,
+        )
+        .and_then(|prepared| {
+            prepared.respond(|resource| Published::default().answer(resource), &host)
+        })
+        .map(|built| built.response().json())
     };
     let issuer = ResponseMember::new(ISS, Node::String("https://wallet.example".into()));
     let writes = |writes: Vec<ResponseMember>| {

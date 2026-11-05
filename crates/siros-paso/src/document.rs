@@ -136,6 +136,15 @@ impl<'d> PasoDocument<'d> {
         self.types.get(kind)
     }
 
+    /// Each type the signed credential metadata lists, with its metadata, which the wallet
+    /// converts into a defined module when it registers the credential ([`crate::view::convert`]).
+    pub fn types(&self) -> impl Iterator<Item = (&'d str, &'d Node<'d>)> {
+        self.types
+            .members()
+            .iter()
+            .map(|member| (member.name.as_ref(), &member.value))
+    }
+
     /// Risk Signals §7.3: the first published key, `use` `enc` with a `kid` and an `alg`, that
     /// the wallet can agree a key with: an ECDH-ES agreement (RFC 7518 §4.6) on an `EC` curve
     /// of RFC 7518 §6.2.1.1 or an `OKP` curve of RFC 8037 §2, which `sealer`, when given, states

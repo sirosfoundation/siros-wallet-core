@@ -545,7 +545,10 @@ pub fn phase_one(
     let request = Request::parse(&envelope)?;
     let wallet = wallet(held);
     let accepted = Accepted::new(&request, registry)?;
-    let matched = Match::run(&accepted, &wallet, env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, env, &rendering).expect("match");
     let (first, _) = request.indexed_queries().next().expect("a query");
     let summary = Matched {
         candidates: matched
@@ -626,8 +629,11 @@ pub fn approve(
     let host = TestHost::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), profile, &host)
         .expect("authentic");
-    let response =
-        Prepared::prepare(&authenticated, &ids, &wallet, profile, &env)?.respond(fetch, &host)?;
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let response = Prepared::prepare(&authenticated, &ids, &wallet, profile, &env, &rendering)?
+        .respond(fetch, &host)?;
     let vp_token: Json =
         serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
     Ok(vp_token["xyz123"][0]["members"].clone())

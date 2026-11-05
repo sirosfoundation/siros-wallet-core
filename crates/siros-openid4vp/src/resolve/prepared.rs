@@ -24,6 +24,7 @@ use crate::plugins::{
     ProfileHandle, Registry,
 };
 use crate::refusal::Refused;
+use crate::rendering::Rendering;
 use crate::request::{ClientMetadata, Query, QueryIndex, Request};
 use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext, Routing};
 use crate::rows::Env;
@@ -106,7 +107,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// checked as a selection; each record's query read through its format's
     /// [`FormatHost::answer`] under the accepted response mode; each record's profile names the
     /// resources it revalidates with, one slot each, in record order. `registry` is the one the
-    /// envelope was read with.
+    /// envelope was read with; `rendering` the package of the wallet's live modules.
     ///
     /// # Errors
     ///
@@ -120,6 +121,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         wallet: &'p Wallet<'p>,
         registry: &'p Registry<H>,
         env: &'p Env,
+        rendering: &Rendering<'_>,
     ) -> Result<Self, Outcome> {
         let request = Request::parse(authenticated.envelope())?;
         let mut questions = Vec::new();
@@ -130,7 +132,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                 .map(|id| ReturnedRecord::parse(id))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Rejection::from)?;
-            let matched = Match::run(&accepted, wallet, env)?;
+            let matched = Match::run(&accepted, wallet, env, rendering)?;
             let views = Views::of(&matched, env)?;
             let views = derived(&views, &returned)?;
             check(&accepted, &views)?;

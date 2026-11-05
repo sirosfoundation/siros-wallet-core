@@ -7,8 +7,10 @@ use crate::ids::{CredentialId, QueryId};
 use crate::json::{JsonError, Node, quote};
 use crate::plugins::{Attested, OptionIndex};
 use crate::request::{EntryIndex, RequestDigest};
+use crate::rows::{Language, RenderingInputs};
 
-/// A record's id: the JSON array `[query, credential, option, entries, attested, request]`.
+/// A record's id: the JSON array `[query, credential, option, entries, attested, request,
+/// rendering]`, `rendering` the object `{"language": tag, "fallback": bool}`.
 /// As an array it differs from "none" and from every static box's id; its pick tells it from
 /// every other entry of its slot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -23,9 +25,10 @@ impl RecordId {
 }
 
 /// What a consent entry presents (the query, the credential, the option), the entries it
-/// authorizes, the (name, text) pairs its profile attests of their display, and the digest of
-/// the request with its Origin the matcher displayed. Phase 2 trusts the user's choice of a
-/// record alone: it derives every record itself and answers only a record equal to one of them.
+/// authorizes, the (name, text) pairs its profile attests of their display, the digest of the
+/// request with its Origin the matcher displayed, and what its texts rendered with. Phase 2
+/// trusts the user's choice of a record alone: it derives every record itself and answers only a
+/// record equal to one of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record<'m> {
     /// The query.
@@ -40,6 +43,8 @@ pub struct Record<'m> {
     pub attested: Option<&'m Attested>,
     /// The digest of the request.
     pub request: &'m RequestDigest,
+    /// What its texts rendered with.
+    pub inputs: &'m RenderingInputs,
     id: RecordId,
 }
 
@@ -53,6 +58,7 @@ impl<'m> Record<'m> {
         entries: &'m [EntryIndex],
         attested: Option<&'m Attested>,
         request: &'m RequestDigest,
+        inputs: &'m RenderingInputs,
     ) -> Self {
         let indexes: Vec<String> = entries
             .iter()
@@ -67,14 +73,19 @@ impl<'m> Record<'m> {
                     .collect()
             })
             .unwrap_or_default();
+        let (language, fallback) = match inputs.language() {
+            Language::Understood(tag) => (tag, false),
+            Language::Fallback(tag) => (tag, true),
+        };
         let id = format!(
-            "[{},{},{},[{}],{{{}}},{}]",
+            "[{},{},{},[{}],{{{}}},{},{{\"language\":{},\"fallback\":{fallback}}}]",
             quote(query.as_str()),
             quote(credential.as_str()),
             option.0,
             indexes.join(","),
             pairs.join(","),
-            quote(request.as_str())
+            quote(request.as_str()),
+            quote(language.as_str()),
         );
         Self {
             query,
@@ -83,6 +94,7 @@ impl<'m> Record<'m> {
             entries,
             attested,
             request,
+            inputs,
             id: RecordId(id),
         }
     }
@@ -107,7 +119,7 @@ pub enum RecordError {
 }
 
 /// An id returned as a record: a JSON array of two strings, a non-negative integer, an array of
-/// non-negative integers, an object of strings and a string.
+/// non-negative integers, an object of strings, a string and an object.
 #[derive(Debug, Clone, Copy)]
 pub struct ReturnedRecord<'t>(&'t str);
 
@@ -117,7 +129,17 @@ impl<'t> ReturnedRecord<'t> {
         let node = Node::parse(text)?;
         let natural = |node: &Node<'_>| matches!(node, Node::Number(n) if n.text().bytes().all(|b| b.is_ascii_digit()) || n.text() == "-0");
         let shaped = match node.as_array() {
-            Some([query, credential, option, entries, attested, request]) => {
+            Some(
+                [
+                    query,
+                    credential,
+                    option,
+                    entries,
+                    attested,
+                    request,
+                    rendering,
+                ],
+            ) => {
                 query.as_str().is_some()
                     && credential.as_str().is_some()
                     && natural(option)
@@ -131,6 +153,7 @@ impl<'t> ReturnedRecord<'t> {
                             .all(|m| m.value.as_str().is_some())
                     })
                     && request.as_str().is_some()
+                    && rendering.as_object().is_some()
             }
             _ => false,
         };

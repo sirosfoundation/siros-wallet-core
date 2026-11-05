@@ -321,7 +321,10 @@ fn trusted_authorities_take_a_value_of_one_of_the_querys_types() {
     ])
     .expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env("en")).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env("en"), &rendering).expect("match");
     let ids: Vec<&str> = matched
         .candidates(request.indexed_queries().next().expect("q").0)
         .iter()

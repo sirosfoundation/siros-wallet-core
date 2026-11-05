@@ -141,10 +141,11 @@ pub enum EnvError {
 /// app's fallback list, the rendering options, the icons resolved at issuance and the offer
 /// shape.
 ///
-/// The core uses the priority list as given: a presentation is in the first language of the list
-/// that every module it draws from matches by RFC 4647 basic filtering (§3.3.1), where a tag
-/// matches an equal tag and the tags extending it, so `en` matches `en-GB` and `en-US` matches
-/// no `en`. Modules tag their texts by language, and by region only for a regional variant. An
+/// The core uses the priority list as given. A profile that selects its texts' locale itself, as
+/// PaSO View §4 does, shows its module in that locale; the presentation's other texts are in the
+/// first language of the list headed by that locale that every module they draw from matches by
+/// RFC 4647 basic filtering (§3.3.1), where a tag matches an equal tag and the tags extending it,
+/// so `en` matches `en-GB` and `en-US` matches no `en`. Modules tag their texts by language, and by region only for a regional variant. An
 /// app therefore puts each tag's generic form right after it, the language with its script when
 /// the tag names one: `[en-US, en]`, `[zh-Hant-TW, zh-Hant]`. The fallback list holds the
 /// languages the app shows when no tag of the priority list serves every module and none of

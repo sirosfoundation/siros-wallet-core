@@ -687,7 +687,10 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
     };
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("a wallet");
     let env = env("en");
-    let Ok(ids) = first_selection(&request, &wallet, registry, &env) else {
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let Ok(ids) = first_selection(&request, &wallet, registry, &env, &rendering) else {
         match route.unmet(
             siros_openid4vp::matching::UnmetCode::AccessDenied,
             DcApiErrors::Respond,
@@ -711,8 +714,11 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         return;
     };
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let built =
-        Prepared::prepare(&authenticated, &ids, &wallet, registry, &env).and_then(|prepared| {
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
+        .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         });
     // A `TestMode` answers on its route, writes its own channel's body or breaches with the other
@@ -886,9 +892,15 @@ fn delivery_bytes(under: &Under, registry: &Registry<TestHost>, case: &Case) -> 
     let held = [Held::answering("c", &["q"], &[])];
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("a wallet");
     let env = env("en");
-    let ids = first_selection(&request, &wallet, registry, &env).expect("a selection");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let ids = first_selection(&request, &wallet, registry, &env, &rendering).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env)
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         })

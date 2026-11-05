@@ -209,6 +209,7 @@ impl Profile for TestProfile {
                 header: transaction,
                 hint: Some(Text::Raw(format!("hint {reference}"))),
             },
+            selected: None,
         })
     }
 }

@@ -32,7 +32,10 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
     )
     .expect("env");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     offer(&matched, &consent, env.choice())
         .iter()
@@ -188,7 +191,11 @@ fn a_candidates_options_factor_like_the_credential_sets() {
         let request = request_of(&received).expect("request");
         let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &env).expect("match");
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
         check(&request, &matched);
     };
     let mut stale = Held::answering("stale", &["q"], &[]);
@@ -304,6 +311,15 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
     ])
     .expect("attested");
     let query = &request.queries()[0].id;
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let env = siros_testkit::fixtures::env(&["de"], Vec::new()).expect("env");
+    let inputs = rendering
+        .renderer(None, &env)
+        .expect("no fault")
+        .expect("a language")
+        .inputs();
     let record = Record::new(
         query,
         &credential,
@@ -311,26 +327,28 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         &entries,
         Some(&attested),
         request.digest(),
+        &inputs,
     );
     assert!(ReturnedRecord::parse(record.id().as_str()).is_ok());
     let read: serde_json::Value = serde_json::from_str(record.id().as_str()).expect("json");
     assert_eq!(
         read,
-        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str()])
+        serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), {"language": "de", "fallback": false}])
     );
     // An id is a record in that shape only: each of these breaks it in one field.
     for malformed in [
-        r#"[1, "c", 0, [], {}, "d"]"#,
-        r#"["q", 1, 0, [], {}, "d"]"#,
-        r#"["q", "c", -1, [], {}, "d"]"#,
-        r#"["q", "c", 0, [1.5], {}, "d"]"#,
-        r#"["q", "c", 0, [], {"a": 1}, "d"]"#,
-        r#"["q", "c", 0, [], {}, 1]"#,
-        r#"["q", "c", 0, [], {}]"#,
+        r#"[1, "c", 0, [], {}, "d", {}]"#,
+        r#"["q", 1, 0, [], {}, "d", {}]"#,
+        r#"["q", "c", -1, [], {}, "d", {}]"#,
+        r#"["q", "c", 0, [1.5], {}, "d", {}]"#,
+        r#"["q", "c", 0, [], {"a": 1}, "d", {}]"#,
+        r#"["q", "c", 0, [], {}, 1, {}]"#,
+        r#"["q", "c", 0, [], {}, "d", []]"#,
+        r#"["q", "c", 0, [], {}, "d"]"#,
     ] {
         assert!(ReturnedRecord::parse(malformed).is_err(), "{malformed}");
     }
-    assert!(ReturnedRecord::parse(r#"["q", "c", 0, [], {}, "d"]"#).is_ok());
+    assert!(ReturnedRecord::parse(r#"["q", "c", 0, [], {}, "d", {}]"#).is_ok());
 }
 
 #[test]
@@ -352,7 +370,10 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let wallet = Wallet::new(vec![held.credential()]).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
@@ -370,7 +391,10 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
         .expect("authentic");
     let ids: &[&str] = &[&id];
-    let response = Prepared::prepare(&authenticated, ids, &wallet, &registry, &env)
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let response = Prepared::prepare(&authenticated, ids, &wallet, &registry, &env, &rendering)
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         })
@@ -423,7 +447,10 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let env = env("en");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
@@ -468,7 +495,10 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     ];
     let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");
     let m = request.indexed_queries().next().expect("m").0;
     let pick = |k: usize| {

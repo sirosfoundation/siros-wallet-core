@@ -8,7 +8,9 @@ use siros_explain::Text;
 
 pub use env::{Choice, Env, EnvError, Icon, ImageMedia, NotImageMedia, WalletText};
 pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
-pub use siros_i18n::{Amounts, Bidi, OnRenderError, RenderOptions};
+pub use siros_i18n::{
+    Amounts, Bidi, Language, OnRenderError, RenderOptions, RenderingInputs, Selected,
+};
 
 /// An image a row shows.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -64,12 +64,16 @@ fn every_parse_refuses_a_member_named_twice() {
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
         .expect("authentic");
     let ids: &[&str] = &[returned];
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
     let outcome = Prepared::prepare(
         &authenticated,
         ids,
         &Wallet::default(),
         &registry,
         &env("en"),
+        &rendering,
     )
     .and_then(|prepared| {
         prepared

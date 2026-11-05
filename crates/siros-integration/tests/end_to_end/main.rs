@@ -121,7 +121,9 @@ fn answer(
     )
     .expect("a wallet");
     let accepted = Accepted::new(request, &registry).expect("the request keeps every rule");
-    let matched = Match::run(&accepted, &wallet, &env).expect("no fault");
+    let app = common::wallet_app(&wallet, request, &env);
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("no fault");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
     let views = Views::of(&matched, &env).expect("no fault");
     let sets = offer(&matched, &consent, Choice::First);
@@ -137,9 +139,16 @@ fn answer(
         .clone();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
         .expect("authentic");
-    let built = Prepared::prepare(&authenticated, &chosen, &wallet, &registry, &env)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-        .expect("the wallet answers");
+    let built = Prepared::prepare(
+        &authenticated,
+        &chosen,
+        &wallet,
+        &registry,
+        &env,
+        &rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    .expect("the wallet answers");
     Answered {
         header,
         entry,

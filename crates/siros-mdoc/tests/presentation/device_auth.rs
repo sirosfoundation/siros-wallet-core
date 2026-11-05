@@ -120,11 +120,17 @@ where
     let registry = builder.build().expect("registry");
     let wallet = Wallet::new(vec![held.credential().expect("credential")]).expect("wallet");
     let env = env(&["en"], Vec::new()).expect("env");
-    let ids = first_selection(&request, &wallet, &registry, &env).expect("a selection");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let ids = first_selection(&request, &wallet, &registry, &env, &rendering).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
         .expect("authentic");
-    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env)
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env, &rendering)
         .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
         .map(|built| built.response().vp_token().json())
 }

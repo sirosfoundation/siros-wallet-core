@@ -113,12 +113,21 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
             .collect(),
     )
     .expect("a wallet");
-    let Ok(ids) = first_selection(&request, &wallet, &registry, &dressed.env) else {
+    let app = crate::common::wallet_app(&wallet, &request, &dressed.env);
+    let rendering = app.rendering().expect("the rendering");
+    let Ok(ids) = first_selection(&request, &wallet, &registry, &dressed.env, &rendering) else {
         tally.add("URI requests refused or unmet");
         return;
     };
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    match Prepared::prepare(&authenticated, &ids, &wallet, &registry, &dressed.env) {
+    match Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        &registry,
+        &dressed.env,
+        &rendering,
+    ) {
         Ok(prepared) => {
             drop(prepared);
             tally.add("URI selections prepared");
@@ -138,7 +147,10 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     // The same selection as the DC API request derived it: records of another request.
     let dc_api = dressed.received();
     let dc_api = fixtures::request_of(&dc_api).expect("the DC API request");
-    let Ok(foreign) = first_selection(&dc_api, &wallet, &registry, &dressed.env) else {
+    let dc_api_app = crate::common::wallet_app(&wallet, &dc_api, &dressed.env);
+    let dc_api_rendering = dc_api_app.rendering().expect("the rendering");
+    let Ok(foreign) = first_selection(&dc_api, &wallet, &registry, &dressed.env, &dc_api_rendering)
+    else {
         return;
     };
     let foreign: Vec<&str> = foreign.iter().map(String::as_str).collect();
@@ -146,7 +158,14 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     if foreign.is_empty() {
         return;
     }
-    match Prepared::prepare(&authenticated, &foreign, &wallet, &registry, &dressed.env) {
+    match Prepared::prepare(
+        &authenticated,
+        &foreign,
+        &wallet,
+        &registry,
+        &dressed.env,
+        &rendering,
+    ) {
         Err(Outcome::Fallback(findings)) => {
             assert_eq!(
                 findings.items().len(),

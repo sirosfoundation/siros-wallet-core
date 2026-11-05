@@ -23,8 +23,9 @@ pub use rules::{Accepted, CoreRule, Transaction};
 use crate::plugins::registry::ErasedProfile;
 use crate::plugins::{Binding, Bound, Carriage, Exclude, Fault, Member, NoCandidate, OptionIndex};
 use crate::refusal::ErrorCode;
+use crate::rendering::Rendering;
 use crate::request::{AgreeableKey, HolderBinding, Query, QueryIndex, Request};
-use crate::rows::Env;
+use crate::rows::{Env, RenderingInputs};
 use crate::wallet::{Credential, Holder, Wallet};
 use crate::{FAULT, detail};
 use rules::Formatted;
@@ -54,6 +55,9 @@ pub struct Candidate<'m> {
     /// The transaction it authorizes for the query with the profile's binding: present for each
     /// candidate of a query transaction data names.
     pub bound: Option<TransactionBinding<'m>>,
+    /// What its texts render with: the language and its fallback flag, each module's digest,
+    /// the rendering options and the renderer's version.
+    pub inputs: RenderingInputs,
 }
 
 /// A candidate's transaction: its query's `Transaction` and the `Bound` the transaction's profile
@@ -87,6 +91,9 @@ pub enum ExcludedBy {
     Format,
     /// The profile of the transaction naming the query binds none of its entries.
     Profile,
+    /// The entry's texts cannot render: no language serves its modules, or the package holds
+    /// no module whose locale its profile selected (section 4.14 of the design).
+    Language,
 }
 
 /// The code of a request the wallet does not meet (§8.5, §15.4.1).
@@ -124,17 +131,21 @@ impl<'m> Match<'m> {
     /// query trusts and, unless the query waives it, bound to a key; that the Verifier's
     /// algorithms admit; for a query transaction data names, to which its profile binds entries;
     /// and which answer an option, a claim naming one of the profile's response members included.
+    /// Each candidate's texts take their language over `rendering`'s modules; an entry no
+    /// language serves is excluded.
     pub fn run(
         accepted: &'m Accepted<'m>,
         wallet: &'m Wallet<'m>,
         env: &Env,
+        rendering: &Rendering<'_>,
     ) -> Result<Self, Fault> {
         let keys = accepted.metadata().agreeable_keys();
         let mut candidates = Vec::new();
         let mut excluded = Vec::new();
         for (index, query) in accepted.request().indexed_queries() {
             let mut found = Vec::new();
-            if let Some(matcher) = QueryMatcher::of(accepted, index, query, &keys, env)? {
+            let matcher = QueryMatcher::of(accepted, index, query, &keys, env, rendering)?;
+            if let Some(matcher) = matcher {
                 for credential in wallet.credentials().iter().filter(|c| matcher.eligible(c)) {
                     match matcher.consider(credential)? {
                         Considered::Candidate(candidate) => found.push(candidate),
@@ -237,6 +248,7 @@ struct QueryMatcher<'m, 'k> {
     members: Option<&'m [Member]>,
     keys: &'k [AgreeableKey<'k>],
     env: &'k Env,
+    rendering: &'k Rendering<'k>,
 }
 
 impl<'m, 'k> QueryMatcher<'m, 'k> {
@@ -251,6 +263,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         query: &'m Query<'m>,
         keys: &'k [AgreeableKey<'k>],
         env: &'k Env,
+        rendering: &'k Rendering<'k>,
     ) -> Result<Option<Self>, Fault> {
         let Some(formatted) = accepted
             .plan(index)
@@ -286,6 +299,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             members,
             keys,
             env,
+            rendering,
         }))
     }
 
@@ -315,6 +329,18 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             }
             Err((_, NoCandidate::Fault(fault))) => return Err(fault),
         };
+        let selected = bound
+            .as_ref()
+            .and_then(|binding| binding.bound.selected.as_ref());
+        let inputs = match self.rendering.renderer(selected, self.env)? {
+            Ok(renderer) => renderer.inputs(),
+            Err(unrendered) => {
+                return Ok(Considered::Excluded(
+                    ExcludedBy::Language,
+                    Exclude::new(unrendered),
+                ));
+            }
+        };
         let provided = match (&bound, self.members) {
             (Some(_), Some(members)) => members,
             _ => &[],
@@ -343,6 +369,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 credential,
                 options,
                 bound,
+                inputs,
             })
         })
     }

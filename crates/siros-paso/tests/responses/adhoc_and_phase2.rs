@@ -16,7 +16,7 @@ use siros_testkit::{Published, PublishedResource};
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{CARD_TYPE, Card, PAY, annex, en, parameters, png, sri};
+use crate::common::{CARD_TYPE, Card, PAY, annex, en, parameters, png, request_app, sri};
 
 use super::{NOW, answer, card, digest_b64, payment, payment_meta, proof, registry};
 
@@ -39,9 +39,11 @@ pub(super) fn adhoc_case(
     let host = PasoHost::at(Timestamp(NOW));
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential.clone()]).expect("wallet");
+    let app = request_app(&request, &[card], &en());
+    let rendering = app.rendering().expect("the rendering");
     {
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &en()).expect("match");
+        let matched = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
         if let Some(excluded) = matched.excluded().first() {
             return Err(AdhocOutcome::Excluded(excluded.exclude.rule().to_string()));
         }
@@ -70,7 +72,7 @@ pub(super) fn adhoc_case(
             let profile_findings: Vec<&ProfileFinding> = vec![finding];
             let informed = registry.informed(&profile_findings).expect("informed");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
-            let again = Match::run(&accepted, &wallet, &en()).expect("match");
+            let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
             let query = request.indexed_queries().next().expect("query").0;
             Err(AdhocOutcome::Fallback(data, again.candidates(query).len()))
         }
@@ -305,8 +307,10 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();
+    let app = request_app(&shown_request, &[&card], &env);
+    let rendering = app.rendering().expect("the rendering");
     let accepted = Accepted::new(&shown_request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");
     let id = views
         .iter()
@@ -322,7 +326,7 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
                 .expect("authentic");
         let ids: &[&str] = &[id];
-        match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env).and_then(
+        match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env, &rendering).and_then(
             |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
         ) {
             Ok(_) => Ok(()),

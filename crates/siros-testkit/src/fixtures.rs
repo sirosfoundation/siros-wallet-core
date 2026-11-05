@@ -524,12 +524,13 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,
     env: &Env,
+    rendering: &siros_openid4vp::rendering::Rendering<'_>,
 ) -> Result<Vec<String>, String> {
     use siros_openid4vp::matching::{
         Accepted, Choice as Offer, Consent, Match, Views, display, offer,
     };
     let accepted = Accepted::new(request, registry).map_err(|e| e.to_string())?;
-    let matched = Match::run(&accepted, wallet, env).map_err(|e| e.to_string())?;
+    let matched = Match::run(&accepted, wallet, env, rendering).map_err(|e| e.to_string())?;
     let consent = Consent::of(&matched).ok_or("the wallet cannot meet the request")?;
     let views = Views::of(&matched, env).map_err(|e| e.to_string())?;
     let sets = offer(&matched, &consent, env.choice());
@@ -551,17 +552,25 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,
     env: &Env,
+    rendering: &siros_openid4vp::rendering::Rendering<'_>,
     host: &H,
 ) -> Result<String, String> {
-    let ids = first_selection(request, wallet, registry, env)?;
+    let ids = first_selection(request, wallet, registry, env, rendering)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     let authenticated =
         authenticate(request.envelope(), registry, host).map_err(|e| e.to_string())?;
     let published = crate::Published::default();
-    siros_openid4vp::resolve::Prepared::prepare(&authenticated, &ids, wallet, registry, env)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-        .map(|built| built.response().vp_token().json())
-        .map_err(|e| e.to_string())
+    siros_openid4vp::resolve::Prepared::prepare(
+        &authenticated,
+        &ids,
+        wallet,
+        registry,
+        env,
+        rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    .map(|built| built.response().vp_token().json())
+    .map_err(|e| e.to_string())
 }
 
 /// The presentation of a query's option for a credential, as phase 2 makes it: the option among

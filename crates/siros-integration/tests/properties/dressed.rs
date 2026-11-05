@@ -36,6 +36,8 @@ pub struct Case<'c> {
     pub wallet: &'c Wallet<'c>,
     /// The wallet's configuration.
     pub env: &'c Env,
+    /// What the core renders the wallet's texts with.
+    pub rendering: &'c siros_openid4vp::rendering::Rendering<'c>,
     /// The wallet's static entries.
     pub statics: &'c [StaticEntry],
     /// The credentials as the wallet registers them.
@@ -223,11 +225,14 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             })
         })
         .collect();
+    let app = crate::common::wallet_app(&wallet, &request, env);
+    let rendering = app.rendering().expect("the rendering");
     let case = Case {
         request: &request,
         registry: &registry,
         wallet: &wallet,
         env,
+        rendering: &rendering,
         statics: &dressed.statics,
         held: &dressed.credentials,
         unusable: &dressed.unusable,
@@ -236,7 +241,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
         spec,
         renders: &renders,
     };
-    let matched = Match::run(&accepted, &wallet, env).expect("no fault");
+    let matched = Match::run(&accepted, &wallet, env, &rendering).expect("no fault");
     bindings(&case, &matched, tally);
     let views = Views::of(&matched, env).expect("no fault");
     boxes(&case, &accepted, &matched, &views, tally);

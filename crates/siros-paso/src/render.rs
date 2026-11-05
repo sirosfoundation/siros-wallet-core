@@ -106,6 +106,8 @@ impl PaymentRows {
 pub struct TransactionView {
     /// The locale View §4 selected, which the response reports (Core §7.2).
     pub locale: LocaleTag,
+    /// The defined module the metadata converts to, which its display arrays' texts name.
+    pub module: DefinedModule,
     /// The transaction title.
     pub title: Text,
     /// The rows, in the rulebook's order.
@@ -221,6 +223,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         };
         Ok(TransactionView {
             locale,
+            module,
             title,
             rows,
             actions: Actions {

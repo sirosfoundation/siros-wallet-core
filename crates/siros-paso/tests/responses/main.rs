@@ -10,7 +10,7 @@ mod paso_host;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use common::{Card, PAY, annex, en, member, parameters, section, tables};
+use common::{Card, PAY, annex, en, member, parameters, request_app, section, tables};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_explain::AllOf;
@@ -166,8 +166,10 @@ fn answer<H: CoreHost>(
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();
+    let app = request_app(request, &[card], &env);
+    let rendering = app.rendering().expect("the rendering");
     let accepted = Accepted::new(request, registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env).expect("match");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
     let sets = offer(&matched, &consent, Choice::First);
     let views = Views::of(&matched, &env).expect("views");
@@ -175,7 +177,7 @@ fn answer<H: CoreHost>(
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, host)
         .expect("authentic");
-    Prepared::prepare(&authenticated, &ids, &wallet, registry, &env)
+    Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .map(|built| built.response().vp_token().json())
 }

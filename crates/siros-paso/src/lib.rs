@@ -82,7 +82,7 @@ pub mod view;
 
 pub use conform::{ClaimIndex, Placement};
 
-use siros_explain::{Message, Messages};
+use siros_explain::{Message, Messages, ModuleId};
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
@@ -94,7 +94,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
-use siros_openid4vp::rows::{Env, HttpsUrl};
+use siros_openid4vp::rows::{Env, HttpsUrl, Selected};
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::{
@@ -465,11 +465,13 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         .map(|(merchant, amount)| (merchant.to_owned(), amount.to_owned()));
     let TransactionView {
         locale,
+        module,
         title,
         rows,
         actions,
         payment: payment_rows,
     } = view;
+    let selected = Selected::new(ModuleId::Defined(module), locale.clone());
     let mut attested = vec![("display_locale".to_owned(), locale.to_string())];
     if let Source::Stored { integrity } = source {
         attested.push(("metadata_integrity".to_owned(), integrity));
@@ -513,6 +515,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         attested: Attested::new(attested)
             .map_err(|e| Fault::caused(FAULT, detail!("the attested display"), e))?,
         overlay,
+        selected: Some(selected),
     })
 }
 

@@ -61,11 +61,15 @@ fn presented(dcql: &str, extra: &str, held: &[Held], registry: &Registry<TestHos
             .collect(),
     )
     .expect("wallet");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
     let token = answer_first(
         &request,
         &wallet,
         registry,
         &env(&["en"], Vec::new()).expect("env"),
+        &rendering,
         &TestHost::default(),
     )
     .expect("response");

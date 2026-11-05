@@ -225,7 +225,10 @@ fn answer<'a, H: CoreHost + Default>(
     env: &'a Env,
 ) -> Answer {
     let accepted = Accepted::new(request, registry).expect("accepted");
-    let matched = Match::run(&accepted, wallet, env).expect("match");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, wallet, env, &rendering).expect("match");
     let consent = Consent::of(&matched).expect("consent");
     let views = Views::of(&matched, env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
@@ -235,7 +238,10 @@ fn answer<'a, H: CoreHost + Default>(
     let host = H::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, &host)
         .expect("authentic");
-    let built = Prepared::prepare(&authenticated, &ids, wallet, registry, env)
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let built = Prepared::prepare(&authenticated, &ids, wallet, registry, env, &rendering)
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         })
@@ -307,7 +313,11 @@ fn transaction_data_hashes_follow_b_3_3_1() {
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &env).expect("match");
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
         let Some((alg, used)) = want else {
             assert_eq!(
                 matched.excluded()[0].exclude.clause(),
@@ -376,7 +386,11 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let envelope = Envelope::parse(&received, &registry).expect("envelope");
         let request = Request::parse(&envelope).expect("request");
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &env).expect("match");
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
         let consent = Consent::of(&matched).expect("consent");
         let views = Views::of(&matched, &env).expect("views");
         let sets = offer(&matched, &consent, Choice::First);
@@ -387,9 +401,14 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let authenticated =
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
                 .expect("authentic");
-        let outcome = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env).and_then(
-            |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
-        );
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        let outcome = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env, &rendering)
+            .and_then(|prepared| {
+                prepared.respond(|resource| Published::default().answer(resource), &host)
+            });
         match (writes, outcome) {
             (32, Ok(response)) => {
                 let token: Json =

@@ -10,7 +10,7 @@ use siros_paso::risk::DEFAULT_PROFILE;
 use siros_testkit::Published;
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, PAY, Screen, annex, en, member, parameters};
+use crate::common::{Card, PAY, Screen, annex, en, member, parameters, request_app};
 
 use super::{
     AMR, MODE, answer, card, host_with, ok, payment, payment_meta, proof, registry, registry_of,
@@ -527,7 +527,9 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let wallet = Wallet::new(vec![card.credential()]).expect("wallet");
         let informed = registry.informed(&[finding]).expect("informed");
         let accepted = Accepted::new(&request, &informed).expect("accepted");
-        let again = Match::run(&accepted, &wallet, &en()).expect("match");
+        let app = request_app(&request, &[&card], &en());
+        let rendering = app.rendering().expect("the rendering");
+        let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
         let query = request.indexed_queries().next().expect("query").0;
         assert_eq!(again.candidates(query).len(), 0);
         let entry = request.entries().first().expect("an entry");

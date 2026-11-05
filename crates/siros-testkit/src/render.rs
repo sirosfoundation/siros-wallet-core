@@ -8,6 +8,7 @@ use siros_i18n::{
     Formatted, LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
     PackageBuilder, PackageError, RenderError, Renderer, Screen, Selected,
 };
+use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::rows::Env;
 
 /// The test app's German source of the `openid4vp` module.
@@ -174,6 +175,7 @@ pub struct App {
     built: BuiltPackage,
     formats: Formats,
     modules: Vec<ModuleId>,
+    own: Vec<ModuleId>,
     selected: Option<Selected>,
 }
 
@@ -199,8 +201,24 @@ impl App {
             built: builder.finish(),
             formats: Formats::new(&RENDERERS)?,
             modules: modules.iter().map(|module| module.id()).collect(),
+            own: modules
+                .iter()
+                .map(|module| module.id())
+                .filter(|id| !matches!(id, ModuleId::Defined(_)))
+                .collect(),
             selected: None,
         })
+    }
+
+    /// What the core renders with: the package, the render halves, and the app's modules beside
+    /// the defined ones.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError::Package`]: the package's header does not read.
+    pub fn rendering(&self) -> Result<Rendering<'_>, AppError> {
+        let package = Package::read(self.built.bytes(), self.built.root())?;
+        Ok(Rendering::new(package, &self.formats, &self.own))
     }
 
     /// The app showing a module in the locale its profile selected.

@@ -364,7 +364,11 @@ fn a_qes_document_the_profile_cannot_read_is_a_fault() {
             ..attestation()
         }];
         let wallet = wallet(&held);
-        Match::run(&accepted, &wallet, &env("en"))
+        let app =
+            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+                .expect("the test app");
+        let rendering = app.rendering().expect("the rendering");
+        Match::run(&accepted, &wallet, &env("en"), &rendering)
             .map(|matched| matched.excluded().len())
             .map_err(|fault| fault.to_string())
     };

@@ -42,7 +42,7 @@ use crate::json::Node;
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, EntryIndex, Item, ItemSet, Query, Request};
 use crate::routing::QueryContext;
-use crate::rows::Env;
+use crate::rows::{Env, Selected};
 use crate::wallet::Credential;
 use crate::wallet_metadata::Placement;
 
@@ -485,6 +485,9 @@ pub struct Bound {
     pub attested: Attested,
     /// What the profile draws over the format's card.
     pub overlay: Overlay,
+    /// The module whose texts show in a locale the profile selected itself; `None` when the
+    /// presentation's language decides every text.
+    pub selected: Option<Selected>,
 }
 
 /// Whether the credential's presentation can carry the profile's response members.

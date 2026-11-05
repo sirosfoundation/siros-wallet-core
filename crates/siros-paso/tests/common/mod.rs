@@ -278,24 +278,89 @@ pub fn paso_module() -> CrateSource {
 /// The module a type's metadata converts to for a priority list, over the test app's main
 /// module.
 pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> Module {
+    converted(kind, meta, priority).expect("converts")
+}
+
+/// The module a type's metadata converts to for a priority list, over the test app's main
+/// module; `None` for metadata that does not convert, whose entries do not render.
+pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<Module> {
     let given = Node::parse(meta).expect("the metadata");
     let [en, de] = main_sources();
-    let converted =
-        siros_paso::view::convert(kind, &given, &[&en, &de], priority).expect("converts");
+    let converted = siros_paso::view::convert(kind, &given, &[&en, &de], priority).ok()?;
     let sources: Vec<&str> = converted
         .sources
         .entries()
         .iter()
         .map(|entry| entry.value().as_str())
         .collect();
-    Module::load(
-        ModuleId::Defined(converted.module),
-        &Declaration::defined(converted.declaration).expect("a declaration"),
-        &sources,
-        converted.policy,
-        &compilers().expect("compilers"),
+    Some(
+        Module::load(
+            ModuleId::Defined(converted.module),
+            &Declaration::defined(converted.declaration).expect("a declaration"),
+            &sources,
+            converted.policy,
+            &compilers().expect("compilers"),
+        )
+        .expect("the converted module loads"),
     )
-    .expect("the converted module loads")
+}
+
+/// The test app as a wallet registers its cards for an `Env`: the main module, the core's and the
+/// profile's modules, the module each type of each card's PaSO document converts to, and the
+/// module of each further (type, metadata) pair, such as ad-hoc metadata's.
+pub fn wallet_app(cards: &[&Card], further: &[(&str, &str)], env: &Env) -> App {
+    let mut modules = vec![
+        main_module().expect("the main module"),
+        CrateSource::openid4vp().load().expect("the core's module"),
+        paso_module().load().expect("the profile's module"),
+    ];
+    let mut converted: Vec<(String, String)> = Vec::new();
+    for card in cards {
+        let node = siros_paso::document::PasoDocument::json(card.document.as_bytes())
+            .expect("the document");
+        let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
+        for (kind, meta) in document.types() {
+            converted.push((kind.to_owned(), meta.python_compact().to_string()));
+        }
+    }
+    converted.extend(
+        further
+            .iter()
+            .map(|(kind, meta)| ((*kind).to_owned(), (*meta).to_owned())),
+    );
+    for (kind, meta) in &converted {
+        let Some(module) = self::converted(kind, meta, env.priority()) else {
+            continue;
+        };
+        if modules.iter().all(|known| known.id() != module.id()) {
+            modules.push(module);
+        }
+    }
+    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
+}
+
+/// [`wallet_app`] with the ad-hoc metadata each entry of the request carries, which the wallet
+/// converts when the request arrives.
+pub fn request_app(
+    request: &siros_openid4vp::request::Request<'_>,
+    cards: &[&Card],
+    env: &Env,
+) -> App {
+    let adhoc: Vec<(String, String)> = request
+        .entries()
+        .iter()
+        .filter_map(|entry| {
+            let jwt = entry.members().get("metadata")?.as_str()?;
+            let jws = siros_paso::adhoc::Jws::parse(jwt).ok()?;
+            let meta = jws.metadata()?.python_compact().to_string();
+            Some((entry.kind().as_str().to_owned(), meta))
+        })
+        .collect();
+    let further: Vec<(&str, &str)> = adhoc
+        .iter()
+        .map(|(kind, meta)| (kind.as_str(), meta.as_str()))
+        .collect();
+    wallet_app(cards, &further, env)
 }
 
 /// The test app of a type's renderings in an `Env`: the main module, the core's and the

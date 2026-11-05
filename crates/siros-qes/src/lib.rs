@@ -284,6 +284,7 @@ impl Profile for QesProfile {
                 header: None,
                 hint: None,
             },
+            selected: None,
         })
     }
 }

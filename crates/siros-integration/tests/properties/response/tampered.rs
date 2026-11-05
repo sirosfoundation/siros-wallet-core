@@ -123,8 +123,15 @@ pub(super) fn tampered(
         .expect("authentic");
     for bad in rejected {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
-            .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
+        match Prepared::prepare(
+            &authenticated,
+            &bad,
+            case.wallet,
+            case.registry,
+            case.env,
+            case.rendering,
+        )
+        .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
             Err(Outcome::Rejected(_)) => tally.add("tampered selections rejected"),
             other => panic!("R-tampered selection accepted: {bad:?} {other:?}"),
@@ -132,8 +139,15 @@ pub(super) fn tampered(
     }
     for (bad, at) in diverging {
         let bad: Vec<&str> = bad.iter().map(String::as_str).collect();
-        match Prepared::prepare(&authenticated, &bad, case.wallet, case.registry, case.env)
-            .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
+        match Prepared::prepare(
+            &authenticated,
+            &bad,
+            case.wallet,
+            case.registry,
+            case.env,
+            case.rendering,
+        )
+        .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
             Err(Outcome::Fallback(findings)) => {
                 let got: Vec<usize> = findings
@@ -189,8 +203,15 @@ pub(super) fn renewed(
     let published = published();
     let authenticated =
         fixtures::authenticate(case.request.envelope(), case.registry, host).expect("authentic");
-    match Prepared::prepare(&authenticated, ids, &wallet, case.registry, case.env)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    match Prepared::prepare(
+        &authenticated,
+        ids,
+        &wallet,
+        case.registry,
+        case.env,
+        case.rendering,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {
         Err(Outcome::Fallback(findings)) => {
             let kinds: Vec<&str> = findings

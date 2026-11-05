@@ -12,12 +12,18 @@ use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
+use siros_openid4vp::request::Request;
+use siros_openid4vp::rows::Env;
+use siros_openid4vp::wallet::Wallet;
+use siros_paso::document::PasoDocument;
 use siros_paso::{
     CoseEncrypt, Paso, PasoProfile, RandomIds, TestCoseEncrypt, TestPaso, TestRandomIds,
 };
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
-use siros_testkit::render::{App, CrateSource, GERMAN_PASO, compilers, main_module, main_sources};
+use siros_testkit::render::{
+    App, CrateSource, GERMAN_PASO, GERMAN_QES, compilers, main_module, main_sources,
+};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 
 siros_testkit::test_host! {
@@ -83,42 +89,99 @@ pub fn placement(
     siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
 }
 
-/// The test app of a type's rendering: the main module, the core's and PaSO's modules, and the
-/// module the type's metadata converts to for the priority list, shown in the locale View §4
-/// selected.
-pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &LocaleTag) -> App {
+/// A PaSO type's metadata converted for a priority list and loaded; `None` for metadata that does
+/// not convert, whose entries do not render.
+fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<Module> {
     let node = Node::parse(given).expect("the metadata");
     let [en, de] = main_sources();
-    let converted =
-        siros_paso::view::convert(kind, &node, &[&en, &de], priority).expect("converts");
+    let converted = siros_paso::view::convert(kind, &node, &[&en, &de], priority).ok()?;
     let sources: Vec<&str> = converted
         .sources
         .entries()
         .iter()
         .map(|entry| entry.value().as_str())
         .collect();
-    let defined = Module::load(
-        ModuleId::Defined(converted.module),
-        &Declaration::defined(converted.declaration).expect("a declaration"),
-        &sources,
-        converted.policy,
-        &compilers().expect("compilers"),
+    Some(
+        Module::load(
+            ModuleId::Defined(converted.module),
+            &Declaration::defined(converted.declaration).expect("a declaration"),
+            &sources,
+            converted.policy,
+            &compilers().expect("compilers"),
+        )
+        .expect("the converted module loads"),
     )
-    .expect("the converted module loads");
+}
+
+/// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
+/// PaSO's and QES's.
+fn own_modules() -> Vec<Module> {
     let paso = CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
         english: siros_paso::CrateModule::ENGLISH,
         german: GERMAN_PASO,
     };
-    let modules = [
+    let qes = CrateSource {
+        id: siros_qes::CrateModule::ID,
+        messages: siros_qes::CrateModule::messages(),
+        english: siros_qes::CrateModule::ENGLISH,
+        german: GERMAN_QES,
+    };
+    vec![
         main_module().expect("the main module"),
+        CrateSource::testkit()
+            .load()
+            .expect("the test app's module"),
         CrateSource::openid4vp().load().expect("the core's module"),
         paso.load().expect("PaSO's module"),
-        defined,
-    ];
-    let selected = Selected::new(ModuleId::Defined(converted.module), locale.clone());
+        qes.load().expect("QES's module"),
+    ]
+}
+
+/// The test app of a type's rendering: the wallet's own modules and the module the type's
+/// metadata converts to for the priority list, shown in the locale View §4 selected.
+pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &LocaleTag) -> App {
+    let defined = converted(kind, given, priority).expect("converts");
+    let selected = Selected::new(defined.id(), locale.clone());
+    let mut modules = own_modules();
+    modules.push(defined);
     App::new(&modules.iter().collect::<Vec<_>>())
         .expect("the package")
         .selecting(selected)
+}
+
+/// The test app as the wallet registers its credentials for `env`'s priority list: the wallet's
+/// own modules, the module each type of each credential's PaSO document converts to, and the
+/// module of the ad-hoc metadata each entry of the request carries, which the wallet converts
+/// when the request arrives.
+pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App {
+    let mut metadata: Vec<(String, String)> = Vec::new();
+    for credential in wallet.credentials() {
+        let Some(bytes) = credential.document("paso") else {
+            continue;
+        };
+        let node = PasoDocument::json(bytes).expect("a PaSO document");
+        let document = PasoDocument::read(&node).expect("a PaSO document");
+        metadata.extend(
+            document
+                .types()
+                .map(|(kind, meta)| (kind.to_owned(), meta.python_compact().to_string())),
+        );
+    }
+    metadata.extend(request.entries().iter().filter_map(|entry| {
+        let jwt = entry.members().get("metadata")?.as_str()?;
+        let jws = siros_paso::adhoc::Jws::parse(jwt).ok()?;
+        let meta = jws.metadata()?.python_compact().to_string();
+        Some((entry.kind().as_str().to_owned(), meta))
+    }));
+    let mut modules = own_modules();
+    for (kind, meta) in &metadata {
+        if let Some(module) = converted(kind, meta, env.priority())
+            && modules.iter().all(|known| known.id() != module.id())
+        {
+            modules.push(module);
+        }
+    }
+    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
 }
