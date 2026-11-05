@@ -2,7 +2,10 @@
 //! texts the tables of `f7f6c55` (siros-wallet-core `f7f6c55`, imported from wallet-rs `f718dc3`)
 //! held, in both languages (I31's clause on the tables).
 
-use siros_explain::{Explain, Messages, ModuleId, Text};
+use siros_explain::{
+    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Messages, ModuleId, Offset,
+    Second, Text, Time, Value,
+};
 use siros_i18n::{Module, ModuleError};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env, WalletText};
@@ -304,4 +307,114 @@ fn the_modules_render_the_tables_texts() {
         })
         .collect();
     assert!(differences.is_empty(), "{differences:#?}");
+}
+
+/// The values f7f6c55's tables formatted, each with its English and German text there, and the
+/// reason the rendering through siros-i18n differs where it does: CLDR 49's formats, whose
+/// oracle is ICU4X 2.4 (I35, I36), in place of the tables' hand-made ones.
+fn formatted_values() -> Vec<(Value, &'static str, &'static str, Option<&'static str>)> {
+    let eur = Currency::from_code("EUR").expect("EUR");
+    let jpy = Currency::from_code("JPY").expect("JPY");
+    let date = |year, month, day| Date::new(year, month, day).expect("a date");
+    let at = |hour, minute, second| {
+        Time::new(
+            hour,
+            minute,
+            Some(Second::new(second, Fraction::NONE).expect("a second")),
+        )
+        .expect("a time")
+    };
+    let amount = |units, scale, currency| {
+        Value::Amount(Amount::new(
+            Decimal::new(units, scale).expect("a decimal"),
+            currency,
+        ))
+    };
+    vec![
+        (
+            Value::Date(date(2026, 9, 2)),
+            "2 Sep 2026",
+            "02.09.2026",
+            Some("CLDR en's medium date writes the month first and a comma before the year"),
+        ),
+        (
+            Value::Time {
+                at: at(10, 15, 30),
+                offset: Some(Offset::new(0).expect("UTC")),
+            },
+            "10:15:30 UTC",
+            "10:15:30 UTC",
+            Some(
+                "CLDR's medium time, the test app's length: en's 12-hour clock, and no zone, which the \
+                 lengths long and full write",
+            ),
+        ),
+        (
+            Value::DateTime(DateTime::new(
+                date(2026, 6, 2),
+                at(10, 15, 30),
+                Some(Offset::new(120).expect("an offset")),
+            )),
+            "2 Jun 2026, 10:15:30 UTC+02:00",
+            "02.06.2026, 10:15:30 UTC+02:00",
+            Some(
+                "CLDR's medium date and time, the test app's length: en's month first and 12-hour \
+                 clock, and no zone, which the lengths long and full write",
+            ),
+        ),
+        (
+            Value::Currency(eur),
+            "EUR",
+            "EUR",
+            Some("CLDR's currency symbol in place of the code"),
+        ),
+        (
+            amount(123_456_750, 2, eur),
+            "€1,234,567.50",
+            "1234567.50 EUR",
+            Some(
+                "CLDR de's currency format: grouped digits, a decimal comma, the symbol after them",
+            ),
+        ),
+        (
+            amount(10_000, 0, jpy),
+            "10000 JPY",
+            "10000 JPY",
+            Some("CLDR's currency format: grouped digits and the currency's symbol"),
+        ),
+    ]
+}
+
+/// Catches a typed value that renders other than f7f6c55's table without a classed reason, and a
+/// reason the rendering no longer needs.
+#[test]
+fn the_tables_formatted_values_differ_only_where_classed() {
+    let modules: Vec<Module> = vec![main_module().expect("the main module")];
+    let app = App::new(&modules.iter().collect::<Vec<_>>()).expect("the package");
+    let env = |tag: &str| {
+        Env::new(
+            vec![LocaleTag::parse(tag).expect("a tag")],
+            Vec::new(),
+            OPTIONS,
+            Vec::new(),
+            Choice::First,
+        )
+        .expect("the configuration")
+    };
+    let (en, de) = (env("en"), env("de"));
+    let mut unclassed = Vec::new();
+    for (value, table_en, table_de, reason) in formatted_values() {
+        let text = Text::Value(value);
+        let got = [
+            app.plain(&en, &text).expect("renders"),
+            app.plain(&de, &text).expect("renders"),
+        ];
+        let differs = got != [table_en, table_de];
+        if differs != reason.is_some() {
+            unclassed.push(format!(
+                "{text:?}: {got:?}, the table [{table_en:?}, {table_de:?}], classed {reason:?}"
+            ));
+        }
+    }
+    assert!(unclassed.is_empty(), "{unclassed:#?}");
 }
