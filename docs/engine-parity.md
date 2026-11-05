@@ -209,14 +209,40 @@ token's `AuthInvalidBefore` (and the wallet-revocation tombstone), and
 was cut off — the W2 auth wave, alongside the TAC principal (§6.1). Until
 that lands, the standalone engine trusts the token's signature only.
 
-## 7. The fix waves (revised after the PR triage)
+### §6.11 The open-issue triage (2026-11-05)
+
+The open go-wallet-backend issues that touch the engine, triaged against
+this plan; the issues close and/or refocus to non-engine as the switch
+proceeds.
+
+| Issue | What it is | The plan's coverage |
+|---|---|---|
+| **#432** | WMP routing and replay state shared across engine replicas (follow-up to #163) | **Deployment concern for the Rust server adapter** — the outbox (`outbox.rs`) is per-process in-memory today; a multi-replica deployment needs shared state for the event log (replay) and the flow registry (routing), or sticky sessions. Recorded here; the backend adapter's shared store (Redis, the Go backend's own plan) is the seam — the `Outbox` and `Registry` are the traits to back. |
+| **#441** | OID4VP error responses aren't JARM-encoded for `direct_post.jwt` | **A real gap, W3.** The Rust `submit_error_response` (`response.rs:67-84`) posts plain form for every mode — the P0.6 note characterized the Go bug, not the spec. OpenID4VP 1.0 + JARM: in `direct_post.jwt` mode the error response (decline, no-match, transaction-data) is a JWT encrypted to the verifier's key, in the `response` parameter — the same key selection `submit_jarm_response` already uses for the success path. |
+| **#478** | `flow_start` accepts a client-generated flow id | Legacy WS protocol — retires with the engine. (The WMP `flow_id` is client-supplied by design; the flow-route claim and the registry's generation counter are the WMP-native collision guards.) |
+| **#502** | Credential-data-free consent shape (WMP spec #27) | Covered: **W6** (the consent component). |
+| **#511** | The offer's `authorization_server` hint is ignored (MUST NOT proceed on mismatch) | **A real gap, W1-remainder.** OpenID4VCI 1.0/1.1: when the offer's grant carries `authorization_server`, it MUST equal one of the metadata's `authorization_servers` (exact string) — select that AS; a mismatch fails closed. Absent + several advertised: today's first-entry choice, documented. The Rust `oid4vci/mod.rs:153` takes `first()`, ignoring the hint. |
+| **#521** | "Last connection wins" is per replica | WS-session-specific — stays backend/legacy. |
+| **#530** | Failed DPoP signing burns the notification context | Covered: **W7** (#527/#528 — the spend-after-contact semantics land with the flow). |
+| **#415** | The process-local TokenBlacklist | **Mixed.** The engine-handshake piece retires with the engine (the Rust `RevocationChecker` trait in `token.rs` is the seam — the backend adapter implements it against the shared store); the registry piece and the shared store stay backend. |
+| **#342** | Carrying wallet-instance identity past login | Engine seam covered: **§6.10** (the token cut-off gate, landed with W2-complete — `Principal.iat`/`auth_invalid_before` + the `TokenGate` trait). |
+| **#333** | The lifecycle gate's tokens | Mostly backend; the engine mention is the same **§6.10** seam (covered). |
+| **#218** | Lifecycle push notifications | **Needs rescoping for WMP** — the design assumes WebSocket-first; with WMP the push shape needs defining (the SSE stream is the natural carrier, the outbox the natural log). An open design item for the lifecycle wave; not blocking the engine switch. |
+| **#444** | `admin_host` and `engine_host` never applied | `engine_host` retires with the engine (no Rust counterpart); `admin_host` stays backend. |
+| **#512** | The AuthZEN proxy resolving the wrong authorization server | Backend (the `/v1/evaluate` proxy route); the engine's `Pdp` port is unaffected. |
+| **#445** | Trust doc comments | Backend. |
+
+## 7. The fix waves (revised after the PR and issue triages)
 
 1. **W1 — engine-core parity (partially landed)**: the step vocabulary,
    scheme enforcement, description/sanitization alignment — landed with
    vectors + wasm self-test. **Remaining from §2: the `awaiting_selection`
    step + the single-config auto-select** (a multi-config offer needs the
    `select_credential` action path, like the auth-code grant's two-call
-   resume).
+   resume); **and from §6.11: #511 — the offer's `authorization_server`
+   hint** (a grant-level hint MUST match a metadata entry exactly, else
+   fail closed; absent + several advertised: the documented first-entry
+   choice).
 2. **W2 — the bridge (#163): COMPLETE.** ✅ the SSE event pump (`id:`
    lines, `Last-Event-ID` replay, `410 Gone`, the
    `refresh_token`/`dpop_jwk`/`dpop_key_id` redaction, and the replayer
@@ -244,9 +270,14 @@ that lands, the standalone engine trusts the token's signature only.
    trait (stateless claim check + the store-backed half, default
    `NoTokenGate` for the standalone deployment, the backend adapter
    implements it) — refuses a principal whose token was cut off.
-3. **W3 — the sign-stage refusal (#472)**: `request_vp` decline/rejected
-   answers the verifier `access_denied` (+state) and the client
-   `PRESENTATION_ERROR` + `redirect_uri`.
+3. **W3 — the sign-stage refusal (#472) + the JARM error responses
+   (#441)**: `request_vp` decline/rejected answers the verifier
+   `access_denied` (+state) and the client `PRESENTATION_ERROR` +
+   `redirect_uri`; and `submit_error_response` in `direct_post.jwt`
+   mode builds the error as JARM claims (`iss`, `aud`, `exp`, `error`,
+   `error_description`, `state`) encrypted with the same key selection
+   the success path uses — the P0.6 note characterized the Go bug, not
+   the spec. The plain form stays for `direct_post`.
 4. **W4 — auxiliary data (#480, engine half)**: the advert, the selection
    refusal, the request members, the conflict relay, strict offer decode.
 5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
@@ -263,6 +294,13 @@ that lands, the standalone engine trusts the token's signature only.
 9. **W9 — SDK adapter + transports + real testing**: port wiring (F2/F3),
    `WmpUniFFITransport`, the AAR/XCFramework CI, then end-to-end against
    the deployed stack.
+
+**The deployment notes (§6.11):** #432 — a multi-replica deployment needs
+shared WMP routing/replay state (the outbox and the flow registry are the
+seams; Redis behind both, or sticky sessions until then). #218 — the
+lifecycle push design needs its WMP rescoping (the SSE stream is the
+natural carrier). Neither blocks the switch; both land with the backend
+adapter's shared store.
 
 The suite evidence stands: everything in §4 marked suite-validated is green
 against the OIDF plans (four OID4VCI + OID4VP variants incl. HAIP and

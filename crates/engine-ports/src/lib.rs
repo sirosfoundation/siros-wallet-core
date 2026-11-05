@@ -412,6 +412,49 @@ pub struct VpResult {
     /// object — or a pre-formed JSON object, which passes through.
     #[serde(default)]
     pub vp_token: String,
+    /// The sign refusal, when the host answered the ask with a refusal
+    /// instead of a token: the Go engine's `sign_response.error_code`
+    /// (the #472 contract). `Err(HostError::Declined)` stays the
+    /// short form for "the user declined"; this carries the allowlisted
+    /// code when the host knows more (`SIGN_REFUSED`, an unsupported
+    /// transaction type). The engine answers the verifier
+    /// `access_denied` at once — never a partial vp_token — and the
+    /// client gets the decline error with the verifier's redirect, if
+    /// any (OpenID4x 3.2.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<SignRefusal>,
+}
+
+/// A sign-stage refusal, with its allowlisted code (the Go engine's
+/// `SignError.Code` — only the code crosses the ask, never the wallet's
+/// free-form reason: the verifier must not learn why the wallet refused).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SignRefusal {
+    /// The refusal's code: `SIGN_REFUSED` (the user declined at the sign
+    /// step) or `UNSUPPORTED_TRANSACTION_DATA` (the client refuses a
+    /// transaction type only it can judge — the verifier is told
+    /// `invalid_transaction_data` rather than left waiting).
+    pub code: String,
+}
+
+impl SignRefusal {
+    /// The user's sign refusal (the Go `ErrCodeSignRefused`).
+    #[must_use]
+    pub fn sign_refused() -> Self {
+        Self {
+            code: "SIGN_REFUSED".to_owned(),
+        }
+    }
+
+    /// The unsupported-transaction-data refusal (the Go
+    /// `ErrCodeUnsupportedTransactionData`): the client refuses a
+    /// transaction type only it can judge.
+    #[must_use]
+    pub fn unsupported_transaction_data() -> Self {
+        Self {
+            code: "UNSUPPORTED_TRANSACTION_DATA".to_owned(),
+        }
+    }
 }
 
 /// The client-held DPoP proof the engine asks the host for (RFC 9449
