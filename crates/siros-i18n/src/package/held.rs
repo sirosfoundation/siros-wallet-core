@@ -92,6 +92,13 @@ fn write_text(writer: &mut Writer, text: &Text) {
             writer.byte(5);
             writer.text(raw);
         }
+        Text::Joined(items) => {
+            writer.byte(6);
+            writer.count(items.items().len());
+            for item in items.items() {
+                write_text(writer, item);
+            }
+        }
     }
 }
 

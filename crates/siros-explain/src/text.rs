@@ -30,6 +30,9 @@ pub enum Text {
     Absent,
     /// A text from the outside, shown as written: the last resort.
     Raw(String),
+    /// Several texts, one or more, shown one after another, each as it shows alone: a text from
+    /// the outside with typed values set in it.
+    Joined(AllOf<Text>),
 }
 
 /// An i18n query held by value: a module's message and its arguments, under distinct names.

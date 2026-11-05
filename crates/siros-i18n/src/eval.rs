@@ -89,7 +89,7 @@ fn admits(param: &ParamForm, text: &Text) -> bool {
         Text::Value(value) => BareKind::of(value).arg_kind(),
         Text::Name(_) => ArgKind::Name,
         Text::List { .. } => ArgKind::List,
-        Text::Raw(_) => ArgKind::Raw,
+        Text::Raw(_) | Text::Joined(_) => ArgKind::Raw,
     };
     kind == given || kind == ArgKind::Text
 }
@@ -139,6 +139,10 @@ impl Renderer<'_> {
                 sink.text(raw);
                 Ok(())
             }
+            Text::Joined(items) => items
+                .items()
+                .iter()
+                .try_for_each(|item| self.text(item, sink, trail)),
         }
     }
 
@@ -319,7 +323,9 @@ impl Renderer<'_> {
             Text::List { kind, items } => {
                 Held::List(*kind, items.try_map(|item| self.plain_text(item, trail))?)
             }
-            Text::Query(_) => Held::Text(Cow::Owned(self.plain_text(text, trail)?)),
+            Text::Query(_) | Text::Joined(_) => {
+                Held::Text(Cow::Owned(self.plain_text(text, trail)?))
+            }
         })
     }
 
