@@ -1,11 +1,13 @@
 //! One `transaction_data` entry rendered with one type's metadata, in PaSO Core §7.4.2's order:
 //! the metadata (Proof Metadata §3), payload conformance (step 2), images (step 3), templates,
-//! locale selection (View §4), then the rows and UI labels (View §2-3) within the wallet's item
-//! bound.
+//! the presentation's language (View §4, decided by siros-i18n's `decide` over the wallet's
+//! languages and the converted module's), then the rows and UI labels (View §2-3) within the
+//! wallet's item bound.
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Explain, Keyed, Query, Text};
+use siros_explain::{DefinedModule, Entry, Explain, Keyed, ModuleId, Query, Text};
+use siros_i18n::{LanguagePolicy, NoLanguage, Served, decide};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -15,11 +17,9 @@ use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, writte
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
 use crate::labels::{LabelSlot, LabelText};
-use crate::locale::{ArrayKey, Discarded, Selection, select};
+use crate::locale::{ArrayKey, Discarded, chain, languages};
 use crate::mandate;
-use crate::metadata::{
-    DisplayArray, Displayed, LabelForm, Localized, Metadata, UiKey, ValueType, kind_name,
-};
+use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
 use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
 use crate::rulebook::{Family, Rulebook, Subtype};
@@ -106,7 +106,7 @@ impl PaymentRows {
 /// An entry rendered for a credential.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransactionView {
-    /// The locale View §4 selected, which the response reports (Core §7.2).
+    /// The presentation's language, which the response reports (Core §7.2).
     pub locale: LocaleTag,
     /// The transaction title.
     pub title: Text,
@@ -136,13 +136,14 @@ impl TransactionView {
 }
 
 /// What a rendering reads: the type, the payload, the metadata given for the type, the wallet's
-/// configuration and item bound, and what it knows of https images.
+/// configuration, languages and item bound, and what it knows of https images.
 pub(crate) struct Request<'r, R> {
     pub(crate) kind: &'r str,
     pub(crate) family: Family,
     pub(crate) payload: Payload<'r>,
     pub(crate) given: &'r Node<'r>,
     pub(crate) env: &'r Env,
+    pub(crate) languages: &'r [LocaleTag],
     pub(crate) bound: ItemBound,
     pub(crate) resolve: R,
 }
@@ -174,37 +175,38 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         let shown = self.images(&metadata, &rulebook)?;
         let discarded = self.discarded(&metadata, &shown)?;
         let arrays = arrays(&metadata);
-        if select(&arrays, self.env.priority(), &Discarded::default()).is_none() {
-            return Err(Excluded {
-                locales: self
-                    .env
-                    .priority()
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-            }
-            .into());
-        }
-        let selection = select(&arrays, self.env.priority(), &discarded)
-            .ok_or(NotCompatible::TemplatesExhausted)?;
         let module = view::module_of(self.given);
+        let language = self.language(&arrays, module, &discarded)?;
+        let taken = |key: ArrayKey, array: &DisplayArray<'_>| -> Option<usize> {
+            chain(array, &language)
+                .into_iter()
+                .map(|(position, _)| position)
+                .find(|position| !discarded.holds(key, *position))
+        };
         let rows = shown
             .into_iter()
-            .map(|shown| self.row(module, &metadata, &rulebook, &selection, shown))
+            .map(|shown| {
+                let key = ArrayKey::Claim(shown.instance.claim);
+                let position = taken(key, &shown.instance.display.names)
+                    .ok_or(NotCompatible::TemplatesExhausted)?;
+                self.row(module, &metadata, &rulebook, &discarded, position, shown)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let ui = |key: UiKey| -> Result<Option<Text>, NotCompatible> {
-            selection
-                .entry(ArrayKey::Ui(key))
-                .map(|(position, entry)| {
-                    let placed = Placed {
-                        array: ArrayKey::Ui(key),
-                        position,
-                        slot: key.slot(),
-                        at: RenderedAt::Ui(key),
-                    };
-                    self.label(module, &metadata, entry, &[], placed)
-                })
-                .transpose()
+            let Some(label) = metadata.ui.iter().find(|label| label.key == key) else {
+                return Ok(None);
+            };
+            let array = ArrayKey::Ui(key);
+            let position = taken(array, &label.entries).ok_or(NotCompatible::TemplatesExhausted)?;
+            let placed = Placed {
+                array,
+                entries: &label.entries,
+                position,
+                slot: key.slot(),
+                at: RenderedAt::Ui(key),
+            };
+            self.label(module, &metadata, &discarded, &[], placed)
+                .map(Some)
         };
         let title = ui(UiKey::TransactionTitle)?.unwrap_or_else(|| Text::of(&rulebook.title()));
         let confirm =
@@ -224,7 +226,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             _ => None,
         };
         Ok(TransactionView {
-            locale: selection.locale,
+            locale: language,
             title,
             rows,
             actions: Actions {
@@ -234,6 +236,53 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             },
             payment,
         })
+    }
+
+    /// The presentation's language: siros-i18n's decision over the wallet's languages and the
+    /// languages the converted module supports; View §4's exclusion when no language the
+    /// End-User understands serves both. Then the same decision over the languages whose arrays
+    /// keep an entry the absent claims leave (View §3 template): the module matches every key the
+    /// presentation shows; not compatible when none does.
+    fn language(
+        &self,
+        arrays: &[(ArrayKey, &DisplayArray<'_>)],
+        module: DefinedModule,
+        discarded: &Discarded,
+    ) -> Result<LocaleTag, Outcome> {
+        let decided = |served: &[LocaleTag]| {
+            let modules = [
+                Served {
+                    id: ModuleId::Main,
+                    tags: self.languages,
+                    policy: LanguagePolicy::Any,
+                },
+                Served {
+                    id: ModuleId::Defined(module),
+                    tags: served,
+                    policy: LanguagePolicy::Understood,
+                },
+            ];
+            decide(&modules, self.env.priority(), self.env.fallback())
+        };
+        let supported = languages(arrays, self.languages, &Discarded::default());
+        if let Err(NoLanguage::NotUnderstood(_) | NoLanguage::NoFallback) = decided(&supported) {
+            return Err(Excluded {
+                locales: self
+                    .env
+                    .priority()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            }
+            .into());
+        }
+        let shown = languages(arrays, self.languages, discarded);
+        match decided(&shown) {
+            Ok(language) => Ok(language.tag().clone()),
+            Err(NoLanguage::NotUnderstood(_) | NoLanguage::NoFallback) => {
+                Err(NotCompatible::TemplatesExhausted.into())
+            }
+        }
     }
 
     /// Core §7.4.2 step 3: the instances in order, each image resolved; one that fails makes
@@ -327,24 +376,26 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         Ok(discarded)
     }
 
-    /// A label's text: the wallet's own, or the converted module's message for the entry, a
-    /// template's message with its referenced values, its interpolation held to §3.3 for its
-    /// slot (View §2).
+    /// A label's text: the wallet's own, or the converted module's message for its array, with
+    /// each template entry's liveness and its referenced values; the template the language takes
+    /// held to §3.3 for its slot (View §2), interpolated as written.
     fn label(
         &self,
         module: DefinedModule,
         metadata: &Metadata<'_>,
-        entry: &Localized<'_>,
+        discarded: &Discarded,
         nulls: &[usize],
-        placed: Placed,
+        placed: Placed<'_, '_>,
     ) -> Result<Text, NotCompatible> {
-        let key = view::key(placed.array, placed.position);
-        let args = match entry.label {
+        let claims = &metadata.claims;
+        let payload = self.payload.node();
+        let entries = placed.entries.entries();
+        let entry = entries
+            .get(placed.position)
+            .ok_or(NotCompatible::TemplatesExhausted)?;
+        match entry.label {
             LabelForm::Own(own) => return Ok(own.text()),
-            LabelForm::Plain(_) | LabelForm::Markdown(_) => Keyed::empty(),
             LabelForm::Template(template) => {
-                let claims = &metadata.claims;
-                let payload = self.payload.node();
                 let text = Template(template).interpolate(claims, payload, nulls)?;
                 LabelText::parse(&text, placed.slot)
                     .map(drop)
@@ -352,33 +403,48 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                         at: placed.at,
                         violation,
                     })?;
-                Template(template).arguments(claims, payload, nulls)?
             }
-        };
-        Ok(Text::Query(Query::defined(module, key, args)))
+            LabelForm::Plain(_) | LabelForm::Markdown(_) => {}
+        }
+        let mut args: Vec<Entry<Cow<'static, str>, Text>> = Vec::new();
+        for (position, entry) in entries.iter().enumerate() {
+            if let LabelForm::Template(template) = entry.label {
+                let live = if discarded.holds(placed.array, position) {
+                    view::DEAD
+                } else {
+                    view::LIVE
+                };
+                args.push(Entry::new(view::liveness(position), Text::Name(live)));
+                args.extend(Template(template).arguments(claims, payload, nulls)?);
+            }
+        }
+        let key = view::key(placed.array);
+        Ok(Text::Query(Query::defined(
+            module,
+            key,
+            Keyed::first_of(args),
+        )))
     }
 
-    /// One instance's row: its label in the selected locale, its value, its section.
+    /// One instance's row: its label in the presentation's language, its value, its section.
     fn row(
         &self,
         module: DefinedModule,
         metadata: &Metadata<'_>,
         rulebook: &Rulebook<'_>,
-        selection: &Selection<'_, '_>,
+        discarded: &Discarded,
+        position: usize,
         shown: Shown<'_>,
     ) -> Result<ViewRow, NotCompatible> {
         let Shown { instance, content } = shown;
-        // Every display array matched: a missing entry is one no locale kept.
-        let (position, entry) = selection
-            .entry(ArrayKey::Claim(instance.claim))
-            .ok_or(NotCompatible::TemplatesExhausted)?;
         let placed = Placed {
             array: ArrayKey::Claim(instance.claim),
+            entries: &instance.display.names,
             position,
             slot: LabelSlot::ClaimName,
             at: RenderedAt::Claim(concrete_text(&instance.path)),
         };
-        let label = self.label(module, metadata, entry, &instance.nulls, placed)?;
+        let label = self.label(module, metadata, discarded, &instance.nulls, placed)?;
         let kind = match content {
             Content::Alone => None,
             Content::Image(_) => Some(ValueKind::Image),
@@ -417,10 +483,12 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     }
 }
 
-/// Where a label shows: its array and position, its slot, and how a refusal names it.
+/// Where a label shows: its array, the position of the entry the language takes, its slot, and
+/// how a refusal names it.
 #[derive(Debug, Clone)]
-struct Placed {
+struct Placed<'a, 'm> {
     array: ArrayKey,
+    entries: &'a DisplayArray<'m>,
     position: usize,
     slot: LabelSlot,
     at: RenderedAt,

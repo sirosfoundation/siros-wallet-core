@@ -27,7 +27,10 @@ pub(super) fn bind(
         additions: &*additions,
         carriage,
     };
-    match PasoProfile::default().bind(binding, &en()) {
+    match PasoProfile::default()
+        .with_languages(siros_testkit::render::languages())
+        .bind(binding, &en())
+    {
         Ok(bound) => Ok(bound.entries.entries().iter().map(|e| e.get()).collect()),
         Err(NoCandidate::Excluded(exclude)) => {
             Err((exclude.rule().to_string(), exclude.clause().into_owned()))
@@ -117,6 +120,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
         let credential = card.credential();
         let additions = crate::common::additions(&credential);
         let bound = PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .bind(
                 Binding {
                     request: &request,
@@ -182,6 +186,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
         let credential = card.credential();
         let additions = crate::common::additions(&credential);
         PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .bind(
                 Binding {
                     request: &request,

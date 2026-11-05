@@ -292,19 +292,28 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
         ),
     ];
     for (why, value, want) in cases {
-        assert_eq!(image(&value, &PasoProfile::default()), want, "{why}");
+        assert_eq!(
+            image(
+                &value,
+                &PasoProfile::default().with_languages(siros_testkit::render::languages())
+            ),
+            want,
+            "{why}"
+        );
     }
     // A fetched image of 512 KiB exactly.
     let url = "https://cdn.example/l.png";
     let content = [png(1, 1), vec![0; 524_288 - 57]].concat();
     assert_eq!(content.len(), 524_288);
-    let fetched = PasoProfile::default().with_resource(
-        siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
-        Fetch::Fetched {
-            content: content.clone(),
-            media: "image/png".to_owned(),
-        },
-    );
+    let fetched = PasoProfile::default()
+        .with_languages(siros_testkit::render::languages())
+        .with_resource(
+            siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
+            Fetch::Fetched {
+                content: content.clone(),
+                media: "image/png".to_owned(),
+            },
+        );
     let meta = claims(
         r#"{"path": ["logo"], "value_type": "image", "display": [{"locale": "en", "name": "Logo"}]}"#,
     );

@@ -96,7 +96,7 @@ pub struct Rendering {
 
 /// Each PaSO entry with an object payload rendered for each credential.
 fn renders(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env) -> Vec<Rendering> {
-    let paso = PasoProfile::default();
+    let paso = PasoProfile::default().with_languages(siros_testkit::render::languages());
     let mut out = Vec::new();
     for credential in wallet.credentials() {
         for (index, entry) in request.indexed_entries() {
@@ -249,7 +249,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
 /// §7.2.1).
 fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
     let keys = case.client.agreeable_keys();
-    let paso = PasoProfile::default();
+    let paso = PasoProfile::default().with_languages(siros_testkit::render::languages());
     for (index, query) in case.request.indexed_queries() {
         let candidates = matched.candidates(index);
         let Some(parsed) = case.parsed(index) else {

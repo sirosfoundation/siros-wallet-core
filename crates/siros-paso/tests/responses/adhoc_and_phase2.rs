@@ -118,7 +118,11 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
     // A valid JWT renders a type the stored metadata lacks; metadata_integrity stays out (Core
     // §6.1).
     assert_eq!(
-        adhoc_case(&keyed, &card("{}", None, ISSUER), PasoProfile::default()),
+        adhoc_case(
+            &keyed,
+            &card("{}", None, ISSUER),
+            PasoProfile::default().with_languages(siros_testkit::render::languages())
+        ),
         Ok(sca.clone())
     );
     let x5c_issuer = r#"{"iss": "https://issuer.bank.example", "x5c": {"root": "CN=Bank Root", "subject": "CN=Bank Issuer"}}"#;
@@ -133,7 +137,9 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
         adhoc_case(
             &chained,
             &card("{}", None, x5c_issuer),
-            PasoProfile::default().with_trust(TrustAnchor("CN=Bank Root".to_owned()))
+            PasoProfile::default()
+                .with_languages(siros_testkit::render::languages())
+                .with_trust(TrustAnchor("CN=Bank Root".to_owned()))
         ),
         Ok(sca)
     );
@@ -141,7 +147,11 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
     let failed = adhoc_jwt(&claims, "wrong", Some("issuer-key-1"), None).expect("jwt");
     let listing = card(&format!(r#"{{"{PAY}": {}}}"#, payment_meta()), None, ISSUER);
     assert_eq!(
-        adhoc_case(&failed, &listing, PasoProfile::default()),
+        adhoc_case(
+            &failed,
+            &listing,
+            PasoProfile::default().with_languages(siros_testkit::render::languages())
+        ),
         Err(AdhocOutcome::Excluded(
             "no PaSO entry is compatible with the credential".to_owned()
         ))
@@ -156,7 +166,11 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
     )
     .expect("jwt");
     assert_eq!(
-        adhoc_case(&late, &card("{}", None, ISSUER), PasoProfile::default()),
+        adhoc_case(
+            &late,
+            &card("{}", None, ISSUER),
+            PasoProfile::default().with_languages(siros_testkit::render::languages())
+        ),
         Err(AdhocOutcome::Fallback(
             PasoFinding::of(None, None, Some(late.clone()), Vec::new()).expect("a finding"),
             0
@@ -195,7 +209,7 @@ pub(super) fn phase_2_fetches_the_images_the_matcher_could_not_and_falls_back_wh
     let response = answer(
         &request,
         &card,
-        &registry(PasoProfile::default()),
+        &registry(PasoProfile::default().with_languages(siros_testkit::render::languages())),
         &published,
         &PasoHost::at(Timestamp(NOW)),
     )
@@ -206,7 +220,8 @@ pub(super) fn phase_2_fetches_the_images_the_matcher_could_not_and_falls_back_wh
     );
     // Its fetch fails: phase 2 falls back; informed, first match moves to the next entry, and
     // the response hashes that one.
-    let registry = registry(PasoProfile::default());
+    let registry =
+        registry(PasoProfile::default().with_languages(siros_testkit::render::languages()));
     let Err(Phase2::Fallback(findings)) = answer(
         &request,
         &card,
@@ -254,7 +269,8 @@ pub(super) fn phase_2_fetches_the_images_the_matcher_could_not_and_falls_back_wh
         "",
     );
     siros_testkit::signed_request!(let request = &unreachable_parameters);
-    let registry = crate::registry(PasoProfile::default());
+    let registry =
+        crate::registry(PasoProfile::default().with_languages(siros_testkit::render::languages()));
     let Err(Phase2::Fallback(findings)) = answer(
         &request,
         &card,
@@ -301,7 +317,8 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
         "",
     );
     siros_testkit::signed_request!(let shown_request = &shown_parameters);
-    let registry = registry(PasoProfile::default());
+    let registry =
+        registry(PasoProfile::default().with_languages(siros_testkit::render::languages()));
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();

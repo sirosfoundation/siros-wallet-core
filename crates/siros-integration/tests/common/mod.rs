@@ -57,6 +57,7 @@ pub fn registry() -> Result<Registry<HaipHost>, String> {
     builder.format(SdJwtVc::new().map_err(|e| e.to_string())?);
     builder.format(Mdoc::new().map_err(|e| e.to_string())?);
     PasoProfile::default()
+        .with_languages(siros_testkit::render::languages())
         .register(&mut builder)
         .map(drop)
         .map_err(|e| e.to_string())?;

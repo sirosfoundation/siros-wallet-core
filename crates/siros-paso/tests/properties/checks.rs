@@ -281,7 +281,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         Amounts::Written
     };
     let env = env(&case.locales, amounts);
-    let profile = PasoProfile::default();
+    let profile = PasoProfile::default().with_languages(siros_testkit::render::languages());
     let texts: Vec<&str> = case.entries.iter().map(String::as_str).collect();
     let parameters = parameters(&one_query(case.format), &texts, "");
     siros_testkit::signed_request!(let request = &parameters);

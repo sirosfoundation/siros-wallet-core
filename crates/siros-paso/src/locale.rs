@@ -1,12 +1,12 @@
-//! View §4: the first locale of the End-User's priority list for which every display array has
-//! an entry, by RFC 4647 basic filtering over its tagged entries, else its default entry.
+//! View §4 under the core's matching (section 4.14 of the design): the entries of a display array
+//! a language takes, by RFC 4647 basic filtering over its tagged entries, then its default entry;
+//! and the languages a type's display rules serve among the wallet's.
 
 use rustc_hash::FxHashSet;
 use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::text::lookup;
 
 use crate::conform::ClaimIndex;
-use crate::metadata::{DisplayArray, EntryLocale, Localized, UiKey};
+use crate::metadata::{DisplayArray, EntryLocale, LabelForm, Localized, UiKey};
 
 /// A display array by what it labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,8 +17,7 @@ pub(crate) enum ArrayKey {
     Ui(UiKey),
 }
 
-/// The entries a template whose claim is absent discards: they take no part in the selection
-/// (View §3 template).
+/// The entries a template whose claim is absent discards (View §3 template).
 #[derive(Debug, Default)]
 pub(crate) struct Discarded(FxHashSet<(ArrayKey, usize)>);
 
@@ -28,80 +27,85 @@ impl Discarded {
         self.0.extend([(key, position)]);
     }
 
-    fn holds(&self, key: ArrayKey, position: usize) -> bool {
+    /// Whether an array's entry at a position is discarded.
+    pub(crate) fn holds(&self, key: ArrayKey, position: usize) -> bool {
         self.0.contains(&(key, position))
     }
 }
 
-/// An entry a locale matched: its position in its array, and the entry.
-pub(crate) type Matched<'a, 'm> = (usize, &'a Localized<'m>);
+/// An entry of an array, with its position in the array.
+pub(crate) type Placed<'a, 'm> = (usize, &'a Localized<'m>);
 
-/// The selected locale and the entry it matched in each array.
-#[derive(Debug)]
-pub(crate) struct Selection<'a, 'm> {
-    /// The locale.
-    pub(crate) locale: LocaleTag,
-    chosen: Vec<(ArrayKey, Matched<'a, 'm>)>,
-}
-
-impl<'a, 'm> Selection<'a, 'm> {
-    /// The entry matched in an array.
-    pub(crate) fn entry(&self, key: ArrayKey) -> Option<Matched<'a, 'm>> {
-        self.chosen
-            .iter()
-            .find(|(known, _)| *known == key)
-            .map(|(_, matched)| *matched)
-    }
-}
-
-/// The first locale of the list for which every array matches: basic filtering over the array's
-/// tagged entries not discarded, else its first default entry not discarded. `None` when no
-/// locale matches every array.
-pub(crate) fn select<'l, 'a, 'm>(
-    arrays: &[(ArrayKey, &'a DisplayArray<'m>)],
-    locales: impl IntoIterator<Item = &'l LocaleTag>,
-    discarded: &Discarded,
-) -> Option<Selection<'a, 'm>> {
-    locales.into_iter().find_map(|tag| {
-        let chosen = arrays
-            .iter()
-            .map(|(key, array)| matched(*key, array, tag, discarded).map(|entry| (*key, entry)))
-            .collect::<Option<Vec<_>>>()?;
-        Some(Selection {
-            locale: tag.clone(),
-            chosen,
-        })
-    })
-}
-
-/// The entry of one array a locale matches, with its position.
-fn matched<'a, 'm>(
-    key: ArrayKey,
+/// The entries a language takes from an array, in the order it takes them: the entry whose tag
+/// equals the language, then those whose tags extend it, in the array's order, then the default
+/// entry; up to the first that no absent claim discards, a label other than a template. A tag
+/// outside RFC 4647's grammar matches no language.
+pub(crate) fn chain<'a, 'm>(
     array: &'a DisplayArray<'m>,
-    tag: &LocaleTag,
-    discarded: &Discarded,
-) -> Option<Matched<'a, 'm>> {
-    let live: Vec<Matched<'a, 'm>> = array
-        .entries()
+    language: &LocaleTag,
+) -> Vec<Placed<'a, 'm>> {
+    let entries: Vec<Placed<'a, 'm>> = array.entries().iter().enumerate().collect();
+    let tagged = |(_, entry): &Placed<'a, 'm>| match entry.locale {
+        EntryLocale::Tagged(tag) => LocaleTag::parse(tag).ok(),
+        EntryLocale::Default => None,
+    };
+    let equal = entries
         .iter()
-        .enumerate()
-        .filter(|(position, _)| !discarded.holds(key, *position))
-        .collect();
-    let tags: Vec<&str> = live
-        .iter()
-        .filter_map(|(_, entry)| match entry.locale {
-            EntryLocale::Tagged(tag) => Some(tag),
-            EntryLocale::Default => None,
-        })
-        .collect();
-    let looked_up = lookup(tag, &tags).and_then(|found| {
-        live.iter()
-            .find(|(_, entry)| entry.locale == EntryLocale::Tagged(found))
-            .copied()
+        .filter(|entry| tagged(entry).as_ref() == Some(language));
+    let extending = entries.iter().filter(|entry| {
+        tagged(entry).is_some_and(|tag| tag != *language && language.filters(&tag))
     });
-    looked_up.or_else(|| {
-        live.iter()
-            .find(|(_, entry)| entry.locale == EntryLocale::Default)
-            .copied()
-    })
+    let default = entries
+        .iter()
+        .filter(|(_, entry)| entry.locale == EntryLocale::Default);
+    let mut out = Vec::new();
+    for entry in equal.chain(extending).chain(default) {
+        out.push(*entry);
+        if !matches!(entry.1.label, LabelForm::Template(_)) {
+            break;
+        }
+    }
+    out
+}
+
+/// The languages a type's display rules serve among the wallet's languages: each wallet language
+/// and each of its shorter subtag prefixes, each once, from which every array takes an entry
+/// `discarded` leaves. Every language a presentation can take is one of them: the wallet's
+/// modules serve no other.
+pub(crate) fn languages(
+    arrays: &[(ArrayKey, &DisplayArray<'_>)],
+    wallet: &[LocaleTag],
+    discarded: &Discarded,
+) -> Vec<LocaleTag> {
+    let mut out: Vec<LocaleTag> = Vec::new();
+    for tag in prefixes(wallet) {
+        if arrays.iter().all(|(key, array)| {
+            chain(array, &tag)
+                .iter()
+                .any(|(position, _)| !discarded.holds(*key, *position))
+        }) {
+            out.push(tag);
+        }
+    }
+    out
+}
+
+/// Each tag and each of its shorter subtag prefixes, shortest first, each once.
+pub(crate) fn prefixes(tags: &[LocaleTag]) -> Vec<LocaleTag> {
+    let mut out: Vec<LocaleTag> = Vec::new();
+    for tag in tags {
+        let text = tag.as_str();
+        let ends = text
+            .match_indices('-')
+            .map(|(at, _)| at)
+            .chain(std::iter::once(text.len()));
+        for end in ends {
+            if let Some(prefix) = text.get(..end).and_then(|head| LocaleTag::parse(head).ok())
+                && !out.contains(&prefix)
+            {
+                out.push(prefix);
+            }
+        }
+    }
+    out
 }

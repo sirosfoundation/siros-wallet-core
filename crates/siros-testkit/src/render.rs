@@ -142,6 +142,15 @@ pub fn main_sources() -> [String; 2] {
     [without_offset(CLDR_EN), without_offset(CLDR_DE)]
 }
 
+/// The test app's languages, its main module's: en and de.
+#[must_use]
+pub fn languages() -> Vec<LocaleTag> {
+    ["en", "de"]
+        .into_iter()
+        .filter_map(|tag| LocaleTag::parse(tag).ok())
+        .collect()
+}
+
 /// The test app's main module: no message of its own, the format options of its bare values in
 /// en and de.
 ///

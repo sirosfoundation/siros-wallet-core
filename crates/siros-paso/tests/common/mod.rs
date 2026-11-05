@@ -113,6 +113,18 @@ pub fn env(locales: &[&str], amounts: Amounts) -> Env {
     .expect("env")
 }
 
+/// `env` at a presentation's language: the record's language, which the screen shows.
+pub fn presenting(env: &Env, language: &LocaleTag) -> Env {
+    Env::new(
+        vec![language.clone()],
+        Vec::new(),
+        env.options(),
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env")
+}
+
 /// English, amounts formatted.
 pub fn en() -> Env {
     env(&["en"], Amounts::Formatted)

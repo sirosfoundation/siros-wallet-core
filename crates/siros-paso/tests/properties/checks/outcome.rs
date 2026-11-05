@@ -7,7 +7,6 @@ use siros_openid4vp::rows::Amounts;
 use siros_paso::Rendered;
 use siros_paso::markdown::spans;
 use siros_paso::outcome::Outcome;
-use siros_testkit::fixtures::with_generic_forms;
 
 use crate::common::{Screen, env};
 
@@ -15,8 +14,10 @@ use super::{
     Tally, arrays, at, complete, concrete, given, kind_of, mandate_claims, preferred, select,
 };
 
-/// View §2-4 on one entry rendered for the card: one locale completing every array, each label
-/// the entry it matches, label and value kinds, full-text rows, coverage, the hint, the payment.
+/// View §2-4 on one entry rendered for the card: the presentation's language the first locale
+/// of the list as given that the wallet's languages serve (en and de, and no regional tag of
+/// theirs) and that completes every array, each label the entry it matches, label and value
+/// kinds, full-text rows, coverage, the hint, the payment.
 pub(super) fn outcome(
     kind: &str,
     entry: &Value,
@@ -34,30 +35,25 @@ pub(super) fn outcome(
     let mandate = kind.contains(":mandate:");
     let meta = given(entry, types).expect("the metadata that rendered");
     let arrays = arrays(mandate, &meta);
+    let wallet = siros_testkit::render::languages();
+    let served = |locale: &&str| {
+        LocaleTag::parse(locale).is_ok_and(|tag| wallet.iter().any(|known| tag.filters(known)))
+    };
+    let decided = locales
+        .iter()
+        .find(|locale| served(locale) && complete(locale, &arrays));
     let Some(view) = view else {
         tally.add("excluded");
-        assert!(
-            !locales.iter().any(|locale| complete(locale, &arrays)),
-            "P-locale excluded: {meta}"
-        );
+        assert_eq!(decided, None, "P-locale excluded: {meta}");
         return;
     };
     tally.add("rendered");
-    // The test app renders in the language the documented practice's list gives every module.
-    let tags: Vec<LocaleTag> = locales
-        .iter()
-        .map(|tag| LocaleTag::parse(tag).expect("a tag"))
-        .collect();
-    let practice: Vec<String> = with_generic_forms(&tags)
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let practice: Vec<&str> = practice.iter().map(String::as_str).collect();
+    // The test app's screen shows the presentation's language.
     let entry_type = entry["type"].as_str().expect("type");
     let screen = Screen::of(
         entry_type,
         given_text.expect("the metadata's text"),
-        &env(&practice, Amounts::Formatted),
+        &env(&[view.locale.as_str()], Amounts::Formatted),
     );
     // A label's text as written: a mini_markdown label's spans without their styles.
     let written = |label: &Value, text: &str, typed_by: &str| match label
@@ -67,9 +63,13 @@ pub(super) fn outcome(
         Some("mini_markdown") => spans(text).into_iter().map(|span| span.text).collect(),
         _ => text.to_owned(),
     };
+    // The first such locale, or a later one where absent claims discard its template entries.
     let locale = view.locale.as_str();
+    let position = |tag: &str| locales.iter().position(|known| *known == tag);
     assert!(
-        locales.contains(&locale) && complete(locale, &arrays),
+        served(&locale)
+            && complete(locale, &arrays)
+            && position(locale) >= decided.and_then(|first| position(first)),
         "P-locale {locale}: {meta}"
     );
     let payload = &entry["payload"];

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::value::{FormattedKind, ValueKind, formatted};
-use siros_explain::{Entry, Keyed, Text};
+use siros_explain::{Entry, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
@@ -171,27 +171,25 @@ impl Template<'_> {
     }
 
     /// Each referenced value as its message's argument, under its claim's name, by its value
-    /// type; each claim once. The template is complete for these indices.
+    /// type, absent when the payload lacks it.
     pub(crate) fn arguments(
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &[usize],
-    ) -> Result<Keyed<Cow<'static, str>, Text>, NotCompatible> {
+    ) -> Result<Vec<Entry<Cow<'static, str>, Text>>, NotCompatible> {
         let mut args: Vec<Entry<Cow<'static, str>, Text>> = Vec::new();
         for placeholder in placeholders(self.0) {
             let Some(reference) = Reference::of(&placeholder, claims) else {
                 continue;
             };
-            let value = reference
-                .read(payload, nulls)?
-                .ok_or(NotCompatible::TemplatesExhausted)?;
-            args.push(Entry::new(
-                argument(reference.index),
-                text(reference.value_type(), value)?,
-            ));
+            let value = match reference.read(payload, nulls)? {
+                Some(value) => text(reference.value_type(), value)?,
+                None => Text::Absent,
+            };
+            args.push(Entry::new(argument(reference.index), value));
         }
-        Ok(Keyed::first_of(args))
+        Ok(args)
     }
 }
 

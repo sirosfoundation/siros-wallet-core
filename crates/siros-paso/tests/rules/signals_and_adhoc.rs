@@ -42,7 +42,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
             &risky(members),
             payload,
             &en(),
-            &PasoProfile::default(),
+            &PasoProfile::default().with_languages(siros_testkit::render::languages()),
         )
     };
     decided!(
@@ -97,6 +97,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
         format!(r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": {payload}}}"#);
     decided!(
         PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .render(
                 &entry(&entry_json),
                 &card.credential(),
@@ -142,7 +143,9 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
     let card = Card::sd_jwt("{}");
     let x5c_issuer = r#"{"iss": "https://issuer.bank.example", "x5c": {"root": "CN=Bank Root", "subject": "CN=Bank Issuer"}}"#;
     let chained = Card::new("dc+sd-jwt", "{}", None, x5c_issuer);
-    let trusting = PasoProfile::default().with_trust(TrustAnchor("CN=Bank Root".to_owned()));
+    let trusting = PasoProfile::default()
+        .with_languages(siros_testkit::render::languages())
+        .with_trust(TrustAnchor("CN=Bank Root".to_owned()));
     let jwt = |payload: &str, secret: &str, kid: Option<&str>, x5c: Option<&str>| {
         adhoc_jwt(payload, secret, kid, x5c).expect("jwt")
     };
@@ -153,7 +156,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
         render_adhoc(
             &jwt(&good, "issuer-secret-1", Some("issuer-key-1"), None),
             &card,
-            &PasoProfile::default()
+            &PasoProfile::default().with_languages(siros_testkit::render::languages())
         )
         .is_ok()
     );
@@ -178,36 +181,33 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
         (
             jwt(&good, "issuer-secret-1", Some("issuer-key-1"), None),
             &card,
-            PasoProfile::default().with_expired(jwt(
-                &good,
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            )),
+            PasoProfile::default()
+                .with_languages(siros_testkit::render::languages())
+                .with_expired(jwt(&good, "issuer-secret-1", Some("issuer-key-1"), None)),
             AdhocFailure::Expired,
         ),
         (
             "a.b".to_owned(),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::NotJws,
         ),
         (
             "!!.e30.x".to_owned(),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Encoding(String::new()),
         ),
         (
             signed_with(&header(verifier::ADHOC_TYP), "[1]"),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::NotObject,
         ),
         (
             signed_with(&header("JWT"), &good),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Typ(String::new()),
         ),
         (
@@ -229,7 +229,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 Some(&chain("CN=Bank Root", "CN=Bank Issuer")),
             ),
             &chained,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Untrusted,
         ),
         (
@@ -241,13 +241,13 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
         (
             jwt(&good, "issuer-secret-1", Some("other"), None),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::UnknownKey,
         ),
         (
             jwt(&good, "wrong", Some("issuer-key-1"), None),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Signature,
         ),
         (
@@ -258,7 +258,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 None,
             ),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Issuer,
         ),
         (
@@ -269,7 +269,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 None,
             ),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Binding,
         ),
         (
@@ -280,7 +280,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 None,
             ),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Binding,
         ),
         (
@@ -291,7 +291,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 None,
             ),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::TransactionType,
         ),
         (
@@ -302,7 +302,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
                 None,
             ),
             &card,
-            PasoProfile::default(),
+            PasoProfile::default().with_languages(siros_testkit::render::languages()),
             AdhocFailure::Payload,
         ),
     ];
@@ -326,7 +326,7 @@ pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible
         render_adhoc(
             &jwt(&good, "wrong", Some("issuer-key-1"), None),
             &listing,
-            &PasoProfile::default()
+            &PasoProfile::default().with_languages(siros_testkit::render::languages())
         ),
         Err(Outcome::NotCompatible(NotCompatible::Adhoc(
             AdhocFailure::Signature
@@ -358,6 +358,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         let entries: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
         // The rules reach the core through the plug-in contract.
         PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .refusals(&request, &entries)
             .into_iter()
             .map(|refusal| (refusal.text(), refusal.code()))

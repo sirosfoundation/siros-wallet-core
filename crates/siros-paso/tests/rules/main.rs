@@ -37,7 +37,13 @@ fn render_with(
 
 /// A custom type's entry rendered in English with the default profile.
 fn render(meta: &str, payload: &str) -> Result<Rendered, Outcome> {
-    render_with(CUSTOM, meta, payload, &en(), &PasoProfile::default())
+    render_with(
+        CUSTOM,
+        meta,
+        payload,
+        &en(),
+        &PasoProfile::default().with_languages(siros_testkit::render::languages()),
+    )
 }
 
 /// Metadata of claims (a JSON array's members).
@@ -253,7 +259,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             &tid,
             payload,
             &en(),
-            &PasoProfile::default()
+            &PasoProfile::default().with_languages(siros_testkit::render::languages())
         ),
         Outcome::Unsupported(Unsupported::NotGeneric(_)),
         "Generic §1"
@@ -264,7 +270,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             "{}",
             payload,
             &en(),
-            &PasoProfile::default()
+            &PasoProfile::default().with_languages(siros_testkit::render::languages())
         ),
         Outcome::Unsupported(Unsupported::NotMandate(_)),
         "Mandate §1"
@@ -274,6 +280,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
         format!(r#"{{"type": "{CUSTOM}", "credential_ids": ["q"], "payload": {payload}}}"#);
     decided!(
         PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .render(
                 &entry(&entry_json),
                 &card.credential(),
@@ -294,6 +301,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
     .expect("credential");
     decided!(
         PasoProfile::default()
+            .with_languages(siros_testkit::render::languages())
             .render(
                 &entry(&entry_json),
                 &bare,
