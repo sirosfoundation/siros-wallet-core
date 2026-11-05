@@ -56,8 +56,9 @@ impl<'p> Rendering<'p> {
     /// An entry's renderer: the app's modules and the module its profile selected a locale for,
     /// that module in its locale and the others in the language `Screen::locale` decides over
     /// `env`'s priority list headed by that locale and its RFC 4647 truncations, `env`'s fallback
-    /// list and the modules' policies; with `env`'s rendering options. Over a registration's package, a credential's
-    /// language is decided over its candidate languages, which give the language the lists give.
+    /// list and the modules' policies; with `env`'s rendering options. Over a registration's
+    /// package, a credential's language is decided over its candidate languages, which give the
+    /// language the lists give.
     /// The inner error excludes the entry.
     ///
     /// # Errors
