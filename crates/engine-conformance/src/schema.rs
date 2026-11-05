@@ -15,7 +15,7 @@ use serde_json::Value;
 /// violation messages, prefixed with the JSON path.
 pub fn validate(schema: &Value, document: &Value) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
-    validate_at(schema, document, schema, document, &mut errors, "");
+    validate_at(schema, schema, document, document, &mut errors, "");
     if errors.is_empty() {
         Ok(())
     } else {
@@ -199,4 +199,45 @@ fn type_matches(expected: &Value, doc: &Value) -> bool {
 fn resolve_ref(root: &Value, reference: &str) -> Option<Value> {
     let name = reference.strip_prefix("#/$defs/")?;
     root.get("$defs")?.get(name).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    //! The validator's own proof: a document that violates the schema
+    //! must be refused — the swapped-arguments bug let everything
+    //! through (validate_at read the constraints from the document, where
+    //! there are none, and validated nothing).
+
+    use super::validate;
+
+    #[test]
+    fn a_violating_document_is_refused() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9]+)*$" }
+            }
+        });
+        // Missing the required member, and the id violates the pattern.
+        let document = serde_json::json!({ "id": "Not-Lowercase-1" });
+        let errors = validate(&schema, &document).expect_err("the violation must be refused");
+        assert!(
+            errors.iter().any(|e| e.contains("does not match")),
+            "the pattern violation must be among the errors: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_conforming_document_passes() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": { "type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9]+)*$" }
+            }
+        });
+        let document = serde_json::json!({ "id": "vci.preauth.basic.001" });
+        validate(&schema, &document).expect("a conforming document passes");
+    }
 }
