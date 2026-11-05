@@ -8,8 +8,8 @@ use siros_explain::{
     names,
 };
 use siros_i18n::{
-    Bidi, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag, Module, NoLanguage,
-    Package, PackageError, Screen, Selected,
+    Bidi, BuiltPackage, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag,
+    Module, NoLanguage, Package, PackageError, RegistrationBuilder, Screen, Selected,
 };
 
 use crate::{options, package, tag};
@@ -54,6 +54,19 @@ fn locate(
     locate_selected(modules, None, priority, fallback)
 }
 
+/// The modules of these tags, the `n`-th numbered `n`.
+fn modules(modules: &[(&[&str], LanguagePolicy)]) -> Vec<Module> {
+    modules
+        .iter()
+        .zip(0..)
+        .map(|((tags, policy), n)| module(n, tags, *policy))
+        .collect()
+}
+
+fn tags(list: &[&str]) -> Vec<LocaleTag> {
+    list.iter().map(|t| tag(t)).collect()
+}
+
 /// [`locate`] with the first module shown in the locale its profile selected.
 fn locate_selected(
     modules: &[(&[&str], LanguagePolicy)],
@@ -61,12 +74,36 @@ fn locate_selected(
     priority: &[&str],
     fallback: &[&str],
 ) -> Result<(Language, Vec<String>), NoLanguage> {
-    let modules: Vec<Module> = modules
-        .iter()
-        .zip(0..)
-        .map(|((tags, policy), n)| module(n, tags, *policy))
-        .collect();
+    let modules = self::modules(modules);
     let built = package(&modules.iter().collect::<Vec<_>>());
+    located(&built, &modules, selected, priority, fallback)
+}
+
+/// [`locate_selected`] over the package a registration under the lists writes: the matcher's.
+fn locate_registered(
+    modules: &[(&[&str], LanguagePolicy)],
+    selected: Option<&str>,
+    priority: &[&str],
+    fallback: &[&str],
+) -> Result<(Language, Vec<String>), NoLanguage> {
+    let modules = self::modules(modules);
+    let mut builder = RegistrationBuilder::new(tags(priority), tags(fallback), options(Bidi::None))
+        .expect("a registration");
+    for module in &modules {
+        builder.module(module, None).expect("a module");
+    }
+    located(&builder.finish(), &modules, selected, priority, fallback)
+}
+
+/// The language a screen of `modules` over `built` decides, and the entry each module's text
+/// came from.
+fn located(
+    built: &BuiltPackage,
+    modules: &[Module],
+    selected: Option<&str>,
+    priority: &[&str],
+    fallback: &[&str],
+) -> Result<(Language, Vec<String>), NoLanguage> {
     let package = Package::read(built.bytes(), built.root()).expect("a package");
     let mut screen =
         Screen::new(&package, modules.iter().map(Module::id).collect()).expect("a screen");
@@ -75,7 +112,6 @@ fn locate_selected(
             .selecting(Selected::new(first.id(), tag(locale)))
             .expect("a module of the screen");
     }
-    let tags = |list: &[&str]| list.iter().map(|t| tag(t)).collect::<Vec<LocaleTag>>();
     let located = screen.locale(&tags(priority), &tags(fallback))?;
     let language = located.language().clone();
     let formats = Formats::new(&[]).expect("formats");
@@ -136,19 +172,22 @@ fn known_answers() {
         matches!(enforced, NoLanguage::NotUnderstood(_)),
         "{enforced:?}"
     );
-    // No module enforcing: the fallback list, marked.
     // A profile's selected locale heads the list with its truncations: the wallet's `de` module
-    // follows PaSO's `de-CH`, and a selected `fr` it lacks leaves the End-User's list.
+    // follows PaSO's `de-CH`, and a selected `fr` it lacks leaves the End-User's list. The
+    // matcher, over the registration's package, decides the same.
     let selection = [(&["de-CH", "fr"][..], any), (&["de", "en"][..], any)];
     let entries = |first: &str, second: &str| vec![first.to_owned(), second.to_owned()];
-    assert_eq!(
-        locate_selected(&selection, Some("de-CH"), &["de-CH", "en"], &[]).expect("de"),
-        (understood("de"), entries("de-CH", "de"))
-    );
-    assert_eq!(
-        locate_selected(&selection, Some("fr"), &["fr", "en"], &[]).expect("en"),
-        (understood("en"), entries("fr", "en"))
-    );
+    for locate in [locate_selected, locate_registered] {
+        assert_eq!(
+            locate(&selection, Some("de-CH"), &["de-CH", "en"], &[]).expect("de"),
+            (understood("de"), entries("de-CH", "de"))
+        );
+        assert_eq!(
+            locate(&selection, Some("fr"), &["fr", "en"], &[]).expect("en"),
+            (understood("en"), entries("fr", "en"))
+        );
+    }
+    // No module enforcing: the fallback list, marked.
     let mixed = [(&["de"][..], any), (&["en", "de"][..], any)];
     let fallback = locate(&mixed, &["fr"], &["en", "de"]).expect("de");
     assert_eq!(
@@ -195,27 +234,34 @@ fn lookup_ranges(range: &str) -> Vec<String> {
     out
 }
 
-/// RFC 4647 §3.4's example range and a two-subtag range.
+/// RFC 4647 §3.4's example range, a two-subtag range, and ranges whose single-character subtags
+/// go with the subtag after them.
 #[test]
 fn truncations_follow_rfc_4647_3_4() {
-    for range in ["zh-Hant-CN-x-private1-private2", "de-CH", "en"] {
+    let table: [(&str, &[&str]); 5] = [
+        (
+            "zh-Hant-CN-x-private1-private2",
+            &[
+                "zh-Hant-CN-x-private1-private2",
+                "zh-Hant-CN-x-private1",
+                "zh-Hant-CN",
+                "zh-Hant",
+                "zh",
+            ],
+        ),
+        ("de-CH", &["de-CH", "de"]),
+        ("en", &["en"]),
+        ("x-private", &["x-private"]),
+        ("en-a-bbb-x-a", &["en-a-bbb-x-a", "en-a-bbb", "en"]),
+    ];
+    for (range, ranges) in table {
         let got: Vec<String> = tag(range)
             .truncations()
             .iter()
             .map(ToString::to_string)
             .collect();
-        assert_eq!(got, lookup_ranges(range), "{range}");
+        assert_eq!(got, ranges, "{range}");
     }
-    assert_eq!(
-        lookup_ranges("zh-Hant-CN-x-private1-private2"),
-        [
-            "zh-Hant-CN-x-private1-private2",
-            "zh-Hant-CN-x-private1",
-            "zh-Hant-CN",
-            "zh-Hant",
-            "zh"
-        ]
-    );
 }
 
 /// The language by the rule's words: the first module, when a locale is selected for it, shows

@@ -1,9 +1,10 @@
 //! The registration writer's part inside the workspace (section 4.14 of the design, "DC API
 //! precomputation"): the package the registration carries for the matcher. It holds the
-//! modules' compiled messages, every card's texts precomputed in each tag of the End-User's
-//! priority list and the app's fallback list whose modules serve them, and what it was built
-//! from: the lists, the rendering options, each credential with its candidate languages, each
-//! transaction type with its module. The registration's bytes are siros-dc-matcher's.
+//! modules' compiled messages, every card's texts precomputed in each of the package's locales
+//! whose modules serve them (the End-User's priority list with each tag's RFC 4647 truncations
+//! and the app's fallback list, [`RegistrationBuilder::new`]), and what it was built from: the
+//! lists, the rendering options, each credential with its candidate languages, each transaction
+//! type with its module. The registration's bytes are siros-dc-matcher's.
 
 use siros_explain::{Explain, ModuleId};
 use siros_i18n::{BuiltPackage, Formats, Module, PackageError, RegistrationBuilder, RenderError};
