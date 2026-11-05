@@ -225,7 +225,7 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38e9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Build the host library (the bindgen source)
         run: cargo build -p engine-adapter-sdk
       - run: make bindings-swift
@@ -251,10 +251,10 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38e9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
-      - uses: android-actions/setup-android@40fd30fb8d7440372e131f6f5d1809ec01dcd369 # v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e131f6f5d1809ec01dcd3699 # v4
         with:
           api-level: 28
           ndk-version: "27.2.12479018"
