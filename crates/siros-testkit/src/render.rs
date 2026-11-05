@@ -6,9 +6,10 @@ use siros_explain::{Message, Messages, ModuleId, Text};
 use siros_i18n::{
     BuiltPackage, CURRENCY, Compilers, DATE, Declaration, FormatCompiler, FormatRenderer, Formats,
     Formatted, LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
-    PackageBuilder, PackageError, RenderError, Renderer, Screen, Selected,
+    PackageBuilder, PackageError, RenderError, Renderer, Selected,
 };
-use siros_openid4vp::rendering::Rendering;
+use siros_openid4vp::plugins::Fault;
+use siros_openid4vp::rendering::{Rendering, Unrendered};
 use siros_openid4vp::rows::Env;
 
 /// The test app's German source of the `openid4vp` module.
@@ -48,6 +49,12 @@ pub enum AppError {
     /// A text does not render.
     #[error(transparent)]
     Render(#[from] RenderError),
+    /// The entry's texts cannot render: the core excludes it.
+    #[error(transparent)]
+    Unrendered(#[from] Unrendered),
+    /// The core's screen faults.
+    #[error(transparent)]
+    Fault(#[from] Fault),
 }
 
 /// A crate's module as the test app loads it: its identity, its declaration, the crate's English
@@ -174,7 +181,6 @@ pub fn main_module() -> Result<Module, ModuleError> {
 pub struct App {
     built: BuiltPackage,
     formats: Formats,
-    modules: Vec<ModuleId>,
     own: Vec<ModuleId>,
     selected: Option<Selected>,
 }
@@ -200,7 +206,6 @@ impl App {
         Ok(Self {
             built: builder.finish(),
             formats: Formats::new(&RENDERERS)?,
-            modules: modules.iter().map(|module| module.id()).collect(),
             own: modules
                 .iter()
                 .map(|module| module.id())
@@ -242,50 +247,88 @@ impl App {
         Self::new(&modules.iter().collect::<Vec<_>>())
     }
 
-    /// The language `env`'s lists choose for every module of the package.
+    /// The language of an entry's texts, as the core's renderer of the entry chooses it.
     ///
     /// # Errors
     ///
-    /// [`AppError`]: no language serves the modules.
+    /// [`AppError`]: no language serves the entry's modules.
     pub fn language(&self, env: &Env) -> Result<LocaleTag, AppError> {
-        let renderer = self.renderer(self.modules.clone(), env)?;
+        self.language_at(self.selected.as_ref(), env)
+    }
+
+    /// A text as plain text, as the core's renderer of an entry renders it: the app's modules
+    /// beside the defined ones and the selected module, in its profile's locale, the others in
+    /// the language `env`'s lists choose.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the entry's modules, or the text does not render.
+    pub fn plain(&self, env: &Env, text: &Text) -> Result<String, AppError> {
+        self.plain_at(self.selected.as_ref(), env, text)
+    }
+
+    /// A text as formatted text, as [`App::plain`] renders it.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the entry's modules, or the text does not render.
+    pub fn formatted(&self, env: &Env, text: &Text) -> Result<Formatted, AppError> {
+        self.formatted_at(self.selected.as_ref(), env, text)
+    }
+
+    /// [`App::language`] with `selected` in place of the app's selection.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the entry's modules.
+    pub fn language_at(
+        &self,
+        selected: Option<&Selected>,
+        env: &Env,
+    ) -> Result<LocaleTag, AppError> {
+        let renderer = self.renderer(selected, env)?;
         Ok(renderer.inputs().language().tag().clone())
     }
 
-    /// A text as plain text, over every module of the package, in the language `env`'s lists
-    /// choose.
+    /// [`App::plain`] with `selected` in place of the app's selection.
     ///
     /// # Errors
     ///
-    /// [`AppError`]: no language serves the modules, or the text does not render.
-    pub fn plain(&self, env: &Env, text: &Text) -> Result<String, AppError> {
-        Ok(self.renderer(self.modules.clone(), env)?.plain(text)?)
+    /// [`AppError`]: no language serves the entry's modules, or the text does not render.
+    pub fn plain_at(
+        &self,
+        selected: Option<&Selected>,
+        env: &Env,
+        text: &Text,
+    ) -> Result<String, AppError> {
+        Ok(self.renderer(selected, env)?.plain(text)?)
     }
 
-    /// A text as formatted text, over every module of the package, in the language `env`'s
-    /// lists choose.
+    /// [`App::formatted`] with `selected` in place of the app's selection.
     ///
     /// # Errors
     ///
-    /// [`AppError`]: no language serves the modules, or the text does not render.
-    pub fn formatted(&self, env: &Env, text: &Text) -> Result<Formatted, AppError> {
-        Ok(self.renderer(self.modules.clone(), env)?.formatted(text)?)
+    /// [`AppError`]: no language serves the entry's modules, or the text does not render.
+    pub fn formatted_at(
+        &self,
+        selected: Option<&Selected>,
+        env: &Env,
+        text: &Text,
+    ) -> Result<Formatted, AppError> {
+        Ok(self.renderer(selected, env)?.formatted(text)?)
     }
 
-    /// The renderer of a screen of the package's modules, its selected module in its profile's
-    /// locale and the others in the language `env`'s lists choose, with `env`'s rendering options.
+    /// The core's renderer of an entry whose profile selected `selected`.
     ///
     /// # Errors
     ///
     /// [`AppError`]: the package refuses the screen, no language serves it, or a module calls a
     /// format the app does not register.
-    pub fn renderer(&self, screen: Vec<ModuleId>, env: &Env) -> Result<Renderer<'_>, AppError> {
-        let package = Package::read(self.built.bytes(), self.built.root())?;
-        let mut shown = Screen::new(&package, screen)?;
-        if let Some(selected) = self.selected.clone() {
-            shown = shown.selecting(selected)?;
-        }
-        let located = shown.locale(env.priority(), env.fallback())?;
-        Ok(located.renderer(&self.formats, env.options())?)
+    pub fn renderer(
+        &self,
+        selected: Option<&Selected>,
+        env: &Env,
+    ) -> Result<Renderer<'_>, AppError> {
+        Ok(self.rendering()?.renderer(selected, env)??)
     }
 }
