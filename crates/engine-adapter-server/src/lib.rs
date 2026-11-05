@@ -202,11 +202,14 @@ pub fn main_entry() {
 }
 
 async fn async_main() {
+    // The full-fidelity form first: `ENGINE_CONFIG` names a JSON file.
+    // Then the container's form: the `ENGINE_*` variables over the
+    // defaults. Both empty: the defaults (the dev engine).
     let config: config::Config = std::env::var("ENGINE_CONFIG")
         .ok()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+        .unwrap_or_else(config::Config::from_env);
 
     let server = Arc::new(EngineServer::new(config.clone()));
     let app = transport::router(server);

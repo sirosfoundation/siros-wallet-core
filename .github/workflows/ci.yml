@@ -278,3 +278,32 @@ jobs:
           # The POM names the coordinate and the JNA dependency it carries.
           grep -q '<groupId>org.siros</groupId>' target/siros-wallet-core-0.0.0-ci.pom
           grep -q '<artifactId>siros-wallet-core</artifactId>' target/siros-wallet-core-0.0.0-ci.pom
+
+  # ── The engine server's container image ─────────────────────────────────
+  #
+  # The recipe verified on every push (the release workflow builds and
+  # pushes it on tags); a broken Dockerfile fails the pull request, not
+  # the release.
+
+  docker:
+    name: Engine image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build the image
+        run: docker build -t sirosfoundation/engine-server:ci .
+      - name: The image serves its health probes
+        run: |
+          docker run -d --name engine-probe -p 18780:8780 sirosfoundation/engine-server:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18780/healthz > /dev/null 2>&1; then
+              echo "the engine answers its health probe"
+              docker rm -f engine-probe
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the engine never answered its health probe"
+          docker logs engine-probe
+          docker rm -f engine-probe
+          exit 1
