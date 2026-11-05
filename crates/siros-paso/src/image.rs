@@ -43,7 +43,7 @@ pub enum ImageFailure {
     NoIntegrity,
     /// The image could not be fetched, with the reason the wallet recorded.
     #[error("{0}")]
-    Fetch(#[explain(name = "detail")] String),
+    Fetch(#[explain(skip)] String),
     /// Fetched content over 512 KiB.
     #[error("over 512 KiB")]
     TooLarge,

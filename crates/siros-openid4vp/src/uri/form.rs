@@ -17,7 +17,7 @@ pub enum NotForm {
     /// A nested value, which RFC 6749 Appendix B's format holds no place for, or another
     /// serializer refusal: serde_urlencoded's message.
     #[error("the members make no form body: {0}")]
-    Serializer(#[explain(name = "cause")] String),
+    Serializer(#[explain(skip)] String),
     /// A member name written twice, which a recipient reads one way or another.
     #[error("the form body names {0} twice")]
     Repeated(#[explain(name = "member")] String),

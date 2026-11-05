@@ -21,7 +21,7 @@ pub use python::{PythonJson, PythonRepr, quote};
 pub enum JsonError {
     /// The text is no JSON value.
     #[error("{0}")]
-    Syntax(#[explain(name = "detail")] String),
+    Syntax(#[explain(skip)] String),
     /// An object names a member twice: the first such name in code point order, of the first
     /// object to end that repeats one.
     #[error("an object repeats a member name: {0}")]

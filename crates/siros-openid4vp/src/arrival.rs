@@ -94,13 +94,13 @@ impl DcApiProtocols {
 pub enum UriError {
     /// No URI (RFC 3986 §3): fluent-uri's error.
     #[error("no URI: {0}")]
-    Syntax(#[explain(name = "cause")] String),
+    Syntax(#[explain(skip)] String),
     /// A URI without a query.
     #[error("the URI holds no query")]
     Query,
     /// A query serde_urlencoded does not read: its error, which holds a message alone.
     #[error("the query: {0}")]
-    Form(#[explain(name = "cause")] String),
+    Form(#[explain(skip)] String),
 }
 
 /// An HTTP status code other than 200, from 100 to 599 (RFC 9110 §15).

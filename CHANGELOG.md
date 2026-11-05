@@ -222,6 +222,10 @@ released version yet.
   RFC 4647 matching and Python's whitespace in `text`, and the ISO 20022
   frequencies in `rows::Frequency`. A PaSO rendering's row states its value's
   kind (`ViewRow::kind`).
+- A library's diagnostic stays out of its error's message arguments
+  (`#[explain(skip)]`), kept in the log line: JSON's syntax, a URI's and a
+  form's cause, a certificate's DER reason, an mdoc's CBOR shape, an image
+  fetch's and an ad-hoc JWT's encoding failure.
 - `siros-i18n`'s `Declaration::defined` declares a converted module's keys and
   arguments; `siros-explain` adds `Keyed::first_of`, `DefinedKey::numbered`
   and `ParamKind::new`.

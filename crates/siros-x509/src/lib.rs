@@ -81,7 +81,8 @@ pub enum X509Refusal {
     Certificate {
         /// The item's position.
         item: usize,
-        /// der's reason.
+        /// der's reason, for the log.
+        #[explain(skip)]
         cause: String,
     },
     /// The leaf's key is none [`SpkiKey::key`] reads: an uncompressed point under
@@ -105,7 +106,7 @@ pub enum X509Refusal {
     /// The leaf's subjectAltName extension is no DER SubjectAltName, or appears twice (RFC 5280
     /// §4.2).
     #[error("the leaf's subjectAltName is unreadable: {0}")]
-    SubjectAltName(#[explain(name = "cause")] String),
+    SubjectAltName(#[explain(skip)] String),
 }
 
 /// The crate's messages: its refusals'.

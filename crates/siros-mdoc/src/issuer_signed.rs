@@ -58,7 +58,7 @@ pub enum IssuedError {
     ),
     /// Another shape than ISO/IEC 18013-5's CDDL, or an unknown member.
     #[error("{0}")]
-    Shape(#[explain(name = "detail")] String),
+    Shape(#[explain(skip)] String),
     /// IssuerAuth is no COSE_Sign1 the wallet reads.
     #[error("IssuerAuth")]
     IssuerAuth(

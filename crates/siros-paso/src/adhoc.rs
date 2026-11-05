@@ -43,7 +43,7 @@ pub enum AdhocFailure {
     /// A header or payload part that is no base64url-encoded UTF-8 JSON with unique member
     /// names.
     #[error("a part is not base64url-encoded UTF-8 JSON: {0}")]
-    Encoding(#[explain(name = "detail")] String),
+    Encoding(#[explain(skip)] String),
     /// A header or payload that is no JSON object.
     #[error("a part is not a JSON object")]
     NotObject,
