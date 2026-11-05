@@ -6,8 +6,8 @@
 //! fulfilment of a set that needs it with `access_denied`.
 
 use siros_credman::{
-    Delegation, FIELD_MAX, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData,
-    WalletDisplay, WalletDisplayNeeded,
+    Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
+    WalletDisplayNeeded,
 };
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::{CredentialId, TransactionType};
@@ -18,6 +18,9 @@ use siros_openid4vp::rows::{Icon, Label, Row};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, parameters, request_of, unsigned};
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
+
+/// A text far longer than a picker line, which a field clips (A9's clipped fields).
+const PARAGRAPH: usize = 4096;
 
 const QUERY: &str = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
 const OPTIONAL: &str = r#"{"credentials":[{"id":"q","format":"test"},{"id":"r","format":"test"}],
@@ -74,7 +77,7 @@ fn judged(
             icon: Icon::DEFAULT,
             title: "Notice".to_owned(),
             subtitle: None,
-            rows: vec![Row::full_text(Label::text("n".repeat(FIELD_MAX + 1)))],
+            rows: vec![Row::full_text(Label::text("n".repeat(PARAGRAPH)))],
         },
     }];
     let shown = display(&sets, &views, &statics).expect("display");
@@ -115,6 +118,9 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         )
     };
     let one = [held("c", &["q"])];
+    // A credential id a field shows as its value: the test format's first row.
+    let paragraph = ["c".repeat(PARAGRAPH)];
+    let paragraph = [paragraph[0].as_str()];
     let met = SetFacts {
         presentable: true,
         no_transaction_data: true,
@@ -123,7 +129,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
     };
     let full = HostDisplay::Full;
     // The test profile's overlay shows its transaction's logo, an image no field shows.
-    let cases: [Case<'_>; 7] = [
+    let cases: [Case<'_>; 8] = [
         (
             "presentable, settled, whole, shown",
             parameters(QUERY, ""),
@@ -185,6 +191,17 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             full,
             SetFacts {
                 settled: false,
+                ..met
+            },
+        ),
+        (
+            "a clipped field",
+            parameters(QUERY, ""),
+            vec![held(paragraph[0], &["q"])],
+            &paragraph,
+            full,
+            SetFacts {
+                whole: false,
                 ..met
             },
         ),
