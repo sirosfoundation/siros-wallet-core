@@ -3,18 +3,17 @@
 use wmp_core::error::{ERR_INVALID_PARAMS, ERR_VERSION_NOT_SUPPORTED};
 use wmp_core::version::{negotiate_version, version_rejection};
 
-/// A well-formed version negotiates against its neighbours by its MAJOR and
-/// MINOR: the same MAJOR, and the highest MINOR not above its own.
+/// A well-formed offer is read as its MAJOR and MINOR: it accepts a lower
+/// MINOR of its MAJOR and refuses a higher MINOR or another MAJOR.
 #[test]
 fn parses_valid_versions() {
-    assert_eq!(
-        negotiate_version("1.2", &["0.2", "1.1", "1.2", "1.3", "2.2"]),
-        Some("1.2")
-    );
-    assert_eq!(
-        negotiate_version("0.1", &["0.0", "0.1", "0.2", "1.1"]),
-        Some("0.1")
-    );
+    assert_eq!(negotiate_version("1.2", &["1.1"]), Some("1.1"));
+    assert_eq!(negotiate_version("1.2", &["1.3"]), None);
+    assert_eq!(negotiate_version("1.2", &["0.2"]), None);
+    assert_eq!(negotiate_version("1.2", &["2.2"]), None);
+    assert_eq!(negotiate_version("0.1", &["0.0"]), Some("0.0"));
+    assert_eq!(negotiate_version("0.1", &["0.2"]), None);
+    assert_eq!(negotiate_version("0.1", &["1.1"]), None);
 }
 
 /// A malformed offer is invalid params; a well-formed one is unsupported.
