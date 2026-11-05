@@ -14,6 +14,8 @@
 //! fall back to the engine's own behaviours, exactly as an SDK host
 //! without those capabilities would.
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use engine_ports::{
     AttestationParams, AttestationResult, ConsentParams, ConsentResult, DpopProofParams,
     DpopProofResult, Host, HostError, MatchParams, MatchResult, SignParams, SignResult, VpParams,
@@ -38,14 +40,175 @@ fn p256_signer(jwk: &jose_rs::jwk::Jwk) -> Result<Signer, String> {
     .map_err(|err| format!("the key does not sign: {err}"))
 }
 
+/// The claims the mini PID carries, selectively disclosed (RFC 9901
+/// §5.1): the values are fixtures — the suites check the disclosed
+/// claims match the DCQL query, not the holder's actual name.
+const PID_CLAIMS: [(&str, &str); 2] = [("given_name", "Alice"), ("family_name", "Smith")];
+
+/// The vct the suites' DCQL queries name.
+const PID_VCT: &str = "urn:eudi:pid:1";
+
+/// Issues the mini host's held PID: a compact SD-JWT VC (RFC 9901)
+/// holder-bound to the device key, with the salted-hash disclosures of
+/// the fixture claims. The trailing `~` marks the key-binding form
+/// (§4.1); the harness's stand-in for a real wallet's stored
+/// credential.
+fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
+    let issuer_key = jose_rs::jwk::generate::generate_ec("P-256")
+        .map_err(|err| format!("the PID issuer key generation failed: {err}"))?;
+    let issuer_signer = p256_signer(&issuer_key)?;
+    let now = (js_sys::Date::now() / 1000.0) as i64;
+
+    // The disclosures (§5.1): base64url of the JSON array
+    // [salt, claim name, value], each digest-listed in `_sd`. The
+    // digest is over the ENCODED disclosure text (§4.2.3) — the bytes a
+    // verifier hashes when it resolves the references.
+    let mut disclosures = Vec::new();
+    let mut digests = Vec::new();
+    for (index, (name, value)) in PID_CLAIMS.iter().enumerate() {
+        let salt = format!("mini-pid-salt-{now}-{index}");
+        let disclosure = serde_json::json!([salt, name, value]).to_string();
+        let encoded = URL_SAFE_NO_PAD.encode(disclosure.as_bytes());
+        let digest =
+            kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, encoded.as_bytes())
+                .map_err(|err| format!("the disclosure digest failed: {err}"))?;
+        disclosures.push(encoded);
+        digests.push(URL_SAFE_NO_PAD.encode(&digest));
+    }
+
+    // The issuer JWT: the fixture claims are undisclosed; the device
+    // key binds the holder (§4.2's cnf).
+    let header = serde_json::json!({
+        "typ": "dc+sd-jwt",
+        "alg": "ES256",
+        "kid": issuer_key.kid.clone().unwrap_or_else(|| "mini-pid-issuer".to_owned()),
+    });
+    let payload = serde_json::json!({
+        "iss": "https://mini-wallet.example",
+        "iat": now,
+        "exp": now + 31_536_000,
+        "vct": PID_VCT,
+        "cnf": { "jwk": device_public },
+        "_sd_alg": "sha-256",
+        "_sd": digests,
+    });
+    let header_text = URL_SAFE_NO_PAD.encode(header.to_string().as_bytes());
+    let payload_text = URL_SAFE_NO_PAD.encode(payload.to_string().as_bytes());
+    let tbs = format!("{header_text}.{payload_text}");
+    let signature = kryptering::Signer::sign(&issuer_signer, tbs.as_bytes())
+        .map_err(|err| format!("the PID signing failed: {err}"))?;
+
+    // The compact SD-JWT: the JWT, the disclosures, the trailing `~`
+    // of the key-binding form (§4.1).
+    let mut pid = format!("{tbs}.{}", URL_SAFE_NO_PAD.encode(&signature));
+    for disclosure in disclosures {
+        pid.push('~');
+        pid.push_str(&disclosure);
+    }
+    pid.push('~');
+    Ok(pid)
+}
+
+/// The KB-JWT's header (RFC 9901 §4.3): ES256, the device key's
+/// algorithm.
+const KB_HEADER: &str = r#"{"typ":"kb+jwt","alg":"ES256"}"#;
+
+/// The held PID as presented to a verifier (RFC 9901 §4): the issuer
+/// JWT, then the disclosures of `claims` in their order, each once and
+/// followed by `~`, then the KB-JWT (§4.3) over `iat`, the verifier's
+/// `audience` and `nonce`, and the `sd_hash` of what precedes it under
+/// the PID's `_sd_alg`, sha-256. `sign` signs the KB-JWT's signing input
+/// with the holder's key and answers ES256's 64-octet `r ‖ s` (RFC 7518
+/// §3.4). Refused when the PID is not in the key-binding form, a
+/// disclosure is no `[salt, name, value]` array (§4.2.1), or the PID
+/// discloses no claim of a name in `claims`.
+fn present_mini_pid(
+    pid: &str,
+    claims: &[String],
+    iat: u64,
+    audience: &str,
+    nonce: &str,
+    sign: impl FnOnce(&[u8]) -> Result<Vec<u8>, String>,
+) -> Result<String, String> {
+    let Some(form) = pid.strip_suffix('~') else {
+        return Err("the held PID is not in the key-binding form (§4.1)".to_owned());
+    };
+    let (jwt, encoded) = match form.split_once('~') {
+        Some((jwt, disclosures)) => (jwt, disclosures.split('~').collect()),
+        None => (form, Vec::new()),
+    };
+    let mut named = Vec::new();
+    for disclosure in encoded {
+        let bytes = URL_SAFE_NO_PAD
+            .decode(disclosure)
+            .map_err(|err| format!("a disclosure of the held PID is no base64url: {err}"))?;
+        let value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|err| format!("a disclosure of the held PID is no JSON: {err}"))?;
+        let Some([_, serde_json::Value::String(name), _]) = value.as_array().map(Vec::as_slice)
+        else {
+            return Err(
+                "a disclosure of the held PID is no [salt, name, value] array (§4.2.1)".to_owned(),
+            );
+        };
+        named.push((name.clone(), disclosure));
+    }
+
+    let mut presented = format!("{jwt}~");
+    let mut chosen: Vec<&str> = Vec::new();
+    for claim in claims {
+        let Some(&(_, disclosure)) = named.iter().find(|(name, _)| name == claim) else {
+            return Err(format!("the held PID discloses no claim `{claim}`"));
+        };
+        if !chosen.contains(&disclosure) {
+            chosen.push(disclosure);
+            presented.push_str(disclosure);
+            presented.push('~');
+        }
+    }
+
+    let sd_hash =
+        kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, presented.as_bytes())
+            .map_err(|err| format!("the sd_hash digest failed: {err}"))?;
+    let payload = serde_json::json!({
+        "iat": iat,
+        "aud": audience,
+        "nonce": nonce,
+        "sd_hash": URL_SAFE_NO_PAD.encode(&sd_hash),
+    });
+    let signing_input = format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(KB_HEADER),
+        URL_SAFE_NO_PAD.encode(payload.to_string())
+    );
+    let signature = sign(signing_input.as_bytes())?;
+    if signature.len() != 64 {
+        return Err(format!(
+            "the KB-JWT signature has {} octets, where ES256's has 64",
+            signature.len()
+        ));
+    }
+    presented.push_str(&signing_input);
+    presented.push('.');
+    presented.push_str(&URL_SAFE_NO_PAD.encode(&signature));
+    Ok(presented)
+}
+
 /// The built-in mini host: `{"host": "mini"}` in the engine config
 /// selects it.
 pub struct MiniHost {
     /// The device key's public JWK (the plan's key registration and the
     /// tests' verification).
     key: jose_rs::jwk::Jwk,
-    /// The device key's signer — the OID4VCI proof's signing key.
+    /// The device key's signer — the OID4VCI proof's and the KB-JWT's
+    /// signing key.
     signer: Signer,
+    /// The held PID: a self-issued SD-JWT VC (RFC 9901) with the claims
+    /// the suites' DCQL queries ask for, holder-bound to the device key
+    /// — the harness's stand-in for a credential a real wallet holds
+    /// from its issuer. The presentation's structure and key binding
+    /// are what the suites validate; the engine's OID4VP protocol is
+    /// the thing under test.
+    pid: String,
     /// The wallet's registered client key, when the plan's
     /// configuration supplies one: the private_key_jwt assertion's
     /// signing key.
@@ -84,16 +247,23 @@ impl MiniHost {
                 // host (the engine only ever sees the public JWK).
                 let public = jwk.to_public_jwk();
                 let text = public.to_json().unwrap_or_default();
-                let value: serde_json::Value =
-                    serde_json::from_str(&text).unwrap_or_default();
+                let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
                 (Some(p256_signer(&jwk)?), kid, Some(value))
             }
             None => (None, None, None),
         };
 
+        // The held PID: the device key's public JWK binds the holder.
+        let public = key.to_public_jwk();
+        let public_text = public.to_json().unwrap_or_default();
+        let device_public: serde_json::Value =
+            serde_json::from_str(&public_text).unwrap_or_default();
+        let pid = issue_mini_pid(&device_public)?;
+
         Ok(Self {
             key,
             signer,
+            pid,
             client_signer,
             client_key_kid,
             client_key,
@@ -123,13 +293,14 @@ impl Host for MiniHost {
         // (or the conventional client-auth name) when the client
         // assertion needs the client key; anything else is the device
         // key (the OID4VCI proof).
-        let use_client = params
-            .key_id
-            .as_deref()
-            .is_some_and(|id| match self.client_key_kid.as_deref() {
-                Some(kid) => id == kid,
-                None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
-            });
+        let use_client =
+            params
+                .key_id
+                .as_deref()
+                .is_some_and(|id| match self.client_key_kid.as_deref() {
+                    Some(kid) => id == kid,
+                    None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
+                });
         let signer = if use_client {
             self.client_signer.as_ref().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
@@ -152,13 +323,14 @@ impl Host for MiniHost {
         &self,
         params: engine_ports::SigningKeyParams,
     ) -> Result<engine_ports::SigningKeyResult, HostError> {
-        let use_client = params
-            .key_id
-            .as_deref()
-            .is_some_and(|id| match self.client_key_kid.as_deref() {
-                Some(kid) => id == kid,
-                None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
-            });
+        let use_client =
+            params
+                .key_id
+                .as_deref()
+                .is_some_and(|id| match self.client_key_kid.as_deref() {
+                    Some(kid) => id == kid,
+                    None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
+                });
         let jwk = if use_client {
             self.client_key.clone().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
@@ -169,12 +341,89 @@ impl Host for MiniHost {
         Ok(engine_ports::SigningKeyResult { jwk })
     }
 
-    /// The match: not asked by the issuance flows; refused rather than
-    /// faked.
-    async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
-        Err(HostError::Cannot(
-            "the mini host answers no match (the issuance flows do not ask)".to_owned(),
-        ))
+    /// The match: the held PID against the DCQL query. A query for the
+    /// dc+sd-jwt PID (the vct the mini credential carries) selects it
+    /// with the claims the query names; anything else matches
+    /// nothing, and the flow ends without an error — the engine's
+    /// empty-selection contract.
+    async fn request_match(&self, params: MatchParams) -> Result<MatchResult, HostError> {
+        let Some(query) = params.dcql_query.as_ref() else {
+            return Ok(MatchResult::default());
+        };
+        let Some(queries) = query.get("credentials").and_then(|c| c.as_array()) else {
+            return Ok(MatchResult::default());
+        };
+        let mut selections = Vec::new();
+        for entry in queries {
+            let id = entry
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let format = entry.get("format").and_then(|v| v.as_str());
+            let vct_matches = entry
+                .pointer("/meta/vct_values")
+                .and_then(|v| v.as_array())
+                .is_some_and(|values| values.iter().any(|v| v.as_str() == Some(PID_VCT)));
+            if format != Some("dc+sd-jwt") || !vct_matches {
+                continue;
+            }
+            // The claims the query asks for, as the paths the
+            // presentation selects.
+            let mut disclosed_claims = Vec::new();
+            if let Some(claims) = entry.get("claims").and_then(|v| v.as_array()) {
+                for claim in claims {
+                    if let Some(path) = claim.get("path").and_then(|v| v.as_array()) {
+                        let names: Vec<String> = path
+                            .iter()
+                            .filter_map(|c| c.as_str().map(str::to_owned))
+                            .collect();
+                        if !names.is_empty() {
+                            disclosed_claims.push(names.join("."));
+                        }
+                    }
+                }
+            }
+            selections.push(engine_ports::VpSelection {
+                credential_query_id: id,
+                credential_id: "mini-pid".to_owned(),
+                disclosed_claims,
+            });
+        }
+        Ok(MatchResult { selections })
+    }
+
+    /// The presentation: the held PID's SD-JWT with the selected
+    /// disclosures and the KB-JWT binding it to the verifier's
+    /// audience and nonce (RFC 9901 §7) — signed by the device key,
+    /// the credential's holder. One token per selection, the engine's
+    /// DCQL vp_token contract (OID4VP §8.1).
+    async fn request_vp(&self, params: VpParams) -> Result<VpResult, HostError> {
+        let now = (js_sys::Date::now() / 1000.0) as i64;
+        let iat = u64::try_from(now)
+            .map_err(|_| HostError::Cannot("the clock is before the epoch".to_owned()))?;
+
+        let mut tokens = Vec::new();
+        for selection in &params.selections {
+            // The disclosed claims, as the match named them; the KB-JWT's
+            // signature: the device key — the holder.
+            let token = present_mini_pid(
+                &self.pid,
+                &selection.disclosed_claims,
+                iat,
+                &params.audience,
+                &params.nonce,
+                |input| {
+                    kryptering::Signer::sign(&self.signer, input)
+                        .map_err(|err| format!("the KB-JWT signing failed: {err}"))
+                },
+            )
+            .map_err(HostError::Cannot)?;
+            tokens.push(token);
+        }
+        Ok(VpResult {
+            vp_token: tokens.join("\n"),
+        })
     }
 
     /// Consent: automatic. The suites test the wallet's protocol, not a
@@ -222,22 +471,15 @@ impl Host for MiniHost {
         .map_err(HostError::Cannot)
     }
 
-    /// The VP construction: Phase 2 of the conformance plan wires the
-    /// presentation crates; refused for now, and the issuance flows
-    /// never ask.
-    async fn request_vp(&self, _params: VpParams) -> Result<VpResult, HostError> {
-        Err(HostError::Cannot(
-            "the mini host builds no VP yet (Phase 2 of the conformance plan)".to_owned(),
-        ))
-    }
-
     /// Client-held DPoP: refused — the engine falls back to its own
     /// ephemeral key, which the suites accept.
     async fn request_dpop_proof(
         &self,
         _params: DpopProofParams,
     ) -> Result<DpopProofResult, HostError> {
-        Err(HostError::Cannot("the mini host holds no DPoP key".to_owned()))
+        Err(HostError::Cannot(
+            "the mini host holds no DPoP key".to_owned(),
+        ))
     }
 
     /// Attestation: refused — the flow proceeds without, and an issuer
@@ -308,5 +550,82 @@ mod tests {
         let ok = kryptering::Verifier::verify(&verifier, tbs.as_bytes(), &sign.signature)
             .expect("verify runs");
         assert!(ok, "the assertion signature verifies with the client key");
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod presentation {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+
+    use super::present_mini_pid;
+
+    fn disclosure(name: &str, value: &str) -> String {
+        URL_SAFE_NO_PAD.encode(serde_json::json!(["salt", name, value]).to_string())
+    }
+
+    fn decoded(segment: &str) -> serde_json::Value {
+        let bytes = URL_SAFE_NO_PAD
+            .decode(segment)
+            .expect("a base64url segment");
+        serde_json::from_slice(&bytes).expect("a JSON segment")
+    }
+
+    /// RFC 9901 §4 and §4.3: the presentation holds the issuer JWT and
+    /// the named claim's disclosure, each followed by `~`; the KB-JWT's
+    /// `sd_hash` is SHA-256 (sha2, independent of the signer's digest)
+    /// over exactly those bytes, and the holder signs the KB-JWT's own
+    /// header and payload. A claim the PID does not disclose is refused
+    /// before anything is signed.
+    #[test]
+    fn the_key_binding_covers_the_presented_disclosures() {
+        let given = disclosure("given_name", "Alice");
+        let family = disclosure("family_name", "Smith");
+        let pid = format!("h.p.s~{given}~{family}~");
+        let mut signed = Vec::new();
+        let token = present_mini_pid(
+            &pid,
+            &["family_name".to_owned()],
+            1_700_000_000,
+            "x509_san_dns:verifier.example",
+            "n-0S6_WzA2Mj",
+            |input| {
+                signed = input.to_vec();
+                Ok(vec![7; 64])
+            },
+        )
+        .expect("the PID presents");
+
+        let prefix = format!("h.p.s~{family}~");
+        let kb_jwt = token
+            .strip_prefix(&prefix)
+            .expect("the JWT and family_name lead");
+        let [header, payload, signature] = kb_jwt.split('.').collect::<Vec<_>>()[..] else {
+            panic!("the KB-JWT is no compact JWS: {kb_jwt}");
+        };
+        assert_eq!(signed, format!("{header}.{payload}").into_bytes());
+        assert_eq!(
+            URL_SAFE_NO_PAD.decode(signature).expect("base64url"),
+            vec![7; 64]
+        );
+        assert_eq!(
+            decoded(header),
+            serde_json::json!({"typ": "kb+jwt", "alg": "ES256"})
+        );
+        assert_eq!(
+            decoded(payload),
+            serde_json::json!({
+                "iat": 1_700_000_000_u64,
+                "aud": "x509_san_dns:verifier.example",
+                "nonce": "n-0S6_WzA2Mj",
+                "sd_hash": URL_SAFE_NO_PAD.encode(Sha256::digest(prefix.as_bytes())),
+            })
+        );
+
+        let refused = present_mini_pid(&pid, &["birthdate".to_owned()], 0, "aud", "nonce", |_| {
+            panic!("a refused presentation is never signed")
+        });
+        assert!(refused.is_err());
     }
 }

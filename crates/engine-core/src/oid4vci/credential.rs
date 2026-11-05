@@ -156,7 +156,12 @@ pub async fn request_credential(
         })
         .await
     {
-        proof_header["jwk"] = public_jwk_for_header(&answer.jwk);
+        // The proof header's public JWK, identified by the RFC 7638
+        // thumbprint kid it carries — inserted as a member, never by
+        // indexing (the header is an object by construction).
+        if let Some(header) = proof_header.as_object_mut() {
+            header.insert("jwk".to_owned(), public_jwk_for_header(&answer.jwk));
+        }
     }
     let proof_tbs = format!(
         "{}.{}",
@@ -308,7 +313,16 @@ pub async fn request_credential(
         // The fresh nonce for the retried proof.
         dpop_nonce = super::dpop::dpop_nonce_from_response(&sent);
     }
-    let response = response.expect("the loop always stores the last response");
+    let response = match response {
+        Some(response) => response,
+        // Unreachable: the last attempt always stores its response
+        // before it breaks.
+        None => {
+            return Err(CredentialError::Fetch(
+                "the endpoint never answered".to_owned(),
+            ))
+        }
+    };
 
     if response.status != 200 {
         // The P0.6-verified rule: an error body carrying `invalid_nonce` —
@@ -502,8 +516,12 @@ fn public_jwk_for_header(jwk: &Value) -> Value {
         .collect();
     let mut jwk = Value::Object(public);
     let kid = rfc7638_thumbprint(&jwk);
-    jwk["kid"] = Value::String(kid);
-    jwk["key_ops"] = serde_json::json!(["verify"]);
+    // The members are inserted, never indexed into: the JWK is an
+    // object by construction, and indexing panics.
+    if let Some(object) = jwk.as_object_mut() {
+        object.insert("kid".to_owned(), Value::String(kid));
+        object.insert("key_ops".to_owned(), serde_json::json!(["verify"]));
+    }
     jwk
 }
 
@@ -1124,11 +1142,6 @@ mod tests {
             token_type: "DPoP".to_owned(),
             ..test_token()
         };
-        let http = RecordingHttp {
-            status: 200,
-            body: br#"{"credential":"jwt-1"}"#.to_vec(),
-            urls: std::sync::Mutex::new(Vec::new()),
-        };
         // A recording fake that also captures headers.
         struct HeaderHttp {
             status: u16,
@@ -1225,15 +1238,13 @@ mod tests {
                     calls.push(request.headers.clone());
                     index
                 };
-                Ok(self
-                    .responses
-                    .get(index)
-                    .cloned()
-                    .unwrap_or_else(|| engine_ports::HttpResponse {
+                Ok(self.responses.get(index).cloned().unwrap_or_else(|| {
+                    engine_ports::HttpResponse {
                         status: 200,
                         headers: Vec::new(),
                         body: br#"{"credential":"jwt-1"}"#.to_vec(),
-                    }))
+                    }
+                }))
             }
         }
         let key = super::super::dpop::DpopKey::generate().expect("keygen");
@@ -1315,10 +1326,7 @@ mod tests {
                 &self,
                 request: HttpRequest,
             ) -> Result<engine_ports::HttpResponse, HttpError> {
-                self.body
-                    .lock()
-                    .map(|mut b| *b = request.body.clone())
-                    .ok();
+                self.body.lock().map(|mut b| *b = request.body.clone()).ok();
                 Ok(engine_ports::HttpResponse {
                     status: 200,
                     headers: Vec::new(),

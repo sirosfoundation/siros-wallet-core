@@ -38,10 +38,15 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 # the engine core pins them.
 jose-rs = { version = "0.10", default-features = false }
 kryptering = { version = "0.7", default-features = false, features = ["rustcrypto"] }
+# The mini host's held credential and its presentations: the SD-JWT's
+# base64url segments.
+base64 = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 jose-rs = { version = "0.10", default-features = false }
+# The presentation test's sd_hash, independent of kryptering's digest.
+sha2 = { workspace = true }
 
 # The dispatcher's host-target tests: the routing, the capability gate
 # and the session plumbing, driven with the conformance runner's

@@ -40,6 +40,8 @@ struct TestVector {
     description: String,
     #[allow(dead_code)]
     conformance_level: String,
+    #[serde(default)]
+    setup: Value,
     input: Value,
     #[serde(default)]
     expected_response: Option<Value>,
@@ -433,7 +435,7 @@ fn fixed_clock() -> wmp_core::sessionservice::Clock {
     Arc::new(|| 1_730_000_000)
 }
 
-fn service_peer() -> (Arc<Peer>, Arc<dyn SessionStore>) {
+fn service_peer_with_versions(versions: Vec<String>) -> (Arc<Peer>, Arc<dyn SessionStore>) {
     let store = Arc::new(MemorySessionStore::new());
     let supported = Capabilities(
         [(
@@ -448,6 +450,7 @@ fn service_peer() -> (Arc<Peer>, Arc<dyn SessionStore>) {
         SessionService::new(SessionServiceConfig {
             store: Some(store.clone()),
             supported,
+            versions,
             entropy: Some(counter_entropy()),
             ..SessionServiceConfig::default()
         })
@@ -460,14 +463,39 @@ fn service_peer() -> (Arc<Peer>, Arc<dyn SessionStore>) {
     (peer, store)
 }
 
+fn service_peer() -> (Arc<Peer>, Arc<dyn SessionStore>) {
+    service_peer_with_versions(Vec::new())
+}
+
 #[test]
 fn session_create_vectors() {
-    let (peer, _store) = service_peer();
+    let mut peer: Option<Arc<Peer>> = None;
+    let mut configured_for: Vec<String> = Vec::new();
     let ctx = RequestContext {
         principal: Some(Principal::new("alice", "")),
         ..RequestContext::default()
     };
     for vector in load_vectors("session-create.json") {
+        // The vector's setup names the service's supported versions;
+        // the peer is rebuilt when they differ from the current one.
+        let setup_versions: Vec<String> = vector
+            .setup
+            .get("supported_versions")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if peer.is_none() || configured_for != setup_versions {
+            let (built, _store) = service_peer_with_versions(setup_versions.clone());
+            peer = Some(built);
+            configured_for = setup_versions;
+        }
+        let peer = peer.as_ref().expect("the peer is built");
         // Only tls-mode creates run; MLS vectors need an MLS-capable service.
         let mode = vector
             .input

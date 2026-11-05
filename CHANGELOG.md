@@ -117,6 +117,9 @@ released version yet.
   `engine-conformance` keep their ordered maps under `#[expect]`.
 - `scripts/check_panic_sites.py` reads a `const` item's initialiser and an
   inline `const` block as build-time code.
+- `engine-adapter-wasm`'s mini host builds its PID's presentation itself: the
+  disclosures the match named and the KB-JWT over `iat`, `aud`, `nonce` and
+  `sd_hash` (RFC 9901 §4.3), with `base64` for the segments.
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
   1.89, then each crate with and without its default features. The workspace
   resolves with resolver 3. Both container images build on Rust 1.99.1, the

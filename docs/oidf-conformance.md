@@ -1,7 +1,9 @@
 # The OIDF conformance plan: the raw engine against the certification suite
 
-**Status: Phase 1 green (2026-11-04).** The OID4VCI wallet plan passes
-through the mini-wallet — both variants (`sd_jwt_vc /
+**Status: Phase 2 green (2026-11-04).** Both halves pass through the
+mini-wallet:
+
+**Phase 1 — the OID4VCI wallet plan** (both variants: `sd_jwt_vc /
 pre_authorization_code`, immediate and deferred; DPoP sender-constrain;
 private_key_jwt client auth):
 
@@ -11,15 +13,32 @@ private_key_jwt client auth):
 - `oid4vci-1_0-wallet-test-batch-credential-issuance` — SKIPPED by the
   suite (not exercised by the agreed variant)
 
-`make test-mini-wallet` in siros-conformance runs it end to end. The
-1.0 wire shapes the suite demanded are pinned by tests and vectors:
-the `proofs: {"jwt": [...]}` credential request, the proof header's
-public JWK with the RFC 7638 thumbprint kid (exactly one of
-jwk/kid/x5c), the DPoP nonce retries on the token, credential, nonce,
-deferred and notification endpoints (RFC 9449 §8.1), the RFC 7523
-assertion (single-use jti, one per request), the RFC 8414 well-known
-path without the trailing slash, and the `notification_id` echo
-(OID4VCI 1.0 §11). Phase 2 (the OID4VP plans) needs the VP builder.
+**Phase 2 — the OID4VP wallet plan** (`sd_jwt_vc / x509_san_dns /
+request_uri_signed / plain_vp`, both `direct_post` and
+`direct_post.jwt`): every applicable module PASSED, the eight negative
+modules REVIEW (the wallet refuses each invalid request for the right
+reason; the suite's placeholder evidence uploads through its API), the
+`request_uri` POST method SKIPPED by the suite.
+
+`make test-mini-wallet` and `make test-mini-wallet-vp` in
+siros-conformance run them end to end. The 1.0 wire shapes the suites
+demanded are pinned by tests and vectors: the
+`proofs: {"jwt": [...]}` credential request, the proof header's public
+JWK with the RFC 7638 thumbprint kid (exactly one of jwk/kid/x5c),
+the DPoP nonce retries on the token, credential, nonce, deferred and
+notification endpoints (RFC 9449 §8.1), the RFC 7523 assertion
+(single-use jti, one per request — on the pre-authorized and the
+authorization-code exchanges alike), the RFC 8414 well-known path
+without the trailing slash, and the `notification_id` echo (OID4VCI
+1.0 §11); on the presentation side the DCQL required/credential_set
+rule (§6.4.2) and the JARM response body (§8.3, no iss/exp/aud; cty
+json).
+
+**Remaining:** the haip profile (the x509_hash client_id scheme, the
+dc_api browser variants) and the iso_mdl format (the mdoc presentation
+path in the mini host). Both runs are published on the Pages site under
+`runs/mini-wallet-phase1-2026-11-04` and
+`runs/mini-wallet-vp-phase2-2026-11-04`.
 
 ## The goal
 

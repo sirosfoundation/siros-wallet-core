@@ -752,6 +752,18 @@ async fn resume_authorization_code(
     // is what makes the DPoP binding hold.
     let dpop_key = dpop::DpopKey::generate().ok();
 
+    // The wallet's registered client key's kid, as the flow start
+    // received it: the stash carried the offer params across the
+    // reload, and the code-for-token exchange needs the kid when the
+    // AS demands the RFC 7523 assertion — the same threading the
+    // pre-authorized grant does at its flow start.
+    let client_key_kid = stash
+        .offer_params
+        .get("client_key_kid")
+        .and_then(|v| v.as_str())
+        .filter(|kid| !kid.is_empty())
+        .map(str::to_owned);
+
     // The code-for-token exchange, with the stashed verifier, the RFC
     // 8707 resource the authorization request already decided, and the
     // client attestation the host supplies.
@@ -762,6 +774,7 @@ async fn resume_authorization_code(
         &auth_code::CodeExchangeSpec {
             flow_id: &params.flow_id,
             dpop_key_id: None,
+            client_key_kid: client_key_kid.as_deref(),
             client_id: &stash.client_id,
             code: &code,
             redirect_uri: &stash.redirect_uri,
@@ -979,7 +992,7 @@ async fn request_and_deliver(
             ctx.http().as_ref(),
             ctx.host().as_ref(),
             issuer_metadata,
-            Some(&token),
+            Some(token),
             aux.dpop.as_ref(),
             notification_id,
             "credential_accepted",
@@ -1073,7 +1086,14 @@ mod auth_code_flow_tests {
     }
     #[async_trait::async_trait]
     impl Host for FakeHost {
-        async fn request_sign(&self, _p: SignParams) -> Result<SignResult, HostError> {
+        async fn request_sign(&self, p: SignParams) -> Result<SignResult, HostError> {
+            // The key id each sign ask named — the RFC 7523
+            // assertion's registered kid, when the AS demands the
+            // method.
+            self.sign_key_ids
+                .lock()
+                .map(|mut ids| ids.push(p.key_id))
+                .ok();
             Ok(SignResult {
                 signature: vec![1, 2, 3, 4],
             })
@@ -1109,6 +1129,11 @@ mod auth_code_flow_tests {
     /// The scripted HTTP: dispatches by URL.
     struct ScriptedHttp {
         credential_requests: Mutex<Vec<Vec<u8>>>,
+        /// The AS metadata's `token_endpoint_auth_methods_supported`
+        /// (OpenID4VCI 1.0 §5.1) — the private_key_jwt variant the
+        /// code-for-token exchange answers with the RFC 7523
+        /// assertion.
+        token_auth_methods: Vec<String>,
     }
     #[async_trait::async_trait]
     impl HttpClient for ScriptedHttp {
@@ -1130,7 +1155,8 @@ mod auth_code_flow_tests {
                     "token_endpoint": "https://as.example/token",
                     "pushed_authorization_request_endpoint": "https://as.example/par",
                     "require_pushed_authorization_requests": false,
-                    "challenge_endpoint": "https://as.example/attestation/challenge"
+                    "challenge_endpoint": "https://as.example/attestation/challenge",
+                    "token_endpoint_auth_methods_supported": &self.token_auth_methods,
                 })
                 .to_string(),
                 "https://as.example/par" => {
@@ -1152,6 +1178,19 @@ mod auth_code_flow_tests {
                     if form.contains("grant_type=authorization_code") {
                         assert!(form.contains("code_verifier="));
                         assert!(form.contains("resource=https%3A%2F%2Fissuer.example"));
+                        // The RFC 7523 assertion, when the AS names the
+                        // method: the type and the value ride the form
+                        // (RFC 7523 §2.2).
+                        if self
+                            .token_auth_methods
+                            .iter()
+                            .any(|m| m == "private_key_jwt")
+                        {
+                            assert!(form.contains(
+                                "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer"
+                            ));
+                            assert!(form.contains("client_assertion="));
+                        }
                     } else {
                         // The renewal grant.
                         assert!(form.contains("grant_type=refresh_token"));
@@ -1264,6 +1303,7 @@ mod auth_code_flow_tests {
     async fn the_authorization_code_flow_spans_start_and_action() {
         let http = Arc::new(ScriptedHttp {
             credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),
@@ -1277,15 +1317,19 @@ mod auth_code_flow_tests {
         assert_eq!(result.flow_id, "flow-1");
 
         // The handoff: the authorization URL carries the PAR request_uri
-        // and only client_id beside it.
-        let urls = host.authorization_urls.lock().expect("lock");
-        assert_eq!(urls.len(), 1);
-        assert!(urls[0].starts_with("https://as.example/authorize?"));
-        assert!(urls[0].contains("request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Apar-1"));
-        assert!(urls[0].contains("client_id=client-1"));
-        // The pushed parameters are NOT in the URL (PAR: server-side).
-        assert!(!urls[0].contains("code_challenge="));
-        drop(urls);
+        // and only client_id beside it. The guard is block-scoped: the
+        // lock must not live across the resume's await.
+        {
+            let urls = host.authorization_urls.lock().expect("lock");
+            assert_eq!(urls.len(), 1);
+            assert!(urls[0].starts_with("https://as.example/authorize?"));
+            assert!(
+                urls[0].contains("request_uri=urn%3Aietf%3Aparams%3Aoauth%3Arequest_uri%3Apar-1")
+            );
+            assert!(urls[0].contains("client_id=client-1"));
+            // The pushed parameters are NOT in the URL (PAR: server-side).
+            assert!(!urls[0].contains("code_challenge="));
+        }
 
         // ── The second call: the redirect's answer ─────────────────────
         // The state the Rng port produced (bytes 0..16).
@@ -1312,9 +1356,70 @@ mod auth_code_flow_tests {
     }
 
     #[tokio::test]
+    async fn the_resume_carries_the_private_key_jwt_assertion_with_the_registered_kid() {
+        let http = Arc::new(ScriptedHttp {
+            credential_requests: Mutex::new(Vec::new()),
+            // The AS names the method (OpenID4VCI 1.0 §5.1): the
+            // code-for-token POST must carry the RFC 7523 assertion.
+            token_auth_methods: vec!["private_key_jwt".to_owned()],
+        });
+        let host = Arc::new(FakeHost {
+            authorization_urls: Mutex::new(Vec::new()),
+            sign_key_ids: Mutex::new(Vec::new()),
+        });
+        let ctx = test_context(http.clone() as Arc<dyn HttpClient>, host.clone());
+        let flow = Oid4vciFlow;
+
+        // The flow start carries the registered kid: the stash keeps
+        // the offer params across the reload (the stateless resume).
+        let params = FlowStartParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            flow_type: "oid4vci".to_owned(),
+            params: raw_value(serde_json::json!({
+                "credential_issuer": "https://issuer.example",
+                "credential_configuration_ids": ["UniversityDegree"],
+                "grants": {
+                    "authorization_code": { "issuer_state": "session-1" }
+                },
+                "redirect_uri": "https://wallet.example/cb",
+                "client_id": "client-1",
+                "client_key_kid": "client-key-1"
+            })),
+            timeout: None,
+        };
+        flow.start_flow(&ctx, &params).await.expect("start");
+
+        // The redirect's answer, with the state the Rng port produced.
+        let expected_state = auth_code::generate_state(&FakeRng).expect("state");
+        let action = FlowActionParams {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: "flow-1".to_owned(),
+            action: "authorization_complete".to_owned(),
+            params: raw_value(
+                serde_json::json!({ "code": "auth-code-1", "state": expected_state }),
+            ),
+        };
+        let result = flow.handle_action(&ctx, &action).await.expect("resume");
+        assert_eq!(result.status, "completed");
+
+        // The assertion's sign ask named the registered kid — the
+        // stash relayed it across the reload, and the scripted token
+        // handler asserts the form members the assertion rides.
+        let key_ids = host.sign_key_ids.lock().expect("lock");
+        assert!(
+            key_ids
+                .iter()
+                .any(|id| id.as_deref() == Some("client-key-1")),
+            "the sign asks carried the registered kid: {key_ids:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_state_mismatch_refuses_the_resume() {
         let http = Arc::new(ScriptedHttp {
             credential_requests: Mutex::new(Vec::new()),
+            token_auth_methods: Vec::new(),
         });
         let host = Arc::new(FakeHost {
             authorization_urls: Mutex::new(Vec::new()),

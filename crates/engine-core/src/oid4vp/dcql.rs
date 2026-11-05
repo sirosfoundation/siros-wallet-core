@@ -39,6 +39,96 @@ pub fn validate_raw_query(raw: &str) -> Result<(), DcqlError> {
     Ok(())
 }
 
+/// The required DCQL queries with no selection: a required query the
+/// wallet cannot satisfy makes the whole presentation an `access_denied`
+/// response (OID4VP 1.0 §6.2, §6.4.2) — never a partial vp_token.
+///
+/// The required set (§6.2):
+/// - A query NOT referenced by any credential_set is required unless it
+///   says `"required": false`.
+/// - A credential_set (required unless `"required": false`) is
+///   satisfied when ANY of its options has all its queries answered —
+///   an option names the queries of one combination. The option
+///   queries themselves are not independently required.
+pub fn unsatisfied_required_queries(
+    dcql_query: Option<&Value>,
+    selections: &[VpSelection],
+) -> Vec<String> {
+    let Some(query) = dcql_query else {
+        return Vec::new();
+    };
+    let Some(queries) = query.get("credentials").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let answered = |id: &str| selections.iter().any(|s| s.credential_query_id == id);
+
+    // The option ids: an option is an array of query ids (the
+    // combination's queries), a bare id, or an object naming one.
+    let option_ids = |option: &Value| -> Vec<String> {
+        match option {
+            Value::Array(ids) => ids
+                .iter()
+                .filter_map(|id| match id {
+                    Value::String(name) => Some(name.clone()),
+                    Value::Object(object) => object
+                        .get("credential_query_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                    _ => None,
+                })
+                .collect(),
+            Value::String(id) => vec![id.clone()],
+            Value::Object(object) => object
+                .get("credential_query_id")
+                .and_then(Value::as_str)
+                .map(|id| vec![id.to_owned()])
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    };
+
+    let sets = query.get("credential_sets").and_then(Value::as_array);
+    let referenced: Vec<String> = sets
+        .into_iter()
+        .flatten()
+        .filter_map(|set| set.get("options"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .flat_map(option_ids)
+        .collect();
+
+    let mut unsatisfied: Vec<String> = queries
+        .iter()
+        .filter(|q| {
+            let id = q.get("id").and_then(Value::as_str).unwrap_or_default();
+            let required = q.get("required").and_then(Value::as_bool).unwrap_or(true);
+            required && !id.is_empty() && !referenced.iter().any(|r| r == id) && !answered(id)
+        })
+        .filter_map(|q| q.get("id").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+
+    // The required credential_sets: at least one fully-answered option.
+    for set in sets.into_iter().flatten() {
+        let required = set.get("required").and_then(Value::as_bool).unwrap_or(true);
+        if !required {
+            continue;
+        }
+        let options_answered =
+            set.get("options")
+                .and_then(Value::as_array)
+                .is_some_and(|options| {
+                    options
+                        .iter()
+                        .any(|option| option_ids(option).iter().all(|id| answered(id)))
+                });
+        if !options_answered {
+            unsatisfied.push("credential_set".to_owned());
+        }
+    }
+
+    unsatisfied
+}
+
 /// Assembles the DCQL `vp_token`: a JSON object keyed by the DCQL
 /// credential query id, each mapping to the signed token(s) for that
 /// query.

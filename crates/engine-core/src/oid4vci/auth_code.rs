@@ -311,12 +311,21 @@ pub async fn exchange_authorization_code(
         code_verifier,
         resource,
         &[],
+        // No host on this path: no assertion can be built (an AS that
+        // requires private_key_jwt rejects the request on its own).
+        None,
     )
     .await
 }
 
 /// The one code-for-token POST, with the client-attestation headers when
-/// the host supplied a pair.
+/// the host supplied a pair, and the RFC 7523 assertion when the AS
+/// demands the method.
+//
+// The argument count is the shape: the POST carries the code, its
+/// redirect and verifier, the resource, the attestation pair and the
+// assertion — each a distinct wire member, so they ride loose.
+#[allow(clippy::too_many_arguments)]
 async fn exchange_code_with_headers(
     http: &dyn HttpClient,
     as_metadata: &AsMetadata,
@@ -325,6 +334,7 @@ async fn exchange_code_with_headers(
     code_verifier: &str,
     resource: Option<&str>,
     attestation_headers: &[(String, String)],
+    client_assertion: Option<&str>,
 ) -> Result<TokenResponse, TokenError> {
     if as_metadata.token_endpoint.is_empty() {
         return Err(TokenError::NoTokenEndpoint);
@@ -342,6 +352,17 @@ async fn exchange_code_with_headers(
     // made, so the two always agree.
     if let Some(resource) = resource.filter(|r| !r.is_empty()) {
         form.push_str(&format!("&resource={}", url_encode(resource)));
+    }
+
+    // The RFC 7523 client assertion (private_key_jwt): the engine built
+    // it above; the type and the value ride the form (RFC 7523 §2.2).
+    // `None` without a host — an AS that requires the method rejects
+    // the request on its own.
+    if let Some(assertion) = client_assertion {
+        form.push_str(
+            "&client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
+        );
+        form.push_str(&format!("&client_assertion={}", url_encode(assertion)));
     }
 
     let mut headers = vec![
@@ -403,6 +424,13 @@ pub struct CodeExchangeSpec<'a> {
     /// renewal reuses the key its refresh_token was bound to at
     /// issuance (RFC 9449 / ARF 3.0 §6.6.6.2.2).
     pub dpop_key_id: Option<&'a str>,
+    /// The wallet's registered client key's kid — the RFC 7523
+    /// private_key_jwt assertion's kid. The flow start received it in
+    /// the offer params; the resume reads it back from the stash, so
+    /// the code-for-token exchange names the same key the
+    /// pre-authorized exchange does (RFC 7523 §2: the assertion's
+    /// `kid` identifies the registered key).
+    pub client_key_kid: Option<&'a str>,
     /// The wallet's client_id (the PoP `iss`).
     pub client_id: &'a str,
     /// The authorization code the redirect answered.
@@ -444,7 +472,39 @@ pub async fn exchange_authorization_code_with_attestation(
     .await;
     let mut dpop_nonce: Option<String> = None;
 
+    // private_key_jwt (RFC 7523): the AS metadata names the method, so
+    // the code-for-token POST carries the client assertion — the same
+    // JWT the pre-authorized exchange sends (token.rs), built by the
+    // engine and signed by the host with the registered kid. One
+    // assertion PER REQUEST (RFC 7523 §3: the jti is single-use), so
+    // every attempt — including the DPoP nonce retry — builds a fresh
+    // one.
+    let client_assertion_required = as_metadata
+        .token_endpoint_auth_methods
+        .iter()
+        .any(|m| m == "private_key_jwt");
+
     for attempt in 0..3 {
+        // The per-attempt assertion, when the AS demands the method.
+        let client_assertion = if client_assertion_required {
+            super::token::build_client_assertion(
+                host,
+                &super::token::TokenExchangeContext {
+                    flow_id: spec.flow_id,
+                    dpop_key_id: spec.dpop_key_id,
+                    client_key_kid: spec.client_key_kid,
+                    client_id: spec.client_id,
+                    dpop: spec.dpop,
+                    rng: spec.rng,
+                    now_unix: spec.now_unix,
+                },
+                &as_metadata.issuer,
+            )
+            .await
+        } else {
+            None
+        };
+
         // The headers: the attestation pair, and a fresh DPoP proof
         // per attempt (the client-held proof the host signs, else the
         // engine-held key; a new `jti`, the current nonce).
@@ -475,6 +535,7 @@ pub async fn exchange_authorization_code_with_attestation(
             spec.code_verifier,
             spec.resource,
             &headers,
+            client_assertion.as_deref(),
         )
         .await
         {
@@ -977,6 +1038,7 @@ mod tests {
             &CodeExchangeSpec {
                 flow_id: "flow-1",
                 dpop_key_id: None,
+                client_key_kid: None,
                 client_id: "client-1",
                 code: "code-1",
                 redirect_uri: "https://wallet.example/cb",
