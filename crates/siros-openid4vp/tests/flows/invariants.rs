@@ -20,9 +20,9 @@ use siros_openid4vp::ids::Origin;
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::modes::{DcApi, DcApiJwt, DirectPost, DirectPostJwt};
 use siros_openid4vp::plugins::Registry;
-use siros_openid4vp::recourse::{DcApiErrors, Rejected, Reply};
+use siros_openid4vp::recourse::{DcApiErrors, ErrorTarget, Rejected, Reply};
 use siros_openid4vp::request::{ContentEncryption, Request};
-use siros_openid4vp::resolve::{Delivery, Outcome, Prepared, Route};
+use siros_openid4vp::resolve::{Delivery, Outcome, Prepared, Route, RouteBreach};
 use siros_openid4vp::routing::{ChannelKind, ModeName, VpToken};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch};
 use siros_openid4vp::wallet::Wallet;
@@ -76,13 +76,6 @@ impl Under {
             Self::DirectPostJwt | Self::DirectPost => ChannelKind::Uri,
             Self::Test(mode, _) => mode.channel,
         }
-    }
-
-    /// Whether the mode's choice or body may break its registration: a `TestMode` writing the
-    /// other channel's body or choosing what its registration or the statement refuses. The
-    /// core's modes never do.
-    const fn may_break(&self) -> bool {
-        matches!(self, Self::Test(..))
     }
 
     /// The registry: `vp_token`, the test format and prefix, and the mode, a URI mode for its
@@ -271,11 +264,7 @@ impl Case {
                 }
             }
             ChannelKind::Uri => {
-                let endpoint = match self.endpoint {
-                    Endpoint::Own => RESPONSE_URI,
-                    Endpoint::Other => "https://other.example/post",
-                    Endpoint::Http => "http://verifier.example/post",
-                };
+                let endpoint = self.response_uri();
                 let state = match self.broken {
                     Break::State => "a b".to_owned(),
                     _ => format!("s-{k}"),
@@ -286,6 +275,15 @@ impl Case {
             }
         }
         format!("{{{}}}", members.join(","))
+    }
+
+    /// The `response_uri` a URI request names.
+    const fn response_uri(&self) -> &'static str {
+        match self.endpoint {
+            Endpoint::Own => RESPONSE_URI,
+            Endpoint::Other => "https://other.example/post",
+            Endpoint::Http => "http://verifier.example/post",
+        }
     }
 
     /// The Request Object of the parameters, signed by the test Verifier's key or, forged, by
@@ -304,6 +302,73 @@ impl Case {
         TestTrust {
             endpoints: self.listed.then(|| vec![RESPONSE_URI.to_owned()]),
             ..TestTrust::default()
+        }
+    }
+}
+
+/// What a mode's encryption comes to on a request's route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Verdict {
+    /// No answering route: C6 or the mode's C7 refuses, or no registered mode answers.
+    Unanswered,
+    /// Answers in the clear.
+    Clear,
+    /// Answers sealed to the key of the `kid`, under the `enc`.
+    Sealed(String, String),
+    /// The core refuses the mode's choice.
+    Breach(RouteBreach),
+}
+
+impl Verdict {
+    /// The verdict of a `TestMode`'s choice, from its registration, the request's keys and listed
+    /// `enc`s, and the sealing statement of the test `Haip` (P-256 `ECDH-ES` with A128GCM or
+    /// A256GCM); `None` for the core's modes, which never breach.
+    fn expected(under: &Under, case: &Case) -> Option<Self> {
+        let Under::Test(mode, registration) = under else {
+            return None;
+        };
+        if matches!(case.broken, Break::Metadata | Break::Mode) {
+            return Some(Self::Unanswered);
+        }
+        let sealed = *registration == Registration::Jwe;
+        Some(match (mode.choice, sealed) {
+            (TestChoice::Plain, false) => Self::Clear,
+            (TestChoice::Plain, true) => Self::Breach(RouteBreach::NoKey),
+            (TestChoice::Key { place, .. }, _) if place >= case.keys.len() => Self::Unanswered,
+            (TestChoice::Key { .. } | TestChoice::Foreign { .. }, false) => {
+                Self::Breach(RouteBreach::KeyInTheClear)
+            }
+            (TestChoice::Foreign { .. }, true) => Self::Breach(RouteBreach::Foreign),
+            (TestChoice::Key { place, enc }, true) => {
+                let key: Value = serde_json::from_str(case.keys[place]).expect("a JWK");
+                let listed = case.encs.map_or(enc == ContentEncryption::A128GCM, |encs| {
+                    encs.contains(&enc.as_str())
+                });
+                if key["crv"] != "P-256" || key["alg"] != "ECDH-ES" {
+                    Self::Breach(RouteBreach::Unstated)
+                } else if !listed {
+                    Self::Breach(RouteBreach::Unlisted)
+                } else {
+                    let kid = key["kid"].as_str().expect("a kid").to_owned();
+                    Self::Sealed(kid, enc.as_str().to_owned())
+                }
+            }
+        })
+    }
+
+    /// The verdict a route came to, or the breach its fault names.
+    fn of(route: &Result<Route<'_, TestHost>, Outcome>) -> Option<Self> {
+        match route {
+            Ok(route) => Some(match route.answering() {
+                None => Self::Unanswered,
+                Some(_) => {
+                    session_key(route).map_or(Self::Clear, |(kid, enc)| Self::Sealed(kid, enc))
+                }
+            }),
+            Err(Outcome::Fault(fault)) => std::error::Error::source(fault)
+                .and_then(|cause| cause.downcast_ref::<RouteBreach>())
+                .map(|breach| Self::Breach(*breach)),
+            Err(_) => None,
         }
     }
 }
@@ -414,9 +479,9 @@ fn check_routed(
     }
 }
 
-/// A rejection's reply: over the DC API A.4's error; by URI the plain form to its route's
-/// `https` target, or nothing.
-fn check_rejected(seen: &mut Seen, at: &str, rejected: &Rejected<'_>) {
+/// A rejection's reply: over the DC API A.4's error; by URI the plain form to the `https`
+/// `response_uri` the request names, as `Listed` only when the trust service lists it, or nothing.
+fn check_rejected(seen: &mut Seen, at: &str, case: &Case, rejected: &Rejected<'_>) {
     match rejected.reply(DcApiErrors::Respond) {
         Ok(Reply::Cancel) => seen.add("rejections answering the End-User alone"),
         Ok(Reply::Deliver(Delivery::DcApi(data))) => {
@@ -430,13 +495,13 @@ fn check_rejected(seen: &mut Seen, at: &str, rejected: &Rejected<'_>) {
             seen.add("rejections answered on the DC API");
         }
         Ok(Reply::Deliver(Delivery::Post { endpoint, body })) => {
-            let target = rejected.route().map(|route| route.target());
-            let routed = matches!(
-                target,
-                Some(siros_openid4vp::recourse::ErrorTarget::Listed(uri)
-                    | siros_openid4vp::recourse::ErrorTarget::Unverified(uri))
-                    if uri == &endpoint
-            );
+            let vouched = case.listed && matches!(case.endpoint, Endpoint::Own);
+            let routed = endpoint.as_str() == case.response_uri()
+                && match rejected.route().map(|route| route.target()) {
+                    Some(ErrorTarget::Listed(_)) => vouched,
+                    Some(ErrorTarget::Unverified(_)) => true,
+                    _ => false,
+                };
             let plain = form(body.bytes()).is_some_and(|pairs| {
                 pairs.first().is_some_and(|(name, _)| name == "error")
                     && !pairs.iter().any(|(name, _)| name == "response")
@@ -500,7 +565,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
             match Received::dc_api(protocol, body, origin, &DcApiProtocols::ALL) {
                 Ok(received) => received,
                 Err(cause) => {
-                    check_rejected(seen, &at, &Rejected::dc_api(cause));
+                    check_rejected(seen, &at, case, &Rejected::dc_api(cause));
                     return;
                 }
             }
@@ -512,7 +577,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
             match fetch.resume(FetchAnswer::Body(&object), registry, &host) {
                 Ok(received) => received,
                 Err(rejected) => {
-                    check_rejected(seen, &at, &rejected);
+                    check_rejected(seen, &at, case, &rejected);
                     return;
                 }
             }
@@ -521,7 +586,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
     let envelope = match Envelope::parse(&received, registry) {
         Ok(envelope) => envelope,
         Err(cause) => {
-            check_rejected(seen, &at, &Rejected::unreadable(&received, cause));
+            check_rejected(seen, &at, case, &Rejected::unreadable(&received, cause));
             return;
         }
     };
@@ -533,20 +598,44 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         }) {
         Ok(authenticated) => authenticated,
         Err(rejected) => {
-            check_rejected(seen, &at, &rejected);
+            check_rejected(seen, &at, case, &rejected);
             return;
         }
     };
-    let route = match Route::new(&authenticated, registry, &host) {
+    let routed = Route::new(&authenticated, registry, &host);
+    // C5 by URI: the request's mode names no registered error mode.
+    let unroutable = under.channel() == ChannelKind::Uri && matches!(case.broken, Break::Mode);
+    if unroutable != matches!(routed, Err(Outcome::Unroutable(_))) {
+        seen.violate(format!(
+            "{at}: unroutable {unroutable}: {:?}",
+            routed.as_ref().err()
+        ));
+        return;
+    }
+    let verdict = Verdict::of(&routed);
+    let expected = Verdict::expected(under, case);
+    match (&expected, &verdict) {
+        _ if unroutable => {}
+        (Some(expected), got) if got.as_ref() != Some(expected) => {
+            seen.violate(format!("{at}: the route came to {got:?} for {expected:?}"));
+            return;
+        }
+        (None, Some(Verdict::Breach(_)) | None) => {
+            seen.violate(format!(
+                "{at}: the core's mode faults: {:?}",
+                routed.as_ref().err()
+            ));
+            return;
+        }
+        _ => {}
+    }
+    let route = match routed {
         Ok(route) => route,
         Err(Outcome::Unroutable(_)) => {
             seen.add("URI requests no error mode carries");
             return;
         }
-        Err(other) => {
-            if !under.may_break() {
-                seen.violate(format!("{at}: the core's mode faults: {other}"));
-            }
+        Err(_) => {
             seen.add("routes refused for a mode that breaks its registration");
             return;
         }
@@ -586,12 +675,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
                 });
             }
             Ok(Reply::Cancel) => seen.violate(format!("{at}: Respond cancels")),
-            Err(fault) => {
-                if !under.may_break() {
-                    seen.violate(format!("{at}: a refusal's error faults: {fault}"));
-                }
-                seen.add("errors refused for a mode that breaks its registration");
-            }
+            Err(fault) => seen.violate(format!("{at}: a refusal's error faults: {fault}")),
         }
         return;
     }
@@ -622,12 +706,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
                 seen.add("unmet requests answered on their route");
             }
             Ok(Reply::Cancel) => seen.violate(format!("{at}: Respond cancels")),
-            Err(fault) => {
-                if !under.may_break() {
-                    seen.violate(format!("{at}: an unmet request's error faults: {fault}"));
-                }
-                seen.add("errors refused for a mode that breaks its registration");
-            }
+            Err(fault) => seen.violate(format!("{at}: an unmet request's error faults: {fault}")),
         }
         return;
     };
@@ -636,6 +715,30 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         Prepared::prepare(&authenticated, &ids, &wallet, registry, &env).and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)
         });
+    // A `TestMode` answers on its route, writes its own channel's body or breaches with the other
+    // channel's, and is refused under its C7; the core's modes answer or refuse.
+    let wants = match (&expected, under) {
+        (Some(Verdict::Unanswered), _) => Some("refused"),
+        (Some(_), Under::Test(mode, _)) if mode.body == TestBody::Other => Some("breach"),
+        (Some(_), _) => Some("answer"),
+        (None, _) => None,
+    };
+    let got = match &built {
+        Ok(_) => "answer",
+        Err(Outcome::Refused(_)) => "refused",
+        Err(Outcome::Fault(fault))
+            if std::error::Error::source(fault)
+                .and_then(|cause| cause.downcast_ref::<RouteBreach>())
+                == Some(&RouteBreach::BodyChannel) =>
+        {
+            "breach"
+        }
+        Err(_) => "other",
+    };
+    if wants.is_some_and(|wants| wants != got) {
+        seen.violate(format!("{at}: phase 2 came to {got} for {wants:?}"));
+        return;
+    }
     match built {
         Ok(built) => {
             let json = built.response().json();
@@ -659,7 +762,7 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
         }
         Err(Outcome::Refused(_)) => seen.add("answers refused under the sealing statement"),
         Err(Outcome::Fault(fault)) => {
-            if !under.may_break() {
+            if expected.is_none() {
                 seen.violate(format!("{at}: phase 2 faults: {fault}"));
             }
             seen.add("answers refused for a mode that breaks its registration");
