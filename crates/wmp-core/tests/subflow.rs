@@ -31,6 +31,20 @@ struct ResponderPeer {
     cancelled: Mutex<Vec<String>>,
     registry: Arc<Registry>,
     entropy: AtomicU64,
+    /// The child route this responder completes when it accepts a start:
+    /// the wallet notifying `wmp.flow.complete` over the transport, played
+    /// in-process through the claimed profile. Only the completing peer
+    /// carries one — the refusing and ignoring peers never complete the
+    /// child (their start answers are a refusal, or a bare acceptance
+    /// the child never follows).
+    completes: Mutex<Option<(String, Arc<dyn Profile>)>>,
+    /// Whether an accepted start completes the child (completing_with
+    /// only).
+    completes_on_start: bool,
+    /// The fire-and-forget messages the parent sent this peer — the
+    /// parent's own `wmp.flow.complete` lands here, the observable
+    /// completion the assertions read.
+    notifications: Mutex<Vec<(String, Value)>>,
 }
 
 impl ResponderPeer {
@@ -41,6 +55,9 @@ impl ResponderPeer {
             cancelled: Mutex::new(Vec::new()),
             registry: Arc::new(Registry::new()),
             entropy: AtomicU64::new(0),
+            completes: Mutex::new(None),
+            completes_on_start: true,
+            notifications: Mutex::new(Vec::new()),
         })
     }
 
@@ -56,6 +73,9 @@ impl ResponderPeer {
             cancelled: Mutex::new(Vec::new()),
             registry: Arc::new(Registry::new()),
             entropy: AtomicU64::new(0),
+            completes: Mutex::new(None),
+            completes_on_start: false,
+            notifications: Mutex::new(Vec::new()),
         })
     }
 
@@ -66,11 +86,22 @@ impl ResponderPeer {
             cancelled: Mutex::new(Vec::new()),
             registry: Arc::new(Registry::new()),
             entropy: AtomicU64::new(0),
+            completes: Mutex::new(None),
+            completes_on_start: false,
+            notifications: Mutex::new(Vec::new()),
         })
     }
 
     fn cancels(&self) -> Vec<String> {
         self.cancelled.lock().map(|c| c.clone()).unwrap_or_default()
+    }
+
+    /// The fire-and-forget messages the parent sent, as (method, params).
+    fn sent(&self) -> Vec<(String, Value)> {
+        self.notifications
+            .lock()
+            .map(|n| n.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -78,9 +109,14 @@ impl PeerContext for ResponderPeer {
     fn notify(
         &self,
         _ctx: &RequestContext,
-        _method: &str,
-        _params: &Value,
+        method: &str,
+        params: &Value,
     ) -> Result<(), HandlerError> {
+        // Recorded, not ignored: the parent's own wmp.flow.complete is the
+        // observable completion the assertions read.
+        if let Ok(mut notifications) = self.notifications.lock() {
+            notifications.push((method.to_owned(), params.clone()));
+        }
         Ok(())
     }
 
@@ -97,6 +133,37 @@ impl PeerContext for ResponderPeer {
                     .lock()
                     .map(|answer| answer(&flow_id, params))
                     .unwrap_or_else(|_| Err(HandlerError::Rpc(RpcError::code(-32603))));
+                // The wallet completes the child once its start is
+                // accepted — `wmp.flow.complete` over the transport,
+                // played in-process through the claimed profile. The
+                // completion carries the fixed result as the flow's
+                // result; the start answer itself is only the
+                // acknowledgement the parent keeps.
+                if self.completes_on_start && answer.is_ok() {
+                    let route = self
+                        .completes
+                        .lock()
+                        .ok()
+                        .and_then(|mut completes| completes.take());
+                    if let Some((child, profile)) = route {
+                        // The fixed result as the flow's result member: the
+                        // RawValue the parent's request returns.
+                        let result = match &answer {
+                            Ok(value) => {
+                                serde_json::value::RawValue::from_string(value.to_string()).ok()
+                            }
+                            Err(_) => None,
+                        };
+                        profile.handle_complete(
+                            &RequestContext::default(),
+                            &FlowCompleteParams {
+                                wmp: Metadata::default(),
+                                flow_id: child,
+                                result,
+                            },
+                        );
+                    }
+                }
                 answer.map(Some)
             }
             METHOD_FLOW_CANCEL => {
@@ -129,6 +196,11 @@ impl PeerContext for ResponderPeer {
         session_id: &str,
         handler: Arc<dyn Profile>,
     ) -> Option<wmp_core::profile::Claim> {
+        // Keep the route: a peer that completes its child notifies the
+        // completion through it, as the wallet does over the transport.
+        if let Ok(mut completes) = self.completes.lock() {
+            *completes = Some((flow_id.to_owned(), handler.clone()));
+        }
         self.registry.claim_flow(flow_id, session_id, handler)
     }
 
@@ -202,7 +274,28 @@ fn sub_flow_completes() {
     while profile.active_flows() > 0 && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(profile.active_flows(), 0);
+    assert_eq!(
+        profile.active_flows(),
+        0,
+        "the parent must end once its sub-flow completed it"
+    );
+
+    // The completion content: the parent completed with the child's
+    // fixed result as its own (the worker's fc.complete(&signed)), not
+    // merely timed out and tore down.
+    let sent = peer.sent();
+    let completed: Vec<&(String, Value)> = sent
+        .iter()
+        .filter(|(method, _)| method == METHOD_FLOW_COMPLETE)
+        .collect();
+    assert_eq!(
+        completed.len(),
+        1,
+        "the parent sent exactly one completion: {sent:?}"
+    );
+    let (_, params) = completed[0];
+    assert_eq!(params["flow_id"], json!(parent_flow_id()));
+    assert_eq!(params["result"], json!({ "signature": "proof-1" }));
 }
 
 /// A responder that refuses the start: the sub-flow request reports the

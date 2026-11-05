@@ -93,8 +93,18 @@ impl WasmEngine {
                 let client_key_jwk = member(&config, "clientKeyJwk")
                     .ok()
                     .and_then(|v| v.as_string());
-                let mini = mini::MiniHost::new(tx_code, client_key_jwk, open_authorization)
-                    .map_err(|reason| JsValue::from_str(reason.as_str()))?;
+                // The PID's signing key, when the harness carries one
+                // (the HAIP profile's x5c-chained credential).
+                let pid_signing_jwk = member(&config, "pidSigningJwk")
+                    .ok()
+                    .and_then(|v| v.as_string());
+                let mini = mini::MiniHost::new(
+                    tx_code,
+                    client_key_jwk,
+                    pid_signing_jwk,
+                    open_authorization,
+                )
+                .map_err(|reason| JsValue::from_str(reason.as_str()))?;
                 mini_public_jwk = Some(mini.public_jwk());
                 mini::arc(mini)
             }
@@ -112,7 +122,11 @@ impl WasmEngine {
             Err(err) => return Err(err),
         };
 
-        let kv_config = optional(&config, "kv");
+        // The kv member is an object — `optional` is function-typed (the
+        // callbacks), so `member` reads it raw and the callbacks come
+        // out of it. A config that carries no kv (or no callbacks)
+        // falls back to the in-memory store inside JsKeyValue.
+        let kv_config = member(&config, "kv").ok().filter(|kv| !kv.is_undefined());
         let (kv_get, kv_put, kv_del) = match &kv_config {
             Some(kv) => (
                 optional(kv, "get"),

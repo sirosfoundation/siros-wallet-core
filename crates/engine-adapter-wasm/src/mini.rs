@@ -42,8 +42,29 @@ fn p256_signer(jwk: &jose_rs::jwk::Jwk) -> Result<Signer, String> {
 
 /// The claims the mini PID carries, selectively disclosed (RFC 9901
 /// §5.1): the values are fixtures — the suites check the disclosed
-/// claims match the DCQL query, not the holder's actual name.
-const PID_CLAIMS: [(&str, &str); 2] = [("given_name", "Alice"), ("family_name", "Smith")];
+/// claims match the DCQL query, not the holder's actual name. The
+/// EUDI PID 1.0 mandatory set the HAIP profile asks for (HAIP-6.2),
+/// with the types the path modules exercise — `nationalities` an array
+/// (the index and the all-elements paths select into it),
+/// `place_of_birth` an object.
+fn pid_claims() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("family_name", serde_json::json!("Smith")),
+        ("given_name", serde_json::json!("Alice")),
+        ("birthdate", serde_json::json!("1980-01-01")),
+        (
+            "place_of_birth",
+            serde_json::json!({ "locality": "Stockholm", "region": "Stockholm", "country": "SE" }),
+        ),
+        ("nationalities", serde_json::json!(["SE"])),
+        ("issuing_authority", serde_json::json!("Polismyndigheten")),
+        ("issuing_country", serde_json::json!("SE")),
+        (
+            "picture",
+            serde_json::json!("aGVsbG8tbWluaS1waWQtcGljdHVyZQ"),
+        ),
+    ]
+}
 
 /// The vct the suites' DCQL queries name.
 const PID_VCT: &str = "urn:eudi:pid:1";
@@ -53,9 +74,21 @@ const PID_VCT: &str = "urn:eudi:pid:1";
 /// the fixture claims. The trailing `~` marks the key-binding form
 /// (§4.1); the harness's stand-in for a real wallet's stored
 /// credential.
-fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
-    let issuer_key = jose_rs::jwk::generate::generate_ec("P-256")
-        .map_err(|err| format!("the PID issuer key generation failed: {err}"))?;
+///
+/// With a configured PID signing key (the HAIP profile demands the
+/// credential carry its X.509 chain, HAIP-6.1.1), the issuer is that
+/// key and the chain rides the JWS header's `x5c` (RFC 7515 §4.1.6);
+/// without one, a fresh generated key signs a bare header (the plain
+/// plans' form).
+fn issue_mini_pid(
+    device_public: &serde_json::Value,
+    pid_signing: Option<&jose_rs::jwk::Jwk>,
+) -> Result<String, String> {
+    let issuer_key = match pid_signing {
+        Some(key) => key.clone(),
+        None => jose_rs::jwk::generate::generate_ec("P-256")
+            .map_err(|err| format!("the PID issuer key generation failed: {err}"))?,
+    };
     let issuer_signer = p256_signer(&issuer_key)?;
     let now = (js_sys::Date::now() / 1000.0) as i64;
 
@@ -65,7 +98,7 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
     // verifier hashes when it resolves the references.
     let mut disclosures = Vec::new();
     let mut digests = Vec::new();
-    for (index, (name, value)) in PID_CLAIMS.iter().enumerate() {
+    for (index, (name, value)) in pid_claims().into_iter().enumerate() {
         let salt = format!("mini-pid-salt-{now}-{index}");
         let disclosure = serde_json::json!([salt, name, value]).to_string();
         let encoded = URL_SAFE_NO_PAD.encode(disclosure.as_bytes());
@@ -78,11 +111,22 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
 
     // The issuer JWT: the fixture claims are undisclosed; the device
     // key binds the holder (§4.2's cnf).
-    let header = serde_json::json!({
+    let mut header = serde_json::json!({
         "typ": "dc+sd-jwt",
         "alg": "ES256",
         "kid": issuer_key.kid.clone().unwrap_or_else(|| "mini-pid-issuer".to_owned()),
     });
+    // The HAIP form (HAIP-6.1.1): the credential's X.509 chain rides
+    // the header (RFC 7515 §4.1.6 — standard base64 DER, unlike the
+    // JOSE segments' base64url), so the verifier can validate it
+    // against the profile's trust anchor.
+    if let Some(chain) = pid_signing.and_then(|key| key.extra.get("x5c")) {
+        // Inserted as a member, never indexed: the header is an object
+        // by construction.
+        if let Some(object) = header.as_object_mut() {
+            object.insert("x5c".to_owned(), chain.clone());
+        }
+    }
     let payload = serde_json::json!({
         "iss": "https://mini-wallet.example",
         "iat": now,
@@ -114,14 +158,18 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
 const KB_HEADER: &str = r#"{"typ":"kb+jwt","alg":"ES256"}"#;
 
 /// The held PID as presented to a verifier (RFC 9901 §4): the issuer
-/// JWT, then the disclosures of `claims` in their order, each once and
-/// followed by `~`, then the KB-JWT (§4.3) over `iat`, the verifier's
-/// `audience` and `nonce`, and the `sd_hash` of what precedes it under
-/// the PID's `_sd_alg`, sha-256. `sign` signs the KB-JWT's signing input
-/// with the holder's key and answers ES256's 64-octet `r ‖ s` (RFC 7518
-/// §3.4). Refused when the PID is not in the key-binding form, a
-/// disclosure is no `[salt, name, value]` array (§4.2.1), or the PID
-/// discloses no claim of a name in `claims`.
+/// JWT, then the disclosures `claims` select in their order, each once
+/// and followed by `~`, then the KB-JWT (§4.3) over `iat`, the
+/// verifier's `audience` and `nonce`, and the `sd_hash` of what precedes
+/// it under the PID's `_sd_alg`, sha-256. Each claim is a claims path
+/// (OpenID4VP §7) JSON-encoded: its first component names the PID's
+/// claim whose disclosure is presented, and the rest resolve inside
+/// that claim's value (a key of an object, an index of an array, null
+/// for every element of an array). `sign` signs the KB-JWT's signing
+/// input with the holder's key and answers ES256's 64-octet `r ‖ s`
+/// (RFC 7518 §3.4). Refused when the PID is not in the key-binding
+/// form, a disclosure is no `[salt, name, value]` array (§4.2.1), a
+/// claim is no §7 path, or the PID holds no claim at a path.
 fn present_mini_pid(
     pid: &str,
     claims: &[String],
@@ -144,21 +192,27 @@ fn present_mini_pid(
             .map_err(|err| format!("a disclosure of the held PID is no base64url: {err}"))?;
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|err| format!("a disclosure of the held PID is no JSON: {err}"))?;
-        let Some([_, serde_json::Value::String(name), _]) = value.as_array().map(Vec::as_slice)
+        let Some([_, serde_json::Value::String(name), claim]) = value.as_array().map(Vec::as_slice)
         else {
             return Err(
                 "a disclosure of the held PID is no [salt, name, value] array (§4.2.1)".to_owned(),
             );
         };
-        named.push((name.clone(), disclosure));
+        named.push((name.clone(), claim.clone(), disclosure));
     }
 
     let mut presented = format!("{jwt}~");
     let mut chosen: Vec<&str> = Vec::new();
     for claim in claims {
-        let Some(&(_, disclosure)) = named.iter().find(|(name, _)| name == claim) else {
-            return Err(format!("the held PID discloses no claim `{claim}`"));
+        let path = claims_path(claim)
+            .ok_or_else(|| format!("the disclosed claim {claim} is no §7 claims path"))?;
+        let Some((_, _, disclosure)) = named.iter().find(|(name, value, _)| {
+            matches!(path.split_first(), Some((serde_json::Value::String(first), rest))
+                if first == name && resolves(value, rest))
+        }) else {
+            return Err(format!("the held PID holds no claim at {claim}"));
         };
+        let disclosure = *disclosure;
         if !chosen.contains(&disclosure) {
             chosen.push(disclosure);
             presented.push_str(disclosure);
@@ -191,6 +245,55 @@ fn present_mini_pid(
     presented.push('.');
     presented.push_str(&URL_SAFE_NO_PAD.encode(&signature));
     Ok(presented)
+}
+
+/// A claims path (OpenID4VP §7) from its JSON encoding: a non-empty
+/// array of string keys, non-negative integer indices and nulls.
+fn claims_path(encoded: &str) -> Option<Vec<serde_json::Value>> {
+    let components = match serde_json::from_str(encoded).ok()? {
+        serde_json::Value::Array(components) if !components.is_empty() => components,
+        _ => return None,
+    };
+    components
+        .iter()
+        .all(|component| match component {
+            serde_json::Value::String(_) | serde_json::Value::Null => true,
+            serde_json::Value::Number(index) => index.as_u64().is_some(),
+            _ => false,
+        })
+        .then_some(components)
+}
+
+/// Whether the rest of a claims path selects an element inside a claim's
+/// value, processed as OpenID4VP §7.2 does: a key selects each selected
+/// object's member, an index each selected array's element, null every
+/// element of each selected array; an element missing its key or index
+/// leaves the selection, an element of another type ends it, and an
+/// empty selection at the end selects nothing.
+fn resolves(value: &serde_json::Value, rest: &[serde_json::Value]) -> bool {
+    let mut selected = vec![value];
+    for component in rest {
+        let mut next = Vec::new();
+        for item in selected {
+            match (component, item) {
+                (serde_json::Value::String(key), serde_json::Value::Object(members)) => {
+                    next.extend(members.get(key));
+                }
+                (serde_json::Value::Number(index), serde_json::Value::Array(items)) => {
+                    next.extend(
+                        index
+                            .as_u64()
+                            .and_then(|index| usize::try_from(index).ok())
+                            .and_then(|index| items.get(index)),
+                    );
+                }
+                (serde_json::Value::Null, serde_json::Value::Array(items)) => next.extend(items),
+                _ => return false,
+            }
+        }
+        selected = next;
+    }
+    !selected.is_empty()
 }
 
 /// The built-in mini host: `{"host": "mini"}` in the engine config
@@ -232,6 +335,7 @@ impl MiniHost {
     pub fn new(
         tx_code: String,
         client_key_jwk: Option<String>,
+        pid_signing_jwk: Option<String>,
         open_authorization: Option<js_sys::Function>,
     ) -> Result<Self, String> {
         let key = jose_rs::jwk::generate::generate_ec("P-256")
@@ -253,12 +357,25 @@ impl MiniHost {
             None => (None, None, None),
         };
 
+        // The PID's signing key, when the harness carries one: the HAIP
+        // profile's x5c-chained credential (HAIP-6.1.1). A test
+        // harness key — the chain validates to the trust anchor the
+        // plan's configuration carries.
+        let pid_signing = match pid_signing_jwk {
+            Some(jwk) => {
+                let jwk: jose_rs::jwk::Jwk = serde_json::from_str(&jwk)
+                    .map_err(|err| format!("the PID signing key does not parse: {err}"))?;
+                Some(jwk)
+            }
+            None => None,
+        };
+
         // The held PID: the device key's public JWK binds the holder.
         let public = key.to_public_jwk();
         let public_text = public.to_json().unwrap_or_default();
         let device_public: serde_json::Value =
             serde_json::from_str(&public_text).unwrap_or_default();
-        let pid = issue_mini_pid(&device_public)?;
+        let pid = issue_mini_pid(&device_public, pid_signing.as_ref())?;
 
         Ok(Self {
             key,
@@ -369,17 +486,15 @@ impl Host for MiniHost {
                 continue;
             }
             // The claims the query asks for, as the paths the
-            // presentation selects.
+            // presentation selects. The path rides JSON-encoded — the
+            // components are keys, indices and nulls (§7), and a dotted
+            // join would drop the non-string ones.
             let mut disclosed_claims = Vec::new();
             if let Some(claims) = entry.get("claims").and_then(|v| v.as_array()) {
                 for claim in claims {
-                    if let Some(path) = claim.get("path").and_then(|v| v.as_array()) {
-                        let names: Vec<String> = path
-                            .iter()
-                            .filter_map(|c| c.as_str().map(str::to_owned))
-                            .collect();
-                        if !names.is_empty() {
-                            disclosed_claims.push(names.join("."));
+                    if let Some(path) = claim.get("path") {
+                        if path.as_array().is_some_and(|p| !p.is_empty()) {
+                            disclosed_claims.push(path.to_string());
                         }
                     }
                 }
@@ -405,8 +520,8 @@ impl Host for MiniHost {
 
         let mut tokens = Vec::new();
         for selection in &params.selections {
-            // The disclosed claims, as the match named them; the KB-JWT's
-            // signature: the device key — the holder.
+            // The disclosed claims' paths, as the DCQL names them, JSON-encoded
+            // (§7); the KB-JWT's signature: the device key — the holder.
             let token = present_mini_pid(
                 &self.pid,
                 &selection.disclosed_claims,
@@ -515,7 +630,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     async fn the_client_key_signs_the_assertion_ask() {
         let jwk = r#"{"kty": "EC", "x": "ktT77AqMntawPyU772lBg8nd7cwENrYyOL_KWbYN8Jc", "y": "67lPXEq5gJdimDYD0AacxLfRfIm2-fSNd3HBqyXXvBI", "crv": "P-256", "d": "KJEKZo2PQq6E40P6HMenViCVBRXoWD2FDyevRsJnlG0", "kid": "client-key-1", "use": "sig", "alg": "ES256"}"#;
-        let host = MiniHost::new("123456".to_owned(), Some(jwk.to_owned()), None)
+        let host = MiniHost::new("123456".to_owned(), Some(jwk.to_owned()), None, None)
             .expect("the mini host builds");
         let tbs = "header.payload";
         let sign = host
@@ -561,7 +676,7 @@ mod presentation {
 
     use super::present_mini_pid;
 
-    fn disclosure(name: &str, value: &str) -> String {
+    fn disclosure(name: &str, value: serde_json::Value) -> String {
         URL_SAFE_NO_PAD.encode(serde_json::json!(["salt", name, value]).to_string())
     }
 
@@ -573,20 +688,26 @@ mod presentation {
     }
 
     /// RFC 9901 §4 and §4.3: the presentation holds the issuer JWT and
-    /// the named claim's disclosure, each followed by `~`; the KB-JWT's
-    /// `sd_hash` is SHA-256 (sha2, independent of the signer's digest)
-    /// over exactly those bytes, and the holder signs the KB-JWT's own
-    /// header and payload. A claim the PID does not disclose is refused
-    /// before anything is signed.
+    /// the disclosure of the claim each path names, each followed by
+    /// `~`; the KB-JWT's `sd_hash` is SHA-256 (sha2, independent of the
+    /// signer's digest) over exactly those bytes, and the holder signs
+    /// the KB-JWT's own header and payload. A path into a claim's object
+    /// (OpenID4VP §7.2) presents that claim's disclosure. A claim the PID
+    /// does not hold, and a claim that is no §7 path, are refused before
+    /// anything is signed.
     #[test]
     fn the_key_binding_covers_the_presented_disclosures() {
-        let given = disclosure("given_name", "Alice");
-        let family = disclosure("family_name", "Smith");
-        let pid = format!("h.p.s~{given}~{family}~");
+        let given = disclosure("given_name", serde_json::json!("Alice"));
+        let family = disclosure("family_name", serde_json::json!("Smith"));
+        let place = disclosure(
+            "place_of_birth",
+            serde_json::json!({"locality": "Stockholm", "country": "SE"}),
+        );
+        let pid = format!("h.p.s~{given}~{family}~{place}~");
         let mut signed = Vec::new();
         let token = present_mini_pid(
             &pid,
-            &["family_name".to_owned()],
+            &[r#"["family_name"]"#.to_owned()],
             1_700_000_000,
             "x509_san_dns:verifier.example",
             "n-0S6_WzA2Mj",
@@ -623,9 +744,22 @@ mod presentation {
             })
         );
 
-        let refused = present_mini_pid(&pid, &["birthdate".to_owned()], 0, "aud", "nonce", |_| {
-            panic!("a refused presentation is never signed")
-        });
-        assert!(refused.is_err());
+        let nested = present_mini_pid(
+            &pid,
+            &[r#"["place_of_birth","locality"]"#.to_owned()],
+            0,
+            "aud",
+            "nonce",
+            |_| Ok(vec![7; 64]),
+        )
+        .expect("a path into place_of_birth presents");
+        assert!(nested.starts_with(&format!("h.p.s~{place}~")), "{nested}");
+
+        for claim in [r#"["birthdate"]"#, "family_name"] {
+            let refused = present_mini_pid(&pid, &[claim.to_owned()], 0, "aud", "nonce", |_| {
+                panic!("a refused presentation is never signed")
+            });
+            assert!(refused.is_err(), "{claim}");
+        }
     }
 }

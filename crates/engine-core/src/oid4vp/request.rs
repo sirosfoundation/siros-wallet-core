@@ -53,7 +53,12 @@ pub async fn parse_request(
     }
 
     // The params are the request itself (by value).
-    parse_request_value(&params)
+    let request = parse_request_value(&params)?;
+    // The x509_hash scheme needs the chain the params form cannot carry
+    // (OpenID4VP 1.0 §5.2.3): refuse it here, not only in the signed
+    // form.
+    validate_client_id_hash(&request, None)?;
+    Ok(request)
 }
 
 /// Turns the URL form into the params object: the authorization
@@ -184,6 +189,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // the first certificate holds the signer's public key. The x5c
         // entries are base64-encoded DER (RFC 7515 §4.1.6 — the
         // standard alphabet, unlike the JOSE segments' base64url).
+        //
+        // The leaf DER is kept: the x509_hash scheme's client_id is the
+        // base64url SHA-256 over it (OpenID4VP 1.0 §5.2.3), checked
+        // against the payload's client_id below.
+        let mut leaf_der: Option<Vec<u8>> = None;
         if let Some(cert) = header
             .get("x5c")
             .and_then(|v| v.as_array())
@@ -195,6 +205,7 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
                 .map_err(|_| RequestError::RequestObjectSignature)?;
             jose_rs::jws::compact::verify_with_jwk(&jwk, text)
                 .map_err(|_| RequestError::RequestObjectSignature)?;
+            leaf_der = Some(der);
         }
         // The payload is the second segment.
         let payload = parts
@@ -203,13 +214,50 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
             .ok_or(RequestError::NotRecognized)?;
         let value: serde_json::Value =
             serde_json::from_slice(&payload).map_err(|_| RequestError::NotRecognized)?;
-        parse_request_value(&value)
+        // The x509_hash scheme (OpenID4VP 1.0 §5.2.3): the client_id's
+        // value is the base64url SHA-256 over the leaf certificate the
+        // chain carries — the request object MUST carry it (a plain or
+        // chainless request cannot name the certificate), and the hash
+        // MUST match.
+        parse_request_value(&value).and_then(|request| {
+            validate_client_id_hash(&request, leaf_der)?;
+            Ok(request)
+        })
     } else {
         // Plain JSON.
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|_| RequestError::NotRecognized)?;
-        parse_request_value(&value)
+        parse_request_value(&value).and_then(|request| {
+            validate_client_id_hash(&request, None)?;
+            Ok(request)
+        })
     }
+}
+
+/// The `x509_hash` client_id scheme (OpenID4VP 1.0 §5.2.3): the client_id's
+/// value is the base64url SHA-256 over the DER-encoded leaf certificate the
+/// request object's `x5c` chain carries — so the chain MUST be there (an
+/// unsigned or chainless request cannot name the certificate), and the hash
+/// MUST match it, in constant time.
+fn validate_client_id_hash(
+    request: &AuthorizationRequest,
+    leaf_der: Option<Vec<u8>>,
+) -> Result<(), RequestError> {
+    if request.client_id_scheme != ClientIdScheme::X509Hash {
+        return Ok(());
+    }
+    let der = leaf_der.ok_or(RequestError::ClientIdHashWithoutChain)?;
+    let digest = kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der)
+        .map_err(|_| RequestError::NotRecognized)?;
+    let computed = wmp_core::token::base64url_unpadded(&digest);
+    let claimed = request
+        .client_id
+        .strip_prefix("x509_hash:")
+        .unwrap_or_default();
+    if !wmp_core::token::tokens_equal(&computed, claimed) {
+        return Err(RequestError::ClientIdHashMismatch);
+    }
+    Ok(())
 }
 
 /// Parses the authorization request from its JSON value — the shared
@@ -238,6 +286,7 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         let scheme_matches = match claimed_scheme {
             "x509_san_dns" => matches!(inferred_scheme, ClientIdScheme::X509SanDns),
             "x509_san_uri" => matches!(inferred_scheme, ClientIdScheme::X509SanUri),
+            "x509_hash" => matches!(inferred_scheme, ClientIdScheme::X509Hash),
             "decentralized_identifier" => {
                 matches!(inferred_scheme, ClientIdScheme::DecentralizedIdentifier)
             }
@@ -639,6 +688,122 @@ mod tests {
         assert!(matches!(
             parse_request(&http, &params).await,
             Err(RequestError::RequestObjectTyp)
+        ));
+    }
+
+    // ─── The x509_hash client_id scheme (OpenID4VP 1.0 §5.2.3) ─────────────
+    //
+    // The verifier's private JWK and certificate, from the conformance
+    // suite's own wallet test configuration (siros-conformance,
+    // configs/conformance/vp-wallet-config.json) — the key the suite's
+    // request objects are signed with, and the certificate its x5c
+    // chains carry.
+    fn verifier_jwk() -> serde_json::Value {
+        serde_json::json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "HPtEYEEQNGcOGGtQXnm8VbbryWYOF7dlmTKcDwIxk60",
+            "y": "Knv02968XSiEmNSoGPaHX3LXl-boQztsK0DB46VhE68",
+            "d": "Z8iB5ltQ0Yf8Wyyafbmypw49VKegZLn2BBjzFzhMHGU",
+            "kid": "vp-verifier-key-1",
+            "use": "sig",
+            "alg": "ES256",
+            "x5c": [
+                "MIIBvjCCAWOgAwIBAgIUfw4in2xbbaO4BRVzCMJ9jcx+MYUwCgYIKoZIzj0EAwIwIjEgMB4GA1UEAwwXY29uZm9ybWFuY2UuZXhhbXBsZS5jb20wHhcNMjYwNTE1MDc1MzQ1WhcNMjcwNTE1MDc1MzQ1WjAiMSAwHgYDVQQDDBdjb25mb3JtYW5jZS5leGFtcGxlLmNvbTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBz7RGBBEDRnDhhrUF55vFW268lmDhe3ZZkynA8CMZOtKnv02968XSiEmNSoGPaHX3LXl+boQztsK0DB46VhE6+jdzB1MB0GA1UdDgQWBBR/zA7h3+ikKBoa3jyMiSX7sFdkyzAfBgNVHSMEGDAWgBR/zA7h3+ikKBoa3jyMiSX7sFdkyzAPBgNVHRMBAf8EBTADAQH/MCIGA1UdEQQbMBmCF2NvbmZvcm1hbmNlLmV4YW1wbGUuY29tMAoGCCqGSM49BAMCA0kAMEYCIQC4lhxwiQy3+GPtzdQW9IlDSrQoEnncom6YsKZ3izHuIgIhAKZIjNYWTG0xIpFrS4DVkvo1qiV9kNf1Qvp8StOW6pEr"
+            ]
+        })
+    }
+
+    /// The base64url SHA-256 over the verifier's certificate — the
+    /// client_id value the scheme carries.
+    fn verifier_hash() -> String {
+        let jwk = verifier_jwk();
+        let cert = jwk["x5c"][0].as_str().unwrap_or_default();
+        let der = decode_base64(cert).expect("the certificate decodes");
+        let digest =
+            kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, &der).expect("sha256");
+        wmp_core::token::base64url_unpadded(&digest)
+    }
+
+    /// A signed request object for the `x509_hash` scheme: the JWS header
+    /// carries the verifier's `x5c` chain, the payload the given
+    /// `client_id`, signed with the verifier's key.
+    fn x509_hash_request_object(client_id: &str) -> String {
+        let jwk: jose_rs::jwk::Jwk =
+            serde_json::from_value(verifier_jwk()).expect("the verifier JWK parses");
+        let mut header = jose_rs::header::JoseHeader::new("ES256");
+        header.typ = Some("oauth-authz-req+jwt".to_owned());
+        header.kid = Some("vp-verifier-key-1".to_owned());
+        header.x5c = Some(vec![verifier_jwk()["x5c"][0]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()]);
+        let payload = serde_json::json!({
+            "client_id": client_id,
+            "nonce": "nonce-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post"
+        });
+        let payload_bytes = payload.to_string().into_bytes();
+        // The x5c chain is a key-reference member (RFC 7515 §4.1.6): the
+        // deliberate reference the opt-in is for — the scheme's chain
+        // rides the header.
+        let mut options = jose_rs::jws::compact::SignOptions::default();
+        options.allow_key_reference_headers = true;
+        jose_rs::jws::compact::sign_with_jwk_options(&jwk, &payload_bytes, &header, &options)
+            .expect("the request object signs")
+    }
+
+    #[tokio::test]
+    async fn an_x509_hash_request_with_a_matching_hash_parses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        let client_id = format!("x509_hash:{}", verifier_hash());
+        let params = serde_json::json!({
+            "request": x509_hash_request_object(&client_id)
+        });
+        let request = parse_request(&http, &params).await.expect("parse");
+        assert_eq!(request.client_id, client_id);
+        assert_eq!(request.client_id_scheme, ClientIdScheme::X509Hash);
+    }
+
+    #[tokio::test]
+    async fn an_x509_hash_request_with_a_mismatched_hash_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        // The hash of something else: a valid base64url shape, not the
+        // certificate's.
+        let client_id = format!("x509_hash:{}", "A".repeat(43));
+        let params = serde_json::json!({
+            "request": x509_hash_request_object(&client_id)
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::ClientIdHashMismatch)
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_x509_hash_request_without_a_chain_refuses() {
+        let http = FakeHttp {
+            body: Vec::new(),
+            status: 200,
+        };
+        // Plain JSON: no request object, no x5c — the scheme cannot name
+        // the certificate.
+        let params = serde_json::json!({
+            "client_id": format!("x509_hash:{}", verifier_hash()),
+            "nonce": "nonce-1",
+            "response_uri": "https://verifier.example/response",
+            "response_mode": "direct_post"
+        });
+        assert!(matches!(
+            parse_request(&http, &params).await,
+            Err(RequestError::ClientIdHashWithoutChain)
         ));
     }
 }
