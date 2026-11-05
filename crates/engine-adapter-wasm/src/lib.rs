@@ -93,8 +93,18 @@ impl WasmEngine {
                 let client_key_jwk = member(&config, "clientKeyJwk")
                     .ok()
                     .and_then(|v| v.as_string());
-                let mini = mini::MiniHost::new(tx_code, client_key_jwk, open_authorization)
-                    .map_err(|reason| JsValue::from_str(reason.as_str()))?;
+                // The PID's signing key, when the harness carries one
+                // (the HAIP profile's x5c-chained credential).
+                let pid_signing_jwk = member(&config, "pidSigningJwk")
+                    .ok()
+                    .and_then(|v| v.as_string());
+                let mini = mini::MiniHost::new(
+                    tx_code,
+                    client_key_jwk,
+                    pid_signing_jwk,
+                    open_authorization,
+                )
+                .map_err(|reason| JsValue::from_str(reason.as_str()))?;
                 mini_public_jwk = Some(mini.public_jwk());
                 mini::arc(mini)
             }

@@ -98,6 +98,10 @@ async function engineConfig() {
     // mini host parses the JWK and routes its sign asks by the kid, so
     // the client assertion is signed by the key the plan registered.
     clientKeyJwk: endpoints.clientKeyJwk,
+    // The PID's signing key, when the harness carries one: the HAIP
+    // profile's x5c-chained credential (HAIP-6.1.1) — the mini host
+    // signs the PID with it and the chain rides the JWS header.
+    pidSigningJwk: endpoints.pidSigningJwk,
     pdp: { evaluate },
     kv,
   };

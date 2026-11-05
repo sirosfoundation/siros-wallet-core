@@ -120,6 +120,16 @@ pub enum RequestError {
     /// The client_id's scheme prefix is not a recognized scheme.
     #[error("oid4vp: the client_id scheme is not recognized")]
     UnknownClientIdScheme,
+    /// The `x509_hash` client_id's hash does not match the request
+    /// object's `x5c` leaf certificate (OpenID4VP 1.0 §5.2.3).
+    #[error(
+        "oid4vp: x509_hash: the client_id hash does not match the request object's certificate"
+    )]
+    ClientIdHashMismatch,
+    /// The `x509_hash` client_id scheme requires a signed request object
+    /// carrying the certificate chain (OpenID4VP 1.0 §5.2.3).
+    #[error("oid4vp: x509_hash: the request object carries no x5c certificate chain")]
+    ClientIdHashWithoutChain,
     /// The `direct_post`/`direct_post.jwt` response mode requires a
     /// `response_uri` (OpenID4VP §5: the redirect_uri belongs to the
     /// `query`/`fragment` channel).

@@ -40,8 +40,29 @@ fn p256_signer(jwk: &jose_rs::jwk::Jwk) -> Result<Signer, String> {
 
 /// The claims the mini PID carries, selectively disclosed (RFC 9901
 /// §5.1): the values are fixtures — the suites check the disclosed
-/// claims match the DCQL query, not the holder's actual name.
-const PID_CLAIMS: [(&str, &str); 2] = [("given_name", "Alice"), ("family_name", "Smith")];
+/// claims match the DCQL query, not the holder's actual name. The
+/// EUDI PID 1.0 mandatory set the HAIP profile asks for (HAIP-6.2),
+/// with the types the path modules exercise — `nationalities` an array
+/// (the index and the all-elements paths select into it),
+/// `place_of_birth` an object.
+fn pid_claims() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("family_name", serde_json::json!("Smith")),
+        ("given_name", serde_json::json!("Alice")),
+        ("birthdate", serde_json::json!("1980-01-01")),
+        (
+            "place_of_birth",
+            serde_json::json!({ "locality": "Stockholm", "region": "Stockholm", "country": "SE" }),
+        ),
+        ("nationalities", serde_json::json!(["SE"])),
+        ("issuing_authority", serde_json::json!("Polismyndigheten")),
+        ("issuing_country", serde_json::json!("SE")),
+        (
+            "picture",
+            serde_json::json!("aGVsbG8tbWluaS1waWQtcGljdHVyZQ"),
+        ),
+    ]
+}
 
 /// The vct the suites' DCQL queries name.
 const PID_VCT: &str = "urn:eudi:pid:1";
@@ -51,9 +72,21 @@ const PID_VCT: &str = "urn:eudi:pid:1";
 /// the fixture claims. The trailing `~` marks the key-binding form
 /// (§4.1); the harness's stand-in for a real wallet's stored
 /// credential.
-fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
-    let issuer_key = jose_rs::jwk::generate::generate_ec("P-256")
-        .map_err(|err| format!("the PID issuer key generation failed: {err}"))?;
+///
+/// With a configured PID signing key (the HAIP profile demands the
+/// credential carry its X.509 chain, HAIP-6.1.1), the issuer is that
+/// key and the chain rides the JWS header's `x5c` (RFC 7515 §4.1.6);
+/// without one, a fresh generated key signs a bare header (the plain
+/// plans' form).
+fn issue_mini_pid(
+    device_public: &serde_json::Value,
+    pid_signing: Option<&jose_rs::jwk::Jwk>,
+) -> Result<String, String> {
+    let issuer_key = match pid_signing {
+        Some(key) => key.clone(),
+        None => jose_rs::jwk::generate::generate_ec("P-256")
+            .map_err(|err| format!("the PID issuer key generation failed: {err}"))?,
+    };
     let issuer_signer = p256_signer(&issuer_key)?;
     let now = (js_sys::Date::now() / 1000.0) as i64;
 
@@ -63,7 +96,7 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
     // bytes `SdJwt::parse` hashes when it resolves the references.
     let mut disclosures = Vec::new();
     let mut digests = Vec::new();
-    for (index, (name, value)) in PID_CLAIMS.iter().enumerate() {
+    for (index, (name, value)) in pid_claims().into_iter().enumerate() {
         let salt = format!("mini-pid-salt-{now}-{index}");
         let disclosure = serde_json::json!([salt, name, value]).to_string();
         let encoded = siros_codec::base64url::encode(disclosure.as_bytes())
@@ -78,11 +111,22 @@ fn issue_mini_pid(device_public: &serde_json::Value) -> Result<String, String> {
 
     // The issuer JWT: the fixture claims are undisclosed; the device
     // key binds the holder (§4.2's cnf).
-    let header = serde_json::json!({
+    let mut header = serde_json::json!({
         "typ": "dc+sd-jwt",
         "alg": "ES256",
         "kid": issuer_key.kid.clone().unwrap_or_else(|| "mini-pid-issuer".to_owned()),
     });
+    // The HAIP form (HAIP-6.1.1): the credential's X.509 chain rides
+    // the header (RFC 7515 §4.1.6 — standard base64 DER, unlike the
+    // JOSE segments' base64url), so the verifier can validate it
+    // against the profile's trust anchor.
+    if let Some(chain) = pid_signing.and_then(|key| key.extra.get("x5c")) {
+        // Inserted as a member, never indexed: the header is an object
+        // by construction.
+        if let Some(object) = header.as_object_mut() {
+            object.insert("x5c".to_owned(), chain.clone());
+        }
+    }
     let payload = serde_json::json!({
         "iss": "https://mini-wallet.example",
         "iat": now,
@@ -155,6 +199,7 @@ impl MiniHost {
     pub fn new(
         tx_code: String,
         client_key_jwk: Option<String>,
+        pid_signing_jwk: Option<String>,
         open_authorization: Option<js_sys::Function>,
     ) -> Result<Self, String> {
         let key = jose_rs::jwk::generate::generate_ec("P-256")
@@ -176,12 +221,25 @@ impl MiniHost {
             None => (None, None, None),
         };
 
+        // The PID's signing key, when the harness carries one: the HAIP
+        // profile's x5c-chained credential (HAIP-6.1.1). A test
+        // harness key — the chain validates to the trust anchor the
+        // plan's configuration carries.
+        let pid_signing = match pid_signing_jwk {
+            Some(jwk) => {
+                let jwk: jose_rs::jwk::Jwk = serde_json::from_str(&jwk)
+                    .map_err(|err| format!("the PID signing key does not parse: {err}"))?;
+                Some(jwk)
+            }
+            None => None,
+        };
+
         // The held PID: the device key's public JWK binds the holder.
         let public = key.to_public_jwk();
         let public_text = public.to_json().unwrap_or_default();
         let device_public: serde_json::Value =
             serde_json::from_str(&public_text).unwrap_or_default();
-        let pid = issue_mini_pid(&device_public)?;
+        let pid = issue_mini_pid(&device_public, pid_signing.as_ref())?;
 
         Ok(Self {
             key,
@@ -292,17 +350,15 @@ impl Host for MiniHost {
                 continue;
             }
             // The claims the query asks for, as the paths the
-            // presentation selects.
+            // presentation selects. The path rides JSON-encoded — the
+            // components are keys, indices and nulls (§7), and a dotted
+            // join would drop the non-string ones.
             let mut disclosed_claims = Vec::new();
             if let Some(claims) = entry.get("claims").and_then(|v| v.as_array()) {
                 for claim in claims {
-                    if let Some(path) = claim.get("path").and_then(|v| v.as_array()) {
-                        let names: Vec<String> = path
-                            .iter()
-                            .filter_map(|c| c.as_str().map(str::to_owned))
-                            .collect();
-                        if !names.is_empty() {
-                            disclosed_claims.push(names.join("."));
+                    if let Some(path) = claim.get("path") {
+                        if path.as_array().is_some_and(|p| !p.is_empty()) {
+                            disclosed_claims.push(path.to_string());
                         }
                     }
                 }
@@ -334,13 +390,39 @@ impl Host for MiniHost {
         for selection in &params.selections {
             let sd_jwt = siros_sdjwt::SdJwt::parse(&self.pid)
                 .map_err(|err| HostError::Cannot(format!("the held PID does not parse: {err}")))?;
-            // The disclosed claims' paths, as the DCQL names them.
+            // The disclosed claims' paths, as the DCQL names them: the
+            // JSON-encoded component arrays — keys, indices and nulls
+            // (§7) all preserved.
             let mut pointers = Vec::new();
             for claim in &selection.disclosed_claims {
-                let components = claim
-                    .split('.')
-                    .map(|name| siros_dcql::PathComponent::Key(name.to_owned()))
-                    .collect();
+                let components: Vec<siros_dcql::PathComponent> = serde_json::from_str(claim)
+                    .ok()
+                    .and_then(|value: serde_json::Value| {
+                        let array = value.as_array()?;
+                        if array.is_empty() {
+                            return None; // §7: a pointer MUST be non-empty
+                        }
+                        let mut components = Vec::new();
+                        for component in array {
+                            match component {
+                                serde_json::Value::String(key) => {
+                                    components.push(siros_dcql::PathComponent::Key(key.clone()));
+                                }
+                                serde_json::Value::Number(index) => {
+                                    let index = index.as_u64()?; // a negative index is no §7 component
+                                    components.push(siros_dcql::PathComponent::Index(index));
+                                }
+                                serde_json::Value::Null => {
+                                    components.push(siros_dcql::PathComponent::Null);
+                                }
+                                _ => return None, // not a §7 component
+                            }
+                        }
+                        Some(components)
+                    })
+                    .ok_or_else(|| {
+                        HostError::Cannot(format!("the disclosed claim {claim:?} is no §7 path"))
+                    })?;
                 let path = siros_dcql::ClaimPath::new(components)
                     .map_err(|err| HostError::Cannot(format!("the claim path: {err}")))?;
                 pointers.push(path);
@@ -452,7 +534,7 @@ mod tests {
     #[wasm_bindgen_test::wasm_bindgen_test]
     async fn the_client_key_signs_the_assertion_ask() {
         let jwk = r#"{"kty": "EC", "x": "ktT77AqMntawPyU772lBg8nd7cwENrYyOL_KWbYN8Jc", "y": "67lPXEq5gJdimDYD0AacxLfRfIm2-fSNd3HBqyXXvBI", "crv": "P-256", "d": "KJEKZo2PQq6E40P6HMenViCVBRXoWD2FDyevRsJnlG0", "kid": "client-key-1", "use": "sig", "alg": "ES256"}"#;
-        let host = MiniHost::new("123456".to_owned(), Some(jwk.to_owned()), None)
+        let host = MiniHost::new("123456".to_owned(), Some(jwk.to_owned()), None, None)
             .expect("the mini host builds");
         let tbs = "header.payload";
         let sign = host

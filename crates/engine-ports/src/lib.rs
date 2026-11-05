@@ -238,6 +238,11 @@ pub enum ClientIdScheme {
     X509SanDns,
     /// `x509_san_uri:` — an x.509 certificate's SAN URI entry.
     X509SanUri,
+    /// `x509_hash:` — the base64url SHA-256 over the verifier's
+    /// DER-encoded certificate (OpenID4VP 1.0 §5.2.3): the chain rides
+    /// the request object's `x5c`, and the leaf's hash must equal the
+    /// client_id's value.
+    X509Hash,
     /// `did:` — a DID-based request (verified first, per the spec).
     DecentralizedIdentifier,
     /// `verifier_attestation:` — a verifier attestation.
@@ -255,6 +260,8 @@ impl ClientIdScheme {
             Self::X509SanDns
         } else if client_id.starts_with("x509_san_uri:") {
             Self::X509SanUri
+        } else if client_id.starts_with("x509_hash:") {
+            Self::X509Hash
         } else if client_id.starts_with("did:") {
             Self::DecentralizedIdentifier
         } else if client_id.starts_with("verifier_attestation:") {
@@ -271,6 +278,7 @@ impl ClientIdScheme {
         match self {
             Self::X509SanDns => "x509_san_dns:",
             Self::X509SanUri => "x509_san_uri:",
+            Self::X509Hash => "x509_hash:",
             Self::DecentralizedIdentifier => "did:",
             Self::VerifierAttestation => "verifier_attestation:",
             Self::RedirectUri => "",

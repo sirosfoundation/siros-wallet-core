@@ -224,6 +224,10 @@ pub enum ClientIdScheme {
     X509SanDns,
     /// An x.509 certificate's SAN URI entry (`x509_san_uri:`).
     X509SanUri,
+    /// The base64url SHA-256 over the verifier's certificate
+    /// (`x509_hash:`, OpenID4VP 1.0 §5.2.3) — the chain rides the
+    /// request object's `x5c`.
+    X509Hash,
     /// A DID-based request (`did:`).
     DecentralizedIdentifier,
     /// A verifier attestation (`verifier_attestation:`).
@@ -239,6 +243,7 @@ impl From<engine_ports::ClientIdScheme> for ClientIdScheme {
         match s {
             engine_ports::ClientIdScheme::X509SanDns => Self::X509SanDns,
             engine_ports::ClientIdScheme::X509SanUri => Self::X509SanUri,
+            engine_ports::ClientIdScheme::X509Hash => Self::X509Hash,
             engine_ports::ClientIdScheme::DecentralizedIdentifier => Self::DecentralizedIdentifier,
             engine_ports::ClientIdScheme::VerifierAttestation => Self::VerifierAttestation,
             engine_ports::ClientIdScheme::RedirectUri => Self::RedirectUri,
