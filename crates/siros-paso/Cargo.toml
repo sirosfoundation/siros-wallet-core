@@ -12,7 +12,7 @@ publish = false
 [features]
 default = ["resolve"]
 # Phase 2: revalidation of what the matcher assumed, its findings, and the SCA response members.
-resolve = ["siros-openid4vp/resolve", "dep:uuid"]
+resolve = ["siros-openid4vp/resolve", "dep:uuid", "dep:serde_json"]
 # The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6) with the host's
 # `CoseEncrypt` module, whose slot a host states in every build. Without it, an mdoc entry whose
 # signals need encryption is refused (`NotCompatible::Lacks`).
@@ -30,10 +30,11 @@ thiserror = { workspace = true }
 siros-explain = { workspace = true }
 rustc-hash = { workspace = true }
 unicode-segmentation = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
 siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
 siros-testkit = { workspace = true }
