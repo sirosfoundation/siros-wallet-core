@@ -35,6 +35,16 @@ pub enum OfferError {
     /// The `openid-credential-offer:` URI is malformed.
     #[error("oid4vci: malformed offer URI: {0}")]
     MalformedUri(String),
+    /// A strictly decoded offer document carries a member the offer
+    /// schema does not define (pkg/strictjson's unknown-member
+    /// rejection, go-wallet-backend 2a6fd510: the strict decode guards
+    /// a document against its own author, so it stays where a third
+    /// party writes the document and two parties read it — the
+    /// credential offer; the superseded SIROS secret shapes
+    /// (`secret_seed`, `holder_commitments`, `psc`) are ordinary
+    /// unknown members now).
+    #[error("oid4vci: offer document carries an unknown member")]
+    UnknownMember,
 }
 
 // ─── Issuer Metadata (OpenID4VCI §11.2) ───────────────────────────────────
