@@ -20,6 +20,8 @@ pub mod types;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 
+use trust::TrustError;
+
 use crate::runtime::{FlowContext, FlowHandler};
 use types::MetadataType;
 
@@ -183,7 +185,18 @@ impl FlowHandler for Oid4vciFlow {
             &issuer_metadata,
         )
         .await
-        .map_err(|err| flow_error(err.to_string()))?;
+        .map_err(|err| match &err {
+            // The typed -31006 data (go-wmp's NewUntrustedIssuerData):
+            // the class reason, the refused issuer, the PDP's detail,
+            // and the retryable flag.
+            TrustError::Untrusted { issuer, reason } => {
+                HandlerError::Rpc(wmp_core::error::RpcError::new(
+                    wmp_core::error::ERR_FLOW_ERROR,
+                    Some(trust::untrusted_issuer_data(issuer, reason)),
+                ))
+            }
+            _ => HandlerError::Rpc(flow_error(err.to_string())),
+        })?;
 
         let _ = ctx
             .progress(
@@ -788,7 +801,18 @@ async fn resume_authorization_code(
         &issuer_metadata,
     )
     .await
-    .map_err(|err| flow_error(err.to_string()))?;
+    .map_err(|err| match &err {
+        // The typed -31006 data (go-wmp's NewUntrustedIssuerData): the
+        // class reason, the refused issuer, the PDP's detail, and the
+        // retryable flag.
+        TrustError::Untrusted { issuer, reason } => {
+            HandlerError::Rpc(wmp_core::error::RpcError::new(
+                wmp_core::error::ERR_FLOW_ERROR,
+                Some(trust::untrusted_issuer_data(issuer, reason)),
+            ))
+        }
+        _ => flow_error(err.to_string()),
+    })?;
 
     let as_url = issuer_metadata
         .authorization_servers

@@ -125,6 +125,19 @@ fn extract_key_material(metadata: &IssuerMetadata) -> Vec<u8> {
     Vec::new()
 }
 
+/// The typed `-31006` data for an untrusted issuer: go-wmp's
+/// `NewUntrustedIssuerData` shape — the class reason and the retryable
+/// flag — plus the refused issuer and the PDP's detail, which the string
+/// form carried and the consent UI shows.
+pub fn untrusted_issuer_data(issuer: &str, detail: &str) -> serde_json::Value {
+    serde_json::json!({
+        "reason": "untrusted_issuer",
+        "issuer": issuer,
+        "detail": detail,
+        "retryable": false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

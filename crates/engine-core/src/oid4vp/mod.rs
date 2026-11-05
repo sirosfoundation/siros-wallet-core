@@ -10,6 +10,7 @@ pub mod transaction_data;
 pub mod trust;
 pub mod types;
 
+use trust::TrustError;
 use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 
@@ -128,7 +129,18 @@ impl FlowHandler for Oid4vpFlow {
             &mut verifier,
         )
         .await
-        .map_err(|err| flow_error(err.to_string()))?;
+        .map_err(|err| match &err {
+            // The typed -31006 data (go-wmp's NewUntrustedVerifierData):
+            // the class reason, the refused verifier, the PDP's detail,
+            // and the retryable flag.
+            TrustError::Untrusted { verifier, reason } => {
+                HandlerError::Rpc(wmp_core::error::RpcError::new(
+                    wmp_core::error::ERR_FLOW_ERROR,
+                    Some(trust::untrusted_verifier_data(verifier, reason)),
+                ))
+            }
+            _ => HandlerError::Rpc(flow_error(err.to_string())),
+        })?;
 
         let _ = ctx
             .progress(
@@ -579,7 +591,7 @@ mod presentation_flow_tests {
         }
     }
 
-    struct FixedClock;
+    pub(super) struct FixedClock;
     #[async_trait::async_trait]
     impl engine_ports::Clock for FixedClock {
         fn now_unix(&self) -> i64 {
@@ -588,7 +600,7 @@ mod presentation_flow_tests {
         async fn sleep(&self, _duration_ms: u64) {}
     }
 
-    struct FakeRng;
+    pub(super) struct FakeRng;
     impl Rng for FakeRng {
         fn fill(&self, buf: &mut [u8]) -> bool {
             for (i, b) in buf.iter_mut().enumerate() {
@@ -598,7 +610,7 @@ mod presentation_flow_tests {
         }
     }
 
-    struct MemKv(Mutex<rustc_hash::FxHashMap<String, Vec<u8>>>);
+    pub(super) struct MemKv(pub(super) Mutex<rustc_hash::FxHashMap<String, Vec<u8>>>);
     #[async_trait::async_trait]
     impl KeyValue for MemKv {
         async fn get(&self, key: &str) -> Option<KeyValueEntry> {
@@ -618,7 +630,7 @@ mod presentation_flow_tests {
         }
     }
 
-    struct NoTelemetry;
+    pub(super) struct NoTelemetry;
     impl engine_ports::Telemetry for NoTelemetry {
         fn event(&self, _event: engine_ports::TelemetryEvent) {}
     }
@@ -628,7 +640,7 @@ mod presentation_flow_tests {
         serde_json::value::RawValue::from_string(value.to_string()).ok()
     }
 
-    fn start_params() -> FlowStartParams {
+    pub(super) fn start_params() -> FlowStartParams {
         FlowStartParams {
             wmp: wmp_core::types::Metadata::default(),
             flow_id: "flow-vp-1".to_owned(),
@@ -799,5 +811,158 @@ mod presentation_flow_tests {
             "the access_denied error response: {body}"
         );
         assert!(!body.contains("vp_token="));
+    }
+}
+
+#[cfg(test)]
+mod untrusted_flow_tests {
+    //! The untrusted-verifier refusal at the flow level: the typed -31006
+    //! data (go-wmp's NewUntrustedVerifierData shape) rides the flow
+    //! error — the class reason, the refused verifier, the PDP's detail,
+    //! and the retryable flag. The ports are the presentation flow's own
+    //! test fakes, reached through the parent module's re-exports.
+
+    use super::presentation_flow_tests::{FakeRng, FixedClock, MemKv, NoTelemetry};
+    use super::*;
+    use crate::runtime::{FlowContext, FlowHandler};
+    use crate::Ports;
+    use engine_ports::{
+        EvaluationRequest, EvaluationResponse, Host, HostError, HttpClient, HttpError, HttpRequest,
+        HttpResponse, MatchParams, MatchResult, Pdp, PdpError, ResolveRequest, ResolveResponse,
+        SignParams, SignResult,
+    };
+    use std::sync::{Arc, Mutex};
+
+    /// The PDP that answers untrusted, with its reason.
+    struct UntrustedPdp;
+
+    #[async_trait::async_trait]
+    impl Pdp for UntrustedPdp {
+        async fn evaluate(
+            &self,
+            _request: EvaluationRequest,
+        ) -> Result<EvaluationResponse, PdpError> {
+            Ok(EvaluationResponse {
+                trusted: false,
+                decision: Some("not in the registry".to_owned()),
+            })
+        }
+        async fn resolve(&self, _request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
+            Err(PdpError::NotImplemented)
+        }
+    }
+
+    /// A host that answers nothing: the refusal happens before any ask.
+    struct SilentHost;
+
+    #[async_trait::async_trait]
+    impl Host for SilentHost {
+        async fn request_sign(&self, _params: SignParams) -> Result<SignResult, HostError> {
+            Err(HostError::Cannot("silent".to_owned()))
+        }
+        async fn request_match(&self, _params: MatchParams) -> Result<MatchResult, HostError> {
+            Err(HostError::Cannot("silent".to_owned()))
+        }
+        async fn request_consent(
+            &self,
+            _params: engine_ports::ConsentParams,
+        ) -> Result<engine_ports::ConsentResult, HostError> {
+            Err(HostError::Cannot("silent".to_owned()))
+        }
+        async fn request_tx_code(&self, _flow_id: &str) -> Result<String, HostError> {
+            Err(HostError::Cannot("silent".to_owned()))
+        }
+        async fn open_authorization(&self, _flow_id: &str, _url: &str) -> Result<(), HostError> {
+            Err(HostError::Cannot("silent".to_owned()))
+        }
+        fn progress(&self, _flow_id: &str, _step: &str, _detail: Option<String>) {}
+    }
+
+    struct EmptyHttp;
+
+    #[async_trait::async_trait]
+    impl HttpClient for EmptyHttp {
+        async fn send(&self, _request: HttpRequest) -> Result<HttpResponse, HttpError> {
+            Err(HttpError::Refused)
+        }
+    }
+
+    #[tokio::test]
+    async fn the_untrusted_verifier_refusal_carries_the_typed_flow_error_data() {
+        let store = std::sync::Arc::new(wmp_core::session::MemorySessionStore::new());
+        let _ = &store; // used by the session_store call below
+        let peer = wmp_core::peer::PeerBuilder::new(Arc::new(
+            wmp_core::sessionservice::SessionHandler::new(
+                Arc::new(
+                    wmp_core::sessionservice::SessionService::new(
+                        wmp_core::sessionservice::SessionServiceConfig {
+                            store: Some(store.clone()),
+                            entropy: Some(Arc::new(|bytes: &mut [u8]| {
+                                for (i, b) in bytes.iter_mut().enumerate() {
+                                    *b = i as u8;
+                                }
+                                true
+                            })),
+                            ..wmp_core::sessionservice::SessionServiceConfig::default()
+                        },
+                    )
+                    .unwrap_or_else(|_| panic!("session service")),
+                ),
+                Arc::new(|| 0),
+            ),
+        ))
+        .session_store(store)
+        .build();
+        let ctx = FlowContext {
+            flow_id: "flow-untrusted-1".to_owned(),
+            flow_type: "oid4vp".to_owned(),
+            session: None,
+            ports: Arc::new(Ports {
+                http: Arc::new(EmptyHttp),
+                clock: Arc::new(FixedClock),
+                rng: Arc::new(FakeRng),
+                host: Arc::new(SilentHost),
+                pdp: Arc::new(UntrustedPdp),
+                kv: Arc::new(MemKv(Mutex::new(rustc_hash::FxHashMap::default()))),
+                telemetry: Arc::new(NoTelemetry),
+            }),
+            peer,
+            request_context: wmp_core::context::RequestContext::default(),
+        };
+        let flow = Oid4vpFlow;
+        let params = super::presentation_flow_tests::start_params();
+        let err = flow
+            .start_flow(&ctx, &params)
+            .await
+            .expect_err("the untrusted verifier refuses");
+        // The flow error: -31006 with the typed data.
+        let HandlerError::Rpc(rpc) = &err else {
+            panic!("the refusal is a flow error: {err:?}");
+        };
+        assert_eq!(rpc.code, wmp_core::error::ERR_FLOW_ERROR);
+        let data: serde_json::Value = {
+            let raw = rpc.data.as_ref().expect("the typed data rides the error");
+            serde_json::from_str(raw.get()).expect("the data is JSON")
+        };
+        assert_eq!(
+            data.get("reason").and_then(serde_json::Value::as_str),
+            Some("untrusted_verifier"),
+            "the class reason: {data}"
+        );
+        assert_eq!(
+            data.get("verifier").and_then(serde_json::Value::as_str),
+            Some("https://verifier.example"),
+            "the refused verifier: {data}"
+        );
+        assert_eq!(
+            data.get("detail").and_then(serde_json::Value::as_str),
+            Some("not in the registry"),
+            "the PDP's detail: {data}"
+        );
+        assert_eq!(
+            data.get("retryable").and_then(serde_json::Value::as_bool),
+            Some(false),
+            "never retryable: {data}"
+        );
     }
 }

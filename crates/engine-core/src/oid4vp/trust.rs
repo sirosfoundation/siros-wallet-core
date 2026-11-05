@@ -426,6 +426,19 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
+/// The typed `-31006` data for an untrusted verifier: go-wmp's
+/// `NewUntrustedVerifierData` shape — the class reason and the retryable
+/// flag — plus the refused verifier and the PDP's detail, which the
+/// string form carried and the consent UI shows.
+pub fn untrusted_verifier_data(verifier: &str, detail: &str) -> serde_json::Value {
+    serde_json::json!({
+        "reason": "untrusted_verifier",
+        "verifier": verifier,
+        "detail": detail,
+        "retryable": false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,5 +662,36 @@ mod tests {
         let auth_req = test_request("x509_san_dns:verifier.example");
         // A raw query string: not a proper URL, no origin to compare.
         assert!(validate_response_uri_origin(&auth_req, "client_id=x&nonce=y").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod typed_data_tests {
+    //! The typed `-31006` data's own proof: the shape the consumers read
+    //! (the class reason, the retryable flag) and the members the consent
+    //! UI shows (the refused verifier, the PDP's detail).
+
+    use super::*;
+
+    #[test]
+    fn the_untrusted_verifier_data_carries_the_class_reason_and_detail() {
+        let data = untrusted_verifier_data("x509_san_dns:verifier.example", "not in registry");
+        assert_eq!(
+            data.get("reason").and_then(serde_json::Value::as_str),
+            Some("untrusted_verifier")
+        );
+        assert_eq!(
+            data.get("verifier").and_then(serde_json::Value::as_str),
+            Some("x509_san_dns:verifier.example")
+        );
+        assert_eq!(
+            data.get("detail").and_then(serde_json::Value::as_str),
+            Some("not in registry")
+        );
+        assert_eq!(
+            data.get("retryable").and_then(serde_json::Value::as_bool),
+            Some(false),
+            "an untrusted verdict is never retryable: the wallet never re-asks"
+        );
     }
 }
