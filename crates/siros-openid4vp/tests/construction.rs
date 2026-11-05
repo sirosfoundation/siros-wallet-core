@@ -528,6 +528,33 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
             name: REDIRECT
         })
     );
+    // An Authorization Response parameter two parts declare; one the core writes (§8.1).
+    use siros_testkit::TestResponseParameters;
+    const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
+    const STATE: ParameterName = siros_explain::checked!(ParameterName, "state");
+    let parameters = |names| TestResponseParameters {
+        names,
+        writes: Vec::new(),
+    };
+    let mut builder = Registry::<TestHost>::builder();
+    builder.response_parameters(parameters(&[ISS]));
+    builder.response_parameters(parameters(&[ISS]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameTwice {
+            place: NamePlace::ResponseParameter,
+            name: ISS
+        })
+    );
+    let mut builder = Registry::<TestHost>::builder();
+    builder.response_parameters(parameters(&[STATE]));
+    assert_eq!(
+        builder.build().map(drop),
+        Err(RegistryError::NameReserved {
+            place: NamePlace::ResponseParameter,
+            name: STATE
+        })
+    );
     // The POST twice; encrypted Request Objects twice, or without the POST (§5.10: the key
     // travels in the POST's `jwks`).
     use siros_openid4vp::uri::{EncryptedRequests, RequestPost};

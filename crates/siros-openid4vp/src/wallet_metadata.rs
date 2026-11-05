@@ -100,6 +100,8 @@ pub enum NamePlace {
     PostParameter,
     /// A member of the Response URI's answer (§8.2).
     AnswerMember,
+    /// A parameter of the Authorization Response beside `vp_token` and `state` (§8.1).
+    ResponseParameter,
 }
 
 /// The `wallet_metadata` members the core writes itself (§5.10, §10.1): `vp_formats_supported`,
@@ -116,6 +118,16 @@ pub const CORE_METADATA: [ParameterName; 4] = [
 pub const CORE_PARAMETERS: [ParameterName; 2] = [
     siros_explain::checked!(ParameterName, "wallet_metadata"),
     siros_explain::checked!(ParameterName, "wallet_nonce"),
+];
+
+/// The Authorization Response's and the error response's parameters the core writes (§8.1, RFC
+/// 6749 §4.1.2.1): `vp_token`, `state`, `error`, `error_description`, `error_uri`.
+pub const CORE_RESPONSE: [ParameterName; 5] = [
+    siros_explain::checked!(ParameterName, "vp_token"),
+    siros_explain::checked!(ParameterName, "state"),
+    siros_explain::checked!(ParameterName, "error"),
+    siros_explain::checked!(ParameterName, "error_description"),
+    siros_explain::checked!(ParameterName, "error_uri"),
 ];
 
 /// The Response URI answer's member the core reads itself (§8.2): `redirect_uri`.

@@ -1,5 +1,5 @@
-//! The doubles of the core's response types, response modes and hash algorithms: each states what
-//! a test gives it, an output the core must refuse included.
+//! The doubles of the core's response types and their parameters, response modes and hash
+//! algorithms: each states what a test gives it, an output the core must refuse included.
 
 use std::num::NonZeroUsize;
 
@@ -11,11 +11,14 @@ use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, ClientMetadata, ContentEncryption, Request};
-use siros_openid4vp::resolve::{AnswerContent, Body, DcApiData, ErrorContent, ModeRoute, PostBody};
-use siros_openid4vp::routing::{
-    ChannelKind, Encrypting, ErrorModeHost, Mode, ModeHost, ModeName, ResponseType,
-    ResponseTypeName, VerifierKey, VerifierMetadata,
+use siros_openid4vp::resolve::{
+    AnswerContent, Body, DcApiData, ErrorContent, ModeRoute, PostBody, ResponseMember,
 };
+use siros_openid4vp::routing::{
+    ChannelKind, Encrypting, ErrorModeHost, Mode, ModeHost, ModeName, ResponseParameters,
+    ResponseParametersHost, ResponseType, ResponseTypeName, VerifierKey, VerifierMetadata,
+};
+use siros_openid4vp::session::Session;
 use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
 
@@ -30,6 +33,34 @@ pub struct TestResponseType(pub ResponseTypeName);
 impl ResponseType for TestResponseType {
     fn name(&self) -> ResponseTypeName {
         self.0
+    }
+}
+
+/// Parameters of the Authorization Response that declare the names given and write the members
+/// given, under every response type, which may name what they did not declare.
+#[derive(Debug, Clone)]
+pub struct TestResponseParameters {
+    /// The names declared.
+    pub names: &'static [ParameterName],
+    /// The members written.
+    pub writes: Vec<ResponseMember>,
+}
+
+impl ResponseParameters for TestResponseParameters {
+    fn names(&self) -> &'static [ParameterName] {
+        self.names
+    }
+}
+
+/// Needs no module.
+impl<H> ResponseParametersHost<H> for TestResponseParameters {
+    fn members(
+        &self,
+        _response_type: ResponseTypeName,
+        _session: &Session<'_>,
+        _host: &H,
+    ) -> Result<Vec<ResponseMember>, Fault> {
+        Ok(self.writes.clone())
     }
 }
 

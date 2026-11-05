@@ -20,7 +20,9 @@ use crate::refusal::{ErrorCode, Refusal, RequestRule};
 use crate::request::Agreements;
 use crate::request::{AgreeableKey, ClientMetadata, ContentEncryption, Request};
 #[cfg(feature = "resolve")]
-use crate::resolve::{AnswerContent, Body, ErrorContent, ModeRoute, PostBody};
+use crate::resolve::{AnswerContent, Body, ErrorContent, ModeRoute, PostBody, ResponseMember};
+#[cfg(feature = "resolve")]
+use crate::session::Session;
 #[cfg(feature = "resolve")]
 use crate::wallet_metadata::MetadataMember;
 use crate::wallet_metadata::ParameterName;
@@ -183,6 +185,47 @@ pub trait ResponseType: DynClone + Send + Sync {
 }
 
 dyn_clone::clone_trait_object!(ResponseType);
+
+/// Parameters an extension adds to the Authorization Response beside `vp_token` and `state`
+/// (§8.1: "Additional response parameters MAY be defined"; RFC 9207's `iss`, `id_token` for a
+/// `vp_token id_token` response type).
+///
+/// # Implementing
+///
+/// `names` is a constant: the registry refuses a name another registered part declares
+/// (`RegistryError::NameTwice`) and the names the core writes, `vp_token`, `state`, `error`,
+/// `error_description` and `error_uri` (`RegistryError::NameReserved`). The phase-2 half
+/// [`ResponseParametersHost`] writes members of declared names alone, for the response type the
+/// request names, each value JSON; the core refuses another name with a `Fault` and writes the
+/// members after `vp_token` and `state`. `siros-testkit`'s `TestResponseParameters` is the
+/// double.
+pub trait ResponseParameters: DynClone + Send + Sync {
+    /// The parameter names it writes.
+    fn names(&self) -> &'static [ParameterName];
+}
+
+dyn_clone::clone_trait_object!(ResponseParameters);
+
+/// The phase-2 half of [`ResponseParameters`] over the build's host: its bounds name the modules
+/// it calls.
+#[cfg(feature = "resolve")]
+pub trait ResponseParametersHost<H>: ResponseParameters {
+    /// The members of the Authorization Response the request's response type takes: none, some
+    /// or all of [`ResponseParameters::names`], from the session the presentations bind.
+    ///
+    /// # Errors
+    ///
+    /// The part cannot write them: its bug, or a module it calls failed.
+    fn members(
+        &self,
+        response_type: ResponseTypeName,
+        session: &Session<'_>,
+        host: &H,
+    ) -> Result<Vec<ResponseMember>, Fault>;
+}
+
+#[cfg(feature = "resolve")]
+dyn_clone::clone_trait_object!(<H> ResponseParametersHost<H>);
 
 /// `vp_token` (§5.6, HAIP §5).
 #[derive(Debug, Clone, Copy, Default)]

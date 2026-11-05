@@ -31,10 +31,11 @@ use crate::request::Agreements;
 #[cfg(feature = "request-decryption")]
 use crate::request::Curve;
 use crate::routing::{
-    Carries, ChannelKind, Mode, ModeHandle, ModeName, ResponseType, ResponseTypeName, RoutedMode,
+    Carries, ChannelKind, Mode, ModeHandle, ModeName, ResponseParameters, ResponseType,
+    ResponseTypeName, RoutedMode,
 };
 #[cfg(feature = "resolve")]
-use crate::routing::{ErrorModeHost, ModeHost};
+use crate::routing::{ErrorModeHost, ModeHost, ResponseParametersHost};
 #[cfg(feature = "resolve")]
 use crate::rows::HttpsUrl;
 #[cfg(feature = "uri")]
@@ -45,7 +46,7 @@ use crate::uri::EncryptedRequests;
 #[cfg(feature = "uri")]
 use crate::uri::{AnswerReader, RequestPost};
 use crate::wallet_metadata::{
-    CORE_ANSWER, CORE_METADATA, CORE_PARAMETERS, NamePlace, ParameterName, Placement,
+    CORE_ANSWER, CORE_METADATA, CORE_PARAMETERS, CORE_RESPONSE, NamePlace, ParameterName, Placement,
 };
 #[cfg(feature = "uri")]
 use crate::wallet_metadata::{HostedPostContribution, MetadataMember, PostContribution};
@@ -206,7 +207,7 @@ impl<H: Plugins> Build for H {}
 
 /// What a registry stores of each plug-in for its host: [`Build`]'s sealed part.
 mod sealed {
-    use super::{ErasedProfile, Format, Mode};
+    use super::{ErasedProfile, Format, Mode, ResponseParameters};
 
     /// The stored plug-ins of a host's registry.
     pub trait Plugins: Sized {
@@ -218,6 +219,8 @@ mod sealed {
         type Mode: ?Sized + Mode + Upcast<dyn Mode>;
         /// A stored response mode that carries a URI route's errors.
         type ErrorMode: ?Sized + Mode + Upcast<dyn Mode>;
+        /// Stored parameters of the Authorization Response.
+        type ResponseParameters: ?Sized + ResponseParameters + Upcast<dyn ResponseParameters>;
         /// How a JWE mode's registration reaches the host's sealing module.
         type Sealing: Copy;
     }
@@ -249,11 +252,18 @@ impl Upcast<dyn ErasedProfile> for dyn ErasedProfile {
     }
 }
 
+impl Upcast<dyn ResponseParameters> for dyn ResponseParameters {
+    fn upcast(&self) -> &(dyn ResponseParameters + 'static) {
+        self
+    }
+}
+
 impl Plugins for NoHost {
     type Format = dyn Format;
     type Profile = dyn ErasedProfile;
     type Mode = dyn Mode;
     type ErrorMode = dyn Mode;
+    type ResponseParameters = dyn ResponseParameters;
     type Sealing = ();
 }
 
@@ -279,6 +289,13 @@ impl<H> Upcast<dyn Mode> for dyn ErrorModeHost<H> {
 }
 
 #[cfg(feature = "resolve")]
+impl<H> Upcast<dyn ResponseParameters> for dyn ResponseParametersHost<H> {
+    fn upcast(&self) -> &(dyn ResponseParameters + 'static) {
+        self
+    }
+}
+
+#[cfg(feature = "resolve")]
 impl<H> Upcast<dyn ErasedProfile> for dyn DynProfile<H> {
     fn upcast(&self) -> &(dyn ErasedProfile + 'static) {
         self
@@ -291,6 +308,7 @@ impl<H: Has<dyn Platform>> Plugins for H {
     type Profile = dyn DynProfile<H>;
     type Mode = dyn ModeHost<H>;
     type ErrorMode = dyn ErrorModeHost<H>;
+    type ResponseParameters = dyn ResponseParametersHost<H>;
     type Sealing = HaipAccess<H>;
 }
 
@@ -379,6 +397,30 @@ impl<H: Has<dyn Platform>, M: ErrorModeHost<H> + 'static> HostedErrorMode<H> for
     }
 }
 
+/// Parameters of the Authorization Response the registry of the host `H` takes: a
+/// [`ResponseParameters`] for [`NoHost`]; under `resolve`, parameters whose members are written
+/// over `H` ([`ResponseParametersHost`](crate::routing::ResponseParametersHost)).
+pub trait HostedResponseParameters<H: Build>: 'static {
+    /// The parameters as the registry stores them.
+    #[doc(hidden)]
+    fn stored(self) -> Box<<H as Plugins>::ResponseParameters>;
+}
+
+impl<P: ResponseParameters + 'static> HostedResponseParameters<NoHost> for P {
+    fn stored(self) -> Box<dyn ResponseParameters> {
+        Box::new(self)
+    }
+}
+
+#[cfg(feature = "resolve")]
+impl<H: Has<dyn Platform>, P: ResponseParametersHost<H> + 'static> HostedResponseParameters<H>
+    for P
+{
+    fn stored(self) -> Box<dyn ResponseParametersHost<H>> {
+        Box::new(self)
+    }
+}
+
 /// A host whose registry takes a JWE mode: [`NoHost`]; under `resolve`, a host holding the
 /// `Haip` that seals the mode's answers.
 pub trait JweHost: Build {
@@ -447,6 +489,11 @@ pub struct Registry<H: Build = NoHost> {
     hashes: Vec<Box<dyn HashAlgorithm>>,
     scopes: Vec<ScopeEntry>,
     response_types: Vec<Box<dyn ResponseType>>,
+    #[cfg_attr(
+        not(feature = "resolve"),
+        expect(dead_code, reason = "phase 2 writes their members")
+    )]
+    parameters: Vec<Box<<H as Plugins>::ResponseParameters>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<RegisteredFormat<H>>,
     #[cfg_attr(
@@ -492,6 +539,7 @@ pub struct RegistryBuilder<H: Build = NoHost> {
     #[cfg(feature = "uri")]
     scopes: Vec<Box<dyn ScopeQuery>>,
     response_types: Vec<Box<dyn ResponseType>>,
+    parameters: Vec<Box<<H as Plugins>::ResponseParameters>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<Box<<H as Plugins>::Format>>,
     profiles: Vec<Box<<H as Plugins>::Profile>>,
@@ -519,6 +567,7 @@ impl<H: Build> Default for RegistryBuilder<H> {
             #[cfg(feature = "uri")]
             scopes: Vec::new(),
             response_types: Vec::new(),
+            parameters: Vec::new(),
             modes: Vec::new(),
             formats: Vec::new(),
             profiles: Vec::new(),
@@ -561,6 +610,13 @@ impl<H: Build> RegistryBuilder<H> {
     /// registered twice.
     pub fn response_type(&mut self, response_type: impl ResponseType + 'static) {
         self.response_types.push(Box::new(response_type));
+    }
+
+    /// Parameters of the Authorization Response beside `vp_token` and `state` (§8.1), keyed by
+    /// their names: `build` refuses a name another part declares (`NameTwice`) and one the core
+    /// writes, `vp_token`, `state`, `error`, `error_description`, `error_uri` (`NameReserved`).
+    pub fn response_parameters(&mut self, parameters: impl HostedResponseParameters<H>) {
+        self.parameters.push(parameters.stored());
     }
 
     /// A response mode whose answers are in the clear, keyed by its name and channel.
@@ -747,6 +803,7 @@ impl<H: Build> RegistryBuilder<H> {
             #[cfg(feature = "uri")]
             scopes,
             response_types,
+            parameters,
             modes,
             formats,
             profiles,
@@ -804,6 +861,11 @@ impl<H: Build> RegistryBuilder<H> {
         }
         #[cfg(feature = "uri")]
         let declared = Declared {
+            responses: parameters
+                .iter()
+                .flat_map(|part| part.upcast().names())
+                .copied()
+                .collect(),
             members: contributions
                 .iter()
                 .flat_map(|c| PostContribution::members(c.as_ref()))
@@ -821,7 +883,14 @@ impl<H: Build> RegistryBuilder<H> {
                 .collect(),
         };
         #[cfg(not(feature = "uri"))]
-        let declared = Declared::default();
+        let declared = Declared {
+            responses: parameters
+                .iter()
+                .flat_map(|part| part.upcast().names())
+                .copied()
+                .collect(),
+            ..Declared::default()
+        };
         names(&modes, declared)?;
         #[cfg(feature = "signed")]
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
@@ -931,6 +1000,7 @@ impl<H: Build> RegistryBuilder<H> {
             hashes,
             scopes,
             response_types,
+            parameters,
             modes,
             formats,
             profiles,
@@ -1144,6 +1214,11 @@ impl<H: Has<dyn Platform>> Registry<H> {
             hashes: self.hashes.clone(),
             scopes: self.scopes.clone(),
             response_types: self.response_types.clone(),
+            parameters: self
+                .parameters
+                .iter()
+                .map(|part| dyn_clone::clone_box(&**part))
+                .collect(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
             profiles: read.into_iter().map(|informed| informed()).collect(),
@@ -1400,11 +1475,12 @@ impl<H: Build> Routes for Registry<H> {
     }
 }
 
-/// The names registered parts declare, by place: the `wallet_metadata` members of the modes that
-/// carry answers and of the POST's contributions, the POST's parameters, the Response URI
-/// answer's members.
+/// The names registered parts declare, by place: the Authorization Response's parameters, the
+/// `wallet_metadata` members of the modes that carry answers and of the POST's contributions, the
+/// POST's parameters, the Response URI answer's members.
 #[derive(Default)]
 struct Declared {
+    responses: Vec<ParameterName>,
     members: Vec<ParameterName>,
     parameters: Vec<ParameterName>,
     answers: Vec<ParameterName>,
@@ -1412,7 +1488,7 @@ struct Declared {
 
 /// The names registered parts declare: a DC API mode declares none (`MetadataChannel`); each name
 /// once in its place (`NameTwice`), none the core writes there (`NameReserved`):
-/// [`CORE_METADATA`], [`CORE_PARAMETERS`] and [`CORE_ANSWER`].
+/// [`CORE_RESPONSE`], [`CORE_METADATA`], [`CORE_PARAMETERS`] and [`CORE_ANSWER`].
 fn names<H: Build>(
     modes: &[RegisteredMode<H>],
     mut declared: Declared,
@@ -1431,6 +1507,11 @@ fn names<H: Build>(
     }
     members.append(&mut declared.members);
     let places = [
+        (
+            NamePlace::ResponseParameter,
+            &CORE_RESPONSE[..],
+            declared.responses,
+        ),
         (NamePlace::WalletMetadata, &CORE_METADATA[..], members),
         (
             NamePlace::PostParameter,

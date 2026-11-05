@@ -6,8 +6,9 @@
 //! ([`jose`]) and the COSE_Encrypt stand-in ([`cose`]), the test Verifier's Client Identifier
 //! Prefix and a trust service double ([`prefix`]), the `request_uri` POST's contribution and the
 //! Response URI answer's reader ([`TestPostContribution`], [`TestAnswerReader`]), a response
-//! type, a response mode, a hash algorithm and a scope query a test configures
-//! ([`TestResponseType`], [`TestMode`], [`TestHash`], [`TestScope`]), the resources
+//! type and its parameters, a response mode, a hash algorithm and a scope query a test
+//! configures ([`TestResponseType`], [`TestResponseParameters`], [`TestMode`], [`TestHash`],
+//! [`TestScope`]), the resources
 //! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-in ([`issuer`]), the
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
 //! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
@@ -81,7 +82,9 @@ impl Messages for CrateMessages {
     }
 }
 
-pub use doubles::{TestBody, TestChoice, TestHash, TestMode, TestResponseType};
+pub use doubles::{
+    TestBody, TestChoice, TestHash, TestMode, TestResponseParameters, TestResponseType,
+};
 pub use fixtures::TestScope;
 pub use format::TestFormat;
 pub use host::{JweHaip, TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
