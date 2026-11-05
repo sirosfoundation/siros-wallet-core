@@ -216,6 +216,12 @@ released version yet.
   SHA-256. A `mini_markdown` value shows its text without its styles. A time
   of day holds seconds 00 to 59; a date-time's second 60 is RFC 3339's leap
   second.
+- PaSO View's vocabulary is `siros-paso`'s: its value types (`value`:
+  `ValueKind`, `FormattedKind`, `Parsed`, `Written`, `BadValue`,
+  `formatted`) and the `mini_markdown` parser (`markdown`). The core keeps
+  RFC 4647 matching and Python's whitespace in `text`, and the ISO 20022
+  frequencies in `rows::Frequency`. A PaSO rendering's row states its value's
+  kind (`ViewRow::kind`).
 - `siros-i18n`'s `Declaration::defined` declares a converted module's keys and
   arguments; `siros-explain` adds `Keyed::first_of`, `DefinedKey::numbered`
   and `ParamKind::new`.

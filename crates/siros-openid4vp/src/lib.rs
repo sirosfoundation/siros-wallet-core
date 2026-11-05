@@ -146,7 +146,6 @@ impl siros_explain::Messages for CrateMessages {
             plugins::NoCandidate::messages,
             plugins::NotOffered::messages,
             plugins::AttestedTwice::messages,
-            rows::BadValue::messages,
             rows::EnvError::messages,
             rows::NotImageMedia::messages,
             media::NotMediaType::messages,

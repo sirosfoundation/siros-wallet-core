@@ -2,6 +2,7 @@
 //! punctuation (CommonMark §2.1), and the constructs that take precedence over emphasis and
 //! render literally in `mini_markdown`.
 
+use siros_openid4vp::text::python_space;
 use unicode_general_category::{GeneralCategory, get_general_category};
 
 /// A Unicode whitespace character, or no character (CommonMark §2.1).
@@ -30,11 +31,6 @@ pub(super) fn punctuation(c: Option<char>) -> bool {
                 | GeneralCategory::OtherSymbol
         )
     })
-}
-
-/// Python's `\s` and `str.isspace`: Unicode whitespace and the separators U+001C to U+001F.
-pub fn python_space(c: char) -> bool {
-    c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
 
 /// The end of the construct at `i` that takes precedence over emphasis and renders literally

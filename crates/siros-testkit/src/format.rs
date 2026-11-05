@@ -5,8 +5,9 @@
 //! [option, ...]}, "logo"?: uri, "carries"?: bool, "alg": its algorithm}`. The Verifier's
 //! `vp_formats_supported` value for "test": `{"algs"?: [...]}`.
 
-use siros_explain::AllOf;
-use siros_explain::Text;
+use siros_explain::{
+    AllOf, Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value,
+};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
@@ -20,7 +21,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
-use siros_openid4vp::rows::{Env, FormattedKind, Row, Value, Written, formatted};
+use siros_openid4vp::rows::{Env, Frequency, Row, Value as RowValue, WalletText};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
@@ -28,27 +29,48 @@ use siros_openid4vp::wallet_metadata::Placement;
 use crate::FAULT;
 use crate::rules::{Excluded, FormatRule};
 
-/// The values of every kind but an image, one row each in every card.
-const TYPED: [(FormattedKind, Written<'static>); 9] = [
-    (FormattedKind::Boolean, Written::Boolean(true)),
-    (FormattedKind::Frequency, Written::Text("MNTH")),
-    (FormattedKind::Date, Written::Text("2026-09-02")),
-    (FormattedKind::Time, Written::Text("10:15:30Z")),
-    (
-        FormattedKind::DateTime,
-        Written::Text("2026-06-02T10:15:30+02:00"),
-    ),
-    (FormattedKind::Currency, Written::Text("EUR")),
-    (
-        FormattedKind::CurrencyAmount,
-        Written::Text("1234567.50 EUR"),
-    ),
-    (FormattedKind::MiniMarkdown, Written::Text("a **b**")),
-    (
-        FormattedKind::Url,
-        Written::Text("https://bücher.example/x"),
-    ),
-];
+/// A value of every kind PaSO View §3 types but an image, one row each in every card, under the
+/// kind's name: a boolean, a frequency, a date, a time, a date-time, a currency, an amount, a
+/// `mini_markdown` text and a URL.
+fn typed() -> Option<Vec<(&'static str, Text)>> {
+    let eur = Currency::from_code("EUR")?;
+    let at =
+        |hour, minute, second| Time::new(hour, minute, Some(Second::new(second, Fraction::NONE)?));
+    let value = |value: Value| Text::Value(value);
+    Some(vec![
+        ("boolean", Text::of(&WalletText::Yes)),
+        ("frequency", Text::of(&Frequency::Monthly)),
+        ("date", value(Value::Date(Date::new(2026, 9, 2)?))),
+        (
+            "time",
+            value(Value::Time {
+                at: at(10, 15, 30)?,
+                offset: Some(Offset::new(0)?),
+            }),
+        ),
+        (
+            "date_time",
+            value(Value::DateTime(DateTime::new(
+                Date::new(2026, 6, 2)?,
+                at(10, 15, 30)?,
+                Some(Offset::new(120)?),
+            ))),
+        ),
+        ("currency", value(Value::Currency(eur))),
+        (
+            "currency_amount",
+            value(Value::Amount(Amount::new(
+                Decimal::new(123_456_750, 2)?,
+                eur,
+            ))),
+        ),
+        ("mini_markdown", Text::Raw("a b".to_owned())),
+        (
+            "url",
+            Text::Raw("https://xn--bcher-kva.example/x".to_owned()),
+        ),
+    ])
+}
 
 /// The test format, `test`. Its proof writes `aud` and `nonce`.
 #[derive(Debug, Clone)]
@@ -292,20 +314,16 @@ impl FormatQuery for TestQuery<'_> {
         env: &Env,
     ) -> Result<Card, Fault> {
         let view = view(credential)?;
-        let format = |kind, written| {
-            formatted(kind, written)
-                .map(|(_, text)| Value::Text(text))
-                .map_err(|e| Fault::caused(FAULT, detail!("a test value"), e))
-        };
         let mut rows = vec![
             Row::new(
                 Text::Raw(self.id.as_str().to_owned()),
-                format(FormattedKind::Text, Written::Text(credential.id.as_str()))?,
+                RowValue::Text(Text::Raw(credential.id.as_str().to_owned())),
             ),
             Row::full_text(Text::Name("statement")),
         ];
-        for (kind, written) in TYPED {
-            rows.push(Row::new(Text::Name(kind.as_str()), format(kind, written)?));
+        let typed = typed().ok_or_else(|| Fault::new(FAULT, detail!("a test value")))?;
+        for (kind, text) in typed {
+            rows.push(Row::new(Text::Name(kind), RowValue::Text(text)));
         }
         Ok(Card {
             icon: env.icon(view.get("logo").and_then(Node::as_str)).clone(),

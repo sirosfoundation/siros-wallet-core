@@ -19,15 +19,16 @@ use siros_explain::{
 };
 use siros_i18n::{LanguagePolicy, LocaleTag};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, ValueKind};
-use siros_openid4vp::text::{Span, Style, lookup, spans};
+use siros_openid4vp::text::lookup;
 
 use crate::locale::ArrayKey;
+use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, EntryLocale, LabelForm, Localized, ValueType};
 use crate::outcome::Outcome;
 use crate::render::{arrays, rulebook_metadata};
 use crate::rulebook::Family;
 use crate::template::{Placeholder, placeholders};
+use crate::value::{FormattedKind, ValueKind};
 
 /// The plug-in whose conversions name PaSO's defined modules.
 pub const PLUGIN: Domain = checked!(Domain, "paso");

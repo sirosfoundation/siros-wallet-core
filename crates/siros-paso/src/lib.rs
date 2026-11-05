@@ -47,6 +47,7 @@ pub mod image;
 pub mod labels;
 pub mod locale;
 pub mod mandate;
+pub mod markdown;
 #[cfg(feature = "resolve")]
 pub mod measure;
 pub mod metadata;
@@ -75,6 +76,7 @@ pub mod rulebook;
 pub mod rules;
 pub mod sca;
 mod template;
+pub mod value;
 pub mod view;
 
 pub use conform::{ClaimIndex, Placement};
@@ -148,6 +150,7 @@ impl Messages for CrateMessages {
             document::DocumentError::messages,
             labels::Directional::messages,
             labels::LabelViolation::messages,
+            value::BadValue::messages,
             image::ImageFailure::messages,
             adhoc::AdhocFailure::messages,
             entry::EntryRule::messages,

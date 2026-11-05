@@ -9,7 +9,7 @@ use siros_explain::{DefinedModule, Explain, Keyed, Query, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{self, Env, FormattedKind, Image, Row, Value, ValueKind, WalletText};
+use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
 
 use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, written};
 use crate::entry::Payload;
@@ -24,6 +24,7 @@ use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
 use crate::rulebook::{Family, Rulebook, Subtype};
 use crate::template::Template;
+use crate::value::{self as values, FormattedKind, ValueKind};
 use crate::view;
 
 /// The wallet's bound on a rendering's items: its rows and UI elements (View §2), at least 200.
@@ -427,7 +428,7 @@ struct Placed {
 
 /// A value of a kind other than an image, with its text.
 fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value, NotCompatible> {
-    rows::formatted(kind, written(value))
+    values::formatted(kind, written(value))
         .map(|(_, text)| Value::Text(text))
         .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),

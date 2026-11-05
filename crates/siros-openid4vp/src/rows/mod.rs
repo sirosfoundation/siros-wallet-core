@@ -2,15 +2,15 @@
 //! [`Text`] the core renders when it is displayed; a row without a value is a full-text row.
 
 mod env;
+mod frequency;
 mod https_url;
-mod values;
 
 use siros_explain::Text;
 
 pub use env::{Choice, Env, EnvError, Icon, ImageMedia, NotImageMedia, WalletText};
+pub use frequency::Frequency;
 pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
 pub use siros_i18n::{Amounts, Bidi, OnRenderError, RenderOptions};
-pub use values::{BadValue, FormattedKind, Frequency, Parsed, Written, formatted};
 
 /// An image a row shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,26 +51,6 @@ pub enum Value {
     Image(Image),
     /// A text: a typed value where the value has a type.
     Text(Text),
-}
-
-/// A value kind (PaSO View §3 value types).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ValueKind {
-    /// An image.
-    Image,
-    /// A kind other than an image.
-    Formatted(FormattedKind),
-}
-
-impl ValueKind {
-    /// The kind's name.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Image => "image",
-            Self::Formatted(kind) => kind.as_str(),
-        }
-    }
 }
 
 impl Value {

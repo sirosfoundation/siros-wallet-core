@@ -29,7 +29,7 @@ use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
 use crate::request::{Item, Query};
 use crate::rows::{Env, Row, WalletText};
-use crate::text::atoms::python_space;
+use crate::text::python_space;
 use crate::wallet::Credential;
 use crate::{FAULT, detail};
 

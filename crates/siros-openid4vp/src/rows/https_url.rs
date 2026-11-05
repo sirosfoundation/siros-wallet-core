@@ -8,7 +8,7 @@ use fluent_uri::pct_enc::EStr;
 use fluent_uri::pct_enc::encoder::IRegName;
 use siros_explain::Explain;
 
-use crate::text::atoms::python_space;
+use crate::text::python_space;
 
 /// The `https` scheme, compared without regard to case (RFC 3986 §3.1).
 const HTTPS: &Scheme = Scheme::new_or_panic("https");

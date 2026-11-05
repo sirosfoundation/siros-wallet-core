@@ -9,8 +9,8 @@ use siros_explain::{Key, Text};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::rows::Env;
-use siros_openid4vp::text::spans;
 use siros_paso::Rendered;
+use siros_paso::markdown::spans;
 use siros_paso::outcome::Outcome;
 use siros_testkit::fixtures::with_generic_forms;
 

@@ -2,9 +2,9 @@
 //! clause that decides it. First match (Core §7.4.2) gives way to the next entry on
 //! [`Unsupported`] and [`NotCompatible`]; [`Excluded`] excludes the credential.
 
+use crate::value::BadValue;
 use siros_explain::Explain;
 use siros_openid4vp::refusal::QuotedList;
-use siros_openid4vp::rows::BadValue;
 
 use crate::adhoc::AdhocFailure;
 use crate::image::ImageFailure;

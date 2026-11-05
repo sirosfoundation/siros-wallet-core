@@ -1,9 +1,11 @@
-//! CommonMark 0.31.2 §6.2 emphasis and strong emphasis, `<u>` underline (§6.6), every other
-//! construct literal (PaSO View §3 `mini_markdown`). Backslash escapes, code spans, raw HTML
+//! PaSO View §3's `mini_markdown`: CommonMark 0.31.2 §6.2 emphasis and strong emphasis, `<u>`
+//! underline (§6.6), every other construct literal. Backslash escapes, code spans, raw HTML
 //! and autolinks keep their precedence over emphasis and render literally. Each line is its own
 //! block: emphasis pairs within a line.
 
-use super::atoms::{atom, punctuation, space};
+mod atoms;
+
+use atoms::{atom, punctuation, space};
 
 /// The styles a span carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]

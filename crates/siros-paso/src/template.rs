@@ -7,10 +7,10 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
+use crate::value::{FormattedKind, ValueKind, formatted};
 use siros_explain::{Entry, Keyed, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, ValueKind, formatted};
 
 use crate::conform::written;
 use crate::metadata::{ClaimMeta, ValueType, kind_name};

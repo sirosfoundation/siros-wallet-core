@@ -9,12 +9,12 @@ use siros_explain::Domain;
 use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, ValueKind};
 
 use crate::labels::{LabelSlot, LabelText, LabelViolation};
 use crate::mandate::OwnText;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::path::claim_text;
+use crate::value::{FormattedKind, ValueKind};
 
 /// A UI element identifier the wallet recognises (Proof Metadata §3.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

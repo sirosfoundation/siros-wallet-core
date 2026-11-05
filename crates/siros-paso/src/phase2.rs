@@ -123,6 +123,7 @@ impl PasoFinding {
     }
 }
 
+use crate::value::ValueKind;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::claims::Concrete;
 #[cfg(feature = "resolve")]
@@ -136,7 +137,7 @@ use siros_openid4vp::json::Node;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 #[cfg(feature = "resolve")]
-use siros_openid4vp::rows::{HttpsUrl, Shown, ValueKind};
+use siros_openid4vp::rows::{HttpsUrl, Shown};
 
 #[cfg(feature = "resolve")]
 use crate::adhoc::Jws;

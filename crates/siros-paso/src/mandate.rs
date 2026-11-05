@@ -8,7 +8,7 @@ use siros_explain::Explain;
 use siros_explain::Text;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, ValueKind, WalletText};
+use siros_openid4vp::rows::WalletText;
 
 use crate::metadata::{
     ClaimMeta, DisplayArray, Displayed, EntryLocale, LabelForm, Localized, Mandatory, Metadata,
@@ -16,6 +16,7 @@ use crate::metadata::{
 };
 use crate::outcome::Unsupported;
 use crate::rulebook::{Confirm, Rulebook, Subtype, Title};
+use crate::value::{FormattedKind, ValueKind};
 
 /// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
 /// crate's module.

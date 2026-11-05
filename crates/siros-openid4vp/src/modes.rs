@@ -260,7 +260,7 @@ impl Mode for DcApi {
         ChannelKind::DcApi
     }
 
-    fn rules(&self, _request: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
+    fn rules(&self, _: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         Vec::new()
     }
 
@@ -279,7 +279,7 @@ impl Mode for DcApiJwt {
         ChannelKind::DcApi
     }
 
-    fn rules(&self, _request: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
+    fn rules(&self, _: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         c7(self.name(), metadata)
     }
 
@@ -298,7 +298,7 @@ impl Mode for DirectPostJwt {
         ChannelKind::Uri
     }
 
-    fn rules(&self, _request: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
+    fn rules(&self, _: &Request<'_>, metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         c7(self.name(), metadata)
     }
 
@@ -317,7 +317,7 @@ impl Mode for DirectPost {
         ChannelKind::Uri
     }
 
-    fn rules(&self, _request: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
+    fn rules(&self, _: &Request<'_>, _metadata: &VerifierMetadata<'_>) -> Vec<Refusal> {
         Vec::new()
     }
 

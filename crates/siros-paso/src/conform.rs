@@ -3,10 +3,10 @@
 
 use std::borrow::Cow;
 
+use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_explain::Text;
 use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
-use siros_openid4vp::rows::{FormattedKind, Parsed, ValueKind, Written, formatted};
 
 use crate::entry::Payload;
 use crate::labels::Directional;

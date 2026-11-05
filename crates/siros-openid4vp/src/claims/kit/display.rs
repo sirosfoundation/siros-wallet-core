@@ -8,8 +8,8 @@ use crate::json::Node;
 use siros_explain::Text;
 
 use crate::rows::{Row, Value, WalletText};
-use crate::text::atoms::python_space;
 use crate::text::lookup;
+use crate::text::python_space;
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority

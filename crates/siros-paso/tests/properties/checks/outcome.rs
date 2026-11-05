@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use siros_explain::{Key, Text};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::Amounts;
-use siros_openid4vp::text::spans;
 use siros_paso::Rendered;
+use siros_paso::markdown::spans;
 use siros_paso::outcome::Outcome;
 use siros_testkit::fixtures::with_generic_forms;
 
