@@ -53,7 +53,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds` and `CoseEncrypt` modules; `sealed-signals` seals an mdoc's risk signals with the last |
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
-| `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher |
+| `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher; the matcher's entry emission through the registration's package, and under `register` the registration's package |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
 | `siros-wallet-state` | The decrypted wallet state of the private data container |
 | `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
@@ -69,8 +69,9 @@ Each mechanism of the core is a feature, which the crates that use it turn on;
 a build compiles what it registers. The right column names the core's features
 each crate turns on: those it always turns on, then `feature: core features`
 for each of its own features that turns more on. The core turns on siros-i18n's
-`render`, `number` and `list`, siros-paso its `number`, `currency` and `date`;
-the app turns on `load`.
+`render`, `number` and `list`, siros-paso its `number`, `currency` and `date`,
+siros-credman its `render`, and siros-credman's `register` its `load`; the app
+turns on `load`.
 
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims | test-util
@@ -79,7 +80,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-sdjwt       dc+sd-jwt                                   claims; resolve: resolve
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt   transaction-data, sri; resolve: resolve; sealed-signals: cbor
 ├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
-├── siros-credman     Credential Manager's entries for the matcher   match
+├── siros-credman     Credential Manager's entries for the matcher; the entry emission; register: the registration's package   match
 ├── siros-webuild     WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
 ├── siros-trust       issuer trust at registration                match, resolve
 ├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor

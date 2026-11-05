@@ -50,7 +50,8 @@ released version yet.
   a host holding a `Platform` takes plug-ins with their phase 2 over it.
 - `cargo xtask builds` checks that each build of the design's section 4.11
   compiles none of the crates its row excludes, siros-i18n with the features
-  its row names alone, its matcher siros-i18n with `render` in place of `load`,
+  its row names alone, its matcher (the core and the plug-ins without
+  `resolve`, siros-credman) siros-i18n with `render` in place of `load`,
   and that the SD-JWT and the
   mdoc DC API builds each compile fewer than 96 crates, two different sets; `cargo xtask alone` checks
   each crate alone, with and without its default features, and the workspace
@@ -256,20 +257,34 @@ released version yet.
   `Match::run` and `Prepared::prepare` take the `Rendering` the app built (the
   package, the render halves, the app's modules beside the defined ones); an
   entry no language serves, or whose selected module the package lacks, is
-  excluded (`ExcludedBy::Language`).
+  excluded (`ExcludedBy::Language`). The wallet converts the ad-hoc metadata
+  a request's entries carry with `siros-paso::view::carried` and loads each
+  module into its package; the matcher excludes such an entry.
 - A record commits to its rendering inputs: its id's last item writes the
-  language and its fallback flag, each module's name and digest, the amounts,
+  module a profile selected and its locale, the language and its fallback
+  flag, each module's name and digest, the amounts,
   the bidi strategy and the renderer's version (`RenderingInputs`, which holds
   the options that change a text). Phase 2 answers only byte-equal records,
   and a pick naming a derived record with other inputs falls back with
   `Finding::Rendered` naming the first input that differs.
+- `siros-i18n::RegistrationBuilder` builds a registration's package: its
+  locales the tags of the priority and fallback lists, and a manifest that
+  records the lists, the rendering options, each credential with its card's
+  modules and candidate languages, and each transaction type with its module
+  (`Package::registration`). Over it, `Rendering::renderer` faults on other
+  lists or options or an unregistered credential, excludes a selected module
+  no registered transaction type names, and decides a credential's language
+  over its candidate languages.
 - `siros-credman::emit` is the matcher's entry emission: every choice of a
   display as Credential Manager draws it, plain text through the
   registration's package, every entry rendered before the first is added and
-  `RenderOptions::on_error` applied; the feature `register` writes the
-  package with each card's texts precomputed. `Renderer::holds` tells a held
-  text and `Package::spans` places each entry. `siros-testkit`'s `App` renders
-  as the core's renderer of an entry, the selection given per call.
+  `RenderOptions::on_error` applied. It refuses an entry whose renderer takes
+  other inputs than its record (`EmitError::Inputs`) and a card text the
+  package does not hold (`EmitError::NotHeld`). The feature `register`
+  writes the package of a `Registration` with each card's texts
+  precomputed. `Renderer::holds` tells a held text and `Package::spans`
+  places each entry. `siros-testkit`'s `App` renders as the core's renderer
+  of an entry, the selection given per call.
 
 ### Removed
 
