@@ -6,12 +6,14 @@
 //! `go-wallet-backend`): `consentPolicy.Decide` and
 //! `checkConsentAgainstDCQL`, whose test table
 //! (`oid4vp_consent_test.go`) is the fixture truth here, ported case
-//! for case.
+//! for case. OpenID4VP 1.0 §7 is the truth for the claims paths.
 
 use std::sync::{Arc, Mutex};
 
+use engine_core::claims_path::{ClaimsPathError, ComponentError};
 use engine_core::oid4vp::consent::{
-    self, REASON_CLAIM_OUTSIDE, REASON_DUPLICATE, REASON_OUTSIDE_QUERY, REASON_UNPARSEABLE,
+    self, ClaimsQueryError, QueryError, Reason, MAX_CLAIM_PATH_ELEMS, REASON_CLAIM_OUTSIDE,
+    REASON_DUPLICATE, REASON_OUTSIDE_QUERY, REASON_UNPARSEABLE,
 };
 use engine_core::oid4vp::Oid4vpFlow;
 use engine_core::runtime::{FlowContext, FlowHandler};
@@ -635,7 +637,7 @@ async fn the_go_fixture_table_vets_case_for_case() {
             );
         } else {
             let violation = violation.unwrap_or_else(|| panic!("{name}: expected a refusal"));
-            assert_eq!(violation.reason, reason, "{name}");
+            assert_eq!(violation.reason.class(), reason, "{name}");
             assert_eq!(violation.query_id, query_id, "{name}");
         }
     }
@@ -653,17 +655,161 @@ async fn an_uninterpretable_query_is_a_violation() {
         let telemetry = Arc::new(RecordingTelemetry::default());
         let ctx = vet_context(ConsentCheckMode::Enforce, telemetry.clone());
         let violation = consent::vet(&ctx, Some(&value), &[sel("a", &[])]).await;
-        assert!(
-            matches!(
-                violation,
-                Some(v) if v.reason == REASON_UNPARSEABLE
-            ),
+        assert_eq!(
+            violation.map(|v| v.reason),
+            Some(Reason::Unparseable(QueryError::NoCredentials)),
             "{query}: a query that cannot be interpreted is a violation"
         );
         // The record was made, with the unparseable reason class.
         let events = telemetry.events.lock().expect("lock");
         assert_eq!(events.len(), 1, "{query}: one violation record");
         assert_eq!(events[0].fields[1].1, REASON_UNPARSEABLE, "{query}");
+    }
+}
+
+/// A path index is the integer its JSON number writes (RFC 8259 §6),
+/// whatever its spelling. OpenID4VP 1.0 §7.3: `["nationalities", 1]`
+/// selects the second of the example Credential's two nationalities.
+/// Each spelling of an index authorises the nationality it selects and
+/// refuses the other.
+#[tokio::test]
+async fn a_path_index_is_the_integer_its_number_writes() {
+    // (the index as the verifier spells it, the integer it writes)
+    let spellings = [
+        ("1", 1),
+        ("1.0", 1),
+        ("1e0", 1),
+        ("10e-1", 1),
+        ("0.1e1", 1),
+        ("-0", 0),
+    ];
+    for (spelling, index) in spellings {
+        let query: serde_json::Value = serde_json::from_str(&format!(
+            r#"{{"credentials":[{{"id":"pid","format":"dc+sd-jwt",
+                "claims":[{{"path":["nationalities",{spelling}]}}]}}]}}"#
+        ))
+        .expect("the query is JSON");
+        let selected = format!("nationalities.{index}");
+        let other = format!("nationalities.{}", 1 - index);
+        let ctx = vet_context(
+            ConsentCheckMode::Enforce,
+            Arc::new(RecordingTelemetry::default()),
+        );
+        assert_eq!(
+            consent::vet(&ctx, Some(&query), &[sel("pid", &[selected.as_str()])]).await,
+            None,
+            "{spelling} selects {selected}"
+        );
+        assert_eq!(
+            consent::vet(&ctx, Some(&query), &[sel("pid", &[other.as_str()])])
+                .await
+                .map(|violation| violation.reason),
+            Some(Reason::ClaimOutside),
+            "{spelling} does not select {other}"
+        );
+    }
+}
+
+/// OpenID4VP 1.0 §7: a claims path pointer is "a non-empty array of
+/// strings, nulls and non-negative integers", and into an ISO mdoc it
+/// holds "exactly two components", each a string (§7.2.1). §6.3
+/// requires a Claims Query's `path`, and the vetting compares a path of
+/// [`MAX_CLAIM_PATH_ELEMS`] components at most. A query with a Claims
+/// Query that breaks a rule cannot be interpreted, and the violation
+/// names the rule. One row per rule, each Claims Query as the
+/// verifier's JSON text.
+#[tokio::test]
+async fn a_claims_query_follows_section_7_for_its_format() {
+    let path = ClaimsQueryError::Path;
+    let component = |at, why| ClaimsQueryError::Path(ClaimsPathError::Component { at, why });
+    let too_long = format!(
+        r#"{{"path":[{}]}}"#,
+        vec![r#""a""#; MAX_CLAIM_PATH_ELEMS + 1].join(",")
+    );
+    // (the format, the Claims Query, the rule it breaks)
+    let cases = [
+        (
+            "dc+sd-jwt",
+            r#"{"path":"nationalities"}"#.to_owned(),
+            path(ClaimsPathError::NotArray),
+        ),
+        (
+            "dc+sd-jwt",
+            r#"{"path":[]}"#.to_owned(),
+            path(ClaimsPathError::Empty),
+        ),
+        (
+            "dc+sd-jwt",
+            r#"{"path":["nationalities",true]}"#.to_owned(),
+            component(1, ComponentError::WrongType),
+        ),
+        // binary64 rounds this fraction to 1.
+        (
+            "dc+sd-jwt",
+            r#"{"path":["nationalities",1.0000000000000001]}"#.to_owned(),
+            component(1, ComponentError::Fraction),
+        ),
+        (
+            "dc+sd-jwt",
+            r#"{"path":["nationalities",-1]}"#.to_owned(),
+            component(1, ComponentError::Negative),
+        ),
+        // OpenID4VCI 1.0 Appendix C admits this integer.
+        (
+            "example_format",
+            r#"{"path":["nationalities",-1]}"#.to_owned(),
+            component(1, ComponentError::Negative),
+        ),
+        // 2^64.
+        (
+            "dc+sd-jwt",
+            r#"{"path":["nationalities",18446744073709551616]}"#.to_owned(),
+            component(1, ComponentError::OutOfRange),
+        ),
+        (
+            "mso_mdoc",
+            r#"{"path":["org.iso.18013.5.1"]}"#.to_owned(),
+            path(ClaimsPathError::MdocTooShort),
+        ),
+        // OpenID4VCI 1.0 Appendix C.2 admits this path.
+        (
+            "mso_mdoc",
+            r#"{"path":["org.iso.18013.5.1","driving_privileges",null,"vehicle_category_code"]}"#
+                .to_owned(),
+            path(ClaimsPathError::MdocTooLong),
+        ),
+        (
+            "mso_mdoc",
+            r#"{"path":["org.iso.18013.5.1",0]}"#.to_owned(),
+            component(1, ComponentError::NotString),
+        ),
+        (
+            "dc+sd-jwt",
+            r#"{"id":"a"}"#.to_owned(),
+            ClaimsQueryError::NoPath,
+        ),
+        ("dc+sd-jwt", too_long, ClaimsQueryError::PathTooLong),
+    ];
+    for (format, claim, rule) in cases {
+        let query: serde_json::Value = serde_json::from_str(&format!(
+            r#"{{"credentials":[{{"id":"q","format":"{format}","claims":[{claim}]}}]}}"#
+        ))
+        .expect("the query is JSON");
+        let ctx = vet_context(
+            ConsentCheckMode::Enforce,
+            Arc::new(RecordingTelemetry::default()),
+        );
+        assert_eq!(
+            consent::vet(&ctx, Some(&query), &[sel("q", &[])])
+                .await
+                .map(|violation| violation.reason),
+            Some(Reason::Unparseable(QueryError::ClaimsQuery {
+                credential: 0,
+                claim: 0,
+                why: rule,
+            })),
+            "{format} {claim}"
+        );
     }
 }
 

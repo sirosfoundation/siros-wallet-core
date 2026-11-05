@@ -17,13 +17,24 @@
 //! is answered `access_denied`, as a decline is.
 //!
 //! **A query that cannot be interpreted is a violation**: "cannot
-//! compare" never means "allowed". The bounds are part of the contract:
-//! a claim path beyond [`MAX_CLAIM_PATH_ELEMS`] elements or an entry
-//! beyond [`MAX_CLAIM_ENTRY_LEN`] bytes cannot be compared, so it is
-//! refused — in enforce mode — never read as authorised.
+//! compare" never means "allowed". The vetting parses the query once,
+//! each claims path by OpenID4VP 1.0 §7 for its Credential Query's
+//! `format`, and compares the answer with the parsed query. The bounds
+//! are part of the contract: a claim path beyond
+//! [`MAX_CLAIM_PATH_ELEMS`] elements or an entry beyond
+//! [`MAX_CLAIM_ENTRY_LEN`] bytes cannot be compared, so it is refused —
+//! in enforce mode — never read as authorised.
+
+use std::borrow::Cow;
 
 use engine_ports::{ConsentCheckMode, TelemetryEvent, VpSelection};
+use rustc_hash::FxHashMap;
+use serde_json::Value;
 
+use crate::claims_path::{
+    ClaimsPathError, JsonComponent, PresentationClaimsPath, PresentationComponent,
+};
+use crate::oid4vci::types::CredentialFormat;
 use crate::runtime::FlowContext;
 
 /// A selected query id is not in the request's DCQL query.
@@ -48,17 +59,84 @@ pub const MAX_CLAIM_ENTRY_LEN: usize = 512;
 pub const MAX_LOGGED_QUERY_ID: usize = 64;
 
 /// Why a match answer does not fit the query it was vetted against.
-/// Carries the reason class and, for an id the request's own query
-/// defines, that id — never a claim name or value (the Go
-/// `consentViolation`: "These are the only things logged about a
-/// violation").
+/// Carries the reason and, for an id the request's own query defines,
+/// that id — never a claim name or value (the Go `consentViolation`:
+/// "These are the only things logged about a violation").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Violation {
-    /// The reason class.
-    pub reason: &'static str,
+    /// The reason.
+    pub reason: Reason,
     /// The query id, when the request's query defines it. A
     /// client-supplied id is kept out (and so out of the telemetry).
     pub query_id: String,
+}
+
+/// Why a match answer does not fit the query: one reason per class.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reason {
+    /// A selected query id is not in the query, or in no option of its
+    /// `credential_sets`: [`REASON_OUTSIDE_QUERY`].
+    OutsideQuery,
+    /// A query id was selected twice without the query setting
+    /// `multiple`: [`REASON_DUPLICATE`].
+    Duplicate,
+    /// A disclosed claim is not authorised by the query:
+    /// [`REASON_CLAIM_OUTSIDE`].
+    ClaimOutside,
+    /// The query cannot be interpreted, for this reason:
+    /// [`REASON_UNPARSEABLE`].
+    Unparseable(QueryError),
+}
+
+impl Reason {
+    /// The reason class, which the telemetry record and the flow's
+    /// completion carry.
+    #[must_use]
+    pub fn class(&self) -> &'static str {
+        match self {
+            Self::OutsideQuery => REASON_OUTSIDE_QUERY,
+            Self::Duplicate => REASON_DUPLICATE,
+            Self::ClaimOutside => REASON_CLAIM_OUTSIDE,
+            Self::Unparseable(_) => REASON_UNPARSEABLE,
+        }
+    }
+}
+
+/// Why the vetting cannot interpret a DCQL query (OpenID4VP 1.0 §6):
+/// positions and rules, never a claim name or value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum QueryError {
+    /// `credentials` is absent, no array, or empty: §6 asks for "A
+    /// non-empty array of Credential Queries".
+    #[error("the query has no credentials")]
+    NoCredentials,
+    /// A Claims Query cannot be interpreted.
+    #[error("claims query {claim} of credential query {credential}: {why}")]
+    ClaimsQuery {
+        /// The Credential Query's position in `credentials`, from 0.
+        credential: usize,
+        /// The Claims Query's position in its `claims`, from 0.
+        claim: usize,
+        /// Why it cannot be interpreted.
+        why: ClaimsQueryError,
+    },
+}
+
+/// Why the vetting cannot interpret a Claims Query (OpenID4VP 1.0
+/// §6.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ClaimsQueryError {
+    /// It has no `path`, which §6.3 requires.
+    #[error("it has no path")]
+    NoPath,
+    /// Its path has more than [`MAX_CLAIM_PATH_ELEMS`] components, too
+    /// many to compare.
+    #[error("its path has too many components to compare")]
+    PathTooLong,
+    /// Its path is no claims path pointer into a Credential of the
+    /// Credential Query's format (§7).
+    #[error("{0}")]
+    Path(ClaimsPathError),
 }
 
 /// Vets the host's match answer against the DCQL query it was sent,
@@ -71,7 +149,7 @@ pub struct Violation {
 /// A query the engine cannot interpret is a violation, never a pass.
 pub async fn vet(
     ctx: &FlowContext,
-    dcql: Option<&serde_json::Value>,
+    dcql: Option<&Value>,
     selections: &[VpSelection],
 ) -> Option<Violation> {
     let mode = ctx.ports.consent_check;
@@ -81,12 +159,11 @@ pub async fn vet(
     // No query (a scope-only, legacy request) has nothing to compare
     // with (the Go Decide's rule).
     let query = dcql?;
-    let violation = match check(query, selections) {
-        Ok(None) => return None,
-        Ok(Some(violation)) => violation,
+    let violation = match Query::parse(query) {
+        Ok(query) => query.vet(selections)?,
         // The query cannot be interpreted: a violation, never a pass.
-        Err(()) => Violation {
-            reason: REASON_UNPARSEABLE,
+        Err(error) => Violation {
+            reason: Reason::Unparseable(error),
             query_id: String::new(),
         },
     };
@@ -97,7 +174,7 @@ pub async fn vet(
         flow_id: Some(ctx.flow_id.clone()),
         fields: vec![
             ("mode".to_owned(), mode.as_str().to_owned()),
-            ("reason".to_owned(), violation.reason.to_owned()),
+            ("reason".to_owned(), violation.reason.class().to_owned()),
             (
                 "credential_query_id".to_owned(),
                 loggable(&violation.query_id),
@@ -110,209 +187,223 @@ pub async fn vet(
     None
 }
 
-/// Checks a match answer against the request's DCQL query.
-///
-/// `Ok(None)`: the answer fits. `Ok(Some)`: the violation. `Err(())`:
-/// the query cannot be interpreted (the caller treats that as a
-/// violation — "cannot compare" never means "allowed").
-///
-/// Enforced (the Go `checkConsentAgainstDCQL`): every selected query
-/// id exists in the query; no id is selected twice unless it sets
-/// `multiple`; when `credential_sets` exists, only ids that appear in
-/// some option are selected; every `disclosed_claims` entry is
-/// authorised by the query's claims (or by one claim set, as a
-/// subset). A query with no claims authorises no disclosed claims.
-/// Not enforced: that credential sets are satisfied, `values`
-/// constraints, and what the resulting vp_token contains.
-fn check(dcql: &serde_json::Value, selections: &[VpSelection]) -> Result<Option<Violation>, ()> {
-    let credentials = dcql
-        .get("credentials")
-        .and_then(|v| v.as_array())
-        .ok_or(())?;
-    if credentials.is_empty() {
-        // A query with no credentials is no query.
-        return Err(());
-    }
-
-    // The query's credentials by id, their claim paths validated as
-    // they are read.
-    let mut by_id: rustc_hash::FxHashMap<String, &serde_json::Value> =
-        rustc_hash::FxHashMap::default();
-    for credential in credentials {
-        let id = credential
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned();
-        if let Some(claims) = credential.get("claims").and_then(|v| v.as_array()) {
-            for claim in claims {
-                let path = claim.get("path").and_then(|v| v.as_array()).ok_or(())?;
-                validate_claim_path(path)?;
-            }
-        }
-        by_id.insert(id, credential);
-    }
-
-    // The credential_sets constraint: when the query carries them, an
-    // id that appears in no option is outside the request.
-    let mut in_sets: Option<Vec<String>> = None;
-    if let Some(sets) = dcql.get("credential_sets").and_then(|v| v.as_array()) {
-        if !sets.is_empty() {
-            let mut ids = Vec::new();
-            for set in sets {
-                if let Some(options) = set.get("options").and_then(|v| v.as_array()) {
-                    for option in options {
-                        if let Some(option_ids) = option.as_array() {
-                            for id in option_ids.iter().filter_map(|v| v.as_str()) {
-                                ids.push(id.to_owned());
-                            }
-                        }
-                    }
-                }
-            }
-            in_sets = Some(ids);
-        }
-    }
-
-    let mut seen: Vec<String> = Vec::new();
-    for selection in selections {
-        let query_id = &selection.credential_query_id;
-        let Some(credential) = by_id.get(query_id).copied() else {
-            // The id came from the client, not the query: keep it out
-            // of the violation (and so out of the telemetry).
-            return Ok(Some(Violation {
-                reason: REASON_OUTSIDE_QUERY,
-                query_id: String::new(),
-            }));
-        };
-        // The violation carries the id only when the request's own
-        // query defines it.
-        let known = !query_id.is_empty();
-
-        // The credential_sets constraint: an id the query's
-        // credentials define but no option offers is outside the
-        // request (the Go `inSets` rule).
-        if let Some(ids) = &in_sets {
-            if !ids.iter().any(|id| id == query_id) {
-                return Ok(Some(Violation {
-                    reason: REASON_OUTSIDE_QUERY,
-                    query_id: if known {
-                        query_id.clone()
-                    } else {
-                        String::new()
-                    },
-                }));
-            }
-        }
-
-        // A duplicate selection needs the query's `multiple`.
-        if seen.contains(query_id) {
-            let multiple = credential
-                .get("multiple")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if !multiple {
-                return Ok(Some(Violation {
-                    reason: REASON_DUPLICATE,
-                    query_id: if known {
-                        query_id.clone()
-                    } else {
-                        String::new()
-                    },
-                }));
-            }
-        }
-        seen.push(query_id.clone());
-
-        let claims = credential.get("claims").and_then(|v| v.as_array());
-        let claim_sets = credential.get("claim_sets").and_then(|v| v.as_array());
-        if !claims_authorised(claims, claim_sets, &selection.disclosed_claims) {
-            return Ok(Some(Violation {
-                reason: REASON_CLAIM_OUTSIDE,
-                query_id: if known {
-                    query_id.clone()
-                } else {
-                    String::new()
-                },
-            }));
-        }
-    }
-    Ok(None)
+/// The request's DCQL query as the vetting reads it (OpenID4VP 1.0 §6).
+struct Query<'a> {
+    /// The Credential Queries by `id` (§6.1); one without an `id` is
+    /// held under the empty id.
+    credentials: FxHashMap<&'a str, CredentialQuery<'a>>,
+    /// The ids the options of `credential_sets` name (§6.2), when the
+    /// query carries a non-empty `credential_sets`.
+    in_sets: Option<Vec<&'a str>>,
 }
 
-/// Checks one DCQL `claims[].path`: non-empty, bounded, and made only
-/// of strings, non-negative integers and null (the wildcard) — as
-/// DCQL defines (OpenID4VP §8.1). A path with anything else cannot be
-/// interpreted, and must not be read as a wildcard.
-fn validate_claim_path(path: &[serde_json::Value]) -> Result<(), ()> {
-    if path.is_empty() || path.len() > MAX_CLAIM_PATH_ELEMS {
-        return Err(());
-    }
-    for element in path {
-        match element {
-            serde_json::Value::Null | serde_json::Value::String(_) => {}
-            serde_json::Value::Number(number) => {
-                // A non-negative integer (a JSON fraction is not one).
-                let _ = number.as_u64().ok_or(())?;
-            }
-            _ => return Err(()),
-        }
-    }
-    Ok(())
+/// One Credential Query (OpenID4VP 1.0 §6.1), as the vetting reads it.
+struct CredentialQuery<'a> {
+    /// `multiple`: more than one Credential may answer the query.
+    multiple: bool,
+    /// `claims` (§6.3): none when absent.
+    claims: Vec<ClaimsQuery<'a>>,
+    /// `claim_sets`: the claim ids of each combination.
+    claim_sets: Vec<Vec<&'a str>>,
 }
 
-/// Whether every `disclosed_claims` entry is authorised by the
-/// credential's claims, or by one claim set as a subset. An empty
-/// disclosed list is always fine: the host sends it when the query
-/// names no claims, and clients treat it as "what the query requests".
-fn claims_authorised(
-    claims: Option<&Vec<serde_json::Value>>,
-    claim_sets: Option<&Vec<serde_json::Value>>,
-    disclosed: &[String],
-) -> bool {
-    if disclosed.is_empty() {
-        return true;
-    }
-    let empty: Vec<serde_json::Value> = Vec::new();
-    let claims = claims.unwrap_or(&empty);
-    let paths: Vec<Vec<serde_json::Value>> = claims
-        .iter()
-        .map(|claim| {
-            claim
-                .get("path")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
+/// One Claims Query (OpenID4VP 1.0 §6.3), as the vetting reads it.
+struct ClaimsQuery<'a> {
+    /// Its `id`.
+    id: Option<&'a str>,
+    /// Its `path`, parsed for the Credential Query's `format` (§7).
+    path: PresentationClaimsPath,
+}
+
+impl<'a> Query<'a> {
+    /// The query the JSON value `dcql` writes.
+    fn parse(dcql: &'a Value) -> Result<Self, QueryError> {
+        let credentials = dcql
+            .get("credentials")
+            .and_then(Value::as_array)
+            .filter(|credentials| !credentials.is_empty())
+            .ok_or(QueryError::NoCredentials)?;
+        let mut by_id = FxHashMap::default();
+        for (at, credential) in credentials.iter().enumerate() {
+            let id = credential
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            by_id.insert(id, CredentialQuery::parse(credential, at)?);
+        }
+        // The credential_sets constraint: when the query carries them,
+        // an id that appears in no option is outside the request.
+        let in_sets = dcql
+            .get("credential_sets")
+            .and_then(Value::as_array)
+            .filter(|sets| !sets.is_empty())
+            .map(|sets| {
+                sets.iter()
+                    .filter_map(|set| set.get("options").and_then(Value::as_array))
+                    .flatten()
+                    .filter_map(Value::as_array)
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect()
+            });
+        Ok(Self {
+            credentials: by_id,
+            in_sets,
         })
-        .collect();
-    let sets = claim_sets.unwrap_or(&empty);
-    if sets.is_empty() {
-        // No claim sets: the claims authorise jointly.
-        return all_allowed(&paths, disclosed);
     }
-    // The claim sets: the disclosed entries must fit inside one set's
-    // claim paths (a subset of one combination).
-    for set in sets {
-        let mut set_paths: Vec<Vec<serde_json::Value>> = Vec::new();
-        for id in set
-            .as_array()
+
+    /// The violation of a match answer, or `None` when it fits.
+    ///
+    /// Enforced (the Go `checkConsentAgainstDCQL`): every selected query
+    /// id exists in the query; no id is selected twice unless it sets
+    /// `multiple`; when `credential_sets` exists, only ids that appear in
+    /// some option are selected; every `disclosed_claims` entry is
+    /// authorised by the query's claims (or by one claim set, as a
+    /// subset). A query with no claims authorises no disclosed claims.
+    /// Not enforced: that credential sets are satisfied, `values`
+    /// constraints, and what the resulting vp_token contains.
+    fn vet(&self, selections: &[VpSelection]) -> Option<Violation> {
+        let mut seen: Vec<&str> = Vec::new();
+        for selection in selections {
+            let query_id = selection.credential_query_id.as_str();
+            let Some(credential) = self.credentials.get(query_id) else {
+                // The id came from the client, not the query: keep it out
+                // of the violation (and so out of the telemetry).
+                return Some(Violation {
+                    reason: Reason::OutsideQuery,
+                    query_id: String::new(),
+                });
+            };
+            // The request's own query defines the id, so the violation
+            // carries it.
+            let violation = |reason: Reason| Violation {
+                reason,
+                query_id: query_id.to_owned(),
+            };
+
+            // The credential_sets constraint: an id the query's
+            // credentials define but no option offers is outside the
+            // request (the Go `inSets` rule).
+            if self
+                .in_sets
+                .as_ref()
+                .is_some_and(|ids| !ids.contains(&query_id))
+            {
+                return Some(violation(Reason::OutsideQuery));
+            }
+
+            // A duplicate selection needs the query's `multiple`.
+            if seen.contains(&query_id) && !credential.multiple {
+                return Some(violation(Reason::Duplicate));
+            }
+            seen.push(query_id);
+
+            if !credential.authorises(&selection.disclosed_claims) {
+                return Some(violation(Reason::ClaimOutside));
+            }
+        }
+        None
+    }
+}
+
+impl<'a> CredentialQuery<'a> {
+    /// The Credential Query the JSON value `credential` writes, at the
+    /// position `at` in `credentials`.
+    fn parse(credential: &'a Value, at: usize) -> Result<Self, QueryError> {
+        // The format decides how a claims path reads (§§7.1, 7.2). A
+        // format OpenID4VCI 1.0 Appendix A does not define, or none,
+        // keeps §7's grammar alone.
+        let format = credential
+            .get("format")
+            .and_then(Value::as_str)
+            .and_then(CredentialFormat::from_identifier);
+        let claims = credential
+            .get("claims")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
-            .filter_map(|v| v.as_str())
-        {
-            for claim in claims {
-                if claim.get("id").and_then(|v| v.as_str()) == Some(id) {
-                    if let Some(path) = claim.get("path").and_then(|v| v.as_array()) {
-                        set_paths.push(path.clone());
-                    }
-                }
-            }
-        }
-        if all_allowed(&set_paths, disclosed) {
+            .enumerate()
+            .map(|(claim, value)| {
+                ClaimsQuery::parse(value, format).map_err(|why| QueryError::ClaimsQuery {
+                    credential: at,
+                    claim,
+                    why,
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        let claim_sets = credential
+            .get("claim_sets")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|set| {
+                set.as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect()
+            })
+            .collect();
+        Ok(Self {
+            multiple: credential
+                .get("multiple")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            claims,
+            claim_sets,
+        })
+    }
+
+    /// Whether every `disclosed_claims` entry is authorised by the
+    /// query's claims, or by one claim set as a subset. An empty
+    /// disclosed list is always fine: the host sends it when the query
+    /// names no claims, and clients treat it as "what the query
+    /// requests".
+    fn authorises(&self, disclosed: &[String]) -> bool {
+        if disclosed.is_empty() {
             return true;
         }
+        if self.claim_sets.is_empty() {
+            // No claim sets: the claims authorise jointly.
+            let paths: Vec<&PresentationClaimsPath> =
+                self.claims.iter().map(|claim| &claim.path).collect();
+            return all_allowed(&paths, disclosed);
+        }
+        // The claim sets: the disclosed entries must fit inside one set's
+        // claim paths (a subset of one combination).
+        self.claim_sets.iter().any(|set| {
+            let paths: Vec<&PresentationClaimsPath> = set
+                .iter()
+                .flat_map(|id| {
+                    self.claims
+                        .iter()
+                        .filter(move |claim| claim.id == Some(*id))
+                })
+                .map(|claim| &claim.path)
+                .collect();
+            all_allowed(&paths, disclosed)
+        })
     }
-    false
+}
+
+impl<'a> ClaimsQuery<'a> {
+    /// The Claims Query the JSON value `claim` writes into a Credential
+    /// of the format `format`.
+    fn parse(claim: &'a Value, format: Option<CredentialFormat>) -> Result<Self, ClaimsQueryError> {
+        let path = claim.get("path").ok_or(ClaimsQueryError::NoPath)?;
+        // The bound applies before the parse: a longer path is never
+        // compared.
+        if path
+            .as_array()
+            .is_some_and(|components| components.len() > MAX_CLAIM_PATH_ELEMS)
+        {
+            return Err(ClaimsQueryError::PathTooLong);
+        }
+        Ok(Self {
+            id: claim.get("id").and_then(Value::as_str),
+            path: PresentationClaimsPath::parse(path, format).map_err(ClaimsQueryError::Path)?,
+        })
+    }
 }
 
 /// Whether every disclosed entry is authorised by one of the
@@ -325,7 +416,8 @@ fn claims_authorised(
 /// (`"given_name"`). Both are accepted. A null path element matches
 /// any element; an entry that is a descendant of a requested path (the
 /// requested claim is an object) is a subset and is accepted.
-fn all_allowed(paths: &[Vec<serde_json::Value>], disclosed: &[String]) -> bool {
+fn all_allowed(paths: &[&PresentationClaimsPath], disclosed: &[String]) -> bool {
+    let spelled: Vec<Vec<PathElem<'_>>> = paths.iter().map(|path| path_elems(path)).collect();
     disclosed.iter().all(|entry| {
         // Never selectively disclosable: legitimate without a request.
         if ALWAYS_DISCLOSED.contains(&entry.as_str()) {
@@ -334,90 +426,98 @@ fn all_allowed(paths: &[Vec<serde_json::Value>], disclosed: &[String]) -> bool {
         if entry.len() > MAX_CLAIM_ENTRY_LEN {
             return false;
         }
-        paths
-            .iter()
-            .any(|path| !path.is_empty() && path_allows(path, entry))
+        spelled.iter().any(|elems| path_allows(elems, entry))
     })
 }
 
-/// Whether one requested claim path authorises one disclosed entry.
-fn path_allows(path: &[serde_json::Value], entry: &str) -> bool {
-    // The bare last-element form: a string matches itself, a number
-    // its decimal form, and a trailing wildcard (null) any bare entry
-    // at all (the Go `pathElemString` failure the bare check reads as
-    // a match: a request for [..., any] names any last element).
-    let bare = match path.last() {
-        Some(serde_json::Value::Null) => true,
-        Some(serde_json::Value::String(text)) => text == entry,
-        Some(serde_json::Value::Number(number)) => number
-            .as_u64()
-            .is_some_and(|value| value.to_string() == entry),
-        _ => false,
+/// Whether one requested claim path, spelled as its matcher elements,
+/// authorises one disclosed entry.
+fn path_allows(elems: &[PathElem<'_>], entry: &str) -> bool {
+    // A claims path has one component at least (§7).
+    let Some(last) = elems.last() else {
+        return false;
     };
-    if bare {
-        return true;
-    }
+    // The bare last-element form: a text matches itself, and a trailing
+    // wildcard (null) any bare entry at all (the Go `pathElemString`
+    // failure the bare check reads as a match: a request for
+    // [..., any] names any last element).
+    let bare = match last {
+        PathElem::Text(text) => text == entry,
+        PathElem::Wildcard => true,
+    };
     // The "."-joined form, or a descendant of it.
-    match_joined_path(entry, path)
+    bare || match_joined_path(entry, elems)
 }
 
-/// One `claims[].path` element, in the form the matcher reads: text
+/// One `claims[].path` component, in the form the matcher reads: text
 /// (a string, or a non-negative integer's decimal form) or a wildcard
 /// (null).
 #[derive(Debug, Clone)]
-enum PathElem {
-    /// A string element, or an integer element's decimal form.
-    Text(String),
-    /// A null element: it matches any run up to a dot boundary,
+enum PathElem<'a> {
+    /// A string component, or an integer component's decimal form.
+    Text(Cow<'a, str>),
+    /// A null component: it matches any run up to a dot boundary,
     /// including none.
     Wildcard,
 }
 
-/// Reads a validated path into its matcher elements. `None` for an
-/// element the matcher cannot interpret — `validate_claim_path` has
-/// refused those before a path reaches here, so a matcher that sees
-/// one refuses.
-fn path_elems(path: &[serde_json::Value]) -> Option<Vec<PathElem>> {
-    path.iter()
-        .map(|element| match element {
-            serde_json::Value::String(text) => Some(PathElem::Text(text.clone())),
-            serde_json::Value::Number(number) => number
-                .as_u64()
-                .map(|value| PathElem::Text(value.to_string())),
-            serde_json::Value::Null => Some(PathElem::Wildcard),
-            _ => None,
-        })
-        .collect()
+/// The matcher elements of a parsed path: an integer component as its
+/// decimal form, whatever its spelling in the query.
+fn path_elems(path: &PresentationClaimsPath) -> Vec<PathElem<'_>> {
+    match path {
+        PresentationClaimsPath::Json(components) => components
+            .iter()
+            .map(|component| match component {
+                JsonComponent::Key(key) => PathElem::Text(Cow::Borrowed(key)),
+                JsonComponent::Index(index) => PathElem::Text(Cow::Owned(index.to_string())),
+                JsonComponent::AllElements => PathElem::Wildcard,
+            })
+            .collect(),
+        PresentationClaimsPath::Mdoc {
+            namespace,
+            data_element,
+        } => vec![
+            PathElem::Text(Cow::Borrowed(namespace)),
+            PathElem::Text(Cow::Borrowed(data_element)),
+        ],
+        PresentationClaimsPath::OtherFormat(components) => components
+            .iter()
+            .map(|component| match component {
+                PresentationComponent::Key(key) => PathElem::Text(Cow::Borrowed(key)),
+                PresentationComponent::Integer(integer) => {
+                    PathElem::Text(Cow::Owned(integer.to_string()))
+                }
+                PresentationComponent::Null => PathElem::Wildcard,
+            })
+            .collect(),
+    }
 }
 
-/// Whether `entry` is the `.`-joined form of `path` or of a descendant
-/// of it. Elements may themselves contain dots (an mdoc namespace such
-/// as `org.iso.18013.5.1`), so `entry` is not split: each element is
-/// matched as a prefix ending at a dot boundary, and a null element
-/// matches any run of characters up to a dot boundary (including
-/// none).
+/// Whether `entry` is the `.`-joined form of the path `elems` spell, or
+/// of a descendant of it. Elements may themselves contain dots (an mdoc
+/// namespace such as `org.iso.18013.5.1`), so `entry` is not split:
+/// each element is matched as a prefix ending at a dot boundary, and a
+/// null element matches any run of characters up to a dot boundary
+/// (including none).
 ///
 /// The result is memoised on (path index, entry offset), so the work
 /// is polynomial in `len(path)` and `len(entry)` however many wildcards
 /// a verifier-controlled query contains (the Go `matchJoinedPath`,
 /// whose memo comment this mirrors).
-fn match_joined_path(entry: &str, path: &[serde_json::Value]) -> bool {
-    let Some(elems) = path_elems(path) else {
-        return false;
-    };
+fn match_joined_path(entry: &str, elems: &[PathElem<'_>]) -> bool {
     let entry = entry.as_bytes();
-    let mut memo: rustc_hash::FxHashMap<(usize, usize), bool> = rustc_hash::FxHashMap::default();
-    match_joined_rec(entry, &elems, 0, 0, &mut memo)
+    let mut memo: FxHashMap<(usize, usize), bool> = FxHashMap::default();
+    match_joined_rec(entry, elems, 0, 0, &mut memo)
 }
 
 /// One memoised step of [`match_joined_path`]: does the remainder of
 /// `entry` from `off` match the path's elements from `pi` on?
 fn match_joined_rec(
     entry: &[u8],
-    elems: &[PathElem],
+    elems: &[PathElem<'_>],
     pi: usize,
     off: usize,
-    memo: &mut rustc_hash::FxHashMap<(usize, usize), bool>,
+    memo: &mut FxHashMap<(usize, usize), bool>,
 ) -> bool {
     let key = (pi, off);
     if let Some(cached) = memo.get(&key) {
@@ -438,10 +538,10 @@ fn match_joined_rec(
 /// all of it.
 fn match_joined_compute(
     entry: &[u8],
-    elems: &[PathElem],
+    elems: &[PathElem<'_>],
     pi: usize,
     off: usize,
-    memo: &mut rustc_hash::FxHashMap<(usize, usize), bool>,
+    memo: &mut FxHashMap<(usize, usize), bool>,
 ) -> bool {
     let last = pi + 1 == elems.len();
     // Continues past element pi, whose match ended at entry[end].

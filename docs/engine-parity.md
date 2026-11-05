@@ -404,8 +404,9 @@ three refusals (unusable, required-without-proof-type, plain-secret).
 6. **W6 — COMPLETE (the consent component #525 + the selection)**:
    `oid4vp/consent.rs` — the DCQL vetting of the host's match answer
    (the Go `checkConsentAgainstDCQL`, its fixture table ported case
-   for case): the four reason classes, `always_disclosed`, the bounds
-   (a 32-element path, a 512-byte entry, a 64-character logged id),
+   for case): the four reason classes, each claims path parsed once
+   by OpenID4VP 1.0 §7 for its query's format, `always_disclosed`, the
+   bounds (a 32-element path, a 512-byte entry, a 64-character logged id),
    the bare and `.`-joined entry spellings, the memoised wildcard
    matcher, the `credential_sets` options constraint. The mode
    (`presentation.dcql_consent_check`: off/warn/enforce, the default
