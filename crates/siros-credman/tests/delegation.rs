@@ -9,14 +9,16 @@ use siros_credman::{
     Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
     WalletDisplayNeeded,
 };
+use siros_explain::Text;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::{CredentialId, TransactionType};
 use siros_openid4vp::matching::{Accepted, Consent, Match, StaticEntry, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::refusal::ErrorCode;
-use siros_openid4vp::rows::{Icon, Label, Row};
+use siros_openid4vp::rows::{Icon, Row};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, parameters, request_of, unsigned};
+use siros_testkit::render::{App, AppError, CrateSource};
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 
 /// A text far longer than a picker line, which a field clips (A9's clipped fields).
@@ -75,9 +77,9 @@ fn judged(
         id: "notice".to_owned(),
         card: Card {
             icon: Icon::DEFAULT,
-            title: "Notice".to_owned(),
+            title: Text::Raw("Notice".to_owned()),
             subtitle: None,
-            rows: vec![Row::full_text(Label::text("n".repeat(PARAGRAPH)))],
+            rows: vec![Row::full_text(Text::Raw("n".repeat(PARAGRAPH)))],
         },
     }];
     let shown = display(&sets, &views, &statics).expect("display");
@@ -87,11 +89,14 @@ fn judged(
         .collect();
     let presentable = Presentable(&presentable);
     let transactions = TransactionData::of(&request);
-    let facts = SetFacts::of(&shown.sets()[0], presentable, transactions);
-    (
-        facts,
-        Fulfilment::Background(host).check(&shown, 0, presentable, transactions),
-    )
+    let app = App::of(&[CrateSource::openid4vp()]).expect("the test app");
+    let mut plain = |text: &Text| -> Result<String, AppError> { app.plain(&env, text) };
+    let facts = SetFacts::of(&shown.sets()[0], presentable, transactions, &mut plain)
+        .expect("the texts render");
+    let background = Fulfilment::Background(host)
+        .check(&shown, 0, presentable, transactions, &mut plain)
+        .expect("the texts render");
+    (facts, background)
 }
 
 /// A case: its name, the request, the wallet, the credentials presentable without the wallet's

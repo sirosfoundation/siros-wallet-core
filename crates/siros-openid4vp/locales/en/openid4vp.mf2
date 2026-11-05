@@ -11,6 +11,7 @@ credential = Credential
 request_title = Share your data
 yes = Yes
 no = No
+claim = claim
 
 [frequency]
 inda = intraday

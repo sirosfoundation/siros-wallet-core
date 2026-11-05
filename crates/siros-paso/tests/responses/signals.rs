@@ -10,7 +10,7 @@ use siros_paso::risk::DEFAULT_PROFILE;
 use siros_testkit::Published;
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, PAY, annex, en, member, parameters};
+use crate::common::{Card, PAY, Screen, annex, en, member, parameters};
 
 use super::{
     AMR, MODE, answer, card, host_with, ok, payment, payment_meta, proof, registry, registry_of,
@@ -178,19 +178,26 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
             &en(),
         )
         .expect("binds");
+    let screen = Screen::of(PAY, &meta, &en());
     let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(
-        (payment.counterparty.as_str(), payment.amount.as_str()),
-        ("Shop Inc.", "€49.99")
+        (
+            screen.plain(&payment.counterparty),
+            screen.plain(&payment.amount)
+        ),
+        ("Shop Inc.".to_owned(), "€49.99".to_owned())
     );
-    assert_eq!(bound.overlay.hint.as_deref(), Some(hint));
+    assert_eq!(
+        bound.overlay.hint.as_ref().map(|shown| screen.plain(shown)),
+        Some(hint.to_owned())
+    );
     // The header shows merchant and amount: the overlay's rows leave them out.
     assert!(bound.overlay.rows.is_empty());
     assert_eq!(
         payment
             .rows
             .iter()
-            .map(|r| r.label.text.as_str())
+            .map(|r| screen.plain(&r.label))
             .collect::<Vec<_>>(),
         ["Payee", "Amount"]
     );

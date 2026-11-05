@@ -11,6 +11,7 @@ credential = Nachweis
 request_title = Daten teilen
 yes = Ja
 no = Nein
+claim = Angabe
 
 [frequency]
 inda = untertägig

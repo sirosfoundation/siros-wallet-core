@@ -1,21 +1,21 @@
 //! The Mandate rulebook's metadata (Mandate §2): a wallet implementing it ships with every
-//! claim, its position and its rendering, and labels them from its own table. The credential's
+//! claim, its position and its rendering, and labels them with its own texts. The credential's
 //! metadata contributes its `security_hint`, shown exactly.
 
 use std::borrow::Cow;
 
 use siros_explain::Explain;
+use siros_explain::Text;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, TableLocale, ValueKind, WalletText};
+use siros_openid4vp::rows::{FormattedKind, ValueKind, WalletText};
 
-use crate::labels::LabelText;
 use crate::metadata::{
     ClaimMeta, DisplayArray, Displayed, EntryLocale, LabelForm, Localized, Mandatory, Metadata,
     UiKey, UiLabel, ValueType,
 };
 use crate::outcome::Unsupported;
-use crate::rulebook::{Rulebook, Subtype};
+use crate::rulebook::{Confirm, Rulebook, Subtype, Title};
 
 /// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
 /// crate's module.
@@ -76,35 +76,30 @@ impl MandateLabel {
         Self::Payee,
         Self::PayeeLogo,
     ];
+}
 
-    /// The label in a locale of the wallet's table.
+/// A text of the wallet's own a rulebook's metadata labels with: a message of a crate module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnText {
+    /// A Mandate claim's label.
+    Label(MandateLabel),
+    /// The transaction title.
+    Title(Title),
+    /// The confirm action.
+    Confirm(Confirm),
+    /// The wallet's denial action.
+    Deny,
+}
+
+impl OwnText {
+    /// The text.
     #[must_use]
-    pub const fn text(self, locale: TableLocale) -> &'static str {
-        match (locale, self) {
-            (TableLocale::En, Self::MandateId) => "Mandate reference",
-            (TableLocale::En, Self::Mandatee) => "Authorized party",
-            (TableLocale::En, Self::Action) => "Authorized action",
-            (TableLocale::En, Self::Conditions) => "Conditions",
-            (TableLocale::En, Self::MaxAmount) => "Maximum amount per use",
-            (TableLocale::En, Self::MaxCount) => "Maximum uses",
-            (TableLocale::En, Self::Period) => "Per period",
-            (TableLocale::En, Self::ValidFrom) => "Valid from",
-            (TableLocale::En, Self::ValidUntil) => "Valid until",
-            (TableLocale::En, Self::Amount) => "Amount",
-            (TableLocale::En, Self::Payee) => "Payee",
-            (TableLocale::En, Self::PayeeLogo) => "Payee logo",
-            (TableLocale::De, Self::MandateId) => "Mandatsreferenz",
-            (TableLocale::De, Self::Mandatee) => "Bevollmächtigte Partei",
-            (TableLocale::De, Self::Action) => "Erlaubte Handlung",
-            (TableLocale::De, Self::Conditions) => "Bedingungen",
-            (TableLocale::De, Self::MaxAmount) => "Höchstbetrag pro Nutzung",
-            (TableLocale::De, Self::MaxCount) => "Höchstzahl der Nutzungen",
-            (TableLocale::De, Self::Period) => "Zeitraum",
-            (TableLocale::De, Self::ValidFrom) => "Gültig ab",
-            (TableLocale::De, Self::ValidUntil) => "Gültig bis",
-            (TableLocale::De, Self::Amount) => "Betrag",
-            (TableLocale::De, Self::Payee) => "Empfänger",
-            (TableLocale::De, Self::PayeeLogo) => "Logo des Empfängers",
+    pub fn text(self) -> Text {
+        match self {
+            Self::Label(label) => Text::of(&label),
+            Self::Title(title) => Text::of(&title),
+            Self::Confirm(confirm) => Text::of(&confirm),
+            Self::Deny => Text::of(&WalletText::Deny),
         }
     }
 }
@@ -217,20 +212,13 @@ const TABLE: [Row; 19] = {
     ]
 };
 
-/// The table locales, in the order a built display array lists them.
-const LOCALES: [(TableLocale, &str); 2] = [(TableLocale::En, "en"), (TableLocale::De, "de")];
-
-/// A display array of the wallet's own strings, one entry per table locale.
-fn own(text: impl Fn(TableLocale) -> &'static str) -> DisplayArray<'static> {
-    DisplayArray::built(
-        LOCALES
-            .iter()
-            .map(|(locale, tag)| Localized {
-                locale: EntryLocale::Tagged(tag),
-                label: LabelForm::Plain(LabelText::wallet(text(*locale))),
-            })
-            .collect(),
-    )
+/// A display array of a text of the wallet's own: its default entry, which every language
+/// matches, as the crate modules cover every language of the wallet.
+fn own(text: OwnText) -> DisplayArray<'static> {
+    DisplayArray::built(vec![Localized {
+        locale: EntryLocale::Default,
+        label: LabelForm::Own(text),
+    }])
 }
 
 /// The metadata a Mandate type renders with: the rulebook's claims and labels, its title and
@@ -250,7 +238,7 @@ pub(crate) fn metadata<'m>(
             ),
             mandatory: row.mandatory,
             display: row.label.map(|label| Displayed {
-                names: own(|locale| label.text(locale)),
+                names: own(OwnText::Label(label)),
                 value: row.value,
             }),
         })
@@ -258,15 +246,15 @@ pub(crate) fn metadata<'m>(
     let mut ui = vec![
         UiLabel {
             key: UiKey::TransactionTitle,
-            entries: own(|locale| rulebook.title().in_locale(locale)),
+            entries: own(OwnText::Title(rulebook.title())),
         },
         UiLabel {
             key: UiKey::AffirmativeActionLabel,
-            entries: own(|locale| rulebook.confirm().in_locale(locale)),
+            entries: own(OwnText::Confirm(rulebook.confirm())),
         },
         UiLabel {
             key: UiKey::DenialActionLabel,
-            entries: own(|locale| WalletText::Deny.in_locale(locale)),
+            entries: own(OwnText::Deny),
         },
     ];
     if let Some(hint) = hint(given)? {

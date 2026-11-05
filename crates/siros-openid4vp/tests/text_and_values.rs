@@ -2,13 +2,16 @@
 //! owner's rule over a priority list,
 //! CommonMark 0.31.2's emphasis examples (`data/commonmark-0.31.2-spec.json`, spec.commonmark.org
 //! 0.31.2, SHA-256 d431b29d97b6f73e69d547109cf5081578fac931e72afe95639ebe766c1b2a20), and the
-//! value kinds of PaSO View §3 formatted as its examples show them.
+//! value kinds of PaSO View §3 parsed into the typed values ISO 8601 and ISO 4217 write.
 
 use serde_json::Value as Json;
+use siros_explain::{
+    Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
+};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{
-    Amounts, Choice, Date, Env, EnvError, FormattedKind, HttpsUrl, Label, Parsed, Shown,
-    TableLocale, Value, Written,
+    Choice, Env, EnvError, FormattedKind, Frequency, HttpsUrl, Parsed, Shown, WalletText, Written,
+    formatted,
 };
 use siros_openid4vp::text::{Span, Style, commonmark_html, lookup, spans};
 use siros_testkit::fixtures::OPTIONS;
@@ -165,167 +168,141 @@ fn mini_markdown_keeps_every_other_construct_literal() {
         commonmark_html("*a <u>b</u>*"),
         "<p><em>a <u>b</u></em></p>\n"
     );
-    assert_eq!(
-        Label::text("a **b**").spans(),
-        styled(&[("a **b**", PLAIN)])
-    );
-    assert_eq!(
-        Label::mini_markdown("a **b**").spans(),
-        styled(&[("a ", PLAIN), ("b", STRONG)])
-    );
 }
 
-fn text_of(
-    kind: FormattedKind,
-    written: Written<'_>,
-    locale: TableLocale,
-    amounts: Amounts,
-) -> Option<String> {
-    Value::format(kind, written, locale, amounts)
-        .ok()
-        .and_then(|value| value.text().map(str::to_owned))
+fn text_of(kind: FormattedKind, written: Written<'_>) -> Option<Text> {
+    formatted(kind, written).ok().map(|(_, text)| text)
 }
 
-/// What a value of a kind shows: a text its source fixes, a text the wallet's table chooses, or
-/// a refusal.
+fn date(year: u16, month: u8, day: u8) -> Text {
+    Text::Value(Typed::Date(Date::new(year, month, day).expect("a date")))
+}
+
+fn amount(units: i128, scale: u8, code: &str) -> Text {
+    let currency = Currency::from_code(code).expect("an ISO 4217 code");
+    let value = Decimal::new(units, scale).expect("a decimal");
+    Text::Value(Typed::Amount(Amount::new(value, currency)))
+}
+
+fn time(hour: u8, minute: u8, second: Option<(u8, u32, u8)>) -> Time {
+    let second = second.map(|(whole, nanos, digits)| {
+        Second::new(whole, Fraction::new(nanos, digits).expect("a fraction")).expect("a second")
+    });
+    Time::new(hour, minute, second).expect("a time")
+}
+
+fn offset(minutes: i16) -> Offset {
+    Offset::new(minutes).expect("an offset")
+}
+
+/// What a value of a kind shows: a text its source fixes, or a refusal.
 enum Want {
-    Text(&'static str),
-    Shown,
+    Is(Text),
     Refused,
 }
 
-/// PaSO View §3's value kinds: each conforming value shows and each other is refused. The texts
-/// compared exactly are those a source fixes: PaSO View §3's frequency words, the rulebooks'
-/// screens (Generic A.4: "3 Jun 2026", "€1,000.00"), ISO 4217's codes, UTS #46's A-labels and
-/// what the Verifier wrote.
+/// PaSO View §3's value kinds: each conforming value parses into the typed value ISO 8601 and
+/// ISO 4217 write, the frequency ISO 20022's code names, the boolean answer, or the text as
+/// written (UTS #46's A-labels for a URL's host); each other is refused.
 #[test]
 fn value_kinds_parse_as_paso_view_section_3_states() {
     use FormattedKind as K;
-    use Want::{Refused, Shown, Text};
+    use Want::{Is, Refused};
     use Written::{Boolean as B, Text as T};
     let other = siros_openid4vp::json::Node::parse("3").expect("number");
+    let raw = |text: &str| Is(Text::Raw(text.to_owned()));
     let table: [(K, Written<'_>, Want); 31] = [
-        (K::Boolean, B(true), Shown),
+        (K::Boolean, B(true), Is(Text::of(&WalletText::Yes))),
         (K::Boolean, T("true"), Refused),
         (K::Date, B(true), Refused),
-        (K::Frequency, T("MNTH"), Text("monthly")),
+        (K::Frequency, T("MNTH"), Is(Text::of(&Frequency::Monthly))),
         (K::Frequency, T("MONTHLY"), Refused),
-        (K::Date, T("2026-09-02"), Text("2 Sep 2026")),
-        (K::Date, T("20260902"), Text("2 Sep 2026")),
+        (K::Date, T("2026-09-02"), Is(date(2026, 9, 2))),
+        (K::Date, T("20260902"), Is(date(2026, 9, 2))),
         (K::Date, T("2026-02-30"), Refused),
-        (K::Time, T("10:15:30Z"), Shown),
+        (
+            K::Time,
+            T("10:15:30Z"),
+            Is(Text::Value(Typed::Time {
+                at: time(10, 15, Some((30, 0, 0))),
+                offset: Some(offset(0)),
+            })),
+        ),
         (K::Time, T("25:00"), Refused),
         (K::Time, T("10:00+24:00"), Refused),
         (K::Time, T("10"), Refused),
-        (K::DateTime, T("2026-06-02T10:15:30+02:00"), Shown),
+        (
+            K::DateTime,
+            T("2026-06-02T10:15:30+02:00"),
+            Is(Text::Value(Typed::DateTime(DateTime::new(
+                Date::new(2026, 6, 2).expect("a date"),
+                time(10, 15, Some((30, 0, 0))),
+                Some(offset(120)),
+            )))),
+        ),
         (K::DateTime, T("2026-06-02 10:15"), Refused),
-        (K::Currency, T("EUR"), Text("EUR")),
+        (
+            K::Currency,
+            T("EUR"),
+            Is(Text::Value(Typed::Currency(
+                Currency::from_code("EUR").expect("EUR"),
+            ))),
+        ),
         (K::Currency, T("EURO"), Refused),
         (
             K::CurrencyAmount,
             T("1234567.50 EUR"),
-            Text("€1,234,567.50"),
+            Is(amount(123_456_750, 2, "EUR")),
         ),
-        (K::CurrencyAmount, T("123456.00 EUR"), Text("€123,456.00")),
-        (K::CurrencyAmount, T("0.50 EUR"), Text("€0.50")),
-        (K::CurrencyAmount, T("100 JPY"), Shown),
+        (
+            K::CurrencyAmount,
+            T("123456.00 EUR"),
+            Is(amount(12_345_600, 2, "EUR")),
+        ),
+        (K::CurrencyAmount, T("0.50 EUR"), Is(amount(50, 2, "EUR"))),
+        (K::CurrencyAmount, T("100 JPY"), Is(amount(100, 0, "JPY"))),
         (K::CurrencyAmount, T("EUR 45.00"), Refused),
         (K::CurrencyAmount, T("49.9 EUR"), Refused),
         (K::CurrencyAmount, T("49 EUR"), Refused),
         (K::CurrencyAmount, T("012.00 EUR"), Refused),
         (K::CurrencyAmount, T("100. JPY"), Refused),
-        (K::MiniMarkdown, T("*a*"), Text("*a*")),
+        (K::MiniMarkdown, T("*a*"), raw("a")),
         (K::MiniMarkdown, Written::Other(&other), Refused),
-        (K::Text, T("plain"), Text("plain")),
+        (K::Text, T("plain"), raw("plain")),
         (
             K::Url,
             T("https://bücher.example/x?q=1"),
-            Text("https://xn--bcher-kva.example/x?q=1"),
+            raw("https://xn--bcher-kva.example/x?q=1"),
         ),
         (
             K::Url,
             T("https://shop.example/a"),
-            Text("https://shop.example/a"),
+            raw("https://shop.example/a"),
         ),
         (K::Url, T("http://shop.example"), Refused),
     ];
     for (kind, written, want) in table {
-        let got = text_of(kind, written, TableLocale::En, Amounts::Formatted);
+        let got = text_of(kind, written);
         match want {
-            Text(text) => assert_eq!(got.as_deref(), Some(text), "{kind:?} {written}"),
-            Shown => assert!(got.is_some(), "{kind:?} {written} shows"),
+            Is(text) => assert_eq!(got, Some(text), "{kind:?} {written}"),
             Refused => assert_eq!(got, None, "{kind:?} {written}"),
         }
     }
-    // Amounts shown raw are the Verifier's text as written.
-    assert_eq!(
-        text_of(
-            K::CurrencyAmount,
-            T("1.50 EUR"),
-            TableLocale::En,
-            Amounts::Written
-        )
-        .as_deref(),
-        Some("1.50 EUR")
-    );
 }
 
 #[test]
 fn a_value_keeps_its_parsed_form() {
-    let date = Value::format(
-        FormattedKind::Date,
-        Written::Text("2026-09-02"),
-        TableLocale::En,
-        Amounts::Formatted,
-    )
-    .expect("date");
+    let parsed = |kind, written: &str| formatted(kind, Written::Text(written)).expect("parses").0;
     assert!(matches!(
-        date,
-        Value::Formatted {
-            parsed: Parsed::Date(Date {
-                year: 2026,
-                month: 9,
-                day: 2
-            }),
-            ..
-        }
+        parsed(FormattedKind::Date, "2026-09-02"),
+        Parsed::Date(d) if (d.year(), d.month(), d.day()) == (2026, 9, 2)
     ));
-    let monthly = Value::format(
-        FormattedKind::Frequency,
-        Written::Text("MNTH"),
-        TableLocale::En,
-        Amounts::Formatted,
-    )
-    .expect("frequency");
     assert!(
-        matches!(monthly, Value::Formatted { parsed: Parsed::Frequency(f), .. } if f.code() == "MNTH")
+        matches!(parsed(FormattedKind::Frequency, "MNTH"), Parsed::Frequency(f) if f.code() == "MNTH")
     );
-    let amount = Value::format(
-        FormattedKind::CurrencyAmount,
-        Written::Text("2.00 EUR"),
-        TableLocale::En,
-        Amounts::Formatted,
-    )
-    .expect("amount");
     assert!(
-        matches!(amount, Value::Formatted { parsed: Parsed::CurrencyAmount(ref a), .. } if a.currency.code == "EUR")
+        matches!(parsed(FormattedKind::CurrencyAmount, "2.00 EUR"), Parsed::CurrencyAmount(a) if a.currency().code() == *b"EUR")
     );
-    let marked = Value::format(
-        FormattedKind::MiniMarkdown,
-        Written::Text("*c*"),
-        TableLocale::En,
-        Amounts::Formatted,
-    )
-    .expect("text");
-    assert_eq!(marked.spans(), Some(styled(&[("c", EM)])));
-    let plain = Value::format(
-        FormattedKind::Text,
-        Written::Text("x"),
-        TableLocale::En,
-        Amounts::Formatted,
-    )
-    .expect("text");
-    assert_eq!(plain.spans(), None);
 }
 
 #[test]
@@ -334,64 +311,75 @@ fn a_configuration_that_cannot_exist_is_refused() {
         Env::new(Vec::new(), Vec::new(), OPTIONS, Vec::new(), Choice::First),
         Err(EnvError::NoLocale)
     );
-    assert_eq!(
-        Env::new(
-            vec![tag("fr")],
-            vec![tag("es")],
-            OPTIONS,
-            Vec::new(),
-            Choice::First
-        ),
-        Err(EnvError::NotInTable("fr".to_owned())),
-        "neither list holds a locale the wallet's table serves"
-    );
 }
 
+/// ISO 8601's calendar and clock, RFC 3339 §5.7's leap second at 23:59:60 UTC on a month's last
+/// day, and UTS #46's A-labels.
 #[test]
 fn calendar_dates_times_and_urls_follow_iso_8601_and_uts_46() {
     use FormattedKind as K;
     use Written::Text as T;
-    let cases: [(K, &str, Option<&str>); 19] = [
-        (K::Date, "2026-01-31", Some("31 Jan 2026")),
-        (K::Date, "2023-02-28", Some("28 Feb 2023")),
+    let day = |year, month, day| date(year, month, day);
+    let cases: [(K, &str, Option<Text>); 22] = [
+        (K::Date, "2026-01-31", Some(day(2026, 1, 31))),
+        (K::Date, "2023-02-28", Some(day(2023, 2, 28))),
         (K::Date, "2026-09/02", None),
         (K::Date, "2026-+1-02", None),
         (K::Date, "2026-13-01", None),
-        (K::Date, "2024-02-29", Some("29 Feb 2024")),
+        (K::Date, "2024-02-29", Some(day(2024, 2, 29))),
         (K::Date, "2023-02-29", None),
         (K::Date, "1900-02-29", None),
-        (K::Date, "2000-02-29", Some("29 Feb 2000")),
+        (K::Date, "2000-02-29", Some(day(2000, 2, 29))),
         (K::Date, "2026-04-31", None),
         (K::Date, "0000-01-01", None),
-        (K::Time, "23:59:60.5-05:30", Some("23:59:60.5 UTC-05:30")),
-        (K::Time, "07:05", Some("07:05")),
+        // A leap second needs the date that places it.
+        (K::Time, "23:59:60.5-05:30", None),
+        (
+            K::Time,
+            "07:05",
+            Some(Text::Value(Typed::Time {
+                at: time(7, 5, None),
+                offset: None,
+            })),
+        ),
         (K::Time, "7:05", None),
         (K::Time, "10:15:30.", None),
         (
+            K::DateTime,
+            "2016-12-31T23:59:60.5Z",
+            Some(Text::Value(Typed::DateTime(
+                DateTime::leap(
+                    Date::new(2016, 12, 31).expect("a date"),
+                    23,
+                    59,
+                    Fraction::new(500_000_000, 1).expect("a fraction"),
+                    offset(0),
+                )
+                .expect("RFC 3339 Appendix D's leap second"),
+            ))),
+        ),
+        (K::DateTime, "2016-12-30T23:59:60Z", None),
+        (K::DateTime, "2016-12-31T23:59:60", None),
+        (
             K::Url,
             "https://user@bücher.example:8443/x",
-            Some("https://user@xn--bcher-kva.example:8443/x"),
+            Some(Text::Raw(
+                "https://user@xn--bcher-kva.example:8443/x".to_owned(),
+            )),
         ),
         (
             K::Url,
             "https://Ü@bücher.example/",
-            Some("https://Ü@xn--bcher-kva.example/"),
+            Some(Text::Raw("https://Ü@xn--bcher-kva.example/".to_owned())),
         ),
         (K::Url, "https://shop.example/a b", None),
         (K::Url, "https://", None),
     ];
     for (kind, written, want) in cases {
-        assert_eq!(
-            text_of(kind, T(written), TableLocale::En, Amounts::Formatted).as_deref(),
-            want,
-            "{kind:?} {written}"
-        );
+        assert_eq!(text_of(kind, T(written)), want, "{kind:?} {written}");
     }
 }
 
-/// A host beyond ASCII without an A-label form is shown as written and never fetched: UTS #46
-/// refuses a label that starts with a combining mark (U+0301), and maps U+FF5B, U+FF5C, U+FF02 and
-/// U+FF40 to `{`, `|`, `"` and a backtick, which RFC 3987's `ireg-name` refuses.
 #[test]
 fn hosts_without_an_a_label_form_are_unreachable() {
     for written in [

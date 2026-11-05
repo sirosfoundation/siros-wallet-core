@@ -2,11 +2,15 @@
 //! checked, and compiled into its render form.
 
 use sha2::{Digest, Sha256};
-use siros_explain::{Entry, Keyed, Message, ModuleId};
+use std::borrow::Cow;
+
+use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, tokens};
 
 use crate::compile::{self, Site};
 use crate::error::{ModuleError, OptionRefusal};
-use crate::form::{BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm};
+use crate::form::{
+    BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
+};
 use crate::format::{
     Call, Compilers, FormatCompiler, FormatId, LanguageFormats, Operand, ParsedFormats, Uses,
 };
@@ -15,10 +19,20 @@ use crate::mf2::{parse, valid};
 use crate::resource::{self, Resource};
 
 /// A module's declaration: its keys, and each key's arguments with their kinds. A crate module's
-/// is its types' [`siros_explain::Messages`]. Only [`Declaration::new`] makes one.
+/// is its types' [`siros_explain::Messages`]; a defined module's is what its converter declares.
+/// Only [`Declaration::new`] and [`Declaration::defined`] make one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declaration {
-    messages: Vec<Message>,
+    messages: Vec<Declared>,
+}
+
+/// A declared message: its identifier, its English template when a type declared it, and its
+/// parameters in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Declared {
+    pub(crate) id: String,
+    text: Option<&'static str>,
+    pub(crate) params: Vec<ParamForm>,
 }
 
 impl Declaration {
@@ -30,22 +44,61 @@ impl Declaration {
     ///
     /// [`ModuleError::Declaration`] for two different messages under one identifier.
     pub fn new(messages: Vec<Message>) -> Result<Self, ModuleError> {
-        let mut held: Vec<Message> = Vec::with_capacity(messages.len());
+        Self::of(messages.iter().map(|message| Declared {
+            id: message.id().as_str().to_owned(),
+            text: message.text(),
+            params: ParamForm::of_message(message),
+        }))
+    }
+
+    /// The declaration a converter writes for a defined module: each key with its parameters,
+    /// each under its name, in order.
+    ///
+    /// # Errors
+    ///
+    /// [`ModuleError::Declaration`] for a parameter name outside the tokens
+    /// (`siros_explain::tokens`).
+    pub fn defined(
+        messages: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
+    ) -> Result<Self, ModuleError> {
+        let mut declared = Vec::with_capacity(messages.entries().len());
+        for entry in messages.entries() {
+            let mut params = Vec::with_capacity(entry.value().entries().len());
+            for param in entry.value().entries() {
+                if !tokens(param.key(), 1) {
+                    return Err(ModuleError::Declaration(entry.key().as_str().to_owned()));
+                }
+                params.push(ParamForm {
+                    name: param.key().clone().into_owned(),
+                    kind: param.value().kind(),
+                    presence: param.value().presence(),
+                });
+            }
+            declared.push(Declared {
+                id: entry.key().as_str().to_owned(),
+                text: None,
+                params,
+            });
+        }
+        Self::of(declared.into_iter())
+    }
+
+    fn of(messages: impl Iterator<Item = Declared>) -> Result<Self, ModuleError> {
+        let mut held: Vec<Declared> = Vec::new();
         for message in messages {
-            match held.iter().find(|earlier| earlier.id() == message.id()) {
+            match held.iter().find(|earlier| earlier.id == message.id) {
                 Some(earlier) if *earlier == message => {}
-                Some(_) => return Err(ModuleError::Declaration(message.id().as_str().to_owned())),
+                Some(_) => return Err(ModuleError::Declaration(message.id)),
                 None => held.push(message),
             }
         }
-        held.sort_by(|a, b| a.id().as_str().cmp(b.id().as_str()));
+        held.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(Self { messages: held })
     }
 
-    /// The messages, sorted by identifier.
-    #[must_use]
-    pub fn messages(&self) -> &[Message] {
-        &self.messages
+    /// The declared identifiers, sorted.
+    pub fn ids(&self) -> impl Iterator<Item = &str> {
+        self.messages.iter().map(|message| message.id.as_str())
     }
 }
 
@@ -157,10 +210,10 @@ impl Module {
             ModuleId::Crate(domain) => format!("{}.", domain.as_str()),
             ModuleId::Main | ModuleId::Defined(_) => String::new(),
         };
-        let mut keyed: Vec<Entry<&str, &Message>> = Vec::with_capacity(declared.messages.len());
+        let mut keyed: Vec<Entry<&str, &Declared>> = Vec::with_capacity(declared.messages.len());
         for message in &declared.messages {
-            let key = message.id().as_str().strip_prefix(prefix.as_str());
-            let key = key.ok_or_else(|| ModuleError::Outside(message.id().as_str().to_owned()))?;
+            let key = message.id.strip_prefix(prefix.as_str());
+            let key = key.ok_or_else(|| ModuleError::Outside(message.id.clone()))?;
             keyed.push(Entry::new(key, message));
         }
         let mut resources: Vec<Resource> = Vec::with_capacity(sources.len());
@@ -249,7 +302,7 @@ impl Module {
 /// One locale's messages, each parsed, checked and resolved.
 fn resolve<'a>(
     resource: &'a Resource,
-    keyed: &[Entry<&'a str, &'a Message>],
+    keyed: &[Entry<&'a str, &'a Declared>],
     compilers: &Compilers,
 ) -> Result<Vec<compile::Resolved<'a>>, ModuleError> {
     let locale = resource.locale.as_str();

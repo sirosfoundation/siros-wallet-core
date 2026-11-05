@@ -1,9 +1,15 @@
 //! View §2-4 on each rendering: check_props.py's `check_outcome`.
 
 use serde_json::{Value, json};
-use siros_openid4vp::rows::LabelKind;
+use siros_explain::{Key, Text};
+use siros_openid4vp::ids::LocaleTag;
+use siros_openid4vp::rows::Amounts;
+use siros_openid4vp::text::spans;
 use siros_paso::Rendered;
 use siros_paso::outcome::Outcome;
+use siros_testkit::fixtures::with_generic_forms;
+
+use crate::common::{Screen, env};
 
 use super::{
     Tally, arrays, at, complete, concrete, given, kind_of, mandate_claims, preferred, select,
@@ -14,7 +20,7 @@ use super::{
 pub(super) fn outcome(
     kind: &str,
     entry: &Value,
-    types: &Value,
+    (types, given_text): (&Value, Option<&str>),
     rendered: &Result<Rendered, Outcome>,
     locales: &[&str],
     tally: &mut Tally,
@@ -37,7 +43,31 @@ pub(super) fn outcome(
         return;
     };
     tally.add("rendered");
-    let locale = view.locale.tag.as_str();
+    // The test app renders in the language the documented practice's list gives every module.
+    let tags: Vec<LocaleTag> = locales
+        .iter()
+        .map(|tag| LocaleTag::parse(tag).expect("a tag"))
+        .collect();
+    let practice: Vec<String> = with_generic_forms(&tags)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let practice: Vec<&str> = practice.iter().map(String::as_str).collect();
+    let entry_type = entry["type"].as_str().expect("type");
+    let screen = Screen::of(
+        entry_type,
+        given_text.expect("the metadata's text"),
+        &env(&practice, Amounts::Formatted),
+    );
+    // A label's text as written: a mini_markdown label's spans without their styles.
+    let written = |label: &Value, text: &str, typed_by: &str| match label
+        .get(typed_by)
+        .and_then(Value::as_str)
+    {
+        Some("mini_markdown") => spans(text).into_iter().map(|span| span.text).collect(),
+        _ => text.to_owned(),
+    };
+    let locale = view.locale.as_str();
     assert!(
         locales.contains(&locale) && complete(locale, &arrays),
         "P-locale {locale}: {meta}"
@@ -56,41 +86,29 @@ pub(super) fn outcome(
                 .iter()
                 .find(|claim| claim.displayed && json!(claim.path) == json!(path))
                 .expect("a displayed Mandate claim");
-            assert_eq!(row.row.label.kind, LabelKind::Text, "P-label kind");
+            assert!(
+                matches!(&row.row.label, Text::Query(query) if matches!(query.key(), Key::Message(_))),
+                "P-label own {row:?}"
+            );
             claim.value_type.clone()
         } else {
             let claim = &claims[row.claim.0];
             let display = claim["display"].as_array().expect("a displayed claim");
             if let Some(want) = preferred(display, locale, "display_type") {
                 assert_eq!(
-                    row.row.label.text,
-                    want["name"].as_str().expect("name"),
+                    screen.plain(&row.row.label),
+                    written(want, want["name"].as_str().expect("name"), "display_type"),
                     "P-locale label"
                 );
             }
-            let mut kinds: Vec<Option<&str>> = display
-                .iter()
-                .map(|d| d.get("display_type").and_then(Value::as_str))
-                .collect();
-            kinds.sort_unstable();
-            kinds.dedup();
-            let expected = if kinds == [None] {
-                LabelKind::Text
-            } else {
-                LabelKind::MiniMarkdown
-            };
-            assert!(
-                row.row.label.kind == expected || kinds.len() > 1,
-                "P-label kind {row:?}"
-            );
             claim
                 .get("value_type")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         };
         match &row.row.value {
-            Some(value) => assert_eq!(
-                value.kind().as_str(),
+            Some(_) => assert_eq!(
+                row.kind.map_or("<none>", |kind| kind.as_str()),
                 kind_of(value_type.as_deref()),
                 "P-kind {row:?}"
             ),
@@ -141,20 +159,26 @@ pub(super) fn outcome(
     assert_eq!(got, want, "P-coverage");
     let ui = meta.get("ui_labels");
     let ui_array = |key: &str| ui.and_then(|u| u.get(key)).and_then(Value::as_array);
-    let mut labels = vec![("security_hint", view.actions.hint.as_deref())];
+    let shown = |text: &Text| screen.plain(text);
+    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
     if !mandate {
         labels.extend([
-            ("transaction_title", Some(view.title.text.as_str())),
+            ("transaction_title", Some(shown(&view.title))),
             (
                 "affirmative_action_label",
-                Some(view.actions.confirm.text.as_str()),
+                Some(shown(&view.actions.confirm)),
             ),
-            ("denial_action_label", Some(view.actions.deny.text.as_str())),
+            ("denial_action_label", Some(shown(&view.actions.deny))),
         ]);
     }
     for (key, got) in labels {
         if let Some(want) = ui_array(key).and_then(|array| preferred(array, locale, "value_type")) {
-            assert_eq!(got, want["value"].as_str(), "P-locale ui label {key}");
+            let text = want["value"].as_str().expect("value");
+            assert_eq!(
+                got,
+                Some(written(want, text, "value_type")),
+                "P-locale ui label {key}"
+            );
         }
     }
     assert_eq!(
@@ -166,8 +190,8 @@ pub(super) fn outcome(
         let (merchant, amount) = view.payment_texts().expect("a payment's texts");
         assert!(
             kind == "urn:paso:sca:global:payment:1"
-                && !merchant.trim().is_empty()
-                && !amount.trim().is_empty(),
+                && !shown(merchant).trim().is_empty()
+                && !shown(amount).trim().is_empty(),
             "P-payment {view:?}"
         );
     }

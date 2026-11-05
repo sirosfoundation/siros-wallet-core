@@ -144,6 +144,18 @@ impl<K: PartialEq + fmt::Debug, V> Keyed<K, V> {
         Ok(Self(held))
     }
 
+    /// The entries, in their order, each key's first value alone.
+    #[must_use]
+    pub fn first_of(entries: impl IntoIterator<Item = Entry<K, V>>) -> Self {
+        let mut held: Vec<Entry<K, V>> = Vec::new();
+        for entry in entries {
+            if held.iter().all(|earlier| earlier.key != entry.key) {
+                held.push(entry);
+            }
+        }
+        Self(held)
+    }
+
     /// The value under a key.
     #[must_use]
     pub fn get(&self, key: &K) -> Option<&V> {

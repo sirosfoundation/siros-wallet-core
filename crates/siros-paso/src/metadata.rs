@@ -5,12 +5,14 @@
 
 use std::fmt;
 
+use siros_explain::Domain;
 use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{FormattedKind, LabelKind, ValueKind};
+use siros_openid4vp::rows::{FormattedKind, ValueKind};
 
 use crate::labels::{LabelSlot, LabelText, LabelViolation};
+use crate::mandate::OwnText;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::path::claim_text;
 
@@ -59,6 +61,19 @@ impl UiKey {
     #[must_use]
     pub fn of(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|key| key.name() == name)
+    }
+
+    /// The stem of its labels' keys in a converted module.
+    #[must_use]
+    pub const fn stem(self) -> Domain {
+        match self {
+            Self::TransactionTitle => siros_explain::checked!(Domain, "transaction_title"),
+            Self::AffirmativeActionLabel => {
+                siros_explain::checked!(Domain, "affirmative_action_label")
+            }
+            Self::DenialActionLabel => siros_explain::checked!(Domain, "denial_action_label"),
+            Self::SecurityHint => siros_explain::checked!(Domain, "security_hint"),
+        }
     }
 
     /// Where its labels show.
@@ -126,17 +141,8 @@ pub enum LabelForm<'m> {
     Markdown(LabelText<'m>),
     /// `template:mini_markdown`: §3.3 applies once interpolated.
     Template(&'m str),
-}
-
-impl LabelForm<'_> {
-    /// The kind the rendered label has.
-    #[must_use]
-    pub const fn kind(&self) -> LabelKind {
-        match self {
-            Self::Plain(_) => LabelKind::Text,
-            Self::Markdown(_) | Self::Template(_) => LabelKind::MiniMarkdown,
-        }
-    }
+    /// A text of the wallet's own, which the rulebook names.
+    Own(OwnText),
 }
 
 /// One entry of a display array.

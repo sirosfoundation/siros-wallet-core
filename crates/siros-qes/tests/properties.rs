@@ -32,7 +32,7 @@ use siros_testkit::TestHost;
 use common::fixtures::{nist, sri};
 use common::{
     Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, approve, entry, env, hex, parameters, phase_one,
-    registry, serving,
+    plain, registry, serving,
 };
 
 /// check_props.py's documents: the first published as it is, the second altered, the third not
@@ -256,8 +256,8 @@ fn the_profile_keeps_the_properties_the_model_states() {
             overlay.header.is_none()
                 && overlay.hint.is_none()
                 && rows.first().is_some_and(|row| row.value.is_none())
-                && rows.last().map(|row| row.label.text.as_str()) == Some("userName")
-                && view.header.as_ref().map(|h| h.title.text.clone())
+                && rows.last().map(|row| plain(&row.label, "en")).as_deref() == Some("userName")
+                && view.header.as_ref().map(|h| plain(&h.title, "en"))
                     == Some(format!("Approve qualified {creates}")),
             "case {at}: {:?}",
             view.entry

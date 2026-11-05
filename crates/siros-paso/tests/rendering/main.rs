@@ -6,53 +6,56 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::{CUSTOM, Card, PAY, data_png, en, entry, env, label, png, rows, shown, sri};
+use common::{CUSTOM, Card, PAY, Screen, Seen, data_png, en, entry, env, png, shown, sri};
+use siros_i18n::Style;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
-use siros_openid4vp::text::{Span, Style};
 use siros_paso::outcome::Outcome;
 use siros_paso::rulebook::Family;
-use siros_paso::{Fetch, PasoProfile, Rendered};
+use siros_paso::{Fetch, PasoProfile};
 
 mod binding;
 mod images;
 
-fn render_typed(
-    kind: &str,
-    meta: &str,
-    payload: &str,
-    locales: &[&str],
-) -> Result<Rendered, Outcome> {
+fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Result<Seen, Outcome> {
     let card = Card::sd_jwt(&format!(r#"{{"{kind}": {meta}}}"#));
     let entry_json =
         format!(r#"{{"type": "{kind}", "credential_ids": ["q"], "payload": {payload}}}"#);
-    PasoProfile::default()
+    let env = env(locales, Amounts::Formatted);
+    let rendered = PasoProfile::default()
         .render(
             &entry(&entry_json),
             &card.credential(),
             crate::common::placement(&card.credential().format),
-            &env(locales, Amounts::Formatted),
+            &env,
         )
-        .expect("no fault")
+        .expect("no fault")?;
+    Ok(Seen {
+        rendered,
+        screen: Screen::of(kind, meta, &env),
+    })
 }
 
-fn render(meta: &str, payload: &str) -> Result<Rendered, Outcome> {
+fn render(meta: &str, payload: &str) -> Result<Seen, Outcome> {
     render_typed(CUSTOM, meta, payload, &["en"])
+}
+
+/// The outcome's kind and clause.
+fn outcome(rendered: &Result<Seen, Outcome>) -> String {
+    common::outcome(
+        &rendered
+            .as_ref()
+            .map(|seen| seen.rendered.clone())
+            .map_err(Clone::clone),
+    )
 }
 
 fn claims(members: &str) -> String {
     format!(r#"{{"claims": [{{"path": ["transaction_id"]}}, {members}]}}"#)
 }
 
-fn labels(rendered: &Result<Rendered, Outcome>) -> Vec<String> {
-    rendered
-        .as_ref()
-        .expect("renders")
-        .view
-        .rows
-        .iter()
-        .map(|row| row.row.label.text.clone())
-        .collect()
+fn labels(rendered: &Result<Seen, Outcome>) -> Vec<String> {
+    rendered.as_ref().expect("renders").labels()
 }
 
 const TEMPLATE: &str = r#""display_type": "template:mini_markdown""#;
@@ -69,10 +72,7 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         r#"{"transaction_id": "t", "amount": "1.00 EUR", "who": "x {1} y"}"#,
     )
     .expect("renders");
-    assert_eq!(
-        label(&rendered.view.title),
-        ("mini_markdown", "Pay x {1} y €1.00")
-    );
+    assert_eq!(rendered.plain(&rendered.view.title), "Pay x {1} y €1.00");
     // An index past the claims stays literal, as does a brace no digits and `}` close.
     assert_eq!(
         labels(&render(
@@ -94,7 +94,7 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         &["en", "de"],
     );
     assert_eq!(
-        rendered.as_ref().map(|r| r.view.locale.tag.as_str()).ok(),
+        rendered.as_ref().map(|r| r.view.locale.as_str()).ok(),
         Some("de")
     );
     assert_eq!(labels(&rendered), ["Summe"]);
@@ -104,7 +104,7 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
     ));
     let rendered = render(&defaulted, r#"{"transaction_id": "t", "n": "a"}"#);
     assert_eq!(
-        rendered.as_ref().map(|r| r.view.locale.tag.as_str()).ok(),
+        rendered.as_ref().map(|r| r.view.locale.as_str()).ok(),
         Some("en")
     );
     assert_eq!(labels(&rendered), ["Total"]);
@@ -114,9 +114,10 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
     ));
     let rendered = render(&per, r#"{"transaction_id": "t", "items": [{"name": "A", "qty": "1"}, {"name": "B", "qty": "2"}]}"#).expect("renders");
     assert_eq!(
-        rows(&rendered.view)
+        rendered
+            .rows()
             .into_iter()
-            .map(|(_, label, value, _)| (label, value.map(|(_, text)| text)))
+            .map(|(label, value, _)| (label, value.map(|(_, text)| text)))
             .collect::<Vec<_>>(),
         [
             ("Quantity of A".to_owned(), Some("1".to_owned())),
@@ -135,7 +136,8 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         )),
         ["Name", "Quantity", "Quantity"]
     );
-    // A template value: interpolated with formatted values, then formatted by its inner type.
+    // A template value: interpolated with the referenced values as written, then read by its
+    // inner type; a mini_markdown value shows its text without its styles.
     let note = claims(&format!(
         r#"{amount}, {{"path": ["note"], "value_type": "template:mini_markdown", "display": [{{"locale": "en", "name": "Note"}}]}}"#
     ));
@@ -144,26 +146,36 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
         r#"{"transaction_id": "t", "amount": "49.99 EUR", "note": "Pay **{1}** now"}"#,
     )
     .expect("renders");
-    let value = rendered.view.rows[1].row.value.as_ref().expect("a value");
     assert_eq!(
-        (value.kind().as_str(), value.text()),
-        ("mini_markdown", Some("Pay **€49.99** now"))
+        rendered.rows()[1].1,
+        Some(("mini_markdown", "Pay 49.99 EUR now".to_owned()))
     );
-    assert_eq!(
-        value.spans().expect("spans")[1],
-        Span {
-            text: "€49.99".to_owned(),
-            style: Style::STRONG
-        }
-    );
+    // A template label names the referenced value as its message's argument, formatted by its
+    // type, inside the label's styles.
+    let title = claims(&format!(
+        r#"{amount}, {{"path": ["n"], "display": [{{"locale": "en", "name": "Pay **{{1}}** now", {TEMPLATE}}}]}}"#
+    ));
+    let rendered = render(
+        &title,
+        r#"{"transaction_id": "t", "amount": "49.99 EUR", "n": "x"}"#,
+    )
+    .expect("renders");
+    let formatted = rendered.formatted(&rendered.view.rows[1].row.label);
+    let strong = formatted
+        .spans()
+        .iter()
+        .find(|span| span.styles() == [Style::Strong])
+        .map(|span| span.text());
+    assert_eq!(strong, Some("€49.99"));
 }
 
-/// A value the wallet's table words, compared as shown: no source fixes its text.
+/// A value whose text the wallet's options word, compared as shown: no source fixes its text.
 const SHOWN: &str = "<shown>";
 
 /// View §3's value types, each conforming and not. The texts compared exactly are those a source
-/// fixes: frequencies in the specification's words, dates and amounts as the rulebooks' screens
-/// write them (Generic A.4: "3 Jun 2026", "€1,000.00"), an internationalised host in A-label form.
+/// fixes: frequencies in the specification's words, amounts as the rulebooks' screens write them
+/// (Generic A.4: "€1,000.00"), dates as CLDR 49's en medium date (`MMM d, y`; the screens write
+/// the day first, as en-GB does), an internationalised host in A-label form.
 #[test]
 fn each_value_type_formats_or_refuses_as_view_section_3_states() {
     let table: [(Option<&str>, &str, &str); 27] = [
@@ -171,8 +183,8 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
         (Some("boolean"), r#""true""#, "NotCompatible [View §3]"),
         (Some("frequency"), r#""MNTH""#, "monthly"),
         (Some("frequency"), r#""MONTHLY""#, "NotCompatible [View §3]"),
-        (Some("iso_date"), r#""2026-09-02""#, "2 Sep 2026"),
-        (Some("iso_date"), r#""20260902""#, "2 Sep 2026"),
+        (Some("iso_date"), r#""2026-09-02""#, "Sep 2, 2026"),
+        (Some("iso_date"), r#""20260902""#, "Sep 2, 2026"),
         (
             Some("iso_date"),
             r#""2026-02-30""#,
@@ -190,7 +202,7 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
             r#""2026-06-02 10:15""#,
             "NotCompatible [View §3]",
         ),
-        (Some("iso_currency"), r#""EUR""#, "EUR"),
+        (Some("iso_currency"), r#""EUR""#, "€"),
         (Some("iso_currency"), r#""EURO""#, "NotCompatible [View §3]"),
         (
             Some("iso_currency_amount"),
@@ -213,7 +225,7 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
             r#""-5.00 EUR""#,
             "NotCompatible [View §3]",
         ),
-        (Some("mini_markdown"), r#""*a*""#, "*a*"),
+        (Some("mini_markdown"), r#""*a*""#, "a"),
         (Some("mini_markdown"), "3", "NotCompatible [View §3]"),
         (
             Some("url"),
@@ -244,13 +256,11 @@ fn each_value_type_formats_or_refuses_as_view_section_3_states() {
         let raw = if raw == "DATA" { data.as_str() } else { raw };
         let rendered = render(&meta, &format!(r#"{{"transaction_id": "t", "v": {raw}}}"#));
         let got = match &rendered {
-            Ok(rendered) => rendered.view.rows[0]
-                .row
-                .value
+            Ok(rendered) => rendered.rows()[0]
+                .1
                 .as_ref()
-                .map_or("<none>", |value| value.text().unwrap_or("<image>"))
-                .to_owned(),
-            Err(_) => common::outcome(&rendered),
+                .map_or_else(|| "<none>".to_owned(), |(_, text)| text.clone()),
+            Err(_) => outcome(&rendered),
         };
         if want == SHOWN {
             assert!(rendered.is_ok(), "{value_type:?} {raw}: {got}");
@@ -267,7 +277,7 @@ fn label_only_shows_the_label_alone_whatever_the_value() {
     );
     let rendered = render(&meta, r#"{"transaction_id": "t", "i": {"x": [1]}}"#).expect("renders");
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [shown("This is a recurring payment", None)]
     );
 }
@@ -343,10 +353,9 @@ fn claims_order_rules_the_view_and_payload_order_the_generic_rulebook() {
     .expect("renders");
     assert_eq!(
         rendered
-            .view
-            .rows
-            .iter()
-            .map(|r| (r.row.label.text.as_str(), r.row.section.as_deref()))
+            .rows()
+            .into_iter()
+            .map(|(label, _, section)| (label, section))
             .collect::<Vec<_>>(),
         [
             ("Payee", Some("Payment Details")),
@@ -354,6 +363,7 @@ fn claims_order_rules_the_view_and_payload_order_the_generic_rulebook() {
             ("A", None),
             ("B", None)
         ]
+        .map(|(label, section)| (label.to_owned(), section.map(str::to_owned)))
     );
     assert_eq!(
         rendered.view.rows[3].row.value, None,
@@ -402,11 +412,13 @@ fn a_payment_header_shows_the_payee_and_the_amount_wherever_the_claims_put_them(
     };
     let payload =
         r#"{"transaction_id": "t", "amount": "1.00 EUR", "payee": {"name": "Shop", "id": "D"}}"#;
-    let view = render_typed(PAY, &meta(""), payload, &["en"])
-        .expect("renders")
-        .view;
-    assert_eq!(view.payment_texts(), Some(("Shop", "€1.00")));
-    let heads = view.payment.expect("a payment header");
+    let rendered = render_typed(PAY, &meta(""), payload, &["en"]).expect("renders");
+    assert_eq!(
+        rendered.payment(),
+        Some(("Shop".to_owned(), "€1.00".to_owned()))
+    );
+    let view = &rendered.view;
+    let heads = view.payment.as_ref().copied().expect("a payment header");
     let path = |position: usize| -> Vec<String> {
         view.rows[position]
             .path
@@ -445,21 +457,28 @@ fn a_labels_kind_is_its_display_type() {
     let rendered = render(
         &meta,
         r#"{"transaction_id": "t", "a": "x", "b": "y", "c": "z"}"#,
-    );
-    let kinds: Vec<(&str, String)> = rendered
-        .expect("renders")
+    )
+    .expect("renders");
+    let spans: Vec<Vec<(String, Vec<Style>)>> = rendered
         .view
         .rows
         .iter()
-        .map(|row| label(&row.row.label))
-        .map(|(kind, text)| (kind, text.to_owned()))
+        .map(|row| {
+            rendered
+                .formatted(&row.row.label)
+                .spans()
+                .iter()
+                .map(|span| (span.text().to_owned(), span.styles().to_vec()))
+                .collect()
+        })
         .collect();
+    let span = |text: &str, styles: &[Style]| (text.to_owned(), styles.to_vec());
     assert_eq!(
-        kinds,
+        spans,
         [
-            ("text", "*A*".to_owned()),
-            ("mini_markdown", "*B* {1}".to_owned()),
-            ("mini_markdown", "*C* x".to_owned())
+            vec![span("*A*", &[])],
+            vec![span("B", &[Style::Emphasis]), span(" {1}", &[])],
+            vec![span("C", &[Style::Emphasis]), span(" x", &[])],
         ]
     );
 }

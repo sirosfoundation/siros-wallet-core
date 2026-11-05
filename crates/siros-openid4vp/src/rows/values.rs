@@ -1,19 +1,19 @@
-//! Parsing a written value of a kind other than an image, and formatting it once in the display
-//! locale. Amounts and currencies are formatted only where the wallet's table has a format (EUR
-//! amounts in English); dates, times, booleans and frequencies are localised, English
-//! frequencies in the words of their definition (PaSO View §3).
+//! Parsing a written value of a kind other than an image into its typed form and the [`Text`]
+//! the core renders when it is displayed: dates, times, amounts and currencies as typed values,
+//! booleans and frequencies as the crate module's messages, every other kind as written (PaSO
+//! View §3).
 
 use std::fmt;
 
-use siros_explain::Explain;
+use siros_explain::{
+    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Offset, Second, Text, Time,
+};
 
-use super::Value;
-use siros_i18n::Amounts;
-
-use super::env::{TableLocale, WalletText};
+use super::env::WalletText;
 use super::https_url::HttpsUrl;
 use crate::json::Node;
 use crate::refusal::Quoted;
+use crate::text::spans;
 
 /// A value kind other than an image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -70,10 +70,10 @@ pub enum Parsed {
     Frequency(Frequency),
     /// A date.
     Date(Date),
-    /// A time.
-    Time(Time),
+    /// A time of day, with its offset when written.
+    Time(Time, Option<Offset>),
     /// A date and a time.
-    DateTime(Date, Time),
+    DateTime(DateTime),
     /// A currency.
     Currency(Currency),
     /// An amount.
@@ -93,8 +93,8 @@ impl Parsed {
             Self::Boolean(_) => FormattedKind::Boolean,
             Self::Frequency(_) => FormattedKind::Frequency,
             Self::Date(_) => FormattedKind::Date,
-            Self::Time(_) => FormattedKind::Time,
-            Self::DateTime(..) => FormattedKind::DateTime,
+            Self::Time(..) => FormattedKind::Time,
+            Self::DateTime(_) => FormattedKind::DateTime,
             Self::Currency(_) => FormattedKind::Currency,
             Self::CurrencyAmount(_) => FormattedKind::CurrencyAmount,
             Self::MiniMarkdown => FormattedKind::MiniMarkdown,
@@ -137,94 +137,82 @@ pub struct BadValue {
     pub why: String,
 }
 
-impl Value {
-    /// A value of a kind other than an image, parsed and formatted.
-    pub fn format(
-        kind: FormattedKind,
-        written: Written<'_>,
-        locale: TableLocale,
-        amounts: Amounts,
-    ) -> Result<Self, BadValue> {
-        let bad = |why: &str| BadValue {
-            kind: kind.as_str(),
-            written: written.to_string(),
-            why: why.to_owned(),
-        };
-        let text = match written {
-            Written::Text(text) => text,
-            Written::Boolean(value) if kind == FormattedKind::Boolean => {
-                let key = if value {
-                    WalletText::Yes
-                } else {
-                    WalletText::No
-                };
-                return Ok(Value::Formatted {
-                    parsed: Parsed::Boolean(value),
-                    text: key.in_locale(locale).to_owned(),
-                });
-            }
-            _ if kind == FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
-            _ => return Err(bad("not a string")),
-        };
-        let (parsed, shown) = match kind {
-            FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
-            FormattedKind::Text => (Parsed::Text, text.to_owned()),
-            FormattedKind::MiniMarkdown => (Parsed::MiniMarkdown, text.to_owned()),
-            FormattedKind::Frequency => {
-                let frequency =
-                    Frequency::parse(text).ok_or_else(|| bad("not a frequency code"))?;
-                (
-                    Parsed::Frequency(frequency),
-                    frequency.words(locale).to_owned(),
-                )
-            }
-            FormattedKind::Date => {
-                let date = Date::parse(text).ok_or_else(|| bad("not an ISO 8601 calendar date"))?;
-                (Parsed::Date(date), date.text(locale))
-            }
-            FormattedKind::Time => {
-                let time = Time::parse(text).ok_or_else(|| bad("not an ISO 8601 time"))?;
-                let shown = time.to_string();
-                (Parsed::Time(time), shown)
-            }
-            FormattedKind::DateTime => {
-                let (date, time) = text
-                    .split_once('T')
-                    .and_then(|(date, time)| Some((Date::parse(date)?, Time::parse(time)?)))
-                    .ok_or_else(|| bad("not an ISO 8601 date-time"))?;
-                let shown = format!("{}, {time}", date.text(locale));
-                (Parsed::DateTime(date, time), shown)
-            }
-            FormattedKind::Currency => {
-                let currency = Currency::parse(text)
-                    .ok_or_else(|| bad("not an ISO 4217 code of the table"))?;
-                (Parsed::Currency(currency), text.to_owned())
-            }
-            FormattedKind::CurrencyAmount => {
-                let amount = Amount::parse(text).map_err(|why| bad(&why))?;
-                let shown = amount.text(text, locale, amounts);
-                (Parsed::CurrencyAmount(amount), shown)
-            }
-            FormattedKind::Url => {
-                let url = HttpsUrl::parse(text).map_err(|_| bad("not an https URL"))?;
-                return Ok(Self::url(url));
-            }
-        };
-        Ok(Value::Formatted {
-            parsed,
-            text: shown,
-        })
-    }
-
-    /// An https URL, shown with its host in A-label form.
-    #[must_use]
-    pub fn url(url: HttpsUrl) -> Self {
-        let text = url.ascii().to_owned();
-        Value::Formatted {
-            parsed: Parsed::Url(url),
-            text,
+/// A written value of a kind other than an image, parsed, and its text: a typed value for a date,
+/// a time, a date and time, a currency and an amount; the crate module's message for a boolean
+/// and a frequency; the text as written for text and a URL, its host in A-label form; the text of
+/// `mini_markdown` without its styles, as a text from outside any module holds none.
+///
+/// # Errors
+///
+/// [`BadValue`]: the written value does not conform to the kind.
+pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, Text), BadValue> {
+    let bad = |why: &str| BadValue {
+        kind: kind.as_str(),
+        written: written.to_string(),
+        why: why.to_owned(),
+    };
+    let text = match written {
+        Written::Text(text) => text,
+        Written::Boolean(value) if kind == FormattedKind::Boolean => {
+            let answer = if value {
+                WalletText::Yes
+            } else {
+                WalletText::No
+            };
+            return Ok((Parsed::Boolean(value), Text::of(&answer)));
         }
-    }
+        _ if kind == FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
+        _ => return Err(bad("not a string")),
+    };
+    let typed = |parsed: Parsed, value: siros_explain::Value| (parsed, Text::Value(value));
+    Ok(match kind {
+        FormattedKind::Boolean => return Err(bad("not a JSON boolean")),
+        FormattedKind::Text => (Parsed::Text, Text::Raw(text.to_owned())),
+        FormattedKind::MiniMarkdown => {
+            let plain: String = spans(text).into_iter().map(|span| span.text).collect();
+            (Parsed::MiniMarkdown, Text::Raw(plain))
+        }
+        FormattedKind::Frequency => {
+            let frequency = Frequency::parse(text).ok_or_else(|| bad("not a frequency code"))?;
+            (Parsed::Frequency(frequency), Text::of(&frequency))
+        }
+        FormattedKind::Date => {
+            let date = date(text).ok_or_else(|| bad("not an ISO 8601 calendar date"))?;
+            typed(Parsed::Date(date), siros_explain::Value::Date(date))
+        }
+        FormattedKind::Time => {
+            let (at, offset) = time(text).ok_or_else(|| bad("not an ISO 8601 time"))?;
+            typed(
+                Parsed::Time(at, offset),
+                siros_explain::Value::Time { at, offset },
+            )
+        }
+        FormattedKind::DateTime => {
+            let at = date_time(text).ok_or_else(|| bad("not an ISO 8601 date-time"))?;
+            typed(Parsed::DateTime(at), siros_explain::Value::DateTime(at))
+        }
+        FormattedKind::Currency => {
+            let currency = Currency::from_code(text)
+                .filter(|currency| currency.minor_units().is_some())
+                .ok_or_else(|| bad("not an ISO 4217 code of the table"))?;
+            typed(
+                Parsed::Currency(currency),
+                siros_explain::Value::Currency(currency),
+            )
+        }
+        FormattedKind::CurrencyAmount => {
+            let amount = amount(text).map_err(|why| bad(&why))?;
+            typed(
+                Parsed::CurrencyAmount(amount),
+                siros_explain::Value::Amount(amount),
+            )
+        }
+        FormattedKind::Url => {
+            let url = HttpsUrl::parse(text).map_err(|_| bad("not an https URL"))?;
+            let shown = Text::Raw(url.ascii().to_owned());
+            (Parsed::Url(url), shown)
+        }
+    })
 }
 
 /// An ISO 20022 frequency code (PaSO View §3 `frequency`): a message of the crate's module, in
@@ -316,282 +304,153 @@ impl Frequency {
             .find(|(known, _)| *known == self)
             .map_or("", |(_, code)| code)
     }
+}
 
-    fn words(self, locale: TableLocale) -> &'static str {
-        match (locale, self) {
-            (TableLocale::En, Self::Intraday) => "intraday",
-            (TableLocale::En, Self::Daily) => "daily",
-            (TableLocale::En, Self::Weekly) => "weekly",
-            (TableLocale::En, Self::EveryTwoWeeks) => "every two weeks",
-            (TableLocale::En, Self::TwiceAMonth) => "twice a month",
-            (TableLocale::En, Self::Monthly) => "monthly",
-            (TableLocale::En, Self::EveryTwoMonths) => "every two months",
-            (TableLocale::En, Self::Quarterly) => "quarterly",
-            (TableLocale::En, Self::EveryFourMonths) => "every four months",
-            (TableLocale::En, Self::TwiceAYear) => "twice a year",
-            (TableLocale::En, Self::Yearly) => "yearly",
-            (TableLocale::En, Self::EveryTwoYears) => "every two years",
-            (TableLocale::De, Self::Intraday) => "untertägig",
-            (TableLocale::De, Self::Daily) => "täglich",
-            (TableLocale::De, Self::Weekly) => "wöchentlich",
-            (TableLocale::De, Self::EveryTwoWeeks) => "alle zwei Wochen",
-            (TableLocale::De, Self::TwiceAMonth) => "zweimal im Monat",
-            (TableLocale::De, Self::Monthly) => "monatlich",
-            (TableLocale::De, Self::EveryTwoMonths) => "alle zwei Monate",
-            (TableLocale::De, Self::Quarterly) => "vierteljährlich",
-            (TableLocale::De, Self::EveryFourMonths) => "alle vier Monate",
-            (TableLocale::De, Self::TwiceAYear) => "halbjährlich",
-            (TableLocale::De, Self::Yearly) => "jährlich",
-            (TableLocale::De, Self::EveryTwoYears) => "alle zwei Jahre",
+/// Two ASCII digits up to `max`.
+fn two(part: &str, max: u8) -> Option<u8> {
+    (part.len() == 2 && part.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| part.parse().ok())
+        .flatten()
+        .filter(|value| *value <= max)
+}
+
+/// An extended (`2026-09-02`) or basic (`20260902`) ISO 8601 calendar date from year 1 to 9999.
+fn date(text: &str) -> Option<Date> {
+    let parts: [&str; 3] = match text.len() {
+        10 if text.get(4..5) == Some("-") && text.get(7..8) == Some("-") => {
+            [text.get(..4)?, text.get(5..7)?, text.get(8..)?]
         }
+        8 => [text.get(..4)?, text.get(4..6)?, text.get(6..)?],
+        _ => return None,
+    };
+    if !parts
+        .iter()
+        .all(|part| part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
     }
+    let [year, month, day] = parts;
+    let year: u16 = year.parse().ok().filter(|year| (1..=9999).contains(year))?;
+    Date::new(year, month.parse().ok()?, day.parse().ok()?)
 }
 
-/// A proleptic Gregorian calendar date from year 1 to 9999.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Date {
-    /// The year.
-    pub year: u16,
-    /// The month, from 1.
-    pub month: u8,
-    /// The day of the month, from 1.
-    pub day: u8,
+/// An ISO 8601 time `hh:mm[:ss[.f]]` with an optional `Z` or `±hh:mm`, as written: its hour,
+/// minute, seconds up to 60 with their fraction, and offset.
+struct Clock {
+    hour: u8,
+    minute: u8,
+    second: Option<(u8, Fraction)>,
+    offset: Option<Offset>,
 }
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-
-impl Date {
-    /// An extended (`2026-09-02`) or basic (`20260902`) ISO 8601 calendar date.
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        let parts: [&str; 3] = match text.len() {
-            10 if text.get(4..5) == Some("-") && text.get(7..8) == Some("-") => {
-                [text.get(..4)?, text.get(5..7)?, text.get(8..)?]
-            }
-            8 => [text.get(..4)?, text.get(4..6)?, text.get(6..)?],
-            _ => return None,
-        };
-        if !parts
-            .iter()
-            .all(|part| part.bytes().all(|b| b.is_ascii_digit()))
-        {
-            return None;
+fn clock(text: &str) -> Option<Clock> {
+    let (at, offset) = match text.find(['Z', '+', '-']) {
+        Some(split) => (text.get(..split)?, text.get(split..)),
+        None => (text, None),
+    };
+    let offset = match offset {
+        None => None,
+        Some("Z") => Some(Offset::new(0)?),
+        Some(written) => {
+            let (hh, mm) = written.get(1..)?.split_once(':')?;
+            let minutes = i16::from(two(hh, 23)?) * 60 + i16::from(two(mm, 59)?);
+            Some(Offset::new(if written.starts_with('+') {
+                minutes
+            } else {
+                -minutes
+            })?)
         }
-        let [year, month, day] = parts;
-        let (year, month, day) = (year.parse().ok()?, month.parse().ok()?, day.parse().ok()?);
-        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-        let length = match month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 if leap => 29,
-            2 => 28,
-            _ => return None,
-        };
-        ((1..=9999).contains(&year) && (1..=length).contains(&day)).then_some(Self {
-            year,
-            month,
+    };
+    let mut parts = at.splitn(3, ':');
+    let hour = two(parts.next()?, 23)?;
+    let minute = two(parts.next()?, 59)?;
+    let second = match parts.next() {
+        None => None,
+        Some(rest) => {
+            let (whole, fraction) = rest.split_at_checked(2)?;
+            let fraction = match fraction.strip_prefix('.') {
+                None if fraction.is_empty() => Fraction::NONE,
+                Some(digits)
+                    if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) =>
+                {
+                    let count = u8::try_from(digits.len())
+                        .ok()
+                        .filter(|count| *count <= 9)?;
+                    let padded = format!("{digits:0<9}");
+                    Fraction::new(padded.parse().ok()?, count)?
+                }
+                _ => return None,
+            };
+            Some((two(whole, 60)?, fraction))
+        }
+    };
+    Some(Clock {
+        hour,
+        minute,
+        second,
+        offset,
+    })
+}
+
+/// A time of day: its seconds 00 to 59, a leap second having no date to place it.
+fn time(text: &str) -> Option<(Time, Option<Offset>)> {
+    let Clock {
+        hour,
+        minute,
+        second,
+        offset,
+    } = clock(text)?;
+    let second = match second {
+        None => None,
+        Some((whole, fraction)) => Some(Second::new(whole, fraction)?),
+    };
+    Some((Time::new(hour, minute, second)?, offset))
+}
+
+/// An ISO 8601 date-time `date T time`: second 60 where RFC 3339 places a leap second.
+fn date_time(text: &str) -> Option<DateTime> {
+    let (day, at) = text.split_once('T')?;
+    let day = date(day)?;
+    let Clock {
+        hour,
+        minute,
+        second,
+        offset,
+    } = clock(at)?;
+    match second {
+        Some((60, fraction)) => DateTime::leap(day, hour, minute, fraction, offset?),
+        Some((whole, fraction)) => Some(DateTime::new(
             day,
-        })
-    }
-
-    fn text(self, locale: TableLocale) -> String {
-        match locale {
-            TableLocale::En => {
-                let month = MONTHS.get(usize::from(self.month) - 1).unwrap_or(&"");
-                format!("{} {month} {}", self.day, self.year)
-            }
-            TableLocale::De => format!("{:02}.{:02}.{}", self.day, self.month, self.year),
-        }
-    }
-}
-
-/// An ISO 8601 time `hh:mm[:ss[.f]]` with an optional `Z` or `±hh:mm`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Time {
-    /// The hour, from 0 to 23.
-    pub hour: u8,
-    /// The minute, from 0 to 59.
-    pub minute: u8,
-    /// The second, from 0 to 60, with its decimal fraction as written.
-    pub second: Option<(u8, String)>,
-    /// The offset from UTC.
-    pub offset: Option<Offset>,
-}
-
-/// A time's offset from UTC.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Offset {
-    /// `Z`.
-    Utc,
-    /// `+hh:mm`.
-    East {
-        /// The hours, from 0 to 23.
-        hours: u8,
-        /// The minutes, from 0 to 59.
-        minutes: u8,
-    },
-    /// `-hh:mm`.
-    West {
-        /// The hours, from 0 to 23.
-        hours: u8,
-        /// The minutes, from 0 to 59.
-        minutes: u8,
-    },
-}
-
-impl Time {
-    fn parse(text: &str) -> Option<Self> {
-        let two = |part: &str, max: u8| -> Option<u8> {
-            (part.len() == 2 && part.bytes().all(|b| b.is_ascii_digit()))
-                .then(|| part.parse().ok())
-                .flatten()
-                .filter(|value| *value <= max)
-        };
-        let (clock, offset) = match text.find(['Z', '+', '-']) {
-            Some(at) => (text.get(..at)?, text.get(at..)),
-            None => (text, None),
-        };
-        let offset = match offset {
-            None => None,
-            Some("Z") => Some(Offset::Utc),
-            Some(written) => {
-                let (hh, mm) = written.get(1..)?.split_once(':')?;
-                let (hours, minutes) = (two(hh, 23)?, two(mm, 59)?);
-                Some(if written.starts_with('+') {
-                    Offset::East { hours, minutes }
-                } else {
-                    Offset::West { hours, minutes }
-                })
-            }
-        };
-        let mut parts = clock.splitn(3, ':');
-        let hour = two(parts.next()?, 23)?;
-        let minute = two(parts.next()?, 59)?;
-        let second = match parts.next() {
-            None => None,
-            Some(rest) => {
-                let (second, fraction) = rest.split_at_checked(2)?;
-                let fraction_ok = fraction.is_empty()
-                    || (fraction.starts_with('.')
-                        && fraction.len() > 1
-                        && fraction.bytes().skip(1).all(|b| b.is_ascii_digit()));
-                fraction_ok.then_some(())?;
-                Some((two(second, 60)?, fraction.to_owned()))
-            }
-        };
-        Some(Self {
-            hour,
-            minute,
-            second,
+            Time::new(hour, minute, Some(Second::new(whole, fraction)?))?,
             offset,
-        })
-    }
-}
-
-impl fmt::Display for Time {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02}:{:02}", self.hour, self.minute)?;
-        if let Some((second, fraction)) = &self.second {
-            write!(f, ":{second:02}{fraction}")?;
-        }
-        match self.offset {
-            None => Ok(()),
-            Some(Offset::Utc) => f.write_str(" UTC"),
-            Some(Offset::East { hours, minutes }) => write!(f, " UTC+{hours:02}:{minutes:02}"),
-            Some(Offset::West { hours, minutes }) => write!(f, " UTC-{hours:02}:{minutes:02}"),
-        }
-    }
-}
-
-/// An ISO 4217 currency of the wallet's table, with its minor units.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Currency {
-    /// The code.
-    pub code: &'static str,
-    /// Its minor units.
-    pub minor_units: u8,
-}
-
-/// The ISO 4217 minor units of the currencies the wallet accepts.
-const MINOR_UNITS: [(&str, u8); 15] = [
-    ("EUR", 2),
-    ("USD", 2),
-    ("GBP", 2),
-    ("CHF", 2),
-    ("SEK", 2),
-    ("NOK", 2),
-    ("DKK", 2),
-    ("PLN", 2),
-    ("CZK", 2),
-    ("JPY", 0),
-    ("KRW", 0),
-    ("BHD", 3),
-    ("KWD", 3),
-    ("JOD", 3),
-    ("TND", 3),
-];
-
-impl Currency {
-    /// The currency of a code the wallet's table holds.
-    #[must_use]
-    pub fn parse(code: &str) -> Option<Self> {
-        MINOR_UNITS
-            .iter()
-            .find(|(known, _)| *known == code)
-            .map(|&(code, minor_units)| Self { code, minor_units })
+        )),
+        None => Some(DateTime::new(day, Time::new(hour, minute, None)?, offset)),
     }
 }
 
 /// An amount `number CODE`: no sign, no leading zero, exactly the currency's minor units.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Amount {
-    /// The whole units, as written.
-    pub whole: String,
-    /// The minor units, as written.
-    pub fraction: String,
-    /// The currency.
-    pub currency: Currency,
-}
-
-impl Amount {
-    fn parse(text: &str) -> Result<Self, String> {
-        let not_amount = || "not 'number CODE'".to_owned();
-        let (number, code) = text.split_once(' ').ok_or_else(not_amount)?;
-        let currency = Currency::parse(code).ok_or_else(not_amount)?;
-        let digits = usize::from(currency.minor_units);
-        let wrong = || format!("the number needs {digits} fractional digits (ISO 4217)");
-        let (whole, fraction) = match number.split_once('.') {
-            Some((whole, fraction)) if digits > 0 && fraction.len() == digits => (whole, fraction),
-            None if digits == 0 => (number, ""),
-            _ => return Err(wrong()),
-        };
-        let whole_ok = whole == "0"
-            || (whole.starts_with(|c: char| ('1'..='9').contains(&c))
-                && whole.bytes().all(|b| b.is_ascii_digit()));
-        if !whole_ok || !fraction.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(wrong());
+fn amount(text: &str) -> Result<Amount, String> {
+    let not_amount = || "not 'number CODE'".to_owned();
+    let (number, code) = text.split_once(' ').ok_or_else(not_amount)?;
+    let currency = Currency::from_code(code).ok_or_else(not_amount)?;
+    let digits = currency.minor_units().ok_or_else(not_amount)?;
+    let wrong = || format!("the number needs {digits} fractional digits (ISO 4217)");
+    let (whole, fraction) = match number.split_once('.') {
+        Some((whole, fraction)) if digits > 0 && fraction.len() == usize::from(digits) => {
+            (whole, fraction)
         }
-        Ok(Self {
-            whole: whole.to_owned(),
-            fraction: fraction.to_owned(),
-            currency,
-        })
+        None if digits == 0 => (number, ""),
+        _ => return Err(wrong()),
+    };
+    let whole_ok = whole == "0"
+        || (whole.starts_with(|c: char| ('1'..='9').contains(&c))
+            && whole.bytes().all(|b| b.is_ascii_digit()));
+    if !whole_ok || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(wrong());
     }
-
-    fn text(&self, written: &str, locale: TableLocale, amounts: Amounts) -> String {
-        if amounts == Amounts::Written || self.currency.code != "EUR" || locale != TableLocale::En {
-            return written.to_owned();
-        }
-        let digits = self.whole.as_bytes();
-        let mut grouped = String::new();
-        for (k, digit) in digits.iter().enumerate() {
-            if k > 0 && (digits.len() - k).is_multiple_of(3) {
-                grouped.push(',');
-            }
-            grouped.push(char::from(*digit));
-        }
-        format!("€{grouped}.{}", self.fraction)
-    }
+    let units: i128 = format!("{whole}{fraction}")
+        .parse()
+        .map_err(|_| "the number exceeds 38 digits".to_owned())?;
+    let value = Decimal::new(units, digits).ok_or_else(wrong)?;
+    Ok(Amount::new(value, currency))
 }

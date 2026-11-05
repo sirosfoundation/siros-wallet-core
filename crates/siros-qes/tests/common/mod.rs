@@ -8,6 +8,7 @@ pub mod fixtures;
 
 use serde_json::Value as Json;
 use siros_explain::AllOf;
+use siros_explain::{Messages, Text};
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::{Fetch, MediaType, Resource};
@@ -25,12 +26,13 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::{Refusal, Refused};
 use siros_openid4vp::request::{AgreeableKey, Query, Request};
 use siros_openid4vp::resolve::{Outcome, Prepared};
-use siros_openid4vp::rows::{Choice, Env, HttpsUrl, Label, Parsed, Row, Value};
+use siros_openid4vp::rows::{Choice, Env, HttpsUrl, Row, Value};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder, Wallet};
 use siros_qes::QesProfile;
 use siros_testkit::FAULT;
 use siros_testkit::fixtures::OPTIONS;
+use siros_testkit::render::{App, CrateSource, GERMAN_QES};
 use siros_testkit::{Published, PublishedResource, TestHost};
 
 /// The Origin of the requests.
@@ -320,18 +322,12 @@ impl FormatQuery for StandInQuery {
                         .unwrap_or("")
                         .to_owned()
                 };
-                Row::new(
-                    Label::text(cell(0)),
-                    Value::Formatted {
-                        parsed: Parsed::Text,
-                        text: cell(1),
-                    },
-                )
+                Row::new(Text::Raw(cell(0)), Value::Text(Text::Raw(cell(1))))
             })
             .collect();
         Ok(Card {
             icon: env.icon(None).clone(),
-            title: credential.id.to_string(),
+            title: Text::Raw(credential.id.to_string()),
             subtitle: None,
             rows,
         })
@@ -473,21 +469,39 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
     Wallet::new(held.iter().map(Holding::credential).collect()).expect("wallet")
 }
 
-/// A row as (section, label, value kind, value text).
+/// The test app: the core's and the profile's modules, in English and the test app's German.
+pub fn app() -> App {
+    let qes = CrateSource {
+        id: siros_qes::CrateModule::ID,
+        messages: siros_qes::CrateModule::messages(),
+        english: siros_qes::CrateModule::ENGLISH,
+        german: GERMAN_QES,
+    };
+    App::of(&[CrateSource::openid4vp(), qes]).expect("the test app")
+}
+
+/// A text as the test app renders it in a locale.
+pub fn plain(text: &Text, locale: &'static str) -> String {
+    app().plain(&env(locale), text).expect("the text renders")
+}
+
+/// A row as (section, label, value kind: an image or a text, value text).
 pub type ShownRow = (Option<String>, String, Option<&'static str>, Option<String>);
 
-/// The rows of an entry.
+/// The rows of an entry, rendered in English.
 pub fn shown<'r>(rows: impl IntoIterator<Item = &'r Row>) -> Vec<ShownRow> {
+    let (app, en) = (app(), env("en"));
+    let plain = |text: &Text| app.plain(&en, text).expect("the text renders");
     rows.into_iter()
         .map(|row| {
             (
-                row.section.clone(),
-                row.label.text.clone(),
-                row.value.as_ref().map(|value| value.kind().as_str()),
-                row.value
-                    .as_ref()
-                    .and_then(|value| value.text())
-                    .map(str::to_owned),
+                row.section.as_ref().map(plain),
+                plain(&row.label),
+                row.value.as_ref().map(|value| match value {
+                    Value::Image(_) => "image",
+                    Value::Text(_) => "text",
+                }),
+                row.value.as_ref().and_then(|value| value.text()).map(plain),
             )
         })
         .collect()

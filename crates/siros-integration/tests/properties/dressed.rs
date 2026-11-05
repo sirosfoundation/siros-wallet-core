@@ -177,7 +177,18 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             .get(entry.kind().as_str())
             .is_some();
         if json.get("metadata").is_some() || listed {
-            outcome::check(&json, &document, &rendering.outcome, env, spec, tally);
+            let text = credential
+                .document("paso")
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .expect("a PaSO document's text");
+            outcome::check(
+                &json,
+                (&document, text),
+                &rendering.outcome,
+                env,
+                spec,
+                tally,
+            );
         }
     }
     let accepted = match Accepted::new(&request, &registry) {
@@ -555,7 +566,7 @@ fn boxes(
                 want.extend(card.rows.iter().cloned());
                 assert_eq!(payment.rows, want, "P-proxy rows");
                 assert_eq!(
-                    (payment.merchant.as_str(), payment.amount.as_str()),
+                    (&payment.merchant, &payment.amount),
                     (merchant, amount),
                     "P-payment box"
                 );

@@ -261,7 +261,7 @@ impl Profile for QesProfile {
     /// qualifier (§6.3; §7.2.1 Note 22), its presentation can carry the approval (§7.2.1), and no
     /// linked document it holds fails its checksum (§6.3); rendered by §6.4, attesting nothing
     /// beyond the entry, which the approval hashes.
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
+    fn bind(&self, binding: Binding<'_>, _env: &Env) -> Result<Bound, NoCandidate> {
         let (index, _, approval) = approval_of(binding.request, binding.entries)?;
         if !binding::approves(binding.credential, approval.qualifier)? {
             return Err(Exclude::new(Excluded::Qualifier {
@@ -272,7 +272,7 @@ impl Profile for QesProfile {
         if binding.carriage == Carriage::Uncarried {
             return Err(Exclude::new(Excluded::Carriage).into());
         }
-        let rendered = render::render(&approval, &self.held, env)?;
+        let rendered = render::render(&approval, &self.held)?;
         let entries = BoundEntries::select(binding.entries, vec![index])
             .map_err(|e| Fault::caused(FAULT, detail!("QES bound entries"), e))?;
         Ok(Bound {

@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::consent::{ConsentEntry, Header};
 use std::num::NonZeroU32;
 
-use siros_explain::AllOf;
+use siros_explain::{AllOf, Text};
 use siros_openid4vp::host::{
     AttackDetection, Authentication, Factor, FalseAcceptRate, Inherence, Isolation, Knowledge,
     Modality, Possession, Sensor, Timestamp,
@@ -33,7 +33,7 @@ use siros_testkit::fixtures::{Held, NONCE, OPTIONS, ORIGIN, parameters};
 use siros_testkit::reading::model_shape;
 use siros_testkit::verifier::{self, ISSUER};
 
-use common::{registry, sri};
+use common::{paso_app, registry, sri};
 
 const PAY: &str = "urn:paso:sca:global:payment:1";
 const RESPONSE_MODE: &str = "urn:paso:risk:global:response_mode:1";
@@ -128,7 +128,7 @@ fn answer(
     let shown = display(&sets, &views, &[]).expect("no fault");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let selection = shown.select(0, &ids).expect("the defaults are a selection");
-    let header = selection.header(&env);
+    let header = selection.header();
     let chosen = selection.ids();
     let entry = views
         .by_id(chosen[0])
@@ -261,16 +261,21 @@ fn a2_envelopes(a2: &Value) -> Value {
         .collect()
 }
 
+/// A text of Payment A.1's type as the test app renders it for the English wallet.
+fn english_text(text: &Text) -> String {
+    let types = payment_metadata();
+    let given = Node::parse(&types).expect("the types");
+    let given = given.get(PAY).expect("Payment A.1's metadata");
+    let app = paso_app(PAY, &given.python_compact().to_string());
+    app.plain(&english(), text).expect("the text renders")
+}
+
 /// Core A.4: the payment screen of A.1's transaction in English.
 fn assert_core_a4(answered: &Answered) {
     let header = &answered.header;
     assert_eq!(
-        (
-            header.title.text.as_str(),
-            header.confirm.text.as_str(),
-            header.cancel.text.as_str()
-        ),
-        ("Payment Confirmation", "Pay", "Cancel")
+        [&header.title, &header.confirm, &header.cancel].map(english_text),
+        ["Payment Confirmation", "Pay", "Cancel"]
     );
     let payment = answered
         .entry
@@ -278,8 +283,8 @@ fn assert_core_a4(answered: &Answered) {
         .and_then(|overlay| overlay.header.as_ref())
         .expect("a payment's transaction header");
     assert_eq!(
-        (payment.counterparty.as_str(), payment.amount.as_str()),
-        ("Shop Inc.", "49.99 EUR")
+        [&payment.counterparty, &payment.amount].map(english_text),
+        ["Shop Inc.", "49.99 EUR"]
     );
 }
 

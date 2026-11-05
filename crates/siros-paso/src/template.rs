@@ -1,27 +1,32 @@
 //! View §3 `template:`: placeholders `{n}` naming the claim at index `n` of the metadata's
-//! `claims`, each `null` of the referenced path resolved to the referencing instance's index,
-//! interpolated in one pass with the referenced values formatted in the display locale.
+//! `claims`, each `null` of the referenced path resolved to the referencing instance's index. A
+//! template label names each referenced value as an argument of its converted message
+//! ([`crate::view`]); a template value interpolates the referenced values as written, in one
+//! pass, before its inner value type reads it.
 
+use std::borrow::Cow;
 use std::ops::Range;
 
+use siros_explain::{Entry, Keyed, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{Amounts, FormattedKind, TableLocale, Value, ValueKind};
+use siros_openid4vp::rows::{FormattedKind, ValueKind, formatted};
 
 use crate::conform::written;
 use crate::metadata::{ClaimMeta, ValueType, kind_name};
 use crate::outcome::NotCompatible;
 use crate::path::{at, substitute};
+use crate::view::argument;
 
 /// A placeholder in a template: its place and the claim index it names, `None` beyond the
 /// platform's integers.
-struct Placeholder {
-    span: Range<usize>,
-    index: Option<usize>,
+pub(crate) struct Placeholder {
+    pub(crate) span: Range<usize>,
+    pub(crate) index: Option<usize>,
 }
 
 /// The placeholders `\{[0-9]+\}` of a template, leftmost first, none overlapping.
-fn placeholders(template: &str) -> Vec<Placeholder> {
+pub(crate) fn placeholders(template: &str) -> Vec<Placeholder> {
     let bytes = template.as_bytes();
     let mut out = Vec::new();
     let mut k = 0;
@@ -134,16 +139,15 @@ impl Template<'_> {
         Ok(true)
     }
 
-    /// The template with each placeholder naming a claim replaced by the referenced value,
-    /// formatted in the locale; other placeholders and inserted text stay literal. The
-    /// template is complete for these indices; an absent reference makes it not compatible.
+    /// The template with each placeholder naming a claim replaced by the referenced value as
+    /// written, each checked against its value type; other placeholders and inserted text stay
+    /// literal. The template is complete for these indices; an absent reference makes it not
+    /// compatible.
     pub(crate) fn interpolate(
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &[usize],
-        locale: TableLocale,
-        amounts: Amounts,
     ) -> Result<String, NotCompatible> {
         let mut out = String::with_capacity(self.0.len());
         let mut copied = 0;
@@ -159,32 +163,60 @@ impl Template<'_> {
                     .get(copied..placeholder.span.start)
                     .unwrap_or_default(),
             );
-            out.push_str(&formatted(reference.value_type(), value, locale, amounts)?);
+            out.push_str(&checked(reference.value_type(), value)?);
             copied = placeholder.span.end;
         }
         out.push_str(self.0.get(copied..).unwrap_or_default());
         Ok(out)
     }
+
+    /// Each referenced value as its message's argument, under its claim's name, by its value
+    /// type; each claim once. The template is complete for these indices.
+    pub(crate) fn arguments(
+        &self,
+        claims: &[ClaimMeta<'_>],
+        payload: &Node<'_>,
+        nulls: &[usize],
+    ) -> Result<Keyed<Cow<'static, str>, Text>, NotCompatible> {
+        let mut args: Vec<Entry<Cow<'static, str>, Text>> = Vec::new();
+        for placeholder in placeholders(self.0) {
+            let Some(reference) = Reference::of(&placeholder, claims) else {
+                continue;
+            };
+            let value = reference
+                .read(payload, nulls)?
+                .ok_or(NotCompatible::TemplatesExhausted)?;
+            args.push(Entry::new(
+                argument(reference.index),
+                text(reference.value_type(), value)?,
+            ));
+        }
+        Ok(Keyed::first_of(args))
+    }
 }
 
-/// A referenced value's text: a string as written without a value type, else formatted by its
-/// value type in the locale.
-fn formatted(
-    value_type: ValueType,
-    value: &Node<'_>,
-    locale: TableLocale,
-    amounts: Amounts,
-) -> Result<String, NotCompatible> {
+/// A referenced value as written: a string's text, any other JSON value's compact text.
+fn value_written(value: &Node<'_>) -> String {
+    value
+        .as_str()
+        .map_or_else(|| value.python_compact().to_string(), str::to_owned)
+}
+
+/// A referenced value's text by its value type: a string as written without one.
+fn text(value_type: ValueType, value: &Node<'_>) -> Result<Text, NotCompatible> {
     let kind = match value_type {
         ValueType::Kind(ValueKind::Formatted(kind)) => kind,
         _ => FormattedKind::Text,
     };
-    let value = Value::format(kind, written(value), locale, amounts).map_err(|bad| {
-        NotCompatible::Value {
+    formatted(kind, written(value))
+        .map(|(_, text)| text)
+        .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad,
-        }
-    })?;
-    // Every kind but an image has a text.
-    Ok(value.text().unwrap_or_default().to_owned())
+        })
+}
+
+/// A referenced value as written, once it conforms to its value type.
+fn checked(value_type: ValueType, value: &Node<'_>) -> Result<String, NotCompatible> {
+    text(value_type, value).map(|_| value_written(value))
 }

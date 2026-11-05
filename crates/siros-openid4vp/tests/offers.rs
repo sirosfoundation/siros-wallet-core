@@ -362,7 +362,10 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     // The record names the entry and attests what the profile attests; the header is the
     // transaction's.
     assert!(id.contains(r#",[0],{"entries":"0"},"#), "{id}");
-    assert_eq!(selection.header(&env).title.text, "entries 0");
+    assert_eq!(
+        selection.header().title,
+        siros_explain::Text::Raw("entries 0".to_owned())
+    );
     let host = TestHost::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
         .expect("authentic");

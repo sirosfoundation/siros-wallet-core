@@ -206,6 +206,13 @@ impl ParamKind {
         }
     }
 
+    /// The kind of a parameter a converter declares for a defined module, whose arguments no type
+    /// fixes.
+    #[must_use]
+    pub const fn new(kind: ArgKind, presence: Presence) -> Self {
+        Self { kind, presence }
+    }
+
     /// The kind.
     #[must_use]
     pub const fn kind(self) -> ArgKind {

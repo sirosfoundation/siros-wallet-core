@@ -3,11 +3,12 @@
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde_json::{Value, json};
+use siros_explain::Text;
 use siros_openid4vp::arrival::{DcApiProtocol, Received};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::StaticEntry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, Label, RenderOptions, Row};
+use siros_openid4vp::rows::{Amounts, Choice, Env, Icon, ImageMedia, RenderOptions, Row};
 use siros_openid4vp::wallet::Holder;
 use siros_testkit::fixtures::{self, Held, OPTIONS, ORIGIN, with_generic_forms};
 use siros_testkit::verifier::{self, ISSUER};
@@ -214,9 +215,9 @@ pub(super) fn static_entry(k: usize) -> StaticEntry {
                 media: ImageMedia::PNG,
                 size: NonZeroU32::new(1024).expect("a size"),
             },
-            title: format!("Notice {k}"),
+            title: Text::Raw(format!("Notice {k}")),
             subtitle: None,
-            rows: vec![Row::full_text(Label::text(format!("Wallet notice {k}")))],
+            rows: vec![Row::full_text(Text::Raw(format!("Wallet notice {k}")))],
         },
     }
 }

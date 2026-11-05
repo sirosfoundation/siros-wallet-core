@@ -6,46 +6,51 @@
 
 mod common;
 
-use common::{Card, PAY, annex, en, entry, env, member, png, rows, shown, sri};
-use siros_openid4vp::rows::{Amounts, HttpsUrl, Image, ImageRef, Value};
-use siros_openid4vp::text::{Span, Style};
+use common::{Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
+use siros_openid4vp::rows::{Amounts, Env, HttpsUrl, Image, ImageRef, Value};
 use siros_paso::outcome::{NotCompatible, Outcome, Unsupported};
-use siros_paso::render::TransactionView;
-use siros_paso::{Fetch, PasoProfile, Rendered};
+use siros_paso::{Fetch, PasoProfile};
 use siros_testkit::verifier::ISSUER;
+
+/// An expected title, confirm and deny actions, and hint.
+fn said(
+    (title, confirm, deny, hint): (&str, &str, &str, Option<&str>),
+) -> (String, String, String, Option<String>) {
+    (
+        title.to_owned(),
+        confirm.to_owned(),
+        deny.to_owned(),
+        hint.map(str::to_owned),
+    )
+}
+
+/// An expected payment's merchant and amount.
+fn paid(merchant: &str, amount: &str) -> Option<(String, String)> {
+    Some((merchant.to_owned(), amount.to_owned()))
+}
 
 /// An entry rendered for a card whose metadata gives `meta` for the entry's type (`{}`: the
 /// Mandate rulebook needs none).
-fn render(
-    entry_json: &str,
-    meta: &str,
-    env: &siros_openid4vp::rows::Env,
-    profile: &PasoProfile,
-) -> Result<Rendered, Outcome> {
+fn render(entry_json: &str, meta: &str, env: &Env, profile: &PasoProfile) -> Result<Seen, Outcome> {
     let kind = member(entry_json, "type");
     let card = Card::new("mso_mdoc", &format!("{{{kind}: {meta}}}"), None, ISSUER);
-    profile
+    let rendered = profile
         .render(
             &entry(entry_json),
             &card.credential(),
             crate::common::placement(&card.credential().format),
             env,
         )
-        .expect("no fault")
+        .expect("no fault")?;
+    let kind: String = serde_json::from_str(&kind).expect("the type");
+    Ok(Seen {
+        rendered,
+        screen: Screen::of(&kind, meta, env),
+    })
 }
 
-fn view(rendered: Result<Rendered, Outcome>) -> TransactionView {
-    rendered.expect("the entry renders").view
-}
-
-fn text(rendered: &Rendered) -> (&str, &str, &str, Option<&str>) {
-    let view = &rendered.view;
-    (
-        view.title.text.as_str(),
-        view.actions.confirm.text.as_str(),
-        view.actions.deny.text.as_str(),
-        view.actions.hint.as_deref(),
-    )
+fn view(rendered: Result<Seen, Outcome>) -> Seen {
+    rendered.expect("the entry renders")
 }
 
 fn with_logo(url: &str, content: Vec<u8>) -> PasoProfile {
@@ -66,12 +71,14 @@ fn plain(text: &str) -> Option<(&'static str, &str)> {
     Some(("text", text))
 }
 
+/// A date as the wallet's en options write it: CLDR 49's medium date, `MMM d, y`. The rulebooks'
+/// screens write the day first (`3 Jun 2026`), as CLDR's en-GB does.
 fn date(text: &str) -> Option<(&'static str, &str)> {
     Some(("date", text))
 }
 
-fn in_section(mut row: common::Shown, section: &str) -> common::Shown {
-    row.3 = Some(section.to_owned());
+fn in_section(mut row: Shown, section: &str) -> Shown {
+    row.2 = Some(section.to_owned());
     row
 }
 
@@ -93,8 +100,11 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
     ));
     let repaired = entry_json.replace(written, &sri(&logo));
     let rendered = render(&repaired, &meta, &en(), &with_logo(url, logo.clone())).expect("renders");
-    assert_eq!(text(&rendered), ("Confirm Payment", "Pay", "Cancel", None));
-    let shown = rows(&rendered.view);
+    assert_eq!(
+        rendered.text(),
+        said(("Confirm Payment", "Pay", "Cancel", None))
+    );
+    let shown = rendered.rows();
     assert_eq!(
         shown[..2],
         [
@@ -111,12 +121,12 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
             height: 64,
         })))
     );
-    assert_eq!(rendered.view.rows[2].row.label.text, "Payee logo");
     assert_eq!(
-        rendered.view.payment_texts(),
-        Some(("Acme Store", "€49.99"))
+        rendered.plain(&rendered.view.rows[2].row.label),
+        "Payee logo"
     );
-    assert_eq!(rendered.view.locale.tag.as_str(), "en");
+    assert_eq!(rendered.payment(), paid("Acme Store", "€49.99"));
+    assert_eq!(rendered.view.locale.as_str(), "en");
     // German, as the metadata fixes it; the amount as the payload gives it.
     let de = view(render(
         &repaired,
@@ -124,20 +134,17 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
         &env(&["de"], Amounts::Formatted),
         &with_logo(url, logo),
     ));
+    assert_eq!(de.labels(), ["Betrag", "Empfänger", "Logo des Empfängers"]);
     assert_eq!(
-        de.rows
-            .iter()
-            .map(|r| r.row.label.text.as_str())
-            .collect::<Vec<_>>(),
-        ["Betrag", "Empfänger", "Logo des Empfängers"]
-    );
-    assert_eq!(
-        (de.title.text.as_str(), de.actions.confirm.text.as_str()),
+        (
+            de.plain(&de.view.title).as_str(),
+            de.plain(&de.view.actions.confirm).as_str()
+        ),
         ("Zahlung bestätigen", "Bezahlen")
     );
 }
 
-fn shown_row(label: &str, value: Option<(&'static str, &str)>) -> common::Shown {
+fn shown_row(label: &str, value: Option<(&'static str, &str)>) -> Shown {
     shown(label, value)
 }
 
@@ -148,9 +155,12 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
     let meta = member(&annex("Payment.md", "A.1")[1], PAY);
     // Payment A.1's metadata titles the screen; the wallet's table formats the amount.
     let rendered = render(entry_json, &meta, &en(), &PasoProfile::default()).expect("renders");
-    assert_eq!(text(&rendered), ("Confirm Payment", "Pay", "Cancel", None));
     assert_eq!(
-        rows(&rendered.view),
+        rendered.text(),
+        said(("Confirm Payment", "Pay", "Cancel", None))
+    );
+    assert_eq!(
+        rendered.rows(),
         [
             shown_row("Amount", amount("€49.99")),
             shown_row("Payee", plain("Shop Inc."))
@@ -171,20 +181,17 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
     )
     .expect("renders");
     assert_eq!(
-        text(&rendered),
-        ("Payment Confirmation", "Pay", "Cancel", None)
+        rendered.text(),
+        said(("Payment Confirmation", "Pay", "Cancel", None))
     );
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Amount", amount("49.99 EUR")),
             shown_row("Payee", plain("Shop Inc."))
         ]
     );
-    assert_eq!(
-        rendered.view.payment_texts(),
-        Some(("Shop Inc.", "49.99 EUR"))
-    );
+    assert_eq!(rendered.payment(), paid("Shop Inc.", "49.99 EUR"));
 }
 
 #[test]
@@ -193,11 +200,11 @@ fn generic_a1_renders_in_payload_order_in_english_and_german() {
     let meta = member(&blocks[1], "urn:paso:sca:global:generic:login:1");
     let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        ("Confirm Sign-In", "Sign In", "Cancel", None)
+        rendered.text(),
+        said(("Confirm Sign-In", "Sign In", "Cancel", None))
     );
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Relying Party", plain("Acme Cloud")),
             shown_row("Device", plain("Chrome on macOS · Berlin, DE")),
@@ -211,15 +218,12 @@ fn generic_a1_renders_in_payload_order_in_english_and_german() {
         &env(&["de"], Amounts::Formatted),
         &PasoProfile::default(),
     ));
+    assert_eq!(de.labels(), ["Dienstanbieter", "Gerät", "Zweck"]);
     assert_eq!(
-        de.rows
-            .iter()
-            .map(|r| r.row.label.text.as_str())
-            .collect::<Vec<_>>(),
-        ["Dienstanbieter", "Gerät", "Zweck"]
-    );
-    assert_eq!(
-        (de.title.text.as_str(), de.actions.confirm.text.as_str()),
+        (
+            de.plain(&de.view.title).as_str(),
+            de.plain(&de.view.actions.confirm).as_str()
+        ),
         ("Anmeldung bestätigen", "Anmelden")
     );
 }
@@ -245,18 +249,18 @@ fn generic_a2_needs_its_long_label_shortened_then_shows_its_screen() {
     );
     let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        ("Authorize Data Sharing", "Authorize", "Cancel", None)
+        rendered.text(),
+        said(("Authorize Data Sharing", "Authorize", "Cancel", None))
     );
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Service", plain("Budget Tracker by ExampleFin")),
             shown_row(
                 "Data shared",
                 plain("Account balances and transaction history (last 90 days)")
             ),
-            shown_row("Valid until", date("2 Sep 2026")),
+            shown_row("Valid until", date("Sep 2, 2026")),
             shown_row(short, None),
         ]
     );
@@ -269,16 +273,16 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
     let hint = "Streaming Co. will be able to collect up to the amount shown each month for up to 24 months.";
     let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        (
+        rendered.text(),
+        said((
             "Set Up Recurring Payment",
             "Authorize Mandate",
             "Cancel",
             Some(hint)
-        )
+        ))
     );
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Mandate reference", plain("MND-2026-0042")),
             shown_row("Frequency", plain("Monthly, up to 24 months")),
@@ -300,7 +304,7 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
         &env(&["de", "en"], Amounts::Formatted),
         &PasoProfile::default(),
     ));
-    assert_eq!(de_en.locale.tag.as_str(), "en");
+    assert_eq!(de_en.view.locale.as_str(), "en");
     assert!(matches!(
         render(
             &blocks[0],
@@ -319,16 +323,16 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
     let hint = "Raising your daily limit increases the maximum amount that could be spent if your card is misused.";
     let rendered = render(&blocks[0], &meta, &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        ("Confirm Limit Change", "Change Limit", "Cancel", Some(hint))
+        rendered.text(),
+        said(("Confirm Limit Change", "Change Limit", "Cancel", Some(hint)))
     );
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Limit type", plain("Daily transaction limit")),
             shown_row("Current limit", amount("€1,000.00")),
             shown_row("New limit", amount("€2,500.00")),
-            shown_row("Effective from", date("3 Jun 2026")),
+            shown_row("Effective from", date("Jun 3, 2026")),
         ]
     );
     let de = render(
@@ -339,18 +343,18 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
     )
     .expect("renders");
     assert_eq!(
-        text(&de),
-        (
+        de.text(),
+        said((
             "Limit-Änderung bestätigen",
             "Limit ändern",
             "Abbrechen",
             Some(
                 "Eine Erhöhung des Tageslimits erhöht den Betrag, der bei Missbrauch maximal abfließen kann."
             )
-        )
+        ))
     );
     // The German labels are the metadata's; the values' German wording is the wallet's table's.
-    let labels: Vec<_> = rows(&de.view).into_iter().map(|row| row.1).collect();
+    let labels = de.labels();
     assert_eq!(
         labels,
         ["Limit-Typ", "Aktuelles Limit", "Neues Limit", "Gültig ab"]
@@ -362,17 +366,17 @@ fn mandate_a1_shows_the_rulebooks_claims_in_table_order_then_the_first_collectio
     let entry_json = &annex("Mandate.md", "A.1")[0];
     let rendered = render(entry_json, "{}", &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        (
+        rendered.text(),
+        said((
             "Authorize Recurring Payment",
             "Authorize Mandate",
             "Cancel",
             None
-        )
+        ))
     );
     let first = "First Collection";
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Mandate reference", plain("MND-2026-0042")),
             shown_row("Authorized party", plain("Streaming Co.")),
@@ -387,8 +391,8 @@ fn mandate_a1_shows_the_rulebooks_claims_in_table_order_then_the_first_collectio
             shown_row("Maximum amount per use", amount("€19.99")),
             shown_row("Maximum uses", plain("24")),
             shown_row("Per period", plain("over the validity of this mandate")),
-            shown_row("Valid from", date("3 Jun 2026")),
-            shown_row("Valid until", date("2 Jun 2028")),
+            shown_row("Valid from", date("Jun 3, 2026")),
+            shown_row("Valid until", date("Jun 2, 2028")),
             in_section(shown_row("Amount", amount("€19.99")), first),
             in_section(shown_row("Payee", plain("Streaming Co.")), first),
         ]
@@ -411,16 +415,16 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
     );
     let rendered = render(&repaired, "{}", &en(), &with_logo(url, logo)).expect("renders");
     assert_eq!(
-        text(&rendered),
-        (
+        rendered.text(),
+        said((
             "Authorize Agent Purchase",
             "Authorize Agent",
             "Cancel",
             None
-        )
+        ))
     );
     let conditions = "- Only from retailers listed at trusted-retailers.example/v1\n- Total price (incl. tax & shipping) **must** be ≤ the maximum amount\n- Single purchase only; agent **must not** retry after a failed attempt";
-    let shown = rows(&rendered.view);
+    let shown = rendered.rows();
     assert_eq!(
         shown,
         [
@@ -431,11 +435,14 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
                 "Authorized action",
                 plain("Purchase noise-cancelling over-ear headphones")
             ),
-            shown_row("Conditions", Some(("mini_markdown", conditions))),
+            shown_row(
+                "Conditions",
+                Some(("mini_markdown", &conditions.replace("**", "")))
+            ),
             shown_row("Maximum amount per use", amount("€200.00")),
             shown_row("Maximum uses", plain("1")),
             shown_row("Per period", plain("over the validity of this mandate")),
-            shown_row("Valid until", date("9 Jun 2026")),
+            shown_row("Valid until", date("Jun 9, 2026")),
         ]
     );
     assert_eq!(
@@ -447,32 +454,11 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
             height: 96,
         })))
     );
-    // Strong emphasis on "must" and "must not"; each list item keeps its "- ".
-    let spans = rendered.view.rows[4]
-        .row
-        .value
-        .as_ref()
-        .and_then(Value::spans)
-        .expect("spans");
-    let plain_span = |text: &str| Span {
-        text: text.to_owned(),
-        style: Style::PLAIN,
-    };
-    let strong = |text: &str| Span {
-        text: text.to_owned(),
-        style: Style::STRONG,
-    };
+    // Each list item keeps its "- "; the strong emphasis of "must" and "must not" leaves the
+    // text, as a value from outside any module holds no style.
     assert_eq!(
-        spans,
-        [
-            plain_span(
-                "- Only from retailers listed at trusted-retailers.example/v1\n- Total price (incl. tax & shipping) "
-            ),
-            strong("must"),
-            plain_span(" be ≤ the maximum amount\n- Single purchase only; agent "),
-            strong("must not"),
-            plain_span(" retry after a failed attempt"),
-        ]
+        shown[4].1,
+        Some(("mini_markdown", conditions.replace("**", "")))
     );
 }
 
@@ -481,35 +467,36 @@ fn mandate_a3_names_a_delegate_without_limits() {
     let entry_json = &annex("Mandate.md", "A.3")[0];
     let rendered = render(entry_json, "{}", &en(), &PasoProfile::default()).expect("renders");
     assert_eq!(
-        text(&rendered),
-        (
+        rendered.text(),
+        said((
             "Authorize Account Delegate",
             "Authorize Delegate",
             "Cancel",
             None
-        )
+        ))
     );
     let conditions = "- View statements and download documents\n- **Must not** initiate transfers or change account-holder details\n- **Must not** add or remove other delegates";
     assert_eq!(
-        rows(&rendered.view),
+        rendered.rows(),
         [
             shown_row("Mandate reference", plain("MND-DEL-2026-0007")),
             shown_row("Authorized party", plain("Alex Schmidt")),
             shown_row("Authorized action", plain("Manage account on my behalf")),
-            shown_row("Conditions", Some(("mini_markdown", conditions))),
-            shown_row("Valid from", date("10 Jun 2026")),
-            shown_row("Valid until", date("10 Sep 2026")),
+            shown_row(
+                "Conditions",
+                Some(("mini_markdown", &conditions.replace("**", "")))
+            ),
+            shown_row("Valid from", date("Jun 10, 2026")),
+            shown_row("Valid until", date("Sep 10, 2026")),
         ]
     );
-    let strong: Vec<String> = rendered.view.rows[3]
-        .row
-        .value
-        .as_ref()
-        .and_then(Value::spans)
-        .expect("spans")
-        .into_iter()
-        .filter(|span| span.style.has(Style::STRONG))
-        .map(|span| span.text)
-        .collect();
-    assert_eq!(strong, ["Must not", "Must not"]);
+    // Its strong emphasis leaves the text, as a value from outside any module holds no style.
+    assert!(
+        !rendered.rows()[3]
+            .1
+            .as_ref()
+            .expect("a value")
+            .1
+            .contains("**")
+    );
 }

@@ -6,12 +6,11 @@
 
 use rustc_hash::FxHashMap;
 use siros_explain::Explain;
+use siros_explain::Text;
 use siros_openid4vp::consent::Header;
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Exclude, Fault, NoCandidate};
-use siros_openid4vp::rows::{
-    Env, HttpsUrl, Label, NotHttpsUrl, Parsed, Row, TableLocale, Value, WalletText,
-};
+use siros_openid4vp::rows::{HttpsUrl, NotHttpsUrl, Row, Value, WalletText};
 
 use crate::FAULT;
 use crate::approval::{
@@ -90,54 +89,6 @@ impl QesText {
             (Creation::Seal, Framework::Eidas) => Self::CreatesEidasSeals,
         }
     }
-
-    fn in_locale(self, locale: TableLocale) -> String {
-        let text = match (locale, self) {
-            (_, Self::Section { document }) => {
-                return match locale {
-                    TableLocale::En => format!("Document {document}"),
-                    TableLocale::De => format!("Dokument {document}"),
-                };
-            }
-            (TableLocale::En, Self::TitleSignatures) => "Approve qualified signatures",
-            (TableLocale::En, Self::TitleSeals) => "Approve qualified seals",
-            (TableLocale::En, Self::Confirm) => "Approve",
-            (TableLocale::En, Self::CreatesEidasSignatures) => {
-                "Creates qualified electronic signatures under the EU eIDAS regulation"
-            }
-            (TableLocale::En, Self::CreatesEidasSeals) => {
-                "Creates qualified electronic seals under the EU eIDAS regulation"
-            }
-            (TableLocale::En, Self::Count) => "Signatures",
-            (TableLocale::En, Self::Name) => "Name",
-            (TableLocale::En, Self::NoName) => "This document has no name",
-            (TableLocale::En, Self::OneTimePassword) => "One-time password",
-            (TableLocale::En, Self::Link) => "Document link",
-            (TableLocale::En, Self::Embedded) => "Included in the request",
-            (TableLocale::En, Self::Integrity) => "Integrity",
-            (TableLocale::En, Self::Verified) => "Checked automatically",
-            (TableLocale::En, Self::Unverified) => "Not checked",
-            (TableLocale::De, Self::TitleSignatures) => "Qualifizierte Signaturen freigeben",
-            (TableLocale::De, Self::TitleSeals) => "Qualifizierte Siegel freigeben",
-            (TableLocale::De, Self::Confirm) => "Freigeben",
-            (TableLocale::De, Self::CreatesEidasSignatures) => {
-                "Erstellt qualifizierte elektronische Signaturen nach der EU-eIDAS-Verordnung"
-            }
-            (TableLocale::De, Self::CreatesEidasSeals) => {
-                "Erstellt qualifizierte elektronische Siegel nach der EU-eIDAS-Verordnung"
-            }
-            (TableLocale::De, Self::Count) => "Signaturen",
-            (TableLocale::De, Self::Name) => "Name",
-            (TableLocale::De, Self::NoName) => "Dieses Dokument hat keinen Namen",
-            (TableLocale::De, Self::OneTimePassword) => "Einmalpasswort",
-            (TableLocale::De, Self::Link) => "Dokument-Link",
-            (TableLocale::De, Self::Embedded) => "In der Anfrage enthalten",
-            (TableLocale::De, Self::Integrity) => "Integrität",
-            (TableLocale::De, Self::Verified) => "Automatisch geprüft",
-            (TableLocale::De, Self::Unverified) => "Nicht geprüft",
-        };
-        text.to_owned()
-    }
 }
 
 /// The rows the approval shows and its consent header.
@@ -149,44 +100,40 @@ pub(crate) struct Rendered {
     pub(crate) header: Header,
 }
 
-/// A plain-text value.
-fn text(text: &str) -> Value {
-    Value::Formatted {
-        parsed: Parsed::Text,
-        text: text.to_owned(),
-    }
+/// A value the request wrote, shown as written.
+fn written(text: &str) -> Value {
+    Value::Text(Text::Raw(text.to_owned()))
 }
 
-/// The approval in the wallet's first locale. Excluded when a linked document the wallet holds
+/// A value of the profile's own: a message of its module.
+fn own(text: QesText) -> Value {
+    Value::Text(Text::of(&text))
+}
+
+/// The approval's rows and header. Excluded when a linked document the wallet holds
 /// fails its checksum (§6.3, abort): the first such document in array order.
 pub(crate) fn render(
     approval: &ApprovalRequest<'_>,
     held: &FxHashMap<String, Fetched>,
-    env: &Env,
 ) -> Result<Rendered, NoCandidate> {
-    let locale = env.first().table;
-    let say = |key: QesText| key.in_locale(locale);
     let qualifier = approval.qualifier;
     let mut rows = vec![
-        Row::full_text(Label::text(say(QesText::creates(qualifier)))),
-        Row::new(
-            Label::text(say(QesText::Count)),
-            text(approval.count.as_str()),
-        ),
+        Row::full_text(Text::of(&QesText::creates(qualifier))),
+        Row::new(Text::of(&QesText::Count), written(approval.count.as_str())),
     ];
     for (k, document) in approval.documents.iter().enumerate() {
         let n = k + 1;
-        let section = say(QesText::Section { document: n });
-        for row in document_rows(document, n, held, env)? {
+        let section = Text::of(&QesText::Section { document: n });
+        for row in document_rows(document, n, held)? {
             rows.push(row.in_section(section.clone()));
         }
     }
     Ok(Rendered {
         rows,
         header: Header {
-            title: Label::text(say(QesText::title(qualifier))),
-            confirm: Label::text(say(QesText::Confirm)),
-            cancel: Label::text(env.first().text(WalletText::Deny)),
+            title: Text::of(&QesText::title(qualifier)),
+            confirm: Text::of(&QesText::Confirm),
+            cancel: Text::of(&WalletText::Deny),
         },
     })
 }
@@ -197,31 +144,28 @@ fn document_rows(
     document: &DocumentInfo<'_>,
     n: usize,
     held: &FxHashMap<String, Fetched>,
-    env: &Env,
 ) -> Result<Vec<Row>, NoCandidate> {
-    let locale = env.first().table;
-    let say = |key: QesText| key.in_locale(locale);
     let mut rows = vec![match document.label {
-        Some(label) => Row::new(Label::text(say(QesText::Name)), text(label)),
-        None => Row::full_text(Label::text(say(QesText::NoName))),
+        Some(label) => Row::new(Text::of(&QesText::Name), written(label)),
+        None => Row::full_text(Text::of(&QesText::NoName)),
     }];
     if let Some(password) = document.one_time_password {
         rows.push(Row::new(
-            Label::text(say(QesText::OneTimePassword)),
-            text(password),
+            Text::of(&QesText::OneTimePassword),
+            written(password),
         ));
     }
     let Some(Link { href, checksum }) = document.link else {
         return Ok(rows);
     };
     let link = match HttpsUrl::parse(href) {
-        Ok(url) => Value::url(url),
+        Ok(url) => Value::url(&url),
         Err(e @ NotHttpsUrl::ALabel { .. }) => {
             return Err(Fault::caused(FAULT, detail!("QES document {n}: its link"), e).into());
         }
-        Err(_) => text(&say(QesText::Embedded)),
+        Err(_) => own(QesText::Embedded),
     };
-    rows.push(Row::new(Label::text(say(QesText::Link)), link));
+    rows.push(Row::new(Text::of(&QesText::Link), link));
     if let Some(checksum) = checksum {
         let checked = match held.get(href) {
             Some(fetched) if fetched.verifies(checksum) => QesText::Verified,
@@ -230,10 +174,7 @@ fn document_rows(
             }
             None => QesText::Unverified,
         };
-        rows.push(Row::new(
-            Label::text(say(QesText::Integrity)),
-            text(&say(checked)),
-        ));
+        rows.push(Row::new(Text::of(&QesText::Integrity), own(checked)));
     }
     Ok(rows)
 }

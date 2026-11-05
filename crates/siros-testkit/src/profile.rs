@@ -4,6 +4,7 @@
 //! A credential's `test` document: `{"supports": [types], "nonconforming": [entries], "stale"?:
 //! [entries phase 2 finds no longer hold]}`.
 
+use siros_explain::Text;
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash;
@@ -15,7 +16,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{EntryIndex, Request};
-use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Label, Parsed, Row, Value};
+use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Row, Value};
 use siros_openid4vp::wallet::Credential;
 
 use crate::FAULT;
@@ -174,15 +175,12 @@ impl Profile for TestProfile {
             .map_err(|e| Fault::caused(FAULT, detail!("bound entries"), e))?;
         let rows = vec![
             Row::new(
-                Label::text("Reference"),
-                Value::Formatted {
-                    parsed: Parsed::Text,
-                    text: reference.clone(),
-                },
+                Text::Name("reference"),
+                Value::Text(Text::Raw(reference.clone())),
             )
-            .in_section("Section"),
+            .in_section(Text::Name("section")),
             Row::new(
-                Label::text("Logo"),
+                Text::Name("logo"),
                 Value::Image(Image::Embedded(ImageRef {
                     source: "data:image/png".to_owned(),
                     media: "image/png".to_owned(),
@@ -190,26 +188,26 @@ impl Profile for TestProfile {
                     height: 1,
                 })),
             )
-            .in_section("Section"),
+            .in_section(Text::Name("section")),
         ];
         let transaction = (first == Some(true)).then(|| TransactionHeader {
-            counterparty: "Merchant".to_owned(),
-            amount: "1.00 EUR".to_owned(),
+            counterparty: Text::Name("merchant"),
+            amount: Text::Raw("1.00 EUR".to_owned()),
             rows: Vec::new(),
         });
         Ok(Bound {
             entries,
             header: Header {
-                title: Label::text(format!("entries {reference}")),
-                confirm: Label::text("Confirm"),
-                cancel: Label::text("Cancel"),
+                title: Text::Raw(format!("entries {reference}")),
+                confirm: Text::Name("confirm"),
+                cancel: Text::Name("cancel"),
             },
             attested: Attested::new(vec![("entries".to_owned(), reference.clone())])
                 .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
             overlay: Overlay {
                 rows,
                 header: transaction,
-                hint: Some(format!("hint {reference}")),
+                hint: Some(Text::Raw(format!("hint {reference}"))),
             },
         })
     }

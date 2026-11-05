@@ -10,15 +10,18 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
+use siros_explain::{Messages, ModuleId, Text};
+use siros_i18n::{Declaration, Formatted, Module};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Entry;
-use siros_openid4vp::rows::{Amounts, Choice, Env, Label, LabelKind, RenderOptions, Row, Value};
+use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value, ValueKind};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
 use siros_paso::outcome::Outcome;
-use siros_paso::render::TransactionView;
+use siros_paso::render::{TransactionView, ViewRow};
 use siros_testkit::fixtures::OPTIONS;
+use siros_testkit::render::{App, CrateSource, GERMAN_PASO, compilers, main_module, main_sources};
 use siros_testkit::verifier;
 
 /// The Payment rulebook's type.
@@ -249,59 +252,165 @@ pub fn data_png(width: u32, height: u32) -> String {
     )
 }
 
-/// A row as the examples state it: the label's kind and text, the value's kind and text, the
-/// section.
-pub type Shown = (
-    &'static str,
-    String,
-    Option<(&'static str, String)>,
-    Option<String>,
-);
+/// A row as the examples state it: the label's text, the value's kind and text, the section.
+pub type Shown = (String, Option<(&'static str, String)>, Option<String>);
 
-/// A plain-text label and a value of a kind.
+/// A label and a value of a kind.
 pub fn shown(label: &str, value: Option<(&'static str, &str)>) -> Shown {
     (
-        "text",
         label.to_owned(),
         value.map(|(kind, text)| (kind, text.to_owned())),
         None,
     )
 }
 
-/// A row as [`Shown`] reads it; an image's value text is `None`.
-pub fn read(
-    row: &Row,
-) -> (
-    &'static str,
-    String,
-    Option<(&'static str, String)>,
-    Option<String>,
-) {
-    let kind = match row.label.kind {
-        LabelKind::Text => "text",
-        LabelKind::MiniMarkdown => "mini_markdown",
-    };
-    let value = row.value.as_ref().map(|value| {
+/// The profile's module as the test app loads it.
+pub fn paso_module() -> CrateSource {
+    CrateSource {
+        id: siros_paso::CrateModule::ID,
+        messages: siros_paso::CrateModule::messages(),
+        english: siros_paso::CrateModule::ENGLISH,
+        german: GERMAN_PASO,
+    }
+}
+
+/// The module a type's metadata converts to, over the test app's main module.
+pub fn defined(kind: &str, meta: &str) -> Module {
+    let given = Node::parse(meta).expect("the metadata");
+    let [en, de] = main_sources();
+    let converted = siros_paso::view::convert(kind, &given, &[&en, &de]).expect("converts");
+    let sources: Vec<&str> = converted
+        .sources
+        .entries()
+        .iter()
+        .map(|entry| entry.value().as_str())
+        .collect();
+    Module::load(
+        ModuleId::Defined(converted.module),
+        &Declaration::defined(converted.declaration).expect("a declaration"),
+        &sources,
+        converted.policy,
+        &compilers().expect("compilers"),
+    )
+    .expect("the converted module loads")
+}
+
+/// The test app of a type's renderings in an `Env`: the main module, the core's and the
+/// profile's modules, and the module the type's metadata converts to.
+pub struct Screen {
+    app: App,
+    env: Env,
+}
+
+impl Screen {
+    /// The screen of a type whose metadata the card gives as `meta`.
+    pub fn of(kind: &str, meta: &str, env: &Env) -> Self {
+        let modules = [
+            main_module().expect("the main module"),
+            CrateSource::openid4vp().load().expect("the core's module"),
+            paso_module().load().expect("the profile's module"),
+            defined(kind, meta),
+        ];
+        Self {
+            app: App::new(&modules.iter().collect::<Vec<_>>()).expect("the package"),
+            env: env.clone(),
+        }
+    }
+
+    /// A text as plain text.
+    pub fn plain(&self, text: &Text) -> String {
+        self.app.plain(&self.env, text).expect("the text renders")
+    }
+
+    /// A text as formatted text.
+    pub fn formatted(&self, text: &Text) -> Formatted {
+        self.app
+            .formatted(&self.env, text)
+            .expect("the text renders")
+    }
+
+    /// A row as [`Shown`] reads it; an image's value text is `<image>`.
+    pub fn row(&self, row: &ViewRow) -> Shown {
+        let value = row.row.value.as_ref().map(|value| {
+            (
+                row.kind.map_or("<none>", ValueKind::as_str),
+                value
+                    .text()
+                    .map_or_else(|| "<image>".to_owned(), |text| self.plain(text)),
+            )
+        });
         (
-            value.kind().as_str(),
-            value.text().unwrap_or("<image>").to_owned(),
+            self.plain(&row.row.label),
+            value,
+            row.row.section.as_ref().map(|section| self.plain(section)),
         )
-    });
-    (kind, row.label.text.clone(), value, row.section.clone())
+    }
+
+    /// The rows of a rendering, as [`Shown`] reads them.
+    pub fn rows(&self, view: &TransactionView) -> Vec<Shown> {
+        view.rows.iter().map(|row| self.row(row)).collect()
+    }
+
+    /// A rendering's title, confirm and deny actions, and hint.
+    pub fn actions(&self, view: &TransactionView) -> (String, String, String, Option<String>) {
+        (
+            self.plain(&view.title),
+            self.plain(&view.actions.confirm),
+            self.plain(&view.actions.deny),
+            view.actions.hint.as_ref().map(|hint| self.plain(hint)),
+        )
+    }
 }
 
-/// The rows of a rendering, as [`Shown`] reads them.
-pub fn rows(view: &TransactionView) -> Vec<Shown> {
-    view.rows.iter().map(|row| read(&row.row)).collect()
+/// A rendering and the test app's screen of its type, which renders its texts.
+pub struct Seen {
+    /// The rendering.
+    pub rendered: Rendered,
+    /// The screen of its type.
+    pub screen: Screen,
 }
 
-/// A label's kind and text.
-pub fn label(label: &Label) -> (&'static str, &str) {
-    let kind = match label.kind {
-        LabelKind::Text => "text",
-        LabelKind::MiniMarkdown => "mini_markdown",
-    };
-    (kind, label.text.as_str())
+impl std::ops::Deref for Seen {
+    type Target = Rendered;
+
+    fn deref(&self) -> &Rendered {
+        &self.rendered
+    }
+}
+
+impl Seen {
+    /// The title, the confirm and deny actions, the hint.
+    pub fn text(&self) -> (String, String, String, Option<String>) {
+        self.screen.actions(&self.rendered.view)
+    }
+
+    /// The rows.
+    pub fn rows(&self) -> Vec<Shown> {
+        self.screen.rows(&self.rendered.view)
+    }
+
+    /// A text of the rendering.
+    pub fn plain(&self, text: &Text) -> String {
+        self.screen.plain(text)
+    }
+
+    /// The payment's merchant and amount.
+    pub fn payment(&self) -> Option<(String, String)> {
+        let (merchant, amount) = self.view.payment_texts()?;
+        Some((self.plain(merchant), self.plain(amount)))
+    }
+
+    /// The rows' labels.
+    pub fn labels(&self) -> Vec<String> {
+        self.rows().into_iter().map(|row| row.0).collect()
+    }
+}
+
+impl Seen {
+    /// A text of the rendering, formatted.
+    pub fn formatted(&self, text: &Text) -> Formatted {
+        self.screen.formatted(text)
+    }
 }
 
 /// The outcome's kind and clause, the model's way of naming the rule that decided it.

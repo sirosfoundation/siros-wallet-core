@@ -3,9 +3,10 @@
 
 use std::borrow::Cow;
 
+use siros_explain::Text;
 use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
-use siros_openid4vp::rows::{Amounts, FormattedKind, TableLocale, Value, ValueKind, Written};
+use siros_openid4vp::rows::{FormattedKind, Parsed, ValueKind, Written, formatted};
 
 use crate::entry::Payload;
 use crate::labels::Directional;
@@ -79,13 +80,14 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
     }
 }
 
-/// A value of a kind other than an image, parsed; its text in English with amounts as written.
-pub(crate) fn parsed(kind: FormattedKind, value: &Node<'_>) -> Result<Value, NotCompatible> {
-    Value::format(kind, written(value), TableLocale::En, Amounts::Written).map_err(|bad| {
-        NotCompatible::Value {
-            value_type: kind_name(ValueKind::Formatted(kind)),
-            bad,
-        }
+/// A value of a kind other than an image, parsed, with its text.
+pub(crate) fn parsed(
+    kind: FormattedKind,
+    value: &Node<'_>,
+) -> Result<(Parsed, Text), NotCompatible> {
+    formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
+        value_type: kind_name(ValueKind::Formatted(kind)),
+        bad,
     })
 }
 

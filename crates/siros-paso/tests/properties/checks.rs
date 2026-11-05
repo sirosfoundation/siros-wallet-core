@@ -46,6 +46,29 @@ impl Tally {
     }
 }
 
+/// The metadata that renders an entry for the card, its members in the order its card or its
+/// ad-hoc JWT writes them: the text the profile's converted module is named by.
+fn given_text(entry: &Value, types: &str) -> Option<String> {
+    use siros_openid4vp::json::Node;
+    let (text, member) = match entry.get("metadata").and_then(Value::as_str) {
+        Some(jwt) => {
+            let payload = jwt.split('.').nth(1).expect("a JWS payload");
+            let claims = URL_SAFE_NO_PAD.decode(payload).expect("base64url");
+            (
+                String::from_utf8(claims).expect("utf-8"),
+                "metadata".to_owned(),
+            )
+        }
+        None => (
+            types.to_owned(),
+            entry["type"].as_str().expect("type").to_owned(),
+        ),
+    };
+    let node = Node::parse(&text).expect("JSON");
+    node.get(&member)
+        .map(|given| given.python_compact().to_string())
+}
+
 /// The metadata that renders an entry for the card: the ad-hoc JWT's when the entry carries one,
 /// else the card's for the type; `None` when the card lists no metadata for it.
 fn given(entry: &Value, types: &Value) -> Option<Value> {
@@ -109,7 +132,7 @@ fn mandate_claims() -> Vec<TableClaim> {
 }
 
 /// The display arrays of a type's metadata as View §4 reads them: its displayed claims' and its
-/// UI labels'. The Mandate rulebook's own arrays each hold an English and a German entry.
+/// UI labels'. The Mandate rulebook's own arrays each hold a default entry.
 fn arrays(mandate: bool, meta: &Value) -> Vec<Vec<Value>> {
     let ui = meta.get("ui_labels");
     let ui_array = |key: &str| {
@@ -118,7 +141,9 @@ fn arrays(mandate: bool, meta: &Value) -> Vec<Vec<Value>> {
             .cloned()
     };
     let mut out: Vec<Vec<Value>> = if mandate {
-        vec![vec![json!({"locale": "en"}), json!({"locale": "de"})]]
+        // The wallet's own labels: one default entry, as its modules cover every language of
+        // the wallet.
+        vec![vec![json!({})]]
     } else {
         let claims = meta["claims"].as_array().expect("claims");
         let mut out: Vec<Vec<Value>> = claims
@@ -272,7 +297,15 @@ pub fn case(case: &Case, tally: &mut Tally) {
                 &env,
             )
             .expect("no fault");
-        outcome(case.kind, &json, &types, &rendered, &case.locales, tally);
+        let given = given_text(&json, &case.types);
+        outcome(
+            case.kind,
+            &json,
+            (&types, given.as_deref()),
+            &rendered,
+            &case.locales,
+            tally,
+        );
         if first.is_none() && matches!(rendered, Ok(_) | Err(Outcome::Excluded(_))) {
             first = Some((index, json, rendered));
         }
@@ -330,7 +363,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
             assert_eq!(rest.len() + 2, rows.len(), "P-proxy rows");
             assert_eq!(bound.overlay.rows, rest, "P-proxy rows");
             assert_eq!(
-                (header.counterparty.as_str(), header.amount.as_str()),
+                (&header.counterparty, &header.amount),
                 texts,
                 "P-payment header"
             );
@@ -349,7 +382,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
     }
     assert_eq!(bound.overlay.hint, view.actions.hint, "P-hint on the entry");
     // What the response attests: the locale shown (Core §7.2), the stored metadata's integrity.
-    let mut attested = vec![("display_locale".to_owned(), view.locale.tag.to_string())];
+    let mut attested = vec![("display_locale".to_owned(), view.locale.to_string())];
     if let Source::Stored { integrity } = &rendered.source {
         attested.push(("metadata_integrity".to_owned(), integrity.clone()));
     }

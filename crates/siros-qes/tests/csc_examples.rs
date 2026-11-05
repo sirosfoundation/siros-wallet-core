@@ -10,7 +10,6 @@ use siros_openid4vp::consent::Header;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::resolve::{Finding, Outcome};
-use siros_openid4vp::rows::Label;
 use siros_openid4vp::wallet::Holder;
 use siros_qes::{CLAIM, FailedDocument, FailedDocuments, Fetched, NAMESPACE, QesProfile, TYPE};
 
@@ -19,7 +18,7 @@ use common::fixtures::{
 };
 use common::{
     Fields, Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, ShownRow, Viewed, approve, csc, entry,
-    env, hex, parameters, phase_one, registry, request_of, serving, shown, unsigned, wallet,
+    env, hex, parameters, phase_one, plain, registry, request_of, serving, shown, unsigned, wallet,
 };
 
 /// The refusal texts of a request.
@@ -48,13 +47,9 @@ fn row(
     )
 }
 
-/// A consent header.
-fn header(title: &str, confirm: &str, cancel: &str) -> Header {
-    Header {
-        title: Label::text(title),
-        confirm: Label::text(confirm),
-        cancel: Label::text(cancel),
-    }
+/// A consent header, rendered in a locale.
+fn header(header: &Header, locale: &'static str) -> [String; 3] {
+    [&header.title, &header.confirm, &header.cancel].map(|text| plain(text, locale))
 }
 
 /// The attestation approving signatures, as an mdoc.
@@ -143,7 +138,7 @@ fn csc_7_1_2_is_rendered_by_6_4() {
             row(None, "Signatures", Some("text"), Some("2")),
             row(Some(&d1), "Name", Some("text"), Some("Example Contract")),
             row(Some(&d1), "One-time password", Some("text"), Some("51623")),
-            row(Some(&d1), "Document link", Some("url"), Some(HREFS[0])),
+            row(Some(&d1), "Document link", Some("text"), Some(HREFS[0])),
             row(Some(&d1), "Integrity", Some("text"), Some("Not checked")),
             row(
                 Some(&d2),
@@ -151,11 +146,11 @@ fn csc_7_1_2_is_rendered_by_6_4() {
                 Some("text"),
                 Some("Example Terms of Service")
             ),
-            row(Some(&d2), "Document link", Some("url"), Some(HREFS[1])),
+            row(Some(&d2), "Document link", Some("text"), Some(HREFS[1])),
             row(Some(&d2), "Integrity", Some("text"), Some("Not checked")),
             row(Some(&d3), "Name", Some("text"), Some("Example Invoice")),
             row(Some(&d3), "One-time password", Some("text"), Some("83920")),
-            row(Some(&d3), "Document link", Some("url"), Some(HREFS[2])),
+            row(Some(&d3), "Document link", Some("text"), Some(HREFS[2])),
             row(Some(&d3), "Integrity", Some("text"), Some("Not checked")),
             row(None, "userName", Some("text"), Some("willeke")),
         ]
@@ -167,8 +162,8 @@ fn csc_7_1_2_is_rendered_by_6_4() {
         "no transaction header, no hint"
     );
     assert_eq!(
-        view.header,
-        Some(header("Approve qualified signatures", "Approve", "Cancel"))
+        view.header.as_ref().map(|shown| header(shown, "en")),
+        Some(["Approve qualified signatures", "Approve", "Cancel"].map(str::to_owned))
     );
     assert_eq!(
         viewed(
@@ -177,12 +172,17 @@ fn csc_7_1_2_is_rendered_by_6_4() {
             QesProfile::default(),
             "de"
         )
-        .header,
-        Some(header(
-            "Qualifizierte Signaturen freigeben",
-            "Freigeben",
-            "Abbrechen"
-        )),
+        .header
+        .as_ref()
+        .map(|shown| header(shown, "de")),
+        Some(
+            [
+                "Qualifizierte Signaturen freigeben",
+                "Freigeben",
+                "Abbrechen"
+            ]
+            .map(str::to_owned)
+        ),
         "German: the profile's own strings, the wallet's cancel"
     );
 }
@@ -218,15 +218,15 @@ fn a_seal_a_nameless_document_and_an_embedded_link_are_rendered_by_6_4() {
             row(
                 d2,
                 "Document link",
-                Some("url"),
+                Some("text"),
                 Some("https://rp.example/a.pdf")
             ),
             row(None, "userName", Some("text"), Some("willeke")),
         ]
     );
     assert_eq!(
-        view.header,
-        Some(header("Approve qualified seals", "Approve", "Cancel"))
+        view.header.as_ref().map(|shown| header(shown, "en")),
+        Some(["Approve qualified seals", "Approve", "Cancel"].map(str::to_owned))
     );
 }
 

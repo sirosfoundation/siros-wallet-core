@@ -197,9 +197,35 @@ released version yet.
   `RenderOptions`, whose `Amounts` replaces the core's; its documentation
   states the app's practice of putting each tag's generic form after it.
   `ids::LocaleTag` is `siros-i18n`'s.
+- The texts of a consent entry, a header, a row and Credential Manager's
+  entries are `siros_explain::Text`, which the core renders when they are
+  displayed: `Card`'s title and subtitle, `Overlay`'s hint,
+  `TransactionHeader`'s counterparty and amount, `Header`'s actions, a row's
+  label, value and section, and `siros-credman`'s Standard and Payment
+  entries. The wallet's, PaSO's and QES's own texts are their modules'
+  messages; a value with a type stays typed (dates, times, amounts and
+  currencies of ISO 4217's table); a boolean and a frequency are messages; an
+  issuer's, a Verifier's or a credential's text shows as written. A row's
+  value is an image or a `Text`. `siros-credman`'s `Field::of`, `SetFacts::of`
+  and `Fulfilment::check` take the caller's plain-text rendering.
+- `siros-paso` converts a type's display rules into a defined module
+  (`view::convert`): each label of each display array one message, a
+  `mini_markdown` label its MF2 markup, a template label's `{n}` an argument
+  of claim n's value kind, the main module's format options copied for each
+  language View §4 serves; its texts name the module by the metadata's
+  SHA-256. A `mini_markdown` value shows its text without its styles. A time
+  of day holds seconds 00 to 59; a date-time's second 60 is RFC 3339's leap
+  second.
+- `siros-i18n`'s `Declaration::defined` declares a converted module's keys and
+  arguments; `siros-explain` adds `Keyed::first_of`, `DefinedKey::numbered`
+  and `ParamKind::new`.
 
 ### Removed
 
+- `TableLocale`, `DisplayLocale`, `EnvError::NotInTable`, `rows::Label` and
+  `rows::LabelKind`, and the core's own calendar and currency types: the
+  tables' texts are the crate modules' messages, and the typed values
+  `siros-explain`'s.
 - `ResponseData` and `Response`, which `Delivery` and `Built` replace;
   `FormMembers`.
 - The `direct_post.cwt` routing and `Modes`; `ResponseMode`, `DcApiMode`,

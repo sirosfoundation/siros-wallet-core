@@ -104,14 +104,14 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
                 let applying: Vec<_> = entries.iter().filter_map(|view| view.header).collect();
                 assert!(applying.len() <= 1, "P-one transaction per selection");
                 // The selection's header is its transaction's, else the wallet's own.
-                let header = selection.header(case.env);
+                let header = selection.header();
                 match applying.first() {
                     Some(transaction) => {
                         assert_eq!(&header, *transaction, "P-header of the selection");
                         tally.add("selections with a transaction");
                     }
                     None => {
-                        assert_eq!(header, wallet_header(case.env), "P-wallet header");
+                        assert_eq!(header, wallet_header(), "P-wallet header");
                         tally.add("selections with the wallet's header");
                     }
                 }

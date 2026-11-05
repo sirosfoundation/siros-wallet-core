@@ -5,7 +5,6 @@
 use siros_explain::Explain;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::{Node, Object};
-use siros_openid4vp::rows::TableLocale;
 
 use crate::entry::Payload;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
@@ -294,70 +293,4 @@ pub enum Section {
     /// The Mandate rulebook's other subtypes'.
     #[error("Payment")]
     Payment,
-}
-
-impl Title {
-    /// The title in a locale of the wallet's table.
-    #[must_use]
-    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::Transaction, En) => "Confirm Transaction",
-            (Self::Transaction, De) => "Transaktion bestätigen",
-            (Self::Payment, En) => "Payment Confirmation",
-            (Self::Payment, De) => "Zahlungsbestätigung",
-            (Self::DataSharing, En) => "Authorize Data Sharing",
-            (Self::DataSharing, De) => "Datenfreigabe erlauben",
-            (Self::GenericPayment, En) => "Confirm Payment",
-            (Self::GenericPayment, De) => "Zahlung bestätigen",
-            (Self::AccountDelegate, En) => "Authorize Account Delegate",
-            (Self::AccountDelegate, De) => "Kontovollmacht erteilen",
-            (Self::RecurringPayment, En) => "Authorize Recurring Payment",
-            (Self::RecurringPayment, De) => "Wiederkehrende Zahlung erlauben",
-            (Self::AgentPurchase, En) => "Authorize Agent Purchase",
-            (Self::AgentPurchase, De) => "Agentenkauf erlauben",
-            (Self::Mandate, En) => "Authorize Mandate",
-            (Self::Mandate, De) => "Mandat erteilen",
-        }
-    }
-}
-
-impl Confirm {
-    /// The action in a locale of the wallet's table.
-    #[must_use]
-    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::Confirm, En) => "Confirm",
-            (Self::Confirm, De) => "Bestätigen",
-            (Self::AllowSharing, En) => "Authorize",
-            (Self::AllowSharing, De) => "Erlauben",
-            (Self::Pay, En) => "Pay",
-            (Self::Pay, De) => "Bezahlen",
-            (Self::Delegate, En) => "Authorize Delegate",
-            (Self::Delegate, De) => "Vollmacht erteilen",
-            (Self::Mandate, En) => "Authorize Mandate",
-            (Self::Mandate, De) => "Mandat erteilen",
-            (Self::Agent, En) => "Authorize Agent",
-            (Self::Agent, De) => "Agent erlauben",
-            (Self::Authorize, En) => "Authorize",
-            (Self::Authorize, De) => "Erteilen",
-        }
-    }
-}
-
-impl Section {
-    /// The title in a locale of the wallet's table.
-    #[must_use]
-    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
-        use TableLocale::{De, En};
-        match (self, locale) {
-            (Self::PaymentDetails, En) => "Payment Details",
-            (Self::PaymentDetails, De) => "Zahlungsdetails",
-            (Self::FirstCollection, En) => "First Collection",
-            (Self::FirstCollection, De) => "Erste Abbuchung",
-            (Self::Payment, En) => "Payment",
-            (Self::Payment, De) => "Zahlung",
-        }
-    }
 }

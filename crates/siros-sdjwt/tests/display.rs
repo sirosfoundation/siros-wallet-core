@@ -7,6 +7,7 @@ use siros_openid4vp::plugins::{Format, Shown};
 use siros_openid4vp::request::Item;
 use siros_sdjwt::SdJwtVc;
 use siros_testkit::fixtures::{Held, env, icon, parameters, request_of, unsigned};
+use siros_testkit::render::written;
 
 const FIGURE_28: &str = include_str!("data/figure-28-sd-jwt-vc-payload.json");
 const FIGURE_29: &str = include_str!("data/figure-29-type-metadata.json");
@@ -65,12 +66,21 @@ fn card(
         .iter()
         .map(|row| {
             (
-                row.label.text.clone(),
-                row.value.as_ref().and_then(|v| v.text()).map(str::to_owned),
+                as_written(&row.label),
+                row.value.as_ref().and_then(|v| v.text()).map(as_written),
             )
         })
         .collect();
-    (card.title, card.icon.reference.to_string(), rows)
+    (
+        as_written(&card.title),
+        card.icon.reference.to_string(),
+        rows,
+    )
+}
+
+/// A text the issuer or the credential wrote, as written; another text as the value it holds.
+fn as_written(text: &siros_explain::Text) -> String {
+    written(text).map_or_else(|| format!("{text:?}"), str::to_owned)
 }
 
 fn rows(pairs: &[(&str, &str)]) -> Vec<(String, Option<String>)> {

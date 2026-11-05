@@ -12,7 +12,7 @@ mod display;
 mod plugin;
 mod rules;
 
-use siros_explain::{AllOf, Explained};
+use siros_explain::{AllOf, Explained, Text};
 
 pub use display::format_entry;
 use display::{metadata, value_rows};
@@ -247,10 +247,13 @@ impl<'q> ClaimsQuery<'q> {
             .and_then(Node::as_str)
             .filter(|name| !name.trim_matches(python_space).is_empty())
             .map_or_else(
-                || env.first().text(WalletText::Credential).to_owned(),
-                str::to_owned,
+                || Text::of(&WalletText::Credential),
+                |name| Text::Raw(name.to_owned()),
             );
-        let subtitle = view.get("issuer").and_then(Node::as_str).map(str::to_owned);
+        let subtitle = view
+            .get("issuer")
+            .and_then(Node::as_str)
+            .map(|issuer| Text::Raw(issuer.to_owned()));
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
         let mut rows = self.claim_rows(format, shown.everyone, view, locales)?;
         rows.extend(self.claim_rows(format, shown.chosen, view, locales)?);

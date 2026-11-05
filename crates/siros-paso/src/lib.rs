@@ -75,6 +75,7 @@ pub mod rulebook;
 pub mod rules;
 pub mod sca;
 mod template;
+pub mod view;
 
 pub use conform::{ClaimIndex, Placement};
 
@@ -463,7 +464,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         actions,
         payment: payment_rows,
     } = view;
-    let mut attested = vec![("display_locale".to_owned(), locale.tag.to_string())];
+    let mut attested = vec![("display_locale".to_owned(), locale.to_string())];
     if let Source::Stored { integrity } = source {
         attested.push(("metadata_integrity".to_owned(), integrity));
     }

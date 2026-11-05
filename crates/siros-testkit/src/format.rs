@@ -6,6 +6,7 @@
 //! `vp_formats_supported` value for "test": `{"algs"?: [...]}`.
 
 use siros_explain::AllOf;
+use siros_explain::Text;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
@@ -19,7 +20,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
-use siros_openid4vp::rows::{Env, FormattedKind, Label, Row, Value, Written};
+use siros_openid4vp::rows::{Env, FormattedKind, Row, Value, Written, formatted};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
@@ -291,27 +292,24 @@ impl FormatQuery for TestQuery<'_> {
         env: &Env,
     ) -> Result<Card, Fault> {
         let view = view(credential)?;
-        let locale = env.first().table;
         let format = |kind, written| {
-            Value::format(kind, written, locale, env.options().amounts)
+            formatted(kind, written)
+                .map(|(_, text)| Value::Text(text))
                 .map_err(|e| Fault::caused(FAULT, detail!("a test value"), e))
         };
         let mut rows = vec![
             Row::new(
-                Label::text(self.id.as_str()),
+                Text::Raw(self.id.as_str().to_owned()),
                 format(FormattedKind::Text, Written::Text(credential.id.as_str()))?,
             ),
-            Row::full_text(Label::text("statement")),
+            Row::full_text(Text::Name("statement")),
         ];
         for (kind, written) in TYPED {
-            rows.push(Row::new(
-                Label::mini_markdown(format!("*{}*", kind.as_str())),
-                format(kind, written)?,
-            ));
+            rows.push(Row::new(Text::Name(kind.as_str()), format(kind, written)?));
         }
         Ok(Card {
             icon: env.icon(view.get("logo").and_then(Node::as_str)).clone(),
-            title: credential.id.to_string(),
+            title: Text::Raw(credential.id.to_string()),
             subtitle: None,
             rows,
         })

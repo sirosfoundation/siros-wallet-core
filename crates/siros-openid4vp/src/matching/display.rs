@@ -2,23 +2,22 @@
 //! sets of slots of choices, and the selection read back from the ids the platform returns.
 
 use rustc_hash::FxHashMap;
-use siros_explain::Explain;
+use siros_explain::{Explain, Text};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
 use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
 use crate::request::Item;
-use crate::rows::{Env, Label, WalletText};
+use crate::rows::{Env, WalletText};
 use crate::{FAULT, detail};
 
 /// The header of a request without a transaction: the wallet's own.
 #[must_use]
-pub fn wallet_header(env: &Env) -> Header {
-    let locale = env.first();
+pub fn wallet_header() -> Header {
     Header {
-        title: Label::text(locale.text(WalletText::RequestTitle)),
-        confirm: Label::text(locale.text(WalletText::Share)),
-        cancel: Label::text(locale.text(WalletText::Deny)),
+        title: Text::of(&WalletText::RequestTitle),
+        confirm: Text::of(&WalletText::Share),
+        cancel: Text::of(&WalletText::Deny),
     }
 }
 
@@ -313,11 +312,11 @@ impl<'v> Selection<'v> {
 
     /// The header for the selection: the transaction's, else the wallet's own.
     #[must_use]
-    pub fn header(&self, env: &Env) -> Header {
+    pub fn header(&self) -> Header {
         self.chosen
             .iter()
             .find_map(|view| view.header)
             .cloned()
-            .unwrap_or_else(|| wallet_header(env))
+            .unwrap_or_else(wallet_header)
     }
 }

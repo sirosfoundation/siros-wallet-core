@@ -1,5 +1,6 @@
 //! Credential Manager's Standard and Payment entries, laid out from the core's consent entry.
 
+use siros_explain::Text;
 use siros_openid4vp::consent::{Card, ConsentEntry};
 use siros_openid4vp::matching::StaticEntry;
 use siros_openid4vp::rows::{Icon, ImageMedia, Row};
@@ -47,11 +48,11 @@ pub struct StandardEntry {
     /// The icon: the card's.
     pub icon: EntryIcon,
     /// The title.
-    pub title: String,
+    pub title: Text,
     /// The subtitle.
-    pub subtitle: Option<String>,
+    pub subtitle: Option<Text>,
     /// The warning: the overlay's hint.
-    pub warning: Option<String>,
+    pub warning: Option<Text>,
     /// The fields.
     pub rows: Vec<Row>,
 }
@@ -60,17 +61,17 @@ pub struct StandardEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymentEntry {
     /// The merchant: the header's counterparty.
-    pub merchant: String,
+    pub merchant: Text,
     /// The amount.
-    pub amount: String,
+    pub amount: Text,
     /// The payment method's name: the card's title.
-    pub method_name: String,
+    pub method_name: Text,
     /// The payment method's subtitle: the card's subtitle.
-    pub method_subtitle: Option<String>,
+    pub method_subtitle: Option<Text>,
     /// The payment method's icon: the card's icon.
     pub method_icon: EntryIcon,
     /// The free text: the security hint.
-    pub additional_info: Option<String>,
+    pub additional_info: Option<Text>,
     /// The fields.
     pub rows: Vec<Row>,
 }

@@ -1,4 +1,4 @@
-//! The wallet's configuration the display reads, and its own string table.
+//! The wallet's configuration the display reads, and its own texts.
 
 use std::borrow::Cow;
 use std::num::NonZeroU32;
@@ -9,28 +9,6 @@ use siros_i18n::RenderOptions;
 
 use crate::ids::LocaleTag;
 use crate::media::{MediaType, NotMediaType};
-
-/// The locales of the wallet's string table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TableLocale {
-    /// English.
-    En,
-    /// German.
-    De,
-}
-
-impl TableLocale {
-    /// The table locale whose language serves a display locale: its tag, as a basic language
-    /// range, matches the display locale (`en` serves `en-US`).
-    #[must_use]
-    pub fn of(display: &LocaleTag) -> Option<Self> {
-        let serves = |tag: &str| LocaleTag::parse(tag).is_ok_and(|tag| tag.filters(display));
-        [(Self::En, "en"), (Self::De, "de")]
-            .into_iter()
-            .find(|(_, tag)| serves(tag))
-            .map(|(locale, _)| locale)
-    }
-}
 
 /// A text of the wallet's own: a message of the crate's module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
@@ -57,52 +35,9 @@ pub enum WalletText {
     /// A false boolean.
     #[error("No")]
     No,
-}
-
-impl WalletText {
-    /// The string in a table locale.
-    #[must_use]
-    pub const fn in_locale(self, locale: TableLocale) -> &'static str {
-        match (locale, self) {
-            (TableLocale::En, Self::Deny) => "Cancel",
-            (TableLocale::En, Self::Share) => "Share",
-            (TableLocale::En, Self::None) => "None",
-            (TableLocale::En, Self::Credential) => "Credential",
-            (TableLocale::En, Self::RequestTitle) => "Share your data",
-            (TableLocale::En, Self::Yes) => "Yes",
-            (TableLocale::En, Self::No) => "No",
-            (TableLocale::De, Self::Deny) => "Abbrechen",
-            (TableLocale::De, Self::Share) => "Teilen",
-            (TableLocale::De, Self::None) => "Keine",
-            (TableLocale::De, Self::Credential) => "Nachweis",
-            (TableLocale::De, Self::RequestTitle) => "Daten teilen",
-            (TableLocale::De, Self::Yes) => "Ja",
-            (TableLocale::De, Self::No) => "Nein",
-        }
-    }
-}
-
-/// A locale of the wallet's priority list with the table locale it selects.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DisplayLocale {
-    /// The language tag.
-    pub tag: LocaleTag,
-    /// The table locale it selects.
-    pub table: TableLocale,
-}
-
-impl DisplayLocale {
-    /// The display locale of a tag; `None` when the wallet's table has no locale for it.
-    #[must_use]
-    pub fn of(tag: LocaleTag) -> Option<Self> {
-        TableLocale::of(&tag).map(|table| Self { tag, table })
-    }
-
-    /// A string of the wallet's table in this locale.
-    #[must_use]
-    pub const fn text(&self, key: WalletText) -> &'static str {
-        key.in_locale(self.table)
-    }
+    /// A claim whose path names no member.
+    #[error("claim")]
+    Claim,
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.
@@ -197,11 +132,6 @@ pub enum EnvError {
     /// The priority list is empty.
     #[error("the wallet's locale priority list is empty")]
     NoLocale,
-    /// Neither the priority list nor the fallback list holds a tag the wallet's table serves.
-    #[error(
-        "neither the priority list from {0} nor the fallback list holds a tag the table serves"
-    )]
-    NotInTable(#[explain(name = "locale")] String),
 }
 
 /// The wallet's configuration the display reads: the End-User's language priority list, the
@@ -220,7 +150,6 @@ pub enum EnvError {
 pub struct Env {
     priority: Vec<LocaleTag>,
     fallback: Vec<LocaleTag>,
-    first: DisplayLocale,
     options: RenderOptions,
     icons: Vec<(String, Icon)>,
     choice: Choice,
@@ -228,14 +157,11 @@ pub struct Env {
 
 impl Env {
     /// The configuration: a non-empty priority list, the fallback list, the rendering options,
-    /// the icons resolved at issuance by logo URI and the offer shape. The wallet's own strings
-    /// take the first tag of the priority list, then of the fallback list, that the wallet's
-    /// table serves.
+    /// the icons resolved at issuance by logo URI and the offer shape.
     ///
     /// # Errors
     ///
-    /// [`EnvError::NoLocale`] for an empty priority list; [`EnvError::NotInTable`] when neither
-    /// list holds a tag the table serves.
+    /// [`EnvError::NoLocale`] for an empty priority list.
     pub fn new(
         priority: Vec<LocaleTag>,
         fallback: Vec<LocaleTag>,
@@ -243,16 +169,12 @@ impl Env {
         icons: Vec<(String, Icon)>,
         choice: Choice,
     ) -> Result<Self, EnvError> {
-        let shown = priority.first().ok_or(EnvError::NoLocale)?.to_string();
-        let first = priority
-            .iter()
-            .chain(&fallback)
-            .find_map(|tag| DisplayLocale::of(tag.clone()))
-            .ok_or(EnvError::NotInTable(shown))?;
+        if priority.is_empty() {
+            return Err(EnvError::NoLocale);
+        }
         Ok(Self {
             priority,
             fallback,
-            first,
             options,
             icons,
             choice,
@@ -269,12 +191,6 @@ impl Env {
     #[must_use]
     pub fn fallback(&self) -> &[LocaleTag] {
         &self.fallback
-    }
-
-    /// The locale the wallet's own strings use.
-    #[must_use]
-    pub const fn first(&self) -> &DisplayLocale {
-        &self.first
     }
 
     /// The card's icon: the logo resolved at issuance, else the wallet's default (Credential

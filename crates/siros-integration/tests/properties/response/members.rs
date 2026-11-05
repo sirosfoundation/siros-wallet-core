@@ -68,7 +68,6 @@ pub(super) fn members(
             .expect("the bound entry renders")
             .view
             .locale
-            .tag
             .to_string();
         let attested = view
             .record

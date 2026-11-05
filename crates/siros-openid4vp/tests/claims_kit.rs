@@ -8,6 +8,7 @@ mod common;
 
 use std::num::NonZeroU32;
 
+use siros_explain::Text;
 use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_formats_refusal};
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
@@ -23,6 +24,14 @@ const MDOC: ClaimsTest = ClaimsTest {
     member: "doctype_value",
     label: "name",
 };
+
+/// A text the issuer or the credential wrote, which shows as written.
+fn raw(text: &Text) -> String {
+    match text {
+        Text::Raw(written) => written.clone(),
+        other => panic!("{other:?} is no text as written"),
+    }
+}
 
 fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
@@ -80,10 +89,10 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             .iter()
             .map(|row| {
                 let value = row.value.as_ref().and_then(|v| v.text());
-                (row.label.text.clone(), value.map(str::to_owned))
+                (raw(&row.label), value.map(raw))
             })
             .collect();
-        (card.title, card.icon, rows)
+        (raw(&card.title), card.icon, rows)
     };
     let values = ["Erika", "Mustermann", "1971-09-01", "true"];
     let card = |title: &str, labels: [&str; 4]| {
@@ -411,13 +420,13 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
             &env,
         )
         .expect("card");
-    let rows: Vec<(&str, Option<&str>)> = card
+    let rows: Vec<(String, Option<String>)> = card
         .rows
         .iter()
         .map(|row| {
             (
-                row.label.text.as_str(),
-                row.value.as_ref().and_then(|v| v.text()),
+                raw(&row.label),
+                row.value.as_ref().and_then(|v| v.text()).map(raw),
             )
         })
         .collect();
@@ -430,6 +439,7 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
             ("Second", Some("y")),
             ("other", Some("z"))
         ]
+        .map(|(label, value)| (label.to_owned(), value.map(str::to_owned)))
     );
     // claim_sets is a non-empty array (§6.4.1).
     let empty_sets = parameters(

@@ -65,6 +65,18 @@ impl DefinedKey {
         tokens(&key, 1).then_some(Self(key))
     }
 
+    /// The key of `stem`, one or more tokens fixed when the crate builds, with `_` and each
+    /// number appended to its last token: `numbered(claim, &[3, 0])` is `claim_3_0`.
+    #[must_use]
+    pub fn numbered(stem: Domain, numbers: &[usize]) -> Self {
+        let mut key = stem.as_str().to_owned();
+        for number in numbers {
+            key.push('_');
+            key.push_str(&number.to_string());
+        }
+        Self(key)
+    }
+
     /// Its text.
     #[must_use]
     pub fn as_str(&self) -> &str {

@@ -5,11 +5,16 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
+use siros_explain::{Key, Text};
 use siros_openid4vp::claims::Concrete;
-use siros_openid4vp::rows::{Env, LabelKind};
+use siros_openid4vp::json::Node;
+use siros_openid4vp::rows::Env;
+use siros_openid4vp::text::spans;
 use siros_paso::Rendered;
 use siros_paso::outcome::Outcome;
+use siros_testkit::fixtures::with_generic_forms;
 
+use crate::common::paso_app;
 use crate::spec::{Spec, TableClaim, at, complete, kind_of, preferred, select};
 use crate::tally::Tally;
 
@@ -31,9 +36,37 @@ pub fn given(entry: &Value, document: &Value) -> Option<Value> {
     }
 }
 
+/// The metadata that renders an entry, its members in the order the ad-hoc JWT or the PaSO
+/// document writes them: the text the profile's converted module is named by.
+fn given_text(entry: &Value, document: &str) -> Option<String> {
+    let (text, member) = match entry.get("metadata").and_then(Value::as_str) {
+        Some(jwt) => {
+            let payload = jwt.split('.').nth(1).expect("a JWS payload");
+            let claims = URL_SAFE_NO_PAD.decode(payload).expect("base64url");
+            (String::from_utf8(claims).expect("utf-8"), None)
+        }
+        None => (document.to_owned(), entry["type"].as_str()),
+    };
+    let node = Node::parse(&text).expect("JSON");
+    let given = match member {
+        None => node.get("metadata"),
+        Some(kind) => node.get("transaction_data_types")?.get(kind),
+    };
+    given.map(|given| given.python_compact().to_string())
+}
+
+/// A label's text as written: a mini_markdown label's spans without their styles.
+fn written(label: &Value, text: &str, typed_by: &str) -> String {
+    match label.get(typed_by).and_then(Value::as_str) {
+        Some("mini_markdown") => spans(text).into_iter().map(|span| span.text).collect(),
+        _ => text.to_owned(),
+    }
+}
+
 /// The display arrays of a type's metadata as View §4 reads them: its displayed claims' and its
-/// UI labels'. The Mandate rulebook's own arrays each hold an English and a German entry; the
-/// credential's metadata gives its security_hint alone.
+/// UI labels'. The Mandate rulebook's own arrays each hold a default entry, as the wallet's
+/// modules cover every language of the wallet; the credential's metadata gives its security_hint
+/// alone.
 fn arrays(mandate: bool, meta: &Value) -> Vec<Vec<Value>> {
     let ui_array = |key: &str| {
         meta.get("ui_labels")
@@ -42,7 +75,7 @@ fn arrays(mandate: bool, meta: &Value) -> Vec<Vec<Value>> {
             .cloned()
     };
     let mut out: Vec<Vec<Value>> = if mandate {
-        vec![vec![json!({"locale": "en"}), json!({"locale": "de"})]]
+        vec![vec![json!({})]]
     } else {
         let mut out: Vec<Vec<Value>> = meta["claims"]
             .as_array()
@@ -86,7 +119,7 @@ fn tag(outcome: &Result<Rendered, Outcome>) -> String {
 /// View §2-4 on one entry rendered for a credential whose PaSO document is `document`.
 pub fn check(
     entry: &Value,
-    document: &Value,
+    (document, document_text): (&Value, &str),
     rendered: &Result<Rendered, Outcome>,
     env: &Env,
     spec: &Spec,
@@ -114,8 +147,22 @@ pub fn check(
     if mandate {
         tally.add("renderings by the Mandate rulebook");
     }
+    // The test app renders in the language the documented practice's list gives every module.
+    let practice = Env::new(
+        with_generic_forms(env.priority()),
+        Vec::new(),
+        env.options(),
+        Vec::new(),
+        env.choice(),
+    )
+    .expect("the configuration");
+    let app = paso_app(
+        kind,
+        &given_text(entry, document_text).expect("the metadata's text"),
+    );
+    let shown = |text: &Text| app.plain(&practice, text).expect("the text renders");
     // View §4: the display locale is one of the wallet's and completes every array.
-    let locale = view.locale.tag.as_str();
+    let locale = view.locale.as_str();
     assert!(
         locales.contains(&locale) && complete(locale, &arrays),
         "P-locale {locale}: {meta}"
@@ -134,46 +181,34 @@ pub fn check(
                 .iter()
                 .find(|claim| claim.displayed && json!(claim.path) == json!(path))
                 .expect("a displayed Mandate claim");
-            // The Mandate rulebook's labels are the wallet's own plain text.
-            assert_eq!(row.row.label.kind, LabelKind::Text, "P-label kind");
+            // The Mandate rulebook's labels are the wallet's own texts.
+            assert!(
+                matches!(&row.row.label, Text::Query(query) if matches!(query.key(), Key::Message(_))),
+                "P-label own {row:?}"
+            );
             claim.value_type.clone()
         } else {
             let claim = &claims[row.claim.0];
             let display = claim["display"].as_array().expect("a displayed claim");
             // View §4: each label is the entry the display locale matches.
+            // Proof Metadata §3.3: a mini_markdown label shows its text without its markers.
             if let Some(want) = preferred(display, locale, "display_type") {
                 assert_eq!(
-                    row.row.label.text,
-                    want["name"].as_str().expect("name"),
+                    shown(&row.row.label),
+                    written(want, want["name"].as_str().expect("name"), "display_type"),
                     "P-locale label"
                 );
             }
-            // Proof Metadata §3.3: the label's display_type.
-            let mut kinds: Vec<Option<&str>> = display
-                .iter()
-                .map(|d| d.get("display_type").and_then(Value::as_str))
-                .collect();
-            kinds.sort_unstable();
-            kinds.dedup();
-            let expected = if kinds == [None] {
-                LabelKind::Text
-            } else {
-                LabelKind::MiniMarkdown
-            };
-            assert!(
-                row.row.label.kind == expected || kinds.len() > 1,
-                "P-label kind {row:?}"
-            );
             claim
                 .get("value_type")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         };
         match &row.row.value {
-            Some(value) => {
+            Some(_) => {
                 // View §3: a value shows its value type's kind.
                 assert_eq!(
-                    value.kind().as_str(),
+                    row.kind.map_or("<none>", |kind| kind.as_str()),
                     kind_of(value_type.as_deref()),
                     "P-kind {row:?}"
                 );
@@ -232,20 +267,25 @@ pub fn check(
             .and_then(|u| u.get(key))
             .and_then(Value::as_array)
     };
-    let mut labels = vec![("security_hint", view.actions.hint.as_deref())];
+    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
     if !mandate {
         labels.extend([
-            ("transaction_title", Some(view.title.text.as_str())),
+            ("transaction_title", Some(shown(&view.title))),
             (
                 "affirmative_action_label",
-                Some(view.actions.confirm.text.as_str()),
+                Some(shown(&view.actions.confirm)),
             ),
-            ("denial_action_label", Some(view.actions.deny.text.as_str())),
+            ("denial_action_label", Some(shown(&view.actions.deny))),
         ]);
     }
     for (key, got) in labels {
         if let Some(want) = ui_array(key).and_then(|array| preferred(array, locale, "value_type")) {
-            assert_eq!(got, want["value"].as_str(), "P-locale ui label {key}");
+            let text = want["value"].as_str().expect("value");
+            assert_eq!(
+                got,
+                Some(written(want, text, "value_type")),
+                "P-locale ui label {key}"
+            );
             tally.add("ui labels checked for locale");
         }
     }
@@ -262,8 +302,8 @@ pub fn check(
             .expect("P-payment: the rows show texts");
         assert!(
             kind == "urn:paso:sca:global:payment:1"
-                && !merchant.trim().is_empty()
-                && !amount.trim().is_empty(),
+                && !shown(merchant).trim().is_empty()
+                && !shown(amount).trim().is_empty(),
             "P-payment {view:?}"
         );
     }

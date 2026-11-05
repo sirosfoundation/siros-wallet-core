@@ -13,6 +13,7 @@ use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::{Item, Request};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, icon, parameters, query_context};
+use siros_testkit::render::written;
 
 /// An mdoc of a docType and values; IssuerAuth ES256 on P-256, the device key `device_alg` on
 /// `device_curve`; the KeyAuthorizations given.
@@ -41,6 +42,11 @@ siros_testkit::test_host! {
         }
         lacks {}
     }
+}
+
+/// A text the issuer or the credential wrote, as written; another text as the value it holds.
+fn as_written(text: &siros_explain::Text) -> String {
+    written(text).map_or_else(|| format!("{text:?}"), str::to_owned)
 }
 
 fn registry() -> Registry<MdocHost> {
@@ -165,17 +171,15 @@ fn the_openid4vci_example_draws_its_card() {
             .rows
             .iter()
             .map(|row| {
-                (
-                    row.label.text.clone(),
-                    row.value
-                        .as_ref()
-                        .and_then(|v| v.text())
-                        .expect("value")
-                        .to_owned(),
-                )
+                let value = row.value.as_ref().and_then(|v| v.text()).expect("value");
+                (as_written(&row.label), as_written(value))
             })
             .collect();
-        (card.title, card.icon.reference.to_string(), rows)
+        (
+            as_written(&card.title),
+            card.icon.reference.to_string(),
+            rows,
+        )
     };
     let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
         labels

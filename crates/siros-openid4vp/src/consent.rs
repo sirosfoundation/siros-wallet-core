@@ -3,7 +3,9 @@
 //! gives an [`Overlay`], whose [`TransactionHeader`] holds what the End-User confirms; the core's
 //! display step pairs them in a [`ConsentEntry`].
 
-use crate::rows::{Icon, Label, Row};
+use siros_explain::Text;
+
+use crate::rows::{Icon, Row};
 
 /// What a format plug-in draws for a credential and the items an option shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,9 +13,9 @@ pub struct Card {
     /// The card's icon.
     pub icon: Icon,
     /// The card's title.
-    pub title: String,
+    pub title: Text,
     /// The card's subtitle, such as its issuer.
-    pub subtitle: Option<String>,
+    pub subtitle: Option<Text>,
     /// The rows of the items, those of every answerable option first.
     pub rows: Vec<Row>,
 }
@@ -27,7 +29,7 @@ pub struct Overlay {
     /// confirms (PSD2 RTS Art. 5(1)(a): the payee and the amount).
     pub header: Option<TransactionHeader>,
     /// The security hint: plain text, shown exactly.
-    pub hint: Option<String>,
+    pub hint: Option<Text>,
 }
 
 /// A transaction's header: the counterparty, the amount, and the rows that show them, which the
@@ -35,9 +37,9 @@ pub struct Overlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransactionHeader {
     /// The counterparty: a payee, a merchant.
-    pub counterparty: String,
-    /// The amount, formatted.
-    pub amount: String,
+    pub counterparty: Text,
+    /// The amount.
+    pub amount: Text,
     /// The rows the header shows.
     pub rows: Vec<Row>,
 }
@@ -91,9 +93,9 @@ impl ConsentEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     /// The title.
-    pub title: Label,
+    pub title: Text,
     /// The confirm action.
-    pub confirm: Label,
+    pub confirm: Text,
     /// The cancel action.
-    pub cancel: Label,
+    pub cancel: Text,
 }

@@ -115,10 +115,3 @@ impl<'t> LabelText<'t> {
         self.0
     }
 }
-
-impl LabelText<'static> {
-    /// A label of the wallet's own table: the tests hold each to the rules for its slot.
-    pub(crate) const fn wallet(text: &'static str) -> Self {
-        Self(text)
-    }
-}

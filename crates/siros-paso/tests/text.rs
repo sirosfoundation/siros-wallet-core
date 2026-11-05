@@ -1,9 +1,13 @@
 //! Label text against Proof Metadata §3.3.
 
-use siros_openid4vp::rows::TableLocale;
+use siros_explain::{Messages, Text};
+use siros_openid4vp::ids::LocaleTag;
+use siros_openid4vp::rows::{Choice, Env};
 use siros_paso::labels::{LabelSlot, LabelText, LabelViolation};
 use siros_paso::mandate::MandateLabel;
 use siros_paso::rulebook::{Rulebook, Subtype};
+use siros_testkit::fixtures::OPTIONS;
+use siros_testkit::render::{App, CrateSource, GERMAN_PASO};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
 /// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
@@ -64,19 +68,38 @@ fn the_wallets_own_labels_meet_section_3_3() {
         .into_iter()
         .chain(subtypes.iter().map(|sub| Rulebook::Generic(*sub)))
         .chain(subtypes.iter().map(|sub| Rulebook::Mandate(*sub)));
-    for locale in [TableLocale::En, TableLocale::De] {
-        for rulebook in rulebooks.clone() {
-            assert!(LabelText::parse(rulebook.title().in_locale(locale), LabelSlot::Title).is_ok());
+    let paso = CrateSource {
+        id: siros_paso::CrateModule::ID,
+        messages: siros_paso::CrateModule::messages(),
+        english: siros_paso::CrateModule::ENGLISH,
+        german: GERMAN_PASO,
+    };
+    let app = App::of(&[CrateSource::openid4vp(), paso]).expect("the test app");
+    for locale in ["en", "de"] {
+        let env = Env::new(
+            vec![LocaleTag::parse(locale).expect("a tag")],
+            Vec::new(),
+            OPTIONS,
+            Vec::new(),
+            Choice::First,
+        )
+        .expect("the configuration");
+        let meets = |text: Text, slot: LabelSlot| {
+            let shown = app.plain(&env, &text).expect("the text renders");
             assert!(
-                LabelText::parse(rulebook.confirm().in_locale(locale), LabelSlot::Affirmative)
-                    .is_ok()
+                LabelText::parse(&shown, slot).is_ok(),
+                "{shown} in {locale}"
             );
-            if let Some(section) = rulebook.section().map(|section| section.in_locale(locale)) {
-                assert!(LabelText::parse(section, LabelSlot::ClaimName).is_ok());
+        };
+        for rulebook in rulebooks.clone() {
+            meets(Text::of(&rulebook.title()), LabelSlot::Title);
+            meets(Text::of(&rulebook.confirm()), LabelSlot::Affirmative);
+            if let Some(section) = rulebook.section() {
+                meets(Text::of(&section), LabelSlot::ClaimName);
             }
         }
         for label in MandateLabel::ALL {
-            assert!(LabelText::parse(label.text(locale), LabelSlot::ClaimName).is_ok());
+            meets(Text::of(&label), LabelSlot::ClaimName);
         }
     }
 }

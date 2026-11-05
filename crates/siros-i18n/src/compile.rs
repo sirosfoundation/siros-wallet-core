@@ -2,7 +2,7 @@
 //! declaration, each expression's function found among the registered format modules, and each
 //! call compiled by its module with the module's options for the locale.
 
-use siros_explain::{ArgKind, Entry, Keyed, Message, Param};
+use siros_explain::{ArgKind, Entry, Keyed};
 
 use crate::error::{ModuleError, Refusal, Validity};
 use crate::form::{
@@ -11,13 +11,14 @@ use crate::form::{
 };
 use crate::format::{Call, Compilers, FormatCompiler, FormatId, Operand, ParsedFormats, Uses};
 use crate::mf2::ast::{self, Body, Declaration, Function, Key, MarkupKind, Part};
+use crate::module::Declared;
 use crate::sink::Style;
 
 /// Where a message stands: its key, its locale, and its declaration.
 pub(crate) struct Site<'a> {
     pub(crate) key: &'a str,
     pub(crate) locale: &'a str,
-    pub(crate) message: &'a Message,
+    pub(crate) message: &'a Declared,
 }
 
 impl Site<'_> {
@@ -212,8 +213,8 @@ impl Resolved<'_> {
             });
         }
         Ok(MessageForm {
-            id: resolver.site.message.id().as_str().to_owned(),
-            params: ParamForm::of_message(resolver.site.message),
+            id: resolver.site.message.id.clone(),
+            params: resolver.site.message.params.clone(),
             expressions,
             body: self.body,
         })
@@ -252,8 +253,8 @@ impl Resolver<'_> {
         }
     }
 
-    fn params(&self) -> &[Param] {
-        self.site.message.params()
+    fn params(&self) -> &[ParamForm] {
+        &self.site.message.params
     }
 
     fn invalid(&self, rule: Validity) -> ModuleError {
@@ -270,11 +271,11 @@ impl Resolver<'_> {
             .params()
             .iter()
             .enumerate()
-            .find(|(_, param)| param.name().as_str() == name);
+            .find(|(_, param)| param.name == name);
         found
             .map(|(index, param)| Argument {
                 index,
-                kind: param.kind().kind(),
+                kind: param.kind,
             })
             .ok_or_else(|| ModuleError::Argument {
                 key: self.site.key.to_owned(),

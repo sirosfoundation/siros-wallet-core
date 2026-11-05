@@ -5,12 +5,11 @@
 
 use std::borrow::Cow;
 
-use siros_explain::Explain;
+use siros_explain::{DefinedModule, Explain, Keyed, Query, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
+use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{
-    DisplayLocale, Env, FormattedKind, Image, Label, Row, Value, ValueKind, WalletText,
-};
+use siros_openid4vp::rows::{self, Env, FormattedKind, Image, Row, Value, ValueKind, WalletText};
 
 use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, written};
 use crate::entry::Payload;
@@ -25,6 +24,7 @@ use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
 use crate::rulebook::{Family, Rulebook, Subtype};
 use crate::template::Template;
+use crate::view;
 
 /// The wallet's bound on a rendering's items: its rows and UI elements (View §2), at least 200.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,11 +56,13 @@ impl ItemBound {
     }
 }
 
-/// A row with what it shows: the claim and the payload element.
+/// A row with what it shows: the claim, the payload element, and its value's kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewRow {
     /// The row.
     pub row: Row,
+    /// The kind of value it shows, by its claim's value type; `None` for a label alone.
+    pub kind: Option<ValueKind>,
     /// The claim.
     pub claim: ClaimIndex,
     /// The payload element's path.
@@ -71,11 +73,11 @@ pub struct ViewRow {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Actions {
     /// The confirm action.
-    pub confirm: Label,
+    pub confirm: Text,
     /// The denial action: the metadata's, else the wallet's own (Proof Metadata §3.2).
-    pub deny: Label,
+    pub deny: Text,
     /// The `security_hint`: plain text, shown exactly.
-    pub hint: Option<String>,
+    pub hint: Option<Text>,
 }
 
 /// The rows a payment presentation's header shows: the Payment rulebook's `payee.name` and
@@ -104,9 +106,9 @@ impl PaymentRows {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransactionView {
     /// The locale View §4 selected, which the response reports (Core §7.2).
-    pub locale: DisplayLocale,
+    pub locale: LocaleTag,
     /// The transaction title.
-    pub title: Label,
+    pub title: Text,
     /// The rows, in the rulebook's order.
     pub rows: Vec<ViewRow>,
     /// The actions.
@@ -117,7 +119,7 @@ pub struct TransactionView {
 
 impl TransactionView {
     /// The text of the row at a position.
-    fn text(&self, position: usize) -> Option<&str> {
+    fn text(&self, position: usize) -> Option<&Text> {
         self.rows
             .get(position)
             .and_then(|row| row.row.value.as_ref())
@@ -126,7 +128,7 @@ impl TransactionView {
 
     /// The payment's merchant and amount texts.
     #[must_use]
-    pub fn payment_texts(&self) -> Option<(&str, &str)> {
+    pub fn payment_texts(&self) -> Option<(&Text, &Text)> {
         let rows = self.payment?;
         Some((self.text(rows.merchant)?, self.text(rows.amount)?))
     }
@@ -184,27 +186,30 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         }
         let selection = select(&arrays, self.env.priority(), &discarded)
             .ok_or(NotCompatible::TemplatesExhausted)?;
+        let module = view::module_of(self.given);
         let rows = shown
             .into_iter()
-            .map(|shown| self.row(&metadata, &rulebook, &selection, shown))
+            .map(|shown| self.row(module, &metadata, &rulebook, &selection, shown))
             .collect::<Result<Vec<_>, _>>()?;
-        let ui = |key: UiKey| -> Result<Option<Label>, NotCompatible> {
+        let ui = |key: UiKey| -> Result<Option<Text>, NotCompatible> {
             selection
                 .entry(ArrayKey::Ui(key))
-                .map(|entry| {
-                    let at = RenderedAt::Ui(key);
-                    self.label(&metadata, entry, &[], key.slot(), at, &selection)
+                .map(|(position, entry)| {
+                    let placed = Placed {
+                        array: ArrayKey::Ui(key),
+                        position,
+                        slot: key.slot(),
+                        at: RenderedAt::Ui(key),
+                    };
+                    self.label(module, &metadata, entry, &[], placed)
                 })
                 .transpose()
         };
-        let table = selection.locale.table;
-        let title = ui(UiKey::TransactionTitle)?
-            .unwrap_or_else(|| Label::text(rulebook.title().in_locale(table)));
-        let confirm = ui(UiKey::AffirmativeActionLabel)?
-            .unwrap_or_else(|| Label::text(rulebook.confirm().in_locale(table)));
-        let deny = ui(UiKey::DenialActionLabel)?
-            .unwrap_or_else(|| Label::text(selection.locale.text(WalletText::Deny)));
-        let hint = ui(UiKey::SecurityHint)?.map(|label| label.text);
+        let title = ui(UiKey::TransactionTitle)?.unwrap_or_else(|| Text::of(&rulebook.title()));
+        let confirm =
+            ui(UiKey::AffirmativeActionLabel)?.unwrap_or_else(|| Text::of(&rulebook.confirm()));
+        let deny = ui(UiKey::DenialActionLabel)?.unwrap_or_else(|| Text::of(&WalletText::Deny));
+        let hint = ui(UiKey::SecurityHint)?;
         let items = rows.len() + 3 + usize::from(hint.is_some());
         if items > self.bound.get() {
             return Err(NotCompatible::TooManyItems {
@@ -321,39 +326,41 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         Ok(discarded)
     }
 
-    /// A label rendered: a template interpolated, then held to §3.3 for its slot (View §2).
+    /// A label's text: the wallet's own, or the converted module's message for the entry, a
+    /// template's message with its referenced values, its interpolation held to §3.3 for its
+    /// slot (View §2).
     fn label(
         &self,
+        module: DefinedModule,
         metadata: &Metadata<'_>,
         entry: &Localized<'_>,
         nulls: &[usize],
-        slot: LabelSlot,
-        at: RenderedAt,
-        selection: &Selection<'_, '_>,
-    ) -> Result<Label, NotCompatible> {
-        let text = match entry.label {
-            LabelForm::Plain(text) | LabelForm::Markdown(text) => text.as_str().to_owned(),
-            LabelForm::Template(template) => Template(template).interpolate(
-                &metadata.claims,
-                self.payload.node(),
-                nulls,
-                selection.locale.table,
-                self.env.options().amounts,
-            )?,
+        placed: Placed,
+    ) -> Result<Text, NotCompatible> {
+        let key = view::key(placed.array, placed.position);
+        let args = match entry.label {
+            LabelForm::Own(own) => return Ok(own.text()),
+            LabelForm::Plain(_) | LabelForm::Markdown(_) => Keyed::empty(),
+            LabelForm::Template(template) => {
+                let claims = &metadata.claims;
+                let payload = self.payload.node();
+                let text = Template(template).interpolate(claims, payload, nulls)?;
+                LabelText::parse(&text, placed.slot)
+                    .map(drop)
+                    .map_err(|violation| NotCompatible::RenderedLabel {
+                        at: placed.at,
+                        violation,
+                    })?;
+                Template(template).arguments(claims, payload, nulls)?
+            }
         };
-        LabelText::parse(&text, slot)
-            .map(drop)
-            .map_err(|violation| NotCompatible::RenderedLabel { at, violation })?;
-        Ok(Label {
-            kind: entry.label.kind(),
-            text,
-        })
+        Ok(Text::Query(Query::defined(module, key, args)))
     }
 
-    /// One instance's row: its label in the selected locale, its value formatted there, its
-    /// section.
+    /// One instance's row: its label in the selected locale, its value, its section.
     fn row(
         &self,
+        module: DefinedModule,
         metadata: &Metadata<'_>,
         rulebook: &Rulebook<'_>,
         selection: &Selection<'_, '_>,
@@ -361,22 +368,25 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     ) -> Result<ViewRow, NotCompatible> {
         let Shown { instance, content } = shown;
         // Every display array matched: a missing entry is one no locale kept.
-        let entry = selection
+        let (position, entry) = selection
             .entry(ArrayKey::Claim(instance.claim))
             .ok_or(NotCompatible::TemplatesExhausted)?;
-        let at = RenderedAt::Claim(concrete_text(&instance.path));
-        let label = self.label(
-            metadata,
-            entry,
-            &instance.nulls,
-            LabelSlot::ClaimName,
-            at,
-            selection,
-        )?;
+        let placed = Placed {
+            array: ArrayKey::Claim(instance.claim),
+            position,
+            slot: LabelSlot::ClaimName,
+            at: RenderedAt::Claim(concrete_text(&instance.path)),
+        };
+        let label = self.label(module, metadata, entry, &instance.nulls, placed)?;
+        let kind = match content {
+            Content::Alone => None,
+            Content::Image(_) => Some(ValueKind::Image),
+            Content::Formatted(kind) | Content::Template(kind) => Some(ValueKind::Formatted(kind)),
+        };
         let value = match content {
             Content::Alone => None,
             Content::Image(image) => Some(Value::Image(image)),
-            Content::Formatted(kind) => Some(self.formatted(kind, instance.value, selection)?),
+            Content::Formatted(kind) => Some(formatted(kind, instance.value)?),
             Content::Template(kind) => {
                 let template = instance.value.as_str().ok_or_else(|| {
                     NotCompatible::TemplateNotString(concrete_text(&instance.path))
@@ -385,50 +395,44 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                     &metadata.claims,
                     self.payload.node(),
                     &instance.nulls,
-                    selection.locale.table,
-                    self.env.options().amounts,
                 )?;
-                Some(self.formatted(kind, &Node::String(Cow::Owned(text)), selection)?)
+                Some(formatted(kind, &Node::String(Cow::Owned(text)))?)
             }
         };
-        // View §2's rule on formatted values holds by construction: each formatted text is a
-        // payload string conformance held to Proof Metadata §3.3's directional rule, an
-        // interpolation of such strings, or text of the wallet's own table.
         let section = match instance.placement {
             Placement::Main => None,
-            Placement::Embedded => rulebook
-                .section()
-                .map(|section| section.in_locale(selection.locale.table)),
+            Placement::Embedded => rulebook.section().map(|section| Text::of(&section)),
         };
         Ok(ViewRow {
             row: Row {
                 label,
                 value,
-                section: section.map(str::to_owned),
+                section,
             },
+            kind,
             claim: instance.claim,
             path: owned(&instance.path),
         })
     }
+}
 
-    /// A value of a kind other than an image, formatted in the selected locale.
-    fn formatted(
-        &self,
-        kind: FormattedKind,
-        value: &Node<'_>,
-        selection: &Selection<'_, '_>,
-    ) -> Result<Value, NotCompatible> {
-        Value::format(
-            kind,
-            written(value),
-            selection.locale.table,
-            self.env.options().amounts,
-        )
+/// Where a label shows: its array and position, its slot, and how a refusal names it.
+#[derive(Debug, Clone)]
+struct Placed {
+    array: ArrayKey,
+    position: usize,
+    slot: LabelSlot,
+    at: RenderedAt,
+}
+
+/// A value of a kind other than an image, with its text.
+fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value, NotCompatible> {
+    rows::formatted(kind, written(value))
+        .map(|(_, text)| Value::Text(text))
         .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad,
         })
-    }
 }
 
 /// The metadata a type renders with and its rulebook: the Mandate rulebook's own metadata with
@@ -480,7 +484,7 @@ fn owned(path: &[Concrete<'_>]) -> ConcretePath<'static> {
 }
 
 /// Every display array: the displayed claims' in claims order, then the UI labels'.
-fn arrays<'a, 'm>(metadata: &'a Metadata<'m>) -> Vec<(ArrayKey, &'a DisplayArray<'m>)> {
+pub(crate) fn arrays<'a, 'm>(metadata: &'a Metadata<'m>) -> Vec<(ArrayKey, &'a DisplayArray<'m>)> {
     metadata
         .claims
         .iter()

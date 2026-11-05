@@ -5,7 +5,9 @@ use super::super::{ClaimPath, Concrete};
 use super::{ClaimsFormat, text_of};
 use crate::ids::LocaleTag;
 use crate::json::Node;
-use crate::rows::{Label, Parsed, Row, Value};
+use siros_explain::Text;
+
+use crate::rows::{Row, Value, WalletText};
 use crate::text::atoms::python_space;
 use crate::text::lookup;
 
@@ -69,26 +71,29 @@ fn label_of(
 
 /// An object is a heading row then its members; an array of values gives each element the
 /// array's label; an array holding objects or arrays is a heading row then its elements. A claim
-/// without a label in the metadata shows its last member name; a non-string value its JSON text.
+/// without a label in the metadata shows its last member name, or the wallet's word for a claim
+/// when its path names no member; a non-string value its JSON text. The issuer's labels and the
+/// credential's names and values show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
     value: &Node<'_>,
     described: &[(ClaimPath<'_>, &Node<'_>)],
     locales: &[LocaleTag],
-    inherited: Option<&str>,
+    inherited: Option<&Text>,
 ) -> Vec<Row> {
     let label = label_of(format, path, described, locales)
-        .or_else(|| inherited.map(str::to_owned))
-        .filter(|l| !l.is_empty());
+        .filter(|l| !l.is_empty())
+        .map(Text::Raw)
+        .or_else(|| inherited.cloned());
     let fallback = path
         .iter()
         .rev()
         .find_map(|step| match step {
-            Concrete::Key(key) => Some(key.to_string()),
+            Concrete::Key(key) => Some(Text::Raw(key.to_string())),
             Concrete::Index(_) => None,
         })
-        .unwrap_or_else(|| "claim".to_owned());
+        .unwrap_or_else(|| Text::of(&WalletText::Claim));
     let child = |step: Concrete<'_>| -> Vec<Concrete<'_>> {
         path.iter()
             .map(Concrete::to_owned_step)
@@ -97,7 +102,7 @@ pub(super) fn value_rows(
     };
     match value {
         Node::Object(object) => label
-            .map(|label| Row::full_text(Label::text(label)))
+            .map(Row::full_text)
             .into_iter()
             .chain(object.members().iter().flat_map(|member| {
                 value_rows(
@@ -114,10 +119,7 @@ pub(super) fn value_rows(
             let nested = items
                 .iter()
                 .any(|item| matches!(item, Node::Object(_) | Node::Array(_)));
-            let head = label
-                .clone()
-                .filter(|_| nested)
-                .map(|label| Row::full_text(Label::text(label)));
+            let head = label.clone().filter(|_| nested).map(Row::full_text);
             let passed = (!nested).then(|| label.unwrap_or_else(|| fallback.clone()));
             head.into_iter()
                 .chain(items.iter().enumerate().flat_map(|(at, item)| {
@@ -127,17 +129,14 @@ pub(super) fn value_rows(
                         item,
                         described,
                         locales,
-                        passed.as_deref(),
+                        passed.as_ref(),
                     )
                 }))
                 .collect()
         }
         scalar => vec![Row::new(
-            Label::text(label.unwrap_or(fallback)),
-            Value::Formatted {
-                parsed: Parsed::Text,
-                text: text_of(scalar),
-            },
+            label.unwrap_or(fallback),
+            Value::Text(Text::Raw(text_of(scalar))),
         )],
     }
 }

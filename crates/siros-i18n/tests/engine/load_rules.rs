@@ -1,6 +1,11 @@
 //! I30: one fixture per load rule, each refused for its rule and no other.
 
-use siros_explain::{Domain, Message, MessageId, ModuleId, checked, names};
+use std::borrow::Cow;
+
+use siros_explain::{
+    ArgKind, DefinedKey, Domain, Entry, Keyed, Message, MessageId, ModuleId, ParamKind, Presence,
+    checked, names,
+};
 use siros_i18n::{
     Compilers, Declaration, LanguagePolicy, Module, ModuleError, Refusal, ResourceRule, Validity,
 };
@@ -253,11 +258,25 @@ fn declarations_and_registrations_refuse_their_fixtures() {
         Message::new(id, Some("a"), names!(), []),
     ];
     assert_eq!(
-        Declaration::new(same)
-            .expect("counted once")
-            .messages()
-            .len(),
+        Declaration::new(same).expect("counted once").ids().count(),
         1
+    );
+    // A converter's argument name is one or more tokens, as a type's `Names` are.
+    let key = DefinedKey::parse("label".to_owned()).expect("a key");
+    let param = |name: &'static str| {
+        let kind = ParamKind::new(ArgKind::Raw, Presence::Required);
+        Keyed::new(vec![Entry::new(Cow::Borrowed(name), kind)]).expect("one name")
+    };
+    assert_eq!(
+        Declaration::defined(
+            Keyed::new(vec![Entry::new(key.clone(), param("1x"))]).expect("one key")
+        )
+        .expect_err("refused"),
+        ModuleError::Declaration("label".to_owned())
+    );
+    assert!(
+        Declaration::defined(Keyed::new(vec![Entry::new(key, param("c1"))]).expect("one key"))
+            .is_ok()
     );
     assert!(matches!(
         Compilers::new(&[&PROBE, &PROBE]),

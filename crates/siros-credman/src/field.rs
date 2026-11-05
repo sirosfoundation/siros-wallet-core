@@ -1,8 +1,8 @@
-//! A row as Credential Manager's field: its label and value as one short line of plain text, and
-//! whether a text was cut to fit, which A9 reads.
+//! A row as Credential Manager's field: its label and value, rendered, as one short line of plain
+//! text, and whether a text was cut to fit, which A9 reads.
 
-use siros_explain::Explain;
-use siros_openid4vp::rows::{Label, Row, Value};
+use siros_explain::{Explain, Text};
+use siros_openid4vp::rows::{Row, Value};
 
 /// The most characters of a field's label or value the matcher writes: a picker row holds one short
 /// line. The bound is siros-credman's own; Credential Manager's ABI states no length for a field
@@ -111,20 +111,24 @@ impl FieldName {
 }
 
 impl Field {
-    /// The field of a row: its label's plain text, and its value's; a full-text row shows its
-    /// label alone. An image shows clipped: a field holds text alone.
+    /// The field of a row, its label's and its value's texts as `plain` renders them, plain text
+    /// with the styles dropped: Credential Manager draws plain text. A full-text row shows its
+    /// label alone; an image shows clipped, as a field holds text alone.
     ///
     /// # Errors
     ///
-    /// [`NoName`]: the label is white space alone.
-    pub fn of(row: &Row) -> Result<Self, NoName> {
-        Ok(Self {
-            name: FieldName::fit(&plain_label(&row.label))?,
-            value: row.value.as_ref().map(|value| match value {
-                Value::Image(_) => FieldText::partial(""),
-                Value::Formatted { .. } => FieldText::fit(&plain_value(value)),
-            }),
-        })
+    /// `plain`'s error, outside; [`NoName`] inside: the label is white space alone.
+    pub fn of<E>(
+        row: &Row,
+        plain: &mut impl FnMut(&Text) -> Result<String, E>,
+    ) -> Result<Result<Self, NoName>, E> {
+        let name = plain(&row.label)?;
+        let value = match &row.value {
+            None => None,
+            Some(Value::Image(_)) => Some(FieldText::partial("")),
+            Some(Value::Text(text)) => Some(FieldText::fit(&plain(text)?)),
+        };
+        Ok(FieldName::fit(&name).map(|name| Self { name, value }))
     }
 
     /// The label.
@@ -150,18 +154,5 @@ impl Field {
         } else {
             Extent::Whole
         }
-    }
-}
-
-/// A label's text with its styles dropped: Credential Manager draws plain text.
-fn plain_label(label: &Label) -> String {
-    label.spans().into_iter().map(|span| span.text).collect()
-}
-
-/// A formatted value's text with its styles dropped.
-fn plain_value(value: &Value) -> String {
-    match value.spans() {
-        Some(spans) => spans.into_iter().map(|span| span.text).collect(),
-        None => value.text().unwrap_or_default().to_owned(),
     }
 }

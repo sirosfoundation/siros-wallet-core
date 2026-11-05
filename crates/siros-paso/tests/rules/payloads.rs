@@ -507,5 +507,5 @@ pub(super) fn no_locale_completing_every_array_excludes_the_credential() {
         &PasoProfile::default(),
     )
     .expect("renders");
-    assert_eq!(rendered.view.locale.tag.as_str(), "de-CH");
+    assert_eq!(rendered.view.locale.as_str(), "de-CH");
 }

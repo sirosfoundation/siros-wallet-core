@@ -2,10 +2,10 @@
 //! en and de format options, each crate module in the crate's English and the test app's German,
 //! and a renderer over a package of the modules for a screen and an [`Env`].
 
-use siros_explain::{Message, Messages, ModuleId};
+use siros_explain::{Message, Messages, ModuleId, Text};
 use siros_i18n::{
     BuiltPackage, CURRENCY, Compilers, DATE, Declaration, FormatCompiler, FormatRenderer, Formats,
-    LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
+    Formatted, LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
     PackageBuilder, PackageError, RenderError, Renderer, Screen,
 };
 use siros_openid4vp::rows::Env;
@@ -86,6 +86,16 @@ impl CrateSource {
     }
 }
 
+/// A text an issuer, a Verifier or a credential wrote, as written; `None` for a text of a module
+/// or a typed value.
+#[must_use]
+pub fn written(text: &Text) -> Option<&str> {
+    match text {
+        Text::Raw(written) => Some(written),
+        _ => None,
+    }
+}
+
 /// The test app's load halves.
 ///
 /// # Errors
@@ -110,6 +120,13 @@ fn without_offset(cldr: &str) -> String {
     out
 }
 
+/// The test app's main module's sources, en then de: siros-cldr's options of the formats the
+/// app registers.
+#[must_use]
+pub fn main_sources() -> [String; 2] {
+    [without_offset(CLDR_EN), without_offset(CLDR_DE)]
+}
+
 /// The test app's main module: no message of its own, the format options of its bare values in
 /// en and de.
 ///
@@ -117,7 +134,7 @@ fn without_offset(cldr: &str) -> String {
 ///
 /// The [`ModuleError`] of the first rule the module breaks.
 pub fn main_module() -> Result<Module, ModuleError> {
-    let (en, de) = (without_offset(CLDR_EN), without_offset(CLDR_DE));
+    let [en, de] = main_sources();
     Module::load(
         ModuleId::Main,
         &Declaration::new(Vec::new())?,
@@ -132,6 +149,7 @@ pub fn main_module() -> Result<Module, ModuleError> {
 pub struct App {
     built: BuiltPackage,
     formats: Formats,
+    modules: Vec<ModuleId>,
 }
 
 impl App {
@@ -155,7 +173,41 @@ impl App {
         Ok(Self {
             built: builder.finish(),
             formats: Formats::new(&RENDERERS)?,
+            modules: modules.iter().map(|module| module.id()).collect(),
         })
+    }
+
+    /// The package of the main module and the crates' modules, each loaded whole.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: a module does not load, or the package refuses one.
+    pub fn of(crates: &[CrateSource]) -> Result<Self, AppError> {
+        let mut modules = vec![main_module()?];
+        for source in crates {
+            modules.push(source.load()?);
+        }
+        Self::new(&modules.iter().collect::<Vec<_>>())
+    }
+
+    /// A text as plain text, over every module of the package, in the language `env`'s lists
+    /// choose.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the modules, or the text does not render.
+    pub fn plain(&self, env: &Env, text: &Text) -> Result<String, AppError> {
+        Ok(self.renderer(self.modules.clone(), env)?.plain(text)?)
+    }
+
+    /// A text as formatted text, over every module of the package, in the language `env`'s
+    /// lists choose.
+    ///
+    /// # Errors
+    ///
+    /// [`AppError`]: no language serves the modules, or the text does not render.
+    pub fn formatted(&self, env: &Env, text: &Text) -> Result<Formatted, AppError> {
+        Ok(self.renderer(self.modules.clone(), env)?.formatted(text)?)
     }
 
     /// The renderer of a screen of the package's modules, in the language `env`'s lists choose,
