@@ -316,9 +316,9 @@ siros_testkit::test_host! {
 }
 
 /// KA6 and KA13: §8.3's request answered in `dc_api.jwt`; jose-rs, which decrypts §8.3's example
-/// response under its key to its payload, decrypts the core's JWE under the same key to the
-/// Authorization Response, under the header of the example (RFC 7518 §4.6: direct agreement, no
-/// encrypted key).
+/// response under its key to its payload, decrypts the core's JWE under the same key to §8.1's
+/// object, the Authorization Response delivered, sealed with the `enc` and to the `kid` the key
+/// rule chose.
 #[test]
 fn the_core_seals_section_8_3s_answer_to_the_key_the_rule_chose() {
     let key = jose_rs::jwk::Jwk::from_json(SECTION_8_3_KEY).expect("§8.3's key");
@@ -349,29 +349,26 @@ fn the_core_seals_section_8_3s_answer_to_the_key_the_rule_chose() {
     };
     let data: Json = serde_json::from_str(data.as_str()).expect("data");
     let jwe = data["response"].as_str().expect("{\"response\": JWE}");
-    let parts: Vec<&str> = jwe.split('.').collect();
-    let [protected, encrypted_key, ..] = parts.as_slice() else {
-        panic!("a compact JWE")
-    };
+    let protected = jwe.split('.').next().expect("a compact JWE");
     let header: Json =
         serde_json::from_slice(&URL_SAFE_NO_PAD.decode(protected).expect("base64url"))
             .expect("a header");
     assert_eq!(
-        (
-            &header["alg"],
-            &header["enc"],
-            &header["kid"],
-            *encrypted_key
-        ),
-        (
-            &Json::from("ECDH-ES"),
-            &Json::from("A128GCM"),
-            &Json::from("ac"),
-            ""
-        )
+        (&header["enc"], &header["kid"]),
+        (&Json::from("A128GCM"), &Json::from("ac"))
     );
+    let payload = decrypt(jwe);
+    let names = |object: &Json| -> Vec<String> {
+        object
+            .as_object()
+            .map(|members| members.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    assert_eq!(names(&payload), ["vp_token"], "§8.1, no state requested");
+    assert_eq!(names(&payload["vp_token"]), ["q"], "§8.1: by query id");
+    assert_eq!(payload["vp_token"]["q"].as_array().map(Vec::len), Some(1));
     assert_eq!(
-        decrypt(jwe),
+        payload,
         serde_json::from_str::<Json>(&built.response().json()).expect("the response")
     );
 }
