@@ -234,15 +234,15 @@ proceeds.
 
 ## 7. The fix waves (revised after the PR and issue triages)
 
-1. **W1 — engine-core parity (partially landed)**: the step vocabulary,
-   scheme enforcement, description/sanitization alignment — landed with
-   vectors + wasm self-test. **Remaining from §2: the `awaiting_selection`
-   step + the single-config auto-select** (a multi-config offer needs the
-   `select_credential` action path, like the auth-code grant's two-call
-   resume); **and from §6.11: #511 — the offer's `authorization_server`
-   hint** (a grant-level hint MUST match a metadata entry exactly, else
-   fail closed; absent + several advertised: the documented first-entry
-   choice).
+1. **W1 — engine-core parity: COMPLETE.** The step vocabulary, scheme
+   enforcement, description/sanitization alignment — landed with vectors +
+   wasm self-test. **#511 — the offer's `authorization_server` hint**
+   (`select_as_url`, both grant paths + the resume): a grant-level hint
+   MUST match a metadata entry exactly (else fail closed); absent + several
+   advertised: the documented first-entry choice. **Remaining from §2:
+   the `awaiting_selection` step + the multi-config `select_credential`
+   action path** — folded into W6 (the consent/selection wave), where the
+   selection UX belongs.
 2. **W2 — the bridge (#163): COMPLETE.** ✅ the SSE event pump (`id:`
    lines, `Last-Event-ID` replay, `410 Gone`, the
    `refresh_token`/`dpop_jwk`/`dpop_key_id` redaction, and the replayer
