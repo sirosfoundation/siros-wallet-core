@@ -364,7 +364,7 @@ pub const CLIENT_AUTH_KEY_ID: &str = "client-auth";
 ///
 /// The kid is the key id the host was asked for — the AS matches the
 /// assertion's key against the client's registered JWKS.
-async fn build_client_assertion(
+pub(super) async fn build_client_assertion(
     host: &dyn Host,
     exchange: &TokenExchangeContext<'_>,
     audience: &str,
