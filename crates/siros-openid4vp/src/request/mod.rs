@@ -14,7 +14,7 @@ use std::borrow::Cow;
 
 use serde_json::value::RawValue;
 
-use crate::envelope::{Channel, Envelope, Signatures};
+use crate::envelope::{Channel, Envelope, NonceError, Signatures};
 use crate::ids::{ClientId, Nonce};
 use crate::json;
 use crate::refusal::{Refusal, Refused};
@@ -122,11 +122,12 @@ impl<'a> Request<'a> {
             ),
         }
         .map_err(Refused::one)?;
-        let nonce = match parameters.text("nonce") {
-            Some(Some(nonce)) if !nonce.is_empty() => {
-                Nonce::parse(nonce).map_err(|_| Refused::one(Refusal::new(ParameterRule::Nonce)))?
+        let nonce = match envelope.nonce() {
+            Ok(nonce) => nonce.clone(),
+            Err(NonceError::Unsafe) => {
+                return Err(Refused::one(Refusal::new(ParameterRule::Nonce)));
             }
-            _ => return Err(structure(StructureRule::Nonce)),
+            Err(NonceError::Absent) => return Err(structure(StructureRule::Nonce)),
         };
         // Annex A: an unsigned request's expected_origins are ignored, and A.2 lists them over the
         // DC API alone.

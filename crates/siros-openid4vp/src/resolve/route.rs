@@ -49,7 +49,7 @@ pub struct Route<'a, H: Build> {
     authenticated: &'a Authenticated<'a>,
     registry: &'a Registry<H>,
     channel: ChannelRoute<'a>,
-    nonce: Option<Nonce<'a>>,
+    nonce: Option<&'a Nonce<'a>>,
 }
 
 /// The route of each channel. Over the DC API errors are A.4's, which the core writes, and the
@@ -163,10 +163,8 @@ impl<'a, H: CoreHost> Route<'a, H> {
                 }
             }
         };
-        let nonce = match envelope.parameters().text("nonce") {
-            Some(Some(nonce)) if !nonce.is_empty() => Nonce::parse(nonce).ok(),
-            _ => None,
-        };
+        // A route carries the error of a request N1 refuses, which binds no session.
+        let nonce = envelope.nonce().ok();
         Ok((
             Self {
                 authenticated,
@@ -194,7 +192,7 @@ impl<'a, H: CoreHost> Route<'a, H> {
             chosen,
             key,
             keys: self.authenticated.metadata().ok()?.keys(),
-            nonce: self.nonce.as_ref()?,
+            nonce: self.nonce?,
         })
     }
 

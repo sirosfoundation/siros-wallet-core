@@ -11,7 +11,7 @@ use serde_json::value::RawValue;
 use crate::arrival::{DcApiRequest, Received, ReceivedForm, Unreadable};
 #[cfg(feature = "transaction-data")]
 use crate::hash::Hashes;
-use crate::ids::{ClientId, Origin};
+use crate::ids::{ClientId, Nonce, Origin};
 use crate::jose::{CompactJws, JsonJws, ProtectedHeader, Signed};
 use crate::json::{JsonError, Member, Node, Object, RawObject};
 use crate::plugins::registry::Routes;
@@ -211,6 +211,16 @@ pub struct Envelope<'r> {
     signatures: Signatures<'r>,
     routing: Routing<'r>,
     client_metadata: Result<ClientMetadata<'r>, MetadataError>,
+    nonce: Result<Nonce<'r>, NonceError>,
+}
+
+/// Why a request holds no `nonce` (§5.2), which `Request::parse` refuses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NonceError {
+    /// Absent, empty, or no string.
+    Absent,
+    /// A string N1 refuses: no URL-safe ASCII.
+    Unsafe,
 }
 
 /// The media type a Request Object's `typ` names (§5; RFC 9101 §10.8).
@@ -270,6 +280,12 @@ impl<'r> Envelope<'r> {
         };
         let routing = Routing::read(&parameters, &channel(received), routes);
         let client_metadata = ClientMetadata::parse(parameters.raw("client_metadata"));
+        let nonce = match parameters.text("nonce") {
+            Some(Some(nonce)) if !nonce.is_empty() => {
+                Nonce::parse(nonce).map_err(|_| NonceError::Unsafe)
+            }
+            _ => Err(NonceError::Absent),
+        };
         Ok(Self {
             #[cfg(feature = "transaction-data")]
             hashes: routes.hashes(),
@@ -279,6 +295,7 @@ impl<'r> Envelope<'r> {
             signatures,
             routing,
             client_metadata,
+            nonce,
         })
     }
 
@@ -309,6 +326,14 @@ impl<'r> Envelope<'r> {
     /// The metadata breaks C6.
     pub const fn client_metadata(&self) -> Result<&ClientMetadata<'r>, &MetadataError> {
         self.client_metadata.as_ref()
+    }
+
+    /// The `nonce` N1 accepts, read once for the request's rules and its route.
+    pub(crate) const fn nonce(&self) -> Result<&Nonce<'r>, NonceError> {
+        match &self.nonce {
+            Ok(nonce) => Ok(nonce),
+            Err(e) => Err(*e),
+        }
     }
 
     /// The request as received.
