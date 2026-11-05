@@ -444,6 +444,42 @@ impl<H: Has<dyn Platform> + Has<dyn Haip>> JweHost for H {
 #[cfg(feature = "resolve")]
 pub(crate) type HaipAccess<H> = fn(&H) -> &dyn Haip;
 
+/// A registered part of the Authorization Response's parameters and the names `build` checked,
+/// which bound the members phase 2 takes from it.
+pub(crate) struct RegisteredParameters<H: Build> {
+    part: Box<<H as Plugins>::ResponseParameters>,
+    names: &'static [ParameterName],
+}
+
+impl<H: Build> RegisteredParameters<H> {
+    /// The part, its names read once.
+    fn of(part: Box<<H as Plugins>::ResponseParameters>) -> Self {
+        let names = part.upcast().names();
+        Self { part, names }
+    }
+
+    /// The part.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn part(&self) -> &<H as Plugins>::ResponseParameters {
+        &self.part
+    }
+
+    /// The names `build` checked.
+    #[cfg(feature = "resolve")]
+    pub(crate) const fn names(&self) -> &'static [ParameterName] {
+        self.names
+    }
+}
+
+impl<H: Build> Clone for RegisteredParameters<H> {
+    fn clone(&self) -> Self {
+        Self {
+            part: dyn_clone::clone_box(&*self.part),
+            names: self.names,
+        }
+    }
+}
+
 /// A registered mode by its registration: answers in the clear (`mode`), answers the core seals
 /// as JWEs through the host's `Haip` (`jwe_mode`), or a URI mode's errors alone (`error_mode`).
 pub(crate) enum RegisteredMode<H: Build> {
@@ -493,7 +529,7 @@ pub struct Registry<H: Build = NoHost> {
         not(feature = "resolve"),
         expect(dead_code, reason = "phase 2 writes their members")
     )]
-    parameters: Vec<Box<<H as Plugins>::ResponseParameters>>,
+    parameters: Vec<RegisteredParameters<H>>,
     modes: Vec<RegisteredMode<H>>,
     formats: Vec<RegisteredFormat<H>>,
     #[cfg_attr(
@@ -859,11 +895,15 @@ impl<H: Build> RegistryBuilder<H> {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
         }
+        let parameters: Vec<RegisteredParameters<H>> = parameters
+            .into_iter()
+            .map(RegisteredParameters::of)
+            .collect();
         #[cfg(feature = "uri")]
         let declared = Declared {
             responses: parameters
                 .iter()
-                .flat_map(|part| part.upcast().names())
+                .flat_map(|registered| registered.names)
                 .copied()
                 .collect(),
             members: contributions
@@ -886,7 +926,7 @@ impl<H: Build> RegistryBuilder<H> {
         let declared = Declared {
             responses: parameters
                 .iter()
-                .flat_map(|part| part.upcast().names())
+                .flat_map(|registered| registered.names)
                 .copied()
                 .collect(),
             ..Declared::default()
@@ -1214,11 +1254,7 @@ impl<H: Has<dyn Platform>> Registry<H> {
             hashes: self.hashes.clone(),
             scopes: self.scopes.clone(),
             response_types: self.response_types.clone(),
-            parameters: self
-                .parameters
-                .iter()
-                .map(|part| dyn_clone::clone_box(&**part))
-                .collect(),
+            parameters: self.parameters.clone(),
             modes: self.modes.clone(),
             formats: self.formats.clone(),
             profiles: read.into_iter().map(|informed| informed()).collect(),
@@ -1371,10 +1407,8 @@ impl<H: Build> Registry<H> {
 
     /// The registered response parameters, in registration order.
     #[cfg(feature = "resolve")]
-    pub(crate) fn response_parameters(
-        &self,
-    ) -> impl Iterator<Item = &<H as Plugins>::ResponseParameters> {
-        self.parameters.iter().map(AsRef::as_ref)
+    pub(crate) fn response_parameters(&self) -> &[RegisteredParameters<H>] {
+        &self.parameters
     }
 
     /// The URI mode of a name registered for errors (`error_mode`).

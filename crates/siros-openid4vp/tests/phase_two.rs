@@ -652,27 +652,66 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
 }
 
 /// A registered part's response parameters follow `vp_token` in the Authorization Response
-/// (§8.1); a member of a name it does not declare is a `Fault`.
+/// (§8.1). A member of a name the registry did not check for the part, `vp_token` from a part
+/// whose names changed after `build`, and a name written twice are `Fault`s.
 #[test]
 fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use siros_openid4vp::json::Node;
+    use siros_openid4vp::plugins::RegistryBuilder;
     use siros_openid4vp::resolve::ResponseMember;
+    use siros_openid4vp::routing::{ResponseParameters, ResponseParametersHost, ResponseTypeName};
+    use siros_openid4vp::session::Session;
     use siros_openid4vp::wallet_metadata::ParameterName;
     use siros_testkit::TestResponseParameters;
 
     const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
-    const AUD: ParameterName = siros_explain::checked!(ParameterName, "aud");
+    const VP_TOKEN: ParameterName = siros_explain::checked!(ParameterName, "vp_token");
+
+    /// Declares `iss` at `build`, `vp_token` afterwards, and writes `vp_token`.
+    #[derive(Debug)]
+    struct Shifting(AtomicBool);
+
+    impl Clone for Shifting {
+        fn clone(&self) -> Self {
+            Self(AtomicBool::new(self.0.load(Ordering::SeqCst)))
+        }
+    }
+
+    impl ResponseParameters for Shifting {
+        fn names(&self) -> &'static [ParameterName] {
+            if self.0.swap(true, Ordering::SeqCst) {
+                &[VP_TOKEN]
+            } else {
+                &[ISS]
+            }
+        }
+    }
+
+    impl<H> ResponseParametersHost<H> for Shifting {
+        fn members(
+            &self,
+            _response_type: ResponseTypeName,
+            _session: &Session<'_>,
+            _host: &H,
+        ) -> Result<Vec<ResponseMember>, Fault> {
+            Ok(vec![ResponseMember::new(
+                VP_TOKEN,
+                Node::String("forged".into()),
+            )])
+        }
+    }
+
     let text = parameters(&test_queries(&["q"]), "");
     let held = [Held::answering("c", &["q"], &[])];
     let ids = offered(&text, &held);
-    let respond = |writes: ResponseMember| {
+    type Register<'a> = &'a dyn Fn(&mut RegistryBuilder<TestHost>);
+    let respond = |register: Register<'_>| {
         let mut builder = Registry::<TestHost>::builder();
         siros_testkit::fixtures::openid4vp(&mut builder);
         builder.format(TestFormat::new().expect("format"));
-        builder.response_parameters(TestResponseParameters {
-            names: &[ISS],
-            writes: vec![writes],
-        });
+        register(&mut builder);
         let registry = builder.build().expect("registry");
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
@@ -686,15 +725,32 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
             })
             .map(|built| built.response().json())
     };
-    let issuer = Node::String("https://wallet.example".into());
-    let json = respond(ResponseMember::new(ISS, issuer.clone())).expect("a response");
+    let issuer = ResponseMember::new(ISS, Node::String("https://wallet.example".into()));
+    let writes = |writes: Vec<ResponseMember>| {
+        move |builder: &mut RegistryBuilder<TestHost>| {
+            builder.response_parameters(TestResponseParameters {
+                names: &[ISS],
+                writes: writes.clone(),
+            });
+        }
+    };
+    let json = respond(&writes(vec![issuer.clone()])).expect("a response");
     assert!(
         json.starts_with(r#"{"vp_token":"#)
             && json.ends_with(r#","iss":"https://wallet.example"}"#),
         "{json}"
     );
-    match respond(ResponseMember::new(AUD, issuer)) {
-        Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains("aud"), "{fault}"),
-        other => panic!("{other:?}"),
+    let shifting = |builder: &mut RegistryBuilder<TestHost>| {
+        builder.response_parameters(Shifting(AtomicBool::new(false)));
+    };
+    let cases: [(Register<'_>, &str); 2] = [
+        (&shifting, "does not declare"),
+        (&writes(vec![issuer.clone(), issuer]), "written twice"),
+    ];
+    for (register, cause) in cases {
+        match respond(register) {
+            Err(Outcome::Fault(fault)) => assert!(fault.to_string().contains(cause), "{fault}"),
+            other => panic!("{cause}: {other:?}"),
+        }
     }
 }

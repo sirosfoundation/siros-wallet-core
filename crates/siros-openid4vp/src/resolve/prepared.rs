@@ -231,8 +231,8 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     }
 }
 
-/// The registered response parameters' members, in registration order, each of a name its part
-/// declares, each name once.
+/// The registered response parameters' members, in registration order, each of a name the
+/// registry checked for its part, each name once.
 fn parameters<H: CoreHost>(
     registry: &Registry<H>,
     routing: &crate::routing::Routing<'_>,
@@ -243,10 +243,10 @@ fn parameters<H: CoreHost>(
         .response_type()
         .ok_or_else(|| Fault::new(FAULT, detail!("an accepted request without its type")))?;
     let mut members: Vec<ResponseMember> = Vec::new();
-    for part in registry.response_parameters() {
-        for member in part.members(response_type, session, host)? {
+    for registered in registry.response_parameters() {
+        for member in registered.part().members(response_type, session, host)? {
             let name = member.name();
-            if !part.names().contains(&name) {
+            if !registered.names().contains(&name) {
                 return Err(Fault::new(
                     FAULT,
                     detail!("a response parameter {name} its part does not declare"),
