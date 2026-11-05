@@ -393,6 +393,23 @@ pub fn icon(uri: &str, size: u32) -> Option<(String, Icon)> {
     ))
 }
 
+/// RFC 4647 §3.4: the ranges Lookup tries for `range`, in order: the range, then each truncation
+/// from the end, a single-character subtag dropped together with the subtag after it. The
+/// replays of PaSO View §4 take it as their oracle.
+#[must_use]
+pub fn lookup_ranges(range: &str) -> Vec<String> {
+    let mut subtags: Vec<&str> = range.split('-').collect();
+    let mut out = Vec::new();
+    while !subtags.is_empty() {
+        out.push(subtags.join("-"));
+        subtags.truncate(subtags.len().saturating_sub(1));
+        while subtags.last().is_some_and(|subtag| subtag.len() == 1) {
+            subtags.truncate(subtags.len().saturating_sub(1));
+        }
+    }
+    out
+}
+
 /// A priority list as an app writes it from the platform's: each tag followed by its generic
 /// form, the language with its script when the tag names one, unless the list already holds it
 /// earlier (`[en-US, de-CH]` gives `[en-US, en, de-CH, de]`).

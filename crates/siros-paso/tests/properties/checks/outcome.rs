@@ -53,7 +53,7 @@ pub(super) fn outcome(
     if locales.first() != Some(&locale) {
         tally.add("display_locale after the first tag");
     }
-    if !locales.contains(&locale) || !["en", "de"].contains(&locale) {
+    if !["en", "de"].contains(&locale) {
         tally.add("display_locale a regional tag");
     }
     // The test app's screen: the converted module in the selected locale.

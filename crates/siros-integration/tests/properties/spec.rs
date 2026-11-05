@@ -109,26 +109,10 @@ fn default_profile() -> Vec<(String, u64)> {
         .collect()
 }
 
-/// RFC 4647 §3.4: the ranges Lookup tries for `range`: the range, then truncated from the end,
-/// a single-character subtag dropped together with the subtag after it.
-fn truncations(range: &str) -> Vec<String> {
-    let subtags: Vec<&str> = range.split('-').collect();
-    let mut out = Vec::new();
-    let mut end = subtags.len();
-    while end > 0 {
-        out.push(subtags[..end].join("-"));
-        end -= 1;
-        while end > 0 && subtags[end - 1].len() == 1 {
-            end -= 1;
-        }
-    }
-    out
-}
-
 /// The entry View §4 matches in an array for a locale: the first tagged entry RFC 4647 §3.4's
 /// Lookup finds, compared case-insensitively, else the first entry without a locale.
 fn matched<'a>(array: &'a [Value], locale: &str) -> Option<&'a Value> {
-    truncations(locale)
+    siros_testkit::fixtures::lookup_ranges(locale)
         .iter()
         .find_map(|range| {
             array.iter().find(|e| {

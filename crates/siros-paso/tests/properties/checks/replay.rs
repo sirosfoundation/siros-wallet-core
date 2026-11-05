@@ -90,22 +90,6 @@ fn template<'e>(entry: &'e Value, typed_by: &str, text_at: &str) -> Option<&'e s
         .and_then(|_| entry.get(text_at).and_then(Value::as_str))
 }
 
-/// RFC 4647 §3.4: the ranges Lookup tries for `range`: the range, then truncated from the end,
-/// a single-character subtag dropped together with the subtag after it.
-fn truncations(range: &str) -> Vec<String> {
-    let subtags: Vec<&str> = range.split('-').collect();
-    let mut out = Vec::new();
-    let mut end = subtags.len();
-    while end > 0 {
-        out.push(subtags[..end].join("-"));
-        end -= 1;
-        while end > 0 && subtags[end - 1].len() == 1 {
-            end -= 1;
-        }
-    }
-    out
-}
-
 impl Replay {
     /// The display arrays of a type's metadata over a payload: every claim's `display` and the
     /// UI labels; the Mandate rulebook's own labels one entry without a locale, the wallet's.
@@ -191,7 +175,7 @@ impl Replay {
                 .filter(move |(_, discarded)| !(discards && *discarded))
                 .map(|(entry, _)| entry)
         };
-        truncations(tag)
+        siros_testkit::fixtures::lookup_ranges(tag)
             .iter()
             .find_map(|range| {
                 live().find(|entry| {
