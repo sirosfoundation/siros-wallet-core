@@ -67,23 +67,29 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 
 Each mechanism of the core is a feature, which the crates that use it turn on;
 a build compiles what it registers. The right column names the core's features
-each crate turns on.
+each crate turns on: those it always turns on, then `feature: core features`
+for each of its own features that turns more on.
 
 ```text
-siros-openid4vp     the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
-├── siros-x509      x509_hash, x509_san_dns                     signed
-├── siros-mdoc      mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading   claims; resolve: cbor
-├── siros-sdjwt     dc+sd-jwt                                   claims
-├── siros-paso      PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt   transaction-data, sri; sealed-signals: cbor
-├── siros-qes       CSC's QES transaction data                  sri; sha3: its SHA-3 approval hashes
-├── siros-credman   Credential Manager's entries for the matcher   match
-├── siros-webuild   WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
-├── siros-zkp-req   zkp_req's protocol layer                    resolve, cbor
-└── siros-trust     issuer trust at registration                match, resolve
-siros-i18n          the i18n engine                             load | render | number | currency | offset | date | list
-siros-explain       the message contract
-siros-testkit       the core's test doubles                     every mechanism
-siros-integration   the HAIP build end to end
+siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims | test-util
+├── siros-x509        x509_hash, x509_san_dns                     signed
+├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading   claims; resolve: resolve, cbor
+├── siros-sdjwt       dc+sd-jwt                                   claims; resolve: resolve
+├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt   transaction-data, sri; resolve: resolve; sealed-signals: cbor
+├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
+├── siros-credman     Credential Manager's entries for the matcher   match
+├── siros-webuild     WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
+├── siros-trust       issuer trust at registration                match, resolve
+├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor
+├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
+├── siros-testkit     the core's test doubles                     test-util, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
+└── siros-integration the HAIP build end to end                   resolve
+siros-i18n            the i18n engine                             load | render | number | currency | offset | date | list
+siros-cldr            CLDR format options for siros-i18n modules
+siros-explain         the message contract
+siros-explain-derive  #[derive(Explain)]
+siros-wallet-state    the decrypted wallet state
+xtask                 the repository's build gates: cargo xtask builds, cargo xtask alone
 ```
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
