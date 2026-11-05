@@ -239,6 +239,8 @@ jobs:
           # whatever xcodebuild names them (the slice directory depends
           # on the architectures it finds in the archives).
           test -d target/xcframework/engine_adapter_sdk.xcframework
+          # The layout, for the assertion failures' diagnosis.
+          find target/xcframework -type f | sort
           test "$(find target/xcframework -name 'libengine_adapter_sdk.a' | wc -l)" = 2
           test "$(find target/xcframework -name 'engine_adapter_sdkFFI.h' | wc -l)" -ge 1
           test "$(find target/xcframework -name 'module.modulemap' | wc -l)" -ge 1
@@ -254,7 +256,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
-      - uses: android-actions/setup-android@40fd30fb8d7440372e131f6f5d1809ec01dcd3699 # v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           api-level: 28
           ndk-version: "27.2.12479018"
