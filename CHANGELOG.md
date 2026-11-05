@@ -110,11 +110,13 @@ released version yet.
   state, or whose `enc` the Verifier does not list (§5.1). `siros-testkit`'s
   `TestChoice::Foreign` chooses a key of other metadata.
 - Phase 2 answers with `Built`: the Authorization Response
-  (`AuthorizationResponse`, §8.1's object) and its `Delivery`, the
+  (`AuthorizationResponse`, §8.1's object, its parameters beside `vp_token`
+  and `state` each a `ResponseMember`) and its `Delivery`, the
   DigitalCredential's `data` (`DcApiData`, a JSON object the core reads back)
   or a `PostBody` POSTed to the `response_uri`. `FormBody::of` writes any flat
   members, each name once (`NotForm`); `PostBody::of` refuses the form media
-  type (`FormMedia`). An error response (`ErrorResponse`) carries its code,
+  type (`FormMedia`), which `MediaType::form` names and `MediaType::is_form`
+  finds. An error response (`ErrorResponse`) carries its code,
   its description and `state` as received; `ErrorDescription::sanitized`
   writes a refusal's text with `?` for each character outside RFC 6749
   Appendix A.8.
@@ -124,11 +126,11 @@ released version yet.
   (`AnswerContent`, `ModeRoute`), and refuses a body of another channel than
   the request's (`RouteBreach::BodyChannel`). `dc_api` writes the response,
   `dc_api.jwt` `{"response": JWE}`, `direct_post.jwt` `response=<JWE>`
-  (`ResponseForm`). `siros-testkit`'s `TestMode` writes a body of either
+  (`ResponseForm::of`). `siros-testkit`'s `TestMode` writes a body of either
   channel (`TestBody`), and `JweHaip` seals with ECDH-ES.
 - A URI response mode writes the form around an error (`ErrorModeHost::error`,
   `ErrorContent`), which `error_mode` registers through `HostedErrorMode`:
-  `direct_post` and `direct_post.jwt` write §8.2's plain form (`ErrorForm`),
+  `direct_post` and `direct_post.jwt` write §8.2's plain form (`ErrorForm::of`),
   `direct_post.jwt` `response=<JWE>` for an error the core sealed. A
   rejection's error goes in the clear on its route (`Rejected::reply`): A.4's
   `{"error": code}` over the DC API, or a cancelled flow (`DcApiErrors`,
