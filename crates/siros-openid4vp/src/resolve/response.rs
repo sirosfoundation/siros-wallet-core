@@ -255,19 +255,6 @@ impl<'a> ErrorResponse<'a> {
     }
 }
 
-#[cfg(feature = "test-util")]
-impl<'a> ErrorResponse<'a> {
-    /// The error a plug-in's tests hand an error mode, as the core's route makes it.
-    #[must_use]
-    pub const fn new(
-        code: ErrorCode,
-        description: Option<ErrorDescription>,
-        echo: Option<Echo<'a>>,
-    ) -> Self {
-        Self::of(code, description, echo)
-    }
-}
-
 /// What a mode wraps for an answer: the clear response on a route in the clear, the JWE the core
 /// sealed it in on a sealed one.
 #[derive(Debug, Clone, Copy)]
@@ -322,15 +309,6 @@ impl<'r> ModeRoute<'r> {
     #[must_use]
     pub const fn echo(&self) -> Option<&'r Echo<'r>> {
         self.echo
-    }
-}
-
-#[cfg(feature = "test-util")]
-impl<'r> ModeRoute<'r> {
-    /// The route a plug-in's tests hand a mode, as the core's route makes it.
-    #[must_use]
-    pub const fn new(encryption: Option<&'r RouteKey<'r>>, echo: Option<&'r Echo<'r>>) -> Self {
-        Self::of(encryption, echo)
     }
 }
 

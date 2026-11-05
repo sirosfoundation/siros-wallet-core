@@ -481,13 +481,6 @@ impl<'r> Echo<'r> {
         Self(text)
     }
 
-    /// `state` as a plug-in's tests receive it.
-    #[cfg(feature = "test-util")]
-    #[must_use]
-    pub const fn new(text: Cow<'r, str>) -> Self {
-        Self(text)
-    }
-
     /// Its text.
     #[must_use]
     pub fn as_str(&self) -> &str {

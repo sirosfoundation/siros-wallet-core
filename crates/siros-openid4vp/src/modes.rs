@@ -487,3 +487,43 @@ impl<H> ErrorModeHost<H> for DirectPostJwt {
         }
     }
 }
+
+/// KA8 from inside the crate, where the core's route values are made.
+#[cfg(all(test, feature = "uri", feature = "resolve"))]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::{DirectPost, DirectPostJwt};
+    use crate::refusal::{ErrorCode, ErrorDescription};
+    use crate::resolve::{ErrorContent, ErrorResponse, ModeRoute};
+    use crate::routing::{Echo, ErrorModeHost};
+
+    /// KA8: §8.2's example error, `invalid_request`, `unsupported client_id_prefix` and `state`
+    /// `eyJhb...6-sVA` in this order, as RFC 6749 Appendix B encodes it (a space is `+`), from
+    /// `direct_post` and from `direct_post.jwt` on a route without a key (§8.3.1).
+    #[test]
+    fn section_8_2s_error_body_is_each_uri_error_modes_plain_form() {
+        const SECTION_8_2: &str = "error=invalid_request\
+            &error_description=unsupported+client_id_prefix\
+            &state=eyJhb...6-sVA";
+        let echo = Echo::of(Cow::Borrowed("eyJhb...6-sVA"));
+        let error = ErrorResponse::of(
+            ErrorCode::INVALID_REQUEST,
+            ErrorDescription::sanitized("unsupported client_id_prefix"),
+            Some(echo.clone()),
+        );
+        let route = ModeRoute::of(None, Some(&echo));
+        let content = ErrorContent::Clear(&error);
+        let modes: [&dyn ErrorModeHost<()>; 2] = [&DirectPost, &DirectPostJwt];
+        for mode in modes {
+            let body = mode.error(&route, &content, &()).expect("a body");
+            assert!(body.media_type().is_form(), "{}", mode.name());
+            assert_eq!(
+                std::str::from_utf8(body.bytes()),
+                Ok(SECTION_8_2),
+                "{}",
+                mode.name()
+            );
+        }
+    }
+}

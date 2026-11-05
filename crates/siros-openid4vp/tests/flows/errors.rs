@@ -1,49 +1,17 @@
-//! The error's form: §8.2's plain error POST body, which the core's URI error modes write (KA8),
-//! and A.4's error over the DC API, which the core writes (KA15).
-
-use std::borrow::Cow;
+//! The error's form a rejection replies with: §8.2's plain error POST body by URI, and A.4's
+//! error over the DC API (KA15).
 
 use serde_json::Value;
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::ids::Origin;
-use siros_openid4vp::modes::{DirectPost, DirectPostJwt};
 use siros_openid4vp::recourse::{DcApiErrors, Rejected, Reply};
-use siros_openid4vp::refusal::{ErrorCode, ErrorDescription};
-use siros_openid4vp::resolve::{Delivery, ErrorContent, ErrorResponse, ModeRoute, PostBody};
-use siros_openid4vp::routing::{Echo, ErrorModeHost};
-use siros_testkit::TestHost;
+use siros_openid4vp::refusal::ErrorCode;
+use siros_openid4vp::resolve::{Delivery, PostBody};
 
 /// The pairs of a form body, in order.
 fn pairs(body: &PostBody) -> Vec<(String, String)> {
     assert!(body.media_type().is_form(), "{}", body.media_type());
     serde_urlencoded::from_bytes(body.bytes()).expect("a form")
-}
-
-/// KA8: §8.2's example error POST body, `error=invalid_request&error_description=unsupported
-/// %20client_id_prefix&state=eyJhb...6-sVA`, in this order, from `direct_post` and from
-/// `direct_post.jwt` on a route without a key (§8.3.1).
-#[test]
-fn section_8_2s_error_body_is_each_uri_error_modes_plain_form() {
-    let section_8_2 = [
-        ("error", "invalid_request"),
-        ("error_description", "unsupported client_id_prefix"),
-        ("state", "eyJhb...6-sVA"),
-    ]
-    .map(|(name, value)| (name.to_owned(), value.to_owned()));
-    let echo = Echo::new(Cow::Borrowed("eyJhb...6-sVA"));
-    let error = ErrorResponse::new(
-        ErrorCode::INVALID_REQUEST,
-        ErrorDescription::sanitized("unsupported client_id_prefix"),
-        Some(echo.clone()),
-    );
-    let route = ModeRoute::new(None, Some(&echo));
-    let content = ErrorContent::Clear(&error);
-    let host = TestHost::default();
-    let modes: [&dyn ErrorModeHost<TestHost>; 2] = [&DirectPost, &DirectPostJwt];
-    for mode in modes {
-        let body = mode.error(&route, &content, &host).expect("a body");
-        assert_eq!(pairs(&body), section_8_2, "{}", mode.name());
-    }
 }
 
 /// A rejection's error by URI is the same plain form, to the route's `response_uri`: U10's code
