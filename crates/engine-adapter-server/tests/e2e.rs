@@ -543,7 +543,7 @@ async fn the_engine_serves_an_issuance_and_its_notification_end_to_end() {
     );
 
     // ── The notification flow, over the same session ───────────────────
-    let (status, answer) = post_wmp(
+    let (_status, answer) = post_wmp(
         &app,
         serde_json::json!({
             "jsonrpc": "2.0",
