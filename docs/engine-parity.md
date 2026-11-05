@@ -374,8 +374,16 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    redirect; `direct_post`: the plain form). `VpResult` carries the
    optional `SignRefusal` across the ports, the wasm mini host, the
    SDK mirror, and the conformance world.
-4. **W4 — auxiliary data (#480, engine half)**: the advert, the selection
-   refusal, the request members, the conflict relay, strict offer decode.
+4. **W4 — COMPLETE (#480, engine half)**: the advert parse (§5) and the
+   usability verdict (§§4.1, 5) in `oid4vci/auxiliary.rs`; the selection
+   gate before any authorization or request (start + resume); the proof
+   ask carrying `auxiliary_data_to_issuer`/`_to_wallet` (§6 — the engine
+   builds the proof TBS, so no opening can enter structurally); the
+   §7 metadata rule and the plain-secret check (§7.1); the conflict
+   relay (§8). The engine never handles a secret value. Design survey
+   §6.12. **Remaining: the strict offer decode (pkg/strictjson's
+   unknown-member rejection on the offer)** — small, folded into W9's
+   hardening pass.
 5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
    (WRPAC/WRPRC, registrar PDP action), the engine call site + modes +
    findings, the −31020 wire data with bounding.
