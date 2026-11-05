@@ -10,7 +10,7 @@
 //! | [`response`] | `vp_token`, submissions, error submissions, the direct post reply (P4 to P6) | 8 |
 //!
 //! Intake and the response need the `crypto` feature. Without it the crate holds what the
-//! picker links, and builds with Rust 1.89.
+//! picker links.
 //!
 //! The crate is pure and offline. Intake names the Request Object of a request by reference
 //! and each trust evaluation it needs as an [`intake::Effect`], and the host answers with the

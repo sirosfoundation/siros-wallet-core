@@ -7,8 +7,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-# Without `wallet`: the matching for the credential picker, checked on 1.89 in CI. `wallet`
-# builds with the toolchain of rust-toolchain.toml.
 rust-version.workspace = true
 
 [features]

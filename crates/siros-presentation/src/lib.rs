@@ -20,7 +20,7 @@
 //!
 //! Without the default feature `wallet` the crate holds the matching ([`Matching`], [`Offers`],
 //! [`WalletDisplay`]), for the credential picker to run over its registration projection (K2).
-//! It builds with Rust 1.89 and links no crypto, prover or display resolution.
+//! It links no crypto, prover or display resolution.
 //!
 //! The crate performs no I/O. The plan takes the transaction metadata the host holds as input,
 //! and carries each transaction image to the consent view for the UI to resolve; phase 2 asks the

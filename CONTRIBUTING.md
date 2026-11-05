@@ -60,8 +60,8 @@ structural resemblance to the oracle as a blocker.
 The [README's build section](README.md#build-and-test) lists what CI checks.
 
 `proving/` is a second workspace: the proof backends and the browser presenter,
-whose dependencies need Rust 1.95, above the root workspace's floor. Run its
-commands from there.
+whose dependency zk-cred-longfellow needs Rust 1.91 (`bigint_helper_methods`),
+above the root workspace's 1.89 floor. Run its commands from there.
 
 `siros-dcql` is published to crates.io and therefore may not depend on any other
 crate in this workspace. CI enforces this with `cargo publish --dry-run`; please

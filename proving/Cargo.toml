@@ -1,5 +1,5 @@
-# The proof backends and what links them. Their dependencies need Rust 1.95, above the root
-# workspace's floor; the matcher never resolves them.
+# The proof backends and what links them. zk-cred-longfellow needs Rust 1.91
+# (`bigint_helper_methods`), above the root workspace's 1.89 floor; the matcher never resolves them.
 [workspace]
 resolver = "2"
 members = [
