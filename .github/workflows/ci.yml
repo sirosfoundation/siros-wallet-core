@@ -70,6 +70,9 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # Each build of the design's section 4.11 compiles none of the crates its row excludes
       # (I39); each crate builds alone and names the workspace crates its row gives (I25).
+      # `xtask builds` reads each probe's tree offline over the workspace's Cargo.lock, so the
+      # locked crates are downloaded first.
+      - run: cargo fetch --locked
       - run: cargo xtask builds
       - run: cargo xtask alone
 
