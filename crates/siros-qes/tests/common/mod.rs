@@ -470,7 +470,7 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
 }
 
 /// The test app: the core's and the profile's modules, in English and the test app's German.
-pub fn app() -> App {
+fn app() -> App {
     let qes = CrateSource {
         id: siros_qes::CrateModule::ID,
         messages: siros_qes::CrateModule::messages(),
@@ -480,9 +480,14 @@ pub fn app() -> App {
     App::of(&[CrateSource::openid4vp(), qes]).expect("the test app")
 }
 
+thread_local! {
+    /// The test app, built once per test thread.
+    static APP: App = app();
+}
+
 /// A text as the test app renders it in a locale.
 pub fn plain(text: &Text, locale: &'static str) -> String {
-    app().plain(&env(locale), text).expect("the text renders")
+    APP.with(|app| app.plain(&env(locale), text).expect("the text renders"))
 }
 
 /// A row as (section, label, value kind: an image or a text, value text).
@@ -490,8 +495,7 @@ pub type ShownRow = (Option<String>, String, Option<&'static str>, Option<String
 
 /// The rows of an entry, rendered in English.
 pub fn shown<'r>(rows: impl IntoIterator<Item = &'r Row>) -> Vec<ShownRow> {
-    let (app, en) = (app(), env("en"));
-    let plain = |text: &Text| app.plain(&en, text).expect("the text renders");
+    let plain = |text: &Text| plain(text, "en");
     rows.into_iter()
         .map(|row| {
             (

@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 use siros_explain::Explain;
-use siros_explain::Text;
+use siros_explain::{Text, Value as Typed};
 use siros_openid4vp::consent::Header;
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Exclude, Fault, NoCandidate};
@@ -119,7 +119,10 @@ pub(crate) fn render(
     let qualifier = approval.qualifier;
     let mut rows = vec![
         Row::full_text(Text::of(&QesText::creates(qualifier))),
-        Row::new(Text::of(&QesText::Count), written(approval.count.as_str())),
+        Row::new(
+            Text::of(&QesText::Count),
+            Value::Text(Text::Value(Typed::Count(approval.count.count()))),
+        ),
     ];
     for (k, document) in approval.documents.iter().enumerate() {
         let n = k + 1;

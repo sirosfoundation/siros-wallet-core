@@ -2,7 +2,7 @@
 //! rules (OpenID4VP §5.1: unknown members, wrong types, invalid values, missing required
 //! members).
 
-use siros_explain::Explain;
+use siros_explain::{Count, Explain};
 use siros_openid4vp::json::{Node, Object};
 
 use crate::binding::ApprovalHash;
@@ -56,26 +56,22 @@ pub(crate) enum Problem {
     Locations,
 }
 
-/// `numSignatures`: a positive integer, as written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SignatureCount<'e>(&'e str);
+/// `numSignatures`: a positive integer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SignatureCount(Count);
 
-impl<'e> SignatureCount<'e> {
+impl SignatureCount {
     /// A JSON integer above zero; JSON writes it without sign or leading zero.
-    fn parse(value: &'e Node<'_>) -> Option<Self> {
+    fn parse(value: &Node<'_>) -> Option<Self> {
         match value {
-            Node::Number(number)
-                if number.text().bytes().all(|b| b.is_ascii_digit()) && number.text() != "0" =>
-            {
-                Some(Self(number.text()))
-            }
+            Node::Number(number) if number.text() != "0" => Count::parse(number.text()).map(Self),
             _ => None,
         }
     }
 
-    /// The count's decimal digits.
-    pub(crate) fn as_str(self) -> &'e str {
-        self.0
+    /// The count.
+    pub(crate) fn count(&self) -> Count {
+        self.0.clone()
     }
 }
 
@@ -225,7 +221,7 @@ impl<'e> DocumentInfo<'e> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ApprovalRequest<'e> {
     /// `numSignatures`.
-    pub(crate) count: SignatureCount<'e>,
+    pub(crate) count: SignatureCount,
     /// `signatureQualifier`.
     pub(crate) qualifier: SignatureQualifier,
     /// `hashAlgorithmOID`.
