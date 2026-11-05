@@ -1,4 +1,5 @@
-//! I33: one language per presentation, by RFC 4647 basic filtering over the priority list.
+//! I33: one language per presentation, by RFC 4647 basic filtering over the priority list headed by
+//! the locale a profile selected for its own module.
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -8,7 +9,7 @@ use siros_explain::{
 };
 use siros_i18n::{
     Bidi, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag, Module, NoLanguage,
-    Package, Screen,
+    Package, PackageError, Screen, Selected,
 };
 
 use crate::{options, package, tag};
@@ -50,6 +51,16 @@ fn locate(
     priority: &[&str],
     fallback: &[&str],
 ) -> Result<(Language, Vec<String>), NoLanguage> {
+    locate_selected(modules, None, priority, fallback)
+}
+
+/// [`locate`] with the first module shown in the locale its profile selected.
+fn locate_selected(
+    modules: &[(&[&str], LanguagePolicy)],
+    selected: Option<&str>,
+    priority: &[&str],
+    fallback: &[&str],
+) -> Result<(Language, Vec<String>), NoLanguage> {
     let modules: Vec<Module> = modules
         .iter()
         .zip(0..)
@@ -57,7 +68,13 @@ fn locate(
         .collect();
     let built = package(&modules.iter().collect::<Vec<_>>());
     let package = Package::read(built.bytes(), built.root()).expect("a package");
-    let screen = Screen::new(&package, modules.iter().map(Module::id).collect()).expect("a screen");
+    let mut screen =
+        Screen::new(&package, modules.iter().map(Module::id).collect()).expect("a screen");
+    if let (Some(locale), Some(first)) = (selected, modules.first()) {
+        screen = screen
+            .selecting(Selected::new(first.id(), tag(locale)))
+            .expect("a module of the screen");
+    }
     let tags = |list: &[&str]| list.iter().map(|t| tag(t)).collect::<Vec<LocaleTag>>();
     let located = screen.locale(&tags(priority), &tags(fallback))?;
     let language = located.language().clone();
@@ -135,21 +152,39 @@ fn known_answers() {
     );
 }
 
-/// The language by the rule's words: the first tag of the list for which every module has an
-/// entry equal to it or extending it; each module's entry the equal one, else its first match.
+/// What a screen gives: whether the language fell back, the language, and each module's entry.
+type Outcome = Option<(bool, String, Vec<String>)>;
+
+/// The language by the rule's words: the first module, when a locale is selected for it, shows
+/// its entry equal to that locale, and none without one; every other module takes the first tag
+/// of the list headed by the selected locale for which it has an entry equal to the tag or
+/// extending it; each module's entry the equal one, else its first match.
 fn oracle(
     modules: &[(Vec<&'static str>, LanguagePolicy)],
+    selected: Option<&str>,
     priority: &[&str],
     fallback: &[&str],
-) -> Option<(bool, String, Vec<String>)> {
+) -> Outcome {
     let extends = |entry: &str, range: &str| {
         entry == range
             || entry
                 .strip_prefix(range)
                 .is_some_and(|rest| rest.starts_with('-'))
     };
+    let pinned = match selected {
+        None => None,
+        Some(locale) => Some(
+            modules
+                .first()?
+                .0
+                .iter()
+                .find(|t| **t == locale)
+                .map(|t| (*t).to_owned())?,
+        ),
+    };
+    let others = &modules[usize::from(selected.is_some())..];
     let serve = |range: &str| -> Option<Vec<String>> {
-        modules
+        let rest: Option<Vec<String>> = others
             .iter()
             .map(|(tags, _)| {
                 let equal = tags.iter().find(|t| **t == range);
@@ -157,12 +192,17 @@ fn oracle(
                     .or_else(|| tags.iter().find(|t| extends(t, range)))
                     .map(|t| (*t).to_owned())
             })
-            .collect()
+            .collect();
+        rest.map(|rest| pinned.iter().cloned().chain(rest).collect())
     };
-    if let Some((range, entries)) = priority.iter().find_map(|r| serve(r).map(|e| (*r, e))) {
+    let headed: Vec<&str> = selected
+        .into_iter()
+        .chain(priority.iter().copied())
+        .collect();
+    if let Some((range, entries)) = headed.iter().find_map(|r| serve(r).map(|e| (*r, e))) {
         return Some((false, range.to_owned(), entries));
     }
-    if modules
+    if others
         .iter()
         .any(|(_, policy)| *policy == LanguagePolicy::Understood)
     {
@@ -209,11 +249,14 @@ fn the_language_is_the_first_tag_every_module_serves() {
             })
             .collect();
         let (priority, fallback) = (pick(&mut rng, 3, 0), pick(&mut rng, 2, 0));
+        let selected = rng
+            .random_bool(0.4)
+            .then(|| POOL[rng.random_range(0..POOL.len())]);
         let borrowed: Vec<(&[&str], LanguagePolicy)> = modules
             .iter()
             .map(|(tags, policy)| (tags.as_slice(), *policy))
             .collect();
-        let got = locate(&borrowed, &priority, &fallback)
+        let got = locate_selected(&borrowed, selected, &priority, &fallback)
             .ok()
             .map(|(language, entries)| match language {
                 Language::Understood(tag) => (false, tag.to_string(), entries),
@@ -221,8 +264,34 @@ fn the_language_is_the_first_tag_every_module_serves() {
             });
         assert_eq!(
             got,
-            oracle(&modules, &priority, &fallback),
-            "{modules:?} {priority:?} {fallback:?}"
+            oracle(&modules, selected, &priority, &fallback),
+            "{modules:?} {selected:?} {priority:?} {fallback:?}"
         );
     }
+}
+
+#[test]
+fn a_selection_the_screen_cannot_show_is_refused() {
+    let any = LanguagePolicy::Any;
+    let modules = [
+        (&["de-CH"][..], LanguagePolicy::Understood),
+        (&["en", "de"][..], any),
+    ];
+    let missing = locate_selected(&modules, Some("fr"), &["fr", "en"], &[]).expect_err("no fr");
+    assert!(
+        matches!(&missing, NoLanguage::Selected { locale, .. } if *locale == tag("fr")),
+        "{missing:?}"
+    );
+    let one = module(0, &["en"], any);
+    let built = package(&[&one]);
+    let package = Package::read(built.bytes(), built.root()).expect("a package");
+    let absent = ModuleId::Defined(DefinedModule::new(checked!(Domain, "lang"), [9; 32]));
+    let refused = Screen::new(&package, vec![one.id()])
+        .expect("a screen")
+        .selecting(Selected::new(absent, tag("en")))
+        .expect_err("a module outside the screen");
+    assert!(
+        matches!(&refused, PackageError::Module(module) if module.id() == absent),
+        "{refused:?}"
+    );
 }

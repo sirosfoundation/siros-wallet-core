@@ -512,6 +512,25 @@ pub enum NoLanguage {
     /// No tag of the app's fallback list serves every module, or the list is empty.
     #[error("no fallback language serves every module of the presentation")]
     NoFallback,
+    /// The module a profile selected a locale for holds no entry of that locale.
+    #[error("the module {module} holds no entry of {locale}, which its profile selected")]
+    Selected {
+        /// The module.
+        module: ModuleName,
+        /// The locale.
+        locale: LocaleTag,
+    },
+}
+
+#[cfg(feature = "render")]
+impl NoLanguage {
+    /// A selected module lacking its locale.
+    pub(crate) fn selected(selected: &crate::screen::Selected) -> Self {
+        Self::Selected {
+            module: ModuleName::of(selected.module()),
+            locale: selected.locale().clone(),
+        }
+    }
 }
 
 /// A module an error names: its identity, and its name as the message shows it: `main`, a

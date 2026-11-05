@@ -108,6 +108,8 @@ const CLASSED: &[(&str, &str, Class)] = &[
     ("i18n.render.outside", "module", Class::Received),
     ("i18n.render.format", "format", Class::Received),
     ("i18n.language.not_understood", "module", Class::Received),
+    ("i18n.language.selected", "module", Class::Received),
+    ("i18n.language.selected", "locale", Class::Received),
     ("i18n.package.module", "module", Class::Received),
     ("i18n.package.repeated_locale", "locale", Class::Received),
     ("i18n.package.repeated_module", "module", Class::Received),

@@ -1,5 +1,5 @@
-//! One language per presentation: a screen's modules, read from a package, and the one language
-//! [`Screen::locale`] chooses for all of them.
+//! One language per presentation: a screen's modules, read from a package, the locale a profile
+//! selected for its own module, and the one language [`Screen::locale`] chooses for the others.
 
 use siros_explain::{Entry, Keyed, ModuleId};
 
@@ -17,6 +17,36 @@ pub struct Screen<'m> {
     package: Package<'m>,
     manifest: Manifest,
     modules: Keyed<ModuleId, ModuleRecord>,
+    selected: Option<Selected>,
+}
+
+/// A module whose texts show in a locale its profile selected, as PaSO View §4 selects a
+/// transaction's: the module's entry of that locale renders, and the locale heads the priority
+/// list the screen's other modules take their language from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Selected {
+    module: ModuleId,
+    locale: LocaleTag,
+}
+
+impl Selected {
+    /// `module` shown in `locale`.
+    #[must_use]
+    pub const fn new(module: ModuleId, locale: LocaleTag) -> Self {
+        Self { module, locale }
+    }
+
+    /// The module.
+    #[must_use]
+    pub const fn module(&self) -> ModuleId {
+        self.module
+    }
+
+    /// The locale.
+    #[must_use]
+    pub const fn locale(&self) -> &LocaleTag {
+        &self.locale
+    }
 }
 
 /// The language of a presentation.
@@ -145,7 +175,27 @@ impl<'m> Screen<'m> {
             package: *package,
             manifest,
             modules,
+            selected: None,
         })
+    }
+
+    /// The screen with one of its modules shown in the locale its profile selected.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageError::Module`] for a module the screen does not hold, and
+    /// [`PackageError::RepeatedModule`] for a second selection.
+    pub fn selecting(mut self, selected: Selected) -> Result<Self, PackageError> {
+        if self.selected.is_some() {
+            return Err(PackageError::RepeatedModule(ModuleName::of(
+                selected.module,
+            )));
+        }
+        if self.modules.get(&selected.module).is_none() {
+            return Err(PackageError::Module(ModuleName::of(selected.module)));
+        }
+        self.selected = Some(selected);
+        Ok(self)
     }
 
     /// The screen of the modules among `modules` that `tag` serves, located at `tag`.
@@ -170,21 +220,43 @@ impl<'m> Screen<'m> {
     }
 
     /// The presentation's language over the End-User's priority list and the app's fallback
-    /// list, by [`decide`] over the screen's modules.
+    /// list, by [`decide`] over the screen's modules. A selected module shows its entry of the
+    /// locale its profile selected, and the others decide over the priority list headed by that
+    /// locale.
     ///
     /// # Errors
     ///
+    /// [`NoLanguage::Selected`] when the selected module holds no entry of its locale;
     /// [`NoLanguage::NotUnderstood`], naming the first enforcing module, when no tag of the
-    /// priority list serves every module and a module enforces; [`NoLanguage::NoFallback`] when
-    /// no tag of the fallback list serves every module.
+    /// priority list serves every other module and one of them enforces;
+    /// [`NoLanguage::NoFallback`] when no tag of the fallback list serves every other module.
     pub fn locale(
         self,
         priority: &[LocaleTag],
         fallback: &[LocaleTag],
     ) -> Result<Located<'m>, NoLanguage> {
-        let tags: Vec<Vec<LocaleTag>> = self
+        let selected = match &self.selected {
+            None => None,
+            Some(selected) => {
+                let record = self
+                    .modules
+                    .get(&selected.module)
+                    .ok_or_else(|| NoLanguage::selected(selected))?;
+                let locale = record
+                    .locales
+                    .iter()
+                    .find(|locale| locale.tag == selected.locale)
+                    .ok_or_else(|| NoLanguage::selected(selected))?;
+                Some(Entry::new(selected.module, Chosen::of(record, locale)))
+            }
+        };
+        let others: Vec<&Entry<ModuleId, ModuleRecord>> = self
             .modules
             .entries()
+            .iter()
+            .filter(|entry| Some(*entry.key()) != self.selected.as_ref().map(|s| s.module))
+            .collect();
+        let tags: Vec<Vec<LocaleTag>> = others
             .iter()
             .map(|entry| {
                 entry
@@ -195,9 +267,7 @@ impl<'m> Screen<'m> {
                     .collect()
             })
             .collect();
-        let served: Vec<Served<'_>> = self
-            .modules
-            .entries()
+        let served: Vec<Served<'_>> = others
             .iter()
             .zip(&tags)
             .map(|(entry, tags)| Served {
@@ -206,11 +276,20 @@ impl<'m> Screen<'m> {
                 policy: entry.value().policy,
             })
             .collect();
-        let language = decide(&served, priority, fallback)?;
+        let headed: Vec<LocaleTag> = self
+            .selected
+            .iter()
+            .map(|selected| selected.locale.clone())
+            .chain(priority.iter().cloned())
+            .collect();
+        let language = decide(&served, &headed, fallback)?;
         let chosen = self.modules.entries().iter().filter_map(|entry| {
             let record = entry.value();
-            matching(&record.locales, |locale| &locale.tag, language.tag())
-                .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale)))
+            match &selected {
+                Some(selected) if selected.key() == entry.key() => Some(selected.clone()),
+                _ => matching(&record.locales, |locale| &locale.tag, language.tag())
+                    .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale))),
+            }
         });
         Ok(Located {
             package: self.package,
