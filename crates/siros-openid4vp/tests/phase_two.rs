@@ -24,7 +24,6 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, EntryIndex, Request};
-use siros_openid4vp::resolve::Response;
 use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared, Rejection};
 use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
@@ -101,7 +100,7 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), host)
         })
-        .map(|response| response.vp_token.json())
+        .map(|built| built.response().vp_token().json())
 }
 
 #[test]
@@ -459,22 +458,24 @@ siros_testkit::test_host! {
     }
 }
 
-/// The response to the record over a host.
+/// The delivery of the response to the record over a host.
 fn sealed<H: CoreHost>(
     request: &Request<'_>,
     id: &str,
     wallet: &Wallet<'_>,
     registry: &Registry<H>,
     host: &H,
-) -> Result<Response, Outcome> {
-    Prepared::prepare(request, &[id], wallet, registry, &env("en")).and_then(|prepared| {
-        prepared.respond(|resource| Published::default().answer(resource), host)
-    })
+) -> Result<Delivery, Outcome> {
+    Prepared::prepare(request, &[id], wallet, registry, &env("en"))
+        .and_then(|prepared| {
+            prepared.respond(|resource| Published::default().answer(resource), host)
+        })
+        .map(|built| built.delivery().clone())
 }
 
 /// Whether the DC API data wraps a JWE: `{"response": JWE}` (A.2, §8.3).
-fn wraps_a_jwe(response: &Response) -> bool {
-    let Delivery::DcApi(data) = &response.delivery else {
+fn wraps_a_jwe(delivery: &Delivery) -> bool {
+    let Delivery::DcApi(data) = delivery else {
         return false;
     };
     let data: serde_json::Value = serde_json::from_str(data.as_str()).expect("JSON");

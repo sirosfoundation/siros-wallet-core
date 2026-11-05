@@ -456,20 +456,21 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     Ok(chosen.ids().into_iter().map(str::to_owned).collect())
 }
 
-/// The response to [`first_selection`], nothing published for phase 2's fetches; the refusals,
-/// the unmet request, the fault or the phase 2 outcome otherwise.
+/// The VP Token of the response to [`first_selection`], nothing published for phase 2's fetches;
+/// the refusals, the unmet request, the fault or the phase 2 outcome otherwise.
 pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
     request: &Request<'_>,
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,
     env: &Env,
     host: &H,
-) -> Result<siros_openid4vp::resolve::Response, String> {
+) -> Result<String, String> {
     let ids = first_selection(request, wallet, registry, env)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     let published = crate::Published::default();
     siros_openid4vp::resolve::Prepared::prepare(request, &ids, wallet, registry, env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+        .map(|built| built.response().vp_token().json())
         .map_err(|e| e.to_string())
 }
 

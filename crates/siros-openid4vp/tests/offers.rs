@@ -370,7 +370,7 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
         })
         .expect("response");
     // dc_api answers with the response parameters as the DigitalCredential's data (Annex A).
-    let Delivery::DcApi(data) = &response.delivery else {
+    let Delivery::DcApi(data) = response.delivery() else {
         panic!("a DC API delivery");
     };
     let data: serde_json::Value = serde_json::from_str(data.as_str()).expect("data");

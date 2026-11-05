@@ -597,7 +597,8 @@ pub fn approve(
     let env = env("en");
     let response = Prepared::prepare(&request, &ids, &wallet, profile, &env)?
         .respond(fetch, &TestHost::default())?;
-    let vp_token: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+    let vp_token: Json =
+        serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
     Ok(vp_token["xyz123"][0]["members"].clone())
 }
 

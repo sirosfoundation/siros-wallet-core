@@ -26,7 +26,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Query, Request};
-use siros_openid4vp::resolve::{Outcome as Phase2, Prepared, Response};
+use siros_openid4vp::resolve::{Outcome as Phase2, Prepared};
 use siros_openid4vp::rows::Choice;
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::risk::{
@@ -153,15 +153,15 @@ fn payment_meta() -> String {
     member(&annex("Payment.md", "A.1")[1], PAY)
 }
 
-/// The response to the first selection the consent offers, phase 2's fetches answered from
-/// `published`.
+/// The VP Token answering the first selection the consent offers, phase 2's fetches answered
+/// from `published`.
 fn answer<H: CoreHost>(
     request: &Request<'_>,
     card: &Card,
     registry: &Registry<H>,
     published: &Published,
     host: &H,
-) -> Result<Response, Phase2> {
+) -> Result<String, Phase2> {
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();
@@ -174,11 +174,12 @@ fn answer<H: CoreHost>(
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     Prepared::prepare(request, &ids, &wallet, registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+        .map(|built| built.response().vp_token().json())
 }
 
-/// The proof of the first presentation of `sca_card`.
-fn proof(response: &Response) -> Json {
-    let token: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+/// The proof of the first presentation of `sca_card` in a VP Token.
+fn proof(token: &str) -> Json {
+    let token: Json = serde_json::from_str(token).expect("vp_token");
     token["sca_card"][0]["proof"].clone()
 }
 

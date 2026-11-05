@@ -271,6 +271,40 @@ fn error_codes_are_the_specifications_names_in_appendix_a_7s_syntax() {
 }
 
 #[test]
+fn a_refusals_description_keeps_appendix_a_8s_characters_alone() {
+    use siros_openid4vp::refusal::ErrorDescription;
+    // RFC 6749 Appendix A.8: %x20-21 / %x23-5B / %x5D-7E; the wallet writes `?` for any other
+    // character, one per character.
+    let a_8: String = (0x20u8..=0x7e)
+        .filter(|byte| !matches!(byte, b'"' | b'\\'))
+        .map(char::from)
+        .collect();
+    let cases = [
+        (a_8.as_str(), Some(a_8.as_str())),
+        (
+            "C5 response_mode 'x\"y' \\",
+            Some("C5 response_mode 'x?y' ?"),
+        ),
+        ("caf\u{e9} \u{1f600}\tend\n", Some("caf? ??end?")),
+        ("\u{7f}", Some("?")),
+        ("", None),
+    ];
+    for (text, sanitized) in cases {
+        let description = ErrorDescription::sanitized(text);
+        assert_eq!(
+            description.as_ref().map(ErrorDescription::as_str),
+            sanitized,
+            "{text:?}"
+        );
+        assert_eq!(
+            description,
+            sanitized.and_then(|text| ErrorDescription::parse(text.to_owned())),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
 fn profiles_are_found_by_exact_type_then_longest_prefix() {
     use siros_openid4vp::ids::TypePrefix;
     let mut builder = Registry::<TestHost>::builder();

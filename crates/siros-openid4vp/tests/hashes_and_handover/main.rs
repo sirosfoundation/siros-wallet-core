@@ -17,7 +17,7 @@ use siros_openid4vp::hash::{Blake2, HashAlgorithm, K12, Sha2, Sha3};
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Prepared, Response};
+use siros_openid4vp::resolve::{Built, Prepared};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet::Wallet;
@@ -209,12 +209,12 @@ fn subresource_integrity_follows_the_w3c_example() {
 }
 
 /// The response to the first selection the consent offers.
-fn answer(
-    request: &Request<'_>,
-    wallet: &Wallet<'_>,
-    registry: &Registry<TestHost>,
-    env: &Env,
-) -> Response {
+fn answer<'a>(
+    request: &'a Request<'a>,
+    wallet: &'a Wallet<'a>,
+    registry: &'a Registry<TestHost>,
+    env: &'a Env,
+) -> Built<'a> {
     let accepted = Accepted::new(request, registry).expect("accepted");
     let matched = Match::run(&accepted, wallet, env).expect("match");
     let consent = Consent::of(&matched).expect("consent");
@@ -303,7 +303,8 @@ fn transaction_data_hashes_follow_b_3_3_1() {
             continue;
         };
         let response = answer(&request, &wallet, &registry, &env);
-        let token: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+        let token: Json =
+            serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
         let proof = &token["q"][0]["proof"];
         assert_eq!(
             proof
@@ -379,7 +380,7 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         match (writes, outcome) {
             (32, Ok(response)) => {
                 let token: Json =
-                    serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+                    serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
                 assert_eq!(
                     token["q"][0]["proof"]["transaction_data_hashes"],
                     serde_json::json!([URL_SAFE_NO_PAD.encode(Sha256::digest(data.as_bytes()))])

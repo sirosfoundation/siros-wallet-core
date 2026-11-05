@@ -24,7 +24,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Delivery, Prepared, Response};
+use siros_openid4vp::resolve::{Delivery, Prepared};
 use siros_openid4vp::rows::{Amounts, Choice, Env};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Published;
@@ -95,7 +95,8 @@ fn english() -> Env {
 struct Answered {
     header: Header,
     entry: ConsentEntry,
-    response: Response,
+    vp_token: String,
+    delivery: Delivery,
 }
 
 /// The request answered through the core with every real plug-in, for an English wallet holding
@@ -129,20 +130,21 @@ fn answer(
         .expect("the chosen entry")
         .entry
         .clone();
-    let response = Prepared::prepare(request, &chosen, &wallet, &registry, &env)
+    let built = Prepared::prepare(request, &chosen, &wallet, &registry, &env)
         .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
         .expect("the wallet answers");
     Answered {
         header,
         entry,
-        response,
+        vp_token: built.response().vp_token().json(),
+        delivery: built.delivery().clone(),
     }
 }
 
 /// The one presentation of a query in `vp_token`.
-fn presentation(response: &Response, query: &str) -> Value {
-    let token: Value = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
-    let Delivery::DcApi(data) = &response.delivery else {
+fn presentation(answered: &Answered, query: &str) -> Value {
+    let token: Value = serde_json::from_str(&answered.vp_token).expect("vp_token");
+    let Delivery::DcApi(data) = &answered.delivery else {
         panic!("dc_api answers on the DC API");
     };
     // OpenID4VP Annex A: dc_api's data is {"vp_token": ...}.
@@ -305,7 +307,7 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
     let host = authenticated_as_a2();
     let answered = answer(&request, &[card], &Published::default(), &host);
     assert_core_a4(&answered);
-    let presentation = presentation(&answered.response, "sca_card");
+    let presentation = presentation(&answered, "sca_card");
     // OpenID4VP B.3.6, RFC 9901 §4: the SD-JWT with a disclosure per requested claim, then the
     // Key Binding JWT of the card's key.
     let sd_jwt = presentation["sd_jwt"].as_str().expect("sd_jwt");
@@ -413,7 +415,7 @@ fn paso_core_a1_through_an_mdoc_card_answers_with_core_a3s_device_signed_name_sp
     let host = authenticated_as_a2();
     let answered = answer(&request, &[card], &Published::default(), &host);
     assert_core_a4(&answered);
-    let response = read_mdoc(&presentation(&answered.response, "sca_card"));
+    let response = read_mdoc(&presentation(&answered, "sca_card"));
     // OpenID4VP B.2.5: a DeviceResponse of one document, the requested elements issuer-signed.
     assert_eq!(
         (&response["version"], &response["status"]),

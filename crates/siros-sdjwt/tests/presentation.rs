@@ -61,7 +61,7 @@ fn presented(dcql: &str, extra: &str, held: &[Held], registry: &Registry<TestHos
             .collect(),
     )
     .expect("wallet");
-    let response = answer_first(
+    let token = answer_first(
         &request,
         &wallet,
         registry,
@@ -69,7 +69,6 @@ fn presented(dcql: &str, extra: &str, held: &[Held], registry: &Registry<TestHos
         &TestHost::default(),
     )
     .expect("response");
-    let token = response.vp_token.json();
     let token = Node::parse(&token).expect("vp_token");
     token
         .get("q")

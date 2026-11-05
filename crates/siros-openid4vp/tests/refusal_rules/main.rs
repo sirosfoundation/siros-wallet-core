@@ -524,10 +524,12 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let request = fixtures::request_of(&received).expect("request");
     let outcome = Prepared::prepare(&request, &[], &Wallet::default(), &registry, &env("en"))
         .and_then(|prepared| {
-            prepared.respond(
-                |resource| Published::default().answer(resource),
-                &TestHost::default(),
-            )
+            prepared
+                .respond(
+                    |resource| Published::default().answer(resource),
+                    &TestHost::default(),
+                )
+                .map(drop)
         });
     assert!(matches!(outcome, Err(Outcome::Refused(_))));
 }

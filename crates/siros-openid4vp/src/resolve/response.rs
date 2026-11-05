@@ -6,9 +6,11 @@ use crate::host::Presentation;
 use crate::ids::QueryId;
 use crate::json::{Node, quote};
 use crate::media::MediaType;
+use crate::refusal::{ErrorCode, ErrorDescription};
 use crate::request::{AgreeableKey, ContentEncryption};
-use crate::routing::VerifierKey;
+use crate::routing::{Echo, State, VerifierKey};
 use crate::uri::{FormBody, ResponseUri};
+use crate::wallet_metadata::ParameterName;
 
 /// The key and `enc` a route bound: what the core seals to through `Haip::encrypt_jwe` and what
 /// the session holds. Only phase 2 makes one, from the mode's [`Encrypting::Jwe`] once it has
@@ -87,10 +89,157 @@ impl VpToken {
             .collect();
         format!("{{{}}}", members.join(","))
     }
+}
 
-    /// `{"vp_token": ...}`, the response's plaintext.
-    pub(crate) fn data(&self) -> String {
-        format!("{{\"vp_token\":{}}}", self.json())
+/// One parameter of the Authorization Response beside `vp_token` and `state` (§8.1: "Additional
+/// response parameters MAY be defined"): its name and JSON value.
+#[derive(Debug, Clone)]
+pub struct ResponseMember {
+    name: ParameterName,
+    value: Node<'static>,
+}
+
+impl ResponseMember {
+    /// The member.
+    #[must_use]
+    pub const fn new(name: ParameterName, value: Node<'static>) -> Self {
+        Self { name, value }
+    }
+
+    /// Its name.
+    #[must_use]
+    pub const fn name(&self) -> ParameterName {
+        self.name
+    }
+
+    /// Its value.
+    #[must_use]
+    pub const fn value(&self) -> &Node<'static> {
+        &self.value
+    }
+}
+
+/// An Authorization Response (§8.1): the VP Token, the request's `state`, and the registered
+/// response parameters' members. Only phase 2 makes one, from the routing.
+#[derive(Debug, Clone)]
+pub struct AuthorizationResponse<'a> {
+    vp_token: VpToken,
+    state: Option<State<'a>>,
+    members: Vec<ResponseMember>,
+}
+
+impl<'a> AuthorizationResponse<'a> {
+    pub(crate) const fn of(
+        vp_token: VpToken,
+        state: Option<State<'a>>,
+        members: Vec<ResponseMember>,
+    ) -> Self {
+        Self {
+            vp_token,
+            state,
+            members,
+        }
+    }
+
+    /// The VP Token.
+    #[must_use]
+    pub const fn vp_token(&self) -> &VpToken {
+        &self.vp_token
+    }
+
+    /// `state`, as received.
+    #[must_use]
+    pub const fn state(&self) -> Option<&State<'a>> {
+        self.state.as_ref()
+    }
+
+    /// The registered response parameters' members.
+    #[must_use]
+    pub fn members(&self) -> &[ResponseMember] {
+        &self.members
+    }
+
+    /// §8.1's JSON object, without whitespace: `vp_token`, `state` when the request has one, then
+    /// each member.
+    #[must_use]
+    pub fn json(&self) -> String {
+        let mut text = format!("{{\"vp_token\":{}", self.vp_token.json());
+        if let Some(state) = &self.state {
+            text.push_str(&format!(",\"state\":{}", quote(state.as_str())));
+        }
+        for member in &self.members {
+            text.push_str(&format!(
+                ",{}:{}",
+                quote(member.name.as_str()),
+                member.value.python_compact()
+            ));
+        }
+        text.push('}');
+        text
+    }
+}
+
+/// An error response (§8.5, RFC 6749 §4.1.2.1): its code, its description, and `state` as
+/// received. Only the core's route and rejection make one.
+#[derive(Debug, Clone)]
+pub struct ErrorResponse<'a> {
+    code: ErrorCode,
+    description: Option<ErrorDescription>,
+    echo: Option<Echo<'a>>,
+}
+
+impl<'a> ErrorResponse<'a> {
+    /// The code.
+    #[must_use]
+    pub const fn code(&self) -> ErrorCode {
+        self.code
+    }
+
+    /// The description.
+    #[must_use]
+    pub const fn description(&self) -> Option<&ErrorDescription> {
+        self.description.as_ref()
+    }
+
+    /// `state` as received.
+    #[must_use]
+    pub const fn echo(&self) -> Option<&Echo<'a>> {
+        self.echo.as_ref()
+    }
+
+    /// The JSON object the core seals on an encrypted route, without whitespace: `error`,
+    /// `error_description` when there is one, `state` when the request has one.
+    #[must_use]
+    pub fn json(&self) -> String {
+        let mut text = format!("{{\"error\":{}", quote(self.code.as_str()));
+        if let Some(description) = &self.description {
+            text.push_str(&format!(
+                ",\"error_description\":{}",
+                quote(description.as_str())
+            ));
+        }
+        if let Some(echo) = &self.echo {
+            text.push_str(&format!(",\"state\":{}", quote(echo.as_str())));
+        }
+        text.push('}');
+        text
+    }
+}
+
+#[cfg(feature = "test-util")]
+impl<'a> ErrorResponse<'a> {
+    /// The error a plug-in's tests hand an error mode, as the core's route makes it.
+    #[must_use]
+    pub const fn new(
+        code: ErrorCode,
+        description: Option<ErrorDescription>,
+        echo: Option<Echo<'a>>,
+    ) -> Self {
+        Self {
+            code,
+            description,
+            echo,
+        }
     }
 }
 
@@ -182,6 +331,12 @@ pub struct DcApiData(String);
 pub struct NotObject;
 
 impl DcApiData {
+    /// A.4's error: `{"error": code}`, which the core writes in the clear on every DC API route.
+    #[must_use]
+    pub fn error(error: &ErrorResponse<'_>) -> Self {
+        Self(format!("{{\"error\":{}}}", quote(error.code().as_str())))
+    }
+
     /// A JSON text the core reads back through its `json` module.
     ///
     /// # Errors
@@ -216,11 +371,28 @@ pub enum Delivery {
     DcApi(DcApiData),
 }
 
-/// The response to a selection.
+/// Phase 2's answer: the Authorization Response and its delivery. Only `Prepared::respond`
+/// makes one.
 #[derive(Debug, Clone)]
-pub struct Response {
-    /// `vp_token`.
-    pub vp_token: VpToken,
+pub struct Built<'p> {
+    response: AuthorizationResponse<'p>,
+    delivery: Delivery,
+}
+
+impl<'p> Built<'p> {
+    pub(crate) const fn of(response: AuthorizationResponse<'p>, delivery: Delivery) -> Self {
+        Self { response, delivery }
+    }
+
+    /// The Authorization Response.
+    #[must_use]
+    pub const fn response(&self) -> &AuthorizationResponse<'p> {
+        &self.response
+    }
+
     /// What the caller does with it.
-    pub delivery: Delivery,
+    #[must_use]
+    pub const fn delivery(&self) -> &Delivery {
+        &self.delivery
+    }
 }

@@ -22,12 +22,18 @@ pub const fn is_nqschars(text: &str) -> bool {
         return false;
     }
     while let [byte, tail @ ..] = rest {
-        if !matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E) {
+        if !is_nqschar(*byte) {
             return false;
         }
         rest = tail;
     }
     true
+}
+
+/// Whether `byte` is an `NQSCHAR` (RFC 6749 Appendix A.7, A.8): `%x20-21`, `%x23-5B`,
+/// `%x5D-7E`.
+const fn is_nqschar(byte: u8) -> bool {
+    matches!(byte, 0x20..=0x21 | 0x23..=0x5B | 0x5D..=0x7E)
 }
 
 /// An error code a wallet returns to a Verifier (RFC 6749 §4.1.2.1, §8.5: extensions' codes "MAY
@@ -133,6 +139,20 @@ impl ErrorDescription {
     #[must_use]
     pub fn parse(text: String) -> Option<Self> {
         is_nqschars(&text).then_some(Self(text))
+    }
+
+    /// The wallet's description of a refusal's text: every character outside Appendix A.8 a
+    /// `?`; `None` for an empty text.
+    #[must_use]
+    pub fn sanitized(text: &str) -> Option<Self> {
+        let text: String = text
+            .chars()
+            .map(|c| match u8::try_from(c) {
+                Ok(byte) if is_nqschar(byte) => c,
+                _ => '?',
+            })
+            .collect();
+        (!text.is_empty()).then_some(Self(text))
     }
 
     /// Its text.

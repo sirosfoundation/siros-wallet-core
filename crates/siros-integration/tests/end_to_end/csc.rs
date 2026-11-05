@@ -71,10 +71,7 @@ fn csc_7_3_through_an_mdoc_answers_with_its_device_signed_qes_approval() {
         &published,
         &HaipHost::at(Timestamp(NOW)),
     );
-    let response = read_mdoc(&presentation(
-        &answered.response,
-        "qscd_service_attestation",
-    ));
+    let response = read_mdoc(&presentation(&answered, "qscd_service_attestation"));
     // §7.3's DeviceResponse: the attributes issuer-signed, qesApproval device-signed, the
     // SHA-256 digest of the decoded entry as a 32-byte bstr (§7.2.1.1, Note 20).
     let decoded = URL_SAFE_NO_PAD.decode(&entry).expect("base64url");
@@ -130,7 +127,7 @@ fn csc_7_3_through_an_sd_jwt_answers_with_its_key_binding_jwt_qes_approval() {
         &published,
         &HaipHost::at(Timestamp(NOW)),
     );
-    let presentation = presentation(&answered.response, "qscd_service_attestation");
+    let presentation = presentation(&answered, "qscd_service_attestation");
     let payload = presentation["kb_jwt"]["payload"]
         .as_object()
         .expect("a Key Binding JWT");

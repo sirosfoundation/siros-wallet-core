@@ -445,7 +445,7 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
 fn answered(
     case: &Case<'_>,
     records: &[&EntryView<'_>],
-    response: &siros_openid4vp::resolve::Response,
+    built: &siros_openid4vp::resolve::Built<'_>,
     host: &HaipHost,
     tally: &mut Tally,
 ) {
@@ -457,7 +457,7 @@ fn answered(
             None => by_query.push((query, vec![view])),
         }
     }
-    let text = response.vp_token.json();
+    let text = built.response().vp_token().json();
     let order: Vec<String> = Node::parse(&text)
         .expect("vp_token is JSON")
         .as_object()
@@ -483,7 +483,7 @@ fn answered(
             "R-vp_token arrays"
         );
     }
-    let Delivery::DcApi(data) = &response.delivery else {
+    let Delivery::DcApi(data) = built.delivery() else {
         panic!("R-a DC API request answers on the DC API");
     };
     let data: Value = serde_json::from_str(data.as_str()).expect("data");

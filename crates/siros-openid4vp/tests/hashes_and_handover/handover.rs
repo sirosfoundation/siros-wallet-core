@@ -194,7 +194,8 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
     .expect("received");
     let encrypted = request_of(&received).expect("request");
     let response = answer(&encrypted, &wallet, &registry, &env);
-    let recorded: Json = serde_json::from_str(&response.vp_token.json()).expect("vp_token");
+    let recorded: Json =
+        serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
     let session = &recorded["q"][0];
     // The session binds the Origin, the nonce, and B.2.6.2's key, to which the core sealed with
     // A128GCM, the Verifier listing no enc (§5.1).
@@ -231,9 +232,13 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
     let plain = parameters(&test_queries(&["q"]), "");
     let received = unsigned(&plain).expect("received");
     let request = request_of(&received).expect("request");
-    let recorded: Json =
-        serde_json::from_str(&answer(&request, &wallet, &registry, &env).vp_token.json())
-            .expect("vp_token");
+    let recorded: Json = serde_json::from_str(
+        &answer(&request, &wallet, &registry, &env)
+            .response()
+            .vp_token()
+            .json(),
+    )
+    .expect("vp_token");
     assert_eq!(recorded["q"][0]["sealed"], Json::Null);
 }
 
@@ -252,8 +257,9 @@ fn dc_api_jwt_encrypts_under_the_key_rule() {
     let request = request_of(&received).expect("request");
     let holder = Held::answering("c", &["q"], &[]);
     let wallet = Wallet::new(vec![holder.credential()]).expect("wallet");
-    let response = answer(&request, &wallet, &registry(Binds::First), &env("en"));
-    let Delivery::DcApi(data) = &response.delivery else {
+    let (registry, env) = (registry(Binds::First), env("en"));
+    let response = answer(&request, &wallet, &registry, &env);
+    let Delivery::DcApi(data) = response.delivery() else {
         panic!("a DC API delivery")
     };
     let data: Json = serde_json::from_str(data.as_str()).expect("data");

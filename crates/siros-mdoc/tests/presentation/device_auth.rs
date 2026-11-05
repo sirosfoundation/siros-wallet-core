@@ -8,7 +8,7 @@ use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::host::CoreHost;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{HostedFormat, Member, MemberValue, Registry};
-use siros_openid4vp::resolve::{Finding, Outcome, Prepared, Response};
+use siros_openid4vp::resolve::{Finding, Outcome, Prepared};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, first_selection, parameters, request_of, unsigned};
 
@@ -99,9 +99,9 @@ fn the_device_authenticates_by_signature_or_by_mac_as_check_respond_states() {
     }
 }
 
-/// Phase 2 over `host` for the first selection of `QUERY` with the client metadata, its
-/// fetches unanswered.
-fn respond<H>(host: &H, client_metadata: &str, held: &Held) -> Result<Response, Outcome>
+/// The VP Token phase 2 answers over `host` for the first selection of `QUERY` with the client
+/// metadata, its fetches unanswered.
+fn respond<H>(host: &H, client_metadata: &str, held: &Held) -> Result<String, Outcome>
 where
     Mdoc: HostedFormat<H>,
     H: CoreHost
@@ -124,13 +124,12 @@ where
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     Prepared::prepare(&request, &ids, &wallet, &registry, &env)
         .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
+        .map(|built| built.response().vp_token().json())
 }
 
-/// The device authentication of a response's one presentation.
-fn mode(response: &Response) -> (String, Option<String>) {
-    let token = Node::parse(&response.vp_token.json())
-        .expect("vp_token")
-        .into_owned();
+/// The device authentication of a VP Token's one presentation.
+fn mode(token: &str) -> (String, Option<String>) {
+    let token = Node::parse(token).expect("vp_token").into_owned();
     let presentation = token
         .get("q")
         .and_then(Node::as_array)

@@ -68,10 +68,12 @@ fn every_parse_refuses_a_member_named_twice() {
         &env("en"),
     )
     .and_then(|prepared| {
-        prepared.respond(
-            |resource| Published::default().answer(resource),
-            &TestHost::default(),
-        )
+        prepared
+            .respond(
+                |resource| Published::default().answer(resource),
+                &TestHost::default(),
+            )
+            .map(drop)
     });
     assert!(
         matches!(

@@ -7,7 +7,8 @@ use siros_explain::AllOf;
 
 use super::selection::{check, derived};
 use super::{
-    DcApiData, Delivery, Finding, Outcome, Rejection, Response, RouteBreach, RouteKey, VpToken,
+    AuthorizationResponse, Built, DcApiData, Delivery, Finding, Outcome, Rejection, RouteBreach,
+    RouteKey, VpToken,
 };
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
 use crate::envelope::Channel;
@@ -157,7 +158,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         self,
         fetch: impl FnMut(&Resource) -> Fetch,
         host: &H,
-    ) -> Result<Response, Outcome> {
+    ) -> Result<Built<'p>, Outcome> {
         let Self {
             accepted,
             registry,
@@ -206,7 +207,9 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                     })?;
             vp_token.push(&record.query.id, presentation);
         }
-        let plaintext = vp_token.data();
+        let response =
+            AuthorizationResponse::of(vp_token, request.envelope().routing().state(), Vec::new());
+        let plaintext = response.json();
         let data = match sealing {
             None => plaintext,
             Some(Sealing { haip, key }) => {
@@ -216,10 +219,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         };
         let data =
             DcApiData::of(data).map_err(|e| Fault::caused(FAULT, detail!("the DC API data"), e))?;
-        Ok(Response {
-            vp_token,
-            delivery: Delivery::DcApi(data),
-        })
+        Ok(Built::of(response, Delivery::DcApi(data)))
     }
 }
 
