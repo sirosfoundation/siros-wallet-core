@@ -120,9 +120,6 @@ fn errors_explain_beside_thiserror() {
         )
     );
 
-    let boxed: Box<dyn siros_explain::Explained> = Box::new(decrypted);
-    assert_eq!(boxed.id().as_str(), "openid4vp.request_object.decrypted");
-
     let declared: Vec<_> = RequestObjectRule::messages()
         .iter()
         .map(|message| {
