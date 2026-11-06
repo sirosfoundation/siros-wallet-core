@@ -152,6 +152,19 @@ impl X5c {
 }
 
 impl ChainCertificate {
+    /// The certificate of this DER, written back as `x5c` writes it.
+    ///
+    /// # Errors
+    ///
+    /// The bytes are no DER certificate.
+    pub fn from_der(der: &[u8]) -> Result<Self, der::Error> {
+        Ok(Self {
+            text: STANDARD.encode(der),
+            der: der.to_vec(),
+            certificate: Certificate::from_der(der)?,
+        })
+    }
+
     fn parse(item: X5cItem, value: &Node<'_>) -> Result<Self, X509Refusal> {
         let text = value.as_str().ok_or(X509Refusal::X5cNotArray)?;
         let der = STANDARD

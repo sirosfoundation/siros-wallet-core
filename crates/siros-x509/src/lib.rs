@@ -51,6 +51,7 @@ use siros_openid4vp::authenticate::{
 };
 
 pub use chain::{ChainCertificate, SpkiKey, X5c, X5cItem};
+pub use der::Error as DerError;
 pub use names::{LeafHash, SanDnsName};
 
 use claim::{Rule, X509Claim};
