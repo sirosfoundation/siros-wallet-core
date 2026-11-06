@@ -1,6 +1,6 @@
 //! The elements the device key may sign in `DeviceSigned` (ISO/IEC 18013-5, 9.1.2.4).
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use siros_openid4vp::cbor::Value;
 
 use super::item::Read as _;
@@ -10,11 +10,11 @@ use super::mso::{non_empty_array, non_empty_map};
 use super::names::{ElementIdentifier, NameSpace};
 
 /// The elements the device key may sign: every element of the namespaces of `nameSpaces`, and
-/// the elements `dataElements` names.
+/// the elements `dataElements` names, in the issuer's order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyAuthorizations {
-    name_spaces: FxHashSet<NameSpace>,
-    data_elements: FxHashMap<NameSpace, FxHashSet<ElementIdentifier>>,
+    name_spaces: Vec<NameSpace>,
+    data_elements: Vec<(NameSpace, Vec<ElementIdentifier>)>,
 }
 
 impl KeyAuthorizations {
@@ -31,11 +31,11 @@ impl KeyAuthorizations {
             Some(names) => {
                 names_once(names, NameSpace::new).map_err(KeyAuthorizationsFault::NameSpaces)?
             }
-            None => FxHashSet::default(),
+            None => Vec::new(),
         };
         let data_elements = match item.get("dataElements") {
             Some(elements) => read_data_elements(elements, &name_spaces)?,
-            None => FxHashMap::default(),
+            None => Vec::new(),
         };
         Ok(Self {
             name_spaces,
@@ -49,18 +49,31 @@ impl KeyAuthorizations {
         self.name_spaces.contains(name_space)
             || self
                 .data_elements
-                .get(name_space)
-                .is_some_and(|identifiers| identifiers.contains(identifier))
+                .iter()
+                .any(|(space, identifiers)| space == name_space && identifiers.contains(identifier))
+    }
+
+    /// The namespaces authorized whole.
+    #[must_use]
+    pub fn name_spaces(&self) -> &[NameSpace] {
+        &self.name_spaces
+    }
+
+    /// The elements authorized, per namespace.
+    #[must_use]
+    pub fn data_elements(&self) -> &[(NameSpace, Vec<ElementIdentifier>)] {
+        &self.data_elements
     }
 }
 
 /// `dataElements`, none of whose namespaces `name_spaces` authorizes whole.
 fn read_data_elements(
     elements: &Value,
-    name_spaces: &FxHashSet<NameSpace>,
-) -> Result<FxHashMap<NameSpace, FxHashSet<ElementIdentifier>>, KeyAuthorizationsFault> {
+    name_spaces: &[NameSpace],
+) -> Result<Vec<(NameSpace, Vec<ElementIdentifier>)>, KeyAuthorizationsFault> {
     let entries = non_empty_map(Some(elements)).map_err(KeyAuthorizationsFault::DataElements)?;
-    let mut data_elements = FxHashMap::default();
+    let mut data_elements: Vec<(NameSpace, Vec<ElementIdentifier>)> =
+        Vec::with_capacity(entries.len());
     for (name_space, identifiers) in entries {
         let name_space = NameSpace::new(
             name_space
@@ -72,28 +85,25 @@ fn read_data_elements(
         }
         let identifiers = names_once(identifiers, ElementIdentifier::new)
             .map_err(|fault| KeyAuthorizationsFault::Elements(name_space.clone(), fault))?;
-        if data_elements
-            .insert(name_space.clone(), identifiers)
-            .is_some()
-        {
+        if data_elements.iter().any(|(known, _)| *known == name_space) {
             return Err(KeyAuthorizationsFault::RepeatedNameSpace(name_space));
         }
+        data_elements.push((name_space, identifiers));
     }
     Ok(data_elements)
 }
 
 /// A non-empty array of text strings, each once, each read by `name`.
-fn names_once<T: Eq + std::hash::Hash>(
-    item: &Value,
-    name: fn(&str) -> T,
-) -> Result<FxHashSet<T>, NamesFault> {
+fn names_once<T>(item: &Value, name: fn(&str) -> T) -> Result<Vec<T>, NamesFault> {
     let names = non_empty_array(Some(item)).map_err(NamesFault::Member)?;
-    let mut set = FxHashSet::default();
+    let mut seen = FxHashSet::default();
+    let mut read = Vec::with_capacity(names.len());
     for text in names {
         let text = text.as_text().ok_or(NamesFault::NotText)?;
-        if !set.insert(name(text)) {
+        if !seen.insert(text) {
             return Err(NamesFault::Repeated(text.to_owned()));
         }
+        read.push(name(text));
     }
-    Ok(set)
+    Ok(read)
 }

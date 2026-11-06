@@ -23,7 +23,7 @@ fn sd_jwt(id: &str, vct: &str, values: &str) -> Held {
         id,
         "dc+sd-jwt",
         format!(
-            r#"{{"type": "{vct}", "metadata": {{}}, "values": {values}, "jwt": "eyJhbGciOiJFUzI1NiJ9.{id}.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}}"#
+            r#"{{"type": "{vct}", "metadata": {{}}, "values": {values}, "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}}"#
         ),
     )
 }
@@ -327,7 +327,7 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
     let clause = "OpenID4VP B.3 vp_formats_supported";
     let view = |alg: &str, curve: &str| {
         format!(
-            r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "jwt": "eyJ.c.sig", "alg": "{alg}", "curve": "{curve}", "key_alg": "ES256", "key_curve": "P-256"}}"#
+            r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "alg": "{alg}", "curve": "{curve}", "key_alg": "ES256", "key_curve": "P-256"}}"#
         )
     };
     // (supported, holder binding required, credential bound to a key, its alg and curve, the

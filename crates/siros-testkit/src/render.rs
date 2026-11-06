@@ -416,6 +416,6 @@ impl App {
         selected: Option<&Selected>,
         env: &Env,
     ) -> Result<Renderer<'_>, AppError> {
-        Ok(self.rendering()?.renderer(selected, None, env)??)
+        Ok(self.rendering()?.renderer(selected, None, None, env)??)
     }
 }

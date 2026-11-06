@@ -14,7 +14,7 @@ use siros_testkit::{Published, PublishedResource};
 
 use crate::common::sri;
 
-use super::{NOW, answer, csc, hex, presentation, read_mdoc};
+use super::{NOW, answer, csc, hex, presentation, read_mdoc, read_sd_jwt};
 
 /// CSC §7.3's request and entry: the entry's credential_ids name the example request's query,
 /// whose id it misnames, and its document's checksum is the integrity of the document published
@@ -114,19 +114,20 @@ fn csc_7_3_through_an_sd_jwt_answers_with_its_key_binding_jwt_qes_approval() {
         "attestation",
         "dc+sd-jwt",
         r#"{"type": "com.example.service.1.attestation", "metadata": {}, "values": {"userName": "willeke", "credentialID": "GX0112348"},
-            "jwt": "eyJhbGciOiJFUzI1NiJ9.attestation.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
+            "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     );
-    attestation.documents = vec![(
+    attestation = attestation.with_issued().expect("the issued SD-JWT");
+    attestation.documents.push((
         "qes".to_owned(),
         r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#.as_bytes().to_vec(),
-    )];
+    ));
     let answered = answer(
         &request,
         &[attestation],
         &published,
         &HaipHost::at(Timestamp(NOW)),
     );
-    let presentation = presentation(&answered, "qscd_service_attestation");
+    let presentation = read_sd_jwt(&presentation(&answered, "qscd_service_attestation"));
     let payload = presentation["kb_jwt"]["payload"]
         .as_object()
         .expect("a Key Binding JWT");

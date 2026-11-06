@@ -1,5 +1,4 @@
-//! The SD-JWT members of a credential's view: the Issuer-signed JWT, its signer, and the holder
-//! key's.
+//! The SD-JWT members of a credential's view: the Issuer-signed JWT's signer, and the holder key.
 
 use siros_openid4vp::claims::kit::ClaimsView;
 use siros_openid4vp::detail;
@@ -30,7 +29,7 @@ impl<'a, 'v> SdJwtMembers<'a, 'v> {
     }
 
     /// A string member the operation needs.
-    pub(crate) fn required(&self, name: &str) -> Result<&'a str, Fault> {
+    fn required(&self, name: &str) -> Result<&'a str, Fault> {
         self.text(name)?.ok_or_else(|| self.fault(name))
     }
 

@@ -2,13 +2,15 @@
 //! (`data/figure-28-*`, `figure-29-*`: Figures 28 and 29 of draft-ietf-oauth-sd-jwt-vc-14) and
 //! the effective metadata of §8.5.2 (`data/figure-21-*`, Figure 21).
 
+use siros_i18n::LanguagePolicy;
+use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Shown;
 use siros_openid4vp::request::Item;
-use siros_sdjwt::SdJwtVc;
+use siros_sdjwt::{SdJwtVc, type_metadata};
 use siros_testkit::fixtures::{Held, env, icon, parameters, request_of, unsigned};
 use siros_testkit::probe::read_parsed;
-use siros_testkit::render::written;
+use siros_testkit::render::{App, CrateSource, main_locales, main_module, written};
 
 const FIGURE_28: &str = include_str!("data/figure-28-sd-jwt-vc-payload.json");
 const FIGURE_29: &str = include_str!("data/figure-29-type-metadata.json");
@@ -192,4 +194,104 @@ fn the_effective_metadata_of_section_8_5_2_labels_the_claims() {
     );
     let labels: Vec<&str> = rows.iter().map(|(label, _)| label.as_str()).collect();
     assert_eq!(labels, ["Full Name", "Town", "Nationalities"]);
+}
+
+/// Section 4.14 of the design: Figure 29's `display` loads as a defined module, and a view naming it
+/// shows the same texts through the renderer, per language, with the wallet's own text for an
+/// unlabelled claim as before.
+#[test]
+fn figure_29_loads_as_a_defined_module() {
+    let document = Node::parse(FIGURE_29).expect("metadata");
+    let digest = type_metadata::module_of(&document);
+    let hex: String = digest
+        .digest()
+        .bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let view = format!(
+        r#"{{"type": "https://betelgeuse.example.com/education_credential/v42", "metadata": {FIGURE_29}, "values": {FIGURE_28}, "display_module": "{hex}"}}"#
+    );
+    let priority: Vec<LocaleTag> = ["en-US", "de-DE"]
+        .iter()
+        .map(|tag| LocaleTag::parse(tag).expect("tag"))
+        .collect();
+    let main = main_locales().expect("the main module's locales");
+    let form = type_metadata::convert(&document, &main, &priority, LanguagePolicy::Any)
+        .expect("the module");
+    let crates = CrateSource::openid4vp().load().expect("the crate module");
+    let main_module = main_module().expect("the main module");
+    let app = App::new(&[&main_module, &crates], &[&form]).expect("the package");
+    let rendering = app.rendering().expect("the rendering");
+    let text = parameters(
+        r#"{"credentials": [{"id": "edu", "format": "dc+sd-jwt", "meta": {"vct_values": ["https://betelgeuse.example.com/education_credential/v42"]}, "claims": [{"path": ["name"]}]}]}"#,
+        "",
+    );
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let languages = [
+        (["en-US", "en"], "Betelgeuse Education Credential", "Name"),
+        (
+            ["de-DE", "de"],
+            "Betelgeuse-Bildungsnachweis",
+            "Vor- und Nachname",
+        ),
+    ];
+    let (module, cards) = read_parsed(
+        &request,
+        &request.queries()[0],
+        SdJwtVc::new().expect("format"),
+        move |query| {
+            let held = Held::new("edu", "dc+sd-jwt", view);
+            let credential = held.credential().expect("credential");
+            let module = query.card_module(&credential).expect("the view's module");
+            let items = [Item::new(0).expect("item")];
+            let cards: Vec<_> = languages
+                .iter()
+                .map(|(tags, _, _)| {
+                    query
+                        .draw(
+                            &credential,
+                            Shown {
+                                everyone: &items,
+                                chosen: &[],
+                            },
+                            &env(tags, Vec::new()).expect("env"),
+                        )
+                        .expect("card")
+                })
+                .collect();
+            (module, cards)
+        },
+    )
+    .expect("the flow reaches the format");
+    assert_eq!(module, Some(digest));
+    for ((tags, title, label), card) in languages.iter().zip(&cards) {
+        let env = env(tags, Vec::new()).expect("env");
+        let renderer = rendering
+            .renderer(None, module, None, &env)
+            .expect("no fault")
+            .expect("a language");
+        assert_eq!(renderer.plain(&card.title).expect("title"), *title);
+        assert_eq!(renderer.plain(&card.rows[0].label).expect("label"), *label);
+    }
+    // A package that holds the module not: the entry cannot render.
+    let bare = App::new(&[&main_module, &crates], &[]).expect("the package");
+    let bare = bare.rendering().expect("the rendering");
+    let env = env(&["en-US", "en"], Vec::new()).expect("env");
+    assert!(matches!(
+        bare.renderer(None, module, None, &env).expect("no fault"),
+        Err(siros_openid4vp::rendering::Unrendered::Module(_))
+    ));
+}
+
+/// A display entry whose `locale` is no language tag has no language to load in.
+#[test]
+fn a_locale_of_no_tag_is_refused() {
+    let document =
+        Node::parse(r#"{"display": [{"locale": "not a tag", "name": "A"}]}"#).expect("json");
+    assert!(matches!(
+        type_metadata::convert(&document, &[], &[], LanguagePolicy::Any),
+        Err(type_metadata::ConvertError::Locale(_))
+    ));
 }

@@ -128,7 +128,7 @@ impl<'a> Node<'a> {
         match self {
             Node::Null => Node::Null,
             Node::Bool(value) => Node::Bool(value),
-            Node::Number(Number(text)) => Node::Number(Number(Cow::Owned(text.into_owned()))),
+            Node::Number(number) => Node::Number(number.into_owned()),
             Node::String(text) => Node::String(Cow::Owned(text.into_owned())),
             Node::Array(items) => Node::Array(items.into_iter().map(Node::into_owned).collect()),
             Node::Object(object) => Node::Object(object.into_owned()),
@@ -256,6 +256,12 @@ fn first_repeated<'m>(members: &'m [Member<'_>]) -> Option<&'m str> {
 }
 
 impl Number<'_> {
+    /// The number, owning its text.
+    #[must_use]
+    pub fn into_owned(self) -> Number<'static> {
+        Number(Cow::Owned(self.0.into_owned()))
+    }
+
     /// The number as written.
     #[must_use]
     pub fn text(&self) -> &str {

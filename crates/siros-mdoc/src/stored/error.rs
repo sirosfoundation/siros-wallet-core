@@ -279,14 +279,14 @@ pub enum DeviceKeyFault {
     /// `deviceKeyInfo` has no `deviceKey`.
     #[error("`deviceKeyInfo` has no `deviceKey`")]
     Absent,
-    /// `kty` (label 1) is not 2, EC2.
-    #[error("`kty` (label 1) is not 2, EC2")]
+    /// `kty` (label 1) is not the curve's: 2, EC2, or 1, OKP.
+    #[error("`kty` (label 1) is not the curve's")]
     KeyType,
-    /// `crv` (label -1) is not 1, P-256.
-    #[error("`crv` (label -1) is not 1, P-256")]
+    /// `crv` (label -1) names no curve of ISO/IEC 18013-5 Table 22.
+    #[error("`crv` (label -1) names no curve of Table 22")]
     Curve,
-    /// `x` (label -2) or `y` (label -3) is not a 32-byte string.
-    #[error("`x` (label -2) or `y` (label -3) is not a 32-byte string")]
+    /// A P-256 key's `x` (label -2) or `y` (label -3) is not a 32-byte string.
+    #[error("a P-256 key's `x` (label -2) or `y` (label -3) is not a 32-byte string")]
     Coordinate,
 }
 

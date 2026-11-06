@@ -25,6 +25,14 @@ pub(super) fn read_mdoc(presentation: &Value) -> Value {
     serde_json::from_str(&read.python_compact().to_string()).expect("JSON")
 }
 
+/// An SD-JWT presentation as a Verifier reads it: `{"sd_jwt", "kb_jwt"}`.
+pub(super) fn read_sd_jwt(presentation: &Value) -> Value {
+    let text = presentation.as_str().expect("R-SD-JWT: a string");
+    let read = siros_testkit::sd_jwt_reading::read(text).expect("R-SD-JWT: a Verifier takes it");
+    let shape = read.shape().expect("the shape");
+    serde_json::from_str(&shape.python_compact().to_string()).expect("JSON")
+}
+
 pub(super) fn mode(case: &Case<'_>) -> String {
     match siros_testkit::fixtures::mode_of(case.request) {
         Some(mode) => mode.as_str().to_owned(),

@@ -25,6 +25,7 @@ siros-openid4vp = { workspace = true, features = [
 serde_json = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+rustc-hash = { workspace = true }
 hmac = { workspace = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }

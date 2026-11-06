@@ -273,7 +273,7 @@ pub(super) fn dress_credential(
            "key_authorizations": {
                "namespaces": if rng.random_bool(0.9) { json!(["urn:paso:sca:1"]) } else { json!([]) },
                "elements": if rng.random_bool(0.9) { json!({"org.cloudsignatureconsortium.dm.1": ["qesApproval"]}) } else { json!({}) }},
-           "jwt": format!("eyJhbGciOiJFUzI1NiJ9.{}.sig", credential.id), "alg": alg, "curve": curve,
+           "alg": alg, "curve": curve,
            "key_alg": "ES256", "key_curve": "P-256", "issuer_alg": pick(rng, &[-7, -35]), "issuer_curve": "P-256",
            "device_alg": -7, "device_curve": "P-256"});
     let keys = rng
@@ -305,15 +305,15 @@ pub(super) fn dress_credential(
         ));
     }
     let mut held = Held::new(&credential.id, format, view.to_string());
-    if format == "mso_mdoc" {
-        held = held.with_issued().expect("the IssuerSigned");
-    }
-    held.documents.extend(documents);
     held.holder = if rng.random_bool(0.9) {
         Holder::Bound
     } else {
         Holder::Unbound
     };
+    if format == "mso_mdoc" || format == "dc+sd-jwt" {
+        held = held.with_issued().expect("the issued form");
+    }
+    held.documents.extend(documents);
     if rng.random_bool(0.5) {
         held.authorities = vec![("aki".to_owned(), vec!["k1".to_owned()])];
     }

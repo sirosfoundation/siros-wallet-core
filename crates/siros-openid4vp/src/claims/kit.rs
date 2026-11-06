@@ -12,10 +12,12 @@ mod display;
 mod plugin;
 mod rules;
 
-use siros_explain::{AllOf, Explained, Text};
+use siros_explain::{
+    AllOf, DefinedKey, DefinedModule, Explained, Keyed, Query as ExplainQuery, Text,
+};
 
 pub use display::format_entry;
-use display::{metadata, value_rows};
+use display::{Described, metadata, value_rows};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
@@ -68,6 +70,57 @@ pub trait ClaimsFormat {
     /// The format's rule a claims path pointer breaks: it cannot address the format's
     /// credentials. `None` when it can.
     fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explained>>;
+    /// Whether an array element of the view's `values` marks a position the credential holds no
+    /// value for: pointers select nothing there and the rows leave it out. A format whose views
+    /// hold no such position keeps this answer.
+    fn withheld(&self, _element: &Node<'_>) -> bool {
+        false
+    }
+    /// The defined module a credential's display metadata loaded as (section 4.14 of the design),
+    /// which then gives the card's title and the claims' labels. `None` shows the metadata's texts
+    /// as written.
+    ///
+    /// # Errors
+    ///
+    /// The view names a module in no form the format writes.
+    fn display_module(&self, _view: &Node<'_>) -> Result<Option<DefinedModule>, Fault> {
+        Ok(None)
+    }
+    /// The key of `item`'s message in the module [`Self::display_module`] names.
+    fn display_key(&self, _item: DisplayItem) -> Option<DefinedKey> {
+        None
+    }
+}
+
+/// A text of a credential's display metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayItem {
+    /// The display entry's name, the card's title.
+    Name,
+    /// The label of the entry at this position of the metadata's `claims`.
+    Claim(usize),
+}
+
+/// What gives a card's texts: the wallet's locales, and the defined module the metadata loaded as.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Display<'d> {
+    pub(crate) locales: &'d [LocaleTag],
+    pub(crate) module: Option<&'d DefinedModule>,
+}
+
+impl Display<'_> {
+    /// The text of `item`, whose metadata wrote `written`: its message in the defined module, else
+    /// as written.
+    pub(crate) fn text(self, format: &impl ClaimsFormat, item: DisplayItem, written: &str) -> Text {
+        match (self.module, format.display_key(item)) {
+            (Some(module), Some(key)) => Text::Query(ExplainQuery::defined(
+                *module,
+                key,
+                Keyed::first_of(Vec::new()),
+            )),
+            _ => Text::Raw(written.to_owned()),
+        }
+    }
 }
 
 /// A query's refusals in rule order: the first, the `vp_formats_supported` one when it follows,
@@ -234,7 +287,10 @@ impl<'q> ClaimsQuery<'q> {
             .claims
             .claims()
             .iter()
-            .map(|claim| claim.found(values) || format.written(claim, provided))
+            .map(|claim| {
+                claim.found(values, |element| format.withheld(element))
+                    || format.written(claim, provided)
+            })
             .collect();
         Ok(self
             .claims
@@ -259,8 +315,10 @@ impl<'q> ClaimsQuery<'q> {
         view: &Node<'_>,
         shown: Shown<'_>,
         env: &Env,
+        module: Option<&DefinedModule>,
     ) -> Result<Card, PathError> {
         let locales = env.priority();
+        let display = Display { locales, module };
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
@@ -268,15 +326,15 @@ impl<'q> ClaimsQuery<'q> {
             .filter(|name| !name.trim_matches(python_space).is_empty())
             .map_or_else(
                 || Text::of(&WalletText::Credential),
-                |name| Text::Raw(name.to_owned()),
+                |name| display.text(format, DisplayItem::Name, name),
             );
         let subtitle = view
             .get("issuer")
             .and_then(Node::as_str)
             .map(|issuer| Text::Raw(issuer.to_owned()));
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
-        let mut rows = self.claim_rows(format, shown.everyone, view, locales)?;
-        rows.extend(self.claim_rows(format, shown.chosen, view, locales)?);
+        let mut rows = self.claim_rows(format, shown.everyone, view, display)?;
+        rows.extend(self.claim_rows(format, shown.chosen, view, display)?);
         Ok(Card {
             icon,
             title,
@@ -292,21 +350,26 @@ impl<'q> ClaimsQuery<'q> {
         format: &impl ClaimsFormat,
         items: &[Item],
         view: &Node<'_>,
-        locales: &[LocaleTag],
+        display: Display<'_>,
     ) -> Result<Vec<Row>, PathError> {
-        let described: Vec<(ClaimPath<'_>, &Node<'_>)> = metadata(view, "claims")
+        let described: Vec<Described<'_, '_>> = metadata(view, "claims")
             .iter()
-            .filter_map(|claim| {
+            .enumerate()
+            .filter_map(|(position, claim)| {
                 claim
                     .get("path")
                     .and_then(ClaimPath::parse)
-                    .map(|path| (path, claim))
+                    .map(|path| Described {
+                        path,
+                        claim,
+                        position,
+                    })
             })
             .collect();
         let rank = |item: Item| {
             self.claims
                 .claim(item)
-                .and_then(|claim| described.iter().position(|(path, _)| *path == claim.path))
+                .and_then(|claim| described.iter().position(|known| known.path == claim.path))
                 .unwrap_or(described.len())
         };
         let first = |item: Item| items.iter().position(|i| *i == item).unwrap_or(items.len());
@@ -315,8 +378,11 @@ impl<'q> ClaimsQuery<'q> {
         let values = view.get("values").unwrap_or(&NULL);
         let mut rows = Vec::new();
         for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
-            for (path, value) in claim.path.select(values)? {
-                rows.extend(value_rows(format, &path, value, &described, locales, None));
+            let selected = claim
+                .path
+                .select_held(values, |element| format.withheld(element))?;
+            for (path, value) in selected {
+                rows.extend(value_rows(format, &path, value, &described, display, None));
             }
         }
         Ok(rows)
@@ -342,7 +408,10 @@ impl<'q> ClaimsQuery<'q> {
             if format.written(claim, provided) {
                 continue;
             }
-            for (path, value) in claim.path.select(values)? {
+            let selected = claim
+                .path
+                .select_held(values, |element| format.withheld(element))?;
+            for (path, value) in selected {
                 if !out.iter().any(|(seen, _)| *seen == path) {
                     out.push((path, value));
                 }

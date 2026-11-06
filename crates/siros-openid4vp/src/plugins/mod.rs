@@ -22,7 +22,9 @@ use std::borrow::Cow;
 use std::fmt;
 
 use dyn_clone::DynClone;
-use siros_explain::{AllOf, Args, Explain, Explained, Message, MessageId, Messages, names};
+use siros_explain::{
+    AllOf, Args, DefinedModule, Explain, Explained, Message, MessageId, Messages, names,
+};
 
 #[cfg(feature = "resolve")]
 pub use answered::{Answered, FetchedRecord};
@@ -432,6 +434,16 @@ pub trait FormatQuery {
     /// The credential's card showing the items.
     fn draw(&self, credential: &Credential<'_>, shown: Shown<'_>, env: &Env)
     -> Result<Card, Fault>;
+
+    /// The defined module the credential's card draws its texts from (section 4.14 of the design),
+    /// which then takes one language with the entry's other modules.
+    ///
+    /// # Errors
+    ///
+    /// The credential names a module in no form the format writes.
+    fn card_module(&self, _credential: &Credential<'_>) -> Result<Option<DefinedModule>, Fault> {
+        Ok(None)
+    }
 }
 
 /// The `transaction_data` entries a credential authorizes for a query: a non-empty ascending

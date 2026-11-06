@@ -4,7 +4,7 @@
 //! entry renders before the first is added; an entry whose texts do not render ends the emission
 //! or stays out of its slot, as the app's `RenderOptions::on_error` states.
 
-use siros_explain::{Explain, IntoArg, Text, kind};
+use siros_explain::{DefinedModule, Explain, IntoArg, Text, kind};
 use siros_i18n::{RenderError, Renderer};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::matching::{Choice, Display};
@@ -211,6 +211,7 @@ pub fn emit(
                     Choice::Static(entry) => {
                         let screen = Screen {
                             selected: None,
+                            card_module: None,
                             credential: None,
                             card: &entry.card,
                             committed: None,
@@ -220,6 +221,7 @@ pub fn emit(
                     Choice::Entry(view) => {
                         let screen = Screen {
                             selected: view.selected,
+                            card_module: view.card_module,
                             credential: Some(view.record.credential().as_str()),
                             card: view.entry.card(),
                             committed: Some(view.record.inputs()),
@@ -247,6 +249,7 @@ pub fn emit(
 /// card, and the inputs its record commits to.
 struct Screen<'s> {
     selected: Option<&'s Selected>,
+    card_module: Option<DefinedModule>,
     credential: Option<&'s str>,
     card: &'s Card,
     committed: Option<&'s RenderingInputs>,
@@ -263,10 +266,11 @@ impl Screen<'_> {
         rendering: &Rendering<'_>,
         env: &Env,
     ) -> Result<Result<Shown, NotEmitted>, EmitError> {
-        let renderer = match rendering.renderer(self.selected, self.credential, env)? {
-            Ok(renderer) => renderer,
-            Err(unrendered) => return Ok(Err(unrendered.into())),
-        };
+        let renderer =
+            match rendering.renderer(self.selected, self.card_module, self.credential, env)? {
+                Ok(renderer) => renderer,
+                Err(unrendered) => return Ok(Err(unrendered.into())),
+            };
         if self
             .committed
             .is_some_and(|committed| renderer.inputs() != *committed)

@@ -169,6 +169,16 @@ impl<'a> ClaimPath<'a> {
         &self,
         document: &'n Node<'n>,
     ) -> Result<Vec<(ConcretePath<'n>, &'n Node<'n>)>, PathError> {
+        self.select_held(document, |_| false)
+    }
+
+    /// [`Self::select`] over a document some of whose array positions hold no value: an index
+    /// names a position whether or not it holds one, and a `withheld` element selects nothing.
+    pub fn select_held<'n>(
+        &self,
+        document: &'n Node<'n>,
+        withheld: impl Fn(&Node<'_>) -> bool,
+    ) -> Result<Vec<(ConcretePath<'n>, &'n Node<'n>)>, PathError> {
         let mut current: Vec<(ConcretePath<'n>, &'n Node<'n>)> = vec![(Vec::new(), document)];
         for (position, step) in self.0.iter().enumerate() {
             let refused = |what| PathError {
@@ -191,7 +201,9 @@ impl<'a> ClaimPath<'a> {
                     }
                     Step::Index(index) => {
                         let items = value.as_array().ok_or(refused("an index"))?;
-                        if let Some(item) = items.get(index.0) {
+                        if let Some(item) = items.get(index.0)
+                            && !withheld(item)
+                        {
                             next.push((extended(&path, Concrete::Index(*index)), item));
                         }
                     }
@@ -202,9 +214,15 @@ impl<'a> ClaimPath<'a> {
                     }
                     Step::All => {
                         let items = value.as_array().ok_or(refused("null"))?;
-                        next.extend(items.iter().enumerate().map(|(at, item)| {
-                            (extended(&path, Concrete::Index(ArrayIndex(at))), item)
-                        }));
+                        next.extend(
+                            items
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, item)| !withheld(item))
+                                .map(|(at, item)| {
+                                    (extended(&path, Concrete::Index(ArrayIndex(at))), item)
+                                }),
+                        );
                     }
                 }
             }
@@ -259,10 +277,11 @@ impl<'a> Claim<'a> {
     }
 
     /// §6.3: the path selects at least one element of the credential's values, and with
-    /// `values` one of them equals one of the values (equal JSON of one type).
+    /// `values` one of them equals one of the values (equal JSON of one type). A `withheld`
+    /// element selects nothing.
     #[must_use]
-    pub fn found(&self, document: &Node<'_>) -> bool {
-        match (self.path.select(document), &self.values) {
+    pub fn found(&self, document: &Node<'_>, withheld: impl Fn(&Node<'_>) -> bool) -> bool {
+        match (self.path.select_held(document, withheld), &self.values) {
             (Err(_), _) => false,
             (Ok(selected), None) => !selected.is_empty(),
             (Ok(selected), Some(values)) => {

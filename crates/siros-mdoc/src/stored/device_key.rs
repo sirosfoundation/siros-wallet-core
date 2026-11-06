@@ -1,10 +1,102 @@
-//! The device key of the MSO: a P-256 `COSE_Key` (RFC 9053, Section 7.1).
+//! The device key of the MSO: a `COSE_Key` on a curve of ISO/IEC 18013-5 Table 22 (RFC 9053,
+//! Section 7.1).
 
 use siros_openid4vp::cbor::Value;
 
 use super::item::Read as _;
+use super::signature::CoseAlgorithm;
+
+use crate::cose::Curve;
 
 use super::error::DeviceKeyFault;
+
+/// The device key: its curve, its stated algorithm, and its point on P-256.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeviceKey {
+    point: DevicePoint,
+    alg: Option<CoseAlgorithm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum DevicePoint {
+    P256(P256Key),
+    Other(Curve),
+}
+
+/// `kty` (RFC 9053, Section 7.1): 2 for an EC2 key, 1 for an OKP key.
+const EC2: i64 = 2;
+const OKP: i64 = 1;
+
+impl DeviceKey {
+    /// `COSE_Key` of a Table 22 curve: `{1: kty, -1: crv, ? 3: alg, ...}`, with the 32-byte `x` and
+    /// `y` of a P-256 key.
+    pub(crate) fn read(key: Option<&Value>) -> Result<Self, DeviceKeyFault> {
+        let key = key.ok_or(DeviceKeyFault::Absent)?;
+        let int = |label: i64| key.get_int(label).and_then(|v| v.as_int());
+        let (curve, kty) = match int(-1) {
+            Some(1) => (Curve::P256, EC2),
+            Some(2) => (Curve::P384, EC2),
+            Some(3) => (Curve::P521, EC2),
+            Some(4) => (Curve::X25519, OKP),
+            Some(5) => (Curve::X448, OKP),
+            Some(6) => (Curve::Ed25519, OKP),
+            Some(7) => (Curve::Ed448, OKP),
+            Some(256) => (Curve::BrainpoolP256r1, EC2),
+            Some(257) => (Curve::BrainpoolP320r1, EC2),
+            Some(258) => (Curve::BrainpoolP384r1, EC2),
+            Some(259) => (Curve::BrainpoolP512r1, EC2),
+            _ => return Err(DeviceKeyFault::Curve),
+        };
+        if int(1) != Some(kty) {
+            return Err(DeviceKeyFault::KeyType);
+        }
+        let point = if curve == Curve::P256 {
+            DevicePoint::P256(P256Key::read(key)?)
+        } else {
+            DevicePoint::Other(curve)
+        };
+        Ok(Self {
+            point,
+            alg: int(3).map(CoseAlgorithm::new),
+        })
+    }
+
+    /// The point, on P-256.
+    #[must_use]
+    pub fn p256(&self) -> Option<&P256Key> {
+        match &self.point {
+            DevicePoint::P256(key) => Some(key),
+            DevicePoint::Other(_) => None,
+        }
+    }
+
+    fn table_curve(&self) -> Curve {
+        match self.point {
+            DevicePoint::P256(_) => Curve::P256,
+            DevicePoint::Other(curve) => curve,
+        }
+    }
+
+    /// The curve's name in Table 22.
+    #[must_use]
+    pub fn curve(&self) -> &'static str {
+        self.table_curve().name()
+    }
+
+    /// `alg` (label 3), else the algorithm RFC 9053 Sections 2.1 and 2.2 and Table 22 give the
+    /// curve; for a key-agreement curve ECDH-ES with HKDF-256 (RFC 9053, Section 6.3.1).
+    #[must_use]
+    pub fn algorithm(&self) -> CoseAlgorithm {
+        let of_curve = match self.table_curve() {
+            Curve::P256 | Curve::BrainpoolP256r1 => -7,
+            Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => -35,
+            Curve::P521 | Curve::BrainpoolP512r1 => -36,
+            Curve::Ed25519 | Curve::Ed448 => -8,
+            Curve::X25519 | Curve::X448 => -25,
+        };
+        self.alg.unwrap_or(CoseAlgorithm::new(of_curve))
+    }
+}
 
 /// Why bytes are no P-256 key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, siros_explain::Explain)]
@@ -77,16 +169,8 @@ impl P256Key {
         point
     }
 
-    /// `COSE_Key` of an EC2 P-256 key: `{1: 2, -1: 1, -2: x, -3: y}`.
-    pub(crate) fn read(key: Option<&Value>) -> Result<Self, DeviceKeyFault> {
-        let key = key.ok_or(DeviceKeyFault::Absent)?;
-        let int = |label: i64| key.get_int(label).and_then(|v| v.as_int());
-        if int(1) != Some(2) {
-            return Err(DeviceKeyFault::KeyType);
-        }
-        if int(-1) != Some(1) {
-            return Err(DeviceKeyFault::Curve);
-        }
+    /// The coordinates of a `COSE_Key`: `{-2: x, -3: y}`.
+    fn read(key: &Value) -> Result<Self, DeviceKeyFault> {
         let coordinate = |label: i64| -> Result<[u8; 32], DeviceKeyFault> {
             key.get_int(label)
                 .and_then(|v| v.bytes())

@@ -1,6 +1,6 @@
 //! A claims format as a format plug-in: the kit answers the core for it.
 
-use siros_explain::AllOf;
+use siros_explain::{AllOf, DefinedModule};
 
 #[cfg(feature = "resolve")]
 use super::super::ConcretePath;
@@ -238,9 +238,15 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         env: &Env,
     ) -> Result<Card, Fault> {
         let view = ClaimsView::read(credential)?;
+        let module = self.plugin.display_module(view.json())?;
         self.claims
-            .card(self.plugin, view.json(), shown, env)
+            .card(self.plugin, view.json(), shown, env, module.as_ref())
             .map_err(|e| Self::path_fault(credential, e))
+    }
+
+    fn card_module(&self, credential: &Credential<'_>) -> Result<Option<DefinedModule>, Fault> {
+        let view = ClaimsView::read(credential)?;
+        self.plugin.display_module(view.json())
     }
 }
 

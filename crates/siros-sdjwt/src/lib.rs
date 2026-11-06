@@ -3,16 +3,20 @@
 //! Verifier's JWS algorithms (B.3.4), Key Binding JWT claims as transaction response members
 //! (B.3.3), and the presentation: the disclosures, then a Key Binding JWT (B.3.6).
 //!
-//! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `jwt`,
-//! the Issuer-signed JWT; `alg` and `curve`, its algorithm and key curve; `key_alg` and
-//! `key_curve`, the holder key's; `extends`, when its type extends another, each type the chain
-//! the wallet resolved at registration names, nearest first (§6.4). `vct_values` matches the
-//! credential's `vct` or one of them (B.3.5). The view holds values where an issued SD-JWT holds
-//! disclosures: a disclosure is the base64url JSON array `[salt, name, value]`, its salt a digest
-//! of the claim's path.
+//! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `alg` and
+//! `curve`, the Issuer-signed JWT's algorithm and key curve; `key_alg` and `key_curve`, the holder
+//! key's; `extends`, when its type extends another, each type the chain the wallet resolved at
+//! registration names, nearest first (§6.4); `validity`, `not_before` and `not_after` from `nbf`
+//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5). [`Registered`]
+//! builds the view from the issued SD-JWT, held as the [`DOCUMENT`] document phase 2 presents
+//! from, and gives its `Facts::holder`; `values` is its processed payload at the issued array
+//! positions, `{"...": digest}` where it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
-//! wallet registers the view's `metadata` from.
+//! wallet registers the view's `metadata` from, and converts a document's `display` into a defined
+//! module (section 4.14 of the design). A view whose `display_module` names that module, by the
+//! document's SHA-256, shows the module's texts: they take one language with the entry's other
+//! modules.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -37,11 +41,27 @@ pub mod type_metadata;
 mod view;
 
 #[cfg(feature = "resolve")]
+mod alg;
+#[cfg(feature = "resolve")]
+mod error;
+#[cfg(feature = "resolve")]
+mod key_binding;
+#[cfg(feature = "resolve")]
 mod presentation;
+#[cfg(feature = "resolve")]
+mod process;
+#[cfg(feature = "resolve")]
+mod registration;
+#[cfg(feature = "resolve")]
+mod sd_jwt;
+#[cfg(feature = "resolve")]
+mod select;
+#[cfg(feature = "resolve")]
+mod tree;
 
-use siros_explain::{AllOf, Explain, Explained, Message, Messages};
+use siros_explain::{AllOf, DefinedKey, DefinedModule, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{
-    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, DisplayItem, VpFormatsMember,
 };
 use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
@@ -56,6 +76,21 @@ use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
 
 use view::SdJwtMembers;
+
+#[cfg(feature = "resolve")]
+pub use {
+    alg::{Digest, SigningAlg},
+    error::{
+        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, KeyBindingError,
+        Misplaced, ParseError, PresentFault, RegistrationError, ReservedFault, SdAlgFault,
+        SelectError, X5cError,
+    },
+    key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
+    process::MAX_DEPTH,
+    registration::{DOCUMENT, Registered, Resolved},
+    sd_jwt::SdJwt,
+    tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
+};
 
 /// The Credential Format Identifier.
 const NAME: FormatName = siros_explain::checked!(FormatName, "dc+sd-jwt");
@@ -88,6 +123,32 @@ impl RequestRule for HolderBindingWaived {
     }
 }
 
+#[cfg(feature = "resolve")]
+/// The messages phase 2's error types declare.
+fn phase_two() -> Vec<Message> {
+    [
+        EncodedJsonFault::messages(),
+        IssuerJwtFault::messages(),
+        DisclosureFault::messages(),
+        SdAlgFault::messages(),
+        ReservedFault::messages(),
+        ParseError::messages(),
+        X5cError::messages(),
+        HolderKeyFault::messages(),
+        RegistrationError::messages(),
+        SelectError::messages(),
+        KeyBindingError::messages(),
+        PresentFault::messages(),
+    ]
+    .concat()
+}
+
+#[cfg(not(feature = "resolve"))]
+/// The messages phase 2's error types declare: none without phase 2.
+fn phase_two() -> Vec<Message> {
+    Vec::new()
+}
+
 /// The plug-in's messages: those its error types and rules declare, and its fault's.
 pub struct CrateMessages;
 
@@ -97,6 +158,8 @@ impl Messages for CrateMessages {
             SdJwtRule::messages,
             HolderBindingWaived::messages,
             type_metadata::ExtendError::messages,
+            type_metadata::ConvertError::messages,
+            phase_two,
         ];
         declared
             .iter()
@@ -249,6 +312,45 @@ impl ClaimsFormat for SdJwtVc {
     /// A Key Binding JWT claim is no claim of the credential.
     fn written(&self, _claim: &Claim<'_>, _provided: &[Member]) -> bool {
         false
+    }
+
+    /// RFC 9901 §4.2.4.2: `{"...": digest}` keeps the position of an element the credential does
+    /// not hold; S1 refuses `...` elsewhere.
+    fn withheld(&self, element: &Node<'_>) -> bool {
+        element
+            .as_object()
+            .is_some_and(|object| matches!(object.members(), [only] if only.name == "..."))
+    }
+
+    /// The module the view's `display_module` names, by the metadata's digest in hexadecimal.
+    fn display_module(&self, view: &Node<'_>) -> Result<Option<DefinedModule>, Fault> {
+        let Some(digest) = view.get("display_module") else {
+            return Ok(None);
+        };
+        let fault = || {
+            Fault::new(
+                FAULT,
+                siros_openid4vp::detail!("a view whose display_module is no SHA-256 digest"),
+            )
+        };
+        let digest = digest.as_str().ok_or_else(fault)?;
+        let mut bytes = [0u8; 32];
+        if digest.len() != 64 || !digest.is_ascii() {
+            return Err(fault());
+        }
+        for (byte, pair) in bytes.iter_mut().zip(digest.as_bytes().chunks(2)) {
+            let pair = std::str::from_utf8(pair).map_err(|_| fault())?;
+            *byte = u8::from_str_radix(pair, 16).map_err(|_| fault())?;
+        }
+        Ok(Some(DefinedModule::new(
+            type_metadata::PLUGIN,
+            siros_explain::MetadataDigest::new(bytes),
+        )))
+    }
+
+    /// `name`, or `claim_<position>`.
+    fn display_key(&self, item: DisplayItem) -> Option<DefinedKey> {
+        Some(type_metadata::key(item))
     }
 
     /// §7.1: every claims path pointer addresses a JSON-based credential.

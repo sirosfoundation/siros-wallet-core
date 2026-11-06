@@ -48,8 +48,8 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | --- | --- |
 | `siros-openid4vp` | The core: a request in, a response built. Arrival, the envelope, routing, Verifier authentication, DCQL, matching and consent, phase 2, and every extension point's trait |
 | `siros-x509` | The `x509_hash` and `x509_san_dns` Client Identifier Prefixes |
-| `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, and the stored mdoc's reading (`stored`) |
-| `siros-sdjwt` | `dc+sd-jwt` |
+| `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, the stored mdoc's reading (`stored`), and its registration: the view with `validityInfo` (`registration`) |
+| `siros-sdjwt` | `dc+sd-jwt`: the issued SD-JWT read into its document and view with validity (`Registered`), its presentation with a compact Key Binding JWT, and a type metadata document's `display` as a defined module |
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` modules; `sealed-signals` seals an mdoc's risk signals with the last |
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
@@ -76,8 +76,8 @@ turns on `load`.
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
 ├── siros-x509        x509_hash, x509_san_dns                     signed
-├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading   claims; resolve: resolve, cbor
-├── siros-sdjwt       dc+sd-jwt                                   claims; resolve: resolve
+├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading and registration   claims; resolve: resolve, cbor
+├── siros-sdjwt       dc+sd-jwt; the issued SD-JWT's registration and presentation; siros-i18n: render   claims; resolve: resolve
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, IssuerTrust, CoseEncrypt; resolve: siros-x509's x5c   transaction-data, sri; resolve: resolve; sealed-signals: cbor
 ├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
 ├── siros-credman     Credential Manager's entries for the matcher; the entry emission; register: the registration's package   match

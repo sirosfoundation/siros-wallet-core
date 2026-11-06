@@ -12,12 +12,14 @@ publish = false
 [features]
 default = ["resolve"]
 # Phase 2: the presentation.
-resolve = ["siros-openid4vp/resolve", "dep:base64", "dep:sha2"]
+resolve = ["siros-openid4vp/resolve", "dep:base64", "dep:rustc-hash"]
 
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["claims"] }
 base64 = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
+rustc-hash = { workspace = true, optional = true }
+sha2 = { workspace = true }
+siros-i18n = { workspace = true, features = ["render"] }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
 

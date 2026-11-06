@@ -89,7 +89,7 @@ mod names;
 mod signature;
 
 pub use device::{DeviceNameSpaces, device_signing_input};
-pub use device_key::{P256Key, PointError};
+pub use device_key::{DeviceKey, P256Key, PointError};
 pub use error::{
     AlgorithmFault, ArrayIndex, CborError, DeviceKeyFault, DocTypeFault, EnvelopeFault,
     IssuerAuthFault, ItemFault, ItemMember, KeyAuthorizationsFault, MdocError, MemberFault,

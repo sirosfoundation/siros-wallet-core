@@ -35,7 +35,7 @@ use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
 
 use crate::common::{HaipHost, registry};
 
-use super::{NOW, english};
+use super::{NOW, english, read_sd_jwt};
 
 /// The Origin of the DC API flows.
 const ORIGIN: &str = "https://verifier.example";
@@ -58,8 +58,10 @@ fn pid() -> Held {
     Held::new(
         "pid",
         "dc+sd-jwt",
-        r#"{"type": "urn:eudi:pid:1", "metadata": {}, "values": {"given_name": "Erika"}, "jwt": "eyJhbGciOiJFUzI1NiJ9.pid.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
+        r#"{"type": "urn:eudi:pid:1", "metadata": {}, "values": {"given_name": "Erika"}, "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     )
+    .with_issued()
+    .expect("the issued SD-JWT")
 }
 
 /// HAIP's width: a skew of 60 s, unsigned DC API requests accepted.
@@ -235,12 +237,7 @@ fn sealed_form(delivery: &Delivery) -> Value {
 
 /// The Key Binding JWT's payload of the PID's presentation in a VP Token.
 fn key_binding(vp_token: &Value) -> Value {
-    let presentation = &vp_token["pid"][0];
-    let presentation: Value = match presentation.as_str() {
-        Some(text) => serde_json::from_str(text).expect("a presentation"),
-        None => presentation.clone(),
-    };
-    presentation["kb_jwt"]["payload"].clone()
+    read_sd_jwt(&vp_token["pid"][0])["kb_jwt"]["payload"].clone()
 }
 
 /// The DC API flows' Key Binding JWT: the Origin as audience, even for a signed request (A.4,
@@ -671,13 +668,15 @@ fn f11_f12_an_sca_payment_answers_by_uri_and_over_the_dc_api() {
         "card",
         "dc+sd-jwt",
         r#"{"type": "https://bank.example/sca/card", "metadata": {}, "values": {"pan_last_four": "1234", "scheme": "visa"},
-            "jwt": "eyJhbGciOiJFUzI1NiJ9.card.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
+            "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     );
-    card.documents = vec![("paso".to_owned(), document.into_bytes())];
+    card = card.with_issued().expect("the issued SD-JWT");
+    card.documents
+        .push(("paso".to_owned(), document.into_bytes()));
     let held = [card];
     let hashed = json!(URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(entry.as_bytes())));
     let binding = |vp_token: &Value, aud: &str| {
-        let payload = &vp_token["sca_card"][0]["kb_jwt"]["payload"];
+        let payload = read_sd_jwt(&vp_token["sca_card"][0])["kb_jwt"]["payload"].clone();
         assert_eq!(payload["aud"], json!(aud));
         assert_eq!(payload["nonce"], json!(NONCE));
         payload["transaction_data_hash"].clone()

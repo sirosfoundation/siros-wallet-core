@@ -37,6 +37,7 @@ use siros_openid4vp::wallet::{
 
 use crate::TestHost;
 use crate::issuer::{DOCUMENT, IssueError, issue};
+use crate::sd_jwt_issuer;
 
 /// The Origin of the model's requests.
 pub const ORIGIN: &str = "https://verifier.example";
@@ -487,14 +488,27 @@ impl Held {
         }
     }
 
-    /// The credential with its view's IssuerSigned as its `mso_mdoc` document.
+    /// The credential with its issued form as its document: a `dc+sd-jwt` credential's compact
+    /// SD-JWT, another's IssuerSigned under `mso_mdoc`.
     ///
     /// # Errors
     ///
     /// The view is no JSON, or the issuer stand-in cannot issue it.
     pub fn with_issued(mut self) -> Result<Self, FixtureError> {
-        let issued = issue(&Node::parse(&self.view)?)?;
-        self.documents.push((DOCUMENT.to_owned(), issued));
+        let view = Node::parse(&self.view)?;
+        let document = if self.format == sd_jwt_issuer::DOCUMENT {
+            (
+                sd_jwt_issuer::DOCUMENT.to_owned(),
+                match self.holder {
+                    Holder::Bound => sd_jwt_issuer::issue(&view)?,
+                    Holder::Unbound => sd_jwt_issuer::issue(&sd_jwt_issuer::without_key(&view)?)?,
+                }
+                .into_bytes(),
+            )
+        } else {
+            (DOCUMENT.to_owned(), issue(&view)?)
+        };
+        self.documents.push(document);
         Ok(self)
     }
 
