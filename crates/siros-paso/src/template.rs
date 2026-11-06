@@ -187,7 +187,7 @@ impl Template<'_> {
         nulls: &NullIndices,
     ) -> Result<RequestText, NotCompatible> {
         let interpolated = self.interpolate(claims, payload, nulls)?;
-        let (_, read) =
+        let read =
             formatted(kind, Written::Text(&interpolated)).map_err(|bad| NotCompatible::Value {
                 value_type: kind_name(ValueKind::Formatted(kind)),
                 bad,
@@ -317,12 +317,10 @@ fn text(value_type: ValueType, value: &Node<'_>) -> Result<RequestText, NotCompa
         ValueType::Kind(ValueKind::Formatted(kind)) => kind,
         _ => FormattedKind::Text,
     };
-    formatted(kind, written(value))
-        .map(|(_, text)| text)
-        .map_err(|bad| NotCompatible::Value {
-            value_type: kind_name(ValueKind::Formatted(kind)),
-            bad,
-        })
+    formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
+        value_type: kind_name(ValueKind::Formatted(kind)),
+        bad,
+    })
 }
 
 /// A referenced value as written, once it conforms to its value type.

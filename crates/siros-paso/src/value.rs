@@ -1,7 +1,7 @@
-//! PaSO View §3's value types, and a written value of a kind other than an image parsed into its
-//! typed form and the [`RequestText`] the core renders when it is displayed: dates, times, amounts and
-//! currencies as typed values, booleans and frequencies as the core module's messages, every
-//! other kind as written.
+//! PaSO View §3's value types, and a written value of a kind other than an image parsed into the
+//! [`RequestText`] the core renders when it is displayed: dates, times, amounts and currencies as
+//! typed values, booleans and frequencies as the core module's messages, every other kind as
+//! written.
 
 use std::fmt;
 
@@ -95,50 +95,6 @@ impl FormattedKind {
     }
 }
 
-/// A value's parsed form.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Parsed {
-    /// Plain text: the text itself.
-    Text,
-    /// A boolean.
-    Boolean(bool),
-    /// A frequency.
-    Frequency(Frequency),
-    /// A date.
-    Date(Date),
-    /// A time of day, with its offset when written.
-    Time(Time, Option<Offset>),
-    /// A date and a time.
-    DateTime(DateTime),
-    /// A currency.
-    Currency(Currency),
-    /// An amount.
-    CurrencyAmount(Amount),
-    /// `mini_markdown` text: the text itself.
-    MiniMarkdown,
-    /// An https URL.
-    Url(HttpsUrl),
-}
-
-impl Parsed {
-    /// The kind of the value.
-    #[must_use]
-    pub const fn kind(&self) -> FormattedKind {
-        match self {
-            Self::Text => FormattedKind::Text,
-            Self::Boolean(_) => FormattedKind::Boolean,
-            Self::Frequency(_) => FormattedKind::Frequency,
-            Self::Date(_) => FormattedKind::Date,
-            Self::Time(..) => FormattedKind::Time,
-            Self::DateTime(_) => FormattedKind::DateTime,
-            Self::Currency(_) => FormattedKind::Currency,
-            Self::CurrencyAmount(_) => FormattedKind::CurrencyAmount,
-            Self::MiniMarkdown => FormattedKind::MiniMarkdown,
-            Self::Url(_) => FormattedKind::Url,
-        }
-    }
-}
-
 /// A value as written in a payload.
 #[derive(Debug, Clone, Copy)]
 pub enum Written<'a> {
@@ -217,7 +173,7 @@ pub enum Breach {
     NoSlot,
 }
 
-/// A written value of a kind other than an image, parsed, and its text: a typed value for a date,
+/// A written value of a kind other than an image, parsed, as its text: a typed value for a date,
 /// a time, a date and time, a currency and an amount; the crate module's message for a boolean
 /// and a frequency; the text as written for text and a URL, its host in A-label form; the text of
 /// `mini_markdown` without its styles, as a text from outside any module holds none.
@@ -225,10 +181,7 @@ pub enum Breach {
 /// # Errors
 ///
 /// [`BadValue`]: the written value does not conform to the kind.
-pub fn formatted(
-    kind: FormattedKind,
-    written: Written<'_>,
-) -> Result<(Parsed, RequestText), BadValue> {
+pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<RequestText, BadValue> {
     let bad = |why: Breach| BadValue {
         kind,
         written: written.to_string(),
@@ -242,61 +195,43 @@ pub fn formatted(
             } else {
                 BooleanText::No
             };
-            return Ok((Parsed::Boolean(value), RequestText::of(&answer)));
+            return Ok(RequestText::of(&answer));
         }
         _ if kind == FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
         _ => return Err(bad(Breach::NotString)),
     };
-    let typed = |parsed: Parsed, value: siros_explain::Value| (parsed, RequestText::value(value));
     Ok(match kind {
         FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
-        FormattedKind::Text => (Parsed::Text, RequestText::raw(text.to_owned())),
+        FormattedKind::Text => RequestText::raw(text.to_owned()),
         FormattedKind::MiniMarkdown => {
-            let plain: String = spans(text).into_iter().map(|span| span.text).collect();
-            (Parsed::MiniMarkdown, RequestText::raw(plain))
+            RequestText::raw(spans(text).into_iter().map(|span| span.text).collect())
         }
         FormattedKind::Frequency => {
             let frequency = Frequency::parse(text).ok_or_else(|| bad(Breach::NotFrequency))?;
-            (
-                Parsed::Frequency(frequency),
-                RequestText::of(&crate::PasoRequested::Frequency(frequency)),
-            )
+            RequestText::of(&crate::PasoRequested::Frequency(frequency))
         }
-        FormattedKind::Date => {
-            let date = date(text).ok_or_else(|| bad(Breach::NotDate))?;
-            typed(Parsed::Date(date), siros_explain::Value::Date(date))
-        }
+        FormattedKind::Date => RequestText::value(siros_explain::Value::Date(
+            date(text).ok_or_else(|| bad(Breach::NotDate))?,
+        )),
         FormattedKind::Time => {
             let (at, offset) = time(text).ok_or_else(|| bad(Breach::NotTime))?;
-            typed(
-                Parsed::Time(at, offset),
-                siros_explain::Value::Time { at, offset },
-            )
+            RequestText::value(siros_explain::Value::Time { at, offset })
         }
-        FormattedKind::DateTime => {
-            let at = date_time(text).ok_or_else(|| bad(Breach::NotDateTime))?;
-            typed(Parsed::DateTime(at), siros_explain::Value::DateTime(at))
-        }
+        FormattedKind::DateTime => RequestText::value(siros_explain::Value::DateTime(
+            date_time(text).ok_or_else(|| bad(Breach::NotDateTime))?,
+        )),
         FormattedKind::Currency => {
             let currency = Currency::from_code(text)
                 .filter(|currency| currency.minor_units().is_some())
                 .ok_or_else(|| bad(Breach::NotCurrency))?;
-            typed(
-                Parsed::Currency(currency),
-                siros_explain::Value::Currency(currency),
-            )
+            RequestText::value(siros_explain::Value::Currency(currency))
         }
         FormattedKind::CurrencyAmount => {
-            let amount = amount(text).map_err(bad)?;
-            typed(
-                Parsed::CurrencyAmount(amount),
-                siros_explain::Value::Amount(amount),
-            )
+            RequestText::value(siros_explain::Value::Amount(amount(text).map_err(bad)?))
         }
         FormattedKind::Url => {
             let url = HttpsUrl::parse(text).map_err(|_| bad(Breach::NotUrl))?;
-            let shown = RequestText::raw(url.ascii().to_owned());
-            (Parsed::Url(url), shown)
+            RequestText::raw(url.ascii().to_owned())
         }
     })
 }

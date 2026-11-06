@@ -139,7 +139,7 @@ fn mini_markdown_keeps_every_other_construct_literal() {
 /// A value's text, or the rule it breaks.
 fn shown(kind: FormattedKind, written: Written<'_>) -> Result<Text, Breach> {
     formatted(kind, written)
-        .map(|(_, text)| text.into_text())
+        .map(|text| text.into_text())
         .map_err(|bad| bad.why)
 }
 

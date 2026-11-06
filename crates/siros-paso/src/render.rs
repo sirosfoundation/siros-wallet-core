@@ -511,7 +511,7 @@ struct Placed<'a, 'm> {
 /// A value of a kind other than an image, with its text.
 fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>, NotCompatible> {
     values::formatted(kind, written(value))
-        .map(|(_, text)| Value::Text(text))
+        .map(Value::Text)
         .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad,

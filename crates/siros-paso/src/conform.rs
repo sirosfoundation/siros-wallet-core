@@ -4,8 +4,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
-use siros_explain::{Count, IntoArg, RequestText, kind};
+use crate::value::{ValueKind, Written, formatted};
+use siros_explain::{Count, IntoArg, kind};
 use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
 
@@ -120,19 +120,15 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
                 value.python_repr().to_string(),
             )),
         },
-        ValueKind::Formatted(kind) => parsed(kind, value).map(drop),
+        ValueKind::Formatted(kind) => {
+            formatted(kind, written(value))
+                .map(drop)
+                .map_err(|bad| NotCompatible::Value {
+                    value_type: kind_name(ValueKind::Formatted(kind)),
+                    bad,
+                })
+        }
     }
-}
-
-/// A value of a kind other than an image, parsed, with its text.
-pub(crate) fn parsed(
-    kind: FormattedKind,
-    value: &Node<'_>,
-) -> Result<(Parsed, RequestText), NotCompatible> {
-    formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
-        value_type: kind_name(ValueKind::Formatted(kind)),
-        bad,
-    })
 }
 
 /// Core §7.4.2 step 2: every payload field is covered by a claim path, an `#integrity`
