@@ -3,13 +3,14 @@
 //! Verifier's JWS algorithms (B.3.4), Key Binding JWT claims as transaction response members
 //! (B.3.3), and the presentation: the disclosures, then a Key Binding JWT (B.3.6).
 //!
-//! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `jwt`,
-//! the Issuer-signed JWT; `alg` and `curve`, its algorithm and key curve; `key_alg` and
-//! `key_curve`, the holder key's; `extends`, when its type extends another, each type the chain
-//! the wallet resolved at registration names, nearest first (§6.4). `vct_values` matches the
-//! credential's `vct` or one of them (B.3.5). The view holds values where an issued SD-JWT holds
-//! disclosures: a disclosure is the base64url JSON array `[salt, name, value]`, its salt a digest
-//! of the claim's path.
+//! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with `alg` and
+//! `curve`, the Issuer-signed JWT's algorithm and key curve; `key_alg` and `key_curve`, the holder
+//! key's; `extends`, when its type extends another, each type the chain the wallet resolved at
+//! registration names, nearest first (§6.4); `validity`, `not_before` and `not_after` from `nbf`
+//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5). [`Registered`]
+//! builds the view from the issued SD-JWT, held as the [`DOCUMENT`] document phase 2 presents
+//! from; `values` is its processed payload at the issued array positions, `{"...": digest}` where
+//! it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
 //! wallet registers the view's `metadata` from.
@@ -44,6 +45,8 @@ mod alg;
 #[cfg(feature = "resolve")]
 mod error;
 #[cfg(feature = "resolve")]
+mod key_binding;
+#[cfg(feature = "resolve")]
 mod presentation;
 #[cfg(feature = "resolve")]
 mod process;
@@ -51,6 +54,8 @@ mod process;
 mod registration;
 #[cfg(feature = "resolve")]
 mod sd_jwt;
+#[cfg(feature = "resolve")]
+mod select;
 #[cfg(feature = "resolve")]
 mod tree;
 
@@ -71,9 +76,10 @@ use view::SdJwtMembers;
 pub use {
     alg::Digest,
     error::{
-        DisclosureFault, EncodedJsonFault, IssuerJwtFault, Misplaced, ParseError,
-        RegistrationError, ReservedFault, SdAlgFault, X5cError,
+        DisclosureFault, EncodedJsonFault, IssuerJwtFault, KeyBindingError, Misplaced, ParseError,
+        RegistrationError, ReservedFault, SdAlgFault, SelectError, X5cError,
     },
+    key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
     process::MAX_DEPTH,
     registration::{DOCUMENT, Registered, Resolved},
     sd_jwt::SdJwt,
@@ -122,6 +128,8 @@ fn phase_two() -> Vec<Message> {
         ParseError::messages(),
         X5cError::messages(),
         RegistrationError::messages(),
+        SelectError::messages(),
+        KeyBindingError::messages(),
     ]
     .concat()
 }

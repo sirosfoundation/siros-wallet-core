@@ -269,3 +269,21 @@ pub enum RegistrationError {
     #[error(transparent)]
     Json(#[from] JsonError),
 }
+
+/// Why a path selects no disclosure of the credential.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.select")]
+pub enum SelectError {
+    /// The component at this position names no value the credential holds.
+    #[error("the path's component {0} names no value the credential holds")]
+    Absent(#[explain(name = "position")] usize),
+}
+
+/// Why claims make no Key Binding JWT.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.key_binding")]
+pub enum KeyBindingError {
+    /// An extra claim repeats a claim of the payload (RFC 9901 §4.3).
+    #[error(transparent)]
+    Repeated(#[from] JsonError),
+}

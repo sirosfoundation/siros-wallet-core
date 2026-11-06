@@ -123,9 +123,11 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
         "card",
         "dc+sd-jwt",
         r#"{"type": "https://bank.example/sca/card", "metadata": {}, "values": {"pan_last_four": "1234", "scheme": "visa"},
-            "jwt": "eyJhbGciOiJFUzI1NiJ9.card.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
+            "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     );
-    card.documents = vec![("paso".to_owned(), document.into_bytes())];
+    card = card.with_issued().expect("the issued SD-JWT");
+    card.documents
+        .push(("paso".to_owned(), document.into_bytes()));
     let credential = card.credential().expect("a credential");
     let wallet = Wallet::new(vec![credential.clone()]).expect("a wallet");
     let env = english();

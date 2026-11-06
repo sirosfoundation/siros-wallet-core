@@ -32,7 +32,7 @@ mod session;
 mod tampered;
 
 use members::members;
-use session::{members_of, mode, opened_jwe, read_mdoc, response_key, session};
+use session::{members_of, mode, opened_jwe, read_mdoc, read_sd_jwt, response_key, session};
 use tampered::{renewed, tampered};
 
 /// What phase 2 must find for a record: its credential refused, PaSO's refused JWT (with the
@@ -633,7 +633,11 @@ fn answered(
             .iter()
             .zip(token[query].as_array().expect("presentations"))
         {
-            let read = (format == "mso_mdoc").then(|| read_mdoc(written));
+            let read = match format {
+                "mso_mdoc" => Some(read_mdoc(written)),
+                "dc+sd-jwt" => Some(read_sd_jwt(written)),
+                _ => None,
+            };
             let presentation = read.as_ref().unwrap_or(written);
             let held = credential(case, view.record.credential.as_str());
             session(case, view, held, format, presentation, host, tally);

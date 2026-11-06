@@ -32,6 +32,7 @@ use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Published;
 use siros_testkit::fixtures::{Held, NONCE, OPTIONS, ORIGIN, parameters};
 use siros_testkit::reading::model_shape;
+use siros_testkit::sd_jwt_reading;
 use siros_testkit::verifier::{self, ISSUER};
 
 use common::{paso_app, registry, sri};
@@ -186,6 +187,14 @@ fn read_mdoc(presentation: &Value) -> Value {
     serde_json::from_str(&read.python_compact().to_string()).expect("JSON")
 }
 
+/// An SD-JWT presentation as a Verifier reads it: `{"sd_jwt", "kb_jwt"}`.
+fn read_sd_jwt(presentation: &Value) -> Value {
+    let text = presentation.as_str().expect("a string (OpenID4VP §8.1)");
+    let read = sd_jwt_reading::read(text).expect("an SD-JWT a Verifier takes");
+    let shape = read.shape().expect("the shape");
+    serde_json::from_str(&shape.python_compact().to_string()).expect("JSON")
+}
+
 fn b64url(data: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(data)
 }
@@ -330,18 +339,19 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
         "card",
         "dc+sd-jwt",
         r#"{"type": "https://bank.example/sca/card", "metadata": {}, "values": {"pan_last_four": "1234", "scheme": "visa"},
-            "jwt": "eyJhbGciOiJFUzI1NiJ9.card.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
+            "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     );
-    card.documents = vec![("paso".to_owned(), document.into_bytes())];
+    card = card.with_issued().expect("the issued SD-JWT");
+    card.documents
+        .push(("paso".to_owned(), document.into_bytes()));
     let host = authenticated_as_a2();
     let answered = answer(&request, &[card], &Published::default(), &host);
     assert_core_a4(&answered);
-    let presentation = presentation(&answered, "sca_card");
+    let presentation = read_sd_jwt(&presentation(&answered, "sca_card"));
     // OpenID4VP B.3.6, RFC 9901 §4: the SD-JWT with a disclosure per requested claim, then the
     // Key Binding JWT of the card's key.
     let sd_jwt = presentation["sd_jwt"].as_str().expect("sd_jwt");
     let parts: Vec<&str> = sd_jwt.split('~').collect();
-    assert_eq!(parts.first(), Some(&"eyJhbGciOiJFUzI1NiJ9.card.sig"));
     assert_eq!(parts.last(), Some(&""), "an SD-JWT ends with ~");
     let disclosed: Vec<(Value, Value)> = parts[1..parts.len() - 1]
         .iter()

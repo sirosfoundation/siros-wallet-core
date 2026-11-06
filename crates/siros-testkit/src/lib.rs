@@ -11,7 +11,7 @@
 //! [`TestScope`]), the resources
 //! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-ins ([`issuer`], [`sd_jwt_issuer`]), the
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
-//! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
+//! ([`reading`]), a Verifier's reading of an SD-JWT presentation ([`sd_jwt_reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
 //! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
 //! crate modules in its English and German, and a renderer over them ([`render`]).
 
@@ -52,6 +52,7 @@ pub mod reading;
 pub mod render;
 pub mod rules;
 pub mod sd_jwt_issuer;
+pub mod sd_jwt_reading;
 pub mod verifier;
 
 use siros_explain::{Message, Messages};
@@ -67,6 +68,7 @@ impl Messages for CrateMessages {
     fn messages() -> Vec<Message> {
         let declared: &[fn() -> Vec<Message>] = &[
             issuer::IssueError::messages,
+            sd_jwt_reading::SdJwtReadError::messages,
             verifier::EncodeError::messages,
             fixtures::FixtureError::messages,
             reading::ReadError::messages,

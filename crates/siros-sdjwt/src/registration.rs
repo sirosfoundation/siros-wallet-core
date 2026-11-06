@@ -75,7 +75,7 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     let mut members: Vec<(Cow<'static, str>, Node<'static>)> = vec![
         ("type".into(), text(kind)),
         ("metadata".into(), metadata),
-        ("values".into(), claims.node()?),
+        ("values".into(), sd_jwt.values()?),
     ];
     if let Some(iss) = claims.get("iss") {
         let iss = string(Some(iss)).ok_or(RegistrationError::Iss)?;
