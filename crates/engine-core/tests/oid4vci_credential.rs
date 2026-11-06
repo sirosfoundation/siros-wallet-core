@@ -138,6 +138,7 @@ async fn requests_a_credential_with_the_host_signed_proof() {
         &test_metadata(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -158,6 +159,7 @@ async fn a_deferred_credential_answer_names_the_transaction() {
         &test_metadata(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -180,6 +182,7 @@ async fn a_non_200_refuses() {
             &test_metadata(),
             &test_token(),
             "X",
+            "flow-1",
             None,
             None
         )
@@ -252,6 +255,7 @@ async fn an_encrypted_answer_to_the_offer_decrypts() {
         &test_metadata(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         Some(&CredentialRequestAux {
             auxiliary_data_to_issuer: &[],
             auxiliary_data_to_wallet: &[],
@@ -286,6 +290,7 @@ async fn a_plain_answer_after_the_offer_refuses() {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             Some(&CredentialRequestAux {
                 auxiliary_data_to_issuer: &[],
                 auxiliary_data_to_wallet: &[],
@@ -314,6 +319,7 @@ async fn an_encrypted_answer_without_an_offer_refuses() {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -363,6 +369,7 @@ async fn the_credential_endpoint_comes_from_the_metadata_not_the_path() {
         &metadata,
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -385,6 +392,7 @@ async fn the_credential_endpoint_comes_from_the_metadata_not_the_path() {
         &test_metadata(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -492,6 +500,7 @@ async fn an_invalid_nonce_retries_once_with_the_endpoint_nonce_and_succeeds() {
         &metadata_with_nonce_endpoint(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -515,6 +524,7 @@ async fn an_invalid_nonce_after_the_retry_is_terminal() {
             &metadata_with_nonce_endpoint(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -539,6 +549,7 @@ async fn a_c_nonce_carrying_error_body_triggers_the_retry_without_a_nonce_endpoi
         &test_metadata(),
         &test_token(),
         "UniversityDegree",
+        "flow-1",
         None,
         Some("nonce-1"),
     )
@@ -620,6 +631,7 @@ async fn a_dpop_bound_token_authorizes_the_credential_request_with_a_proof() {
         &test_metadata(),
         &token,
         "X",
+        "flow-1",
         Some(&aux),
         None,
     )
@@ -715,6 +727,7 @@ async fn a_dpop_nonce_demand_on_the_credential_endpoint_is_retried_with_the_fres
         &test_metadata(),
         &token,
         "X",
+        "flow-1",
         Some(&aux),
         None,
     )
@@ -794,6 +807,7 @@ async fn the_proof_header_identifies_the_key_with_the_jwk_and_the_thumbprint_kid
         &test_metadata(),
         &test_token(),
         "X",
+        "flow-1",
         Some(&aux),
         Some("nonce-1"),
     )
@@ -883,6 +897,7 @@ async fn a_bearer_token_does_not_carry_a_dpop_proof() {
         &test_metadata(),
         &test_token(),
         "X",
+        "flow-1",
         Some(&aux),
         None,
     )

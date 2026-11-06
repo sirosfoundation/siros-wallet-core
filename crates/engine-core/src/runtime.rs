@@ -229,7 +229,13 @@ pub struct FlowRuntime {
     /// calls on the strength of this map.
     flows: parking_lot::RwLock<FxHashMap<String, InFlight>>,
     ports: Arc<Ports>,
-    peer: Arc<wmp_core::peer::Peer>,
+    /// The peer the flows send through. Swappable: the peer's handler
+    /// dispatches to this runtime and the runtime sends through the
+    /// peer, a cycle an adapter can only break by constructing the
+    /// runtime over a placeholder peer and swapping the real one in
+    /// once it exists — before any flow can start (the peer is not
+    /// reachable until it is).
+    peer: parking_lot::RwLock<Arc<wmp_core::peer::Peer>>,
 }
 
 impl FlowRuntime {
@@ -239,8 +245,23 @@ impl FlowRuntime {
             handlers: parking_lot::RwLock::new(FxHashMap::default()),
             flows: parking_lot::RwLock::new(FxHashMap::default()),
             ports,
-            peer,
+            peer: parking_lot::RwLock::new(peer),
         }
+    }
+
+    /// Swaps the peer the flows send through — the cycle breaker: an
+    /// adapter whose peer's handler dispatches to this runtime
+    /// constructs the runtime over a placeholder peer, builds the real
+    /// peer over the handler, then swaps it in. No flow can start
+    /// before the swap: the real peer is not reachable until it exists.
+    pub fn set_peer(&self, peer: Arc<wmp_core::peer::Peer>) {
+        *self.peer.write() = peer;
+    }
+
+    /// The peer the flows send through.
+    #[must_use]
+    pub fn peer(&self) -> Arc<wmp_core::peer::Peer> {
+        self.peer.read().clone()
     }
 
     /// Registers a flow family. Errors when one of its flow types is
@@ -305,7 +326,7 @@ impl FlowRuntime {
             flow_type: params.flow_type.clone(),
             session: ctx.session.clone(),
             ports: self.ports.clone(),
-            peer: self.peer.clone(),
+            peer: self.peer(),
             request_context: ctx.clone(),
         };
         let result = handler.start_flow(&flow_ctx, params).await?;
@@ -475,7 +496,7 @@ impl FlowRuntime {
             flow_type,
             session: ctx.session.clone(),
             ports: self.ports.clone(),
-            peer: self.peer.clone(),
+            peer: self.peer(),
             request_context: ctx.clone(),
         }
     }
