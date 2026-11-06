@@ -3,6 +3,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_explain::{IntoArg, kind};
 use siros_openid4vp::uri::ResponseUri;
 use x509_cert::ext::pkix::SubjectAltName;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -12,8 +13,11 @@ use crate::chain::ChainCertificate;
 
 /// A SHA-256 hash of a leaf certificate's DER, as `x509_hash` writes it: base64url without
 /// padding of 32 octets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LeafHash([u8; 32]);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeafHash {
+    octets: [u8; 32],
+    text: String,
+}
 
 impl LeafHash {
     /// The hash an original Client Identifier writes.
@@ -26,24 +30,36 @@ impl LeafHash {
             .decode(original)
             .ok()
             .and_then(|octets| <[u8; 32]>::try_from(octets).ok())
-            .map(Self)
+            .map(Self::of)
             .ok_or_else(|| X509Refusal::HashSyntax(original.to_owned()))
     }
 
-    pub(crate) const fn of(octets: [u8; 32]) -> Self {
-        Self(octets)
+    pub(crate) fn of(octets: [u8; 32]) -> Self {
+        Self {
+            octets,
+            text: URL_SAFE_NO_PAD.encode(octets),
+        }
     }
 
     /// The digest's octets.
     #[must_use]
     pub const fn octets(&self) -> &[u8; 32] {
-        &self.0
+        &self.octets
     }
 
     /// The hash as `x509_hash` writes it.
     #[must_use]
-    pub fn text(&self) -> String {
-        URL_SAFE_NO_PAD.encode(self.0)
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+/// A hash is named by its text in a message.
+impl IntoArg for LeafHash {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.text
     }
 }
 
@@ -86,7 +102,7 @@ impl SanDnsName {
             .certificate()
             .tbs_certificate()
             .get_extension::<SubjectAltName>()
-            .map_err(|e| X509Refusal::SubjectAltName(e.to_string()))?;
+            .map_err(X509Refusal::SubjectAltName)?;
         Ok(extension.is_some_and(|(_, SubjectAltName(names))| {
             names.iter().any(|name| match name {
                 GeneralName::DnsName(dns) => dns.as_str().eq_ignore_ascii_case(&self.0),
@@ -104,6 +120,15 @@ impl SanDnsName {
     /// The name.
     #[must_use]
     pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A name is named by its text in a message.
+impl IntoArg for SanDnsName {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
         &self.0
     }
 }

@@ -50,7 +50,7 @@ use siros_openid4vp::authenticate::{
     ClientClaim, ClientPrefix, PrefixClaim, PrefixHost, PrefixName,
 };
 
-pub use chain::{ChainCertificate, SpkiKey, X5c};
+pub use chain::{ChainCertificate, SpkiKey, X5c, X5cItem};
 pub use names::{LeafHash, SanDnsName};
 
 use claim::{Rule, X509Claim};
@@ -73,16 +73,16 @@ pub enum X509Refusal {
     X5cEmpty,
     /// An item is no base64 (RFC 7515 §4.1.6: base64, not base64url).
     #[error("x5c item {0} is no base64")]
-    Base64(#[explain(name = "item")] usize),
+    Base64(#[explain(name = "item")] X5cItem),
     /// An item is no DER certificate: x509-cert refuses it, a trailing byte or a non-minimal
     /// length included.
     #[error("x5c item {item} is no DER certificate: {cause}")]
     Certificate {
-        /// The item's position.
-        item: usize,
+        /// The item.
+        item: X5cItem,
         /// der's reason, for the log.
         #[explain(skip)]
-        cause: String,
+        cause: der::Error,
     },
     /// The leaf's key is none [`SpkiKey::key`] reads: an uncompressed point under
     /// id-ecPublicKey and secp256r1, secp384r1 or secp521r1 (RFC 5480 §2.1.1, §2.2), or an
@@ -93,19 +93,19 @@ pub enum X509Refusal {
     #[error("x509_hash {0:?} is no base64url SHA-256 hash")]
     HashSyntax(#[explain(name = "original")] String),
     /// The leaf's SHA-256 is another hash than the identifier.
-    #[error("x509_hash {0:?} is not the leaf certificate's hash")]
-    Hash(#[explain(name = "original")] String),
+    #[error("x509_hash {:?} is not the leaf certificate's hash", .0.text())]
+    Hash(#[explain(name = "original")] LeafHash),
     /// The original Client Identifier is no DNS name in preferred name syntax (RFC 1034 §3.5).
     #[error("x509_san_dns {0:?} is no DNS name")]
     SanSyntax(#[explain(name = "original")] String),
     /// No dNSName entry of the leaf's subjectAltName names the DNS name (RFC 5280 §4.2.1.6,
     /// §7.2).
-    #[error("x509_san_dns {0:?} is named by no dNSName of the leaf")]
-    San(#[explain(name = "original")] String),
+    #[error("x509_san_dns {:?} is named by no dNSName of the leaf", .0.as_str())]
+    San(#[explain(name = "original")] SanDnsName),
     /// The leaf's subjectAltName extension is no DER SubjectAltName, or appears twice (RFC 5280
     /// §4.2).
     #[error("the leaf's subjectAltName is unreadable: {0}")]
-    SubjectAltName(#[explain(skip)] String),
+    SubjectAltName(#[explain(skip)] der::Error),
 }
 
 /// The crate's messages: its refusals'.
@@ -148,7 +148,7 @@ impl<H> PrefixHost<H> for X509Hash {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let hash = LeafHash::parse(claim.original()).map_err(refused)?;
         if hash != chain.leaf().hash() {
-            return Err(refused(X509Refusal::Hash(claim.original().to_owned())));
+            return Err(refused(X509Refusal::Hash(hash)));
         }
         let key = chain.leaf().key().map_err(refused)?;
         Ok(Box::new(X509Claim::new(claim, chain, key, Rule::Hash)))
@@ -170,7 +170,7 @@ impl<H> PrefixHost<H> for X509SanDns {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let name = SanDnsName::parse(claim.original()).map_err(refused)?;
         if !name.names(chain.leaf()).map_err(refused)? {
-            return Err(refused(X509Refusal::San(claim.original().to_owned())));
+            return Err(refused(X509Refusal::San(name)));
         }
         let key = chain.leaf().key().map_err(refused)?;
         Ok(Box::new(X509Claim::new(claim, chain, key, Rule::San(name))))

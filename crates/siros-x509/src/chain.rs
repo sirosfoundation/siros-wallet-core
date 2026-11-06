@@ -2,12 +2,14 @@
 //! x509-cert with the DER as received; and the leaf's key (RFC 5480 §2.1.1, §2.2).
 
 use std::borrow::Cow;
+use std::fmt;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use der::Decode;
 use der::asn1::ObjectIdentifier;
 use sha2::{Digest, Sha256};
+use siros_explain::{Count, IntoArg, kind};
 use siros_openid4vp::jose::{ProtectedHeader, PublicJwk, VerificationKey};
 use siros_openid4vp::json::Node;
 use spki::SubjectPublicKeyInfoOwned;
@@ -20,6 +22,32 @@ use crate::names::LeafHash;
 const EC_PUBLIC_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
 /// secp256r1 (RFC 5480 §2.1.1.1).
 const SECP256R1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
+
+/// A position in `x5c`, the leaf at 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct X5cItem(usize);
+
+impl X5cItem {
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl IntoArg for X5cItem {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
+impl fmt::Display for X5cItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// A certificate of the chain: its DER as received, base64 as the header writes it, and its
 /// parse.
@@ -101,7 +129,7 @@ impl X5c {
         let mut certificates = items
             .iter()
             .enumerate()
-            .map(|(item, value)| ChainCertificate::parse(item, value))
+            .map(|(item, value)| ChainCertificate::parse(X5cItem(item), value))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter();
         let leaf = certificates.next().ok_or(X509Refusal::X5cEmpty)?;
@@ -124,15 +152,13 @@ impl X5c {
 }
 
 impl ChainCertificate {
-    fn parse(item: usize, value: &Node<'_>) -> Result<Self, X509Refusal> {
+    fn parse(item: X5cItem, value: &Node<'_>) -> Result<Self, X509Refusal> {
         let text = value.as_str().ok_or(X509Refusal::X5cNotArray)?;
         let der = STANDARD
             .decode(text)
             .map_err(|_| X509Refusal::Base64(item))?;
-        let certificate = Certificate::from_der(&der).map_err(|e| X509Refusal::Certificate {
-            item,
-            cause: e.to_string(),
-        })?;
+        let certificate = Certificate::from_der(&der)
+            .map_err(|cause| X509Refusal::Certificate { item, cause })?;
         Ok(Self {
             text: text.to_owned(),
             der,

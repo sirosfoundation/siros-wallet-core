@@ -22,7 +22,7 @@ use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
-use siros_x509::{LeafHash, X509Hash, X509Refusal, X509SanDns};
+use siros_x509::{LeafHash, SanDnsName, X509Hash, X509Refusal, X509SanDns};
 
 const ORIGIN: &str = "https://verifier.example";
 const RESPONSE_URI: &str = "https://rp.example.com/post";
@@ -121,7 +121,7 @@ fn each_x509_rule_refuses_its_claim() {
     let other = x509_hash(&leaf(&["other.example.com"]));
     assert_eq!(
         refusal(&header(&x5c(&good)), &other),
-        X509Refusal::Hash(other.trim_start_matches("x509_hash:").to_owned())
+        X509Refusal::Hash(LeafHash::parse(other.trim_start_matches("x509_hash:")).expect("a hash"))
     );
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_san_dns:rp_example"),
@@ -131,7 +131,7 @@ fn each_x509_rule_refuses_its_claim() {
     let elsewhere = leaf(&["elsewhere.example.com"]);
     assert_eq!(
         refusal(&header(&x5c(&elsewhere)), san),
-        X509Refusal::San("rp.example.com".to_owned())
+        X509Refusal::San(SanDnsName::parse("rp.example.com").expect("a name"))
     );
     assert_eq!(
         refusal(r#"{"alg":"ES256","typ":"oauth-authz-req+jwt"}"#, &hash),
@@ -145,16 +145,16 @@ fn each_x509_rule_refuses_its_claim() {
         X509Refusal::X5cNotArray
     );
     assert_eq!(refusal(&header(&[]), &hash), X509Refusal::X5cEmpty);
-    assert_eq!(
+    assert!(matches!(
         refusal(&header(&["*".to_owned()]), &hash),
-        X509Refusal::Base64(0)
-    );
+        X509Refusal::Base64(item) if item.get() == 0
+    ));
     assert!(matches!(
         refusal(
             &header(&[STANDARD.encode([0x30, 0x03, 0x02, 0x01, 0x01])]),
             &hash
         ),
-        X509Refusal::Certificate { item: 0, .. }
+        X509Refusal::Certificate { item, .. } if item.get() == 0
     ));
     // A compressed point (RFC 5480 §2.2 reads the uncompressed form).
     let mut compressed = point(&VERIFIER_SECRET);
