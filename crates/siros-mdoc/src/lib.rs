@@ -9,8 +9,9 @@
 //! A credential's view is the claims kit's (`type`, `metadata`, `values`, `issuer`) with
 //! `issuer_alg` and `issuer_curve`, IssuerAuth's COSE algorithm and key curve; `device_alg` and
 //! `device_curve`, the device key's; and `key_authorizations`, `{"namespaces": [...],
-//! "elements": {namespace: [...]}}`. Its `values` hold the issuer-signed data elements by name
-//! space.
+//! "elements": {namespace: [...]}}`; and `validity`, `not_before` and `not_after` from the MSO's
+//! `validityInfo`. Its `values` hold the issuer-signed data elements by name space.
+//! [`registration::Registered`] builds it from a stored mdoc.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]

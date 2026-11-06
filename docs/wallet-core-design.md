@@ -2021,7 +2021,7 @@ authentication stay calls on the host's modules (section 4.2).
 | The Response URI's answer | after `Delivery::Post` | Hands a body in `application/json` to `ResponseUriAnswer::parse`, shows the End-User the `outcomes()` the registered readers read (under the WE BUILD build the Verifier's error, CS-02 §6.1.7), and sends the user agent to `redirect()` (§8.2, HAIP §5.1). | — |
 | Consent and interaction | phase 1's display; failures | Shows the consent with `Authenticated::verifier()`: its name, its endpoint, and what the decision's facts carry for display (the intermediated Relying Party's Service, CS-13 WU-INT-04; CS-13 §7.5's warnings). Tells the End-User of every refused request, and obtains an interaction before any error leaves (§15.4.1, §15.9.2, RFC 9700 §4.11.2). For an `Unverified` route, tells the End-User the wallet could not verify the site, shows the `response_uri`'s host, and sends the error only when the End-User chooses to return to the site. Renders issuer images in SVG and PNG, from data URIs and https URLs (HAIP §4.1). | the chosen ids |
 | Invocation | the platform | Registers `haip-vp://`, `openid4vp://` and its https app links, and its DC API handler; passes the Origin the platform asserts. | `Received::dc_api`, `Fetch::of` |
-| Credential registration | the wallet's store, beside the flows | Builds each credential's view (an mdoc's values as JSON, RFC 8949 §6.1) and facts (`aki` and Trusted List values), and validates its issuer signature with x5c key resolution (HAIP §6.1.1), before the matcher reads them. | `Wallet` |
+| Credential registration | the wallet's store, beside the flows | Builds each credential's view through siros-sdjwt's `Registered` and siros-mdoc's `registration::Registered` (an mdoc's values as JSON, RFC 8949 §6.1) and facts (`aki` and Trusted List values), and validates its issuer signature with x5c key resolution (HAIP §6.1.1), before the matcher reads them. | `Wallet` |
 | Host modules | everywhere | `Haip`: its statements (`verifies`, `agreements`), `verify`, `sign`, `encrypt_jwe` (a fresh ephemeral key and IV per message); `Platform`: `now`, `usable`, `authenticate` (an inherence factor with its matching's facts), `language_policy`; the modules the build's registrations and plug-ins bound: `RequestDecryption` (the core's), siros-paso's `Paso`, `RandomIds` and `CoseEncrypt`, siros-mdoc's `DeviceMac`. | values |
 | Registration | building the registry | Registers the build's formats, profiles, prefixes, response types, modes, response parameters, POST contributions, answer readers, Request Object rules, hash algorithms and scope queries, `RequestPost` when it posts `wallet_metadata` and `EncryptedRequests` when it asks for an encrypted Request Object; `build` refuses a conflict (`RegistryError`). The matcher's and the wallet's registries come from one registration function generic over the host. | `Registry<H>` |
 
@@ -3166,7 +3166,8 @@ siros-matcher       siros-dc-matcher: the core and the plug-ins without resolve,
 | Crate | SIROS crates it names | For |
 | :-- | :-- | :-- |
 | siros-openid4vp | siros-explain; siros-i18n without default features, with `render`, `number` and `list` | the error contract (section 4.13); the renderer and the format modules its own messages call: counts (`:number`) and lists of reasons (`:siros:list`) (section 4.14) |
-| siros-x509, siros-mdoc, siros-sdjwt, siros-qes, siros-webuild, siros-zkp-req | the core; siros-explain | the traits each implements |
+| siros-x509, siros-mdoc, siros-qes, siros-webuild, siros-zkp-req | the core; siros-explain | the traits each implements |
+| siros-sdjwt | the core; siros-explain; siros-i18n with `render` | the traits it implements; a type metadata document's `display` as a defined module (section 4.14) |
 | siros-paso | the core; siros-explain; siros-i18n with `number`, `currency` and `date`; siros-x509 under `resolve` | the traits it implements; PaSO View's value types, which render as amounts and dates (section 4.14); an ad-hoc metadata JWT's `x5c` chain, its leaf's key and subject (Proof Metadata §5.3) |
 | siros-ts12 | the core; siros-paso; siros-explain | siros-paso's engine renders TS12's entries (section 4.10.3); the core's `ViewAdditions` gives a credential's `types` (reading 26); the error contract (section 4.13) |
 | siros-credman | the core; siros-explain | the consent entry it maps |
@@ -5843,8 +5844,8 @@ lines all read 0.
 ```text
 siros-openid4vp       the core: a request in, a response built
 ├── siros-x509        x509_hash, x509_san_dns
-├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading
-├── siros-sdjwt       dc+sd-jwt; the issued SD-JWT's reading and selection
+├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading and registration
+├── siros-sdjwt       dc+sd-jwt; the issued SD-JWT's reading, registration and selection
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, CoseEncrypt
 │   └── siros-ts12    TS12 on PaSO's engine
 ├── siros-qes         CSC's QES transaction data
@@ -5872,7 +5873,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-openid4vp | wallet-rs | `match`, `resolve`, `dc-api`, `uri`, `signed`, `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`, `sri`, `claims`, `test-util` | siros-explain; siros-i18n with `render`, `number`, `list` |
 | siros-x509 | wallet-rs | `test-util` | the core (`signed`); siros-explain |
 | siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain |
-| siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain |
+| siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain; siros-i18n (`render`) |
 | siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n; `resolve`: siros-x509 |
 | siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain |
 | siros-qes | wallet-rs | `resolve`, `sha3`, both default | the core (`sri`); siros-explain |
@@ -5952,7 +5953,7 @@ the signature's bytes held as text. Milestone 6 carries over the issued SD-JWT's
 | `tree`: `Object`, `Claim`, `ClaimValue`, `Element`, `DisclosureId` (S2: issued array positions, withheld elements) | Carried over with S1. |
 | `node::Node`, the pointer walk (Q4) | The core's `claims` pointer walk over the view, which keeps S2's positions. |
 | `select` (S3: each node on a path with its parents and descendants) | Carried over: phase 2 selects the option's disclosures from the document. |
-| `key_binding`: `Presentation`, `KeyBinding`, `NumericDate`, `Audience`, `KbNonce`, `BeforeEpoch`, `KeyBindingError` (S4) | Carried over. The Key Binding JWT holds `sd_hash` over the presentation as sent and its signature from `Haip::sign`, in compact serialization; `Presentation::text` carries it (§8.1). |
+| `key_binding`: `Presentation`, `KeyBinding`, `NumericDate`, `Audience`, `KbNonce`, `BeforeEpoch`, `KeyBindingError` (S4) | Carried over; `NumericDate` comes from the core's `Timestamp`, which holds no time before the epoch, so `BeforeEpoch` goes. The Key Binding JWT holds `sd_hash` over the presentation as sent and its signature from `Haip::sign`, in compact serialization; `Presentation::text` carries it (§8.1). |
 | `alg::Digest` | Carried over with S1. |
 | `SdJwt::x5c` | The issuer chain siros-trust reads at registration. |
 | RFC 9901's examples A.1 to A.4 and §5 (`tests/sd_jwt/rfc9901`) | Carried over as known answers. |

@@ -17,6 +17,19 @@ All notable changes to this workspace. The format follows
   digests, the MSO, `issuerAuth`, and the data the device key signs.
   ISO/IEC 18013-5 Annex D's DeviceResponse is its known answer, and each
   construction rule refuses its fixture.
+- `siros-sdjwt`'s `Registered` reads an issued SD-JWT (RFC 9901 §7.1) into
+  the `dc+sd-jwt` document and its view: the processed payload at its issued
+  array positions, the issuer's and holder key's algorithms and curves, and
+  `validity`. Phase 2 presents from the document: the option's disclosures
+  with their parents and descendants, and a compact Key Binding JWT whose
+  `sd_hash` covers the SD-JWT as sent. RFC 9901 A.1 to A.4 and §5 are its known
+  answers.
+- `siros-sdjwt::type_metadata` converts a type metadata document's `display`
+  into a defined module, named by a view's `display_module`. The core's
+  `FormatQuery::card_module` and `EntryView::card_module` carry it to
+  `Rendering::renderer`, which takes it beside the selected module.
+- `siros-mdoc::registration` builds the view from a stored mdoc, with
+  `validityInfo`. ISO/IEC 18013-5 Annex D is its known answer.
 - `siros-credman` lays out the core's consent entries as Android Credential
   Manager's Standard and Payment entries, and decides each set's delegation:
   `Full` when the set needs no wallet display (A9, K4). `siros-openid4vp`
@@ -74,6 +87,13 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
+  of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
+  order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth
+  form (`FormError::DeviceKey`).
+- `siros-testkit`'s issuers write what registration reads: `sd_jwt_issuer`
+  issues the SD-JWT, `issuer` the view's validity, `keyAuthorizations` and
+  device key algorithm. `sd_jwt_reading` reads a presentation back.
 - `siros-zkp-req`, `siros-zkp-catalogues`, `siros-trust` and `proving/` read
   DCQL, CBOR, JSON, identifiers, sessions and authenticated requests through
   `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
