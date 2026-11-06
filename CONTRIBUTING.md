@@ -63,7 +63,7 @@ The [README's build section](README.md#build-and-test) lists what CI checks.
 and [Wording](AGENTS.md#wording) sections bind every change: tests live in each
 crate's `tests/` and enforce a source of truth outside the code they test,
 types parse once at construction, and the crates ship no End-User text.
-`scripts/check_layout.sh` checks the layout these rules give.
+`cargo xtask layout` checks the layout these rules give.
 
 `proving/` is a second workspace: the proof backends and the browser presenter,
 whose dependencies need Rust 1.95, above the root workspace's floor. Run its

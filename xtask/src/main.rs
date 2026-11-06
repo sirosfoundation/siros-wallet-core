@@ -11,8 +11,11 @@
 //! - `alone`: each crate the table lists builds alone, with and without its default features, and
 //!   `cargo tree -e normal` of it names exactly the workspace crates its row gives.
 //!
-//! Each command prints one line per row and exits with failure when a row fails. The table names
-//! the crates; the code names none.
+//! - `layout [<root>]`: the workspace root's or `<root>`'s test code under `src/`, message sources
+//!   and display literals; one `file:line: rule` per hit, failing on any hit.
+//!
+//! `builds` and `alone` print one line per row and exit with failure when a row fails. Their table
+//! names the crates; their code names none.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -31,6 +34,8 @@
     clippy::indexing_slicing,
     clippy::disallowed_methods
 )]
+
+mod layout;
 
 use std::fmt;
 use std::fs;
@@ -182,7 +187,7 @@ impl fmt::Display for Failure {
             Self::Io(path, cause) => write!(f, "{}: {cause}", path.display()),
             Self::Cargo(text) => write!(f, "cargo: {text}"),
             Self::Read(text) => write!(f, "{text}"),
-            Self::Usage => write!(f, "usage: cargo xtask builds|alone"),
+            Self::Usage => write!(f, "usage: cargo xtask builds|alone|layout [<root>]"),
         }
     }
 }
@@ -194,12 +199,15 @@ struct Workspace {
 }
 
 fn main() -> ExitCode {
-    let command = std::env::args().nth(1);
-    let outcome = Workspace::read().and_then(|workspace| match command.as_deref() {
-        Some("builds") => builds(&workspace),
-        Some("alone") => alone(&workspace),
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<&str> = args.iter().map(String::as_str).collect();
+    let outcome = match arguments.as_slice() {
+        ["builds"] => Workspace::read().and_then(|workspace| builds(&workspace)),
+        ["alone"] => Workspace::read().and_then(|workspace| alone(&workspace)),
+        ["layout"] => Workspace::read().and_then(|workspace| layout::run(&workspace.root)),
+        ["layout", root] => layout::run(Path::new(root)),
         _ => Err(Failure::Usage),
-    });
+    };
     match outcome {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,

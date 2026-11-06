@@ -7,6 +7,9 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,
+  message sources, and display literals in the shipped crates, in place of
+  `scripts/check_layout.sh`.
 - The presentation core: `siros-openid4vp`, `siros-x509`, `siros-mdoc`,
   `siros-sdjwt`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
   `siros-explain-derive`, `siros-i18n`, `siros-cldr` and `siros-integration`,

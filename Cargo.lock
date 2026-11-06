@@ -4703,8 +4703,11 @@ dependencies = [
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "proc-macro2",
+ "quote",
  "serde",
  "serde_json",
+ "syn 3.0.9",
 ]
 
 [[package]]
