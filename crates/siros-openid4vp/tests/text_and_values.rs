@@ -114,10 +114,13 @@ impl Writer {
 }
 
 /// RFC 8259 §6's numbers keep their JSON text in what a message or a template names, where a
-/// double would show another value.
+/// double would show another value; a rule's text keeps Python's `repr` of `json.loads("1e400")`,
+/// and a value the request left out is an absent argument.
 #[test]
 fn a_named_value_keeps_its_numbers_as_written() {
+    use siros_explain::IntoArg;
     use siros_openid4vp::json::Node;
+    use siros_openid4vp::refusal::{ReprItem, ReprOption};
     for (text, spaced, compact) in [
         ("1e400", "1e400", "1e400"),
         ("1e-400", "1e-400", "1e-400"),
@@ -130,6 +133,14 @@ fn a_named_value_keeps_its_numbers_as_written() {
         assert_eq!(node.written_text(), spaced, "{text}");
         assert_eq!(node.written_compact(), compact, "{text}");
     }
+    let beyond = Node::parse("1e400").expect("json");
+    let item = ReprItem::repr(&beyond);
+    assert_eq!(item.to_string(), "inf");
+    assert_eq!(IntoArg::arg(&item), "1e400");
+    assert_eq!(IntoArg::arg(&ReprOption::of(Some(&beyond))), Some("1e400"));
+    let absent = ReprOption::of(None);
+    assert_eq!(absent.to_string(), "None");
+    assert_eq!(IntoArg::arg(&absent), None);
 }
 
 #[test]

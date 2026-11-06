@@ -89,7 +89,7 @@ impl ProtectedHeader {
             Some(Node::String(alg)) if alg != "none" && crate::request::jose_name(alg) => {
                 alg.to_string()
             }
-            other => return Err(JwsError::Algorithm(other.map(shown))),
+            other => return Err(JwsError::Algorithm(other.map(Node::written_compact))),
         };
         critical(&members)?;
         let member = |name: &str| members.get(name).and_then(Node::as_str).map(str::to_owned);
@@ -139,13 +139,6 @@ impl ProtectedHeader {
     }
 }
 
-/// A value as a message names it: a string's text, another value's JSON.
-fn shown(value: &Node<'_>) -> String {
-    value
-        .as_str()
-        .map_or_else(|| value.python_compact().to_string(), str::to_owned)
-}
-
 /// RFC 7515 §4.1.11: `crit` lists the extensions a recipient must process. The wallet processes
 /// none, so a `crit` it finds is refused, an empty one too.
 fn critical(members: &Object<'_>) -> Result<(), JwsError> {
@@ -153,7 +146,7 @@ fn critical(members: &Object<'_>) -> Result<(), JwsError> {
         let first = crit
             .as_array()
             .and_then(|names| names.first())
-            .map_or_else(|| shown(crit), shown);
+            .map_or_else(|| crit.written_compact(), Node::written_compact);
         Err(JwsError::Critical(first))
     })
 }
@@ -453,15 +446,15 @@ impl<'t> CompactJwe<'t> {
         match header.get("alg") {
             Some(Node::String(alg))
                 if KeyAgreement::new(alg).is_some_and(|alg| accepted.agreement(alg)) => {}
-            other => return Err(JweError::Algorithm(other.map(shown))),
+            other => return Err(JweError::Algorithm(other.map(Node::written_compact))),
         }
         match header.get("enc") {
             Some(Node::String(enc))
                 if ContentEncryption::new(enc).is_some_and(|enc| accepted.encryption(enc)) => {}
-            other => return Err(JweError::Encryption(other.map(shown))),
+            other => return Err(JweError::Encryption(other.map(Node::written_compact))),
         }
         match header.get("crit") {
-            Some(crit) => Err(JweError::Critical(shown(crit))),
+            Some(crit) => Err(JweError::Critical(crit.written_compact())),
             None => Ok(Self { text, header }),
         }
     }

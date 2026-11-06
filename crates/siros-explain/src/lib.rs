@@ -16,8 +16,8 @@
 //! own arguments stay in its own query.
 //!
 //! The crate imposes the trait alone: a type keeps its own shape, and `#[derive(Explain)]`
-//! (feature `derive`) writes the implementation beside `#[derive(thiserror::Error)]`, as miette's
-//! `Diagnostic` does.
+//! (feature `derive`) writes the implementation, for an error beside `#[derive(thiserror::Error)]`
+//! as miette's `Diagnostic` does, and for a text type alone.
 //!
 //! ```
 //! use siros_explain::{ArgValue, Count, Explain, Value};

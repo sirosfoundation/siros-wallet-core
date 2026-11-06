@@ -367,6 +367,11 @@ pub struct ReprItem {
     written: String,
 }
 
+/// A received value a rule names when the request may leave it out: the rule's text writes an
+/// absent one as Python's `None`, and its message's argument is absent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReprOption(Option<ReprItem>);
+
 impl ReprList {
     /// Strings.
     #[must_use]
@@ -390,8 +395,8 @@ impl ReprList {
                 .iter()
                 .map(|item| {
                     item.as_str().map_or_else(
-                        || ReprItem::new(item.python_text(), item),
-                        |text| ReprItem::new(Quoted(text), item),
+                        || ReprItem::json(item),
+                        |text| ReprItem::pair(Quoted(text), item),
                     )
                 })
                 .collect(),
@@ -414,35 +419,53 @@ impl ReprList {
         Self(
             named
                 .into_iter()
-                .map(|(name, item)| ReprItem::new(Quoted(&name), item))
+                .map(|(name, item)| ReprItem::pair(Quoted(&name), item))
                 .collect(),
         )
     }
 }
 
 impl ReprItem {
-    /// A JSON value the rule's text writes as `repr`.
+    /// A JSON value the rule's text writes as [`Node::python_repr`].
     #[must_use]
-    pub fn new(repr: impl fmt::Display, value: &Node<'_>) -> Self {
+    pub fn repr(value: &Node<'_>) -> Self {
+        Self::pair(value.python_repr(), value)
+    }
+
+    /// A JSON value the rule's text writes as [`Node::python_text`].
+    #[must_use]
+    pub fn json(value: &Node<'_>) -> Self {
+        Self::pair(value.python_text(), value)
+    }
+
+    fn pair(repr: impl fmt::Display, value: &Node<'_>) -> Self {
         Self {
             repr: repr.to_string(),
             written: value.written_text(),
         }
     }
+}
 
-    /// The word a rule's text and its message name when there is no value.
+impl ReprOption {
+    /// A member's value, as [`ReprItem::repr`] writes it.
     #[must_use]
-    pub fn absent(word: &str) -> Self {
-        Self {
-            repr: word.to_owned(),
-            written: word.to_owned(),
-        }
+    pub fn of(value: Option<&Node<'_>>) -> Self {
+        Self(value.map(ReprItem::repr))
     }
 }
 
 impl fmt::Display for ReprItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.repr)
+    }
+}
+
+impl fmt::Display for ReprOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(item) => item.fmt(f),
+            None => f.write_str("None"),
+        }
     }
 }
 
@@ -464,6 +487,14 @@ impl IntoArg for ReprItem {
 
     fn arg(&self) -> &str {
         &self.written
+    }
+}
+
+impl IntoArg for ReprOption {
+    type Kind = kind::Optional<kind::Raw>;
+
+    fn arg(&self) -> Option<&str> {
+        self.0.as_ref().map(IntoArg::arg)
     }
 }
 

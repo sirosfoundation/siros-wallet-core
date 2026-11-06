@@ -45,7 +45,7 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
     let base = json(base);
     let path = |text| {
         let node = json(text);
-        ReprItem::new(node.python_text(), &node)
+        ReprItem::json(&node)
     };
     let cases: [(&str, Result<(), ExtendError>); 9] = [
         // §8.5.1: allowed or absent may become always or never; optional may become mandatory.

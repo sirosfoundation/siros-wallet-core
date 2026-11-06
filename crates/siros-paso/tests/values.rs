@@ -281,8 +281,8 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
     for (kind, written, want) in table {
         let got = shown(kind, written);
         match want {
-            Is(text) => assert_eq!(got, Ok(text), "{kind:?} {written}"),
-            Refused(breach) => assert_eq!(got, Err(breach), "{kind:?} {written}"),
+            Is(text) => assert_eq!(got, Ok(text), "{kind:?} {written:?}"),
+            Refused(breach) => assert_eq!(got, Err(breach), "{kind:?} {written:?}"),
         }
     }
 }
@@ -369,6 +369,6 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_uts_46() {
         (K::Url, "https://", Err(Breach::NotUrl)),
     ];
     for (kind, written, want) in cases {
-        assert_eq!(shown(kind, T(written)), want, "{kind:?} {written}");
+        assert_eq!(shown(kind, T(written)), want, "{kind:?} {written:?}");
     }
 }

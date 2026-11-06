@@ -4,10 +4,9 @@
 
 use siros_explain::{Count, Explain};
 use siros_openid4vp::json::{Node, Object};
-use siros_openid4vp::refusal::ReprItem;
+use siros_openid4vp::refusal::ReprOption;
 
 use crate::binding::ApprovalHash;
-use crate::repr::Repr;
 
 /// The members an entry may hold: OpenID4VP §5.1's, §7.1.1's and its example's.
 const KNOWN: [&str; 7] = [
@@ -35,7 +34,7 @@ pub(crate) enum Problem {
     SignatureCount,
     /// `signatureQualifier` is none the wallet renders.
     #[error("signatureQualifier {0} is not one this wallet renders")]
-    SignatureQualifier(#[explain(name = "qualifier")] ReprItem),
+    SignatureQualifier(#[explain(name = "qualifier")] ReprOption),
     /// `hashAlgorithmOID` is no string.
     #[error("hashAlgorithmOID is absent: §7.2 identifies the approval's hash with it")]
     NoHashAlgorithm,
@@ -292,12 +291,7 @@ fn qualifier(object: &Object<'_>) -> Result<SignatureQualifier, Problem> {
     value
         .and_then(Node::as_str)
         .and_then(SignatureQualifier::parse)
-        .ok_or_else(|| {
-            Problem::SignatureQualifier(value.map_or_else(
-                || ReprItem::absent("None"),
-                |written| ReprItem::new(Repr(Some(written)), written),
-            ))
-        })
+        .ok_or_else(|| Problem::SignatureQualifier(ReprOption::of(value)))
 }
 
 fn hash(object: &Object<'_>) -> Result<ApprovalHash, Problem> {

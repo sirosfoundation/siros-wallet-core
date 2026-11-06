@@ -79,9 +79,10 @@ pub const fn tokens(text: &str, min: usize) -> bool {
 /// # Implementing
 ///
 /// Derive it (`#[derive(Explain)]` with the type's `domain`), on an error beside thiserror's
-/// `Error`, on a text type alone, which has no `Display`; or write it by hand: `id` is a [`MessageId`] made with `checked!`, unique across the build (one test
-/// over every crate's `Messages`); `args` gives each argument under its declared name and kind,
-/// and a secret cannot be one. Every error type and text type of a wallet crate implements it.
+/// `Error`, on a text type alone, which has no `Display`; or write it by hand: `id` is a
+/// [`MessageId`] made with `checked!`, unique across the build (one test over every crate's
+/// `Messages`); `args` gives each argument under its declared name and kind, and a secret cannot
+/// be one. Every error type and text type of a wallet crate implements it.
 pub trait Explain: fmt::Debug + Send + Sync {
     /// The message's identifier.
     fn id(&self) -> MessageId;

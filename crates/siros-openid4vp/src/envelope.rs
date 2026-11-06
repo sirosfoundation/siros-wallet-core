@@ -180,7 +180,7 @@ impl<'r> Signer<'r> {
             Some(Node::String(text)) => {
                 Some(ClientId::parse(text.clone()).map_err(|e| Unreadable::ClientId(e.value))?)
             }
-            Some(other) => return Err(Unreadable::ClientId(other.python_compact().to_string())),
+            Some(other) => return Err(Unreadable::ClientId(other.written_compact())),
         };
         Ok(Self { signed, client_id })
     }
@@ -418,7 +418,7 @@ fn client_id<'r>(parameters: &Parameters<'r>) -> Result<Option<ClientId<'r>>, Un
         Some(Node::String(text)) => ClientId::parse(text.clone())
             .map(Some)
             .map_err(|e| Unreadable::ClientId(e.value)),
-        Some(other) => Err(Unreadable::ClientId(other.python_compact().to_string())),
+        Some(other) => Err(Unreadable::ClientId(other.written_compact())),
     }
 }
 

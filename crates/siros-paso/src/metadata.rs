@@ -9,6 +9,7 @@ use siros_explain::Domain;
 use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::refusal::{ReprItem, ReprOption};
 
 use crate::labels::{LabelSlot, LabelText, LabelViolation};
 use crate::mandate::MandateLabel;
@@ -94,19 +95,25 @@ impl fmt::Display for UiKey {
     }
 }
 
-/// A display array: a claim's `display` or a UI label's entries.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+/// A display array, the place an error names: a claim's `display` or a UI label's entries.
+#[derive(Debug, Clone, PartialEq, Eq, Explain)]
 #[explain(domain = "paso.array_at")]
 pub enum ArrayAt {
     /// The `display` of the claim at a path, as Python writes the list.
-    #[error("claim {0} display")]
     Claim(#[explain(name = "path")] String),
     /// A UI label's entries.
-    #[error("ui_labels.{0}")]
     Ui(#[explain(name = "key")] UiKey),
 }
 
 impl ArrayAt {
+    /// The place in an error's `#[error]` template.
+    pub(crate) fn logged(&self) -> String {
+        match self {
+            Self::Claim(path) => format!("claim {path} display"),
+            Self::Ui(key) => format!("ui_labels.{key}"),
+        }
+    }
+
     /// The rule a label of this array breaks as written.
     fn label(&self, violation: LabelViolation) -> Unsupported {
         match self {
@@ -210,7 +217,7 @@ impl<'m> DisplayArray<'m> {
                 Some(other) => {
                     return Err(Unsupported::LocaleRepeated(
                         shape.at.clone(),
-                        python_repr(other),
+                        ReprItem::repr(other),
                     ));
                 }
             };
@@ -247,7 +254,7 @@ impl RawType {
         let refused = |node: &Node<'_>| Unsupported::LabelType {
             at: shape.at.clone(),
             member: shape.typed_by,
-            written: python_repr(node),
+            written: ReprItem::repr(node),
         };
         match (typed, shape.typing) {
             (None, _) => Ok(Self::Plain),
@@ -260,11 +267,6 @@ impl RawType {
             (Some(node), _) => Err(refused(node)),
         }
     }
-}
-
-/// A JSON value as Python's `repr` of the value `json` reads writes it, for refusals.
-pub(crate) fn python_repr(node: &Node<'_>) -> String {
-    node.python_repr().to_string()
 }
 
 /// How a displayed claim's value is formatted (View §3).
@@ -473,7 +475,7 @@ impl<'m> Displayed<'m> {
         }
         let value = value.ok_or_else(|| NotCompatible::ValueType {
             path: claim_text(path.steps()),
-            written: written.map_or_else(|| "None".to_owned(), python_repr),
+            written: ReprOption::of(written),
         })?;
         Ok(Self { names, value })
     }

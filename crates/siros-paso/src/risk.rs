@@ -8,8 +8,8 @@ use std::fmt;
 
 use siros_openid4vp::ids::InvalidId;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::refusal::ReprItem;
 
-use crate::metadata::python_repr;
 use crate::outcome::NotCompatible;
 
 /// The prefix of every risk signal type (§2.1).
@@ -288,7 +288,7 @@ impl Effective {
         };
         for entry in listed {
             let spec = enumerated(entry)
-                .ok_or_else(|| NotCompatible::RiskSignalMalformed(python_repr(entry)))?;
+                .ok_or_else(|| NotCompatible::RiskSignalMalformed(ReprItem::repr(entry)))?;
             merge(&mut signals, spec);
         }
         let encrypted = match metadata.get("encrypted") {

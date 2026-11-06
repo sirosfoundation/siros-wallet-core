@@ -50,7 +50,7 @@ impl<'a> Node<'a> {
         )
     }
 
-    /// The value as a template interpolates it: a string's text, another value as
+    /// The value as a template or a compact message names it: a string's text, another value as
     /// [`Node::python_compact`] writes it with each number as the JSON text it came in
     /// (RFC 8259 §6).
     #[must_use]

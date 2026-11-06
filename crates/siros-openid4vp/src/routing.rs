@@ -15,7 +15,7 @@ use crate::json::Node;
 #[cfg(feature = "resolve")]
 use crate::plugins::Fault;
 use crate::plugins::registry::Routes;
-use crate::refusal::{ErrorCode, Refusal, RequestRule};
+use crate::refusal::{ErrorCode, Refusal, ReprItem, ReprOption, RequestRule};
 #[cfg(feature = "resolve")]
 use crate::request::Agreements;
 use crate::request::{AgreeableKey, ClientMetadata, ContentEncryption, Request};
@@ -542,21 +542,21 @@ pub enum RoutingRule {
     /// P1: `response_type` naming no registered response type (RFC 6749 §4.1.2.1).
     #[error("P1 response_type {0} names no response type the wallet answers")]
     #[explain(id = "p1_other")]
-    ResponseType(#[explain(name = "response_type")] String),
+    ResponseType(#[explain(name = "response_type")] ReprItem),
     /// C5 over the DC API: absent, or no registered DC API response mode (A.2).
     #[error("C5 response_mode {mode} is no DC API response mode")]
     #[explain(id = "c5")]
     DcApi {
-        /// The mode, as Python's `repr` writes the value.
-        mode: String,
+        /// The mode.
+        mode: ReprOption,
     },
     /// C5 by URI: absent, no registered URI mode, or one that carries errors alone (§5.2, HAIP
     /// §5.1; reading 2, 24).
     #[error("C5 response_mode {mode} is no mode the wallet answers in by URI")]
     #[explain(id = "c5_uri")]
     Uri {
-        /// The mode, as Python's `repr` writes the value.
-        mode: String,
+        /// The mode.
+        mode: ReprOption,
     },
     /// P5: `redirect_uri` beside a `response_uri` mode (§8.2).
     #[error("P5 redirect_uri is present with response_mode {mode}")]
@@ -638,7 +638,7 @@ impl<'r> Routing<'r> {
             Some(named) => {
                 let registered = named.as_str().and_then(|name| routes.response_type(name));
                 if registered.is_none() {
-                    refusals.push(RoutingRule::ResponseType(repr(Some(named))));
+                    refusals.push(RoutingRule::ResponseType(ReprItem::repr(named)));
                 }
                 registered
             }
@@ -652,7 +652,7 @@ impl<'r> Routing<'r> {
             }
             mode => {
                 let mode = mode.map(|(mode, _)| mode);
-                let named = repr(named);
+                let named = ReprOption::of(named);
                 let rule = match kind {
                     ChannelKind::DcApi => RoutingRule::DcApi { mode: named },
                     ChannelKind::Uri => RoutingRule::Uri { mode: named },
@@ -748,14 +748,6 @@ impl<'r> Routing<'r> {
     pub fn refusals(&self) -> Vec<Refusal> {
         self.refusals.iter().cloned().map(Refusal::new).collect()
     }
-}
-
-/// A value as Python's `repr` writes it, `None` when absent: the model's way of quoting it.
-fn repr(value: Option<&Node<'_>>) -> String {
-    value.map_or_else(
-        || "None".to_owned(),
-        |value| value.python_repr().to_string(),
-    )
 }
 
 /// What a format's request rules read beyond the query (the zkp_req proposal's M4): the request,

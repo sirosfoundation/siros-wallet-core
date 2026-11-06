@@ -229,8 +229,8 @@ impl<'q> ClaimsQuery<'q> {
     }
 
     /// The credential's card: the display entry's name, else the crate module's
-    /// `WalletText::Credential` message; the `issuer` as subtitle; the logo resolved at issuance, else the wallet's default icon; the
-    /// rows of the items shown.
+    /// `WalletText::Credential` message; the `issuer` as subtitle; the logo resolved at issuance,
+    /// else the wallet's default icon; the rows of the items shown.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,

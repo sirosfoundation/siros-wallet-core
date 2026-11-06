@@ -226,7 +226,7 @@ impl Template<'_> {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad: BadValue {
                 kind: kind.as_str(),
-                written: Written::Text(self.0).to_string(),
+                written: Written::Text(self.0).named(),
                 why: Breach::NoSlot,
             },
         })?;

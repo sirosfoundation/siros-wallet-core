@@ -648,9 +648,7 @@ impl<'e> Check<'_, 'e> {
         match self.envelope.parameters().json("aud") {
             None => Ok(()),
             Some(Node::String(aud)) if aud == SELF_ISSUED => Ok(()),
-            Some(other) => Err(other
-                .as_str()
-                .map_or_else(|| other.python_compact().to_string(), str::to_owned)),
+            Some(other) => Err(other.written_compact()),
         }
     }
 }

@@ -7,6 +7,7 @@ use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_explain::RequestText;
 use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::refusal::ReprItem;
 
 use crate::entry::Payload;
 use crate::labels::Directional;
@@ -72,9 +73,7 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
     match kind {
         ValueKind::Image => match value {
             Node::String(_) => Ok(()),
-            _ => Err(NotCompatible::ImageNotString(
-                value.python_repr().to_string(),
-            )),
+            _ => Err(NotCompatible::ImageNotString(ReprItem::repr(value))),
         },
         ValueKind::Formatted(kind) => parsed(kind, value).map(drop),
     }

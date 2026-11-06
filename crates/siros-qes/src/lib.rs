@@ -38,7 +38,6 @@ mod approval;
 mod binding;
 mod documents;
 mod render;
-mod repr;
 mod rules;
 
 use rustc_hash::FxHashMap;

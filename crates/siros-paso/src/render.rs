@@ -9,6 +9,7 @@ use siros_explain::{DefinedModule, Entry, Explain, Keyed, RequestText, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::refusal::ReprItem;
 use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
 
 use crate::PasoRequested;
@@ -277,7 +278,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 ValueType::Template(kind) => Content::Template(kind),
                 ValueType::Kind(ValueKind::Image) => {
                     let url = instance.value.as_str().ok_or_else(|| {
-                        NotCompatible::ImageNotString(instance.value.python_repr().to_string())
+                        NotCompatible::ImageNotString(ReprItem::repr(instance.value))
                     })?;
                     let sibling = match integrity_sibling(&instance.path) {
                         Some(path) => at(self.payload.node(), &path)?,

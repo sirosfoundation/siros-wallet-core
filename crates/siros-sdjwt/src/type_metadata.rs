@@ -106,7 +106,7 @@ fn combined<'a>(
     child: &Object<'a>,
     path: &Node<'a>,
 ) -> Result<Object<'a>, ExtendError> {
-    let shown = || ReprItem::new(path.python_text(), path);
+    let shown = || ReprItem::json(path);
     if let (Some(Node::String(fixed)), Some(changed)) = (base.get("sd"), child.get("sd"))
         && matches!(fixed.as_ref(), "always" | "never")
         && changed.as_str() != Some(fixed)

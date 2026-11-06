@@ -4,7 +4,7 @@
 
 use crate::value::BadValue;
 use siros_explain::Explain;
-use siros_openid4vp::refusal::QuotedList;
+use siros_openid4vp::refusal::{QuotedList, ReprItem, ReprOption};
 
 use crate::adhoc::AdhocFailure;
 use crate::image::ImageFailure;
@@ -70,36 +70,36 @@ pub enum Unsupported {
     #[error("claim {0}: value_type without display")]
     ValueTypeWithoutDisplay(#[explain(name = "claim")] String),
     /// A display array that is no non-empty array.
-    #[error("{0}: not a non-empty array")]
+    #[error("{}: not a non-empty array", .0.logged())]
     EmptyArray(#[explain(name = "at")] ArrayAt),
     /// A display entry without its text as a string.
-    #[error("{0}: an entry without a string {1}")]
+    #[error("{}: an entry without a string {}", .0.logged(), .1)]
     EntryWithoutText(
         #[explain(name = "at")] ArrayAt,
         #[explain(name = "member")] &'static str,
     ),
     /// A label typed other than `mini_markdown` or `template:mini_markdown`, or a typed
     /// `security_hint`.
-    #[error("{at}: {member} {written}")]
+    #[error("{}: {member} {written}", .at.logged())]
     LabelType {
         /// The array.
         at: ArrayAt,
         /// `display_type` or `value_type`.
         member: &'static str,
-        /// The type as written.
-        written: String,
+        /// The type.
+        written: ReprItem,
     },
     /// An explicit `null` locale.
-    #[error("{0}: locale null")]
+    #[error("{}: locale null", .0.logged())]
     NullLocale(#[explain(name = "at")] ArrayAt),
     /// A locale that is no string, or one given twice.
-    #[error("{0}: locale {1} repeated or not a tag")]
+    #[error("{}: locale {} repeated or not a tag", .0.logged(), .1)]
     LocaleRepeated(
         #[explain(name = "at")] ArrayAt,
-        #[explain(name = "locale")] String,
+        #[explain(name = "locale")] ReprItem,
     ),
     /// Two entries without a locale.
-    #[error("{0}: more than one entry without a locale")]
+    #[error("{}: more than one entry without a locale", .0.logged())]
     DefaultTwice(#[explain(name = "at")] ArrayAt),
     /// A claim label that breaks §3.3 as written.
     #[error("claim {0} label: {1}")]
@@ -163,8 +163,8 @@ pub enum NotCompatible {
     ValueType {
         /// The claim's path.
         path: String,
-        /// The value type as written.
-        written: String,
+        /// The value type.
+        written: ReprOption,
     },
     /// The entry's payload is no object (Core §7.1).
     #[error("payload is not an object")]
@@ -180,9 +180,9 @@ pub enum NotCompatible {
         /// What the value lacks.
         bad: BadValue,
     },
-    /// An image value that is no string (View §3): the value as Python writes it.
+    /// An image value that is no string (View §3).
     #[error("image value {0}: not a string")]
-    ImageNotString(#[explain(name = "path")] String),
+    ImageNotString(#[explain(name = "path")] ReprItem),
     /// An image that fails a rule, or whose resolution failed (View §3 `image`; Core §7.4.2
     /// step 3).
     #[error("image {url}: {failure}")]
@@ -276,7 +276,7 @@ pub enum NotCompatible {
     RiskSignalsNotArray,
     /// A malformed `risk_signals` entry (Risk Signals §3.4, §4.1).
     #[error("risk_signals entry {0} is malformed")]
-    RiskSignalMalformed(#[explain(name = "signal")] String),
+    RiskSignalMalformed(#[explain(name = "signal")] ReprItem),
     /// `encrypted` that is no boolean (Risk Signals §7.2).
     #[error("encrypted is not a boolean")]
     EncryptedNotBoolean,
