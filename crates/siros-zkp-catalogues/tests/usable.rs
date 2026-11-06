@@ -8,29 +8,21 @@ mod support;
 use serde_json::{json, Value};
 use siros_mdoc::stored::StoredMdoc;
 use siros_openid4vp::host::Timestamp;
-use siros_trust::{
-    AdmittedIssuer, ChainRefusal, IssuerChain, QueryAuthorities, TrustStore, Unadmitted,
-};
+use siros_trust::{AdmittedIssuer, IssuerChain, TrustStore, Unadmitted};
 use siros_zkp_catalogues::attestation::{OtherIssuer, TestedAttestation, UsableAttestation};
 use siros_zkp_catalogues::date::DateTime;
 use siros_zkp_catalogues::testing::read_query;
 use support::*;
 
 /// The admission, for the Credential Query `query`, of the issuer whose chain is `der`.
-fn admission(
-    query: &Value,
-    der: &[u8],
-    now: DateTime,
-) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
-    let authorities = read_query(query, |query| {
-        QueryAuthorities::of(&query.id.clone().into_owned(), &query.trusted_authorities)
-    })
-    .unwrap()
-    .unwrap();
+fn admission(query: &Value, der: &[u8], now: DateTime) -> Result<AdmittedIssuer, Unadmitted> {
     let chain = IssuerChain::parse(der, []).unwrap();
     let store = TrustStore::parse("[]").unwrap();
     let now = Timestamp(u64::try_from(now.unix()).unwrap());
-    AdmittedIssuer::resolve(&authorities, Some(&chain), &store, now)
+    read_query(query, |query| {
+        AdmittedIssuer::resolve(query, Some(&chain), &store, now)
+    })
+    .unwrap()
 }
 
 /// The admission that [`admission`] gives.

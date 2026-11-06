@@ -1,16 +1,14 @@
-//! Issuer trust for the SIROS wallet core: the trust store, issuer chains, and the
-//! resolution of a Credential Query's `trusted_authorities` (OpenID4VP 1.0, Section 6.1.1)
-//! into an admission of a credential's issuer.
+//! Issuer trust for the SIROS wallet core: the trust store, issuer chains, and the `Facts` the
+//! core matches a Credential Query's `trusted_authorities` against (OpenID4VP 1.0, Section
+//! 6.1.1).
 //!
 //! | Requirement | API |
 //! | --- | --- |
 //! | TR1: the store, constructible only by parsing its record | [`TrustStore::parse`] |
 //! | TR2: the issuer chain, its certificates and their AuthorityKeyIdentifier keyIdentifiers | [`IssuerChain::parse`], [`Certificate`] |
-//! | TR3: the resolution, per Credential Query and issuer at a time, into the [`AdmittedIssuer`] witness; a malformed `aki` value makes the query invalid; path validation, which returns the refusal of a chain without a path: the path rules of RFC 5280 over the [`extensions`] TR3 processes, and direct trust in a store certificate byte-identical to the chain's first; the anchor a path ends at | [`QueryAuthorities::of`], [`AdmittedIssuer::resolve`], [`IssuerChain::validate_path`], [`TrustStore::anchor`] |
-//! | TR5: the facts the wallet records at registration, and the picker's admission from them alone | [`IssuerFacts::at`], [`Admission::of`] over [`IssuerFacts`] |
-//!
-//! One rule serves both sides: [`QueryAuthorities::admit`] over an [`Issuer`]. The wallet's
-//! issuer is the chain and the store at a time, the picker's the recorded [`IssuerFacts`].
+//! | TR3: path validation, which returns the refusal of a chain without a path: the path rules of RFC 5280 over the [`extensions`] TR3 processes, and direct trust in a store certificate byte-identical to the chain's first; the anchor a path ends at | [`IssuerChain::validate_path`], [`TrustStore::anchor`] |
+//! | TR5: the facts the wallet records at registration | [`IssuerFacts::at`], [`IssuerFacts::facts`] |
+//! | N3: the witness of the core's admission of an issuer for one query | [`AdmittedIssuer::resolve`] |
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -42,7 +40,6 @@
     clippy::unimplemented
 )]
 
-mod admission;
 mod admitted;
 mod authority;
 mod certificate;
@@ -54,19 +51,15 @@ mod path;
 mod position;
 mod store;
 
-pub use admission::{Admission, Ground, Issuer, Refusal, Unadmitted};
-pub use admitted::{AdmittedIssuer, ChainRefusal};
-pub use authority::{
-    AkiError, Authority, AuthorityError, KeyIdentifier, KeyIdentifierError, QueryAuthorities,
-    StoreAuthority, StoreType,
-};
+pub use admitted::{AdmittedIssuer, Unadmitted};
+pub use authority::{KeyIdentifier, KeyIdentifierError, StoreAuthority, StoreType};
 pub use certificate::{
     Certificate, CertificateError, DistinguishedName, IssuanceRefusal, KeyIdentifierFault,
     NameField, PublicKeyFault,
 };
 pub use chain::{ChainError, IssuerChain};
 pub use extensions::{CertSigning, CertificateRole, PathLength};
-pub use facts::{FactRefusal, IssuerFacts};
+pub use facts::{ChainRefusal, IssuerFacts};
 pub use ids::{AuthorityType, AuthorityValue, QueryId};
 pub use path::{OnPath, PathRefusal};
 pub use position::{CertificateIndex, ChainIndex, EntryIndex};

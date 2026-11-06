@@ -151,6 +151,18 @@ text_id!(
     "transaction data type prefix",
     non_empty
 );
+impl<'a> AuthorityType<'a> {
+    /// The type `text`: §6.1.1 sets no rule on its form.
+    pub fn of(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
+impl<'a> AuthorityValue<'a> {
+    /// The value `text`: §6.1.1 sets each type's values, and an unknown form equals no held value.
+    pub fn of(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
 impl ClientId<'_> {
     /// The Client Identifier Prefix and the original identifier (§5.9.1): the text before the
     /// first `:` and the text after it; `None` for an identifier without a `:`, a pre-registered

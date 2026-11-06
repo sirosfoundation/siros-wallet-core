@@ -4,10 +4,9 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::{DecodeError, Engine as _};
 use siros_openid4vp::host::Timestamp;
-use siros_openid4vp::ids::InvalidId;
 use siros_openid4vp::json::{JsonError, Node};
 
-use crate::authority::{KnownAuthorityType, StoreAuthority};
+use crate::authority::{StoreAuthority, StoreType};
 use crate::certificate::{Certificate, CertificateError};
 use crate::chain::IssuerChain;
 use crate::ids::{AuthorityType, AuthorityValue};
@@ -78,8 +77,6 @@ pub enum EntryError {
     UnknownType(AuthorityType),
     /// `value` is absent or not a string.
     Value(#[source] MemberFault),
-    /// `type` or `value` breaks the rule of the core's identifier.
-    Id(#[source] InvalidId),
     /// `certificates` is absent, not an array, or empty.
     Certificates(#[source] MemberFault),
     /// A certificate is not a string.
@@ -126,7 +123,6 @@ impl EntryError {
             Self::Type(_) => "trust_store_entry_type",
             Self::UnknownType(_) => "trust_store_entry_type_unknown",
             Self::Value(_) => "trust_store_entry_value",
-            Self::Id(_) => "trust_store_entry_id",
             Self::Certificates(_) => "trust_store_entry_certificates",
             Self::CertificateNotString(_) => "trust_store_certificate_not_string",
             Self::Encoding { .. } => "trust_store_certificate_encoding",
@@ -231,14 +227,11 @@ impl StoreEntry {
         {
             return Err(EntryError::UnknownMember(name.to_owned()));
         }
-        let kind = AuthorityType::parse(text(entry, "type").map_err(EntryError::Type)?.to_owned())
-            .map_err(EntryError::Id)?;
-        let kind = match KnownAuthorityType::of(&kind) {
-            Some(KnownAuthorityType::Store(store)) => store,
-            Some(KnownAuthorityType::Aki) | None => return Err(EntryError::UnknownType(kind)),
-        };
+        let kind = text(entry, "type").map_err(EntryError::Type)?;
+        let kind = StoreType::named(kind)
+            .ok_or_else(|| EntryError::UnknownType(AuthorityType::of(kind.to_owned())))?;
         let value = text(entry, "value").map_err(EntryError::Value)?;
-        let value = AuthorityValue::parse(value.to_owned()).map_err(EntryError::Id)?;
+        let value = AuthorityValue::of(value.to_owned());
         let certificates = match entry.get("certificates") {
             None => return Err(EntryError::Certificates(MemberFault::Absent)),
             Some(Node::Array(certificates)) if certificates.is_empty() => {

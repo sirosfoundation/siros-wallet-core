@@ -7,6 +7,10 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-trust` writes the core's `Facts` from an issuer chain and the trust
+  store (`IssuerFacts`): `aki` with the chain's keyIdentifiers in base64url, and
+  each admitting store type with its values. The admission rule is the core's
+  `Facts::admits`, which the matcher, phase 2 and `AdmittedIssuer::resolve` run.
 - The presentation core: `siros-openid4vp`, `siros-x509`, `siros-mdoc`,
   `siros-sdjwt`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
   `siros-explain-derive`, `siros-i18n`, `siros-cldr` and `siros-integration`,

@@ -291,10 +291,7 @@ impl UsableAttestation {
         if issuer.leaf() != Some(tested.credential().signer().certificate()) {
             return Err(OtherIssuer::Certificate);
         }
-        if !issuer
-            .authorities()
-            .are_those_of(query.query().id(), query.query().trusted_authorities())
-        {
+        if !issuer.is_for(query.query().id(), query.query().trusted_authorities()) {
             return Err(OtherIssuer::Query);
         }
         Ok(Self { tested, issuer })

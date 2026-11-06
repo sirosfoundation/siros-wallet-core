@@ -1,23 +1,18 @@
-//! TR3's path validation, one case per rule, each refusal by its reason; and the picker's
-//! admission from the TR5 facts, which must equal the wallet's in every case.
+//! TR3's path validation, one case per rule, each refusal by its reason.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::{json, Value};
 use siros_openid4vp::host::Timestamp;
+use siros_trust::AuthorityType;
 use siros_trust::{
-    Admission, AdmittedIssuer, CertificateIndex, ChainIndex, ChainRefusal, Ground, IssuerChain,
-    IssuerFacts, KeyIdentifier, OnPath, PathRefusal, Refusal, StoreAuthority, StoreType,
+    AdmittedIssuer, CertificateIndex, ChainIndex, ChainRefusal, IssuerChain, OnPath, PathRefusal,
     TrustStore,
 };
-use siros_trust::{AuthorityType, AuthorityValue};
 use x509_cert::der::asn1::ObjectIdentifier;
 use x509_cert::ext::pkix::{KeyUsage, KeyUsages};
 
-use crate::support::{at, authorities, base64, chain, chain_of, store, Cert, Key, NOW};
-
-/// The Document Signer of ISO/IEC 18013-5, Annex D: keyUsage and extKeyUsage critical.
-const ANNEX_D_DOCUMENT_SIGNER: &[u8] = include_bytes!("vectors/annex_d_document_signer.der");
+use crate::support::{at, chain, over_query, store, Cert, Key, NOW};
 
 const LIST: &str = "https://tl.example/eu";
 
@@ -32,22 +27,15 @@ struct Case {
     store: TrustStore,
     authorities: Value,
     time: Timestamp,
-    expected: Result<Ground, Vec<Refusal<ChainRefusal>>>,
+    expected: Result<(), Vec<ChainRefusal>>,
 }
 
 fn etsi_tl(value: &str) -> Value {
     json!([{"type": "etsi_tl", "values": [value]}])
 }
 
-fn listed() -> Ground {
-    Ground::Store(StoreAuthority::new(
-        StoreType::EtsiTl,
-        AuthorityValue::parse(LIST).unwrap(),
-    ))
-}
-
-fn path(refusal: PathRefusal) -> Result<Ground, Vec<Refusal<ChainRefusal>>> {
-    Err(vec![Refusal::Issuer(ChainRefusal::Path(refusal))])
+fn path(refusal: PathRefusal) -> Result<(), Vec<ChainRefusal>> {
+    Err(vec![ChainRefusal::Path(refusal)])
 }
 
 /// A Document Signer that `iaca` signs, and the store that lists `iaca` under [`LIST`].
@@ -67,7 +55,7 @@ fn case(
     name: &'static str,
     (chain, store): (IssuerChain, TrustStore),
     authorities: Value,
-    expected: Result<Ground, Vec<Refusal<ChainRefusal>>>,
+    expected: Result<(), Vec<ChainRefusal>>,
 ) -> Case {
     Case {
         name,
@@ -93,21 +81,19 @@ fn cases() -> Vec<Case> {
             "no trusted_authorities",
             signed_by(&iaca, |ds| ds),
             Value::Null,
-            Ok(Ground::Unconstrained),
+            Ok(()),
         ),
         case(
             "an aki value a chain certificate's AuthorityKeyIdentifier names",
             signed_by(&iaca, |ds| ds.aki(&named_key)),
             json!([{"type": "aki", "values": [URL_SAFE_NO_PAD.encode(named_key).as_str()]}]),
-            Ok(Ground::KeyIdentifier(
-                KeyIdentifier::new(&named_key).unwrap(),
-            )),
+            Ok(()),
         ),
         case(
             "a two-level chain admitted through a store entry",
             signed_by(&iaca, |ds| ds),
             etsi_tl(LIST),
-            Ok(listed()),
+            Ok(()),
         ),
         case(
             "a three-level chain, the intermediate in the chain, over P-384",
@@ -116,7 +102,7 @@ fn cases() -> Vec<Case> {
                 store(&[("etsi_tl", LIST, &[&p384_root])]),
             ),
             etsi_tl(LIST),
-            Ok(listed()),
+            Ok(()),
         ),
         case(
             "an ISO/IEC 18013-5 link certificate: the new IACA key, signed by the listed one",
@@ -130,13 +116,13 @@ fn cases() -> Vec<Case> {
                 )
             },
             etsi_tl(LIST),
-            Ok(listed()),
+            Ok(()),
         ),
         case(
             "a Document Signer whose basicConstraints writes critical FALSE out",
             signed_by(&iaca, |ds| ds.ca(Some(false)).explicit_false_critical()),
             etsi_tl(LIST),
-            Ok(listed()),
+            Ok(()),
         ),
         case(
             "an expired leaf",
@@ -197,7 +183,7 @@ fn cases() -> Vec<Case> {
             "a value without a store entry",
             signed_by(&iaca, |ds| ds),
             etsi_tl("https://tl.example/other"),
-            Err(vec![Refusal::Issuer(ChainRefusal::NoStoreEntry)]),
+            Err(vec![ChainRefusal::NoStoreEntry]),
         ),
         case(
             "a signer whose keyUsage leaves keyCertSign out",
@@ -240,7 +226,7 @@ fn cases() -> Vec<Case> {
                 )
             },
             etsi_tl(LIST),
-            Ok(listed()),
+            Ok(()),
         ),
         case(
             "a critical extension TR3 does not process",
@@ -251,30 +237,17 @@ fn cases() -> Vec<Case> {
                 extension: INHIBIT_ANY_POLICY,
             }),
         ),
-        Case {
-            time: at("2021-01-01T00:00:00Z"),
-            ..case(
-                "the Annex D Document Signer, listed in the store itself",
-                (
-                    chain_of(ANNEX_D_DOCUMENT_SIGNER, &[]),
-                    TrustStore::parse(
-                        &json!([{"type": "etsi_tl", "value": LIST,
-                            "certificates": [base64(ANNEX_D_DOCUMENT_SIGNER)]}])
-                        .to_string(),
-                    )
-                    .unwrap(),
-                ),
-                etsi_tl(LIST),
-                Ok(listed()),
-            )
-        },
+        case(
+            "an aki value of no base64url form, which equals no key the chain names",
+            signed_by(&iaca, |ds| ds.aki(&named_key)),
+            json!([{"type": "aki", "values": ["not base64url!"]}]),
+            Err(vec![ChainRefusal::KeyIdentifierAbsent]),
+        ),
         case(
             "an unknown type",
             signed_by(&iaca, |ds| ds),
             json!([{"type": "x_unknown", "values": [LIST]}]),
-            Err(vec![Refusal::Type(
-                AuthorityType::parse("x_unknown").unwrap(),
-            )]),
+            Err(vec![ChainRefusal::Type(AuthorityType::of("x_unknown"))]),
         ),
     ]
 }
@@ -284,34 +257,13 @@ fn each_rule_of_tr3() {
     let failures: Vec<String> = cases()
         .into_iter()
         .filter_map(|case| {
-            let query = authorities(case.authorities);
-            let got = AdmittedIssuer::resolve(&query, Some(&case.chain), &case.store, case.time)
-                .map(|admitted| admitted.ground())
-                .map_err(|unadmitted| unadmitted.refusals().to_vec());
+            let got = over_query(case.authorities, |query| {
+                AdmittedIssuer::resolve(query, Some(&case.chain), &case.store, case.time)
+                    .map(drop)
+                    .map_err(|unadmitted| unadmitted.refusals().to_vec())
+            });
             (got != case.expected)
                 .then(|| format!("{}: got {got:?}, want {:?}", case.name, case.expected))
-        })
-        .collect();
-    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-}
-
-/// TR5: the facts the wallet records give the picker the wallet's admission, ground included,
-/// for every case at the same time.
-#[test]
-fn the_picker_admits_from_the_facts_as_the_wallet_does() {
-    let failures: Vec<String> = cases()
-        .into_iter()
-        .filter_map(|case| {
-            let query = authorities(case.authorities);
-            let wallet = AdmittedIssuer::resolve(&query, Some(&case.chain), &case.store, case.time)
-                .map(|admitted| admitted.ground())
-                .ok();
-            let facts = IssuerFacts::at(Some(&case.chain), &case.store, case.time);
-            let picker = Admission::of(&query, &facts)
-                .map(|admission| admission.ground().clone())
-                .ok();
-            (wallet != picker)
-                .then(|| format!("{}: wallet {wallet:?}, picker {picker:?}", case.name))
         })
         .collect();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));

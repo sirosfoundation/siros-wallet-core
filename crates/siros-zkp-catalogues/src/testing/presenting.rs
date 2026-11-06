@@ -24,9 +24,7 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::Query;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
-use siros_trust::{
-    AdmittedIssuer, ChainRefusal, IssuerChain, QueryAuthorities, TrustStore, Unadmitted,
-};
+use siros_trust::{AdmittedIssuer, IssuerChain, TrustStore, Unadmitted};
 use siros_x509::X509SanDns;
 use siros_zkp_req::{PairRefusal, ZkpFormats, ZkpPresentation, ZkpReqQuery};
 use x509_cert::builder::{Builder, CertificateBuilder, Profile};
@@ -58,7 +56,7 @@ pub enum Presenting {
     /// The mdoc is no tested attestation.
     Unusable(Unusable),
     /// The query's `trusted_authorities` do not admit the Document Signer.
-    Unadmitted(Unadmitted<ChainRefusal>),
+    Unadmitted(Unadmitted),
     /// The admission does not make the attestation usable.
     OtherIssuer(OtherIssuer),
     /// The attestation answers no option.
@@ -169,23 +167,18 @@ pub fn read_query<R>(query: &Value, with: impl FnOnce(&Query<'_>) -> R) -> Resul
 /// The `kid` of the Holder's device key.
 /// The admission of the Document Signer of `mdoc` by `query`'s `trusted_authorities`, against an
 /// empty trust store, at `now`.
-fn admitted(
-    query: &Value,
-    mdoc: &StoredMdoc,
-    now: DateTime,
-) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
-    let authorities = read_query(query, |query| {
-        QueryAuthorities::of(&query.id.clone().into_owned(), &query.trusted_authorities).unwrap()
-    })
-    .unwrap();
+fn admitted(query: &Value, mdoc: &StoredMdoc, now: DateTime) -> Result<AdmittedIssuer, Unadmitted> {
     let x5chain = mdoc.issuer_auth().x5chain();
     let chain = IssuerChain::parse(x5chain.first(), x5chain.certificates().skip(1)).unwrap();
-    AdmittedIssuer::resolve(
-        &authorities,
-        Some(&chain),
-        &TrustStore::parse("[]").unwrap(),
-        Timestamp(u64::try_from(now.unix()).unwrap()),
-    )
+    read_query(query, |query| {
+        AdmittedIssuer::resolve(
+            query,
+            Some(&chain),
+            &TrustStore::parse("[]").unwrap(),
+            Timestamp(u64::try_from(now.unix()).unwrap()),
+        )
+    })
+    .unwrap()
 }
 
 /// The nym_auth query of the Credential Query `query`.
