@@ -21,7 +21,7 @@ fn a_request_object_holds_exp_and_aud() {
         let refusal = Cs02Claims.check(node.as_object().expect("an object"));
         let rule = refusal.as_ref().map(|refusal| {
             let rule = (refusal.rule() as &dyn std::error::Error).downcast_ref::<ClaimAbsent>();
-            (rule.map(|rule| rule.claim()), refusal.code())
+            (rule.map(|rule| rule.claim().name()), refusal.code())
         });
         assert_eq!(
             rule,
