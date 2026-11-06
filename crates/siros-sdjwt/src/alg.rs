@@ -1,4 +1,5 @@
-//! The hash algorithms `_sd_alg` may name (RFC 9901 §4.1.1, §9.4), and the digests they give.
+//! The hash algorithms `_sd_alg` may name (RFC 9901 §4.1.1, §9.4), the digests they give, and the
+//! JWS algorithms an SD-JWT's signatures take (§4.1, §4.3).
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -38,6 +39,26 @@ impl IntoArg for Digest {
 
     fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
         self.0.arg()
+    }
+}
+
+/// A JWS algorithm whose signature a private key makes: every `alg` but `none` and the MAC
+/// algorithms of RFC 7518 §3.1 (RFC 9901 §4.1: signed "using the Issuer's private key"; §4.3: "It
+/// MUST NOT be `none`").
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SigningAlg(String);
+
+impl SigningAlg {
+    /// The algorithm named `name`; `None` for `none` and the MAC algorithms.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        (!matches!(name, "none" | "HS256" | "HS384" | "HS512")).then(|| Self(name.to_owned()))
+    }
+
+    /// The `alg` header value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

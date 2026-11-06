@@ -5,7 +5,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use rustc_hash::FxHashMap;
 use siros_openid4vp::json::{JsonError, Node};
 
-use crate::alg::HashAlg;
+use crate::alg::{HashAlg, SigningAlg};
 use crate::error::{
     DisclosureFault, EncodedJsonFault, IssuerJwtFault, ParseError, SdAlgFault, X5cError,
 };
@@ -19,29 +19,30 @@ use crate::tree::{DisclosureId, Object};
 /// design).
 pub struct SdJwt {
     issuer_jwt: String,
-    signing_alg: String,
+    signing_alg: SigningAlg,
+    typ: Option<String>,
     x5c: Option<Vec<Vec<u8>>>,
     alg: HashAlg,
     claims: Object,
 }
 
 impl SdJwt {
-    /// The SD-JWT of the compact form `compact`: the Issuer-signed JWT, then its disclosures, each
-    /// after a `~`, with an optional final `~` (§4).
+    /// The SD-JWT of the compact form `compact`: the Issuer-signed JWT and each of its disclosures,
+    /// each followed by a `~` (§4).
     ///
     /// # Errors
     ///
     /// [`ParseError`]: the first rule the text breaks.
     pub fn parse(compact: &str) -> Result<Self, ParseError> {
-        let (issuer_jwt, disclosures) = split(compact);
+        let (issuer_jwt, disclosures) = split(compact)?;
         let (header, payload) =
             issuer_header_and_payload(issuer_jwt).map_err(ParseError::IssuerJwt)?;
         let signing_alg = header
             .get("alg")
             .and_then(Node::as_str)
-            .filter(|alg| *alg != "none")
-            .ok_or(ParseError::IssuerJwt(IssuerJwtFault::Alg))?
-            .to_owned();
+            .and_then(SigningAlg::parse)
+            .ok_or(ParseError::IssuerJwt(IssuerJwtFault::Alg))?;
+        let typ = header.get("typ").and_then(Node::as_str).map(str::to_owned);
         let x5c = header
             .get("x5c")
             .map(certificate_chain)
@@ -69,6 +70,7 @@ impl SdJwt {
         Ok(Self {
             issuer_jwt: issuer_jwt.to_owned(),
             signing_alg,
+            typ,
             x5c,
             alg,
             claims,
@@ -112,19 +114,23 @@ impl SdJwt {
     /// The JWS algorithm of the Issuer-signed JWT.
     #[must_use]
     pub fn signing_alg(&self) -> &str {
-        &self.signing_alg
+        self.signing_alg.as_str()
+    }
+
+    /// The Issuer-signed JWT's `typ` header parameter (RFC 7515 §4.1.9); `None` when it holds no
+    /// string.
+    #[must_use]
+    pub fn typ(&self) -> Option<&str> {
+        self.typ.as_deref()
     }
 }
 
 /// The Issuer-signed JWT and the disclosures of `compact`.
-fn split(compact: &str) -> (&str, Vec<&str>) {
-    let (issuer_jwt, rest) = compact.split_once('~').unwrap_or((compact, ""));
-    // The forms `JWT` and `JWT~` leave `rest` empty.
-    if rest.is_empty() {
-        return (issuer_jwt, Vec::new());
-    }
-    let listed = rest.strip_suffix('~').unwrap_or(rest);
-    (issuer_jwt, listed.split('~').collect())
+fn split(compact: &str) -> Result<(&str, Vec<&str>), ParseError> {
+    let listed = compact.strip_suffix('~').ok_or(ParseError::NoFinalTilde)?;
+    let mut parts = listed.split('~');
+    let issuer_jwt = parts.next().unwrap_or(listed);
+    Ok((issuer_jwt, parts.collect()))
 }
 
 /// The `x5c` header parameter (RFC 7515 §4.1.6): a non-empty array of base64 strings with padding,

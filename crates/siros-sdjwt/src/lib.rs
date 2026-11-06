@@ -79,7 +79,7 @@ use view::SdJwtMembers;
 
 #[cfg(feature = "resolve")]
 pub use {
-    alg::Digest,
+    alg::{Digest, SigningAlg},
     error::{
         DisclosureFault, EncodedJsonFault, IssuerJwtFault, KeyBindingError, Misplaced, ParseError,
         RegistrationError, ReservedFault, SdAlgFault, SelectError, X5cError,

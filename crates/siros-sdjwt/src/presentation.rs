@@ -16,6 +16,7 @@ use siros_openid4vp::plugins::{Fault, Member, MemberValue};
 use siros_openid4vp::wallet::{Credential, Holder};
 
 use crate::FAULT;
+use crate::alg::SigningAlg;
 use crate::key_binding::{Audience, Binding, KbNonce, NumericDate};
 use crate::registration::DOCUMENT;
 use crate::sd_jwt::SdJwt;
@@ -70,10 +71,20 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
         }
         Holder::Bound => {
             let extra = members(&presenting)?;
+            let key_alg = SdJwtMembers::of(presenting.view).holder()?.alg;
+            let key_alg = SigningAlg::parse(key_alg).ok_or_else(|| {
+                Fault::new(
+                    FAULT,
+                    detail!(
+                        "{id}: the view's key_alg signs with no private key",
+                        id = id()
+                    ),
+                )
+            })?;
             let binding = selected
                 .key_binding(
                     Binding {
-                        alg: SdJwtMembers::of(presenting.view).holder()?.alg,
+                        alg: &key_alg,
                         iat: NumericDate(host.get::<dyn Platform>().now().0),
                         aud: &Audience::new(&presenting.session.audience()),
                         nonce: &KbNonce::new(presenting.session.nonce().as_str()),

@@ -1,12 +1,24 @@
 //! The refusals of S1 (RFC 9901 §7.1): one fixture per rule.
 
+use base64::DecodeError;
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::json::JsonError;
 use siros_sdjwt::{
     Digest, DisclosureFault, DisclosureId, EncodedJsonFault, IssuerJwtFault, Misplaced, ParseError,
-    ReservedFault, SdAlgFault, SdJwt,
+    ReservedFault, SdAlgFault, SdJwt, X5cError,
 };
 
 use crate::common::{compact, decoy, disclosure};
+
+fn b64(text: &str) -> String {
+    URL_SAFE_NO_PAD.encode(text)
+}
+
+/// An issuer JWT of the header text `header`, the payload `{}` and a signature.
+fn signed_under(header: &str) -> String {
+    format!("{}.{}.{}~", b64(header), b64("{}"), b64("sig"))
+}
 
 #[test]
 fn s1_refusals() {
@@ -20,7 +32,103 @@ fn s1_refusals() {
 
     let first = DisclosureId::new(0);
     let reserved_name = ParseError::ReservedClaimName;
+    let (header, payload) = (b64(r#"{"alg":"ES256"}"#), b64("{}"));
+    let issuer_fault = ParseError::IssuerJwt;
+    let disclosure_fault = |fault| ParseError::Disclosure {
+        disclosure: first,
+        fault,
+    };
+    let invalid_base64 = |offset, byte| DecodeError::InvalidByte(offset, byte);
     let rows: Vec<(&str, ParseError, String)> = vec![
+        (
+            "no final tilde",
+            ParseError::NoFinalTilde,
+            format!("{header}.{payload}.{}", b64("sig")),
+        ),
+        (
+            "an empty signature",
+            issuer_fault(IssuerJwtFault::SignatureEmpty),
+            format!("{header}.{payload}.~"),
+        ),
+        (
+            "a signature of no base64url",
+            issuer_fault(IssuerJwtFault::Signature(invalid_base64(0, b'!'))),
+            format!("{header}.{payload}.!!!!~"),
+        ),
+        (
+            "a header of no base64url",
+            issuer_fault(IssuerJwtFault::Header(EncodedJsonFault::Base64(
+                invalid_base64(0, b'!'),
+            ))),
+            format!("!!!!.{payload}.{}~", b64("sig")),
+        ),
+        (
+            "a header of no object",
+            issuer_fault(IssuerJwtFault::HeaderNotObject),
+            signed_under("[]"),
+        ),
+        (
+            "a payload of no object",
+            issuer_fault(IssuerJwtFault::PayloadNotObject),
+            format!("{header}.{}.{}~", b64("[]"), b64("sig")),
+        ),
+        (
+            "alg none",
+            issuer_fault(IssuerJwtFault::Alg),
+            signed_under(r#"{"alg":"none"}"#),
+        ),
+        (
+            "alg of a MAC",
+            issuer_fault(IssuerJwtFault::Alg),
+            signed_under(r#"{"alg":"HS256"}"#),
+        ),
+        (
+            "an x5c of no array",
+            ParseError::X5c(X5cError::NotArray),
+            signed_under(r#"{"alg":"ES256","x5c":"MIIB"}"#),
+        ),
+        (
+            "an x5c certificate of no base64",
+            ParseError::X5c(X5cError::Certificate(0)),
+            signed_under(r#"{"alg":"ES256","x5c":["!"]}"#),
+        ),
+        (
+            "an _sd_alg of no string",
+            ParseError::UnsupportedSdAlg(SdAlgFault::NotString),
+            compact(r#"{"_sd_alg":1}"#, &[]),
+        ),
+        (
+            "a disclosure of no base64url",
+            disclosure_fault(DisclosureFault::Encoding(EncodedJsonFault::Base64(
+                invalid_base64(0, b'!'),
+            ))),
+            compact("{}", &["!!!!"]),
+        ),
+        (
+            "a disclosure of no array",
+            disclosure_fault(DisclosureFault::NotArray),
+            compact("{}", &[&b64("{}")]),
+        ),
+        (
+            "a salt of no string",
+            disclosure_fault(DisclosureFault::Salt),
+            compact("{}", &[&b64(r#"[1,"a",1]"#)]),
+        ),
+        (
+            "a claim name of no string",
+            disclosure_fault(DisclosureFault::Name),
+            compact("{}", &[&b64(r#"["salt",1,1]"#)]),
+        ),
+        (
+            "an _sd of no array",
+            reserved_name(ReservedFault::SdNotArray),
+            compact(r#"{"_sd":"x"}"#, &[]),
+        ),
+        (
+            "an array digest of no string",
+            reserved_name(ReservedFault::ElementDigest),
+            compact(r#"{"a":[{"...":1}]}"#, &[]),
+        ),
         (
             "a repeated payload member",
             ParseError::IssuerJwt(IssuerJwtFault::Payload(EncodedJsonFault::Json(

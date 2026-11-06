@@ -66,8 +66,8 @@ pub enum IssuerJwtFault {
     /// The payload is not a JSON object.
     #[error("the payload is not a JSON object")]
     PayloadNotObject,
-    /// The header's `alg` is no string, or `none` (RFC 9901 §4.1).
-    #[error("the header's alg is no string, or none (RFC 9901 §4.1)")]
+    /// The header's `alg` is no string, `none` or a MAC algorithm (RFC 9901 §4.1).
+    #[error("the header's alg is no string, none or a MAC algorithm (RFC 9901 §4.1)")]
     Alg,
 }
 
@@ -157,6 +157,9 @@ impl std::fmt::Display for Misplaced {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "sdjwt.parse")]
 pub enum ParseError {
+    /// The text does not end in the `~` that follows the last part (§4).
+    #[error("the text does not end in a ~")]
+    NoFinalTilde,
     /// The Issuer-signed JWT is not three base64url segments whose header and payload are JSON
     /// objects with unique member names.
     #[error("the Issuer-signed JWT: {0}")]

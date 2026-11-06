@@ -6,7 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::json::Node;
 
-use crate::alg::HashAlg;
+use crate::alg::{HashAlg, SigningAlg};
 use crate::error::KeyBindingError;
 
 /// `iat` of a Key Binding JWT: whole seconds since 1970-01-01T00:00:00Z (RFC 7519 §2).
@@ -49,7 +49,7 @@ pub struct Presentation {
 #[derive(Debug, Clone, Copy)]
 pub struct Binding<'b> {
     /// The holder key's JWS algorithm, the header's `alg`.
-    pub alg: &'b str,
+    pub alg: &'b SigningAlg,
     /// When the wallet signs.
     pub iat: NumericDate,
     /// The Verifier.
@@ -84,7 +84,7 @@ impl Presentation {
         let text = |value: &str| Node::String(Cow::Owned(value.to_owned()));
         let header = Node::object([
             (Cow::Borrowed("typ"), text("kb+jwt")),
-            (Cow::Borrowed("alg"), text(binding.alg)),
+            (Cow::Borrowed("alg"), text(binding.alg.as_str())),
         ])?;
         let sd_hash = self.alg.digest(self.text.as_bytes());
         let seconds = i128::from(binding.iat.0);

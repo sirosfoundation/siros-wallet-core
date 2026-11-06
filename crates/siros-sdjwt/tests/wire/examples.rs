@@ -14,7 +14,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::claims::kit::ClaimsFormat;
 use siros_openid4vp::claims::{ClaimPath, ConcretePath};
 use siros_openid4vp::json::Node;
-use siros_sdjwt::{Audience, Binding, KbNonce, NumericDate, SdJwt, SdJwtVc};
+use siros_sdjwt::{Audience, Binding, KbNonce, NumericDate, SdJwt, SdJwtVc, SigningAlg};
 use siros_testkit::sd_jwt_reading::{SdJwtReadError, read};
 
 use crate::common::{compact_fixture, issued, json_fixture, processed};
@@ -106,7 +106,7 @@ fn rfc9901_examples() {
         let binding = presentation
             .key_binding(
                 Binding {
-                    alg: header.get("alg").unwrap().as_str().unwrap(),
+                    alg: &SigningAlg::parse(header.get("alg").unwrap().as_str().unwrap()).unwrap(),
                     iat: NumericDate(match payload.get("iat") {
                         Some(Node::Number(iat)) => iat.as_u64().unwrap(),
                         other => panic!("{other:?}"),
