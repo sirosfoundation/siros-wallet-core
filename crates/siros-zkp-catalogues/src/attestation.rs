@@ -69,8 +69,8 @@ impl DocumentSigner {
         let point = certificate
             .p256_key()
             .ok_or(DocumentSignerError::Key(KeyError::NotP256))?;
-        let key =
-            P256Key::from_sec1(point).map_err(|e| DocumentSignerError::Key(KeyError::Point(e)))?;
+        let key = P256Key::from_sec1(point.as_bytes())
+            .map_err(|e| DocumentSignerError::Key(KeyError::Point(e)))?;
         Ok(Self { certificate, key })
     }
 
