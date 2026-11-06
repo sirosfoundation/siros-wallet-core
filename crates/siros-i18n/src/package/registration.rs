@@ -81,6 +81,12 @@ impl CredentialName {
     }
 }
 
+impl std::fmt::Display for CredentialName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl IntoArg for CredentialName {
     type Kind = kind::Raw;
 
@@ -104,6 +110,12 @@ impl TransactionKind {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for TransactionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

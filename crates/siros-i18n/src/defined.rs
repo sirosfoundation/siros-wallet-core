@@ -111,7 +111,7 @@ pub enum DefinedError {
     #[error("the locale {0} is given twice")]
     Locale(#[explain(name = "locale")] LocaleTag),
     /// A locale lacks a declared key.
-    #[error("{key:?} has no message in {locale}")]
+    #[error("{key} has no message in {locale}")]
     Missing {
         /// The key.
         key: DefinedKey,
@@ -119,7 +119,7 @@ pub enum DefinedError {
         locale: LocaleTag,
     },
     /// A locale gives a key the declaration lacks.
-    #[error("{key:?} in {locale} is no key of the declaration")]
+    #[error("{key} in {locale} is no key of the declaration")]
     Undeclared {
         /// The key.
         key: DefinedKey,
@@ -127,7 +127,7 @@ pub enum DefinedError {
         locale: LocaleTag,
     },
     /// A message names an argument its declaration lacks.
-    #[error("{key:?} names {argument:?}, which its key does not declare")]
+    #[error("{key} names {argument}, which its key does not declare")]
     Argument {
         /// The key.
         key: DefinedKey,
@@ -135,9 +135,7 @@ pub enum DefinedError {
         argument: ParamName,
     },
     /// A typed argument whose kind the locale's main entry formats no bare value of.
-    #[error(
-        "{key:?} in {locale} formats {argument:?}, whose kind no main format of the locale takes"
-    )]
+    #[error("{key} in {locale} formats {argument}, whose kind no main format of the locale takes")]
     Format {
         /// The key.
         key: DefinedKey,
@@ -147,7 +145,7 @@ pub enum DefinedError {
         argument: ParamName,
     },
     /// A selector over an argument of a kind `:string` does not select on.
-    #[error("{key:?} selects on {argument:?}, which is no text")]
+    #[error("{key} selects on {argument}, which is no text")]
     Selector {
         /// The key.
         key: DefinedKey,
@@ -158,10 +156,10 @@ pub enum DefinedError {
     /// selectors', two variants of the same keys, or no variant of
     /// catch-alls alone (`message.abnf`; Variant Key Mismatch, Duplicate Variant, Missing
     /// Fallback Variant).
-    #[error("{0:?}'s variants break MF2's data model")]
+    #[error("{0}'s variants break MF2's data model")]
     Variants(#[explain(name = "key")] DefinedKey),
     /// Markup closing a style that is not the innermost open one, or a style left open.
-    #[error("{0:?} leaves its markup unbalanced")]
+    #[error("{0} leaves its markup unbalanced")]
     Markup(#[explain(name = "key")] DefinedKey),
 }
 

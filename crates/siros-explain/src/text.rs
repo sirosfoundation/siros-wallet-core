@@ -76,6 +76,12 @@ impl From<ArgName> for ParamName {
     }
 }
 
+impl std::fmt::Display for ParamName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl IntoArg for ParamName {
     type Kind = kind::Raw;
 
@@ -125,6 +131,12 @@ impl DefinedKey {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl std::fmt::Display for DefinedKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

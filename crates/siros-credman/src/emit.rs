@@ -75,6 +75,12 @@ impl EntryId {
     }
 }
 
+impl std::fmt::Display for EntryId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 impl IntoArg for EntryId {
     type Kind = kind::Raw;
 
@@ -154,11 +160,11 @@ pub enum EmitError {
     #[error(transparent)]
     Fault(#[from] Fault),
     /// An entry's renderer takes other inputs than its record commits to.
-    #[error("the renderer of the entry {0:?} takes other inputs than its record")]
+    #[error("the renderer of the entry {0} takes other inputs than its record")]
     Inputs(#[explain(name = "entry")] EntryId),
     /// A text of an entry's card, which no request changes, is not held precomputed in the
     /// language its screen shows: the registration's package was built for other cards.
-    #[error("a card text of the entry {0:?} is not held in its language")]
+    #[error("a card text of the entry {0} is not held in its language")]
     NotHeld(#[explain(name = "entry")] EntryId),
 }
 

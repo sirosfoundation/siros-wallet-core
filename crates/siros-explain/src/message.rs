@@ -11,6 +11,12 @@ use crate::arg::{ArgKind, ArgName, Args, IntoArg, Kind, Names, Presence};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MessageId(&'static str);
 
+impl std::fmt::Display for MessageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
 impl MessageId {
     /// The identifier; `None` for a text of fewer than two tokens.
     #[must_use]

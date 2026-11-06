@@ -181,7 +181,7 @@ pub enum ModuleError {
         locale: LocaleTag,
     },
     /// The module lacks an option of a format it uses, for a language it supports.
-    #[error("the module defines no {option} of {format:?} for {locale}")]
+    #[error("the module defines no {option} of {format} for {locale}")]
     Option {
         /// The format.
         format: FormatId,
@@ -191,7 +191,7 @@ pub enum ModuleError {
         locale: LocaleTag,
     },
     /// A format module refuses an option's text.
-    #[error("{option} of {format:?} for {locale} is no valid value: {text}")]
+    #[error("{option} of {format} for {locale} is no valid value: {text}")]
     OptionText {
         /// The format.
         format: FormatId,
@@ -203,7 +203,7 @@ pub enum ModuleError {
         text: String,
     },
     /// A format module reads an option its `options` do not name.
-    #[error("{format:?} reads {option}, which its options do not name")]
+    #[error("{format} reads {option}, which its options do not name")]
     UndeclaredOption {
         /// The format.
         format: FormatId,
@@ -214,7 +214,7 @@ pub enum ModuleError {
     #[error("two registered format modules provide {0}")]
     Compiler(#[explain(name = "name")] &'static str),
     /// A registered format module lists an option twice.
-    #[error("the format module {format:?} lists its option {option} twice")]
+    #[error("the format module {format} lists its option {option} twice")]
     Listed {
         /// The format.
         format: FormatId,
@@ -400,6 +400,13 @@ impl FormatFailure {
 }
 
 #[cfg(feature = "render")]
+impl std::fmt::Display for FormatFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+#[cfg(feature = "render")]
 impl IntoArg for FormatFailure {
     type Kind = kind::Name;
 
@@ -428,7 +435,7 @@ pub enum RenderError {
     #[error("the build registers no format module {0}")]
     Format(#[explain(name = "format")] String),
     /// A format module reported an MF2 formatting error.
-    #[error("the message does not format: {0:?}")]
+    #[error("the message does not format: {0}")]
     Message(#[explain(name = "kind")] FormatFailure),
     /// A query's arguments differ from its message's declaration: a name the message does not
     /// declare, a declared name left out, or a value of another kind.
@@ -450,10 +457,10 @@ pub enum RenderError {
         kind: BareKind,
     },
     /// Two registered render halves share an identity.
-    #[error("the build registers the format module {0:?} twice")]
+    #[error("the build registers the format module {0} twice")]
     Registered(#[explain(name = "format")] FormatId),
     /// A compiled placeholder's bytes do not read as its format module writes them.
-    #[error("a compiled placeholder of the format module {0:?} is malformed")]
+    #[error("a compiled placeholder of the format module {0} is malformed")]
     Compiled(#[explain(name = "format")] FormatId),
     /// The package refused an entry the text needs.
     #[error(transparent)]
@@ -491,7 +498,7 @@ pub enum PackageError {
     },
     /// Another version of the renderer built the package, so its precomputed texts are another
     /// renderer's.
-    #[error("the package was built by renderer {built:?}")]
+    #[error("the package was built by renderer {built}")]
     Renderer {
         /// The version that built it.
         built: RendererVersion,
@@ -506,7 +513,7 @@ pub enum PackageError {
     #[error("the module {0} is given twice")]
     RepeatedModule(#[explain(name = "module")] ModuleName),
     /// A package builder given a module's key twice.
-    #[error("the key {key:?} of the module {module} is given twice")]
+    #[error("the key {key} of the module {module} is given twice")]
     RepeatedKey {
         /// The module.
         module: ModuleName,
@@ -514,7 +521,7 @@ pub enum PackageError {
         key: MessageId,
     },
     /// A key the module does not hold.
-    #[error("the module {module} holds no key {key:?}")]
+    #[error("the module {module} holds no key {key}")]
     Key {
         /// The module.
         module: ModuleName,
@@ -528,10 +535,10 @@ pub enum PackageError {
     #[error("the package names no locale")]
     NoLocale,
     /// A registration's builder given a credential twice.
-    #[error("the credential {0:?} is given twice")]
+    #[error("the credential {0} is given twice")]
     RepeatedCredential(#[explain(name = "credential")] CredentialName),
     /// A registration's builder given a transaction type twice.
-    #[error("the transaction type {0:?} is given twice")]
+    #[error("the transaction type {0} is given twice")]
     RepeatedTransaction(#[explain(name = "transaction")] TransactionKind),
 }
 
