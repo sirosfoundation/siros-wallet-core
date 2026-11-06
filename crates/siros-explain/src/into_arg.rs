@@ -147,9 +147,9 @@ impl<T: Explain> IntoArg for T {
 }
 
 impl IntoArg for MessageId {
-    type Kind = kind::Raw;
+    type Kind = kind::Name;
 
-    fn arg(&self) -> &str {
+    fn arg(&self) -> &'static str {
         self.as_str()
     }
 }
