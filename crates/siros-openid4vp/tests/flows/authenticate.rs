@@ -3,7 +3,7 @@
 //! (A11), the endpoint (A12, A13), each refusal's route; the registry's and the configuration's
 //! rules; and the tamper cases, each failing for its rule with no `Authenticated` built.
 
-use siros_explain::Text;
+use siros_explain::{Explain, Text};
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
     BoundEndpoint, EndpointBasis, OriginPolicy, PrefixName, TrustConfig, Unauthenticated,
@@ -384,10 +384,12 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
         .map(drop)
         .expect_err("C8");
     assert_eq!(
-        refused.texts().collect::<Vec<_>>(),
-        [
-            "C8 a signed request whose expected_origins ['https://elsewhere.example'] lack the Origin https://verifier.example"
-        ]
+        refused
+            .refusals()
+            .iter()
+            .map(|refusal| refusal.id().as_str())
+            .collect::<Vec<_>>(),
+        ["openid4vp.rules.c8"]
     );
     // An unsigned request under OriginPolicy::Evaluate: the Origin's evaluation, A6 on a Deny.
     let parameters = fixtures::parameters(&super::test_queries(&["q"]), "");

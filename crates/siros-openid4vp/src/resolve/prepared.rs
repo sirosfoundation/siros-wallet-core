@@ -564,12 +564,13 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
             .and_then(|placement| profile.members(placement))
             .unwrap_or(&[]);
         if let Some(extra) = members.names().find(|member| !declared.contains(member)) {
-            return Err(Fault::new(
+            return Err(Fault::caused(
                 FAULT,
                 detail!(
                     "a profile wrote {extra}, which it does not declare",
                     extra = extra.clone()
                 ),
+                ParameterBreach::Undeclared,
             )
             .into());
         }

@@ -4,6 +4,7 @@
 
 mod common;
 
+use siros_explain::Explain;
 use siros_openid4vp::claims::kit::ClaimsQuery;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
@@ -294,7 +295,10 @@ fn a_json_boolean_is_no_integer() {
     let received = unsigned(&bare).expect("received");
     let bare = request_of(&received).expect("request");
     let refusals = ClaimsQuery::parse(&format, &bare.queries()[0], None).expect_err("refused");
-    assert_eq!(refusals.items()[0].text(), "x q: meta.vct_values is absent");
+    assert_eq!(
+        refusals.items()[0].id().as_str(),
+        "openid4vp.claims_query.rule"
+    );
 }
 
 #[test]

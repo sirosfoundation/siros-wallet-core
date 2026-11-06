@@ -1,6 +1,7 @@
 //! Routing and the request rules a URI request gains: P1, C5, P5, P6 at C5's place, P7, N1, S3,
 //! and C7 under the key rule; with the known answers of §8.3's key choice and §5.2's values.
 
+use siros_explain::Explain;
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::modes::{DcApi, DirectPost, DirectPostJwt, KeyChoice};
@@ -12,8 +13,8 @@ use siros_testkit::fixtures;
 use super::{KEY, fetched, link, registry, request_object, uri_payload};
 
 /// The refusals of a URI request with the payload: its parse's, else its acceptance's, each with
-/// its text and code.
-fn refusals(payload: &str) -> Vec<(String, ErrorCode)> {
+/// its rule and code.
+fn refusals(payload: &str) -> Vec<(&'static str, ErrorCode)> {
     let uri = link("test%3Averifier", "");
     let object = request_object(payload);
     let received = fetched(&uri, &object).expect("fetched");
@@ -30,7 +31,7 @@ fn refusals(payload: &str) -> Vec<(String, ErrorCode)> {
         refused
             .into_refusals()
             .into_iter()
-            .map(|refusal| (refusal.text(), refusal.code()))
+            .map(|refusal| (refusal.id().as_str(), refusal.code()))
             .collect()
     })
 }
@@ -51,39 +52,39 @@ fn each_routed_rule_refuses_with_its_code() {
         // P1: absent, another type.
         (
             with(p1, ""),
-            "P1 response_type is absent",
+            "openid4vp.routing.p1_absent",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(p1, r#""response_type":"code","#),
-            "P1 response_type 'code' names no response type the wallet answers",
+            "openid4vp.routing.p1_other",
             ErrorCode::UNSUPPORTED_RESPONSE_TYPE,
         ),
         // C5: absent; off the channel; direct_post.
         (
             with(&format!("{mode},"), ""),
-            "C5 response_mode None is no mode the wallet answers in by URI",
+            "openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"dc_api.jwt""#),
-            "C5 response_mode 'dc_api.jwt' is no mode the wallet answers in by URI",
+            "openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(mode, r#""response_mode":"direct_post""#),
-            "C5 response_mode 'direct_post' is no mode the wallet answers in by URI",
+            "openid4vp.routing.c5_uri",
             ErrorCode::INVALID_REQUEST,
         ),
         // P5, P6, P7.
         (
             uri_payload(r#","redirect_uri":"https://verifier.example/cb""#),
-            "P5 redirect_uri is present with response_mode direct_post.jwt",
+            "openid4vp.routing.p5",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             with(r#""state":"eyJhb-6-sVA""#, r#""state":"a b""#),
-            "P6 state is not a non-empty string of URL-safe ASCII",
+            "openid4vp.routing.p6",
             ErrorCode::INVALID_REQUEST,
         ),
         (
@@ -91,30 +92,30 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#""format":"test""#,
                 r#""format":"test","require_cryptographic_holder_binding":false"#,
             ),
-            "P7 a query waives holder binding and state is absent",
+            "openid4vp.parameters.p7",
             ErrorCode::INVALID_REQUEST,
         ),
         // N1, S3.
         (
             with("n-0S6_WzA2Mj", "n 0"),
-            "N1 nonce is not URL-safe ASCII",
+            "openid4vp.parameters.n1",
             ErrorCode::INVALID_REQUEST,
         ),
         (
             uri_payload(r#","scope":"openid""#),
-            "S3 scope value openid names no DCQL query the wallet registers",
+            "openid4vp.parameters.s3",
             ErrorCode::INVALID_SCOPE,
         ),
         // S4: dcql_query beside a scope naming a query (§5.1: "but not both").
         (
             uri_payload(r#","scope":"org.example.test""#),
-            "S4 dcql_query and a scope naming a DCQL query are both present",
+            "openid4vp.parameters.s4",
             ErrorCode::INVALID_REQUEST,
         ),
         // C7: no key the rule accepts (alg absent), no enc it accepts.
         (
             with(r#","alg":"ECDH-ES""#, ""),
-            "C7 direct_post.jwt: client_metadata offers no key and content encryption the wallet supports",
+            "openid4vp.modes.c7_key",
             ErrorCode::INVALID_REQUEST,
         ),
         (
@@ -122,13 +123,12 @@ fn each_routed_rule_refuses_with_its_code() {
                 r#"]}}"#,
                 r#"]},"encrypted_response_enc_values_supported":["A128CBC-HS256"]}"#,
             ),
-            "C7 direct_post.jwt: client_metadata offers no key and content encryption the wallet supports",
+            "openid4vp.modes.c7_enc",
             ErrorCode::INVALID_REQUEST,
         ),
     ];
-    for (payload, text, code) in cases {
-        let refused = refusals(&payload);
-        assert_eq!(refused, [(text.to_owned(), code)], "{payload}");
+    for (payload, rule, code) in cases {
+        assert_eq!(refusals(&payload), [(rule, code)], "{payload}");
     }
 }
 
