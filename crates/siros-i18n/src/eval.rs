@@ -174,38 +174,53 @@ impl Renderer<'_> {
         let main = main.ok_or(RenderError::Bare { kind })?;
         let chosen = self.chosen_of(main, trail)?;
         let call = chosen
-            .index
-            .bare
-            .get(kind)
+            .bare()
+            .and_then(|bare| bare.get(kind))
             .ok_or(RenderError::Bare { kind })?;
         self.call(call, held, sink)
     }
 
-    /// The package's module that holds `key`'s message: a crate module whose domain prefixes
-    /// its identifier, the longest, else the main module; a defined module by its identity.
-    fn holder(&self, key: &Key) -> Option<&ModuleRecord> {
+    /// The package's module that holds a message of `id`: a crate module whose domain prefixes
+    /// the identifier, the longest, else the main module.
+    fn holder(&self, id: &str) -> Option<&ModuleRecord> {
         let modules = &self.manifest.modules;
+        let holds = |domain: &str| {
+            id.strip_prefix(domain)
+                .is_some_and(|rest| rest.starts_with('.'))
+        };
+        let main = || {
+            modules
+                .iter()
+                .find(|module| *module.id.kind() == StoredKind::Main)
+        };
+        modules
+            .iter()
+            .filter(|module| domain(module).is_some_and(holds))
+            .max_by_key(|module| domain(module).map_or(0, str::len))
+            .or_else(main)
+    }
+
+    /// The screen's locale entry of the module that holds `key`'s message, which the rendering
+    /// then draws from: a package's module by [`Renderer::holder`], a defined module by its
+    /// identity, in the package or carried beside it.
+    fn holding(&self, key: &Key, trail: &mut Trail) -> Result<&ChosenForm<'_>, RenderError> {
         match key {
             Key::Message(id) => {
-                let holds = |domain: &str| {
-                    id.as_str()
-                        .strip_prefix(domain)
-                        .is_some_and(|rest| rest.starts_with('.'))
-                };
-                let main = || {
-                    modules
-                        .iter()
-                        .find(|module| *module.id.kind() == StoredKind::Main)
-                };
-                modules
-                    .iter()
-                    .filter(|module| domain(module).is_some_and(holds))
-                    .max_by_key(|module| domain(module).map_or(0, str::len))
-                    .or_else(main)
+                let module = self.holder(id.as_str()).ok_or(RenderError::Unknown)?;
+                self.chosen_of(module, trail)
             }
             Key::Defined { module, .. } => {
                 let id = ModuleId::Defined(*module);
-                modules.iter().find(|record| record.id.is(id))
+                if let Some(entry) = self.chosen.entries().iter().find(|e| *e.key() == id) {
+                    trail.reach(id);
+                    return Ok(entry.value());
+                }
+                match self.manifest.modules.iter().find(|record| record.id.is(id)) {
+                    Some(record) => Err(RenderError::Outside {
+                        module: record.id.name(),
+                    }),
+                    None => Err(RenderError::Unknown),
+                }
             }
         }
     }
@@ -215,7 +230,7 @@ impl Renderer<'_> {
         &self,
         module: &ModuleRecord,
         trail: &mut Trail,
-    ) -> Result<&ChosenForm, RenderError> {
+    ) -> Result<&ChosenForm<'_>, RenderError> {
         let entry = self
             .chosen
             .entries()
@@ -230,16 +245,23 @@ impl Renderer<'_> {
 
     /// The message a query names, read from its module's locale entry, and the entry's direction.
     fn find(&self, key: &Key, trail: &mut Trail) -> Result<Found, RenderError> {
-        let module = self.holder(key).ok_or(RenderError::Unknown)?;
-        let chosen = self.chosen_of(module, trail)?;
+        let chosen = self.holding(key, trail)?;
         let id = match key {
             Key::Message(id) => id.as_str(),
             Key::Defined { key, .. } => key.as_str(),
         };
-        let entry = chosen.index.message(id).ok_or(RenderError::Unknown)?;
+        let message = match chosen {
+            ChosenForm::Package { index, .. } => {
+                let entry = index.message(id).ok_or(RenderError::Unknown)?;
+                self.package.message(&self.manifest, entry)?
+            }
+            ChosenForm::Carried { locale, .. } => {
+                locale.message(id).cloned().ok_or(RenderError::Unknown)?
+            }
+        };
         Ok(Found {
-            message: self.package.message(&self.manifest, entry)?,
-            direction: chosen.index.direction,
+            message,
+            direction: chosen.direction(),
         })
     }
 

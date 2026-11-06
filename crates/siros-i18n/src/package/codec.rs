@@ -4,7 +4,6 @@
 use siros_explain::{ArgKind, Presence};
 
 use crate::bytes::Reader;
-#[cfg(feature = "load")]
 use crate::bytes::Writer;
 use crate::error::PackageError;
 use crate::form::{
@@ -38,7 +37,6 @@ pub(super) fn list<'a, T>(
 }
 
 /// Writes a counted list, each item by `write`.
-#[cfg(feature = "load")]
 pub(super) fn write_list<T>(
     writer: &mut Writer,
     items: &[T],
@@ -82,8 +80,7 @@ pub(super) fn direction(reader: &mut EntryReader<'_>) -> Result<Direction, Packa
 }
 
 /// Writes a direction.
-#[cfg(feature = "load")]
-pub(super) fn write_direction(writer: &mut Writer, direction: Direction) {
+pub(crate) fn write_direction(writer: &mut Writer, direction: Direction) {
     writer.byte(direction_byte(direction));
 }
 
@@ -167,7 +164,6 @@ fn by_byte<T: Copy>(
 }
 
 /// Writes a style.
-#[cfg(feature = "load")]
 pub(super) fn write_style(writer: &mut Writer, style: Style) {
     writer.byte(style_byte(style));
 }
@@ -178,7 +174,6 @@ pub(super) fn style(reader: &mut EntryReader<'_>) -> Result<Style, PackageError>
 }
 
 /// Writes a compiled call.
-#[cfg(feature = "load")]
 fn write_call(writer: &mut Writer, call: &CompiledCall) {
     writer.text(&call.format);
     writer.run(&call.bytes);
@@ -221,8 +216,7 @@ pub(super) fn bare(reader: &mut EntryReader<'_>) -> Result<BareCalls, PackageErr
 }
 
 /// Writes a compiled message.
-#[cfg(feature = "load")]
-pub(super) fn write_message(writer: &mut Writer, message: &MessageForm) {
+pub(crate) fn write_message(writer: &mut Writer, message: &MessageForm) {
     writer.text(&message.id);
     write_list(writer, &message.params, |writer, param| {
         writer.text(&param.name);
@@ -270,7 +264,6 @@ pub(super) fn write_message(writer: &mut Writer, message: &MessageForm) {
 }
 
 /// Writes a pattern.
-#[cfg(feature = "load")]
 fn write_pattern(writer: &mut Writer, parts: &[PartForm]) {
     write_list(writer, parts, |writer, part| match part {
         PartForm::Text(text) => {
