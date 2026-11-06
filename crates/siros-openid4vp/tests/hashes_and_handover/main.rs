@@ -194,9 +194,11 @@ fn subresource_integrity_follows_the_w3c_example() {
         (body.to_vec(), format!("{s384}?ct=a"), true),
         (body.to_vec(), s384.replace("sha384", "SHA384"), true),
         (body.to_vec(), format!("{s384} md5-AAAA"), true),
-        // CSP3's base64-value: `=` ends it, twice at most, and it is not empty.
-        (body.to_vec(), format!("{s384} sha512-A=A"), false),
-        (body.to_vec(), format!("{s384} sha512-A==="), false),
+        // CSP3's base64-value: `=` ends it, twice at most, and it is not empty. A weaker
+        // algorithm's digest breaks the metadata that the strongest would pass.
+        (body.to_vec(), format!("{s512} sha384-A=A"), false),
+        (body.to_vec(), format!("{s512} sha384-A==="), false),
+        (body.to_vec(), format!("{s512} sha384-"), false),
         (body.to_vec(), "sha384-".to_owned(), false),
         (body.to_vec(), String::new(), false),
         (body.to_vec(), sri::integrity(body), true),
