@@ -285,7 +285,7 @@ plays `FromRef`.
 | siros-openid4vp (core) | What OpenID4VP fixes, and the invariants no extension can break: every answer reaches the authenticated endpoint; a signature verifies under the key the prefix bound; phase 2 answers only records phase 1 derived; a record commits to the request as received. The host's access traits (`Has`, `MayHave`), the module it calls with no extension registered (`Platform`), and the modules its registrations bound (`Haip`, `RequestDecryption`). Arrival: DC API `data`, the Authorization Request URI, the Request Object's fetch step; `Received` and its digest; JOSE structure (compact and JSON JWS, JWT times, the JWE Request Object); the `Envelope`; routing over the registered response types and modes; request content (DCQL, `nonce`, `scope` through the registered scope queries); the Client Identifier's classification and dispatch to the registered prefix; the signature check under the bound key, by the module's stated algorithms; the effect types; the route, which binds the endpoint and the mode's encryption, the sealing of every encrypted answer, A.4's DC API error, and the session's binding facts; error responses, their `Route` and `ErrorRoute`; `Delivery`; the Response URI's `redirect_uri`; `wallet_metadata`'s and the POST's composition; phase 2 over an authenticated request. Every extension point's trait, its registration and the conflicts it refuses (section 4.12). As peers behind features: `vp_token`, OpenID4VP's modes, the SHA-2 hash algorithms, the POST of `wallet_metadata` (`RequestPost`), encrypted Request Objects (`EncryptedRequests`) with `RequestDecryption`, the `cbor` module, W3C SRI and the claims kit. |
 | siros-x509 (new) | `x509_hash` and `x509_san_dns`: the `x5c` chain, the leaf's hash, dNSName entries and key as a public JWK, the trust question with `verifier_info` and the DCQL query in its context, the endpoints the decision lists, the facts it states, `x509_san_dns`'s host rule. |
 | siros-mdoc, siros-sdjwt | Read the session's binding facts; their `vp_formats_supported` members and their placement of a profile's members (`Format::placement`). siros-mdoc owns B.2.6's handover, the RFC 7638 thumbprint, ISO/IEC 18013-5's `SessionTranscript` and the `DeviceMac` module, with the core's `cbor`. siros-sdjwt matches `vct_values` against the credential type's `extends` chain. |
-| siros-paso, siros-qes | Revalidate from resources the caller fetched; place their response members by the format's placement. siros-paso defines the `Paso`, `RandomIds` and `CoseEncrypt` modules, classifies an inherence factor as `bio_strong` or `bio_weak` (Risk Signal Registry §2.8), seals signals with `CoseEncrypt` and the core's `cbor` behind its `sealed-signals` feature, and opens its engine to siros-ts12 (section 4.10.3). |
+| siros-paso, siros-qes | Revalidate from resources the caller fetched; place their response members by the format's placement. siros-paso defines the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` modules, verifies an ad-hoc metadata JWT (Proof Metadata §5.3) with siros-x509's `x5c` chain behind its `resolve` feature, classifies an inherence factor as `bio_strong` or `bio_weak` (Risk Signal Registry §2.8), seals signals with `CoseEncrypt` and the core's `cbor` behind its `sealed-signals` feature, and opens its engine to siros-ts12 (section 4.10.3). |
 | siros-ts12 (new) | TS12's `payment` and `login_risk_transaction` under `urn:eudi:sca:`: the registration document, typed payloads, the translation into PaSO's model, the request rules T1 to T6, TS12's Key Binding JWT claims (section 4.10.2). |
 | siros-credman (new) | Android Credential Manager's Standard and Payment entries (`AddEntryToSet`, `AddPaymentEntryToSetV2`), mapped from the core's consent entry, for the matcher. |
 | siros-webuild (new) | WE BUILD's deployment rules beside its profile: CS-02 §8.2's Request Object claims (`Cs02Claims`, an `ObjectRule`) and CS-02 §8.3's error answer from the Response URI (`Cs02ErrorAnswer`, an `AnswerReader`). |
@@ -1530,8 +1530,9 @@ pub enum AttackDetection { Present, Absent, Unreported }
 /// the record with the resources its profile wanted, each with what the caller fetched. Every
 /// method a `resolve` type names sits here, so `Profile` compiles the same in every build.
 pub trait ProfileHost<H>: Profile {
-    /// The resources the profile revalidates the record with; pure, reading the record can fail.
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
+    /// The resources the profile revalidates the record with, from the record, the profile's
+    /// data and the host's modules; reading the record can fail.
+    fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault>;
     /// The profile with phase 2's findings, for re-running the consent.
     fn informed(&self, findings: &[&Self::Finding]) -> Self;
     /// The End-User authentication the record needs.
@@ -1657,7 +1658,8 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// `Rejection::NoAlternative`. A record's transaction is its candidate's
     /// `TransactionBinding`.
     pub fn prepare(authenticated: &'p Authenticated<'p>, ids: &[&str], wallet: &'p Wallet<'p>,
-                   registry: &'p Registry<H>, env: &'p Env) -> Result<Self, Outcome>;
+                   registry: &'p Registry<H>, env: &'p Env, rendering: &Rendering<'_>, host: &H)
+        -> Result<Self, Outcome>;
     pub fn questions(&self) -> &[Resource];
     /// In order: each query read again through `FormatHost::answer`; `fetch` answers every
     /// resource, once, in order; the route and its `AnswerRoute`, or the answering mode's refusal
@@ -1682,6 +1684,7 @@ The modules, by family:
 | `Haip` | HAIP §5, §7 | `verifies`, `verify`, `sign`, `agreements`, `encrypt_jwe` | zero-sized | core, `resolve` | the registrations `client_prefix` and `jwe_mode` (through `JweHost`); siros-sdjwt, siros-mdoc, siros-paso | |
 | `RequestDecryption` | §5.10, RFC 9101 §6.1 | `decrypts`, `ephemeral_key`, `decrypt` | a handle (the module keeps the secrets) | core, `request-decryption` | the registration `request_encryption` | |
 | `RandomIds` | RFC 9562 | `random_id` | a handle (the platform's RNG) | siros-paso | siros-paso, siros-ts12 | |
+| `IssuerTrust` | the wallet's trust store of credential issuers: an ad-hoc metadata JWT's `x5c` chain (Proof Metadata §5.3 step 3) | `anchor(&X5c, Timestamp) -> Option<RootCertificate>` | a handle (the app's store; siros-trust's `TrustStore::anchor`) | siros-paso, `resolve` | siros-paso | |
 | `CoseEncrypt` | RFC 9052's `COSE_Encrypt`: PaSO's sealed signals (Risk Signals §7.6) | `encryptions`, `encrypt_cose` | zero-sized | siros-paso, every `resolve` build | | siros-paso, bounded in every build, called under `sealed-signals` |
 | `DeviceMac` | ISO/IEC 18013-5 §9.1.3.5 | `mac` | zero-sized | siros-mdoc | | siros-mdoc; else `Haip::sign` |
 | `Paso` | PaSO Core §6.1, Risk Signals | `version`, `measure` | a handle (the app keeps the measurements) | siros-paso | siros-paso | |
@@ -1693,7 +1696,7 @@ module's accessor: `client_prefix` `Has<dyn Haip>` (A7 and A8), `jwe_mode` `JweH
 holding `Haip`, for the sealing, or `NoHost`, whose phase 1 reads the mode alone),
 `request_encryption` `Has<dyn RequestDecryption>`. A plug-in bounds the modules it calls itself:
 a format that signs `Has<dyn Haip>`, siros-paso and siros-ts12 siros-paso's `Has<dyn RandomIds>`,
-siros-paso's phase 2 `MayHave<dyn CoseEncrypt>` in every build. siros-paso's `CoseEncrypt` and
+siros-paso's phase 2 `Has<dyn IssuerTrust>` and `MayHave<dyn CoseEncrypt>` in every build. siros-paso's `CoseEncrypt` and
 `CoseEnc` compile in every `resolve` build, so a host states its `CoseEncrypt` slot whatever
 another crate turns on; `sealed-signals` adds `SealedCose`, its check, the sealing and
 `TestCoseEncrypt`. An unsigned DC API build of `dc_api` and a
@@ -1717,8 +1720,9 @@ which states no `CoseEncrypt` slot, and the compiler refuses the build (E0277).
 `respond(request, ids, wallet, registry, env, runtime)` is removed, and `Outcome` gains
 `Unroutable`. `FormatQuery::present` leaves for `AnsweredOption::present`. `ProfileHost` holds
 `wanted`, `informed` and `authentication`, each naming a `resolve` type, so `Profile` compiles
-the same in every build (section 4.11): `fn wanted(&self, record: Answered<'_>) ->
-Result<Vec<HttpsUrl>, Fault>` (pure; reading the record can fail), and `ProfileHost::revalidate`
+the same in every build (section 4.11): `fn wanted(&self, record: Answered<'_>, host: &H) ->
+Result<Vec<HttpsUrl>, Fault>` (from the record, the profile's data and the host's modules;
+reading the record can fail), and `ProfileHost::revalidate`
 reads the fetched resources from its `FetchedRecord`.
 siros-paso's images and siros-qes's documents move there. `Profile` gains `fn reserves(&self,
 credential: &Credential<'_>) -> bool` (phase 1): a credential a profile reserves is a candidate
@@ -3123,7 +3127,7 @@ siros-paso's renderings and response members stay byte-identical through the cha
 | URI schemes, registered by the caller | `openid4vp://`, `eu-eaap://`; `haip-vp://` optional | CS-02 §7.1 item 3 |
 | Request Object rules | siros-webuild's `Cs02Claims`: a Request Object holds `exp` and `aud` (A14) | CS-02 §8.2, §6.1.3 |
 | Response URI answer readers | siros-webuild's `Cs02ErrorAnswer`: the Verifier's `error` and `error_description` | CS-02 §8.3, §6.1.7 |
-| Host | `Platform`; `Haip` (for siros-x509, `dc_api.jwt`, `direct_post.jwt`, siros-sdjwt's signatures and siros-paso's sealed risk signals); `RequestDecryption` (for the registered `EncryptedRequests`); siros-paso's `Paso` and `RandomIds`. The build holds no mdoc (CS-12: "TS12 [1] itself is scoped to SD-JWT-VC"), so neither `CoseEncrypt` nor `DeviceMac` | decision 13 |
+| Host | `Platform`; `Haip` (for siros-x509, `dc_api.jwt`, `direct_post.jwt`, siros-sdjwt's signatures, siros-paso's sealed risk signals and its ad-hoc metadata JWTs); `RequestDecryption` (for the registered `EncryptedRequests`); siros-paso's `Paso`, `RandomIds` and `IssuerTrust`. The build holds no mdoc (CS-12: "TS12 [1] itself is scoped to SD-JWT-VC"), so neither `CoseEncrypt` nor `DeviceMac` | decision 13 |
 | Response modes | `direct_post.jwt` and `direct_post` (feature `uri`), `dc_api.jwt` (feature `dc-api`) | HAIP §5.1, §5.2; CS-07 |
 | The trust service | `verifier_info` required; the WRPAC and WRPRC checks CS-13 WU-INT-01 points to (CS-018 WU-TV-01 to -11, -13, -14); CS-13 WU-INT-02 to -04 | CS-02 §7.1 item 6; CS-13 §7.2, §7.5 |
 
@@ -3163,7 +3167,7 @@ siros-matcher       siros-dc-matcher: the core and the plug-ins without resolve,
 | :-- | :-- | :-- |
 | siros-openid4vp | siros-explain; siros-i18n without default features, with `render`, `number` and `list` | the error contract (section 4.13); the renderer and the format modules its own messages call: counts (`:number`) and lists of reasons (`:siros:list`) (section 4.14) |
 | siros-x509, siros-mdoc, siros-sdjwt, siros-qes, siros-webuild, siros-zkp-req | the core; siros-explain | the traits each implements |
-| siros-paso | the core; siros-explain; siros-i18n with `number`, `currency` and `date` | the traits it implements; PaSO View's value types, which render as amounts and dates (section 4.14) |
+| siros-paso | the core; siros-explain; siros-i18n with `number`, `currency` and `date`; siros-x509 under `resolve` | the traits it implements; PaSO View's value types, which render as amounts and dates (section 4.14); an ad-hoc metadata JWT's `x5c` chain, its leaf's key and subject (Proof Metadata §5.3) |
 | siros-ts12 | the core; siros-paso; siros-explain | siros-paso's engine renders TS12's entries (section 4.10.3); the core's `ViewAdditions` gives a credential's `types` (reading 26); the error contract (section 4.13) |
 | siros-credman | the core; siros-explain | the consent entry it maps |
 | siros-i18n | siros-explain | the texts and values it renders, and its errors' contract (sections 4.13, 4.14) |
@@ -3363,7 +3367,7 @@ implement the same trait.
 | `Has`, `MayHave` | a build's host struct | | presence by the slot's type | | | `resolve` | siros-integration's builds; `test_host!` | |
 | `Platform`, `Haip` | the host: the app's clock, keystore, prompts and cryptography | `Credential`, `Signed`, `VerificationKey`, `RouteKey` | `SealedJwe` parsed; `verify` and `encrypt_jwe` called for what the statements name alone | | | `resolve` | the app | `TestPlatform`, `TestHaip` |
 | `RequestDecryption` | the host, for `EncryptedRequests` | `EphemeralKey`, `CompactJwe` | the drawn key's JWK public and on a stated curve; the JWE's `alg` and `enc` against `decrypts` | `RequestPost` or `EncryptedRequests` twice; `EncryptedRequests` without `RequestPost` | | `request-decryption` | the app | `TestRequestDecryption` |
-| `Paso`, `RandomIds`, `CoseEncrypt` | the host, for siros-paso | `SignalType`, `AgreeableKey` | `SealedCose` parsed, its `enc` one `encryptions` states | | | siros-paso; `CoseEncrypt` in every `resolve` build, its sealing under `sealed-signals` | the app | siros-paso's `TestPaso`, `TestRandomIds`, `TestCoseEncrypt` |
+| `Paso`, `RandomIds`, `IssuerTrust`, `CoseEncrypt` | the host, for siros-paso | `SignalType`, `AgreeableKey`, `X5c`, `RootCertificate` | `SealedCose` parsed, its `enc` one `encryptions` states | | | siros-paso; `IssuerTrust` and `CoseEncrypt` in every `resolve` build, the sealing under `sealed-signals` | the app | siros-paso's `TestPaso`, `TestRandomIds`, `TestIssuerTrust`, `TestCoseEncrypt` |
 | `DeviceMac` | the host, for siros-mdoc | `SessionTranscriptBytes` | | | | siros-mdoc | the app | siros-mdoc's `TestDeviceMac` |
 | The effects: `Evaluation`, `Resource`, `Decision`, `Fetch` | the caller's loop | the step's `Slots` | one answer of the question's kind per slot | | | `resolve` | `_guide::caller` | siros-testkit's trust service |
 | `FormatCompiler`, `FormatRenderer` (siros-i18n) | a format module: its load half and its render half | `LanguageFormats`, `Input` | a `FormatId` once; a compiled form under the package's root | a `FormatId` or a function twice | | siros-i18n | siros-i18n's format modules | |
@@ -3829,6 +3833,31 @@ into the registration; the matcher reads it lazily and renders through it as eve
   allows, or as its path as written. Phase 2's texts
   (consent screens, errors) stay out. The matcher's build links the render halves of the formats
   these texts use, and no other.
+  Each module the wallet registers declares the messages its request texts draw from as one type
+  (siros-explain's `DeclaredModule::Requested`, a `Requested` type naming its module), and a
+  `RequestText` is built only from a message of that type, a value, a name, a received text or a
+  defined module's message: a request text built from another message does not compile. An
+  overlay's rows, its header and its hint hold `RequestText`s. siros-credman's registration
+  writer takes each module as `Registered::of::<M: DeclaredModule>`, so the package holds the
+  declared messages of each module and no others (the core's `BooleanText`, PaSO's
+  `PasoRequested`, QES's `QesText`), and each transaction type's defined module whole.
+- **Ad-hoc metadata** (PaSO Proof Metadata §5). A `transaction_data` entry's `metadata` JWT stands
+  in for the stored metadata for that transaction (§5.4), so its texts depend on the request,
+  and the matcher handles it. It reads the JWT as it reads a signed request: the payload parsed,
+  unverified (siros-paso's `adhoc::Carried::read`, over a DC API request alone). siros-paso
+  converts its display rules straight into compiled messages and format options, the form the
+  package holds, with no loader (`view::convert` writes a `DefinedForm`; `view::carried` the
+  request's); the matcher runs View §4 over them and renders the entry's texts, the
+  registration's package carrying the converted modules (`Rendering::carrying`). The wallet
+  verifies the JWT as §5.3 states (the `typ`, the signature, the key's trust, `iss`, `exp`, the
+  credential binding of §7 step 6, the type) before it relies on it: in phase 2, and in the URI
+  flow before it converts. In the URI flow `adhoc::Verified::of` verifies each JWT for each
+  credential through the host's `Haip`, `IssuerTrust` and `Platform`, `view::verified` converts
+  what it verified, and first match relies on a JWT for a credential once
+  `PasoProfile::with_verified` holds it verified for that credential. In phase 2
+  `ProfileHost::wanted` verifies it before it lists the images to fetch, and the revalidation
+  refuses it (`PasoFinding::refused`). An entry whose JWT fails is incompatible for the
+  credential, with no fallback to the stored metadata (§5.3).
 - **Reading.** The package sits in the registration's seekable binary format: a request reads the
   entries of the texts it shows and the messages of the texts it renders.
 - **Inputs.** The package records what it was built from: the priority and fallback lists, the
@@ -4886,7 +4915,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Mdoc` | `lib` | siros-mdoc, bound to `Haip`, `DeviceMac` when held | Holds: a unit struct |
 | `X509Hash` | `lib` | siros-x509's `x509_hash`, for every host | Holds: a unit struct |
 | `X509SanDns` | `lib` | siros-x509's `x509_san_dns`, for every host | Holds: a unit struct |
-| `PasoProfile` | `lib` | siros-paso without `sealed-signals`, bound to `Platform`, `Haip`, `Paso`, `RandomIds` and `MayHave<dyn CoseEncrypt>` | Holds: a unit struct |
+| `PasoProfile` | `lib` | siros-paso without `sealed-signals`, bound to `Platform`, `Haip`, `Paso`, `RandomIds`, `IssuerTrust` and `MayHave<dyn CoseEncrypt>` | Holds: a unit struct |
 | `PasoSealedSignals` | `lib` | siros-paso with `sealed-signals`: `PasoProfile`'s bounds, and the sealing with `CoseEncrypt` when held | Holds: a unit struct; a second type, since one crate holds both builds |
 | `Ts12` | `lib` | siros-ts12, bound to `Platform` and `RandomIds` | Holds: a unit struct |
 | `Cs02Claims` | `lib` | siros-webuild's CS-02 §8.2 rule: `exp` and `aud` present | Holds: a unit struct |
@@ -5312,7 +5341,7 @@ By module:
 | Core, changed | `request/mod.rs` (scope), `request/metadata.rs` (the agreeable-key vocabulary as checked names), `request/digest.rs` (the multisigned and URI rows), `ids.rs` (N1; `ClientId`'s Appendix A.1 rule), `matching/rules.rs`, `matching/mod.rs` (`ExcludedBy`, `UnmetCode`, `Match::unmet`, `Candidate::bound` as `TransactionBinding`), `matching/display.rs` (the consent entry), `resolve/mod.rs` (`RouteBreach`, `ParameterBreach`), `resolve/prepared.rs` (`Prepared` over the `Authenticated`), `resolve/response.rs` (the bodies, the delivery, `ResponseMember`), `session.rs` (the binding facts), `txhash.rs` (the registered algorithms), `runtime.rs` → `host.rs` (the access traits, `Platform`, `Haip`, `RequestDecryption`, `KeyHandle`, `Inherence`), `refusal.rs` (the open `ErrorCode`), `plugins/mod.rs` (`placement`, `Presentation`, `ViewAdditions`), `plugins/registry.rs`, `lib.rs`, `Cargo.toml` (the features of section 4.11). `boxes.rs` leaves for siros-credman. |
 | New crate | siros-x509 (x509-cert, der, spki, sha2, base64): `verifier_info` and the `dcql_query` in its evaluation's context; the leaf's key as a public JWK. siros-ts12 (siros-openid4vp, siros-paso; the core's `ViewAdditions` for a credential's `types`). siros-credman (siros-openid4vp): Credential Manager's entries. siros-webuild (siros-openid4vp): `Cs02Claims`, `Cs02ErrorAnswer`. |
 | siros-mdoc, siros-sdjwt | Their tests' sessions; `wallet_formats`; `placement`. siros-mdoc: B.2.6's handover, `Thumbprint` and `SessionTranscript` from the session's binding facts, with the core's `cbor`; the `DeviceMac` double behind `test-util`. siros-sdjwt: the registration view's `types` through `ViewAdditions`, `meta_matches` over them. |
-| siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits`, public `bound`, `BiometricClass`, the `RandomIds` module with uuid, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
+| siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits`, public `bound`, `BiometricClass`, the `RandomIds` module with uuid, the `IssuerTrust` module with siros-x509, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
 | siros-zkp-req | What the core's API forces: its `Prover` module and `ProofRequest` (decision 13), `QueryContext`, `AllOf` refusals, an empty `wallet_formats`, `placement` `None`. |
 | siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
 | siros-integration | The generator signs DC API requests over their parameters; `end_to_end.rs` gains every flow of section 5; the properties generate URI requests, by GET and by POST; the HAIP and WE BUILD builds, over hosts of the crates' `test-util` doubles. |
@@ -5334,7 +5363,7 @@ By module:
 | `HashAlgorithm` | Hashes transaction data under any algorithm of the IANA registry B.3.3.1 names. | The registry is open; the core's SHA-2 algorithms are peers. | Any further Hash Name String. |
 | `ScopeQuery` | Reads a scope value as the DCQL query a specification or a deployment defines. | §5.5 leaves the mapping out of scope. | A profile's scope values. |
 | The consent entry: `Card`, `Overlay`, `TransactionHeader` | Composes what the End-User confirms as platform-neutral data. | No platform's vocabulary in the core. | siros-credman's Credential Manager entries; the wallet UI. |
-| `ProfileHost::wanted` | Lists what a profile revalidates with, for the caller to fetch. | Pure listing (the core-pure-offline ruling). | siros-paso's images, siros-qes's documents. |
+| `ProfileHost::wanted` | Lists what a profile revalidates with, for the caller to fetch. | A listing over the record, the profile's data and the host's modules; the caller fetches (the core-pure-offline ruling). | siros-paso's images, siros-qes's documents. |
 | `verifier_info` in the prefix's question | Hands attestations about the Verifier to the trust framework that reads their formats. | §5.11 leaves the formats to "ecosystems or profiles"; the core passes them as received. | Any further registration-certificate format. |
 | `Profile::authentication`, `AuthenticationNeed` | Lets each profile state the End-User authentication it needs. | PSD2's three categories; no method named. | siros-paso's SCA risk profiles. |
 | `WalletMetadata`, `MetadataMember`, `PostContribution` | Composes the wallet's metadata and the POST's parameters from the registered parts' contributions, each name from one contributor. | Each format, prefix, mode and module writes its own member; the registry refuses a name two parts declare when it builds. | Any further format, mode, profile or deployment member (§10.1, §5.10). |
@@ -5460,7 +5489,7 @@ section 4.5's recourse says.
 | I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside idna's UTS #46 back end (`idna_adapter` with icu_normalizer, icu_properties and the crates they pull in), which section 4.9.3 requires: its unicode-rs back end adds +136,360 bytes to the matcher. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
 | I35 | Dates and times render as ICU4X renders them. | For every locale the wallet ships, the renderer's dates and times at each length, with the options the CLDR tool writes, equal ICU4X 2.4's `DateTimeFormatter` over the same CLDR release, for each day of 2000 to 2030 at 00:00, 09:05, 12:00 and 23:59, and for 4 March and 31 December of every year 0 to 3000 and of 9999: 0 differences. Classed: German `full` dates before year 1000, where CLDR 49's pattern holds the field `Y` and ICU4X writes a literal `Y`. In the per-merge tier (`#[ignore]`). |
 | I36 | Numbers, plural categories, currencies and lists render as ICU4X renders them. | For every locale the wallet ships: plural categories and number texts for the 153 values of the probe (integers, decimals with and without trailing zeros, negatives, large numbers); an amount in every ISO 4217 currency; and- and or-lists of one to five items, the special-case initials included: each, with the options the CLDR tool writes, equal to ICU4X 2.4 over the same CLDR release: 0 differences. Classed: the German cells where CLDR 49 sets a symbol to its code and ICU4X's datagen falls back to root's symbol (PHP's symbol, SYP's narrow symbol, XXX's symbol and narrow symbol). In the per-merge tier (`#[ignore]`). |
-| I37 | The DC API matcher renders only what the request decides (section 4.14). | Over the differentials' corpus: texts the matcher renders per request equal the request-dependent texts of its entries, their disclosures included; the app lays out each entry; no card title, no credential's claim value, and a claim label only inside a disclosure, as its precomputed text; package bytes read per request, over the packages siros-i18n's `PackageBuilder` writes and the core's match build reads = the entries read plus their audit paths, each audit path 32·⌈log2 n⌉ bytes for n entries (the registration's bytes are siros-matcher's, outside the workspace: section 10.3, `ClaimTree` row); each pre-rendered text equal to the renderer's output for its `Text` and inputs: 0 differences. A change of the language preferences, a module or a credential changes the inputs of the texts it touches. |
+| I37 | The DC API matcher renders only what the request decides (section 4.14). | Over the differentials' corpus: texts the matcher renders per request equal the request-dependent texts of its entries, their disclosures included; the app lays out each entry; no card title, no credential's claim value, and a claim label only inside a disclosure, as its precomputed text; package bytes read per request, over the packages siros-i18n's `PackageBuilder` writes and the core's match build reads = the entries read plus their audit paths, each audit path 32·⌈log2 n⌉ bytes for n entries (the registration's bytes are siros-matcher's, outside the workspace: section 10.3, `ClaimTree` row); each pre-rendered text equal to the renderer's output for its `Text` and inputs: 0 differences. A change of the language preferences, a module or a credential changes the inputs of the texts it touches. An entry with ad-hoc PaSO metadata (Proof Metadata §5) is offered and rendered by the matcher, its texts equal to the wallet's for the verified JWT: 0 differences; phase 2 refuses it as incompatible when its JWT fails a §5.3 step, one fixture per step. The compiled messages a package holds are those of the texts that depend on the request: their keys, each reached by such a text. |
 | I38 | A package serializes, reads back, and renders the same whatever it holds (section 4.14). | Over the differentials' corpus: a package built twice from the same content gives the same bytes; read back and written again, the same bytes; every text renders byte-equal through a package that holds it precomputed, one that holds it compiled, and a package compiled from the live modules: 0 differences. A package of another format version is refused with `Version`. A package with an altered byte is refused when that byte's entry is read, with `Integrity` and no other error. A package builder given a locale twice and a screen given a module twice are refused with `Repeated`, a screen given a module its package lacks with `Module`, and two render halves sharing a `FormatId` with `Registered`. |
 | I39 | A build compiles what it registers (section 4.11, decision 20). | `cargo tree -e normal,features` of each build of section 4.11's per-build table, the core and the plug-ins it registers, with the features its crates turn on: each lists none of the crates its row names, and siros-i18n with the features its row names alone; the SD-JWT and the mdoc DC API builds each compile fewer crates than 96, the count at `a307cca`, and the two counts differ (at milestone 3's head `24a974f`: 60 and 68; the URI, PaSO, HAIP and WE BUILD rows 71, 66, 79 and 78). `cargo xtask builds` holds the count clause per row (`fewer_than`, `differs_from`). |
 | I40 | The core's own cases are peers of an extension's. | The core's four modes, `vp_token` and its hash algorithms reach the core through its public API alone: `pub(crate)` items named in `modes.rs`, `hash.rs` and `VpToken`'s implementation: 0; the two files compiled outside the core raise no privacy error (E0603, E0624). Every registered mode passes I2's property, the core's and `TestMode`. Each extension point of section 4.12's table has its `# Implementing` section (I26), its test double, and one fixture per registry conflict (section 8.2): 0 missing. |
@@ -5838,7 +5867,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-x509 | wallet-rs | `test-util` | the core (`signed`); siros-explain |
 | siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain |
 | siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain |
-| siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n |
+| siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n; `resolve`: siros-x509 |
 | siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain |
 | siros-qes | wallet-rs | `resolve`, `sha3`, both default | the core (`sri`); siros-explain |
 | siros-credman | new (section 6, commit 9) | | the core (`match`); siros-explain |

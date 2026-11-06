@@ -272,19 +272,25 @@ released version yet.
   `siros-paso::view::convert` writes a type's display rules as one, and the
   registration writer takes each transaction type with it.
 - The matcher offers an entry with ad-hoc PaSO metadata (Proof Metadata §5):
-  `siros-paso::adhoc::Carried::read` reads each entry's `metadata` JWT as a
-  signed request is read, unverified; `view::carried` converts it over the
-  registration's main entries; `Rendering::carrying` renders it beside the
-  package. The wallet verifies the JWT as §5.3 states, in phase 2
-  (`PasoFinding::refused`) and in the URI flow before it converts
-  (`Carried::verified`): the `typ`, the key (the `x5c` chain anchored in the
-  trust store through the `IssuerTrust` module, or the `kid` in the issuer's
-  key set), the ES256 signature through `Haip::verify`, `iss`, `exp`, the
-  credential binding of §7 step 6 and the type. A JWT that fails is
-  incompatible for the credential, and the informed profile
-  (`PasoProfile::with_refusals`) moves past its entry. The PaSO document
-  records the issuer's key set as public JWKs, or the credential's chain root
-  and leaf subject as DER.
+  `siros-paso::adhoc::Carried::read` reads each `metadata` JWT of a DC API
+  request as a signed request is read, unverified; `view::carried` converts it
+  over the registration's main entries; `Rendering::carrying` renders it
+  beside the package. The wallet verifies the JWT as §5.3 states before it
+  relies on it: the `typ`, the key (the `x5c` chain anchored in the trust
+  store through the required `IssuerTrust` module, or the `kid` in the
+  issuer's key set), the ES256 signature through `Haip::verify`, `iss`, `exp`,
+  the credential binding of §7 step 6 and the type. In the URI flow
+  `adhoc::Verified::of` verifies each JWT for each credential, `view::verified`
+  converts what it verified, and first match relies on a JWT for a credential
+  once `PasoProfile::with_verified` holds it verified for it
+  (`AdhocFailure::Unverified` otherwise); `PasoProfile::render` takes the
+  request's channel. In phase 2 `ProfileHost::wanted` and `Prepared::prepare`
+  take the host, and PaSO verifies the JWT before it lists the images to fetch;
+  the revalidation finds a refused JWT alone (`PasoFinding::refused`). A JWT
+  that fails is incompatible for the credential, the stored metadata never
+  standing in, and the informed profile (`PasoProfile::with_refusals`) moves
+  past its entry. The PaSO document records the issuer's key set as public
+  JWKs, or the credential's chain root and leaf subject as DER.
 - A text that depends on a request is a `siros-explain::RequestText`, built
   from the one message type its module declares (`DeclaredModule::Requested`,
   `Requested`), a value, a name, a received text or a defined module's
