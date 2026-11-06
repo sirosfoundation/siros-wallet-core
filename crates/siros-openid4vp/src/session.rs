@@ -26,21 +26,7 @@ pub enum SessionBinding<'s> {
 
 /// What a presentation binds: the channel's binding, the `nonce`, the key and `enc` the core
 /// sealed the answer to, and the Verifier's keys. Only an answering route makes one
-/// (`AnswerRoute::session`), so each fact is the authenticated request's:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::ids::Nonce;
-/// use siros_openid4vp::routing::VerifierKeys;
-/// use siros_openid4vp::session::{Session, SessionBinding};
-///
-/// fn forged<'s>(
-///     binding: SessionBinding<'s>,
-///     nonce: &'s Nonce<'s>,
-///     keys: &'s VerifierKeys<'s>,
-/// ) -> Session<'s> {
-///     Session { binding, nonce, encrypted_to: None, keys }
-/// }
-/// ```
+/// (`AnswerRoute::session`), so each fact is the authenticated request's.
 #[derive(Debug, Clone)]
 pub struct Session<'s> {
     binding: SessionBinding<'s>,

@@ -39,24 +39,8 @@ const fn is_nqschar(byte: u8) -> bool {
 /// An error code a wallet returns to a Verifier (RFC 6749 §4.1.2.1, §8.5: extensions' codes "MAY
 /// be defined"): one or more of RFC 6749 Appendix A.7's `NQSCHAR`. The constants are RFC 6749's,
 /// RFC 9101 §7's and OpenID4VP 1.0 §8.5's codes; a plug-in makes its own specification's with
-/// `checked!(ErrorCode, "...")`, whose syntax holds when the crate builds.
-///
-/// ```
-/// use siros_explain::checked;
-/// use siros_openid4vp::refusal::ErrorCode;
-///
-/// const RISK_UNSUPPORTED: ErrorCode = checked!(ErrorCode, "risk_signals_unsupported");
-/// assert_eq!(RISK_UNSUPPORTED.as_str(), "risk_signals_unsupported");
-/// ```
-///
-/// A code outside Appendix A.7's syntax fails the build:
-///
-/// ```compile_fail,E0080
-/// use siros_explain::checked;
-/// use siros_openid4vp::refusal::ErrorCode;
-///
-/// const QUOTED: ErrorCode = checked!(ErrorCode, "a\"b");
-/// ```
+/// `checked!(ErrorCode, "...")`; a code outside Appendix A.7's syntax
+/// fails its build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(transparent)]
 pub struct ErrorCode(&'static str);

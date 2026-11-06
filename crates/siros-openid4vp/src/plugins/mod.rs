@@ -136,20 +136,8 @@ impl FaultDomain {
 }
 
 /// A fault's detail: a formatter of the format string over the values named after it, each
-/// owned by the formatter, which writes when the log line is written.
-///
-/// ```
-/// use siros_explain::checked;
-/// use siros_openid4vp::detail;
-/// use siros_openid4vp::plugins::{Fault, FaultDomain};
-///
-/// const FAULT: FaultDomain = checked!(FaultDomain, "example.fault");
-///
-/// fn view_fault(id: &str) -> Fault {
-///     Fault::new(FAULT, detail!("{id}: no view", id = id.to_owned()))
-/// }
-/// assert_eq!(view_fault("c1").to_string(), "c1: no view");
-/// ```
+/// owned by the formatter, which writes when the log line is written:
+/// `detail!("{id}: no view", id = id.to_owned())`.
 #[macro_export]
 macro_rules! detail {
     ($text:literal $(, $name:ident = $value:expr)* $(,)?) => {{

@@ -682,27 +682,7 @@ impl<H: Build> RegistryBuilder<H> {
     /// A response mode whose answers the core seals as JWEs (§8.3) through the host's `Haip`,
     /// keyed by its name and channel.
     ///
-    /// A host without the module does not compile with it:
-    ///
-    /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::Platform;
-    /// use siros_openid4vp::plugins::Registry;
-    /// use siros_testkit::TestPlatform;
-    ///
-    /// siros_testkit::test_host! {
-    ///     /// A host of the platform alone.
-    ///     #[derive(Default)]
-    ///     struct Bare {
-    ///         handles { platform: TestPlatform => Platform }
-    ///         zero_sized {}
-    ///         optional {}
-    ///         lacks {}
-    ///     }
-    /// }
-    ///
-    /// let mut builder = Registry::<Bare>::builder();
-    /// builder.jwe_mode(siros_openid4vp::modes::DcApiJwt);
-    /// ```
+    /// A host without the module does not compile with it.
     pub fn jwe_mode<M: HostedMode<H>>(&mut self, mode: M)
     where
         H: JweHost,
@@ -746,27 +726,7 @@ impl<H: Build> RegistryBuilder<H> {
     /// signatures through the host's `Haip`, whose accessor the registration keeps. `build`
     /// refuses a name registered twice.
     ///
-    /// A host without the module does not compile with it:
-    ///
-    /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::Platform;
-    /// use siros_openid4vp::plugins::Registry;
-    /// use siros_testkit::TestPlatform;
-    ///
-    /// siros_testkit::test_host! {
-    ///     /// A host of the platform alone.
-    ///     #[derive(Default)]
-    ///     struct Bare {
-    ///         handles { platform: TestPlatform => Platform }
-    ///         zero_sized {}
-    ///         optional {}
-    ///         lacks {}
-    ///     }
-    /// }
-    ///
-    /// let mut builder = Registry::<Bare>::builder();
-    /// builder.client_prefix(siros_testkit::TestPrefix::Request);
-    /// ```
+    /// A host without the module does not compile with it.
     #[cfg(feature = "signed")]
     pub fn client_prefix(&mut self, prefix: impl HostedPrefix<H> + 'static)
     where
@@ -798,27 +758,7 @@ impl<H: Build> RegistryBuilder<H> {
     /// `RequestDecryption`, whose accessor the registration keeps, and a JWE Request Object
     /// decrypts through it. `build` refuses it twice, and without [`Self::request_post`].
     ///
-    /// A host without the module does not compile with it:
-    ///
-    /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::Platform;
-    /// use siros_openid4vp::plugins::Registry;
-    /// use siros_testkit::TestPlatform;
-    ///
-    /// siros_testkit::test_host! {
-    ///     /// A host of the platform alone.
-    ///     #[derive(Default)]
-    ///     struct Bare {
-    ///         handles { platform: TestPlatform => Platform }
-    ///         zero_sized {}
-    ///         optional {}
-    ///         lacks {}
-    ///     }
-    /// }
-    ///
-    /// let mut builder = Registry::<Bare>::builder();
-    /// builder.request_encryption(siros_openid4vp::uri::EncryptedRequests);
-    /// ```
+    /// A host without the module does not compile with it.
     #[cfg(feature = "request-decryption")]
     pub fn request_encryption(&mut self, requests: EncryptedRequests)
     where

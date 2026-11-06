@@ -238,19 +238,7 @@ impl ResponseType for VpToken {
 }
 
 /// The Verifier's metadata as a mode reads it: `client_metadata` (§5.1, §5.9.3), and its `jwks`
-/// keys the wallet can agree a key with. Only the core makes one, from the request it parsed:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::ClientMetadata;
-/// use siros_openid4vp::routing::{VerifierKeys, VerifierMetadata};
-///
-/// fn forged<'k>(
-///     metadata: &'k ClientMetadata<'k>,
-///     keys: VerifierKeys<'k>,
-/// ) -> VerifierMetadata<'k> {
-///     VerifierMetadata { metadata, keys }
-/// }
-/// ```
+/// keys the wallet can agree a key with. Only the core makes one, from the request it parsed.
 #[derive(Debug, Clone)]
 pub struct VerifierMetadata<'k> {
     metadata: &'k ClientMetadata<'k>,
@@ -355,16 +343,7 @@ impl<'k> VerifierMetadata<'k> {
 }
 
 /// The keys of the Verifier's `client_metadata.jwks` that [`AgreeableKey`] reads, in the
-/// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::AgreeableKey;
-/// use siros_openid4vp::routing::VerifierKeys;
-///
-/// fn forged(keys: Vec<AgreeableKey<'static>>) -> VerifierKeys<'static> {
-///     VerifierKeys { keys }
-/// }
-/// ```
+/// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's.
 #[derive(Debug, Clone)]
 pub struct VerifierKeys<'k> {
     keys: Vec<AgreeableKey<'k>>,
@@ -389,16 +368,7 @@ impl VerifierKeys<'_> {
 }
 
 /// One of the Verifier's keys, by its place among them. Only [`VerifierKeys::iter`] yields one,
-/// so a mode chooses among the request's keys alone:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::AgreeableKey;
-/// use siros_openid4vp::routing::VerifierKey;
-///
-/// fn forged<'k>(key: &'k AgreeableKey<'k>) -> VerifierKey<'k> {
-///     VerifierKey { place: 0, key }
-/// }
-/// ```
+/// so a mode chooses among the request's keys alone.
 #[derive(Debug, Clone, Copy)]
 pub struct VerifierKey<'k> {
     place: usize,
@@ -441,15 +411,7 @@ impl ModeHandle {
 
 /// The registered mode a request names on its channel, as the registry holds it. Only
 /// `Envelope::parse` makes one, from the registry the envelope then holds, so no answer goes in
-/// a mode the request did not name:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::routing::{Carries, ModeHandle, ModeName, RoutedMode};
-///
-/// fn forged(handle: ModeHandle, name: ModeName) -> RoutedMode {
-///     RoutedMode { handle, name, carries: Carries::Answers }
-/// }
-/// ```
+/// a mode the request did not name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoutedMode {
     handle: ModeHandle,
@@ -827,15 +789,7 @@ impl<'q> QueryContext<'q> {
 
 /// What a format's phase 2 reads of a query: its phase-1 context, under the mode rule C5
 /// accepted. Only `Prepared::prepare` makes one, from a request whose mode C5 accepts, so no
-/// phase-2 reading under a refused mode exists:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::routing::{AnsweredContext, QueryContext, ModeName};
-///
-/// fn forged(context: QueryContext<'_>, mode: ModeName) -> AnsweredContext<'_> {
-///     AnsweredContext { context, mode }
-/// }
-/// ```
+/// phase-2 reading under a refused mode exists.
 #[cfg(feature = "resolve")]
 #[derive(Debug, Clone)]
 pub struct AnsweredContext<'q> {

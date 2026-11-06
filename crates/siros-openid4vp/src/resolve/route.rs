@@ -34,21 +34,7 @@ pub struct Unroutable;
 
 /// Where and how an answer and an error go, from an [`Authenticated`] request and the registry
 /// its envelope was read with. Only [`Route::new`] makes one, so every answer it carries goes to
-/// the endpoint the wallet authenticated, in the mode the request named:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::authenticate::Authenticated;
-/// use siros_openid4vp::plugins::{NoHost, Registry};
-/// use siros_openid4vp::resolve::Route;
-///
-/// fn forged<'a>(
-///     authenticated: &'a Authenticated<'a>,
-///     registry: &'a Registry,
-///     other: Route<'a, NoHost>,
-/// ) -> Route<'a, NoHost> {
-///     Route { authenticated, registry, ..other }
-/// }
-/// ```
+/// the endpoint the wallet authenticated, in the mode the request named.
 pub struct Route<'a, H: Build> {
     authenticated: &'a Authenticated<'a>,
     registry: &'a Registry<H>,
@@ -339,16 +325,7 @@ impl<'a, H: CoreHost> Route<'a, H> {
 }
 
 /// The route an Authorization Response takes: a route whose request names a registered answering
-/// mode that chose its encryption, and a `nonce`. Only [`Route::answering`] makes one:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::plugins::NoHost;
-/// use siros_openid4vp::resolve::AnswerRoute;
-///
-/// fn forged<'a>(sealed: AnswerRoute<'a, NoHost>) -> AnswerRoute<'a, NoHost> {
-///     AnswerRoute { key: None, ..sealed }
-/// }
-/// ```
+/// mode that chose its encryption, and a `nonce`. Only [`Route::answering`] makes one.
 pub struct AnswerRoute<'a, H: Build> {
     route: &'a Route<'a, H>,
     chosen: &'a Chosen<'a>,

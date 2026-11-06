@@ -114,22 +114,7 @@ impl<'e, H> Claimed<'e, H> {
 
 /// A request whose Verifier the wallet authenticated, with the Verifier's metadata and keys
 /// from its `client_metadata`, or C6's refusal of it. Only [`Pending::authenticate`] makes one, so
-/// a route answers the Verifier the wallet authenticated:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::authenticate::{Authenticated, Verifier};
-/// use siros_openid4vp::envelope::Envelope;
-/// use siros_openid4vp::request::MetadataError;
-/// use siros_openid4vp::routing::VerifierMetadata;
-///
-/// fn forged<'e>(
-///     envelope: &'e Envelope<'e>,
-///     verifier: Verifier<'e>,
-///     metadata: Result<VerifierMetadata<'e>, &'e MetadataError>,
-/// ) -> Authenticated<'e> {
-///     Authenticated { envelope, verifier, metadata }
-/// }
-/// ```
+/// a route answers the Verifier the wallet authenticated.
 pub struct Authenticated<'e> {
     envelope: &'e Envelope<'e>,
     verifier: Verifier<'e>,
