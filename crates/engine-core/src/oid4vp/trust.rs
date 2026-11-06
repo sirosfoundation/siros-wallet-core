@@ -243,7 +243,14 @@ pub async fn evaluate_verifier_trust(
         .evaluate(EvaluationRequest {
             subject: auth_req.client_id.clone(),
             key_material,
-            resource_type: None,
+            // The subject's role for the evaluator: the verifier side
+            // of the presentation. The backend's proxy maps this to
+            // the AuthZEN action name (credential-verifier — one of
+            // the default rules' allowed set); a plain PDP ignores
+            // it. (The richer mdoc actions — mdoc-reader-auth,
+            // mdoc-issuer-auth — are the SDK-side flows' calls, not
+            // this engine's single verifier evaluation.)
+            resource_type: Some("credential-verifier".to_owned()),
             // Gap C1: the evaluation's context (the Go
             // `buildVerifierEvalContext`).
             context: build_eval_context(auth_req),

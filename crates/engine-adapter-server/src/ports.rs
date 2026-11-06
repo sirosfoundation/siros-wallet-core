@@ -420,7 +420,8 @@ impl BackendProxyPdp {
     /// Builds the PDP client from the config. The `pdp_url` is the
     /// backend's proxy endpoint (the `/v1/evaluate` and `/v1/resolve`
     /// routes); an empty URL means the PDP is not configured and the
-    /// engine fails closed.
+    /// engine fails closed. `pdp_token` is the bearer the proxy's
+    /// routes validate (an AS-issued token with `tac` covering `r`).
     pub fn new(config: &Config) -> Self {
         Self {
             client: reqwest::Client::builder()
@@ -428,7 +429,11 @@ impl BackendProxyPdp {
                 .build()
                 .unwrap_or_default(),
             proxy_url: config.pdp_url.clone(),
-            token: None,
+            token: if config.pdp_token.is_empty() {
+                None
+            } else {
+                Some(config.pdp_token.clone())
+            },
         }
     }
 
@@ -442,16 +447,43 @@ impl BackendProxyPdp {
 #[async_trait::async_trait]
 impl Pdp for BackendProxyPdp {
     async fn evaluate(&self, request: EvaluationRequest) -> Result<EvaluationResponse, PdpError> {
-        let url = format!("{}/v1/evaluate", self.proxy_url);
-        let mut builder = self.client.post(&url).json(&serde_json::json!({
-            "subject": request.subject,
-            "key_material": request.key_material,
-            // The evaluation's context (the core's gap C1): what the
-            // PDP decides on beside the key material — the client_id
-            // scheme, the response/redirect URIs, the trust chain from
-            // the JAR header, the verifier attestation.
+        // The AuthZEN Trust Registry Profile's request shape (what the
+        // backend's proxy route binds and forwards to the PDP): the
+        // subject as {type,id}, the resource as {type,id,key} (the
+        // key material the engine extracted), the action as {name}
+        // (credential-issuer / credential-verifier — one of the
+        // proxy's default SPOCP rules' allowed set). The evaluation's
+        // context rides as the optional top-level member the profile
+        // leaves to the deployment.
+        //
+        // The subject type mirrors the SDK's own evaluation
+        // (siros-sdk-kotlin's evaluateTrust: subject {type "key", id
+        // subjectId}): the trust decision is about the KEY HOLDER the
+        // subject names, so the routed policy (go-wallet-backend's
+        // DefaultWalletRules Rule 1: subject type must be "key")
+        // matches whatever scheme the id carries — url or did: — under
+        // the one type the rule allows.
+        let body = serde_json::json!({
+            "subject": {
+                "type": "key",
+                "id": request.subject,
+            },
+            "resource": {
+                // The key material's form: the JWK the DID resolution
+                // matched or the metadata's inline jwks, the x5c chain
+                // the JAR header carried, the x509_san_dns client_id's
+                // own chain — the proxy's allowed resource types.
+                "type": key_material_type(&request.key_material),
+                "id": request.subject,
+                "key": key_material_value(&request.key_material),
+            },
+            "action": {
+                "name": request.resource_type.as_deref().unwrap_or("credential-issuer"),
+            },
             "context": request.context,
-        }));
+        });
+        let url = format!("{}/v1/evaluate", self.proxy_url);
+        let mut builder = self.client.post(&url).json(&body);
         if let Some(token) = &self.token {
             builder = builder.bearer_auth(token);
         }
@@ -462,16 +494,33 @@ impl Pdp for BackendProxyPdp {
                 response.status()
             )));
         }
-        response
+        // The AuthZEN response: {decision, context} — the engine's
+        // EvaluationResponse {trusted, decision}.
+        let answer: serde_json::Value = response
             .json()
             .await
-            .map_err(|err| PdpError::Error(err.to_string()))
+            .map_err(|err| PdpError::Error(err.to_string()))?;
+        Ok(EvaluationResponse {
+            trusted: answer
+                .get("decision")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or_default(),
+            decision: answer
+                .pointer("/context/reason/0/message")
+                .or_else(|| answer.pointer("/context/reason/message"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        })
     }
 
     async fn resolve(&self, request: ResolveRequest) -> Result<ResolveResponse, PdpError> {
+        // The backend's resolve route binds subject_id/subject_type/
+        // resource_type (+ credential_types) and returns the resolved
+        // metadata under context.trust_metadata.
         let url = format!("{}/v1/resolve", self.proxy_url);
         let mut builder = self.client.post(&url).json(&serde_json::json!({
-            "uri": request.uri,
+            "subject_id": request.uri,
+            "subject_type": if request.resource_type == "did_document" { "key" } else { "url" },
             "resource_type": request.resource_type,
         }));
         if let Some(token) = &self.token {
@@ -484,10 +533,50 @@ impl Pdp for BackendProxyPdp {
                 response.status()
             )));
         }
-        response
+        let answer: serde_json::Value = response
             .json()
             .await
-            .map_err(|err| PdpError::Error(err.to_string()))
+            .map_err(|err| PdpError::Error(err.to_string()))?;
+        Ok(ResolveResponse {
+            // The resolved document rides context.trust_metadata (the
+            // backend's composite resolve response); a plain PDP's own
+            // metadata member is read too.
+            metadata: answer
+                .pointer("/context/trust_metadata")
+                .or_else(|| answer.get("metadata"))
+                .cloned()
+                .and_then(|metadata| serde_json::to_vec(&metadata).ok())
+                .unwrap_or_default(),
+            trust_info: None,
+        })
+    }
+}
+
+/// The resource type the backend's proxy accepts for the key material:
+/// `jwk` for a JWK (the DID-resolved or metadata-inline key), `x5c` for a
+/// JWS/JWT's embedded chain, `kid` when the engine carried no material
+/// (the resolver's question, not an answer) — the proxy's allowed set.
+fn key_material_type(key_material: &[u8]) -> &'static str {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(key_material) else {
+        return "x5c";
+    };
+    if value.is_object() {
+        // A JWK (the DID document's publicKeyJwk, the metadata's inline
+        // key): the object itself.
+        return "jwk";
+    }
+    if value.is_string() && value.as_str().unwrap_or_default().starts_with("did:") {
+        return "kid";
+    }
+    "x5c"
+}
+
+/// The resource key the proxy forwards: the JWK object, the JWS's x5c
+/// chain, or the DID subject for a kid resource.
+fn key_material_value(key_material: &[u8]) -> serde_json::Value {
+    match serde_json::from_slice::<serde_json::Value>(key_material) {
+        Ok(value) => value,
+        Err(_) => serde_json::Value::Null,
     }
 }
 
