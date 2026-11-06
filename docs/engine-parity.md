@@ -249,12 +249,14 @@ whether the response MUST be encrypted.
    `type`; at most one entry per (type, path); `to_issuer` entries may
    carry a boolean `required` (a `required` in `to_wallet` is
    malformed); a `hash_commitment` entry needs a string `alg` and a
-   valid claims path (OpenID4VCI App. C: a non-empty array of strings,
-   nulls, non-negative integers), and MUST NOT carry `opening` or
-   `commitment` at any depth (values, never metadata). An unrecognised
-   type is ignored (§3) — only its `required` is read, and only in
-   `to_issuer` (a required entry the wallet cannot send makes the
-   configuration unusable).
+   valid claims path (OpenID4VCI 1.0 Appendix C: a non-empty array of
+   strings, nulls and integers, read by the configuration's format;
+   C.1 and C.2 use a negative integer only as an ISO mdoc map key. A
+   presentation request's path follows OpenID4VP 1.0 §7), and MUST
+   NOT carry `opening` or `commitment` at any depth (values, never
+   metadata). An unrecognised type is ignored (§3) — only its
+   `required` is read, and only in `to_issuer` (a required entry the
+   wallet cannot send makes the configuration unusable).
 
 2. **`secretDelivery` — what the engine takes from one configuration**
    (`secretDeliveryOf`): `requireEncryption` (any `to_wallet`
@@ -407,8 +409,9 @@ three refusals (unusable, required-without-proof-type, plain-secret).
 6. **W6 — COMPLETE (the consent component #525 + the selection)**:
    `oid4vp/consent.rs` — the DCQL vetting of the host's match answer
    (the Go `checkConsentAgainstDCQL`, its fixture table ported case
-   for case): the four reason classes, `always_disclosed`, the bounds
-   (a 32-element path, a 512-byte entry, a 64-character logged id),
+   for case): the four reason classes, each claims path parsed once
+   by OpenID4VP 1.0 §7 for its query's format, `always_disclosed`, the
+   bounds (a 32-element path, a 512-byte entry, a 64-character logged id),
    the bare and `.`-joined entry spellings, the memoised wildcard
    matcher, the `credential_sets` options constraint. The mode
    (`presentation.dcql_consent_check`: off/warn/enforce, the default

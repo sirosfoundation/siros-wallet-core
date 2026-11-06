@@ -170,7 +170,9 @@ pub enum IssuerMetadataError {
 // ─── Credential Format Profiles (OpenID4VCI 1.0 Appendix A) ───────────────
 
 /// A Credential Format Profile, named by its Credential Format Identifier
-/// in a credential configuration's `format`.
+/// in a credential configuration's `format`, or in a DCQL Credential
+/// Query's `format` (OpenID4VP 1.0 §6.1, whose Appendix B defines each
+/// profile but `jwt_vc_json-ld`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialFormat {
     /// `jwt_vc_json`: a W3C VC signed as a JWT, without JSON-LD

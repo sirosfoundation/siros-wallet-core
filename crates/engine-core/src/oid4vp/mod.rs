@@ -280,7 +280,7 @@ impl FlowHandler for Oid4vpFlow {
             let _ = ctx
                 .complete(&serde_json::json!({
                     "refused": true,
-                    "reason": violation.reason,
+                    "reason": violation.reason.class(),
                 }))
                 .await;
             return Ok(FlowStartResult {
