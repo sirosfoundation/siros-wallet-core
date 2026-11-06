@@ -6,10 +6,13 @@
 //! differ from its record's, a card text the package does not hold, and a package registered
 //! under other lists.
 
+use siros_credman::register::RegisterError;
 use siros_credman::register::{Registered, RegisteredCard, Registration, package};
-use siros_credman::{EmitError, Emitted, NotEmitted, RefusedEntry, Shown, emit, held};
+use siros_credman::{
+    CredmanEntry, EmitError, Emitted, NotEmitted, RefusedEntry, Shown, emit, held,
+};
 use siros_explain::{DeclaredModule, ModuleId, RequestText, Text};
-use siros_i18n::{BuiltPackage, Formats, Module, Package};
+use siros_i18n::{BuiltPackage, Compilers, Declaration, Formats, LanguagePolicy, Module, Package};
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::matching::{
@@ -17,7 +20,9 @@ use siros_openid4vp::matching::{
 };
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::rendering::Rendering;
-use siros_openid4vp::rows::{Bidi, Choice, Env, Icon, OnRenderError, RenderOptions, Row, Value};
+use siros_openid4vp::rows::{
+    Bidi, Choice, Env, Icon, ImageMedia, OnRenderError, RenderOptions, Row, Value,
+};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, OPTIONS, parameters, request_of, unsigned};
 use siros_testkit::render::{App, CrateSource, MainModule, TestkitModule, compilers, main_sources};
@@ -574,4 +579,50 @@ fn a_request_reads_whole_entries_and_their_audit_paths() {
         nodes_read.len(),
         built.bytes().len()
     );
+}
+
+/// android-credman-sys ABI.md §5: Credential Manager decodes a PNG or a JPEG, and drops an entry
+/// without an icon, so an icon of another media type gives way to the wallet's card icon.
+#[test]
+fn an_icon_credential_manager_does_not_draw_gives_way_to_the_wallets() {
+    for (media, drawn) in [
+        ("image/png", true),
+        ("image/jpeg", true),
+        ("image/svg+xml", false),
+        ("image/webp", false),
+    ] {
+        let logo = Icon {
+            reference: "logo".into(),
+            media: ImageMedia::parse(media).expect("an image media type"),
+            ..Icon::DEFAULT
+        };
+        let entry = CredmanEntry::of_static(&StaticEntry {
+            id: "notice".to_owned(),
+            card: Card {
+                icon: logo.clone(),
+                title: Text::Raw("Notice".to_owned()),
+                subtitle: None,
+                rows: Vec::new(),
+            },
+        });
+        let want = if drawn { logo } else { Icon::DEFAULT };
+        assert_eq!(*entry.icon().icon(), want, "{media}");
+    }
+}
+
+/// A module registered under a type of another identity is refused.
+#[test]
+fn a_module_registered_as_another_modules_type_is_refused() {
+    let main = Module::load(
+        ModuleId::Main,
+        &Declaration::new(Vec::new()).expect("empty"),
+        &["@locale en\n---\n"],
+        LanguagePolicy::Any,
+        &Compilers::new(&[]).expect("compilers"),
+    )
+    .expect("a main module");
+    assert!(matches!(
+        Registered::of::<siros_openid4vp::CrateModule>(&main),
+        Err(RegisterError::Declared(module)) if module.id() == ModuleId::Main
+    ));
 }
