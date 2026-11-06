@@ -85,7 +85,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Vec<(String, Vec<usize>)>, 
         .map(|c| {
             (
                 c.credential.id.to_string(),
-                c.options.iter().map(|o| o.0).collect(),
+                c.options.iter().map(|o| o.position()).collect(),
             )
         })
         .collect();

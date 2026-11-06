@@ -75,7 +75,7 @@ impl<'m> Record<'m> {
             "[{},{},{},[{}],{{{}}},{},{}]",
             quote(query.as_str()),
             quote(credential.as_str()),
-            option.0,
+            option.position(),
             indexes.join(","),
             pairs.join(","),
             quote(request.as_str()),

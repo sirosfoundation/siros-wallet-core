@@ -13,7 +13,7 @@ use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_for
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
+use siros_openid4vp::plugins::{Member, Shown};
 use siros_openid4vp::request::Item;
 use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, ImageMedia};
 use siros_testkit::fixtures::OPTIONS;
@@ -255,9 +255,18 @@ fn an_option_discloses_its_elements_once_in_claim_order() {
     )
     .expect("view");
     let written = [Member::element("tx", "w")];
+    let at = |position: usize| {
+        let (option, _) = query
+            .claims()
+            .options()
+            .indexed()
+            .nth(position)
+            .expect("an option");
+        option
+    };
     let names = |option: usize| -> Vec<String> {
         query
-            .disclosed(&MDOC, OptionIndex(option), &view, &written)
+            .disclosed(&MDOC, at(option), &view, &written)
             .expect("disclosed")
             .iter()
             .map(|(path, value)| format!("{path:?}={}", value.python_text()))

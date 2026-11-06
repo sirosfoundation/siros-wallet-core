@@ -81,7 +81,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
                 .map(|c| {
                     (
                         c.credential.id.to_string(),
-                        c.options.iter().map(|o| o.0).collect(),
+                        c.options.iter().map(|o| o.position()).collect(),
                     )
                 })
                 .collect();
@@ -513,7 +513,7 @@ fn shape(dcql: &str, held: &[Held]) -> Vec<Vec<Vec<String>>> {
                                     .expect("candidate")
                                     .credential
                                     .id,
-                                pick.option.0
+                                pick.option.position()
                             ),
                         })
                         .collect()

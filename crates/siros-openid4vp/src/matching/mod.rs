@@ -353,16 +353,17 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             .formatted
             .query
             .answerable(credential, self.env, provided)?;
-        let count = self.formatted.query.options().len();
+        let own = self.formatted.query.options();
         let ascending = options
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if a < b));
-        if !ascending || options.iter().any(|option| option.0 >= count) {
+        if !ascending || options.iter().any(|option| own.get(*option).is_none()) {
             return Err(Fault::new(
                 FAULT,
                 detail!(
-                    "{query}: the format answered options {options:?} of {count}",
-                    query = self.query.id().to_string()
+                    "{query}: the format answered options {options:?} of its query's {count}",
+                    query = self.query.id().to_string(),
+                    count = own.iter().count()
                 ),
             ));
         }

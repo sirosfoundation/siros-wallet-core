@@ -238,15 +238,14 @@ impl<'q> ClaimsQuery<'q> {
         Ok(self
             .claims
             .options()
-            .iter()
-            .enumerate()
+            .indexed()
             .filter(|(_, option)| {
                 option
                     .items()
                     .iter()
                     .all(|item| found.get(item.get()) == Some(&true))
             })
-            .map(|(k, _)| OptionIndex(k))
+            .map(|(option, _)| option)
             .collect())
     }
 
@@ -335,7 +334,7 @@ impl<'q> ClaimsQuery<'q> {
         let items = self
             .claims
             .options()
-            .get(option.0)
+            .get(option)
             .map_or(&[][..], |option| option.items());
         let mut out: Vec<(ConcretePath<'v>, &'v Node<'v>)> = Vec::new();
         for claim in items.iter().filter_map(|item| self.claims.claim(*item)) {

@@ -7,7 +7,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::{
     Accepted, Consent, Match, Offered, answer_slots, offer, option_items, option_of,
 };
-use siros_openid4vp::plugins::OptionIndex;
+use siros_openid4vp::plugins::{OptionItems, Options};
 use siros_openid4vp::request::{Item, ItemSet, Request};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
@@ -53,7 +53,7 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
                                     .expect("candidate")
                                     .credential
                                     .id,
-                                p.option.0
+                                p.option.position()
                             ),
                         })
                         .collect()
@@ -212,15 +212,20 @@ fn a_candidates_options_factor_like_the_credential_sets() {
                 listed(answer_slots(options, both)),
                 [(vec![0], vec![vec![0]]), (vec![1], vec![vec![1], vec![]])]
             );
+            let mut indices = options.indexed().map(|(option, _)| option);
+            let (first, second) = (
+                indices.next().expect("two options"),
+                indices.next().expect("two options"),
+            );
             assert_eq!(
                 (
                     option_of(options, both, items(&[0, 1])),
                     option_of(options, both, items(&[0]))
                 ),
-                (Some(OptionIndex(0)), Some(OptionIndex(1)))
+                (Some(first), Some(second))
             );
             assert_eq!(
-                option_items(options, &both.options, OptionIndex(0)),
+                option_items(options, &both.options, first),
                 (
                     vec![Item::new(0).expect("item")],
                     vec![Item::new(1).expect("item")]
@@ -320,10 +325,12 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .expect("no fault")
         .expect("a language")
         .inputs();
+    let options = Options::new(vec![OptionItems::new(Vec::new()); 3]);
+    let (third, _) = options.indexed().nth(2).expect("three options");
     let record = Record::new(
         query,
         &credential,
-        OptionIndex(2),
+        third,
         &entries,
         Some(&attested),
         request.digest(),
@@ -536,11 +543,12 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");
     let m = request.indexed_queries().next().expect("m").0;
+    let option = matched.candidates(m)[0].options[0];
     let pick = |k: usize| {
         Offered::Pick(Pick {
             query: m,
             candidate: CandidateIndex(k),
-            option: OptionIndex(0),
+            option,
         })
     };
     let both = [vec![vec![pick(0)], vec![pick(1)]]];

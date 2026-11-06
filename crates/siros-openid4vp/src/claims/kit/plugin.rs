@@ -9,8 +9,8 @@ use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
 use crate::consent::Card;
 use crate::json::Node;
 use crate::plugins::{
-    Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown,
-    ViewAdditions, ViewTypes,
+    Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown, ViewAdditions,
+    ViewTypes,
 };
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, Query};
@@ -196,7 +196,7 @@ impl<'q, P: ClaimsPlugin> PluginQuery<'q, P> {
 }
 
 impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         self.claims.claims().options()
     }
 

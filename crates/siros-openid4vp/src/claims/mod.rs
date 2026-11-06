@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use siros_explain::Explain;
 
 use crate::json::Node;
-use crate::plugins::OptionItems;
+use crate::plugins::{OptionItems, Options};
 use crate::request::Item;
 
 /// One component of a claims path pointer (§7.1).
@@ -241,7 +241,7 @@ impl<'a> Claim<'a> {
 #[derive(Debug, Clone)]
 pub struct Claims<'a> {
     claims: Vec<Claim<'a>>,
-    options: Vec<OptionItems>,
+    options: Options,
 }
 
 /// `claims` or `claim_sets` that break §6.3-6.4.
@@ -309,7 +309,10 @@ impl<'a> Claims<'a> {
                     .collect::<Result<Vec<_>, ClaimsError>>()?
             }
         };
-        Ok(Self { claims, options })
+        Ok(Self {
+            claims,
+            options: Options::new(options),
+        })
     }
 
     /// The claims queries.
@@ -326,7 +329,7 @@ impl<'a> Claims<'a> {
 
     /// The options as claim items.
     #[must_use]
-    pub fn options(&self) -> &[OptionItems] {
+    pub const fn options(&self) -> &Options {
         &self.options
     }
 }

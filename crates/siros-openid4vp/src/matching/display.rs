@@ -8,7 +8,7 @@ use siros_explain::{Count, Explain, IntoArg, Text, kind};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
-use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
+use crate::plugins::{Fault, OptionIndex, OptionItems, Options, Shown};
 use crate::request::Item;
 use crate::rows::{Env, Selected, WalletText};
 use crate::{FAULT, detail};
@@ -26,15 +26,15 @@ pub fn wallet_header() -> Header {
 /// The option's items in every option the candidate answers, then those this option adds.
 #[must_use]
 pub fn option_items(
-    options: &[OptionItems],
+    options: &Options,
     answerable: &[OptionIndex],
     option: OptionIndex,
 ) -> (Vec<Item>, Vec<Item>) {
-    let items = options.get(option.0).map_or(&[][..], OptionItems::items);
+    let items = options.get(option).map_or(&[][..], OptionItems::items);
     let in_all = |item: &Item| {
         answerable.iter().all(|o| {
             options
-                .get(o.0)
+                .get(*o)
                 .is_some_and(|other| other.items().contains(item))
         })
     };

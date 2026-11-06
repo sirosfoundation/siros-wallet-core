@@ -109,7 +109,7 @@ impl Fields {
         Self {
             query: record.query().to_string(),
             credential: record.credential().to_string(),
-            option: record.option().0,
+            option: record.option().position(),
             entries: record.entries().iter().map(|e| e.get()).collect(),
             attested: record
                 .attested()

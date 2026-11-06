@@ -20,7 +20,7 @@ use siros_openid4vp::host::{
 };
 use siros_openid4vp::ids::{CredentialId, Nonce, Origin};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, Format, Members, OptionIndex};
+use siros_openid4vp::plugins::{Fault, Format, Members};
 use siros_openid4vp::request::{AgreeableKey, ClientMetadata, ContentEncryption};
 use siros_openid4vp::resolve::RouteKey;
 use siros_openid4vp::routing::VerifierMetadata;
@@ -178,7 +178,7 @@ where
     let presentation = present_option(
         parsed.as_ref(),
         Usable::checked(&credential),
-        OptionIndex(0),
+        0,
         &members,
         &session,
         host,

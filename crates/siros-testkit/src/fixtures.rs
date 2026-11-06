@@ -605,7 +605,7 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
 pub fn present_option<H>(
     query: &dyn siros_openid4vp::host::AnsweredQuery<H>,
     credential: siros_openid4vp::host::Usable<'_>,
-    option: siros_openid4vp::plugins::OptionIndex,
+    position: usize,
     members: &siros_openid4vp::plugins::Members,
     session: &siros_openid4vp::session::Session<'_>,
     host: &H,
@@ -623,7 +623,7 @@ pub fn present_option<H>(
     let answered = query
         .choose(credential, &env, &provided)?
         .into_iter()
-        .find(|answered| answered.option() == option)
+        .find(|answered| answered.option().position() == position)
         .ok_or_else(|| {
             Fault::new(
                 crate::FAULT,

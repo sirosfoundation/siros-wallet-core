@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use siros_openid4vp::host::{AuthenticationNeed, FormatHost, ProfileHost, Timestamp, Usable};
 use siros_openid4vp::ids::{Nonce, Origin, TransactionType};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, OptionIndex, Registry};
+use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, Registry};
 use siros_openid4vp::request::ClientMetadata;
 use siros_openid4vp::routing::VerifierMetadata;
 use siros_openid4vp::session::{Session, SessionBinding};
@@ -280,7 +280,7 @@ fn every_presentation_binds_what_it_shows() {
         let presentation = present_option(
             query.as_ref(),
             Usable::checked(&credential),
-            OptionIndex(0),
+            0,
             &Members::new(members.clone()).expect("members"),
             &session,
             &TestHost::at(now),
@@ -477,7 +477,7 @@ fn what_cannot_be_presented_is_a_fault() {
         let result = present_option(
             query.as_ref(),
             Usable::checked(&credential),
-            OptionIndex(0),
+            0,
             &Members::new(members).expect("members"),
             &session,
             &TestHost::default(),

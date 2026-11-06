@@ -204,10 +204,12 @@ impl<'q> Accepted<'q> {
 
     /// The query's options as its format parsed them; empty for a format without a plug-in.
     #[must_use]
-    pub fn options(&self, query: QueryIndex) -> &[crate::plugins::OptionItems] {
+    pub fn options(&self, query: QueryIndex) -> &crate::plugins::Options {
         self.plan(query)
             .and_then(|plan| plan.formatted.as_ref())
-            .map_or(&[], |formatted| formatted.query.options())
+            .map_or(crate::plugins::Options::NONE, |formatted| {
+                formatted.query.options()
+            })
     }
 }
 

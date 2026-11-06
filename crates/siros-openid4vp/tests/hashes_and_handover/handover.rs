@@ -15,7 +15,7 @@ use siros_openid4vp::ids::{ClientId, FormatId, Nonce};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FindingData, Format, FormatQuery, Member, Members, NoCandidate, OptionIndex,
-    OptionItems, Registry, Shown,
+    Options, Registry, Shown,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, ClientMetadata, Query};
@@ -91,7 +91,7 @@ impl<H: 'static> FormatHost<H> for Recorder {
 }
 
 impl<H> FormatQuery for RecorderQuery<'_, H> {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         self.0.options()
     }
 

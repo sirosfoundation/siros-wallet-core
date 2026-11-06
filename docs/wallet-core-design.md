@@ -4546,6 +4546,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `VerificationKey` | `jose` | The key a prefix binds and a signature verifies under: a public JWK | Fixed (public constructor takes it unchecked): `of` takes a `PublicJwk`, which `parse` checks; the verifying module checks the key's fit to the `alg`, a point off its curve included |
 | `OptionIndex` | `kept` | A position in its query's options | Fixed (constrained primitive in a public field): private; only the query's `options` and the core's slots make one (section 2) |
 | `OptionIndexApi` | `kept` | The position | Holds: the inherent methods of `OptionIndex` |
+| `Options` | `plugins` | A Credential Query's options, in the Verifier's order | Holds: private `Vec`; `indexed` is the only way to an `OptionIndex`; `consider` faults on a list of another order or of another query's options |
 | `Thumbprint` | `plugins` | A JWK SHA-256 thumbprint (RFC 7638) of the key the core sealed to | Fixed (public field): siros-mdoc's, private; only `Thumbprint::of` makes one, from an `EC` or `OKP` key |
 | `ThumbprintApi` | `plugins` | The thumbprint of a key | Holds: the inherent methods of `Thumbprint` |
 | `Authentication` | `kept` | When the End-User authenticated, and each factor applied, one or more | Fixed (non-empty `Vec`): `factors` an `AllOf<Factor>`; private fields |

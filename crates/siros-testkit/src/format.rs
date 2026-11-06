@@ -17,7 +17,7 @@ use siros_openid4vp::ids::{FormatId, InvalidId, QueryId};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::plugins::{
     Carriage, Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members,
-    NoCandidate, OptionIndex, OptionItems, Shown, ViewAdditions, ViewTypes,
+    NoCandidate, OptionIndex, OptionItems, Options, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
@@ -191,7 +191,7 @@ impl<'q> TestQuery<'q> {
         };
         Ok(Self {
             id: query.id().clone(),
-            options,
+            options: Options::new(options),
             supported,
         })
     }
@@ -213,7 +213,7 @@ fn option(node: &Node<'_>) -> Option<OptionItems> {
 
 struct TestQuery<'q> {
     id: QueryId<'q>,
-    options: Vec<OptionItems>,
+    options: Options,
     supported: Option<Node<'q>>,
 }
 
@@ -225,7 +225,7 @@ fn view<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
 }
 
 impl FormatQuery for TestQuery<'_> {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         &self.options
     }
 
@@ -297,9 +297,11 @@ impl FormatQuery for TestQuery<'_> {
                     .any(|o| matches!(o, Node::Number(n) if n.as_u64() == Some(k as u64)))
             })
         };
-        Ok((0..self.options.len())
-            .filter(|k| listed(*k))
-            .map(OptionIndex)
+        Ok(self
+            .options
+            .indexed()
+            .map(|(option, _)| option)
+            .filter(|option| listed(option.position()))
             .collect())
     }
 
@@ -442,7 +444,7 @@ impl TestOption<'_> {
         let text = format!(
             "{{\"credential\":{},\"option\":{},\"proof\":{{{}}}}}",
             quote(self.credential.credential().id.as_str()),
-            self.option.0,
+            self.option.position(),
             proof.join(",")
         );
         Presentation::object(&text)

@@ -8,7 +8,6 @@ use siros_explain::{ArgValue, Explain};
 use siros_openid4vp::claims::kit::ClaimsQuery;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
-use siros_openid4vp::plugins::OptionIndex;
 use siros_openid4vp::request::{Request, SetNeed, factor, project};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
@@ -159,7 +158,7 @@ fn answered(
                 .answerable(&format, &view, &[])
                 .expect("the view's types")
                 .into_iter()
-                .map(|o| o.0)
+                .map(|o| o.position())
                 .collect();
             (!options.is_empty()).then(|| ((*id).to_owned(), options))
         })
@@ -282,11 +281,12 @@ fn a_json_boolean_is_no_integer() {
             .answerable(&format, &Node::parse(&view).expect("view"), &[])
             .expect("the view's types")
     };
-    assert_eq!(
-        answers(r#"{"age_over_18": true}"#),
-        Vec::<OptionIndex>::new()
-    );
-    assert_eq!(answers(r#"{"age_over_18": 1}"#), vec![OptionIndex(0)]);
+    assert_eq!(answers(r#"{"age_over_18": true}"#), []);
+    let positions: Vec<usize> = answers(r#"{"age_over_18": 1}"#)
+        .iter()
+        .map(|option| option.position())
+        .collect();
+    assert_eq!(positions, [0]);
 }
 
 #[test]

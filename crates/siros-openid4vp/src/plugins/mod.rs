@@ -262,9 +262,51 @@ impl OptionItems {
     }
 }
 
-/// An option by its position in the query's options.
+/// A Credential Query's options, in the Verifier's order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Options(Vec<OptionItems>);
+
+impl Options {
+    /// The options of a query a format holds no option for: phase 1 answers none.
+    pub(crate) const NONE: &'static Self = &Self(Vec::new());
+
+    /// The options, in the Verifier's order.
+    #[must_use]
+    pub const fn new(options: Vec<OptionItems>) -> Self {
+        Self(options)
+    }
+
+    /// Each option, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &OptionItems> {
+        self.0.iter()
+    }
+
+    /// Each option with its index, the only way to an [`OptionIndex`].
+    pub fn indexed(&self) -> impl Iterator<Item = (OptionIndex, &OptionItems)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(position, items)| (OptionIndex(position), items))
+    }
+
+    /// The option at an index; `None` for an index of a longer query's options.
+    #[must_use]
+    pub fn get(&self, option: OptionIndex) -> Option<&OptionItems> {
+        self.0.get(option.0)
+    }
+}
+
+/// An option by its position in a query's options. Only [`Options::indexed`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OptionIndex(pub usize);
+pub struct OptionIndex(usize);
+
+impl OptionIndex {
+    /// The position in the query's options.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
 
 /// The items a card shows: those in every option the credential answers, then those the chosen
 /// option adds.
@@ -362,7 +404,7 @@ dyn_clone::clone_trait_object!(Format);
 /// A Credential Query as its format parsed it.
 pub trait FormatQuery {
     /// The options, in the Verifier's order.
-    fn options(&self) -> &[OptionItems];
+    fn options(&self) -> &Options;
 
     /// Excludes the credential when the Verifier's `vp_formats_supported` admits no algorithm
     /// its presentation can use; `keys`: the Verifier's keys, which a presentation may need.
@@ -372,7 +414,9 @@ pub trait FormatQuery {
         keys: &[AgreeableKey<'_>],
     ) -> Result<(), NoCandidate>;
 
-    /// The options the credential answers, ascending; empty when it does not match the query.
+    /// The options of [`FormatQuery::options`] the credential answers, ascending; empty when it
+    /// does not match the query. The core faults on a list of another order or of another
+    /// query's options.
     /// `provided`: the response members the transaction bound to the credential writes, which a
     /// claim may name.
     fn answerable(

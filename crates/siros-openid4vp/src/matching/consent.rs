@@ -2,7 +2,7 @@
 //! options the wallet can meet.
 
 use super::{Candidate, Match};
-use crate::plugins::{OptionIndex, OptionItems};
+use crate::plugins::{OptionIndex, OptionItems, Options};
 use crate::request::{ItemSet, QuerySet, factor, project};
 
 /// One independent choice: its queries, and its options in request order, the default first;
@@ -70,14 +70,11 @@ impl Consent {
 /// Credential Sets use: the answerable options can couple items the Verifier's options leave
 /// independent. Each choice with its options as item sets.
 #[must_use]
-pub fn answer_slots(
-    options: &[OptionItems],
-    candidate: &Candidate<'_>,
-) -> Vec<(ItemSet, Vec<ItemSet>)> {
+pub fn answer_slots(options: &Options, candidate: &Candidate<'_>) -> Vec<(ItemSet, Vec<ItemSet>)> {
     let answerable: Vec<&OptionItems> = candidate
         .options
         .iter()
-        .filter_map(|option| options.get(option.0))
+        .filter_map(|option| options.get(*option))
         .collect();
     let family: Vec<ItemSet> = answerable.iter().map(|option| option.set()).collect();
     let mut order = Vec::new();
@@ -95,7 +92,7 @@ pub fn answer_slots(
 /// The option the chosen items answer: the first answerable option holding exactly them.
 #[must_use]
 pub fn option_of(
-    options: &[OptionItems],
+    options: &Options,
     candidate: &Candidate<'_>,
     items: ItemSet,
 ) -> Option<OptionIndex> {
@@ -103,5 +100,5 @@ pub fn option_of(
         .options
         .iter()
         .copied()
-        .find(|option| options.get(option.0).is_some_and(|o| o.set() == items))
+        .find(|option| options.get(*option).is_some_and(|o| o.set() == items))
 }
