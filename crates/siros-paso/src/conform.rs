@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 
 use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
-use siros_explain::Text;
+use siros_explain::RequestText;
 use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
 
@@ -84,7 +84,7 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
 pub(crate) fn parsed(
     kind: FormattedKind,
     value: &Node<'_>,
-) -> Result<(Parsed, Text), NotCompatible> {
+) -> Result<(Parsed, RequestText), NotCompatible> {
     formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
         value_type: kind_name(ValueKind::Formatted(kind)),
         bad,

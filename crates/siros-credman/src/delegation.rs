@@ -138,7 +138,7 @@ impl SetFacts {
         };
         let mut whole = true;
         for row in entries().flat_map(|view| view.entry.rows()) {
-            whole &= Field::of(row, text_of)?.is_ok_and(|field| field.extent() == Extent::Whole);
+            whole &= Field::of(&row, text_of)?.is_ok_and(|field| field.extent() == Extent::Whole);
         }
         Ok(Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential)),

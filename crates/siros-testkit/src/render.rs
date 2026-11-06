@@ -2,7 +2,7 @@
 //! en and de format options, each crate module in the crate's English and the test app's German,
 //! and a renderer over a package of the modules for a screen and an [`Env`].
 
-use siros_explain::{Message, Messages, ModuleId, Text};
+use siros_explain::{DeclaredModule, Message, Messages, ModuleId, Text};
 use siros_i18n::{
     BuiltPackage, CURRENCY, Compilers, DATE, Declaration, DefinedForm, FormatCompiler,
     FormatRenderer, Formats, Formatted, LIST, LanguagePolicy, LocaleTag, MainLocale, Module,
@@ -58,6 +58,22 @@ pub enum AppError {
     Fault(#[from] Fault),
 }
 
+/// The test app's main module: the format options of its bare values, no message of its own.
+pub struct MainModule;
+
+impl DeclaredModule for MainModule {
+    const ID: ModuleId = ModuleId::Main;
+    type Requested = ();
+}
+
+/// The test app's own module, `testkit`: the test doubles' texts, which no overlay shows.
+pub struct TestkitModule;
+
+impl DeclaredModule for TestkitModule {
+    const ID: ModuleId = ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "testkit"));
+    type Requested = ();
+}
+
 /// A crate's module as the test app loads it: its identity, its declaration, the crate's English
 /// source and the test app's German.
 pub struct CrateSource {
@@ -87,7 +103,7 @@ impl CrateSource {
     #[must_use]
     pub fn testkit() -> Self {
         Self {
-            id: ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "testkit")),
+            id: TestkitModule::ID,
             messages: crate::DoubleText::messages(),
             english: ENGLISH_TESTKIT,
             german: GERMAN_TESTKIT,

@@ -6,9 +6,9 @@
 //! differ from its record's, a card text the package does not hold, and a package registered
 //! under other lists.
 
-use siros_credman::register::{Registration, package};
+use siros_credman::register::{Registered, Registration, package};
 use siros_credman::{EmitError, Emitted, NotEmitted, Shown, emit, held};
-use siros_explain::{ModuleId, Text};
+use siros_explain::{DeclaredModule, ModuleId, RequestText, Text};
 use siros_i18n::{BuiltPackage, Formats, Module, Package};
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::ids::TransactionType;
@@ -20,7 +20,7 @@ use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::rows::{Bidi, Choice, Env, Icon, OnRenderError, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, OPTIONS, parameters, request_of, unsigned};
-use siros_testkit::render::{App, CrateSource, compilers, main_sources};
+use siros_testkit::render::{App, CrateSource, MainModule, TestkitModule, compilers, main_sources};
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 
 const QUERY: &str = r#"{"credentials":[{"id":"q","format":"test"}]}"#;
@@ -100,18 +100,23 @@ fn modules(tags: &[(&str, &str)]) -> Vec<Module> {
 fn request_texts<'e>(entry: &'e ConsentEntry, header: Option<&'e Header>) -> Vec<&'e Text> {
     let mut out: Vec<&Text> = Vec::new();
     if let Some(overlay) = entry.overlay() {
-        out.extend(&overlay.hint);
+        out.extend(overlay.hint.iter().map(RequestText::text));
         for row in overlay
             .rows
             .iter()
             .chain(overlay.header.iter().flat_map(|h| &h.rows))
         {
-            out.push(&row.label);
-            out.extend(row.value.as_ref().and_then(Value::text));
-            out.extend(&row.section);
+            out.push(row.label.text());
+            out.extend(
+                row.value
+                    .as_ref()
+                    .and_then(Value::text)
+                    .map(RequestText::text),
+            );
+            out.extend(row.section.iter().map(RequestText::text));
         }
         if let Some(transaction) = &overlay.header {
-            out.extend([&transaction.counterparty, &transaction.amount]);
+            out.extend([transaction.counterparty.text(), transaction.amount.text()]);
         }
     }
     if let Some(header) = header {
@@ -133,6 +138,16 @@ fn env_of(priority: &[&str], options: RenderOptions) -> Env {
     .expect("env")
 }
 
+/// A module of the test app with its type's request messages.
+fn declared(module: &Module) -> Registered<'_> {
+    match module.id() {
+        ModuleId::Main => Registered::of::<MainModule>(module),
+        id if id == TestkitModule::ID => Registered::of::<TestkitModule>(module),
+        _ => Registered::of::<siros_openid4vp::CrateModule>(module),
+    }
+    .expect("a declared module")
+}
+
 /// The registration's package of `modules` for these credentials' cards and the static cards,
 /// under `env`.
 fn registered(
@@ -145,7 +160,7 @@ fn registered(
     let formats = siros_testkit::render::formats().expect("the render halves");
     package(
         &Registration {
-            modules: &modules.iter().collect::<Vec<_>>(),
+            modules: &modules.iter().map(declared).collect::<Vec<_>>(),
             own: &own,
             credentials,
             statics,

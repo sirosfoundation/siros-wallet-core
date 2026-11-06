@@ -185,7 +185,7 @@ pub fn check(
                 .expect("a displayed Mandate claim");
             // The Mandate rulebook's labels are the wallet's own texts.
             assert!(
-                matches!(&row.row.label, Text::Query(query) if matches!(query.key(), Key::Message(_))),
+                matches!(row.row.label.text(), Text::Query(query) if matches!(query.key(), Key::Message(_))),
                 "P-label own {row:?}"
             );
             claim.value_type.clone()
@@ -269,7 +269,10 @@ pub fn check(
             .and_then(|u| u.get(key))
             .and_then(Value::as_array)
     };
-    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
+    let mut labels = vec![(
+        "security_hint",
+        view.actions.hint.as_ref().map(|hint| shown(hint)),
+    )];
     if !mandate {
         labels.extend([
             ("transaction_title", Some(shown(&view.title))),

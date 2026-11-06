@@ -11,7 +11,7 @@ use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
 
 use crate::labels::{LabelSlot, LabelText, LabelViolation};
-use crate::mandate::OwnText;
+use crate::mandate::MandateLabel;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::path::claim_text;
 use crate::value::{FormattedKind, ValueKind};
@@ -141,8 +141,8 @@ pub enum LabelForm<'m> {
     Markdown(LabelText<'m>),
     /// `template:mini_markdown`: §3.3 applies once interpolated.
     Template(&'m str),
-    /// A text of the wallet's own, which the rulebook names.
-    Own(OwnText),
+    /// A Mandate claim's label: a text of the wallet's own, which the rulebook names.
+    Own(MandateLabel),
 }
 
 /// One entry of a display array.

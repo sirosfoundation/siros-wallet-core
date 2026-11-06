@@ -7,6 +7,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
+use siros_explain::RequestText;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::plugins::{Binding, Carriage, NoCandidate, Profile};
 use siros_openid4vp::rows::{Amounts, Row};
@@ -270,14 +271,14 @@ pub fn case(case: &Case, tally: &mut Tally) {
         (&view.title, &view.actions.confirm, &view.actions.deny),
         "P-header"
     );
-    let rows: Vec<Row> = view.rows.iter().map(|row| row.row.clone()).collect();
+    let rows: Vec<Row<RequestText>> = view.rows.iter().map(|row| row.row.clone()).collect();
     match &bound.overlay.header {
         Some(header) => {
             // Merchant and amount show once, in the transaction header; every other row stays
             // an overlay row.
             let heads = view.payment.expect("P-payment rows");
             let texts = view.payment_texts().expect("P-payment rows");
-            let rest: Vec<Row> = rows
+            let rest: Vec<Row<RequestText>> = rows
                 .iter()
                 .enumerate()
                 .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())

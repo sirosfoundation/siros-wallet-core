@@ -118,6 +118,7 @@ mod keyed;
 pub mod kind;
 mod list;
 mod message;
+mod requested;
 mod text;
 mod value;
 
@@ -129,6 +130,7 @@ pub use list::{AllOf, AnyOf, ListKind, Listed};
 pub use message::{
     Domain, Explain, Explained, Message, MessageId, Messages, Param, ParamKind, tokens,
 };
+pub use requested::{DeclaredModule, RequestText, Requested};
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;
 pub use text::{DefinedKey, DefinedModule, Key, ModuleId, Query, Text};

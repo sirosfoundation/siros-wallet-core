@@ -29,18 +29,28 @@ pub enum WalletText {
     /// The title of a request without a transaction.
     #[error("Share your data")]
     RequestTitle,
-    /// A true boolean.
-    #[error("Yes")]
-    Yes,
-    /// A false boolean.
-    #[error("No")]
-    No,
     /// A claim whose path names no member.
     #[error("claim")]
     Claim,
     /// A claim's `null` value.
     #[error("None")]
     Null,
+}
+
+/// A boolean's text, which a transaction's overlay shows: the module's request messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.wallet")]
+pub enum BooleanText {
+    /// A true boolean.
+    #[error("Yes")]
+    Yes,
+    /// A false boolean.
+    #[error("No")]
+    No,
+}
+
+impl siros_explain::Requested for BooleanText {
+    type Module = crate::CrateModule;
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.

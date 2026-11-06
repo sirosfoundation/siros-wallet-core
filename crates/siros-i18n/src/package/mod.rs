@@ -147,6 +147,24 @@ impl<'p> Package<'p> {
         Ok(spans)
     }
 
+    /// The identifiers of the compiled messages the package holds, each once, sorted: what an
+    /// auditor of a registration's package reads.
+    ///
+    /// # Errors
+    ///
+    /// The [`PackageError`] of the manifest or of a locale entry.
+    pub fn keys(&self) -> Result<Vec<String>, PackageError> {
+        let manifest = self.manifest()?;
+        let mut keys = Vec::new();
+        for locale in manifest.modules.iter().flat_map(|module| &module.locales) {
+            let index = self.locale_index(&manifest, locale.entry)?;
+            keys.extend(index.messages.into_iter().map(|message| message.key));
+        }
+        keys.sort();
+        keys.dedup();
+        Ok(keys)
+    }
+
     /// What a registration's package was built from beside its modules; `None` for a package
     /// built without a registration.
     ///

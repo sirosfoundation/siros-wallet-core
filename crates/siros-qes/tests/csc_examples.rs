@@ -127,7 +127,7 @@ fn csc_7_1_2_is_rendered_by_6_4() {
     let doc = |n: u8| format!("Document {n}");
     let (d1, d2, d3) = (doc(1), doc(2), doc(3));
     assert_eq!(
-        shown(view.entry.rows()),
+        shown(view.entry.rows().collect::<Vec<_>>().iter()),
         [
             row(
                 None,
@@ -198,7 +198,7 @@ fn a_seal_a_nameless_document_and_an_embedded_link_are_rendered_by_6_4() {
     let view = viewed(&seal, &held, QesProfile::default(), "en");
     let (d1, d2) = (Some("Document 1"), Some("Document 2"));
     assert_eq!(
-        shown(view.entry.rows()),
+        shown(view.entry.rows().collect::<Vec<_>>().iter()),
         [
             row(
                 None,
@@ -245,7 +245,9 @@ fn a_held_document_is_checked_against_its_checksum() {
             "en",
         )
         .entry
-        .rows(),
+        .rows()
+        .collect::<Vec<_>>()
+        .iter(),
     );
     assert_eq!(
         rows.get(rows.len() - 2),
@@ -287,7 +289,7 @@ fn a_held_document_is_checked_against_its_checksum() {
         "en",
     );
     assert_eq!(
-        shown(nameless.entry.rows()).get(2),
+        shown(nameless.entry.rows().collect::<Vec<_>>().iter()).get(2),
         Some(&row(
             Some("Document 1"),
             "This document has no name",

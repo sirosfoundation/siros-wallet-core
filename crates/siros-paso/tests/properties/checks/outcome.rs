@@ -105,7 +105,7 @@ pub(super) fn outcome(
                 .find(|claim| claim.displayed && json!(claim.path) == json!(path))
                 .expect("a displayed Mandate claim");
             assert!(
-                matches!(&row.row.label, Text::Query(query) if matches!(query.key(), Key::Message(_))),
+                matches!(row.row.label.text(), Text::Query(query) if matches!(query.key(), Key::Message(_))),
                 "P-label own {row:?}"
             );
             claim.value_type.clone()
@@ -179,7 +179,10 @@ pub(super) fn outcome(
     let ui = meta.get("ui_labels");
     let ui_array = |key: &str| ui.and_then(|u| u.get(key)).and_then(Value::as_array);
     let shown = |text: &Text| screen.plain(text);
-    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
+    let mut labels = vec![(
+        "security_hint",
+        view.actions.hint.as_ref().map(|hint| shown(hint)),
+    )];
     if !mandate {
         labels.extend([
             ("transaction_title", Some(shown(&view.title))),

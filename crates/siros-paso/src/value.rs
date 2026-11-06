@@ -1,16 +1,16 @@
 //! PaSO View §3's value types, and a written value of a kind other than an image parsed into its
-//! typed form and the [`Text`] the core renders when it is displayed: dates, times, amounts and
+//! typed form and the [`RequestText`] the core renders when it is displayed: dates, times, amounts and
 //! currencies as typed values, booleans and frequencies as the core module's messages, every
 //! other kind as written.
 
 use std::fmt;
 
 use siros_explain::{
-    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Offset, Second, Text, Time,
+    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Offset, RequestText, Second, Time,
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::Quoted;
-use siros_openid4vp::rows::{HttpsUrl, WalletText};
+use siros_openid4vp::rows::{BooleanText, HttpsUrl};
 
 use crate::frequency::Frequency;
 
@@ -210,7 +210,10 @@ pub enum Breach {
 /// # Errors
 ///
 /// [`BadValue`]: the written value does not conform to the kind.
-pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, Text), BadValue> {
+pub fn formatted(
+    kind: FormattedKind,
+    written: Written<'_>,
+) -> Result<(Parsed, RequestText), BadValue> {
     let bad = |why: Breach| BadValue {
         kind: kind.as_str(),
         written: written.to_string(),
@@ -220,26 +223,29 @@ pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, T
         Written::Text(text) => text,
         Written::Boolean(value) if kind == FormattedKind::Boolean => {
             let answer = if value {
-                WalletText::Yes
+                BooleanText::Yes
             } else {
-                WalletText::No
+                BooleanText::No
             };
-            return Ok((Parsed::Boolean(value), Text::of(&answer)));
+            return Ok((Parsed::Boolean(value), RequestText::of(&answer)));
         }
         _ if kind == FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
         _ => return Err(bad(Breach::NotString)),
     };
-    let typed = |parsed: Parsed, value: siros_explain::Value| (parsed, Text::Value(value));
+    let typed = |parsed: Parsed, value: siros_explain::Value| (parsed, RequestText::value(value));
     Ok(match kind {
         FormattedKind::Boolean => return Err(bad(Breach::NotBoolean)),
-        FormattedKind::Text => (Parsed::Text, Text::Raw(text.to_owned())),
+        FormattedKind::Text => (Parsed::Text, RequestText::raw(text.to_owned())),
         FormattedKind::MiniMarkdown => {
             let plain: String = spans(text).into_iter().map(|span| span.text).collect();
-            (Parsed::MiniMarkdown, Text::Raw(plain))
+            (Parsed::MiniMarkdown, RequestText::raw(plain))
         }
         FormattedKind::Frequency => {
             let frequency = Frequency::parse(text).ok_or_else(|| bad(Breach::NotFrequency))?;
-            (Parsed::Frequency(frequency), Text::of(&frequency))
+            (
+                Parsed::Frequency(frequency),
+                RequestText::of(&crate::PasoRequested::Frequency(frequency)),
+            )
         }
         FormattedKind::Date => {
             let date = date(text).ok_or_else(|| bad(Breach::NotDate))?;
@@ -274,7 +280,7 @@ pub fn formatted(kind: FormattedKind, written: Written<'_>) -> Result<(Parsed, T
         }
         FormattedKind::Url => {
             let url = HttpsUrl::parse(text).map_err(|_| bad(Breach::NotUrl))?;
-            let shown = Text::Raw(url.ascii().to_owned());
+            let shown = RequestText::raw(url.ascii().to_owned());
             (Parsed::Url(url), shown)
         }
     })

@@ -299,7 +299,7 @@ fn assert_core_a4(answered: &Answered) {
         .and_then(|overlay| overlay.header.as_ref())
         .expect("a payment's transaction header");
     assert_eq!(
-        [&payment.counterparty, &payment.amount].map(english_text),
+        [payment.counterparty.text(), payment.amount.text()].map(english_text),
         ["Shop Inc.", "49.99 EUR"]
     );
 }

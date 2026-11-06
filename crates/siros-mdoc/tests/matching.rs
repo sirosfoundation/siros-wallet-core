@@ -11,7 +11,7 @@ use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::{Format, Member, Registry, Shown};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::{Item, Request};
-use siros_openid4vp::rows::WalletText;
+use siros_openid4vp::rows::BooleanText;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, icon, parameters, query_context};
 use siros_testkit::render::written;
@@ -190,7 +190,7 @@ fn the_openid4vci_example_draws_its_card() {
             rows,
         )
     };
-    let yes = as_written(&siros_explain::Text::of(&WalletText::Yes));
+    let yes = as_written(&siros_explain::Text::of(&BooleanText::Yes));
     let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
         labels
             .iter()

@@ -5,6 +5,7 @@
 use crate::common::HaipHost;
 use serde_json::Value;
 use siros_credman::{CredmanEntry, EntryIcon, StandardEntry};
+use siros_explain::Text;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
@@ -12,7 +13,7 @@ use siros_openid4vp::plugins::{FormatQuery, NoCandidate, Profile, Registry, Show
 use siros_openid4vp::request::{
     ClientMetadata, EntryIndex, HolderBinding, Query, QueryIndex, Request,
 };
-use siros_openid4vp::rows::Env;
+use siros_openid4vp::rows::{Env, Row};
 use siros_openid4vp::wallet::{Credential, Holder, Wallet};
 use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Rendered};
@@ -515,7 +516,7 @@ fn boxes(
         if entry.kind().as_str() == siros_qes::TYPE {
             // CSC §6.4: the approval's rows, its statement first as a full-text row, then the
             // card's; no warning; the approval's header.
-            let mut rows = bound.overlay.rows.clone();
+            let mut rows: Vec<Row> = bound.overlay.rows.iter().cloned().map(Row::from).collect();
             rows.extend(card.rows.iter().cloned());
             assert_eq!(
                 CredmanEntry::of(&view.entry),
@@ -552,7 +553,7 @@ fn boxes(
             (&t.title, &t.actions.confirm, &t.actions.deny),
             "P-header"
         );
-        let shown: Vec<_> = t.rows.iter().map(|row| row.row.clone()).collect();
+        let shown: Vec<Row> = t.rows.iter().map(|row| row.row.clone().into()).collect();
         match CredmanEntry::of(&view.entry) {
             CredmanEntry::Payment(payment) => {
                 // View §2: merchant and amount show once, in the payment entry; every other
@@ -572,7 +573,7 @@ fn boxes(
                 assert_eq!(payment.rows, want, "P-proxy rows");
                 assert_eq!(
                     (&payment.merchant, &payment.amount),
-                    (merchant, amount),
+                    (merchant.text(), amount.text()),
                     "P-payment box"
                 );
                 assert_eq!(
@@ -585,7 +586,8 @@ fn boxes(
                     "P-payment method"
                 );
                 assert_eq!(
-                    payment.additional_info, t.actions.hint,
+                    payment.additional_info,
+                    t.actions.hint.clone().map(Text::from),
                     "P-hint on the entry"
                 );
                 tally.add("payment boxes");
@@ -601,7 +603,11 @@ fn boxes(
                     (&card.icon, &card.title, &card.subtitle),
                     "P-card is the identity"
                 );
-                assert_eq!(standard.warning, t.actions.hint, "P-hint on the entry");
+                assert_eq!(
+                    standard.warning,
+                    t.actions.hint.clone().map(Text::from),
+                    "P-hint on the entry"
+                );
                 tally.add("PaSO standard boxes");
             }
         }

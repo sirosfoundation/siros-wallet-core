@@ -21,7 +21,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
-use siros_openid4vp::rows::{Env, Row, Value as RowValue, WalletText};
+use siros_openid4vp::rows::{BooleanText, Env, Row, Value as RowValue};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
@@ -48,7 +48,7 @@ fn typed() -> Option<Vec<(&'static str, Text)>> {
         |hour, minute, second| Time::new(hour, minute, Some(Second::new(second, Fraction::NONE)?));
     let value = |value: Value| Text::Value(value);
     Some(vec![
-        ("boolean", Text::of(&WalletText::Yes)),
+        ("boolean", Text::of(&BooleanText::Yes)),
         ("frequency", Text::of(&DoubleText::Monthly)),
         ("date", value(Value::Date(Date::new(2026, 9, 2)?))),
         (

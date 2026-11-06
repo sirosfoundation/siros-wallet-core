@@ -98,7 +98,7 @@ impl CredmanEntry {
             ..
         } = entry.card().clone();
         let icon = EntryIcon::of(&icon);
-        let rows = entry.rows().cloned().collect();
+        let rows = entry.rows().collect();
         let Some(overlay) = entry.overlay() else {
             return Self::Standard(StandardEntry {
                 icon,
@@ -113,16 +113,16 @@ impl CredmanEntry {
                 icon,
                 title,
                 subtitle,
-                warning: overlay.hint.clone(),
+                warning: overlay.hint.clone().map(Text::from),
                 rows,
             }),
             Some(header) => Self::Payment(PaymentEntry {
-                merchant: header.counterparty.clone(),
-                amount: header.amount.clone(),
+                merchant: header.counterparty.clone().into(),
+                amount: header.amount.clone().into(),
                 method_name: title,
                 method_subtitle: subtitle,
                 method_icon: icon,
-                additional_info: overlay.hint.clone(),
+                additional_info: overlay.hint.clone().map(Text::from),
                 rows,
             }),
         }

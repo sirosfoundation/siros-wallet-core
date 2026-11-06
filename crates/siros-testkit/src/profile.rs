@@ -4,7 +4,7 @@
 //! A credential's `test` document: `{"supports": [types], "nonconforming": [entries], "stale"?:
 //! [entries phase 2 finds no longer hold]}`.
 
-use siros_explain::Text;
+use siros_explain::{RequestText, Text};
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash;
@@ -175,12 +175,12 @@ impl Profile for TestProfile {
             .map_err(|e| Fault::caused(FAULT, detail!("bound entries"), e))?;
         let rows = vec![
             Row::new(
-                Text::Raw("Reference".to_owned()),
-                Value::Text(Text::Raw(reference.clone())),
+                RequestText::raw("Reference".to_owned()),
+                Value::Text(RequestText::raw(reference.clone())),
             )
-            .in_section(Text::Raw("Section".to_owned())),
+            .in_section(RequestText::raw("Section".to_owned())),
             Row::new(
-                Text::Raw("Logo".to_owned()),
+                RequestText::raw("Logo".to_owned()),
                 Value::Image(Image::Embedded(ImageRef {
                     source: "data:image/png".to_owned(),
                     media: "image/png".to_owned(),
@@ -188,11 +188,11 @@ impl Profile for TestProfile {
                     height: 1,
                 })),
             )
-            .in_section(Text::Raw("Section".to_owned())),
+            .in_section(RequestText::raw("Section".to_owned())),
         ];
         let transaction = (first == Some(true)).then(|| TransactionHeader {
-            counterparty: Text::Raw("Merchant".to_owned()),
-            amount: Text::Raw("1.00 EUR".to_owned()),
+            counterparty: RequestText::raw("Merchant".to_owned()),
+            amount: RequestText::raw("1.00 EUR".to_owned()),
             rows: Vec::new(),
         });
         Ok(Bound {
@@ -207,7 +207,7 @@ impl Profile for TestProfile {
             overlay: Overlay {
                 rows,
                 header: transaction,
-                hint: Some(Text::Raw(format!("hint {reference}"))),
+                hint: Some(RequestText::raw(format!("hint {reference}"))),
             },
             selected: None,
         })

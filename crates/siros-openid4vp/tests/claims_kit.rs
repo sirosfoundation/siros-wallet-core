@@ -15,7 +15,7 @@ use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{Choice, Env, Icon, ImageMedia, WalletText};
+use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, ImageMedia};
 use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
@@ -94,7 +94,7 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             .collect();
         (raw(&card.title), card.icon, rows)
     };
-    let yes = raw(&Text::of(&WalletText::Yes));
+    let yes = raw(&Text::of(&BooleanText::Yes));
     let values = ["Erika", "Mustermann", "1971-09-01", yes.as_str()];
     let card = |title: &str, labels: [&str; 4]| {
         let rows = labels.iter().zip(values);

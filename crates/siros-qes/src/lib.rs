@@ -68,7 +68,7 @@ use siros_openid4vp::{
 use approval::ApprovalRequest;
 use binding::Encoding;
 pub use documents::{FailedDocument, FailedDocuments, Fetched};
-pub use render::QesText;
+pub use render::{QesText, QesTitle};
 use rules::{Excluded, Positions, QesRule};
 
 /// The profile's domain, as its fault message.
@@ -88,8 +88,14 @@ impl CrateModule {
 
 impl Messages for CrateModule {
     fn messages() -> Vec<Message> {
-        render::QesText::messages()
+        [render::QesTitle::messages(), render::QesText::messages()].concat()
     }
+}
+
+/// Its request messages are the approval's rows' texts.
+impl siros_explain::DeclaredModule for CrateModule {
+    const ID: siros_explain::ModuleId = Self::ID;
+    type Requested = render::QesText;
 }
 
 /// The profile's messages: those its rules and exclusions declare, and its fault's.

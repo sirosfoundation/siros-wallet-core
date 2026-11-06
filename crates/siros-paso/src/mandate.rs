@@ -5,17 +5,14 @@
 use std::borrow::Cow;
 
 use siros_explain::Explain;
-use siros_explain::Text;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::WalletText;
 
 use crate::metadata::{
     ClaimMeta, DisplayArray, Displayed, EntryLocale, LabelForm, Localized, Mandatory, Metadata,
     UiKey, UiLabel, ValueType,
 };
 use crate::outcome::Unsupported;
-use crate::rulebook::{Confirm, Rulebook, Subtype, Title};
 use crate::value::{FormattedKind, ValueKind};
 
 /// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
@@ -77,32 +74,6 @@ impl MandateLabel {
         Self::Payee,
         Self::PayeeLogo,
     ];
-}
-
-/// A text of the wallet's own a rulebook's metadata labels with: a message of a crate module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OwnText {
-    /// A Mandate claim's label.
-    Label(MandateLabel),
-    /// The transaction title.
-    Title(Title),
-    /// The confirm action.
-    Confirm(Confirm),
-    /// The wallet's denial action.
-    Deny,
-}
-
-impl OwnText {
-    /// The text.
-    #[must_use]
-    pub fn text(self) -> Text {
-        match self {
-            Self::Label(label) => Text::of(&label),
-            Self::Title(title) => Text::of(&title),
-            Self::Confirm(confirm) => Text::of(&confirm),
-            Self::Deny => Text::of(&WalletText::Deny),
-        }
-    }
 }
 
 /// One row of Mandate §2's table: the path's first member and the members below it, whether it
@@ -215,21 +186,17 @@ const TABLE: [Row; 19] = {
 
 /// A display array of a text of the wallet's own: its default entry, which every language
 /// matches, as the crate modules cover every language of the wallet.
-fn own(text: OwnText) -> DisplayArray<'static> {
+fn own(text: MandateLabel) -> DisplayArray<'static> {
     DisplayArray::built(vec![Localized {
         locale: EntryLocale::Default,
         label: LabelForm::Own(text),
     }])
 }
 
-/// The metadata a Mandate type renders with: the rulebook's claims and labels, its title and
-/// confirm action for the subtype, the wallet's denial, and the `security_hint` of the
-/// credential's metadata for the type.
-pub(crate) fn metadata<'m>(
-    subtype: Subtype<'_>,
-    given: &'m Node<'m>,
-) -> Result<Metadata<'m>, Unsupported> {
-    let rulebook = Rulebook::Mandate(subtype);
+/// The metadata a Mandate type renders with: the rulebook's claims and labels, and the
+/// `security_hint` of the credential's metadata for the type. Its title and confirm action are the
+/// subtype's and its denial the wallet's, as for a type whose metadata names none.
+pub(crate) fn metadata<'m>(given: &'m Node<'m>) -> Result<Metadata<'m>, Unsupported> {
     let claims = TABLE
         .iter()
         .map(|row| ClaimMeta {
@@ -239,25 +206,12 @@ pub(crate) fn metadata<'m>(
             ),
             mandatory: row.mandatory,
             display: row.label.map(|label| Displayed {
-                names: own(OwnText::Label(label)),
+                names: own(label),
                 value: row.value,
             }),
         })
         .collect();
-    let mut ui = vec![
-        UiLabel {
-            key: UiKey::TransactionTitle,
-            entries: own(OwnText::Title(rulebook.title())),
-        },
-        UiLabel {
-            key: UiKey::AffirmativeActionLabel,
-            entries: own(OwnText::Confirm(rulebook.confirm())),
-        },
-        UiLabel {
-            key: UiKey::DenialActionLabel,
-            entries: own(OwnText::Deny),
-        },
-    ];
+    let mut ui = Vec::new();
     if let Some(hint) = hint(given)? {
         ui.push(UiLabel::parse(UiKey::SecurityHint, hint)?);
     }

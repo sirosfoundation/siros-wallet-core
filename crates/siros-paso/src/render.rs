@@ -5,11 +5,13 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Entry, Explain, Keyed, Query, Text};
+use siros_explain::{DefinedModule, Entry, Explain, Keyed, RequestText, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
+
+use crate::PasoRequested;
 
 use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, written};
 use crate::entry::Payload;
@@ -58,8 +60,8 @@ impl ItemBound {
 /// A row with what it shows: the claim, the payload element, and its value's kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewRow {
-    /// The row.
-    pub row: Row,
+    /// The row, a transaction overlay's.
+    pub row: Row<RequestText>,
     /// The kind of value it shows, by its claim's value type; `None` for a label alone.
     pub kind: Option<ValueKind>,
     /// The claim.
@@ -76,7 +78,7 @@ pub struct Actions {
     /// The denial action: the metadata's, else the wallet's own (Proof Metadata §3.2).
     pub deny: Text,
     /// The `security_hint`: plain text, shown exactly.
-    pub hint: Option<Text>,
+    pub hint: Option<RequestText>,
 }
 
 /// The rows a payment presentation's header shows: the Payment rulebook's `payee.name` and
@@ -120,7 +122,7 @@ pub struct TransactionView {
 
 impl TransactionView {
     /// The text of the row at a position.
-    fn text(&self, position: usize) -> Option<&Text> {
+    fn text(&self, position: usize) -> Option<&RequestText> {
         self.rows
             .get(position)
             .and_then(|row| row.row.value.as_ref())
@@ -129,7 +131,7 @@ impl TransactionView {
 
     /// The payment's merchant and amount texts.
     #[must_use]
-    pub fn payment_texts(&self) -> Option<(&Text, &Text)> {
+    pub fn payment_texts(&self) -> Option<(&RequestText, &RequestText)> {
         let rows = self.payment?;
         Some((self.text(rows.merchant)?, self.text(rows.amount)?))
     }
@@ -188,7 +190,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 self.row(module, &metadata, &rulebook, &discarded, position, shown)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let ui = |key: UiKey| -> Result<Option<Text>, NotCompatible> {
+        let ui = |key: UiKey| -> Result<Option<RequestText>, NotCompatible> {
             let Some(label) = metadata.ui.iter().find(|label| label.key == key) else {
                 return Ok(None);
             };
@@ -204,10 +206,12 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             self.label(module, &metadata, &discarded, &[], placed)
                 .map(Some)
         };
-        let title = ui(UiKey::TransactionTitle)?.unwrap_or_else(|| Text::of(&rulebook.title()));
-        let confirm =
-            ui(UiKey::AffirmativeActionLabel)?.unwrap_or_else(|| Text::of(&rulebook.confirm()));
-        let deny = ui(UiKey::DenialActionLabel)?.unwrap_or_else(|| Text::of(&WalletText::Deny));
+        let header = |key: UiKey, own: Text| -> Result<Text, NotCompatible> {
+            Ok(ui(key)?.map_or(own, RequestText::into_text))
+        };
+        let title = header(UiKey::TransactionTitle, Text::of(&rulebook.title()))?;
+        let confirm = header(UiKey::AffirmativeActionLabel, Text::of(&rulebook.confirm()))?;
+        let deny = header(UiKey::DenialActionLabel, Text::of(&WalletText::Deny))?;
         let hint = ui(UiKey::SecurityHint)?;
         let items = rows.len() + 3 + usize::from(hint.is_some());
         if items > self.bound.get() {
@@ -354,7 +358,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         discarded: &Discarded,
         nulls: &[usize],
         placed: Placed<'_, '_>,
-    ) -> Result<Text, NotCompatible> {
+    ) -> Result<RequestText, NotCompatible> {
         let claims = &metadata.claims;
         let payload = self.payload.node();
         let entries = placed.entries.entries();
@@ -362,7 +366,9 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             .get(placed.position)
             .ok_or(NotCompatible::TemplatesExhausted)?;
         match entry.label {
-            LabelForm::Own(own) => return Ok(own.text()),
+            LabelForm::Own(label) => {
+                return Ok(RequestText::of(&PasoRequested::Mandate(label)));
+            }
             LabelForm::Template(template) => {
                 let text = Template(template).interpolate(claims, payload, nulls)?;
                 LabelText::parse(&text, placed.slot)
@@ -374,7 +380,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             }
             LabelForm::Plain(_) | LabelForm::Markdown(_) => {}
         }
-        let mut args: Vec<Entry<Cow<'static, str>, Text>> = Vec::new();
+        let mut args: Vec<Entry<Cow<'static, str>, RequestText>> = Vec::new();
         for (position, entry) in entries.iter().enumerate() {
             if let LabelForm::Template(template) = entry.label {
                 let live = if discarded.holds(placed.array, position) {
@@ -382,16 +388,15 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 } else {
                     view::LIVE
                 };
-                args.push(Entry::new(view::liveness(position), Text::Name(live)));
+                args.push(Entry::new(
+                    view::liveness(position),
+                    RequestText::name(live),
+                ));
                 args.extend(Template(template).arguments(claims, payload, nulls)?);
             }
         }
         let key = view::key(placed.array);
-        Ok(Text::Query(Query::defined(
-            module,
-            key,
-            Keyed::first_of(args),
-        )))
+        Ok(RequestText::defined(module, key, Keyed::first_of(args)))
     }
 
     /// One instance's row: its label in the presentation's language, its value, its section.
@@ -436,7 +441,9 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         };
         let section = match instance.placement {
             Placement::Main => None,
-            Placement::Embedded => rulebook.section().map(|section| Text::of(&section)),
+            Placement::Embedded => rulebook
+                .section()
+                .map(|section| RequestText::of(&PasoRequested::Section(section))),
         };
         Ok(ViewRow {
             row: Row {
@@ -463,7 +470,7 @@ struct Placed<'a, 'm> {
 }
 
 /// A value of a kind other than an image, with its text.
-fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value, NotCompatible> {
+fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>, NotCompatible> {
     values::formatted(kind, written(value))
         .map(|(_, text)| Value::Text(text))
         .map_err(|bad| NotCompatible::Value {
@@ -486,10 +493,7 @@ pub(crate) fn rulebook_metadata<'m>(
     Ok(match family {
         Family::Mandate => {
             let subtype = Subtype::mandate(kind)?;
-            (
-                mandate::metadata(subtype, given)?,
-                Rulebook::Mandate(subtype),
-            )
+            (mandate::metadata(given)?, Rulebook::Mandate(subtype))
         }
         Family::View => (Metadata::parse(given)?, Rulebook::View),
         Family::Payment => (Metadata::parse(given)?, Rulebook::Payment),

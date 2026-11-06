@@ -7,7 +7,7 @@ use serde_json::Value as Json;
 use siros_explain::{
     Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
 };
-use siros_openid4vp::rows::WalletText;
+use siros_openid4vp::rows::BooleanText;
 use siros_paso::frequency::Frequency;
 use siros_paso::markdown::{Span, Style, commonmark_html, spans};
 use siros_paso::value::{Breach, FormattedKind, Parsed, Written, formatted};
@@ -139,7 +139,7 @@ fn mini_markdown_keeps_every_other_construct_literal() {
 /// A value's text, or the rule it breaks.
 fn shown(kind: FormattedKind, written: Written<'_>) -> Result<Text, Breach> {
     formatted(kind, written)
-        .map(|(_, text)| text)
+        .map(|(_, text)| text.into_text())
         .map_err(|bad| bad.why)
 }
 
@@ -181,7 +181,7 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
     let other = siros_openid4vp::json::Node::parse("3").expect("number");
     let raw = |text: &str| Is(Text::Raw(text.to_owned()));
     let table: [(K, Written<'_>, Want); 31] = [
-        (K::Boolean, B(true), Is(Text::of(&WalletText::Yes))),
+        (K::Boolean, B(true), Is(Text::of(&BooleanText::Yes))),
         (K::Boolean, T("true"), Refused(Breach::NotBoolean)),
         (K::Date, B(true), Refused(Breach::NotString)),
         (K::Frequency, T("MNTH"), Is(Text::of(&Frequency::Monthly))),

@@ -7,7 +7,7 @@ use crate::ids::LocaleTag;
 use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 
-use crate::rows::{Row, Value, WalletText};
+use crate::rows::{BooleanText, Row, Value, WalletText};
 use crate::text::lookup;
 use crate::text::python_space;
 
@@ -145,8 +145,8 @@ pub(super) fn value_rows(
 /// the wallet's text for no value, a number as a count or an exact decimal, a string as written.
 fn scalar_text(node: &Node<'_>) -> Text {
     match node {
-        Node::Bool(true) => Text::of(&WalletText::Yes),
-        Node::Bool(false) => Text::of(&WalletText::No),
+        Node::Bool(true) => Text::of(&BooleanText::Yes),
+        Node::Bool(false) => Text::of(&BooleanText::No),
         Node::Null => Text::of(&WalletText::Null),
         Node::Number(number) => {
             number_value(number.text()).map_or_else(|| Text::Raw(text_of(node)), Text::Value)

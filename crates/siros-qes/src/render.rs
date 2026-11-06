@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 use siros_explain::Explain;
-use siros_explain::{Text, Value as Typed};
+use siros_explain::{RequestText, Text, Value as Typed};
 use siros_openid4vp::consent::Header;
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::{Exclude, Fault, NoCandidate};
@@ -19,10 +19,10 @@ use crate::approval::{
 use crate::documents::Fetched;
 use crate::rules::Excluded;
 
-/// A text of the profile's own: a message of the crate's module.
+/// The consent header's texts of the profile's own: messages of the crate's module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "qes.approval")]
-pub enum QesText {
+pub enum QesTitle {
     /// The consent title of signatures.
     #[error("Approve qualified signatures")]
     TitleSignatures,
@@ -32,6 +32,23 @@ pub enum QesText {
     /// The confirm action.
     #[error("Approve")]
     Confirm,
+}
+
+impl QesTitle {
+    /// The consent title of an approval.
+    const fn of(qualifier: SignatureQualifier) -> Self {
+        match qualifier.creation() {
+            Creation::Signature => Self::TitleSignatures,
+            Creation::Seal => Self::TitleSeals,
+        }
+    }
+}
+
+/// The approval's rows' texts of the profile's own, which its overlay shows: the module's
+/// request messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "qes.approval")]
+pub enum QesText {
     /// What an `eu_eidas_qes` approval creates.
     #[error("Creates qualified electronic signatures under the EU eIDAS regulation")]
     CreatesEidasSignatures,
@@ -73,15 +90,11 @@ pub enum QesText {
     },
 }
 
-impl QesText {
-    /// The consent title of an approval.
-    const fn title(qualifier: SignatureQualifier) -> Self {
-        match qualifier.creation() {
-            Creation::Signature => Self::TitleSignatures,
-            Creation::Seal => Self::TitleSeals,
-        }
-    }
+impl siros_explain::Requested for QesText {
+    type Module = crate::CrateModule;
+}
 
+impl QesText {
     /// What an approval creates, under its framework.
     const fn creates(qualifier: SignatureQualifier) -> Self {
         match (qualifier.creation(), qualifier.framework()) {
@@ -95,19 +108,19 @@ impl QesText {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rendered {
     /// The rows, shown before the credential's.
-    pub(crate) rows: Vec<Row>,
+    pub(crate) rows: Vec<Row<RequestText>>,
     /// The header.
     pub(crate) header: Header,
 }
 
 /// A value the request wrote, shown as written.
-fn written(text: &str) -> Value {
-    Value::Text(Text::Raw(text.to_owned()))
+fn written(text: &str) -> Value<RequestText> {
+    Value::Text(RequestText::raw(text.to_owned()))
 }
 
-/// A value of the profile's own: a message of its module.
-fn own(text: QesText) -> Value {
-    Value::Text(Text::of(&text))
+/// A text of the profile's own: a request message of its module.
+fn own(text: QesText) -> RequestText {
+    RequestText::of(&text)
 }
 
 /// The approval's rows and header. Excluded when a linked document the wallet holds
@@ -118,15 +131,15 @@ pub(crate) fn render(
 ) -> Result<Rendered, NoCandidate> {
     let qualifier = approval.qualifier;
     let mut rows = vec![
-        Row::full_text(Text::of(&QesText::creates(qualifier))),
+        Row::full_text(own(QesText::creates(qualifier))),
         Row::new(
-            Text::of(&QesText::Count),
-            Value::Text(Text::Value(Typed::Count(approval.count.count()))),
+            own(QesText::Count),
+            Value::Text(RequestText::value(Typed::Count(approval.count.count()))),
         ),
     ];
     for (k, document) in approval.documents.iter().enumerate() {
         let n = k + 1;
-        let section = Text::of(&QesText::Section { document: n });
+        let section = own(QesText::Section { document: n });
         for row in document_rows(document, n, held)? {
             rows.push(row.in_section(section.clone()));
         }
@@ -134,8 +147,8 @@ pub(crate) fn render(
     Ok(Rendered {
         rows,
         header: Header {
-            title: Text::of(&QesText::title(qualifier)),
-            confirm: Text::of(&QesText::Confirm),
+            title: Text::of(&QesTitle::of(qualifier)),
+            confirm: Text::of(&QesTitle::Confirm),
             cancel: Text::of(&WalletText::Deny),
         },
     })
@@ -147,16 +160,13 @@ fn document_rows(
     document: &DocumentInfo<'_>,
     n: usize,
     held: &FxHashMap<String, Fetched>,
-) -> Result<Vec<Row>, NoCandidate> {
+) -> Result<Vec<Row<RequestText>>, NoCandidate> {
     let mut rows = vec![match document.label {
-        Some(label) => Row::new(Text::of(&QesText::Name), written(label)),
-        None => Row::full_text(Text::of(&QesText::NoName)),
+        Some(label) => Row::new(own(QesText::Name), written(label)),
+        None => Row::full_text(own(QesText::NoName)),
     }];
     if let Some(password) = document.one_time_password {
-        rows.push(Row::new(
-            Text::of(&QesText::OneTimePassword),
-            written(password),
-        ));
+        rows.push(Row::new(own(QesText::OneTimePassword), written(password)));
     }
     let Some(Link { href, checksum }) = document.link else {
         return Ok(rows);
@@ -166,9 +176,9 @@ fn document_rows(
         Err(e @ NotHttpsUrl::ALabel { .. }) => {
             return Err(Fault::caused(FAULT, detail!("QES document {n}: its link"), e).into());
         }
-        Err(_) => own(QesText::Embedded),
+        Err(_) => Value::Text(own(QesText::Embedded)),
     };
-    rows.push(Row::new(Text::of(&QesText::Link), link));
+    rows.push(Row::new(own(QesText::Link), link));
     if let Some(checksum) = checksum {
         let checked = match held.get(href) {
             Some(fetched) if fetched.verifies(checksum) => QesText::Verified,
@@ -177,7 +187,7 @@ fn document_rows(
             }
             None => QesText::Unverified,
         };
-        rows.push(Row::new(Text::of(&QesText::Integrity), own(checked)));
+        rows.push(Row::new(own(QesText::Integrity), Value::Text(own(checked))));
     }
     Ok(rows)
 }

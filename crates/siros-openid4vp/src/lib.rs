@@ -113,8 +113,14 @@ impl CrateModule {
 
 impl siros_explain::Messages for CrateModule {
     fn messages() -> Vec<siros_explain::Message> {
-        rows::WalletText::messages()
+        [rows::WalletText::messages(), rows::BooleanText::messages()].concat()
     }
+}
+
+/// Its request messages are a boolean's text, which a transaction's overlay shows.
+impl siros_explain::DeclaredModule for CrateModule {
+    const ID: siros_explain::ModuleId = Self::ID;
+    type Requested = rows::BooleanText;
 }
 
 /// The core's messages: those its error types declare, and its fault's. A transparent variant

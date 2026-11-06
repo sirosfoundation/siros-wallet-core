@@ -4,9 +4,9 @@
 //! beside the package; each text equals the wallet's for the verified JWT.
 
 use serde_json::{Value, json};
-use siros_credman::register::{Registration, package};
+use siros_credman::register::{Registered, Registration, package};
 use siros_credman::{Emitted, Shown, emit};
-use siros_explain::{ModuleId, Text};
+use siros_explain::{DeclaredModule, Messages, ModuleId, RequestText, Text};
 use siros_i18n::{Module, Package};
 use siros_openid4vp::consent::{Card, ConsentEntry};
 use siros_openid4vp::host::Timestamp;
@@ -17,7 +17,7 @@ use siros_openid4vp::rows::{Choice, Env, Value as RowValue};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::Carried;
 use siros_testkit::fixtures::{Held, ORIGIN, parameters};
-use siros_testkit::render::{App, formats};
+use siros_testkit::render::{App, MainModule, TestkitModule, formats};
 use siros_testkit::verifier::{self, ISSUER, ISSUER_KEY};
 
 use crate::common::{HaipHost, own_modules, registry};
@@ -27,18 +27,23 @@ use crate::{NOW, PAY, annex, english, member, payment_metadata};
 fn request_texts(entry: &ConsentEntry) -> Vec<&Text> {
     let mut out: Vec<&Text> = Vec::new();
     if let Some(overlay) = entry.overlay() {
-        out.extend(&overlay.hint);
+        out.extend(overlay.hint.iter().map(RequestText::text));
         for row in overlay
             .rows
             .iter()
             .chain(overlay.header.iter().flat_map(|header| &header.rows))
         {
-            out.push(&row.label);
-            out.extend(row.value.as_ref().and_then(RowValue::text));
-            out.extend(&row.section);
+            out.push(row.label.text());
+            out.extend(
+                row.value
+                    .as_ref()
+                    .and_then(RowValue::text)
+                    .map(RequestText::text),
+            );
+            out.extend(row.section.iter().map(RequestText::text));
         }
         if let Some(transaction) = &overlay.header {
-            out.extend([&transaction.counterparty, &transaction.amount]);
+            out.extend([transaction.counterparty.text(), transaction.amount.text()]);
         }
     }
     out
@@ -60,6 +65,27 @@ fn shown<T>(
     let sets = offer(&matched, &consent, Choice::First);
     let display = display(&sets, &views, &[]).expect("no fault");
     then(&views, &display)
+}
+
+/// The wallet's own modules, each with its type's request messages.
+pub fn registered_modules(modules: &[Module]) -> Vec<Registered<'_>> {
+    modules
+        .iter()
+        .map(|module| {
+            match module.id() {
+                ModuleId::Main => Registered::of::<MainModule>(module),
+                id if id == TestkitModule::ID => Registered::of::<TestkitModule>(module),
+                id if id == siros_paso::CrateModule::ID => {
+                    Registered::of::<siros_paso::CrateModule>(module)
+                }
+                id if id == siros_qes::CrateModule::ID => {
+                    Registered::of::<siros_qes::CrateModule>(module)
+                }
+                _ => Registered::of::<siros_openid4vp::CrateModule>(module),
+            }
+            .expect("a declared module")
+        })
+        .collect()
 }
 
 #[test]
@@ -124,7 +150,7 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
             .collect();
         package(
             &Registration {
-                modules: &modules.iter().collect::<Vec<_>>(),
+                modules: &registered_modules(&modules),
                 own: &own,
                 credentials: &cards,
                 statics: &[],
@@ -136,6 +162,19 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
         .expect("the registration's package")
     });
     let registered = Package::read(built.bytes(), built.root()).expect("the package");
+    // The package holds the compiled messages of the texts that depend on a request and no
+    // others: the request messages each module's type declares.
+    let mut declared: Vec<String> = [
+        siros_openid4vp::rows::BooleanText::messages(),
+        siros_paso::PasoRequested::messages(),
+        siros_qes::QesText::messages(),
+    ]
+    .concat()
+    .into_iter()
+    .map(|message| message.id().as_str().to_owned())
+    .collect();
+    declared.sort();
+    assert_eq!(registered.keys().expect("the keys"), declared);
 
     // The matcher reads the JWT unverified and converts it over the package's main entries.
     let read = Carried::read(&request);

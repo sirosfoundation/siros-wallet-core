@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use crate::markdown::spans;
 use crate::value::{BadValue, Breach, FormattedKind, ValueKind, Written, formatted};
-use siros_explain::{AllOf, Entry, Text};
+use siros_explain::{AllOf, Entry, RequestText, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
@@ -182,7 +182,7 @@ impl Template<'_> {
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &[usize],
-    ) -> Result<Text, NotCompatible> {
+    ) -> Result<RequestText, NotCompatible> {
         let interpolated = self.interpolate(claims, payload, nulls)?;
         let (_, read) =
             formatted(kind, Written::Text(&interpolated)).map_err(|bad| NotCompatible::Value {
@@ -208,7 +208,7 @@ impl Template<'_> {
                     .to_owned(),
             ));
             let typed = text(reference.value_type(), value)?;
-            parts.push(match (&typed, kind) {
+            parts.push(match (typed.text(), kind) {
                 (Text::Value(_) | Text::Query(_), _) => Part::Typed(typed),
                 (_, FormattedKind::MiniMarkdown) => Part::Written(value_written(value)),
                 (Text::Raw(shown), _) => Part::Written(shown.clone()),
@@ -255,10 +255,10 @@ impl Template<'_> {
                 items.push(text);
             }
             if !piece.is_empty() {
-                items.push(Text::Raw(piece.to_owned()));
+                items.push(RequestText::raw(piece.to_owned()));
             }
         }
-        Ok(AllOf::new(items).map_or(read, Text::Joined))
+        Ok(AllOf::new(items).map_or(read, RequestText::joined))
     }
 
     /// Each referenced value as its message's argument, under its claim's name, by its value
@@ -268,15 +268,15 @@ impl Template<'_> {
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &[usize],
-    ) -> Result<Vec<Entry<Cow<'static, str>, Text>>, NotCompatible> {
-        let mut args: Vec<Entry<Cow<'static, str>, Text>> = Vec::new();
+    ) -> Result<Vec<Entry<Cow<'static, str>, RequestText>>, NotCompatible> {
+        let mut args: Vec<Entry<Cow<'static, str>, RequestText>> = Vec::new();
         for placeholder in placeholders(self.0) {
             let Some(reference) = Reference::of(&placeholder, claims) else {
                 continue;
             };
             let value = match reference.read(payload, nulls)? {
                 Some(value) => text(reference.value_type(), value)?,
-                None => Text::Absent,
+                None => RequestText::absent(),
             };
             args.push(Entry::new(argument(reference.index), value));
         }
@@ -287,7 +287,7 @@ impl Template<'_> {
 /// A part of a template value: text shown as written, or a value's typed text.
 enum Part {
     Written(String),
-    Typed(Text),
+    Typed(RequestText),
 }
 
 /// A character of Unicode's Supplementary Private Use Area-A that no written part holds: where
@@ -309,7 +309,7 @@ fn value_written(value: &Node<'_>) -> String {
 }
 
 /// A referenced value's text by its value type: a string as written without one.
-fn text(value_type: ValueType, value: &Node<'_>) -> Result<Text, NotCompatible> {
+fn text(value_type: ValueType, value: &Node<'_>) -> Result<RequestText, NotCompatible> {
     let kind = match value_type {
         ValueType::Kind(ValueKind::Formatted(kind)) => kind,
         _ => FormattedKind::Text,

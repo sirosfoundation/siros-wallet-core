@@ -143,6 +143,33 @@ impl Messages for CrateModule {
     }
 }
 
+/// Its request messages: the Mandate rulebook's claim labels, the sections embedded claims sit
+/// in, and the ISO 20022 frequencies, which a transaction's overlay shows.
+impl siros_explain::DeclaredModule for CrateModule {
+    const ID: siros_explain::ModuleId = Self::ID;
+    type Requested = PasoRequested;
+}
+
+/// The texts of the crate's module that a transaction's overlay shows: the module's request
+/// messages, which a registration's package holds compiled (section 4.14 of the design).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
+#[explain(domain = "paso")]
+pub enum PasoRequested {
+    /// A Mandate claim's label.
+    #[error(transparent)]
+    Mandate(mandate::MandateLabel),
+    /// The section an embedded claim sits in.
+    #[error(transparent)]
+    Section(rulebook::Section),
+    /// A frequency.
+    #[error(transparent)]
+    Frequency(frequency::Frequency),
+}
+
+impl siros_explain::Requested for PasoRequested {
+    type Module = CrateModule;
+}
+
 /// The profile's messages: those its error types, rules and exclusions declare, and its fault's.
 pub struct CrateMessages;
 
@@ -456,7 +483,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
     let Rendered { view, source } = rendered;
     let payment = view
         .payment_texts()
-        .map(|(merchant, amount)| (merchant.to_owned(), amount.to_owned()));
+        .map(|(merchant, amount)| (merchant.clone(), amount.clone()));
     let TransactionView {
         locale,
         module,
