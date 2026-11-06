@@ -1,10 +1,89 @@
 //! Why an issued SD-JWT, or a view of one, is refused.
 
-use siros_explain::Explain;
+use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::json::JsonError;
 
-use crate::alg::Digest;
+use crate::alg::{Digest, SigningAlg};
 use crate::tree::DisclosureId;
+
+/// A closed set of names, each its own member of an error.
+macro_rules! claim_names {
+    ($($(#[$doc:meta])* $type:ident { $($(#[$variant_doc:meta])* $variant:ident => $name:literal,)+ })+) => {$(
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum $type {
+            $($(#[$variant_doc])* $variant,)+
+        }
+
+        impl $type {
+            /// The name.
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+        }
+
+        impl IntoArg for $type {
+            type Kind = kind::Name;
+
+            fn arg(&self) -> &'static str {
+                self.name()
+            }
+        }
+    )+};
+}
+
+claim_names! {
+    /// A registered claim no disclosure holds, sub-claims included (SD-JWT VC §3.2.2).
+    PermanentClaim {
+        /// `iss`.
+        Iss => "iss",
+        /// `nbf`.
+        Nbf => "nbf",
+        /// `exp`.
+        Exp => "exp",
+        /// `cnf`.
+        Cnf => "cnf",
+        /// `vct`.
+        Vct => "vct",
+        /// `vct#integrity`.
+        VctIntegrity => "vct#integrity",
+        /// `aka_vcts`.
+        AkaVcts => "aka_vcts",
+        /// `status`.
+        Status => "status",
+    }
+    /// A claim stating when the credential is valid (RFC 7519 §4.1.4, §4.1.5).
+    ValidityClaim {
+        /// `nbf`.
+        Nbf => "nbf",
+        /// `exp`.
+        Exp => "exp",
+    }
+    /// A coordinate of a holder key's JWK (RFC 7518 §6.2.1.2, RFC 8037 §2).
+    JwkCoordinate {
+        /// `x`.
+        X => "x",
+        /// `y`.
+        Y => "y",
+    }
+}
+
+impl PermanentClaim {
+    /// Each of them.
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Iss,
+        Self::Nbf,
+        Self::Exp,
+        Self::Cnf,
+        Self::Vct,
+        Self::VctIntegrity,
+        Self::AkaVcts,
+        Self::Status,
+    ];
+}
 
 /// Why a base64url segment encodes no JSON value.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -254,8 +333,8 @@ pub enum HolderKeyFault {
     #[error("its kty is not the key type of its curve")]
     KeyType,
     /// This coordinate is no base64url of the curve's coordinate size (RFC 7518 §6.2.1.2).
-    #[error("its {0} is no base64url of the curve's coordinate size")]
-    Coordinate(#[explain(name = "coordinate")] &'static str),
+    #[error("its {} is no base64url of the curve's coordinate size", .0.name())]
+    Coordinate(#[explain(name = "coordinate")] JwkCoordinate),
     /// `alg` is no algorithm the curve signs under: `none` and the MAC algorithms among them
     /// (RFC 9901 §4.3).
     #[error("its alg is no algorithm its curve signs under")]
@@ -273,8 +352,8 @@ pub enum RegistrationError {
     #[error("the Issuer-signed JWT's typ is not dc+sd-jwt (SD-JWT VC §3.2.1)")]
     Typ,
     /// A disclosure reveals this registered claim or one of its sub-claims (SD-JWT VC §3.2.2).
-    #[error("a disclosure reveals the registered claim {0} (SD-JWT VC §3.2.2)")]
-    SelectivelyDisclosed(#[explain(name = "claim")] &'static str),
+    #[error("a disclosure reveals the registered claim {} (SD-JWT VC §3.2.2)", .0.name())]
+    SelectivelyDisclosed(#[explain(name = "claim")] PermanentClaim),
     /// `vct` is absent or no string (SD-JWT VC §3.2.2.1).
     #[error("vct is absent or no string (SD-JWT VC §3.2.2.1)")]
     Vct,
@@ -289,23 +368,17 @@ pub enum RegistrationError {
         HolderKeyFault,
     ),
     /// `nbf` or `exp` is no number a finite double holds (RFC 7519 §2).
-    #[error("{0} is no NumericDate (RFC 7519 §2)")]
-    Validity(#[explain(name = "claim")] &'static str),
+    #[error("{} is no NumericDate (RFC 7519 §2)", .0.name())]
+    Validity(#[explain(name = "claim")] ValidityClaim),
     /// The curve the wallet resolved contradicts the curve the JWS algorithm fixes (RFC 7518
     /// §3.1).
-    #[error("the issuer's key on {curve} cannot sign {alg}")]
+    #[error("the issuer's key on {curve} cannot sign {alg}", alg = .alg.as_str())]
     IssuerCurve {
         /// The JWS algorithm.
-        alg: String,
+        alg: SigningAlg,
         /// The curve the wallet resolved.
         curve: String,
     },
-    /// The metadata is no object.
-    #[error("the type metadata is no object")]
-    Metadata,
-    /// The view repeats a member name.
-    #[error(transparent)]
-    Json(#[from] JsonError),
 }
 
 /// Why a path selects no disclosure of the credential.
@@ -342,13 +415,6 @@ pub enum PresentFault {
         #[source]
         #[explain(name = "cause")]
         ParseError,
-    ),
-    /// The document's processed claims write no JSON value.
-    #[error("the document's claims: {0}")]
-    Values(
-        #[source]
-        #[explain(name = "cause")]
-        JsonError,
     ),
     /// The document's `cnf` and the credential's `Facts::holder` disagree.
     #[error("the document's cnf and the credential's holder fact disagree")]

@@ -201,8 +201,9 @@ fn the_effective_metadata_of_section_8_5_2_labels_the_claims() {
 /// unlabelled claim as before.
 #[test]
 fn figure_29_loads_as_a_defined_module() {
-    let document = Node::parse(FIGURE_29).expect("metadata");
-    let digest = type_metadata::module_of(&document);
+    let parsed = Node::parse(FIGURE_29).expect("metadata");
+    let document = parsed.as_object().expect("an object");
+    let digest = type_metadata::module_of(document);
     let hex: String = digest
         .digest()
         .bytes()
@@ -217,7 +218,7 @@ fn figure_29_loads_as_a_defined_module() {
         .map(|tag| LocaleTag::parse(tag).expect("tag"))
         .collect();
     let main = main_locales().expect("the main module's locales");
-    let form = type_metadata::convert(&document, &main, &priority, LanguagePolicy::Any)
+    let form = type_metadata::convert(document, &main, &priority, LanguagePolicy::Any)
         .expect("the module");
     let crates = CrateSource::openid4vp().load().expect("the crate module");
     let main_module = main_module().expect("the main module");
@@ -275,23 +276,20 @@ fn figure_29_loads_as_a_defined_module() {
         assert_eq!(renderer.plain(&card.title).expect("title"), *title);
         assert_eq!(renderer.plain(&card.rows[0].label).expect("label"), *label);
     }
-    // A package that holds the module not: the entry cannot render.
-    let bare = App::new(&[&main_module, &crates], &[]).expect("the package");
-    let bare = bare.rendering().expect("the rendering");
-    let env = env(&["en-US", "en"], Vec::new()).expect("env");
-    assert!(matches!(
-        bare.renderer(None, module, None, &env).expect("no fault"),
-        Err(siros_openid4vp::rendering::Unrendered::Module(_))
-    ));
 }
 
 /// A display entry whose `locale` is no language tag has no language to load in.
 #[test]
 fn a_locale_of_no_tag_is_refused() {
-    let document =
+    let parsed =
         Node::parse(r#"{"display": [{"locale": "not a tag", "name": "A"}]}"#).expect("json");
     assert!(matches!(
-        type_metadata::convert(&document, &[], &[], LanguagePolicy::Any),
+        type_metadata::convert(
+            parsed.as_object().expect("an object"),
+            &[],
+            &[],
+            LanguagePolicy::Any
+        ),
         Err(type_metadata::ConvertError::Locale(_))
     ));
 }

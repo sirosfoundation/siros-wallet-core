@@ -3,7 +3,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use rustc_hash::FxHashMap;
-use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::json::Node;
 
 use crate::alg::{HashAlg, SigningAlg};
 use crate::error::{
@@ -90,11 +90,8 @@ impl SdJwt {
 
     /// The processed payload as JSON, each withheld array position an `{"...": digest}` element:
     /// what a claims path pointer walks with [`crate::SdJwtVc`]'s `withheld`.
-    ///
-    /// # Errors
-    ///
-    /// [`JsonError`]: never for a parsed credential, whose object members are unique.
-    pub fn values(&self) -> Result<Node<'static>, JsonError> {
+    #[must_use]
+    pub fn values(&self) -> Node<'static> {
         self.claims.node()
     }
 
@@ -113,8 +110,8 @@ impl SdJwt {
 
     /// The JWS algorithm of the Issuer-signed JWT.
     #[must_use]
-    pub fn signing_alg(&self) -> &str {
-        self.signing_alg.as_str()
+    pub fn signing_alg(&self) -> &SigningAlg {
+        &self.signing_alg
     }
 
     /// The Issuer-signed JWT's `typ` header parameter (RFC 7515 §4.1.9); `None` when it holds no

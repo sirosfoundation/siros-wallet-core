@@ -101,7 +101,7 @@ fn selected(
 ) -> Result<crate::key_binding::Presentation, Fault> {
     let credential = presenting.view.credential();
     let fail = |why| fault(credential, why);
-    let values = sd_jwt.values().map_err(|e| fail(PresentFault::Values(e)))?;
+    let values = sd_jwt.values();
     let paths: Vec<ConcretePath<'_>> = presenting
         .disclosed
         .iter()

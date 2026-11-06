@@ -2,19 +2,26 @@
 //! example: `data/figure-19-*`, `figure-20-*` and `figure-21-*` are Figures 19 to 21 of
 //! draft-ietf-oauth-sd-jwt-vc-14, as the reference model reads them (page furniture removed).
 
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
-use siros_sdjwt::type_metadata::{ExtendError, extend};
+use siros_sdjwt::type_metadata::{ExtendError, FixedSd, extend};
 
 fn json(text: &str) -> Node<'_> {
     Node::parse(text).expect("json")
 }
 
+fn document(text: &str) -> Object<'_> {
+    match json(text) {
+        Node::Object(object) => object,
+        other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn the_effective_metadata_follows_section_7_2_and_8_5() {
-    let base = json(include_str!("data/figure-19-base-type-metadata.json"));
-    let child = json(include_str!("data/figure-20-child-type-metadata.json"));
-    let effective = json(include_str!("data/figure-21-effective-claim-metadata.json"));
+    let base = document(include_str!("data/figure-19-base-type-metadata.json"));
+    let child = document(include_str!("data/figure-20-child-type-metadata.json"));
+    let effective = document(include_str!("data/figure-21-effective-claim-metadata.json"));
     // §8.5.2: the child's effective claim metadata is Figure 21.
     let extended = extend(&base, &child).expect("extended");
     assert_eq!(extended.get("claims"), effective.get("claims"));
@@ -22,9 +29,9 @@ fn the_effective_metadata_follows_section_7_2_and_8_5() {
     assert_eq!(extended.get("vct"), child.get("vct"));
     assert_eq!(extended.get("extends"), None);
     // §7.2: a child without display keeps its parent's; one with display replaces it.
-    let parent = json(r#"{"vct": "p", "display": [{"locale": "en", "name": "P"}]}"#);
+    let parent = document(r#"{"vct": "p", "display": [{"locale": "en", "name": "P"}]}"#);
     let display = |child: &'static str| {
-        extend(&parent, &json(child))
+        extend(&parent, &document(child))
             .expect("extended")
             .get("display")
             .cloned()
@@ -42,7 +49,7 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
         {"path": ["always"], "sd": "always"}, {"path": ["never"], "sd": "never"},
         {"path": ["allowed"], "sd": "allowed"}, {"path": ["plain"]},
         {"path": ["required"], "mandatory": true}, {"path": ["optional"], "mandatory": false}]}"#;
-    let base = json(base);
+    let base = document(base);
     let path = |text| {
         let node = json(text);
         ReprItem::json(&node)
@@ -59,14 +66,14 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
             r#"{"path": ["always"], "sd": "allowed"}"#,
             Err(ExtendError::Sd {
                 path: path(r#"["always"]"#),
-                base: "always".to_owned(),
+                base: FixedSd::Always,
             }),
         ),
         (
             r#"{"path": ["never"], "sd": "always"}"#,
             Err(ExtendError::Sd {
                 path: path(r#"["never"]"#),
-                base: "never".to_owned(),
+                base: FixedSd::Never,
             }),
         ),
         (
@@ -80,11 +87,6 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
     ];
     for (claim, want) in cases {
         let child = format!(r#"{{"vct": "c", "claims": [{claim}]}}"#);
-        assert_eq!(extend(&base, &json(&child)).map(drop), want, "{claim}");
+        assert_eq!(extend(&base, &document(&child)).map(drop), want, "{claim}");
     }
-    assert_eq!(
-        extend(&json("[]"), &base).map(drop),
-        Err(ExtendError::Shape),
-        "a document is an object"
-    );
 }

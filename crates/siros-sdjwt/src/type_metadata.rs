@@ -7,11 +7,12 @@ use std::borrow::Cow;
 
 use sha2::{Digest, Sha256};
 use siros_explain::{
-    DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, MetadataDigest, checked,
+    DefinedKey, DefinedModule, Domain, Entry, Explain, IntoArg, Keyed, MetadataDigest, checked,
+    kind,
 };
 use siros_i18n::{Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part};
 use siros_openid4vp::claims::kit::{DisplayItem, format_entry};
-use siros_openid4vp::json::{JsonError, Member, Node, Object};
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
 use siros_openid4vp::text::lookup;
 
@@ -24,13 +25,14 @@ pub enum ExtendError {
     Shape,
     /// The child changes `sd` of a claim the extended type marks `always` or `never` (§8.5.1).
     #[error(
-        "the extending type changes sd of the claim {path}, which the extended type marks {base} (§8.5.1)"
+        "the extending type changes sd of the claim {path}, which the extended type marks {} (§8.5.1)",
+        base.name()
     )]
     Sd {
         /// The claim's path, as JSON.
         path: ReprItem,
         /// The extended type's `sd`.
-        base: String,
+        base: FixedSd,
     },
     /// The child makes a claim the extended type marks mandatory optional (§8.5.1).
     #[error("the extending type makes the mandatory claim {path} optional (§8.5.1)")]
@@ -38,9 +40,42 @@ pub enum ExtendError {
         /// The claim's path, as JSON.
         path: ReprItem,
     },
-    /// The effective metadata repeats a member name.
-    #[error(transparent)]
-    Json(#[from] JsonError),
+}
+
+/// An `sd` an extending type keeps (§8.5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FixedSd {
+    /// `always`.
+    Always,
+    /// `never`.
+    Never,
+}
+
+impl FixedSd {
+    /// The `sd` value.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Always => "always",
+            Self::Never => "never",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "always" => Some(Self::Always),
+            "never" => Some(Self::Never),
+            _ => None,
+        }
+    }
+}
+
+impl IntoArg for FixedSd {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
 }
 
 /// The members of a child's document the effective metadata leaves out: the claims it combines
@@ -53,9 +88,7 @@ const REPLACED: [&str; 3] = ["claims", "extends", "extends#integrity"];
 /// claim of the same path, the child's properties taking precedence and no property's content
 /// merged (§8.5), then the child's other claims in their order. A child may change `sd` only from
 /// `allowed` or absent, and `mandatory` only to true (§8.5.1).
-pub fn extend<'a>(base: &Node<'a>, child: &Node<'a>) -> Result<Node<'a>, ExtendError> {
-    let base_object = base.as_object().ok_or(ExtendError::Shape)?;
-    let child_object = child.as_object().ok_or(ExtendError::Shape)?;
+pub fn extend<'a>(base: &Object<'a>, child: &Object<'a>) -> Result<Object<'a>, ExtendError> {
     let mut claims: Vec<Object<'a>> = claims_of(base)?.into_iter().cloned().collect();
     for claim in claims_of(child)? {
         let path = claim.get("path").ok_or(ExtendError::Shape)?;
@@ -67,29 +100,22 @@ pub fn extend<'a>(base: &Node<'a>, child: &Node<'a>) -> Result<Node<'a>, ExtendE
             None => claims.push(claim.clone()),
         }
     }
-    let mut members: Vec<Member<'a>> = child_object
-        .members()
-        .iter()
-        .filter(|member| !REPLACED.contains(&member.name.as_ref()))
-        .cloned()
-        .collect();
-    if child_object.get("display").is_none()
-        && let Some(display) = base_object.get("display")
+    let mut effective = child.clone();
+    effective.retain(|member| !REPLACED.contains(&member.name.as_ref()));
+    if child.get("display").is_none()
+        && let Some(display) = base.get("display")
     {
-        members.push(Member {
-            name: Cow::Borrowed("display"),
-            value: display.clone(),
-        });
+        effective.set(Cow::Borrowed("display"), display.clone());
     }
-    members.push(Member {
-        name: Cow::Borrowed("claims"),
-        value: Node::Array(claims.into_iter().map(Node::Object).collect()),
-    });
-    Ok(Node::Object(Object::new(members)?))
+    effective.set(
+        Cow::Borrowed("claims"),
+        Node::Array(claims.into_iter().map(Node::Object).collect()),
+    );
+    Ok(effective)
 }
 
 /// A document's claims: an array of objects, each with a `path`; none when absent.
-fn claims_of<'d, 'a>(document: &'d Node<'a>) -> Result<Vec<&'d Object<'a>>, ExtendError> {
+fn claims_of<'d, 'a>(document: &'d Object<'a>) -> Result<Vec<&'d Object<'a>>, ExtendError> {
     let Some(claims) = document.get("claims") else {
         return Ok(Vec::new());
     };
@@ -114,13 +140,16 @@ fn combined<'a>(
     path: &Node<'a>,
 ) -> Result<Object<'a>, ExtendError> {
     let shown = || ReprItem::json(path);
-    if let (Some(Node::String(fixed)), Some(changed)) = (base.get("sd"), child.get("sd"))
-        && matches!(fixed.as_ref(), "always" | "never")
-        && changed.as_str() != Some(fixed)
+    if let (Some(fixed), Some(changed)) = (
+        base.get("sd")
+            .and_then(Node::as_str)
+            .and_then(FixedSd::parse),
+        child.get("sd"),
+    ) && changed.as_str() != Some(fixed.name())
     {
         return Err(ExtendError::Sd {
             path: shown(),
-            base: fixed.to_string(),
+            base: fixed,
         });
     }
     if base.get("mandatory") == Some(&Node::Bool(true))
@@ -128,22 +157,11 @@ fn combined<'a>(
     {
         return Err(ExtendError::Mandatory { path: shown() });
     }
-    let mut members: Vec<Member<'a>> = base
-        .members()
-        .iter()
-        .map(|member| Member {
-            name: member.name.clone(),
-            value: child.get(&member.name).unwrap_or(&member.value).clone(),
-        })
-        .collect();
-    members.extend(
-        child
-            .members()
-            .iter()
-            .filter(|member| base.get(&member.name).is_none())
-            .cloned(),
-    );
-    Ok(Object::new(members)?)
+    let mut effective = base.clone();
+    for member in child.members() {
+        effective.set(member.name.clone(), member.value.clone());
+    }
+    Ok(effective)
 }
 
 /// The plug-in whose conversions name SD-JWT VC's defined modules.
@@ -167,8 +185,13 @@ pub enum ConvertError {
 /// The defined module a Type Metadata document converts to: SD-JWT VC's, under the SHA-256 of its
 /// compact JSON.
 #[must_use]
-pub fn module_of(document: &Node<'_>) -> DefinedModule {
-    let digest = Sha256::digest(document.python_compact().to_string().as_bytes());
+pub fn module_of(document: &Object<'_>) -> DefinedModule {
+    let digest = Sha256::digest(
+        Node::Object(document.clone())
+            .python_compact()
+            .to_string()
+            .as_bytes(),
+    );
     DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
 }
 
@@ -189,17 +212,18 @@ struct Shown<'d, 'a> {
 }
 
 /// Each array that shows a text: `display`'s `name`s, and each claim's `label`s (§7, §8.2).
-fn shown<'d, 'a>(document: &'d Node<'a>) -> Vec<Shown<'d, 'a>> {
+fn shown<'d, 'a>(document: &'d Object<'a>) -> Vec<Shown<'d, 'a>> {
     let array = |node: &'d Node<'a>, name: &str| node.get(name).and_then(Node::as_array);
     let mut out = Vec::new();
-    if let Some(entries) = array(document, "display") {
+    if let Some(entries) = document.get("display").and_then(Node::as_array) {
         out.push(Shown {
             item: DisplayItem::Name,
             entries,
             text: "name",
         });
     }
-    for (position, claim) in array(document, "claims").unwrap_or(&[]).iter().enumerate() {
+    let claims = document.get("claims").and_then(Node::as_array);
+    for (position, claim) in claims.unwrap_or(&[]).iter().enumerate() {
         if let Some(entries) = array(claim, "display") {
             out.push(Shown {
                 item: DisplayItem::Claim(position),
@@ -227,7 +251,7 @@ fn shown<'d, 'a>(document: &'d Node<'a>) -> Vec<Shown<'d, 'a>> {
 ///
 /// [`ConvertError`]: a display entry's `locale` is no language tag.
 pub fn convert(
-    document: &Node<'_>,
+    document: &Object<'_>,
     main: &[MainLocale],
     priority: &[LocaleTag],
     policy: LanguagePolicy,

@@ -6,7 +6,7 @@ use siros_openid4vp::json::Node;
 
 use crate::alg::Digest;
 use crate::error::{Misplaced, ParseError, ReservedFault};
-use crate::tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object};
+use crate::tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Member, Object};
 
 /// The deepest nesting of claims, the payload's root object at depth 0, disclosures included.
 pub const MAX_DEPTH: usize = 32;
@@ -106,11 +106,12 @@ impl Processor {
                 _ => plain.push(member),
             }
         }
-        let mut names: FxHashSet<String> = plain.iter().map(|m| m.name.to_string()).collect();
-        let mut object = Object::default();
+        let mut members = Vec::with_capacity(plain.len() + digests.len());
         for member in plain {
-            let value = self.value(&member.value, depth + 1)?;
-            object.push(member.name.to_string(), IssuedClaim::new(value, None));
+            members.push(Member {
+                name: member.name.to_string(),
+                claim: IssuedClaim::new(self.value(&member.value, depth + 1)?, None),
+            });
         }
         for digest in digests {
             let Some(pending) = self.reference(digest)? else {
@@ -126,13 +127,13 @@ impl Processor {
             if matches!(name.as_str(), SD | ELLIPSIS | SD_ALG) {
                 return Err(reserved(ReservedFault::Disclosed(name)));
             }
-            if !names.insert(name.clone()) {
-                return Err(ParseError::ClaimNameExists(name));
-            }
             let value = self.value(&value, depth + 1)?;
-            object.push(name, IssuedClaim::new(value, Some(disclosure)));
+            members.push(Member {
+                name,
+                claim: IssuedClaim::new(value, Some(disclosure)),
+            });
         }
-        Ok(object)
+        Object::new(members).map_err(|repeated| ParseError::ClaimNameExists(repeated.0))
     }
 
     /// §7.1, step 3.c.iii: an element `{"...": digest}` is the value its disclosure reveals, or

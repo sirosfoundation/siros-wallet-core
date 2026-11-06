@@ -67,7 +67,7 @@ fn rfc9901_examples() {
 
         let stated = compact_fixture(&format!("{dir}/presentation.txt"));
         let (sent, kb_jwt) = stated.split_at(stated.rfind('~').unwrap() + 1);
-        let values = sd_jwt.values().unwrap();
+        let values = sd_jwt.values();
         let pointers = Node::parse(pointers).unwrap();
         let paths: Vec<ConcretePath<'_>> = pointers
             .as_array()

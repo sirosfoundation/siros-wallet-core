@@ -63,6 +63,15 @@ fn s1_refusals() {
             format!("!!!!.{payload}.{}~", b64("sig")),
         ),
         (
+            "a header of no UTF-8",
+            issuer_fault(IssuerJwtFault::Header(EncodedJsonFault::Utf8)),
+            format!(
+                "{}.{payload}.{}~",
+                URL_SAFE_NO_PAD.encode([0xff]),
+                b64("sig")
+            ),
+        ),
+        (
             "a header of no object",
             issuer_fault(IssuerJwtFault::HeaderNotObject),
             signed_under("[]"),

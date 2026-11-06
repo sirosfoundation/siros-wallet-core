@@ -64,7 +64,7 @@ use siros_openid4vp::claims::kit::{
     self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, DisplayItem, VpFormatsMember,
 };
 use siros_openid4vp::claims::{Claim, ClaimPath};
-use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -81,13 +81,13 @@ use view::SdJwtMembers;
 pub use {
     alg::{Digest, SigningAlg},
     error::{
-        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, KeyBindingError,
-        Misplaced, ParseError, PresentFault, RegistrationError, ReservedFault, SdAlgFault,
-        SelectError, X5cError,
+        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, JwkCoordinate,
+        KeyBindingError, Misplaced, ParseError, PermanentClaim, PresentFault, RegistrationError,
+        ReservedFault, SdAlgFault, SelectError, ValidityClaim, X5cError,
     },
     key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
     process::MAX_DEPTH,
-    registration::{DOCUMENT, Registered, Resolved},
+    registration::{DOCUMENT, DisplayModule, Registered, Resolved, ResolvedMetadata},
     sd_jwt::SdJwt,
     tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
 };
@@ -114,7 +114,7 @@ pub enum SdJwtRule {
 #[error("dc+sd-jwt {query}: transaction data on a query without holder binding (B.3.3)")]
 pub struct HolderBindingWaived {
     /// The query's id.
-    pub query: String,
+    pub query: QueryId<'static>,
 }
 
 impl RequestRule for HolderBindingWaived {
@@ -365,7 +365,7 @@ impl ClaimsPlugin for SdJwtVc {
     fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal> {
         if naming == EntryNaming::Named && query.holder_binding() == HolderBinding::Waived {
             vec![Refusal::new(HolderBindingWaived {
-                query: query.id().to_string(),
+                query: query.id().clone().into_owned(),
             })]
         } else {
             Vec::new()
