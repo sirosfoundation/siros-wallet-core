@@ -6,7 +6,11 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use engine_adapter_server::{config::Config, EngineServer};
+use engine_core::runtime::{FlowContext, FlowHandler};
 use tower::ServiceExt;
+use wmp_core::handler::HandlerError;
+use wmp_core::methods::*;
+use wmp_core::types::Metadata;
 
 fn test_server() -> Arc<EngineServer> {
     Arc::new(EngineServer::new(Config {
@@ -516,12 +520,102 @@ async fn a_vctm_resolution_that_cannot_fetch_answers_32603_with_the_reason() {
 //
 // The engine's Host port asks ride child flows: a wmp.flow.start on the
 // stream, the client's wmp.flow.complete the answer — routed back through
-// the same registry the dispatch uses. The full chain, driven end to end:
-// the ask waits, the start streams, the client completes, the ask resolves.
+// the same registry the dispatch uses.
+
+/// The next message on the event stream with `method` whose flow id contains
+/// `flow_id`. `seen` holds what the stream delivered so far, so a frame that
+/// carries several messages loses none between calls.
+async fn streamed_message(
+    stream: &mut axum::body::BodyDataStream,
+    seen: &mut String,
+    method: &str,
+    flow_id: &str,
+) -> serde_json::Value {
+    use futures_util::StreamExt;
+    for _ in 0..32 {
+        let found = seen
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .filter_map(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .find(|message| {
+                message.get("method").and_then(|m| m.as_str()) == Some(method)
+                    && message
+                        .pointer("/params/flow_id")
+                        .and_then(|id| id.as_str())
+                        .is_some_and(|id| id.contains(flow_id))
+            });
+        if let Some(message) = found {
+            return message;
+        }
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("the frame arrives in time");
+        let Some(Ok(bytes)) = frame else { break };
+        seen.push_str(&String::from_utf8_lossy(&bytes));
+    }
+    panic!("no {method} for {flow_id} streamed: {seen}");
+}
+
+/// An engine flow whose start asks the Host port for a signature and
+/// completes with the answer.
+struct SignAskFlow;
+
+#[async_trait::async_trait]
+impl FlowHandler for SignAskFlow {
+    fn flow_types(&self) -> Vec<String> {
+        vec!["sign-ask".to_owned()]
+    }
+
+    async fn start_flow(
+        &self,
+        ctx: &FlowContext,
+        params: &FlowStartParams,
+    ) -> Result<FlowStartResult, HandlerError> {
+        let answer = ctx
+            .host()
+            .request_sign(engine_ports::SignParams {
+                flow_id: params.flow_id.clone(),
+                to_sign: vec![1, 2, 3],
+                key_id: None,
+                algorithm: "ES256".to_owned(),
+            })
+            .await
+            .expect("the client answers the ask");
+        ctx.complete(&answer).await?;
+        Ok(FlowStartResult {
+            wmp: Metadata::default(),
+            flow_id: params.flow_id.clone(),
+            flow_type: params.flow_type.clone(),
+        })
+    }
+
+    async fn handle_action(
+        &self,
+        _ctx: &FlowContext,
+        _params: &FlowActionParams,
+    ) -> Result<FlowActionResult, HandlerError> {
+        unreachable!("the client sends this flow no action")
+    }
+
+    async fn handle_progress(&self, _ctx: &FlowContext, _params: &FlowProgressParams) {}
+    async fn handle_complete(&self, _ctx: &FlowContext, _params: &FlowCompleteParams) {}
+    async fn handle_error(&self, _ctx: &FlowContext, _params: &FlowErrorParams) {}
+    async fn handle_cancel(
+        &self,
+        _ctx: &FlowContext,
+        _params: &FlowCancelParams,
+    ) -> Result<bool, HandlerError> {
+        Ok(false)
+    }
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_ask_rides_a_child_flow_and_its_completion_answers_it() {
     let server = test_server();
+    server
+        .runtime
+        .register(Arc::new(SignAskFlow))
+        .expect("the flow registers");
     let session = create_session(&server).await;
 
     // The SSE stream first — the real client's order: connected before
@@ -537,58 +631,31 @@ async fn an_ask_rides_a_child_flow_and_its_completion_answers_it() {
         .await
         .expect("serve");
     assert_eq!(response.status(), StatusCode::OK);
-    use futures_util::StreamExt;
     let mut stream = response.into_body().into_data_stream();
+    let mut seen = String::new();
 
-    // The ask, in a task: the engine flow's shape (a flow worker awaiting
-    // its Host port).
-    let bridge = server.bridge.clone();
-    let ask_session = session.clone();
-    let ask = tokio::spawn(async move {
-        let ctx = wmp_core::context::RequestContext::default();
-        bridge
-            .request(
-                &ctx,
-                "flow-1",
-                &ask_session,
-                "sign",
-                &serde_json::json!({ "flow_id": "flow-1", "to_sign": [1, 2, 3] }),
-                std::time::Duration::from_secs(5),
-            )
-            .await
+    // The flow start stays in flight until the flow's ask is answered.
+    let start = tokio::spawn({
+        let server = server.clone();
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "req-start",
+            "method": "wmp.flow.start",
+            "params": {
+                "wmp": { "session_id": session, "version": "0.1" },
+                "flow_type": "sign-ask",
+                "flow_id": "flow-1",
+            }
+        })
+        .to_string();
+        async move { post_wmp(&server, &body).await }
     });
 
-    // The start streams: read frames until the child's start arrives,
-    // and parse the child flow id and its params from the data.
-    let mut text = String::new();
-    let mut child = String::new();
-    for _ in 0..32 {
-        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
-            .await
-            .expect("the frame arrives in time");
-        let Some(Ok(bytes)) = frame else { break };
-        text.push_str(&String::from_utf8_lossy(&bytes));
-        // The SSE frame's data line carries the JSON-RPC envelope; the
-        // child start is complete when its data parses with a flow id.
-        for line in text.split("data: ") {
-            let Some(json_text) = line.split("\n").next() else {
-                continue;
-            };
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_text) {
-                if value.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.start") {
-                    if let Some(id) = value.pointer("/params/flow_id").and_then(|v| v.as_str()) {
-                        if id.contains("::sign::") {
-                            child = id.to_owned();
-                        }
-                    }
-                }
-            }
-        }
-        if !child.is_empty() {
-            break;
-        }
-    }
-    assert!(!child.is_empty(), "the child start streamed: {text}");
+    let child_start =
+        streamed_message(&mut stream, &mut seen, "wmp.flow.start", "flow-1::sign::").await;
+    let child = child_start
+        .pointer("/params/flow_id")
+        .expect("the child start names its flow");
 
     // The client's completion: the answer the wallet signed, posted back
     // through the same POST /wmp route the dispatch serves.
@@ -612,19 +679,25 @@ async fn an_ask_rides_a_child_flow_and_its_completion_answers_it() {
         "a notification answers empty"
     );
 
-    // The ask resolves with the client's result.
-    let answer = tokio::time::timeout(std::time::Duration::from_secs(5), ask)
+    // The ask resolves with the client's result: the flow completes on it.
+    let (status, body) = tokio::time::timeout(std::time::Duration::from_secs(5), start)
         .await
-        .expect("the ask resolves in time")
-        .expect("the task joins")
-        .expect("the ask answers");
-    let value: serde_json::Value = serde_json::from_str(answer.get()).expect("the answer is JSON");
+        .expect("the flow start answers in time")
+        .expect("the task joins");
+    assert_eq!(status, StatusCode::OK);
+    let response: serde_json::Value = serde_json::from_slice(&body).expect("parse");
     assert_eq!(
-        value
-            .pointer("/signature/0")
-            .and_then(serde_json::Value::as_i64),
-        Some(4),
-        "the client's answer rode back: {value}"
+        response
+            .pointer("/result/flow_id")
+            .and_then(serde_json::Value::as_str),
+        Some("flow-1"),
+        "the flow started: {response}"
+    );
+    let complete = streamed_message(&mut stream, &mut seen, "wmp.flow.complete", "flow-1").await;
+    assert_eq!(
+        complete.pointer("/params/result/signature"),
+        Some(&serde_json::json!([4, 3, 2, 1])),
+        "the client's answer rode back: {complete}"
     );
 }
 
@@ -644,11 +717,12 @@ async fn an_ask_that_times_out_cancels_the_child() {
         )
         .await
         .expect("serve");
-    use futures_util::StreamExt;
     let mut stream = response.into_body().into_data_stream();
 
-    // The ask, with nobody answering it: it times out.
-    let bridge = server.bridge.clone();
+    // The ask, with nobody answering it. The Host port's shortest bound is
+    // 10 s, so this ask runs on a bridge over the server's peer with its own
+    // bound.
+    let bridge = engine_adapter_server::host_bridge::WmpHostBridge::new(server.peer.clone());
     let ask_session = session.clone();
     let ask = tokio::spawn(async move {
         let ctx = wmp_core::context::RequestContext::default();
@@ -677,36 +751,9 @@ async fn an_ask_that_times_out_cancels_the_child() {
         "the unanswered ask times out: {outcome:?}"
     );
 
-    // The cancel streamed: the client is told the ask is off. Read until
-    // the cancel for the consent child arrives.
-    let mut text = String::new();
-    let mut cancelled = false;
-    for _ in 0..32 {
-        let frame = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next())
-            .await
-            .expect("the frame arrives in time");
-        let Some(Ok(bytes)) = frame else { break };
-        text.push_str(&String::from_utf8_lossy(&bytes));
-        for line in text.split("data: ") {
-            let Some(json_text) = line.split("\n").next() else {
-                continue;
-            };
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_text) {
-                if value.get("method").and_then(|m| m.as_str()) == Some("wmp.flow.cancel")
-                    && value
-                        .pointer("/params/flow_id")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|id| id.contains("::consent::"))
-                {
-                    cancelled = true;
-                }
-            }
-        }
-        if cancelled {
-            break;
-        }
-    }
-    assert!(cancelled, "the timeout cancelled the child: {text}");
+    // The client is told the ask is off.
+    let mut seen = String::new();
+    streamed_message(&mut stream, &mut seen, "wmp.flow.cancel", "::consent::").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
