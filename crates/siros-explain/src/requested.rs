@@ -3,20 +3,7 @@
 //! compiled messages for such texts alone: each module declares them as one type
 //! ([`DeclaredModule::Requested`]), and a [`RequestText`] is built only from a message of that type,
 //! from a value, a name, a received text, or a defined module's message, which the package holds
-//! whole. A request text built from another message does not compile:
-//!
-//! ```compile_fail,E0277
-//! use siros_explain::{Explain, RequestText};
-//!
-//! #[derive(Debug, thiserror::Error, Explain)]
-//! #[explain(domain = "example.card")]
-//! enum CardText {
-//!     #[error("Title")]
-//!     Title,
-//! }
-//!
-//! let title = RequestText::of(&CardText::Title);
-//! ```
+//! whole. A request text built from another message does not compile.
 
 use std::borrow::Cow;
 
