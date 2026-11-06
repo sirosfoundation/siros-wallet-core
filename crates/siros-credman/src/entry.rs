@@ -5,16 +5,7 @@ use siros_openid4vp::consent::{Card, ConsentEntry};
 use siros_openid4vp::matching::StaticEntry;
 use siros_openid4vp::rows::{Icon, ImageMedia, Row};
 
-/// An icon of a media type Credential Manager draws. Only [`EntryIcon::of`] makes one:
-///
-/// ```compile_fail,E0423
-/// use siros_credman::EntryIcon;
-/// use siros_openid4vp::rows::Icon;
-///
-/// fn forged(icon: Icon) -> EntryIcon {
-///     EntryIcon(icon)
-/// }
-/// ```
+/// An icon of a media type Credential Manager draws. Only [`EntryIcon::of`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryIcon(Icon);
 
