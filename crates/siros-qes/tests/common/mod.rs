@@ -632,8 +632,16 @@ pub fn approve(
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    let response = Prepared::prepare(&authenticated, &ids, &wallet, profile, &env, &rendering)?
-        .respond(fetch, &host)?;
+    let response = Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        profile,
+        &env,
+        &rendering,
+        &host,
+    )?
+    .respond(fetch, &host)?;
     let vp_token: Json =
         serde_json::from_str(&response.response().vp_token().json()).expect("vp_token");
     Ok(vp_token["xyz123"][0]["members"].clone())

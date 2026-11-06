@@ -19,7 +19,7 @@ use crate::common::{section, sri, tables};
 use crate::generate::{Case, DEFAULT, NOW};
 
 use super::Tally;
-use super::phase2::{Answer, readings};
+use super::phase2::{Answer, readings, refused_step};
 
 /// Core §6.1 on the bound entry's response members: the locale shown, SHA-256 over the entry as
 /// received, the integrity values, the wallet's version, a fresh `jti`, the risk signals.
@@ -47,9 +47,17 @@ pub(super) fn members(case: &Case, answer: &Answer<'_>, meta: &Value, tally: &mu
         crate::common::placement(&format),
         siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
     );
-    let members = PasoProfile::default()
-        .respond(record, &host, &authentication)
-        .expect("the members");
+    let responded = PasoProfile::default().respond(record, &host, &authentication);
+    // A record whose ad-hoc metadata JWT fails a step of §5.3 gets no members: phase 2 falls
+    // back before it responds.
+    if let Some(jwt) = answer.adhoc()
+        && refused_step(jwt, case.format).is_some()
+    {
+        assert!(responded.is_err(), "R-members: none over a refused JWT");
+        tally.add("responses refused over a refused JWT");
+        return;
+    }
+    let members = responded.expect("the members");
     tally.add("responses");
     let mdoc = case.format == "mso_mdoc";
     let get = |name: &str| {

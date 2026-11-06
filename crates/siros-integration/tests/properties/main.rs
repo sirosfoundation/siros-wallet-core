@@ -19,7 +19,7 @@ use spec::Spec;
 use tally::Tally;
 
 /// Every branch of the checks, by its tally name.
-const BRANCHES: [&str; 70] = [
+const BRANCHES: [&str; 72] = [
     "dressed wallets",
     "outcome TransactionView",
     "outcome Excluded [View §4]",
@@ -90,6 +90,8 @@ const BRANCHES: [&str; 70] = [
     "URI requests by POST",
     "URI selections prepared",
     "URI foreign records falling back",
+    "URI ad-hoc JWTs verified",
+    "URI ad-hoc JWTs refused",
 ];
 
 fn run(seeds: &[u64], requests: usize) -> Tally {

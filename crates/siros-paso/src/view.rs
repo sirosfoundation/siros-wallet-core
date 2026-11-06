@@ -125,11 +125,10 @@ pub enum ConvertError {
     MixedOwn,
 }
 
-/// The defined modules of the ad-hoc metadata a request's entries carry (Proof Metadata §5),
-/// converted as [`convert`] converts a type's metadata, each once: the JWTs the matcher read,
-/// unverified ([`Carried::read`]), over the main module's entries its registration's package
-/// holds; or those the wallet verified in the URI flow ([`Carried::verified`]). Metadata that does
-/// not convert gives no module: the profile's binding refuses its entry.
+/// The defined modules of the ad-hoc metadata a DC API request's entries carry (Proof Metadata
+/// §5), as the matcher reads them, unverified, converted as [`convert`] converts a type's
+/// metadata, each once, over the main module's entries its registration's package holds.
+/// Metadata that does not convert gives no module: the profile's binding refuses its entry.
 ///
 /// # Errors
 ///
@@ -139,8 +138,33 @@ pub fn carried(
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<Vec<DefinedForm>, ConvertError> {
+    converted(carried.jwts(), main, priority)
+}
+
+/// The defined modules of the ad-hoc metadata a request of the URI flow carries, each JWT
+/// converted once the wallet verified it for a credential (Proof Metadata §5.3), as [`carried`]
+/// converts the matcher's.
+///
+/// # Errors
+///
+/// [`ConvertError::Defined`]: a main entry lacks a format a converted message calls.
+#[cfg(feature = "resolve")]
+pub fn verified(
+    verified: &crate::adhoc::Verified<'_>,
+    main: &[MainLocale],
+    priority: &[LocaleTag],
+) -> Result<Vec<DefinedForm>, ConvertError> {
+    converted(verified.jwts(), main, priority)
+}
+
+/// Each JWT's metadata converted, each module once.
+fn converted<'a, 'r: 'a>(
+    jwts: impl Iterator<Item = (&'r str, &'a crate::adhoc::Read<'r>)>,
+    main: &[MainLocale],
+    priority: &[LocaleTag],
+) -> Result<Vec<DefinedForm>, ConvertError> {
     let mut modules: Vec<DefinedForm> = Vec::new();
-    for (kind, read) in carried.jwts() {
+    for (kind, read) in jwts {
         match convert(kind, read.metadata(), main, priority) {
             Ok(converted) => {
                 if modules.iter().all(|known| known.id() != converted.id()) {

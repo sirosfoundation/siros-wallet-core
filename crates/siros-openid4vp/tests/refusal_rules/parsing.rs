@@ -74,6 +74,7 @@ fn every_parse_refuses_a_member_named_twice() {
         &registry,
         &env("en"),
         &rendering,
+        &host,
     )
     .and_then(|prepared| {
         prepared

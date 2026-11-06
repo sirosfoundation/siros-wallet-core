@@ -329,7 +329,7 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
 impl<H> ProfileHost<H> for QesProfile {
     /// CSC §6.3: each linked document with a checksum the profile does not hold, whose
     /// `href` is an https URL a fetch reaches.
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+    fn wanted(&self, record: Answered<'_>, _host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         let (_, _, approval) = approval_of(record.request(), record.entries().entries())?;
         Ok(self
             .unheld(&approval)

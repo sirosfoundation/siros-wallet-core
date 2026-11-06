@@ -122,7 +122,7 @@ fn answer(
     )
     .expect("a wallet");
     let accepted = Accepted::new(request, &registry).expect("the request keeps every rule");
-    let app = common::wallet_app(&wallet, request, &env);
+    let app = common::wallet_app(&wallet, request, &env, host);
     let rendering = app.rendering().expect("the rendering");
     let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("no fault");
     let consent = Consent::of(&matched).expect("the wallet meets the request");
@@ -147,6 +147,7 @@ fn answer(
         &registry,
         &env,
         &rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     .expect("the wallet answers");

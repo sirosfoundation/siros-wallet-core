@@ -153,7 +153,7 @@ impl Profile for Counts {
 }
 
 impl<H> ProfileHost<H> for Counts {
-    fn wanted(&self, _: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+    fn wanted(&self, _: Answered<'_>, _: &H) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
     }
 
@@ -536,6 +536,7 @@ fn phase_2_answers_no_request_the_rules_refuse() {
         &registry,
         &env("en"),
         &rendering,
+        &host,
     )
     .and_then(|prepared| {
         prepared

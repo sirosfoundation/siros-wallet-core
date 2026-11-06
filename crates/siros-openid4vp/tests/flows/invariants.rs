@@ -717,10 +717,16 @@ fn run(seen: &mut Seen, under: &Under, registry: &Registry<TestHost>, case: &Cas
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), &host)
-        });
+    let built = Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        registry,
+        &env,
+        &rendering,
+        &host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host));
     // A `TestMode` answers on its route, writes its own channel's body or breaches with the other
     // channel's, and is refused under its C7; the core's modes answer or refuse.
     let wants = match (&expected, under) {
@@ -900,11 +906,17 @@ fn delivery_bytes(under: &Under, registry: &Registry<TestHost>, case: &Case) -> 
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    let built = Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), &host)
-        })
-        .expect("an answer");
+    let built = Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        registry,
+        &env,
+        &rendering,
+        &host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
+    .expect("an answer");
     match built.delivery() {
         Delivery::DcApi(data) => data.as_str().as_bytes().to_vec(),
         Delivery::Post { endpoint, body } => {

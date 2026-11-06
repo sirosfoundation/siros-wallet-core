@@ -130,9 +130,17 @@ where
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env, &rendering)
-        .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
-        .map(|built| built.response().vp_token().json())
+    Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        &registry,
+        &env,
+        &rendering,
+        host,
+    )
+    .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))
+    .map(|built| built.response().vp_token().json())
 }
 
 /// The device authentication of a VP Token's one presentation.

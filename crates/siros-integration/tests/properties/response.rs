@@ -234,6 +234,7 @@ pub fn check(
         case.registry,
         case.env,
         case.rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {

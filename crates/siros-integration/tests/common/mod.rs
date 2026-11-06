@@ -9,12 +9,14 @@ use sha2::{Digest, Sha256};
 use siros_explain::{Messages, ModuleId};
 use siros_i18n::{DefinedForm, LocaleTag, Module, Selected};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
+use siros_openid4vp::envelope::Channel;
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::wallet::Wallet;
+use siros_paso::adhoc::{Carried, Verified};
 use siros_paso::document::PasoDocument;
 use siros_paso::{
     CoseEncrypt, IssuerTrust, Paso, PasoProfile, RandomIds, RootCertificate, TestCoseEncrypt,
@@ -62,12 +64,16 @@ impl HaipHost {
 /// The real registry: the SD-JWT VC and mdoc formats, PaSO under `urn:paso:sca:`, QES
 /// for its type, the test Verifier's Client Identifier Prefix and siros-x509's two.
 pub fn registry() -> Result<Registry<HaipHost>, String> {
+    registry_with(PasoProfile::default())
+}
+
+/// The real registry with this PaSO profile.
+pub fn registry_with(paso: PasoProfile) -> Result<Registry<HaipHost>, String> {
     let mut builder = Registry::<HaipHost>::builder();
     siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(SdJwtVc::new().map_err(|e| e.to_string())?);
     builder.format(Mdoc::new().map_err(|e| e.to_string())?);
-    PasoProfile::default()
-        .register(&mut builder)
+    paso.register(&mut builder)
         .map(drop)
         .map_err(|e| e.to_string())?;
     siros_qes::register(&mut builder, QesProfile::default()).map_err(|e| e.to_string())?;
@@ -140,9 +146,10 @@ pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &Locale
 
 /// The test app as the wallet registers its credentials for `env`'s priority list: the wallet's
 /// own modules, the module each type of each credential's PaSO document converts to, and the
-/// module of the ad-hoc metadata each entry of the request carries, read unverified as the
-/// matcher reads it; phase 2 verifies it.
-pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App {
+/// module of the ad-hoc metadata each entry of the request carries: over the DC API read
+/// unverified as the matcher reads it, phase 2 verifying it; in the URI flow verified through
+/// `host` for the wallet's credentials before it converts.
+pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env, host: &HaipHost) -> App {
     let mut metadata: Vec<(String, String)> = Vec::new();
     for credential in wallet.credentials() {
         let Some(bytes) = credential.document("paso") else {
@@ -166,9 +173,18 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App 
         }
     }
     let main = main_locales().expect("the main module");
-    let read = siros_paso::adhoc::Carried::read(request);
-    let carried =
-        siros_paso::view::carried(&read, &main, env.priority()).expect("the main module's formats");
+    let carried = match request.envelope().channel() {
+        Channel::DcApi(_) => {
+            let read = Carried::read(request).expect("a DC API request");
+            siros_paso::view::carried(&read, &main, env.priority())
+        }
+        Channel::Uri => {
+            let held: Vec<_> = wallet.credentials().iter().collect();
+            let verified = Verified::of(request, &held, host).expect("the PaSO documents read");
+            siros_paso::view::verified(&verified, &main, env.priority())
+        }
+    }
+    .expect("the main module's formats");
     for module in carried {
         if defined.iter().all(|known| known.id() != module.id()) {
             defined.push(module);

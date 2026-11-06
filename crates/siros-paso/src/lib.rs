@@ -96,6 +96,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
+use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{Env, HttpsUrl, Selected};
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
@@ -104,7 +105,7 @@ use siros_openid4vp::{
     plugins::{Answered, FetchedRecord, Members},
 };
 
-use crate::adhoc::AdhocRefusal;
+use crate::adhoc::{AdhocFailure, AdhocRefusal, Relied};
 use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
@@ -256,6 +257,7 @@ pub struct PasoProfile {
     bound: ItemBound,
     catalogue: Catalogue,
     refusals: Vec<AdhocRefusal>,
+    relied: Vec<Relied>,
     lacking: Vec<OptionalModule>,
     sealer: Option<Agreements>,
 }
@@ -270,6 +272,7 @@ impl Default for PasoProfile {
             bound: ItemBound::LEAST,
             catalogue: Catalogue::paso(),
             refusals: Vec::new(),
+            relied: Vec::new(),
             lacking: OptionalModule::UNCOMPILED.to_vec(),
             sealer: None,
         }
@@ -299,11 +302,22 @@ impl PasoProfile {
     }
 
     /// The profile knowing the ad-hoc metadata JWTs the wallet does not rely on, each for a
-    /// credential (Proof Metadata §5.3): the refusals of [`adhoc::Carried::verified`] in the URI
-    /// flow, or of phase 2. First match moves past their entries for those credentials.
+    /// credential (Proof Metadata §5.3), as phase 2 refuses them. First match moves past their
+    /// entries for those credentials.
     #[must_use]
     pub fn with_refusals(mut self, refusals: &[AdhocRefusal]) -> Self {
         self.refusals.extend_from_slice(refusals);
+        self
+    }
+
+    /// The profile knowing the wallet's verification of a request's ad-hoc metadata JWTs
+    /// (Proof Metadata §5.3): first match relies in the URI flow on a JWT for the credentials it
+    /// verified for alone, and moves past its entries for the others.
+    #[cfg(feature = "resolve")]
+    #[must_use]
+    pub fn with_verified(mut self, verified: &adhoc::Verified<'_>) -> Self {
+        self.refusals.extend_from_slice(verified.refusals());
+        self.relied.extend_from_slice(&verified.relied);
         self
     }
 
@@ -384,15 +398,18 @@ impl PasoProfile {
         }
     }
 
-    /// One entry rendered for one credential whose proof places members by `placement`: its
-    /// metadata (the ad-hoc metadata JWT, read as a signed request is read unless the profile
-    /// knows the wallet refused it for the credential, else the credential's stored metadata for
-    /// the type), View's rendering, then whether the wallet can send its risk signals (Risk Signals
-    /// §7.3, and §7.6 in a build phase 2 found without a module they need). The outer error is
-    /// the wallet's own failure: a document or an entry it cannot read.
+    /// One entry of a request arriving on `channel` rendered for one credential whose proof
+    /// places members by `placement`: its metadata, View's rendering, then whether the wallet can
+    /// send its risk signals (Risk Signals §7.3, and §7.6 in a build phase 2 found without a
+    /// module they need). The metadata is the ad-hoc metadata JWT's unless the profile knows the
+    /// wallet refused it for the credential: over the DC API read as a signed request is read, in
+    /// the URI flow once the wallet verified it for the credential (Proof Metadata §5.3,
+    /// [`PasoProfile::with_verified`]); else the credential's stored metadata for the type. The
+    /// outer error is the wallet's own failure: a document or an entry it cannot read.
     pub fn render(
         &self,
         entry: &Entry<'_>,
+        channel: ChannelKind,
         credential: &Credential<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
@@ -415,30 +432,57 @@ impl PasoProfile {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
         };
-        Ok(self.rendered(&paso, family, &document, credential, placement, env))
+        let adhoc = match paso
+            .metadata
+            .map(|jwt| self.relied_on(jwt, channel, credential))
+            .transpose()
+        {
+            Ok(adhoc) => adhoc,
+            Err(refused) => return Ok(Err(refused)),
+        };
+        Ok(self.rendered(&paso, adhoc.as_ref(), family, &document, placement, env))
+    }
+
+    /// The ad-hoc metadata JWT the profile relies on for the credential: refused when the profile
+    /// knows the wallet refused it for the credential, or in the URI flow unless the wallet
+    /// verified it for the credential; read as a signed request is read.
+    fn relied_on<'j>(
+        &self,
+        jwt: &'j str,
+        channel: ChannelKind,
+        credential: &Credential<'_>,
+    ) -> Result<adhoc::Read<'j>, Outcome> {
+        let id = credential.id.as_str();
+        if let Some(refused) = self
+            .refusals
+            .iter()
+            .find(|refused| refused.jwt == jwt && refused.credential == id)
+        {
+            return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
+        }
+        if channel == ChannelKind::Uri
+            && !self
+                .relied
+                .iter()
+                .any(|relied| relied.jwt == jwt && relied.credential == id)
+        {
+            return Err(NotCompatible::Adhoc(AdhocFailure::Unverified).into());
+        }
+        Ok(adhoc::Read::parse(jwt).map_err(NotCompatible::from)?)
     }
 
     fn rendered(
         &self,
         paso: &PasoEntry<'_>,
+        adhoc: Option<&adhoc::Read<'_>>,
         family: Family,
         document: &PasoDocument<'_>,
-        credential: &Credential<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Rendered, Outcome> {
         let kind = paso.kind.as_str();
-        let read;
-        let (given, source) = match paso.metadata {
-            Some(jwt) => {
-                if let Some(refused) = self.refusals.iter().find(|refused| {
-                    refused.jwt == jwt && refused.credential == credential.id.as_str()
-                }) {
-                    return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
-                }
-                read = adhoc::Read::parse(jwt).map_err(NotCompatible::from)?;
-                (read.metadata(), Source::Adhoc)
-            }
+        let (given, source) = match adhoc {
+            Some(read) => (read.metadata(), Source::Adhoc),
             None => (
                 document
                     .metadata(kind)
@@ -565,7 +609,8 @@ impl Profile for PasoProfile {
                 .request
                 .entry(*index)
                 .ok_or_else(|| Fault::new(FAULT, detail!("an offered entry the request lacks")))?;
-            match self.render(entry, binding.credential, binding.placement, env)? {
+            let channel = binding.request.envelope().channel().kind();
+            match self.render(entry, channel, binding.credential, binding.placement, env)? {
                 Ok(rendered) => return Ok(bound(rendered, binding.entries, *index)?),
                 Err(Outcome::Excluded(excluded)) => {
                     return Err(Exclude::new(excluded).into());
@@ -591,9 +636,10 @@ where
         + MayHave<dyn CoseEncrypt>,
 {
     /// View §3: the https images the payload displays that the matcher had not fetched and a
-    /// fetch reaches.
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        phase2::wanted(self, &record)
+    /// fetch reaches, read from metadata the wallet relies on: none from an ad-hoc metadata JWT
+    /// that fails a step of Proof Metadata §5.3.
+    fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        phase2::wanted(self, &record, adhoc::Modules::of(host))
     }
 
     /// The profile knowing the failed images as failed fetches, the refused ad-hoc metadata JWTs
@@ -639,16 +685,11 @@ where
             .is_some_and(|cose| cose.encryptions().contains(&CoseEnc::A256GCM));
         #[cfg(not(feature = "sealed-signals"))]
         let cose_held = false;
-        let haip = Has::<dyn Haip>::module(host);
         phase2::revalidate(
             self,
             &record,
-            adhoc::Modules {
-                haip,
-                trust: Has::<dyn IssuerTrust>::module(host),
-                now: Has::<dyn Platform>::module(host).now(),
-            },
-            haip.agreements(),
+            adhoc::Modules::of(host),
+            Has::<dyn Haip>::module(host).agreements(),
             cose_held,
         )
     }
@@ -661,6 +702,12 @@ where
         host: &H,
         authentication: &Authentication,
     ) -> Result<Members, Fault> {
-        phase2::respond(self, &record, respond::Modules::of(host), authentication)
+        phase2::respond(
+            self,
+            &record,
+            respond::Modules::of(host),
+            adhoc::Modules::of(host),
+            authentication,
+        )
     }
 }

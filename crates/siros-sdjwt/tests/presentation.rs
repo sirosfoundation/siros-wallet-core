@@ -524,6 +524,7 @@ impl<H> ProfileHost<H> for Writes {
     fn wanted(
         &self,
         _record: siros_openid4vp::plugins::Answered<'_>,
+        _host: &H,
     ) -> Result<Vec<siros_openid4vp::rows::HttpsUrl>, siros_openid4vp::plugins::Fault> {
         Err(siros_openid4vp::plugins::Fault::new(
             FAULT,

@@ -540,6 +540,7 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         )
         .render(
             entry,
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),

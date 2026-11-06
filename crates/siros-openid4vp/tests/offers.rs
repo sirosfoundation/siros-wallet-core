@@ -409,11 +409,17 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    let response = Prepared::prepare(&authenticated, ids, &wallet, &registry, &env, &rendering)
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), &host)
-        })
-        .expect("response");
+    let response = Prepared::prepare(
+        &authenticated,
+        ids,
+        &wallet,
+        &registry,
+        &env,
+        &rendering,
+        &host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
+    .expect("response");
     // dc_api answers with the response parameters as the DigitalCredential's data (Annex A).
     let Delivery::DcApi(data) = response.delivery() else {
         panic!("a DC API delivery");

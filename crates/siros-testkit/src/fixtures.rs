@@ -584,6 +584,7 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
         registry,
         env,
         rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     .map(|built| built.response().vp_token().json())

@@ -25,6 +25,7 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
     let rendered = PasoProfile::default()
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &env,
@@ -314,6 +315,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
     let rendered = fetched
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),

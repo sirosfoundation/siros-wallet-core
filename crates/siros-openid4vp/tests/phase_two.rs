@@ -115,6 +115,7 @@ fn outcome(text: &str, held: &[Held], ids: &[&str], host: &TestHost) -> Result<S
         &registry,
         &env("en"),
         &rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
     .map(|built| built.response().vp_token().json())
@@ -337,8 +338,8 @@ impl Profile for Strong {
 }
 
 impl<H> ProfileHost<H> for Strong {
-    fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        ProfileHost::<H>::wanted(&self.0, answered)
+    fn wanted(&self, answered: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::<H>::wanted(&self.0, answered, host)
     }
 
     fn informed(&self, findings: &[&Stale]) -> Self {
@@ -392,6 +393,7 @@ fn phase_2_refuses_an_authentication_weaker_than_a_profile_needs() {
         &registry,
         &env("en"),
         &rendering,
+        &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
     {
@@ -422,8 +424,8 @@ impl Profile for Undeclared {
 }
 
 impl<H> ProfileHost<H> for Undeclared {
-    fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        ProfileHost::<H>::wanted(&self.0, answered)
+    fn wanted(&self, answered: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::<H>::wanted(&self.0, answered, host)
     }
 
     fn informed(&self, findings: &[&Stale]) -> Self {
@@ -479,6 +481,7 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
         &registry,
         &env("en"),
         &rendering,
+        &host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
     {
@@ -588,6 +591,7 @@ fn sealed<H: CoreHost>(
         registry,
         &env("en"),
         &rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), host))
     .map(|built| built.delivery().clone())
@@ -832,6 +836,7 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
             &registry,
             &env("en"),
             &rendering,
+            &host,
         )
         .and_then(|prepared| {
             prepared.respond(|resource| Published::default().answer(resource), &host)

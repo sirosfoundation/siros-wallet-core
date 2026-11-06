@@ -18,9 +18,9 @@ use crate::session::Session;
 /// A profile's phase 2 over the build's host; its bounds name the modules it calls.
 pub trait ProfileHost<H>: Profile {
     /// The https resources the profile revalidates the record with, in the order it reads them;
-    /// the caller fetches each distinct URL once. Pure: the record and the profile's own data
-    /// decide them.
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
+    /// the caller fetches each distinct URL once. The record, the profile's own data and the
+    /// host's modules decide them.
+    fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault>;
 
     /// The profile with what phase 2 found, for re-running the consent: the matcher then treats
     /// those conditions as known to fail.

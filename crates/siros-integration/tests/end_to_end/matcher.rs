@@ -15,7 +15,7 @@ use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Choice, Env, Value as RowValue};
 use siros_openid4vp::wallet::Wallet;
-use siros_paso::adhoc::Carried;
+use siros_paso::adhoc::{Carried, Verified};
 use siros_testkit::fixtures::{Held, ORIGIN, parameters};
 use siros_testkit::render::{App, MainModule, TestkitModule, formats};
 use siros_testkit::verifier::{self, ISSUER, secret_key};
@@ -135,10 +135,11 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
 
     // The wallet verifies the JWT (Proof Metadata §5.3) before it converts it.
     let host = HaipHost::at(Timestamp(NOW));
-    let verified = Carried::verified(&request, &[&credential], &host).expect("verified");
+    let verified = Verified::of(&request, &[&credential], &host).expect("verified");
     assert!(verified.refusals().is_empty(), "{:?}", verified.refusals());
     let main = siros_testkit::render::main_locales().expect("the main module");
-    let converted = siros_paso::view::carried(&verified, &main, env.priority()).expect("converted");
+    let converted =
+        siros_paso::view::verified(&verified, &main, env.priority()).expect("converted");
     assert_eq!(converted.len(), 1, "the JWT's module");
     let live = App::new(
         &modules.iter().collect::<Vec<_>>(),
@@ -182,7 +183,7 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
     assert_eq!(registered.keys().expect("the keys"), declared);
 
     // The matcher reads the JWT unverified and converts it over the package's main entries.
-    let read = Carried::read(&request);
+    let read = Carried::read(&request).expect("a DC API request");
     let carried = siros_paso::view::carried(
         &read,
         &registered.main_locales().expect("the main entries"),

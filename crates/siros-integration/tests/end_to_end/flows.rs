@@ -159,13 +159,21 @@ fn responded(
     )
     .expect("a wallet");
     let request = Request::parse(authenticated.envelope()).expect("the request");
-    let app = crate::common::wallet_app(&wallet, &request, &env);
+    let app = crate::common::wallet_app(&wallet, &request, &env, host);
     let rendering = app.rendering().expect("the rendering");
     let ids = first_selection(&request, &wallet, registry, &env, &rendering).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    Prepared::prepare(authenticated, &ids, &wallet, registry, &env, &rendering)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-        .map(|built| built.delivery().clone())
+    Prepared::prepare(
+        authenticated,
+        &ids,
+        &wallet,
+        registry,
+        &env,
+        &rendering,
+        host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    .map(|built| built.delivery().clone())
 }
 
 /// A DC API arrival from the Origin.

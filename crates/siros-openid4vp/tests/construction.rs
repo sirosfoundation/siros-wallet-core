@@ -52,7 +52,7 @@ impl Profile for Writes {
 }
 
 impl<H> ProfileHost<H> for Writes {
-    fn wanted(&self, _: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+    fn wanted(&self, _: Answered<'_>, _: &H) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
     }
 

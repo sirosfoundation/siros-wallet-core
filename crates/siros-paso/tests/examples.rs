@@ -37,6 +37,7 @@ fn render(entry_json: &str, meta: &str, env: &Env, profile: &PasoProfile) -> Res
     let rendered = profile
         .render(
             &entry(entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             env,

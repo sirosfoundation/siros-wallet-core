@@ -216,6 +216,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         let rendered = profile
             .render(
                 entry,
+                request.envelope().channel().kind(),
                 &credential,
                 crate::common::placement(&credential.format),
                 &env,

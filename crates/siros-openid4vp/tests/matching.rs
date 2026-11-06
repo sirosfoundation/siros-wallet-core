@@ -292,8 +292,8 @@ impl Profile for Foreign {
 }
 
 impl<H> ProfileHost<H> for Foreign {
-    fn wanted(&self, answered: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        ProfileHost::<H>::wanted(&self.0, answered)
+    fn wanted(&self, answered: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::<H>::wanted(&self.0, answered, host)
     }
 
     fn informed(&self, findings: &[&Stale]) -> Self {

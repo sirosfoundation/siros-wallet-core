@@ -121,8 +121,8 @@ pub(super) fn refused_step(jwt: &str, format: &str) -> Option<AdhocFailure> {
 }
 
 /// What phase 2 must find: the ad-hoc metadata JWT with the §5.3 step it fails
-/// ([`refused_step`]), and each displayed https image whose fetch fails or whose content misses
-/// its `#integrity`, in claim order.
+/// ([`refused_step`]), alone, since the wallet relies on nothing it refused; else each displayed
+/// https image whose fetch fails or whose content misses its `#integrity`, in claim order.
 pub(super) fn expected_finding(
     case: &Case,
     answer: &Answer<'_>,
@@ -136,6 +136,9 @@ pub(super) fn expected_finding(
             failure,
         })
     });
+    if refused.is_some() {
+        return (refused, Vec::new());
+    }
     let images: Vec<Vec<Value>> = if kind.contains(":mandate:") {
         mandate_claims()
             .into_iter()

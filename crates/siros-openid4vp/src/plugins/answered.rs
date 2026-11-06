@@ -137,7 +137,7 @@ mod test_util {
             fetch: impl FnMut(&Resource) -> Fetch,
             host: &H,
         ) -> Result<Option<P::Finding>, Fault> {
-            let wanted = profile.wanted(self)?;
+            let wanted = profile.wanted(self, host)?;
             let filled = Slots::of(Resource::distinct(wanted)).fill(fetch);
             profile.revalidate(
                 FetchedRecord::of(self, Resources::of(filled.replies())),

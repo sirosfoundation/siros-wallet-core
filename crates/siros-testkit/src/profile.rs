@@ -217,7 +217,7 @@ impl Profile for TestProfile {
 /// Needs no module.
 impl<H> ProfileHost<H> for TestProfile {
     /// No resource.
-    fn wanted(&self, _record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
+    fn wanted(&self, _record: Answered<'_>, _host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         Ok(Vec::new())
     }
 

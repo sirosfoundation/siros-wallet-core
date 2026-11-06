@@ -100,6 +100,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
         PasoProfile::default()
             .render(
                 &entry(&entry_json),
+                siros_openid4vp::routing::ChannelKind::DcApi,
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
                 &en()
@@ -129,6 +130,7 @@ pub(super) fn render_adhoc(
     profile
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),

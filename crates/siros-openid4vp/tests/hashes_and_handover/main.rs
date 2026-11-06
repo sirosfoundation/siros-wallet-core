@@ -241,11 +241,17 @@ fn answer<'a, H: CoreHost + Default>(
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
-    let built = Prepared::prepare(&authenticated, &ids, wallet, registry, env, &rendering)
-        .and_then(|prepared| {
-            prepared.respond(|resource| Published::default().answer(resource), &host)
-        })
-        .expect("response");
+    let built = Prepared::prepare(
+        &authenticated,
+        &ids,
+        wallet,
+        registry,
+        env,
+        &rendering,
+        &host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| Published::default().answer(resource), &host))
+    .expect("response");
     Answer {
         vp_token: built.response().vp_token().json(),
         json: built.response().json(),
@@ -405,10 +411,18 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
             siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
                 .expect("the test app");
         let rendering = app.rendering().expect("the rendering");
-        let outcome = Prepared::prepare(&authenticated, &ids, &wallet, &registry, &env, &rendering)
-            .and_then(|prepared| {
-                prepared.respond(|resource| Published::default().answer(resource), &host)
-            });
+        let outcome = Prepared::prepare(
+            &authenticated,
+            &ids,
+            &wallet,
+            &registry,
+            &env,
+            &rendering,
+            &host,
+        )
+        .and_then(|prepared| {
+            prepared.respond(|resource| Published::default().answer(resource), &host)
+        });
         match (writes, outcome) {
             (32, Ok(response)) => {
                 let token: Json =

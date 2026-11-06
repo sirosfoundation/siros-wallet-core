@@ -299,7 +299,7 @@ pub fn request_app(
     env: &Env,
 ) -> App {
     let main = main_locales().expect("the main module");
-    let read = siros_paso::adhoc::Carried::read(request);
+    let read = siros_paso::adhoc::Carried::read(request).expect("a DC API request");
     let carried =
         siros_paso::view::carried(&read, &main, env.priority()).expect("the main module's formats");
     app_with(cards, carried, env)

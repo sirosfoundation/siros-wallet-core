@@ -58,6 +58,7 @@ pub(super) fn image(value: &str, profile: &PasoProfile) -> ImageShown {
     match profile
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
@@ -316,6 +317,7 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
     let rendered = fetched
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),

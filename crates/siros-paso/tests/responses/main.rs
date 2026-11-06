@@ -177,9 +177,17 @@ fn answer<H: CoreHost>(
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, host)
         .expect("authentic");
-    Prepared::prepare(&authenticated, &ids, &wallet, registry, &env, &rendering)
-        .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-        .map(|built| built.response().vp_token().json())
+    Prepared::prepare(
+        &authenticated,
+        &ids,
+        &wallet,
+        registry,
+        &env,
+        &rendering,
+        host,
+    )
+    .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
+    .map(|built| built.response().vp_token().json())
 }
 
 /// The proof of the first presentation of `sca_card` in a VP Token.
@@ -426,6 +434,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
         profile
             .render(
                 &entry,
+                siros_openid4vp::routing::ChannelKind::DcApi,
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
                 &en(),

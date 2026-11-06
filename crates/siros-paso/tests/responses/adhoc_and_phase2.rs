@@ -9,9 +9,11 @@ use siros_openid4vp::matching::{Accepted, Match, Views};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Finding, Outcome as Phase2, Prepared};
+use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 use siros_openid4vp::wallet::Wallet;
-use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Carried};
+use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Verified};
+use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoFinding, PasoProfile};
 use siros_testkit::verifier::{ISSUER, adhoc_jwt, secret_key};
 use siros_testkit::{Published, PublishedResource};
@@ -169,6 +171,59 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks() {
         adhoc_case(&chained, &card("{}", None, &issuer), PasoProfile::default()),
         Ok(sca_claims())
     );
+    // In the URI flow the wallet relies on the JWT once it verified it for the credential.
+    let card = card("{}", None, ISSUER);
+    let (request_parameters, credential) = (adhoc_parameters(&keyed), card.credential());
+    siros_testkit::signed_request!(let request = &request_parameters);
+    let verified = Verified::of(&request, &[&credential], &PasoHost::at(Timestamp(NOW)))
+        .expect("the PaSO document reads");
+    assert!(verified.refusals().is_empty(), "{:?}", verified.refusals());
+    assert!(
+        uri_rendering(
+            &PasoProfile::default().with_verified(&verified),
+            &request,
+            &card
+        )
+        .is_ok()
+    );
+    assert_eq!(
+        uri_rendering(&PasoProfile::default(), &request, &card).err(),
+        Some(AdhocFailure::Unverified),
+        "unverified"
+    );
+}
+
+/// The parameters of a request whose one payment entry carries the ad-hoc metadata JWT.
+fn adhoc_parameters(jwt: &str) -> String {
+    parameters(
+        r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,
+        &[&payment(&format!(r#", "metadata": "{jwt}""#))],
+        "",
+    )
+}
+
+/// The request's one entry as the profile renders it for the card in the URI flow: the step of
+/// §5.3 its ad-hoc metadata JWT fails for the card when it is not rendered.
+fn uri_rendering(
+    profile: &PasoProfile,
+    request: &Request<'_>,
+    card: &Card,
+) -> Result<(), AdhocFailure> {
+    let credential = card.credential();
+    match profile
+        .render(
+            &request.entries()[0],
+            ChannelKind::Uri,
+            &credential,
+            crate::common::placement(&credential.format),
+            &en(),
+        )
+        .expect("no fault")
+    {
+        Ok(_) => Ok(()),
+        Err(Outcome::NotCompatible(NotCompatible::Adhoc(failure))) => Err(failure),
+        Err(other) => panic!("{other}"),
+    }
 }
 
 #[test]
@@ -186,7 +241,6 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     )
     .expect("a JWT typed JWT");
     let keys = ISSUER.to_owned();
-    let own_chain = chained_issuer(&x509::root(), "Bank Issuer");
     let other_root = x509::certificate(&x509::Leaf {
         subject: "Other Root",
         point: x509::point(&[3; 32]),
@@ -225,7 +279,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         (
             "step 3, x5c",
             elsewhere,
-            own_chain.clone(),
+            chained_issuer(&x509::root(), "Bank Issuer"),
             AdhocFailure::Untrusted,
         ),
         (
@@ -302,18 +356,26 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             )),
             "{step}"
         );
-        // In the URI flow the wallet refuses it before it converts.
-        let entry_json = payment(&format!(r#", "metadata": "{jwt}""#));
-        let parameters = parameters(
-            r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,
-            &[&entry_json],
-            "",
-        );
-        siros_testkit::signed_request!(let request = &parameters);
+        // In the URI flow the wallet refuses it before it converts, and binds no entry.
+        let request_parameters = adhoc_parameters(&jwt);
+        siros_testkit::signed_request!(let request = &request_parameters);
         let credential = card.credential();
-        let verified = Carried::verified(&request, &[&credential], &host).expect("verified");
-        assert_eq!(verified.refusals(), [refusal], "{step}");
+        let verified = Verified::of(&request, &[&credential], &host).expect("verified");
+        assert_eq!(
+            verified.refusals(),
+            std::slice::from_ref(&refusal),
+            "{step}"
+        );
         assert_eq!(verified.jwts().count(), 0, "{step}: nothing converts");
+        assert_eq!(
+            uri_rendering(
+                &PasoProfile::default().with_verified(&verified),
+                &request,
+                &card
+            ),
+            Err(refusal.failure),
+            "{step}"
+        );
     }
 }
 
@@ -477,9 +539,18 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
                 .expect("authentic");
         let ids: &[&str] = &[id];
-        match Prepared::prepare(&authenticated, ids, &wallet, &registry, &env, &rendering).and_then(
-            |prepared| prepared.respond(|resource| Published::default().answer(resource), &host),
-        ) {
+        match Prepared::prepare(
+            &authenticated,
+            ids,
+            &wallet,
+            &registry,
+            &env,
+            &rendering,
+            &host,
+        )
+        .and_then(|prepared| {
+            prepared.respond(|resource| Published::default().answer(resource), &host)
+        }) {
             Ok(_) => Ok(()),
             Err(Phase2::Fallback(findings)) => Err(findings
                 .items()

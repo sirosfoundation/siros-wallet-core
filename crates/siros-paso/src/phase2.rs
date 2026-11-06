@@ -171,20 +171,32 @@ use crate::{FAULT, PasoProfile};
 
 #[cfg(feature = "resolve")]
 /// What a record's entry reads: the entry, the credential's document, and the metadata that
-/// rendered it with the ad-hoc metadata JWT when that was it.
+/// rendered it: the stored metadata, or the ad-hoc metadata JWT's once verified.
 struct Read<'r> {
     entry: PasoEntry<'r>,
     document: &'r PasoDocument<'r>,
     given: &'r Node<'r>,
-    adhoc: Option<&'r AdhocRead<'r>>,
 }
 
 #[cfg(feature = "resolve")]
-/// Reads the record's one entry and passes it on.
+/// How a step of phase 2 relies on the record's ad-hoc metadata JWT (Proof Metadata §5.3).
+#[derive(Clone, Copy)]
+enum Reliance<'m> {
+    /// Verified now through the host's modules.
+    Verify(adhoc::Modules<'m>),
+    /// Verified by the revalidation that precedes the step in every phase 2.
+    Revalidated,
+}
+
+#[cfg(feature = "resolve")]
+/// Reads the record's one entry and passes it on; its ad-hoc metadata JWT, when it carries one,
+/// relied on as `reliance` states, and refused for the record's credential when it fails a step
+/// of §5.3.
 fn read<T>(
     record: &Answered<'_>,
+    reliance: Reliance<'_>,
     then: impl FnOnce(Read<'_>) -> Result<T, Fault>,
-) -> Result<T, Fault> {
+) -> Result<Result<T, AdhocRefusal>, Fault> {
     let [index] = record.entries().entries() else {
         return Err(Fault::new(
             FAULT,
@@ -212,6 +224,21 @@ fn read<T>(
         .map(AdhocRead::parse)
         .transpose()
         .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's ad-hoc metadata"), e))?;
+    if let (Some(jwt), Reliance::Verify(modules)) = (&read, reliance) {
+        let credential = record.credential();
+        let binding = adhoc::Binding {
+            document: &document,
+            format: &credential.format,
+            kind: entry.kind.as_str(),
+        };
+        if let Err(failure) = jwt.verify(&binding, modules) {
+            return Ok(Err(AdhocRefusal {
+                jwt: jwt.text().to_owned(),
+                credential: credential.id.as_str().to_owned(),
+                failure,
+            }));
+        }
+    }
     let given = match &read {
         Some(read) => Some(read.metadata()),
         None => document.metadata(entry.kind.as_str()),
@@ -221,8 +248,8 @@ fn read<T>(
         entry,
         document: &document,
         given,
-        adhoc: read.as_ref(),
     })
+    .map(Ok)
 }
 
 #[cfg(feature = "resolve")]
@@ -298,22 +325,28 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
 
 #[cfg(feature = "resolve")]
 /// The URLs of the images phase 2 resolves that a fetch reaches, in the metadata's claim
-/// order.
-pub(crate) fn wanted(profile: &PasoProfile, record: &Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-    read(record, |read| {
+/// order; none when the record's ad-hoc metadata JWT fails a step of §5.3 through `modules`,
+/// which the revalidation then refuses.
+pub(crate) fn wanted(
+    profile: &PasoProfile,
+    record: &Answered<'_>,
+    modules: adhoc::Modules<'_>,
+) -> Result<Vec<HttpsUrl>, Fault> {
+    Ok(read(record, Reliance::Verify(modules), |read| {
         Ok(pending(profile, &read)?
             .into_iter()
             .filter_map(|image| image.url)
             .collect())
-    })
+    })?
+    .unwrap_or_default())
 }
 
 #[cfg(feature = "resolve")]
-/// Revalidates a record: whether the build holds the modules its response needs, whether
-/// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
-/// a key the issuer publishes, its ad-hoc metadata JWT verified through `modules` (Proof Metadata
-/// §5.3), then each https image of the payload its metadata displays and the matcher did not
-/// have, with what the caller fetched. `cose_held`: the build holds the `COSE_Encrypt` module,
+/// Revalidates a record: its ad-hoc metadata JWT verified through `modules` (Proof Metadata
+/// §5.3), the refusal alone when it fails; then whether the build holds the modules its response
+/// needs, whether `sealer`, the statement of the module that seals an SD-JWT's risk signals as a
+/// JWE, admits a key the issuer publishes, and each https image of the payload its metadata
+/// displays and the matcher did not have, with what the caller fetched. `cose_held`: the build holds the `COSE_Encrypt` module,
 /// stating §7.6's A256GCM.
 pub(crate) fn revalidate(
     profile: &PasoProfile,
@@ -324,7 +357,7 @@ pub(crate) fn revalidate(
 ) -> Result<Option<PasoFinding>, Fault> {
     let resources = fetched.resources();
     let record = fetched.record();
-    read(&record, |read| {
+    let read = read(&record, Reliance::Verify(modules), |read| {
         let signals = Effective::resolve(read.given, &profile.catalogue)
             .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
         let lacks =
@@ -335,21 +368,6 @@ pub(crate) fn revalidate(
             && record.placement() == Some(Placement::Claims)
             && read.document.encryption_key(Some(&sealer)).is_none())
         .then_some(sealer);
-        let credential = record.credential();
-        let refused = read.adhoc.and_then(|jwt| {
-            let binding = adhoc::Binding {
-                document: read.document,
-                format: &credential.format,
-                kind: read.entry.kind.as_str(),
-            };
-            jwt.verify(&binding, modules)
-                .err()
-                .map(|failure| AdhocRefusal {
-                    jwt: jwt.text().to_owned(),
-                    credential: credential.id.as_str().to_owned(),
-                    failure,
-                })
-        });
         let mut failed = Vec::new();
         for image in pending(profile, &read)? {
             let fetch = image
@@ -378,18 +396,20 @@ pub(crate) fn revalidate(
                 Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
             }
         }
-        Ok(PasoFinding::of(lacks, unsealable, refused, failed))
-    })
+        Ok(PasoFinding::of(lacks, unsealable, None, failed))
+    })?;
+    Ok(read.unwrap_or_else(|refused| PasoFinding::of(None, None, Some(refused), Vec::new())))
 }
 
 #[cfg(feature = "resolve")]
 /// The End-User authentication the record's entry needs: strong when the type's effective
-/// risk signals require `amr` (Risk Signal Registry §2.8), presence otherwise.
+/// risk signals require `amr` (Risk Signal Registry §2.8), presence otherwise. Phase 2 asks it
+/// once the revalidation verified the record's ad-hoc metadata JWT.
 pub(crate) fn authentication(
     profile: &PasoProfile,
     record: &Answered<'_>,
 ) -> Result<AuthenticationNeed, Fault> {
-    read(record, |read| {
+    read(record, Reliance::Revalidated, |read| {
         let signals = Effective::resolve(read.given, &profile.catalogue)
             .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
         Ok(
@@ -402,19 +422,28 @@ pub(crate) fn authentication(
                 AuthenticationNeed::Presence
             },
         )
+    })?
+    .map_err(|refused| {
+        Fault::caused(
+            FAULT,
+            detail!("a refused ad-hoc metadata JWT"),
+            refused.failure,
+        )
     })
 }
 
 #[cfg(feature = "resolve")]
 /// The SCA response members for the record's entry, keyed for the presentation's format,
-/// with the End-User's authentication for this response.
+/// with the End-User's authentication for this response; its ad-hoc metadata JWT verified
+/// through `verifying`.
 pub(crate) fn respond(
     profile: &PasoProfile,
     record: &Answered<'_>,
     modules: Modules<'_>,
+    verifying: adhoc::Modules<'_>,
     authentication: &Authentication,
 ) -> Result<Members, Fault> {
-    read(record, |read| {
+    read(record, Reliance::Verify(verifying), |read| {
         let placement = record.placement().ok_or_else(|| {
             Fault::new(
                 FAULT,
@@ -433,5 +462,12 @@ pub(crate) fn respond(
             mode: record.mode(),
         }
         .members(modules, authentication)
+    })?
+    .map_err(|refused| {
+        Fault::caused(
+            FAULT,
+            detail!("a refused ad-hoc metadata JWT"),
+            refused.failure,
+        )
     })
 }

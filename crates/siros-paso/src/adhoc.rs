@@ -1,11 +1,12 @@
 //! Proof Metadata §5: the ad-hoc metadata JWT a PaSO entry may carry. The matcher reads it as it
-//! reads a signed request, its payload parsed and unverified ([`Read`]; section 4.14 of the
+//! reads a signed request, its payload parsed and unverified ([`Carried`]; section 4.14 of the
 //! design). The wallet verifies it as §5.3 states before it relies on it: in phase 2, and in the
-//! URI flow before it converts it ([`Carried::verified`]). A JWT that fails a step makes the entry
+//! URI flow before it converts it (`Verified`). A JWT that fails a step makes the entry
 //! incompatible for the credential, the stored metadata never standing in; the profile knows each
 //! failure ([`AdhocRefusal`]).
 
 use siros_explain::Explain;
+use siros_openid4vp::envelope::Channel;
 use siros_openid4vp::jose::{CompactJws, JwsError};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Request;
@@ -55,6 +56,9 @@ pub enum AdhocFailure {
     /// Step 7: `transaction_data_type`.
     #[error("transaction_data_type is not the entry's type")]
     TransactionType,
+    /// A request of the URI flow whose JWT the wallet has not verified for the credential.
+    #[error("not verified for the credential")]
+    Unverified,
 }
 
 /// An entry's ad-hoc metadata JWT the profile does not rely on for a credential, with the step it
@@ -126,29 +130,44 @@ impl<'j> Read<'j> {
     }
 }
 
-/// The ad-hoc metadata JWT of each entry of a request that carries one, read, with the entry's
-/// type; and the refusals of a wallet that verified them.
-#[derive(Debug, Clone)]
-pub struct Carried<'r> {
-    read: Vec<(&'r str, Read<'r>)>,
-    refusals: Vec<AdhocRefusal>,
-}
+/// The ad-hoc metadata JWT of each entry of a request that carries one, with the entry's type.
+type Jwts<'r> = Vec<(&'r str, Read<'r>)>;
 
-impl<'r> Carried<'r> {
-    /// The matcher's: each entry's JWT read as a signed request is read, unverified (section 4.14
-    /// of the design); a JWT that does not read is left out, and the profile's binding refuses
-    /// its entry.
-    #[must_use]
-    pub fn read(request: &'r Request<'r>) -> Self {
-        let read = request.entries().iter().filter_map(|entry| {
+/// Each entry's JWT read as a signed request is read.
+fn jwts<'r>(request: &'r Request<'r>) -> Jwts<'r> {
+    request
+        .entries()
+        .iter()
+        .filter_map(|entry| {
             let jwt = entry.members().get("metadata").and_then(Node::as_str)?;
             Read::parse(jwt)
                 .ok()
                 .map(|read| (entry.kind().as_str(), read))
-        });
-        Self {
-            read: read.collect(),
-            refusals: Vec::new(),
+        })
+        .collect()
+}
+
+/// The matcher's ad-hoc metadata JWTs of a DC API request: each entry's JWT read as a signed
+/// request is read, unverified (section 4.14 of the design). A JWT that does not read is left
+/// out, and the profile's binding refuses its entry.
+#[derive(Debug, Clone)]
+pub struct Carried<'r> {
+    read: Jwts<'r>,
+}
+
+impl<'r> Carried<'r> {
+    /// The JWTs of a DC API request.
+    ///
+    /// # Errors
+    ///
+    /// [`UriFlow`]: a request of the URI flow, whose JWTs the wallet verifies before it converts
+    /// them (`Verified`).
+    pub fn read(request: &'r Request<'r>) -> Result<Self, UriFlow> {
+        match request.envelope().channel() {
+            Channel::DcApi(_) => Ok(Self {
+                read: jwts(request),
+            }),
+            Channel::Uri => Err(UriFlow),
         }
     }
 
@@ -156,12 +175,21 @@ impl<'r> Carried<'r> {
     pub fn jwts(&self) -> impl Iterator<Item = (&'r str, &Read<'r>)> {
         self.read.iter().map(|(kind, read)| (*kind, read))
     }
+}
 
-    /// The refusals the verification found: each JWT for each credential it fails for.
-    #[must_use]
-    pub fn refusals(&self) -> &[AdhocRefusal] {
-        &self.refusals
-    }
+/// A request of the URI flow given to the matcher's reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "paso.adhoc_channel")]
+#[error("a request of the URI flow: its ad-hoc metadata is verified before it converts")]
+pub struct UriFlow;
+
+/// An ad-hoc metadata JWT the wallet verified for a credential (§5.3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Relied {
+    /// The JWT as received.
+    pub(crate) jwt: String,
+    /// The credential's id.
+    pub(crate) credential: String,
 }
 
 #[cfg(feature = "resolve")]
@@ -176,7 +204,7 @@ mod verify {
     use siros_openid4vp::wallet::Credential;
     use siros_x509::X5c;
 
-    use super::{AdhocFailure, AdhocRefusal, Carried, Read, TYP};
+    use super::{AdhocFailure, AdhocRefusal, Jwts, Read, Relied, TYP, jwts};
     use crate::FAULT;
     use crate::document::{DOCUMENT, Issuer, PasoDocument};
     use crate::modules::IssuerTrust;
@@ -188,6 +216,22 @@ mod verify {
         pub(crate) haip: &'m dyn Haip,
         pub(crate) trust: &'m dyn IssuerTrust,
         pub(crate) now: Timestamp,
+    }
+
+    impl<'m> Modules<'m> {
+        /// The host's modules.
+        pub(crate) fn of<H>(host: &'m H) -> Self
+        where
+            H: siros_openid4vp::host::Has<dyn Platform>
+                + siros_openid4vp::host::Has<dyn Haip>
+                + siros_openid4vp::host::Has<dyn IssuerTrust>,
+        {
+            Self {
+                haip: siros_openid4vp::host::Has::<dyn Haip>::module(host),
+                trust: siros_openid4vp::host::Has::<dyn IssuerTrust>::module(host),
+                now: siros_openid4vp::host::Has::<dyn Platform>::module(host).now(),
+            }
+        }
     }
 
     /// What a JWT binds to: the credential's document and format, and the entry's type.
@@ -273,15 +317,27 @@ mod verify {
         }
     }
 
-    impl<'r> Carried<'r> {
-        /// The wallet's in the URI flow: each JWT verified for each credential holding a PaSO
-        /// document (§5.3) before it converts, each refusal kept for the profile; a JWT no
-        /// credential verifies is left out, so it converts to nothing.
+    /// The wallet's ad-hoc metadata JWTs of a request, each verified for each credential holding
+    /// a PaSO document (§5.3): the JWTs some credential verifies, which convert in the URI flow
+    /// (`view::verified`), the credentials each verifies for, and the refusals, each JWT for each
+    /// credential it fails for. A profile given them ([`PasoProfile::with_verified`]) relies in
+    /// the URI flow on a JWT for the credentials it verified for alone.
+    ///
+    /// [`PasoProfile::with_verified`]: crate::PasoProfile::with_verified
+    #[derive(Debug, Clone)]
+    pub struct Verified<'r> {
+        read: Jwts<'r>,
+        pub(crate) relied: Vec<Relied>,
+        refusals: Vec<AdhocRefusal>,
+    }
+
+    impl<'r> Verified<'r> {
+        /// Each JWT of the request verified for each credential through the host's modules.
         ///
         /// # Errors
         ///
         /// A [`Fault`]: a credential's PaSO document does not read.
-        pub fn verified<H>(
+        pub fn of<H>(
             request: &'r Request<'r>,
             credentials: &[&Credential<'_>],
             host: &H,
@@ -291,15 +347,11 @@ mod verify {
                 + siros_openid4vp::host::Has<dyn Haip>
                 + siros_openid4vp::host::Has<dyn IssuerTrust>,
         {
-            let modules = Modules {
-                haip: siros_openid4vp::host::Has::<dyn Haip>::module(host),
-                trust: siros_openid4vp::host::Has::<dyn IssuerTrust>::module(host),
-                now: siros_openid4vp::host::Has::<dyn Platform>::module(host).now(),
-            };
-            let read = Self::read(request);
+            let modules = Modules::of(host);
             let mut kept = Vec::new();
+            let mut relied = Vec::new();
             let mut refusals = Vec::new();
-            for (kind, jwt) in read.read {
+            for (kind, jwt) in jwts(request) {
                 let mut verified = false;
                 for credential in credentials {
                     let Some(bytes) = credential.document(DOCUMENT) else {
@@ -315,7 +367,13 @@ mod verify {
                         kind,
                     };
                     match jwt.verify(&binding, modules) {
-                        Ok(()) => verified = true,
+                        Ok(()) => {
+                            verified = true;
+                            relied.push(Relied {
+                                jwt: jwt.text().to_owned(),
+                                credential: credential.id.as_str().to_owned(),
+                            });
+                        }
                         Err(failure) => refusals.push(AdhocRefusal {
                             jwt: jwt.text().to_owned(),
                             credential: credential.id.as_str().to_owned(),
@@ -329,11 +387,25 @@ mod verify {
             }
             Ok(Self {
                 read: kept,
+                relied,
                 refusals,
             })
+        }
+
+        /// Each JWT some credential verifies, with its entry's type.
+        pub fn jwts(&self) -> impl Iterator<Item = (&'r str, &Read<'r>)> {
+            self.read.iter().map(|(kind, read)| (*kind, read))
+        }
+
+        /// Each JWT for each credential it fails for, with the step.
+        #[must_use]
+        pub fn refusals(&self) -> &[AdhocRefusal] {
+            &self.refusals
         }
     }
 }
 
+#[cfg(feature = "resolve")]
+pub use verify::Verified;
 #[cfg(feature = "resolve")]
 pub(crate) use verify::{Binding, Modules};

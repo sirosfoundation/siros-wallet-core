@@ -130,6 +130,7 @@ pub(super) fn tampered(
             case.registry,
             case.env,
             case.rendering,
+            &host(&[]),
         )
         .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
@@ -146,6 +147,7 @@ pub(super) fn tampered(
             case.registry,
             case.env,
             case.rendering,
+            &host(&[]),
         )
         .and_then(|prepared| prepared.respond(|resource| nothing.answer(resource), &host(&[])))
         {
@@ -210,6 +212,7 @@ pub(super) fn renewed(
         case.registry,
         case.env,
         case.rendering,
+        host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
     {

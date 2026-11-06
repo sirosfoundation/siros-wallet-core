@@ -106,8 +106,9 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
     /// with its routing, its rules run again; every record derived with the matcher's code and
     /// checked as a selection; each record's query read through its format's
     /// [`FormatHost::answer`] under the accepted response mode; each record's profile names the
-    /// resources it revalidates with, one slot each, in record order. `registry` is the one the
-    /// envelope was read with; `rendering` the package of the wallet's live modules.
+    /// resources it revalidates with over the host's modules, one slot each, in record order.
+    /// `registry` is the one the envelope was read with; `rendering` the package of the wallet's
+    /// live modules.
     ///
     /// # Errors
     ///
@@ -122,6 +123,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         registry: &'p Registry<H>,
         env: &'p Env,
         rendering: &Rendering<'_>,
+        host: &H,
     ) -> Result<Self, Outcome> {
         let request = Request::parse(authenticated.envelope())?;
         let mut questions = Vec::new();
@@ -139,7 +141,15 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             let read = Read::of(&request, registry, accepted.mode().name())?;
             let mut records = Vec::new();
             for view in views {
-                let picked = picked(&accepted, registry, &matched, wallet, view, &mut questions)?;
+                let picked = picked(
+                    &accepted,
+                    registry,
+                    &matched,
+                    wallet,
+                    view,
+                    &mut questions,
+                    host,
+                )?;
                 drop(read.chosen(&picked)?);
                 records.push(picked);
             }
@@ -340,8 +350,8 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
 }
 
 /// A derived record as phase 2 answers it: the wallet's credential, its query and option, and
-/// for a transaction its profile's binding with the resources the profile wants, one per
-/// distinct URL, appended to `questions`.
+/// for a transaction its profile's binding with the resources the profile wants over the host's
+/// modules, one per distinct URL, appended to `questions`.
 fn picked<'p, H: CoreHost>(
     accepted: &Accepted<'_>,
     registry: &'p Registry<H>,
@@ -349,6 +359,7 @@ fn picked<'p, H: CoreHost>(
     wallet: &'p Wallet<'p>,
     view: &EntryView<'_>,
     questions: &mut Vec<Resource>,
+    host: &H,
 ) -> Result<Picked<'p, H>, Outcome> {
     let request = accepted.request();
     let candidate = matched
@@ -370,14 +381,17 @@ fn picked<'p, H: CoreHost>(
             let profile = registry
                 .profile_host(transaction.profile)
                 .ok_or_else(|| Fault::new(FAULT, detail!("a transaction has no profile")))?;
-            let wanted = profile.wanted(Answered::of(
-                request,
-                credential,
-                &bound.entries,
-                &bound.attested,
-                placement,
-                accepted.mode().name(),
-            ))?;
+            let wanted = profile.wanted(
+                Answered::of(
+                    request,
+                    credential,
+                    &bound.entries,
+                    &bound.attested,
+                    placement,
+                    accepted.mode().name(),
+                ),
+                host,
+            )?;
             let start = questions.len();
             questions.extend(Resource::distinct(wanted));
             Some(Transacted {

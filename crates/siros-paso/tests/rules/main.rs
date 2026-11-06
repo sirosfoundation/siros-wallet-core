@@ -28,6 +28,7 @@ fn render_with(
     profile
         .render(
             &entry(&entry_json),
+            siros_openid4vp::routing::ChannelKind::DcApi,
             &card.credential(),
             crate::common::placement(&card.credential().format),
             env,
@@ -276,6 +277,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
         PasoProfile::default()
             .render(
                 &entry(&entry_json),
+                siros_openid4vp::routing::ChannelKind::DcApi,
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
                 &en()
@@ -296,6 +298,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
         PasoProfile::default()
             .render(
                 &entry(&entry_json),
+                siros_openid4vp::routing::ChannelKind::DcApi,
                 &bare,
                 crate::common::placement(&bare.format),
                 &en()

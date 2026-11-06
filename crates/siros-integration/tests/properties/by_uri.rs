@@ -13,11 +13,13 @@ use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Finding, Outcome, Prepared};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch};
 use siros_openid4vp::wallet::Wallet;
+use siros_paso::PasoProfile;
+use siros_paso::adhoc::Verified;
 use siros_testkit::TestTrust;
 use siros_testkit::fixtures::{self, REQUEST_OBJECT_HEADER, first_selection};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws, encrypt_to};
 
-use crate::common::{HaipHost, registry};
+use crate::common::{HaipHost, registry, registry_with};
 use crate::generate::{Dressed, ENC_KEY};
 use crate::tally::Tally;
 
@@ -113,9 +115,16 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
             .collect(),
     )
     .expect("a wallet");
-    let app = crate::common::wallet_app(&wallet, &request, &dressed.env);
+    // The wallet verifies each ad-hoc metadata JWT before it converts it and relies on it.
+    let held: Vec<_> = wallet.credentials().iter().collect();
+    let verified = Verified::of(&request, &held, &host).expect("the PaSO documents read");
+    tally.add_many("URI ad-hoc JWTs verified", verified.jwts().count());
+    tally.add_many("URI ad-hoc JWTs refused", verified.refusals().len());
+    let verifying =
+        registry_with(PasoProfile::default().with_verified(&verified)).expect("the registry");
+    let app = crate::common::wallet_app(&wallet, &request, &dressed.env, &host);
     let rendering = app.rendering().expect("the rendering");
-    let Ok(ids) = first_selection(&request, &wallet, &registry, &dressed.env, &rendering) else {
+    let Ok(ids) = first_selection(&request, &wallet, &verifying, &dressed.env, &rendering) else {
         tally.add("URI requests refused or unmet");
         return;
     };
@@ -124,9 +133,10 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
         &authenticated,
         &ids,
         &wallet,
-        &registry,
+        &verifying,
         &dressed.env,
         &rendering,
+        &host,
     ) {
         Ok(prepared) => {
             drop(prepared);
@@ -147,7 +157,7 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
     // The same selection as the DC API request derived it: records of another request.
     let dc_api = dressed.received();
     let dc_api = fixtures::request_of(&dc_api).expect("the DC API request");
-    let dc_api_app = crate::common::wallet_app(&wallet, &dc_api, &dressed.env);
+    let dc_api_app = crate::common::wallet_app(&wallet, &dc_api, &dressed.env, &host);
     let dc_api_rendering = dc_api_app.rendering().expect("the rendering");
     let Ok(foreign) = first_selection(&dc_api, &wallet, &registry, &dressed.env, &dc_api_rendering)
     else {
@@ -162,9 +172,10 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
         &authenticated,
         &foreign,
         &wallet,
-        &registry,
+        &verifying,
         &dressed.env,
         &rendering,
+        &host,
     ) {
         Err(Outcome::Fallback(findings)) => {
             assert_eq!(

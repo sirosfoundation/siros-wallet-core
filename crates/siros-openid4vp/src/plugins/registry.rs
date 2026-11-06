@@ -1713,7 +1713,7 @@ impl<P: Profile> ErasedProfile for P {
 /// An [`ErasedProfile`] with phase 2's methods over the build's host `H`.
 #[cfg(feature = "resolve")]
 pub trait DynProfile<H>: ErasedProfile {
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault>;
+    fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault>;
     fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault>;
     fn revalidate(
         &self,
@@ -1735,8 +1735,8 @@ pub trait DynProfile<H>: ErasedProfile {
 
 #[cfg(feature = "resolve")]
 impl<H, P: ProfileHost<H>> DynProfile<H> for P {
-    fn wanted(&self, record: Answered<'_>) -> Result<Vec<HttpsUrl>, Fault> {
-        ProfileHost::wanted(self, record)
+    fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::wanted(self, record, host)
     }
 
     fn authentication(&self, record: Answered<'_>) -> Result<AuthenticationNeed, Fault> {

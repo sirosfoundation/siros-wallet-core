@@ -111,6 +111,7 @@ fn renders(request: &Request<'_>, wallet: &Wallet<'_>, env: &Env) -> Vec<Renderi
                     outcome: paso
                         .render(
                             entry,
+                            request.envelope().channel().kind(),
                             credential,
                             crate::common::placement(&credential.format),
                             env,
@@ -226,7 +227,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             })
         })
         .collect();
-    let app = crate::common::wallet_app(&wallet, &request, env);
+    let app = crate::common::wallet_app(&wallet, &request, env, &HaipHost::default());
     let rendering = app.rendering().expect("the rendering");
     let case = Case {
         request: &request,
