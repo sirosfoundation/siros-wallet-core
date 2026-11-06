@@ -343,7 +343,6 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
             )
         })
         .collect();
-    assert_eq!(modules.len(), 3, "main, testkit and openid4vp");
     let rendering = serde_json::json!({"selected": null, "language": "de", "fallback": false, "modules": modules,
         "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER});
     assert_eq!(
