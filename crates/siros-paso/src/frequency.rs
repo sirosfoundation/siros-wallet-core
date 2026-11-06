@@ -47,37 +47,45 @@ pub enum Frequency {
 }
 
 impl Frequency {
-    /// Every frequency, with its code.
-    const CODES: [(Self, &'static str); 12] = [
-        (Self::Intraday, "INDA"),
-        (Self::Daily, "DAIL"),
-        (Self::Weekly, "WEEK"),
-        (Self::EveryTwoWeeks, "TOWK"),
-        (Self::TwiceAMonth, "TWMN"),
-        (Self::Monthly, "MNTH"),
-        (Self::EveryTwoMonths, "TOMN"),
-        (Self::Quarterly, "QUTR"),
-        (Self::EveryFourMonths, "FOMN"),
-        (Self::TwiceAYear, "SEMI"),
-        (Self::Yearly, "YEAR"),
-        (Self::EveryTwoYears, "TYEA"),
+    const ALL: [Self; 12] = [
+        Self::Intraday,
+        Self::Daily,
+        Self::Weekly,
+        Self::EveryTwoWeeks,
+        Self::TwiceAMonth,
+        Self::Monthly,
+        Self::EveryTwoMonths,
+        Self::Quarterly,
+        Self::EveryFourMonths,
+        Self::TwiceAYear,
+        Self::Yearly,
+        Self::EveryTwoYears,
     ];
 
     /// The frequency of a code.
     #[must_use]
     pub fn parse(code: &str) -> Option<Self> {
-        Self::CODES
-            .iter()
-            .find(|(_, known)| *known == code)
-            .map(|(frequency, _)| *frequency)
+        Self::ALL
+            .into_iter()
+            .find(|frequency| frequency.code() == code)
     }
 
     /// The code.
     #[must_use]
-    pub fn code(self) -> &'static str {
-        Self::CODES
-            .iter()
-            .find(|(known, _)| *known == self)
-            .map_or("", |(_, code)| code)
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Intraday => "INDA",
+            Self::Daily => "DAIL",
+            Self::Weekly => "WEEK",
+            Self::EveryTwoWeeks => "TOWK",
+            Self::TwiceAMonth => "TWMN",
+            Self::Monthly => "MNTH",
+            Self::EveryTwoMonths => "TOMN",
+            Self::Quarterly => "QUTR",
+            Self::EveryFourMonths => "FOMN",
+            Self::TwiceAYear => "SEMI",
+            Self::Yearly => "YEAR",
+            Self::EveryTwoYears => "TYEA",
+        }
     }
 }

@@ -56,13 +56,33 @@ impl Family {
     }
 }
 
-/// A Generic or Mandate type identifier's subtype: `[a-z0-9-]+`, or none.
+/// A subtype's name: `[a-z0-9-]+`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SubtypeName<'t>(&'t str);
+
+impl<'t> SubtypeName<'t> {
+    fn parse(text: &'t str) -> Option<Self> {
+        (!text.is_empty()
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
+        .then_some(Self(text))
+    }
+
+    /// The name.
+    #[must_use]
+    pub const fn as_str(self) -> &'t str {
+        self.0
+    }
+}
+
+/// A Generic or Mandate type identifier's subtype.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Subtype<'t> {
     /// `urn:paso:sca:global:<rulebook>:1`.
     None,
     /// `urn:paso:sca:global:<rulebook>:<subtype>:1`.
-    Named(&'t str),
+    Named(SubtypeName<'t>),
 }
 
 impl<'t> Subtype<'t> {
@@ -74,12 +94,7 @@ impl<'t> Subtype<'t> {
         }
         middle
             .strip_prefix(':')
-            .filter(|sub| {
-                !sub.is_empty()
-                    && sub
-                        .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-            })
+            .and_then(SubtypeName::parse)
             .map(Self::Named)
     }
 
@@ -95,7 +110,7 @@ impl<'t> Subtype<'t> {
 
     /// Whether it is the named subtype.
     fn is(self, name: &str) -> bool {
-        matches!(self, Self::Named(own) if own == name)
+        matches!(self, Self::Named(own) if own.as_str() == name)
     }
 }
 

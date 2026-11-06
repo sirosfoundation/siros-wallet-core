@@ -70,7 +70,8 @@ pub use measure::{Measured, Signal, TestPaso};
 pub use measure::{Measurement, Paso, Reading};
 #[cfg(feature = "resolve")]
 pub use modules::{
-    CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, RandomId, RandomIds, RootCertificate,
+    CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, NotRootCertificate, RandomId, RandomIds,
+    RootCertificate,
 };
 #[cfg(feature = "test-util")]
 pub use modules::{TestIssuerTrust, TestRandomIds};
@@ -106,9 +107,9 @@ use siros_openid4vp::{
 };
 
 use crate::adhoc::{AdhocFailure, AdhocRefusal, Relied};
-use crate::document::{DOCUMENT, PasoDocument};
+use crate::document::{DOCUMENT, MetadataIntegrity, PasoDocument};
 use crate::entry::PasoEntry;
-use crate::image::Resolution;
+use crate::image::{FetchedMedia, Resolution};
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::render::{ItemBound, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
@@ -195,6 +196,8 @@ impl Messages for CrateMessages {
             rules::BindExcluded::messages,
             #[cfg(feature = "resolve")]
             modules::NotRandomId::messages,
+            #[cfg(feature = "resolve")]
+            modules::NotRootCertificate::messages,
             #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
             cose::NotSealedCose::messages,
         ];
@@ -217,7 +220,7 @@ pub enum Fetch {
         /// The content.
         content: Vec<u8>,
         /// The media type.
-        media: String,
+        media: FetchedMedia,
     },
     /// Its fetch failed, for this reason.
     Failed(String),
@@ -228,8 +231,8 @@ pub enum Fetch {
 pub enum Source {
     /// The signed credential metadata the wallet stores, by its JWT's integrity value.
     Stored {
-        /// The integrity value (Core §6.1 `metadata_integrity`).
-        integrity: String,
+        /// The integrity value.
+        integrity: MetadataIntegrity,
     },
     /// The entry's ad-hoc metadata JWT (Proof Metadata §5).
     Adhoc,
@@ -363,7 +366,10 @@ impl PasoProfile {
     fn resolution(&self, url: &str) -> Resolution<'_> {
         match self.resources.iter().find(|(known, _)| known == url) {
             None => Resolution::Unknown,
-            Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched { content, media },
+            Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched {
+                content,
+                media: media.as_str(),
+            },
             Some((_, Fetch::Failed(reason))) => Resolution::Failed(reason),
         }
     }
@@ -426,7 +432,7 @@ impl PasoProfile {
         if let Some(refused) = self
             .refusals
             .iter()
-            .find(|refused| refused.jwt == jwt && refused.credential == id)
+            .find(|refused| refused.jwt.as_str() == jwt && refused.credential.as_str() == id)
         {
             return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
         }
@@ -434,7 +440,7 @@ impl PasoProfile {
             && !self
                 .relied
                 .iter()
-                .any(|relied| relied.jwt == jwt && relied.credential == id)
+                .any(|relied| relied.jwt.as_str() == jwt && relied.credential.as_str() == id)
         {
             return Err(NotCompatible::Adhoc(AdhocFailure::Unverified).into());
         }
@@ -458,7 +464,7 @@ impl PasoProfile {
                     .metadata(kind)
                     .ok_or_else(|| Unsupported::NotListed(kind.to_owned()))?,
                 Source::Stored {
-                    integrity: document.integrity.to_owned(),
+                    integrity: document.integrity.clone(),
                 },
             ),
         };
@@ -509,7 +515,10 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
     let selected = Selected::new(ModuleId::Defined(module), locale.clone());
     let mut attested = vec![("display_locale".to_owned(), locale.to_string())];
     if let Source::Stored { integrity } = source {
-        attested.push(("metadata_integrity".to_owned(), integrity));
+        attested.push((
+            "metadata_integrity".to_owned(),
+            integrity.as_str().to_owned(),
+        ));
     }
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {

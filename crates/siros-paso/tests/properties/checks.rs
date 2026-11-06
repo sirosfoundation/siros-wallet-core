@@ -309,7 +309,10 @@ pub fn case(case: &Case, tally: &mut Tally) {
     // What the response attests: the locale shown (Core §7.2), the stored metadata's integrity.
     let mut attested = vec![("display_locale".to_owned(), view.locale.to_string())];
     if let Source::Stored { integrity } = &rendered.source {
-        attested.push(("metadata_integrity".to_owned(), integrity.clone()));
+        attested.push((
+            "metadata_integrity".to_owned(),
+            integrity.as_str().to_owned(),
+        ));
     }
     assert_eq!(bound.attested.pairs(), attested.as_slice(), "P-attested");
     let meta = given(&entry, &types).expect("the metadata that rendered");

@@ -5,7 +5,11 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Entry, Explain, Keyed, RequestText, Text};
+use std::fmt;
+
+use siros_explain::{
+    Count, DefinedModule, Entry, Explain, IntoArg, Keyed, RequestText, Text, kind,
+};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -35,7 +39,7 @@ pub struct ItemBound(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso")]
 #[error("View §2 bound {0} under 200")]
-pub struct BoundTooLow(#[explain(name = "bound")] pub usize);
+pub struct BoundTooLow(#[explain(name = "bound")] usize);
 
 impl ItemBound {
     /// View §2's least bound.
@@ -54,6 +58,20 @@ impl ItemBound {
     #[must_use]
     pub const fn get(self) -> usize {
         self.0
+    }
+}
+
+impl fmt::Display for ItemBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for ItemBound {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
     }
 }
 
@@ -217,7 +235,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         if items > self.bound.get() {
             return Err(NotCompatible::TooManyItems {
                 items,
-                bound: self.bound.get(),
+                bound: self.bound,
             }
             .into());
         }
@@ -250,7 +268,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         let priority = self.env.priority();
         if select(arrays, priority, &Discarded::default()).is_none() {
             return Err(Excluded {
-                locales: priority.iter().map(ToString::to_string).collect(),
+                locales: priority.to_vec(),
             }
             .into());
         }

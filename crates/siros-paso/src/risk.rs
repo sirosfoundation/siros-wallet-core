@@ -94,7 +94,8 @@ impl RiskSignal {
     }
 }
 
-/// A risk signal profile identifier (§3.2): a URN under `urn:paso:risk-profile:`.
+/// A risk signal profile identifier (§3.2): `urn:paso:risk-profile:<domain>:<suffix>:<version>`,
+/// one or more segments of `<suffix>`, none empty, `<version>` a number.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProfileId(String);
 
@@ -102,8 +103,12 @@ impl ProfileId {
     /// The identifier a text names.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        text.starts_with(PROFILE_PREFIX)
-            .then(|| Self(text.to_owned()))
+        let segments: Vec<&str> = text.strip_prefix(PROFILE_PREFIX)?.split(':').collect();
+        let version = segments.last()?;
+        (segments.len() >= 3
+            && segments.iter().all(|segment| !segment.is_empty())
+            && version.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| Self(text.to_owned()))
     }
 
     /// The identifier.
@@ -199,36 +204,40 @@ impl Catalogue {
     #[must_use]
     pub fn paso() -> Self {
         let signals = [
-            "response_mode",
-            "geolocation",
-            "call_activity",
-            "device_motion",
-            "screen_capture",
-            "device_basics",
-            "app_vendor_id",
+            RiskSignal::RESPONSE_MODE,
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:geolocation:1",
+            ))),
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:call_activity:1",
+            ))),
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:device_motion:1",
+            ))),
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:screen_capture:1",
+            ))),
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:device_basics:1",
+            ))),
+            RiskSignal(SignalType(Cow::Borrowed(
+                "urn:paso:risk:global:app_vendor_id:1",
+            ))),
         ]
         .into_iter()
-        .filter_map(|name| RiskSignal::parse(&format!("urn:paso:risk:global:{name}:1")))
         .map(|signal| SignalSpec {
             signal,
             need: Need::Required,
             max_age: Some(MaxAge(600)),
         })
         .collect();
-        Self::new(
-            ProfileId::parse(DEFAULT_PROFILE)
-                .map(|id| {
-                    (
-                        id,
-                        RiskProfile {
-                            sealing: Sealing::Encrypted,
-                            signals,
-                        },
-                    )
-                })
-                .into_iter()
-                .collect(),
-        )
+        Self::new(vec![(
+            ProfileId(DEFAULT_PROFILE.to_owned()),
+            RiskProfile {
+                sealing: Sealing::Encrypted,
+                signals,
+            },
+        )])
     }
 
     /// The profile of an identifier.
@@ -244,13 +253,23 @@ impl Catalogue {
 /// The effective signal set (§4.1) in resolution order, and whether it is encrypted (§7.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effective {
-    /// The signals.
-    pub signals: Vec<SignalSpec>,
-    /// Whether they are encrypted.
-    pub sealing: Sealing,
+    pub(crate) signals: Vec<SignalSpec>,
+    pub(crate) sealing: Sealing,
 }
 
 impl Effective {
+    /// The signals, in resolution order.
+    #[must_use]
+    pub fn signals(&self) -> &[SignalSpec] {
+        &self.signals
+    }
+
+    /// Whether they are encrypted.
+    #[must_use]
+    pub const fn sealing(&self) -> Sealing {
+        self.sealing
+    }
+
     /// §4.1 over a type's metadata: the referenced profiles' signals united (`required` ORed,
     /// the least `max_age`), then the `risk_signals` enumeration applied as a ratchet; §7.2:
     /// encrypted when the metadata's `encrypted` or a referenced profile says so. Not

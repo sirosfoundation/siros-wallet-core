@@ -359,7 +359,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
         .collect();
     let got = |effective: &Effective| -> Vec<(String, bool, Option<u64>)> {
         effective
-            .signals
+            .signals()
             .iter()
             .map(|spec| {
                 (
@@ -371,7 +371,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
             .collect()
     };
     assert_eq!(
-        (got(&effective), effective.sealing),
+        (got(&effective), effective.sealing()),
         (table.clone(), Sealing::Plain)
     );
     // §4.1 step 3: demoting amr or raising geolocation's bound has no effect beyond the profiles.

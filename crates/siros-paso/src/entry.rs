@@ -10,7 +10,7 @@ use siros_openid4vp::jose::JwsError;
 
 use crate::adhoc::AdhocFailure;
 use crate::outcome::NotCompatible;
-use crate::rules::PasoRule;
+use crate::rules::{EntryPosition, PasoRule};
 use siros_openid4vp::request::{Entry, EntryIndex, QuerySet, Request, factor, project};
 
 /// The members a PaSO entry may hold: OpenID4VP's `type` and `credential_ids`, Core §7.1's
@@ -139,7 +139,7 @@ pub fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
     for (index, entry) in &own {
         out.extend(broken(entry).into_iter().map(|rule| {
             Refusal::new(PasoRule::Entry {
-                entry: index.get(),
+                entry: EntryPosition::at(index.get()),
                 rule,
             })
         }));

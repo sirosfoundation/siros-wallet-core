@@ -6,7 +6,8 @@
 use std::fmt;
 
 use siros_explain::{
-    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Offset, RequestText, Second, Time,
+    Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, IntoArg, Offset, RequestText,
+    Second, Time,
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::Quoted;
@@ -59,6 +60,20 @@ pub enum FormattedKind {
     MiniMarkdown,
     /// An https URL.
     Url,
+}
+
+impl fmt::Display for FormattedKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl IntoArg for FormattedKind {
+    type Kind = siros_explain::kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.as_str()
+    }
 }
 
 impl FormattedKind {
@@ -151,7 +166,7 @@ impl fmt::Display for Written<'_> {
 #[error("{kind} value {written}: {why}")]
 pub struct BadValue {
     /// The kind.
-    pub kind: &'static str,
+    pub kind: FormattedKind,
     /// The value as written, quoted.
     pub written: String,
     /// The rule it breaks.
@@ -215,7 +230,7 @@ pub fn formatted(
     written: Written<'_>,
 ) -> Result<(Parsed, RequestText), BadValue> {
     let bad = |why: Breach| BadValue {
-        kind: kind.as_str(),
+        kind,
         written: written.to_string(),
         why,
     };

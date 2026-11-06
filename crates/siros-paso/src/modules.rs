@@ -10,7 +10,7 @@ use siros_explain::Explain;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::AgreeableKey;
-use siros_x509::X5c;
+use siros_x509::{ChainCertificate, DerError, X5c};
 use uuid::{Builder, Uuid, Variant, Version};
 
 /// A content encryption a `COSE_Encrypt` carries (IANA "COSE Algorithms", RFC 9053 §4.1): its
@@ -65,15 +65,25 @@ pub trait CoseEncrypt {
     ) -> Result<Vec<u8>, Fault>;
 }
 
+/// DER that is no certificate.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "paso.root")]
+#[error("no DER certificate: {0}")]
+pub struct NotRootCertificate(#[explain(skip)] DerError);
+
 /// A root certificate of the wallet's trust store, as DER.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RootCertificate(Vec<u8>);
 
 impl RootCertificate {
     /// The certificate of this DER.
-    #[must_use]
-    pub const fn new(der: Vec<u8>) -> Self {
-        Self(der)
+    ///
+    /// # Errors
+    ///
+    /// The bytes are no DER certificate.
+    pub fn parse(der: &[u8]) -> Result<Self, NotRootCertificate> {
+        let certificate = ChainCertificate::from_der(der).map_err(NotRootCertificate)?;
+        Ok(Self(certificate.der().to_vec()))
     }
 
     /// The DER.

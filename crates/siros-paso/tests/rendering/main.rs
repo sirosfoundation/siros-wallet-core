@@ -10,6 +10,7 @@ use common::{CUSTOM, Card, PAY, Screen, Seen, en, entry, env, png, shown, sri};
 use siros_i18n::Style;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
+use siros_paso::image::FetchedMedia;
 use siros_paso::outcome::Outcome;
 use siros_paso::rulebook::Family;
 use siros_paso::{Fetch, PasoProfile};
@@ -224,7 +225,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
         siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
         Fetch::Fetched {
             content: logo,
-            media: "image/png".to_owned(),
+            media: FetchedMedia::parse("image/png").expect("a media type"),
         },
     );
     let rendered = fetched

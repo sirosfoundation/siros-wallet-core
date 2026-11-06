@@ -145,7 +145,7 @@ use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 
 #[cfg(feature = "resolve")]
-use crate::adhoc::{self, Read as AdhocRead};
+use crate::adhoc::{self, AdhocJwt, Read as AdhocRead};
 #[cfg(feature = "resolve")]
 use crate::document::{DOCUMENT, PasoDocument};
 #[cfg(feature = "resolve")]
@@ -233,8 +233,8 @@ fn read<T>(
         };
         if let Err(failure) = jwt.verify(&binding, modules) {
             return Ok(Err(AdhocRefusal {
-                jwt: jwt.text().to_owned(),
-                credential: credential.id.as_str().to_owned(),
+                jwt: AdhocJwt::new(jwt.text()),
+                credential: credential.id.clone().into_owned(),
                 failure,
             }));
         }

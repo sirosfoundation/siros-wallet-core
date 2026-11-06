@@ -3,10 +3,10 @@
 use siros_openid4vp::jose::JwsError;
 use siros_openid4vp::plugins::Profile;
 use siros_openid4vp::refusal::ErrorCode;
-use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
+use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal};
 use siros_paso::entry::EntryRule;
 use siros_paso::outcome::{NotCompatible, Outcome};
-use siros_paso::rules::PasoRule;
+use siros_paso::rules::{EntryPosition, PasoRule};
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
 use siros_testkit::verifier::{self, adhoc_jwt, secret_key};
@@ -176,8 +176,8 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     let listing = Card::sd_jwt(&format!(r#"{{"{PAY}": {}}}"#, risky("")));
     let refused = jwt(&good, &secret_key("another-secret"));
     let knowing = PasoProfile::default().with_refusals(&[AdhocRefusal {
-        jwt: refused.clone(),
-        credential: listing.credential().id.as_str().to_owned(),
+        jwt: AdhocJwt::new(&refused),
+        credential: listing.credential().id.clone().into_owned(),
         failure: AdhocFailure::Signature,
     }]);
     let rendered = render_adhoc(&refused, &listing, &knowing);
@@ -244,7 +244,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         ),
         [(
             PasoRule::Entry {
-                entry: 0,
+                entry: EntryPosition::at(0),
                 rule: EntryRule::UnknownMember("transaction_data_hashes_alg".to_owned()),
             },
             ErrorCode::INVALID_TRANSACTION_DATA
@@ -255,7 +255,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         rules(&parameters(&dcql, &[&not_object], ""), true),
         [(
             PasoRule::Entry {
-                entry: 0,
+                entry: EntryPosition::at(0),
                 rule: EntryRule::PayloadNotObject,
             },
             ErrorCode::INVALID_TRANSACTION_DATA
@@ -268,7 +268,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         ),
         [(
             PasoRule::Entry {
-                entry: 0,
+                entry: EntryPosition::at(0),
                 rule: EntryRule::MetadataNotString,
             },
             ErrorCode::INVALID_TRANSACTION_DATA

@@ -190,7 +190,7 @@ pub fn check(
             );
             claim.value_type.clone()
         } else {
-            let claim = &claims[row.claim.0];
+            let claim = &claims[row.claim.get()];
             let display = claim["display"].as_array().expect("a displayed claim");
             // View §4: each label is the entry the display locale matches.
             // Proof Metadata §3.3: a mini_markdown label shows its text without its markers.
@@ -255,7 +255,7 @@ pub fn check(
             if mandate {
                 json!(concrete(&row.path))
             } else {
-                json!([row.claim.0, concrete(&row.path)])
+                json!([row.claim.get(), concrete(&row.path)])
             }
         })
         .collect();

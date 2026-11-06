@@ -17,7 +17,15 @@ use crate::rulebook::Rulebook;
 
 /// A claim by its position in the metadata's `claims`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ClaimIndex(pub usize);
+pub struct ClaimIndex(pub(crate) usize);
+
+impl ClaimIndex {
+    /// The position in the metadata's `claims`.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
 
 /// Whether an instance sits in the delimited section of an embedded `payment_payload`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

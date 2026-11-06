@@ -225,7 +225,7 @@ impl Template<'_> {
         let slot = slot(&parts).ok_or_else(|| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad: BadValue {
-                kind: kind.as_str(),
+                kind,
                 written: Written::Text(self.0).to_string(),
                 why: Breach::NoSlot,
             },

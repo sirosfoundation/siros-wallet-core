@@ -12,7 +12,7 @@ use siros_openid4vp::resolve::{Finding, Outcome as Phase2, Prepared};
 use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 use siros_openid4vp::wallet::Wallet;
-use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Verified};
+use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal, Verified};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoFinding, PasoProfile};
 use siros_testkit::verifier::{ISSUER, adhoc_jwt, secret_key};
@@ -354,8 +354,8 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     for (step, jwt, issuer, failure) in cases {
         let card = card(&stored, None, &issuer);
         let refusal = AdhocRefusal {
-            jwt: jwt.clone(),
-            credential: card.credential().id.as_str().to_owned(),
+            jwt: AdhocJwt::new(&jwt),
+            credential: card.credential().id.clone().into_owned(),
             failure,
         };
         // The matcher offered the entry; phase 2 refuses the JWT, and the match it informs

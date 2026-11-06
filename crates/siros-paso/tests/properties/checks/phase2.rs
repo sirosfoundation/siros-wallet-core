@@ -9,7 +9,7 @@ use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::plugins::{Answered, Binding, Bound, Carriage, NoCandidate, Profile};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Env, HttpsUrl};
-use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
+use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal};
 use siros_paso::{PasoProfile, Reading};
 use siros_testkit::verifier;
 use siros_testkit::{Published, PublishedResource};
@@ -131,8 +131,8 @@ pub(super) fn expected_finding(
     let kind = case.kind;
     let refused = answer.adhoc().and_then(|jwt| {
         refused_step(jwt, case.format).map(|failure| AdhocRefusal {
-            jwt: jwt.to_owned(),
-            credential: answer.card.credential().id.as_str().to_owned(),
+            jwt: AdhocJwt::new(jwt),
+            credential: answer.card.credential().id.clone().into_owned(),
             failure,
         })
     });

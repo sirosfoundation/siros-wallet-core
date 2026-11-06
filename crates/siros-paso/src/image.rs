@@ -69,6 +69,36 @@ pub enum ImageFailure {
     },
 }
 
+/// A fetched resource's media type: `<type>/<subtype>`, each an RFC 6838 §4.2 restricted name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedMedia(String);
+
+impl FetchedMedia {
+    /// The media type of a text.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let restricted = |name: &str| {
+            name.len() <= 127
+                && name
+                    .bytes()
+                    .next()
+                    .is_some_and(|b| b.is_ascii_alphanumeric())
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"!#$&-^_.+".contains(&b))
+        };
+        text.split_once('/')
+            .is_some_and(|(kind, subtype)| restricted(kind) && restricted(subtype))
+            .then(|| Self(text.to_owned()))
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What the wallet knows of an https image.
 #[derive(Debug, Clone, Copy)]
 pub enum Resolution<'r> {

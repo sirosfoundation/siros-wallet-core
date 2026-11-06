@@ -51,7 +51,9 @@ impl PasoHost {
             paso: TestPaso::at(now),
             random_ids: TestRandomIds::default(),
             issuer_trust: TestIssuerTrust {
-                roots: vec![RootCertificate::new(siros_x509::test_util::root())],
+                roots: vec![
+                    RootCertificate::parse(&siros_x509::test_util::root()).expect("a certificate"),
+                ],
             },
         }
     }

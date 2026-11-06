@@ -3,7 +3,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE};
 use siros_openid4vp::rows::{Image, Value};
-use siros_paso::image::ImageFailure;
+use siros_paso::image::{FetchedMedia, ImageFailure};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{Fetch, PasoProfile};
 
@@ -302,7 +302,7 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
         siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
         Fetch::Fetched {
             content: content.clone(),
-            media: "image/png".to_owned(),
+            media: FetchedMedia::parse("image/png").expect("a media type"),
         },
     );
     let meta = claims(

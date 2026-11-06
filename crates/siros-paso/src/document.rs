@@ -32,6 +32,59 @@ pub enum DocumentError {
     Member(#[explain(name = "member")] &'static str),
 }
 
+/// The DER of the root certificate a credential's chain ends in, compared byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainRoot(Vec<u8>);
+
+impl ChainRoot {
+    /// The DER.
+    #[must_use]
+    pub fn der(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// The DER of the Subject of a credential's leaf certificate, compared byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainSubject(Vec<u8>);
+
+impl ChainSubject {
+    /// The DER.
+    #[must_use]
+    pub fn der(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// The [W3C.SRI] integrity value of the signed credential metadata JWT (Core §6.1
+/// `metadata_integrity`): hash expressions `<algorithm>-<base64>` separated by white space.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataIntegrity(String);
+
+impl MetadataIntegrity {
+    fn parse(text: &str) -> Option<Self> {
+        let hash = |expression: &str| {
+            expression
+                .split_once('-')
+                .is_some_and(|(algorithm, digest)| {
+                    ["sha256", "sha384", "sha512"].contains(&algorithm)
+                        && !digest.is_empty()
+                        && digest
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
+                })
+        };
+        let mut expressions = text.split_ascii_whitespace().peekable();
+        (expressions.peek().is_some() && expressions.all(hash)).then(|| Self(text.to_owned()))
+    }
+
+    /// The value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// The credential issuer's key material, which an ad-hoc metadata JWT verifies under (Proof
 /// Metadata §5.3 step 3) and binds to (§7 step 6).
 #[derive(Debug, Clone)]
@@ -47,10 +100,10 @@ pub enum Issuer<'d> {
     Chain {
         /// The Credential Issuer Identifier.
         iss: &'d str,
-        /// The DER of the chain's root certificate.
-        root: Vec<u8>,
-        /// The DER of the leaf certificate's Subject.
-        subject: Vec<u8>,
+        /// The chain's root certificate.
+        root: ChainRoot,
+        /// The leaf certificate's Subject.
+        subject: ChainSubject,
     },
 }
 
@@ -67,9 +120,8 @@ impl<'d> Issuer<'d> {
 /// A credential's PaSO document, read.
 #[derive(Debug, Clone)]
 pub struct PasoDocument<'d> {
-    /// The integrity value of the signed credential metadata JWT (Core §6.1
-    /// `metadata_integrity`).
-    pub integrity: &'d str,
+    /// The integrity value of its signed credential metadata JWT.
+    pub integrity: MetadataIntegrity,
     /// The credential's type: its `vct` or its doctype.
     pub credential_type: &'d str,
     /// Its issuer's key material.
@@ -107,8 +159,8 @@ impl<'d> PasoDocument<'d> {
         let issuer = match (issuer.get("x5c"), issuer.get("keys")) {
             (Some(chain), _) => Issuer::Chain {
                 iss,
-                root: der(chain, "root", "issuer.x5c.root")?,
-                subject: der(chain, "subject", "issuer.x5c.subject")?,
+                root: ChainRoot(der(chain, "root", "issuer.x5c.root")?),
+                subject: ChainSubject(der(chain, "subject", "issuer.x5c.subject")?),
             },
             (None, Some(Node::Object(keys))) => Issuer::KeySet { iss, keys },
             (None, _) => return Err(DocumentError::Member("issuer.keys")),
@@ -123,7 +175,8 @@ impl<'d> PasoDocument<'d> {
             },
         };
         Ok(Self {
-            integrity: text("integrity")?,
+            integrity: MetadataIntegrity::parse(text("integrity")?)
+                .ok_or(DocumentError::Member("integrity"))?,
             credential_type: text("type")?,
             issuer,
             types: node

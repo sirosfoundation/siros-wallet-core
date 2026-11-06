@@ -2,7 +2,7 @@
 //! images, the rulebooks' rules, the wallet's bound on items, and the locales.
 
 use siros_openid4vp::rows::{Amounts, HttpsUrl};
-use siros_paso::image::ImageFailure;
+use siros_paso::image::{FetchedMedia, ImageFailure};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
@@ -190,7 +190,7 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
             HttpsUrl::parse(url).expect("url"),
             Fetch::Fetched {
                 content,
-                media: media.to_owned(),
+                media: FetchedMedia::parse(media).expect("a media type"),
             },
         )
     };
@@ -383,10 +383,7 @@ pub(super) fn more_items_than_the_wallets_bound_make_the_entry_not_compatible() 
     assert!(render(&meta, &items(197)).is_ok());
     decided!(
         render(&meta, &items(198)),
-        Outcome::NotCompatible(NotCompatible::TooManyItems {
-            items: 201,
-            bound: 200
-        })
+        Outcome::NotCompatible(NotCompatible::TooManyItems { items: 201, .. })
     );
     // The security hint is a fourth UI element.
     let hinted = format!(
@@ -396,10 +393,7 @@ pub(super) fn more_items_than_the_wallets_bound_make_the_entry_not_compatible() 
     assert!(render(&hinted, &items(196)).is_ok());
     decided!(
         render(&hinted, &items(197)),
-        Outcome::NotCompatible(NotCompatible::TooManyItems {
-            items: 201,
-            bound: 200
-        })
+        Outcome::NotCompatible(NotCompatible::TooManyItems { items: 201, .. })
     );
     let wider = PasoProfile::default().with_bound(ItemBound::new(201).expect("bound"));
     assert!(render_with(CUSTOM, &meta, &items(198), &en(), &wider).is_ok());

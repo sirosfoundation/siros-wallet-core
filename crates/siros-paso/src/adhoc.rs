@@ -7,6 +7,7 @@
 
 use siros_explain::Explain;
 use siros_openid4vp::envelope::Channel;
+use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::jose::{CompactJws, JwsError};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Request;
@@ -61,14 +62,32 @@ pub enum AdhocFailure {
     Unverified,
 }
 
+/// An ad-hoc metadata JWT as received, read or not: the identity a verification is kept under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdhocJwt(String);
+
+impl AdhocJwt {
+    /// The JWT of this text.
+    #[must_use]
+    pub fn new(text: &str) -> Self {
+        Self(text.to_owned())
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// An entry's ad-hoc metadata JWT the profile does not rely on for a credential, with the step it
 /// fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdhocRefusal {
-    /// The JWT as received.
-    pub jwt: String,
-    /// The credential's id.
-    pub credential: String,
+    /// The JWT.
+    pub jwt: AdhocJwt,
+    /// The credential.
+    pub credential: CredentialId<'static>,
     /// The step it fails.
     pub failure: AdhocFailure,
 }
@@ -186,10 +205,10 @@ pub struct UriFlow;
 /// An ad-hoc metadata JWT the wallet verified for a credential (§5.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Relied {
-    /// The JWT as received.
-    pub(crate) jwt: String,
-    /// The credential's id.
-    pub(crate) credential: String,
+    /// The JWT.
+    pub(crate) jwt: AdhocJwt,
+    /// The credential.
+    pub(crate) credential: CredentialId<'static>,
 }
 
 #[cfg(feature = "resolve")]
@@ -204,7 +223,7 @@ mod verify {
     use siros_openid4vp::wallet::Credential;
     use siros_x509::X5c;
 
-    use super::{AdhocFailure, AdhocRefusal, Jwts, Read, Relied, TYP, jwts};
+    use super::{AdhocFailure, AdhocJwt, AdhocRefusal, Jwts, Read, Relied, TYP, jwts};
     use crate::FAULT;
     use crate::document::{DOCUMENT, Issuer, PasoDocument};
     use crate::modules::IssuerTrust;
@@ -270,7 +289,7 @@ mod verify {
                         .leaf()
                         .subject()
                         .map_err(|_| AdhocFailure::Untrusted)?;
-                    let foreign = anchor.der() != root.as_slice() || leaf != subject.as_slice();
+                    let foreign = anchor.der() != root.der() || leaf != subject.der();
                     (key, Some(foreign))
                 }
                 Issuer::KeySet { keys, .. } => {
@@ -370,13 +389,13 @@ mod verify {
                         Ok(()) => {
                             verified = true;
                             relied.push(Relied {
-                                jwt: jwt.text().to_owned(),
-                                credential: credential.id.as_str().to_owned(),
+                                jwt: AdhocJwt::new(jwt.text()),
+                                credential: credential.id.clone().into_owned(),
                             });
                         }
                         Err(failure) => refusals.push(AdhocRefusal {
-                            jwt: jwt.text().to_owned(),
-                            credential: credential.id.as_str().to_owned(),
+                            jwt: AdhocJwt::new(jwt.text()),
+                            credential: credential.id.clone().into_owned(),
                             failure,
                         }),
                     }

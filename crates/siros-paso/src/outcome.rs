@@ -4,6 +4,7 @@
 
 use crate::value::BadValue;
 use siros_explain::Explain;
+use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::refusal::QuotedList;
 
 use crate::adhoc::AdhocFailure;
@@ -12,6 +13,7 @@ use crate::labels::{Directional, LabelViolation};
 use crate::metadata::{ArrayAt, UiKey};
 use crate::path::Mismatch;
 use crate::phase2::OptionalModule;
+use crate::render::ItemBound;
 
 /// Why an entry does not render for a credential.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -243,7 +245,7 @@ pub enum NotCompatible {
         /// The rows and UI elements.
         items: usize,
         /// The bound.
-        bound: usize,
+        bound: ItemBound,
     },
     /// A field the Payment rulebook requires is absent (Payment §1).
     #[error("required {0} absent")]
@@ -350,11 +352,17 @@ pub enum RenderedAt {
 /// (View §4).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso")]
-#[error("no locale of {} matches every display array", QuotedList(.locales))]
+#[error("no locale of {} matches every display array", quoted(.locales))]
 pub struct Excluded {
     /// The wallet's locale priority list.
     #[explain(skip)]
-    pub locales: Vec<String>,
+    pub(crate) locales: Vec<LocaleTag>,
+}
+
+/// The tags as Python's `repr` of their list writes it.
+fn quoted(locales: &[LocaleTag]) -> String {
+    let tags: Vec<&str> = locales.iter().map(LocaleTag::as_str).collect();
+    QuotedList(&tags).to_string()
 }
 
 impl Excluded {
