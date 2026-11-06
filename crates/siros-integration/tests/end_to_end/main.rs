@@ -451,7 +451,10 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
         payload["request_integrity"],
         json!(sri(request.request_object().expect("signed").as_bytes()))
     );
-    assert_eq!(payload["wallet_instance_version"], json!(host.paso.version));
+    assert_eq!(
+        payload["wallet_instance_version"],
+        json!(host.paso.version.as_str())
+    );
     // Core §6.1: a fresh jti, the host's first identifier.
     assert_eq!(
         payload["jti"],
@@ -557,7 +560,7 @@ fn paso_core_a1_through_an_mdoc_card_answers_with_core_a3s_device_signed_name_sp
     );
     assert_eq!(
         elements["wallet_instance_version"],
-        json!(host.paso.version)
+        json!(host.paso.version.as_str())
     );
     assert_eq!(
         elements["jti"],

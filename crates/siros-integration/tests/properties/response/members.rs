@@ -88,7 +88,7 @@ pub(super) fn members(
         assert_eq!(get("transaction_data_hash_alg"), Some(json!("sha-256")));
         assert_eq!(
             get("wallet_instance_version"),
-            Some(json!(host.paso.version))
+            Some(json!(host.paso.version.as_str()))
         );
         let request_object = case.request.request_object().expect("a signed request");
         assert_eq!(
