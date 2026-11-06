@@ -510,7 +510,7 @@ pub struct JwsSignature(Vec<u8>);
 
 /// A protected header: `alg`, `typ`, `kid` and `crit` read; every member kept for the prefix
 /// plug-in.
-pub struct ProtectedHeader { alg: String, typ: Option<String>, kid: Option<String>,
+pub struct ProtectedHeader { alg: HeaderAlgorithm, typ: Option<HeaderType>, kid: Option<KeyId<'static>>,
                              members: Object<'static> }
 
 pub struct CompactJws<'t> { text: Cow<'t, str>, header: ProtectedHeader, payload: String,
@@ -724,7 +724,7 @@ impl<'k> VerifierMetadata<'k> {
 pub struct VerifierKeys<'k> { keys: Vec<AgreeableKey<'k>> }
 /// One of the Verifier's keys by its place; only `VerifierKeys::iter` yields one, so a mode
 /// chooses among the request's keys alone.
-pub struct VerifierKey<'k> { place: usize, key: &'k AgreeableKey<'k> }
+pub struct VerifierKey<'k> { place: KeyPlace, key: &'k AgreeableKey<'k> }
 
 pub struct ModeHandle(usize);                  // a place in the registry; only the registry makes one
 /// The registered mode a request names on its channel; only `Envelope::parse` makes one, from the
@@ -736,7 +736,7 @@ pub struct RoutedMode { handle: ModeHandle, name: ModeName, carries: Carries }
 /// the key's place among the request's agreeable keys, its `kid`, and the `enc`; `modes`
 /// re-exports it. A reader that binds the key before phase 2 reads it; phase 2 chooses under the
 /// sealing module's statement, which can narrow it.
-pub struct KeyChoice { place: usize, kid: String, enc: ContentEncryption }
+pub struct KeyChoice { place: KeyPlace, kid: KeyId<'static>, enc: ContentEncryption }
 impl KeyChoice {
     pub fn of(mode: ModeName, metadata: &ClientMetadata<'_>) -> Result<Self, KeyRule>;   // C7
 }
@@ -759,7 +759,7 @@ impl<'r> Routing<'r> {
     pub fn response_type(&self) -> Option<ResponseTypeName>;
     /// The registered mode the request names on its channel; `None` when it names none.
     pub fn mode(&self) -> Option<&RoutedMode>;
-    pub fn response_uri(&self) -> Option<&str>;
+    pub fn response_uri(&self) -> Option<&NamedResponseUri<'r>>;
     pub fn echo(&self) -> Option<&Echo<'r>>;
     pub fn state(&self) -> Option<State<'_>>;
     pub fn refusals(&self) -> &[Refusal];
@@ -1988,10 +1988,12 @@ pub struct TransactionHeader { pub counterparty: Text, pub amount: Text, pub row
 /// the overlay's rows, then the card's, a transaction header's left out.
 pub struct ConsentEntry { card: Card, overlay: Option<Overlay> }
 /// An entry the wallet adds to every set, one per slot, first in every set (`matching`).
-pub struct StaticEntry { pub id: String, pub card: Card }
+pub struct StaticEntry { pub id: StaticEntryId<'static>, pub card: Card }
 /// An icon of at least one byte, a wallet asset or a card's logo, with its image media type
 /// (`rows`).
-pub struct Icon { pub reference: Cow<'static, str>, pub media: ImageMedia, pub size: NonZeroU32 }
+pub struct Icon { pub reference: IconReference, pub media: ImageMedia, pub size: NonZeroU32 }
+/// What an icon names: a wallet asset or a card's logo URI (`rows`).
+pub enum IconReference { Asset(Cow<'static, str>), Logo(Cow<'static, str>) }
 /// The essence of any media type of top-level type `image` (RFC 6838 §4.2.3), read through the
 /// core's `MediaType` (`media`, ungated; `effects` re-exports it); `NotImageMedia` refuses
 /// another (`Media`, `Type`).
@@ -4582,7 +4584,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ChainCertificateApi` | `plugins` | Reads a certificate's hash, dNSNames and P-256 key as a public JWK | Holds: the inherent methods of `ChainCertificate`; `key -> Result<VerificationKey, X509Refusal>` |
 | `SpkiKey` | `plugins` | Reads the P-256 key of a SubjectPublicKeyInfo as a public JWK (RFC 5480 §2.1.1, §2.2) | Holds: a trait with `&self`; refuses another key with `X509Refusal::Key` |
 | `ViewAdditions` | `kept` | A credential's types: its own, then those its metadata extends, nearest first (SD-JWT VC §6.4) | Holds: a trait of the core's registration view (`Debug`), so a profile names the core alone |
-| `ViewTypes` | `kept` | A credential's types as its format read them, the core's `ViewAdditions` value | Holds: private `Vec<String>`; `new` takes them as given |
+| `ViewTypes` | `kept` | A credential's types as its format read them, the core's `ViewAdditions` value | Holds: private `Vec<CredentialType<'static>>`; `new` takes them as given |
 | `ClientIdAdditions` | `kept` | What `ClientId` gains: `prefixed`, the one reading of a Client Identifier Prefix (§5.9.1) | Holds: a trait over the checked `ClientId` |
 | `SessionTranscriptBytes` | `plugins` | `#6.24(bstr .cbor SessionTranscript)`, from the session's handover or a held transcript | Holds: private slice; only `SessionTranscript::tagged_bytes` makes one |
 | `SessionTranscriptBytesApi` | `plugins` | Reads the bytes | Holds: the inherent methods of `SessionTranscriptBytes` |
@@ -4643,6 +4645,19 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `DcApiErrors` | `recourse` | Cancel, or respond with `{"error": ...}` (§15.9.2, A.4) | Holds: an enum whose every variant is a policy |
 | `Reply` | `recourse` | Deliver the error response, or cancel | Holds: an enum; `Deliver` holds a built `Delivery` |
 | `FormatId` | `render` | A format module's identity: one or more `siros_explain::tokens` | Holds: private `&'static str`; `const fn new -> Option`; a module's by `checked!` |
+| `FormatName` | `ids` | The Credential Format Identifier a claims format names itself by in refusals | Holds: private `&'static str`; `const fn new -> Option` refuses an empty text; a format's by `checked!` |
+| `VpFormatsMember` | `claims::kit` | A member of a format's `vp_formats_supported` value that lists algorithm identifiers (Appendix B) | Holds: private `&'static str`; the format names its own |
+| `NamedQueryId`, `ExpectedOrigin`, `NamedResponseUri`, `StaticEntryId`, `ClaimId`, `KeyId`, `CredentialType` | `ids` | A text in its role: a `credential_ids` element, an `expected_origins` element, a named `response_uri`, a static entry's id, a claims query's id (§6.3's charset), a `kid`, a credential's type | Holds: private text; `parse` refuses what the role's rule refuses: an empty text for `StaticEntryId`, §6.3's charset for `ClaimId`; each other holds any text as written |
+| `Audience` | `session` | The audience a presentation's key binding states | Holds: private text; only `Session::audience` makes one |
+| `HeaderAlgorithm`, `HeaderType` | `jose` | A protected header's `alg` and `typ` | Holds: private text; only the JWS parses make one |
+| `KeyPlace` | `routing` | A key's place among the request's agreeable keys | Holds: private `usize`; only `VerifierKeys::iter` makes one |
+| `KeyType` | `request` | A key's `kty` | Holds: borrows the key's text; only `AgreeableKey::kty` makes one |
+| `AttestedName`, `AttestedText` | `plugins` | A member name and a value text a credential attests | Holds: private text |
+| `ChoiceId` | `matching` | An entry's id in a display set: a credential's or a static entry's | Holds: private text; only `Choice::id` makes one |
+| `SetIndex`, `CandidateIndex` | `matching` | A set's position in a display; a candidate's position in a query's | Holds: private `usize`; only `Display::set` and `Match::indexed_candidates` make one |
+| `DisplaySet` | `matching` | A set of a display, the only way to select | Holds: `Display::set` makes one or refuses `NoSet`; `select` takes the ids the platform returned |
+| `ArrayIndex` | `claims` | A position in a JSON array in a claims path pointer (§7.1) | Holds: a `usize` in its role; `Step::Beyond` stands for an integer no `usize` holds |
+| `IconReference` | `rows` | What an icon names: a wallet asset or a card's logo URI | Holds: an enum |
 | `Call` | `render` | A placeholder calling one of its format module's functions | Fixed (typestate gap): private fields; only the loader makes one, `function` one of the module's `functions` |
 | `LanguageFormats` | `load` | One language's options of one format, each name once, and the language's direction | Holds: private fields; `locale()`, `direction()`, `options()`, `option(name)` and `require(name)` read it, and only the loader makes one |
 | `FormatCompiler` | `render` | A format module's load half | Fixed (check after construction): `parse` gives one language's options as the format's `ParsedFormats`, which the loaded module holds |
@@ -5320,7 +5335,7 @@ lists the files). A line can hold one call; a file several.
 | `Request::response_mode()` → `Routing::mode`, and `Answered::mode`, a `ModeName`, for siros-paso's response mode signal | 3 | 3 |
 | `Request::request_object()` keeps its signature (siros-paso reads it) | 4 | 4 |
 | `Request::origin()` → the envelope's channel | 3 | 3 |
-| `Request::expected_origins()` keeps its signature (C8) | 2 | 1 |
+| `Request::expected_origins()` returns `&[ExpectedOrigin]` (C8) | 2 | 1 |
 | `Request::client_metadata()` keeps its signature: both X.509 prefixes take the metadata from the request | 6 | 5 |
 | `Nonce::parse` keeps its signature; its rule gains N1, and every nonce in the tests and the model (`n-0S6_WzA2Mj`) holds | 7 | 6 |
 | `ClientId::parse` keeps its signature; its rule gains RFC 6749 Appendix A.1's `*VSCHAR` (U3), and the one test identifier, `x509_san_dns:client.example.org`, holds | 1 | 1 |
