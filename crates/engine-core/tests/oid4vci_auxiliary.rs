@@ -3,6 +3,7 @@
 //! pinned by its accept and its refusal.
 use serde_json::Value;
 
+use engine_core::claims_path::{ClaimsPathError, ComponentError};
 use engine_core::oid4vci::auxiliary::*;
 
 fn config_with(advertisement: Value) -> Value {
@@ -14,12 +15,39 @@ fn config_with(advertisement: Value) -> Value {
     })
 }
 
+/// A configuration of the credential format `format`.
+fn config_of(format: &str, advertisement: Value) -> Value {
+    serde_json::json!({
+        "format": format,
+        "proof_types_supported": {"jwt": {}},
+        "auxiliary_data_supported": advertisement,
+    })
+}
+
 fn hash_commitment(alg: &str, path: Value) -> Value {
     serde_json::json!({
         "type": "hash_commitment",
         "alg": alg,
         "path": path,
     })
+}
+
+/// The path an issuer writes as the JSON text `text`.
+fn path(text: &str) -> Value {
+    serde_json::from_str(text).expect("the path is JSON")
+}
+
+/// The delivery of a configuration of the credential format `format` with
+/// one `to_wallet` `hash_commitment` entry per path.
+fn with_paths(format: &str, paths: &[Value]) -> Result<SecretDelivery, SecretDeliveryError> {
+    let entries: Vec<Value> = paths
+        .iter()
+        .map(|path| hash_commitment("sha-256", path.clone()))
+        .collect();
+    secret_delivery_of(&config_of(
+        format,
+        serde_json::json!({ "to_wallet": entries }),
+    ))
 }
 
 #[test]
@@ -44,11 +72,10 @@ fn an_unsupported_to_wallet_alg_makes_the_configuration_unusable() {
         "to_wallet": [hash_commitment("sha-512", serde_json::json!(["family_name"]))],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    let refusal =
-        usable(&delivery, &config).expect_err("the sha-512 entry the wallet cannot check");
-    assert!(
-        refusal.reason.contains("alg or encoding"),
-        "the refusal names the class: {refusal}"
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Alg)),
+        "the sha-512 entry the wallet cannot check"
     );
 }
 
@@ -63,7 +90,10 @@ fn an_unsupported_to_wallet_encoding_makes_the_configuration_unusable() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(usable(&delivery, &config).is_err());
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Encoding))
+    );
 }
 
 #[test]
@@ -101,10 +131,9 @@ fn a_required_to_issuer_entry_without_a_carrier_proof_type_refuses() {
         }]},
     });
     let delivery = secret_delivery_of(&config).expect("parses");
-    let refusal = usable(&delivery, &config).expect_err("no carrier");
-    assert!(
-        refusal.reason.contains("jwt or attestation"),
-        "the refusal names the need: {refusal}"
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::NoCarrierProof)
     );
 }
 
@@ -119,8 +148,9 @@ fn a_required_to_issuer_entry_of_an_unrecognised_type_refuses() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(
-        usable(&delivery, &config).is_err(),
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::RequiredToIssuerOfOtherType),
         "a required entry of an unrecognised type"
     );
     // And it is not carried.
@@ -215,12 +245,6 @@ fn a_missing_alg_or_path_is_malformed() {
         "to_wallet": [{"type": "hash_commitment", "alg": "sha-256"}],
     }));
     assert!(secret_delivery_of(&no_path).is_err());
-    // An empty path is not a claims path either (OpenID4VCI App. C:
-    // non-empty).
-    let empty_path = config_with(serde_json::json!({
-        "to_wallet": [{"type": "hash_commitment", "alg": "sha-256", "path": []}],
-    }));
-    assert!(secret_delivery_of(&empty_path).is_err());
 }
 
 #[test]
@@ -285,40 +309,188 @@ fn an_encoding_is_absent_base64url_base64_or_hex() {
         }],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
-    assert!(usable(&delivery, &config).is_err());
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Encoding))
+    );
 }
 
+/// A JSON number is the value its decimal text writes (RFC 8259 §6): two
+/// spellings of one integer are one path, so the second entry is a
+/// duplicate, and two integers are two paths.
 #[test]
 fn the_duplicate_key_is_the_normal_form() {
-    let with_paths = |paths: &[Value]| {
-        let entries: Vec<Value> = paths
-            .iter()
-            .map(|path| hash_commitment("sha-256", path.clone()))
-            .collect();
-        secret_delivery_of(&config_with(serde_json::json!({ "to_wallet": entries })))
-    };
-    // 1.0 is a valid index, and 1 and 1.0 detect as the same path.
-    assert!(with_paths(&[serde_json::json!(["p", 1.0])]).is_ok());
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 1.0])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    assert!(with_paths(&[serde_json::json!(["p", 1]), serde_json::json!(["p", 2])]).is_ok());
-    // A negative number is not a path component.
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", -1])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // A non-string, non-integer is not either.
-    assert!(matches!(
-        with_paths(&[serde_json::json!(["p", true])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // An empty array is not a path.
-    assert!(matches!(
-        with_paths(&[serde_json::json!([])]),
-        Err(SecretDeliveryError::MalformedAdvertisement(_))
-    ));
-    // null is.
-    assert!(with_paths(&[serde_json::json!([null, "x"])]).is_ok());
+    // (the format, a path, another path, whether they are one path)
+    let pairs = [
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 1.0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 1e0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 10e-1]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 0.1e1]"#, true),
+        ("dc+sd-jwt", r#"["p", 0]"#, r#"["p", -0]"#, true),
+        ("dc+sd-jwt", r#"["p", 1]"#, r#"["p", 2]"#, false),
+        (
+            "mso_mdoc",
+            r#"["ns", "el", -1]"#,
+            r#"["ns", "el", -1.0]"#,
+            true,
+        ),
+        (
+            "mso_mdoc",
+            r#"["ns", "el", -1]"#,
+            r#"["ns", "el", 1]"#,
+            false,
+        ),
+    ];
+    for (format, first, second, one_path) in pairs {
+        let delivery = with_paths(format, &[path(first), path(second)]);
+        if one_path {
+            assert!(
+                matches!(
+                    delivery,
+                    Err(SecretDeliveryError::MalformedAdvertisement(_))
+                ),
+                "{format}: {first} and {second} are one path: {delivery:?}"
+            );
+        } else {
+            assert!(
+                delivery.is_ok(),
+                "{format}: {first} and {second} are two paths: {delivery:?}"
+            );
+        }
+    }
+}
+
+/// OpenID4VCI 1.0 Appendix C: a claims path pointer is "a non-empty array
+/// of strings, nulls and integers". Into a JSON-based Credential,
+/// "Negative integer values are not used" (C.1). Into an ISO mdoc, it
+/// "always contains at least two path components of type string", the
+/// namespace and the data element identifier, and a later component is a
+/// map key ("string or integer"), an index or null (C.2). An index is at
+/// most 2^64 − 1, a range limit RFC 8259 §6 allows; an mdoc integer is a
+/// CBOR integer, at least −2^64 (RFC 8949 §3.1). Into a Credential of a
+/// format Appendix A does not define, a pointer keeps Appendix C's grammar
+/// alone. One rule per row, each path as the issuer's JSON text.
+#[test]
+fn a_path_follows_appendix_c_for_its_format() {
+    let component = |at, why| Err(ClaimsPathError::Component { at, why });
+    let cases = [
+        ("dc+sd-jwt", r#"[null, "x"]"#, Ok(())),
+        ("dc+sd-jwt", r#"["p", 18446744073709551615]"#, Ok(())),
+        ("dc+sd-jwt", r#""p""#, Err(ClaimsPathError::NotArray)),
+        ("dc+sd-jwt", "[]", Err(ClaimsPathError::Empty)),
+        (
+            "dc+sd-jwt",
+            r#"["p", true]"#,
+            component(1, ComponentError::WrongType),
+        ),
+        // binary64 rounds this fraction to 1.
+        (
+            "dc+sd-jwt",
+            r#"["p", 1.0000000000000001]"#,
+            component(1, ComponentError::Fraction),
+        ),
+        (
+            "dc+sd-jwt",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        // 2^64.
+        (
+            "dc+sd-jwt",
+            r#"["p", 18446744073709551616]"#,
+            component(1, ComponentError::OutOfRange),
+        ),
+        ("mso_mdoc", r#"["org.example.1", "member"]"#, Ok(())),
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", "k", null, 0, -1]"#,
+            Ok(()),
+        ),
+        // −2^64.
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", -18446744073709551616]"#,
+            Ok(()),
+        ),
+        (
+            "mso_mdoc",
+            r#"["org.example.1"]"#,
+            Err(ClaimsPathError::MdocTooShort),
+        ),
+        (
+            "mso_mdoc",
+            r#"["org.example.1", 0]"#,
+            component(1, ComponentError::NotString),
+        ),
+        // −2^64 − 1.
+        (
+            "mso_mdoc",
+            r#"["org.example.1", "member", -18446744073709551617]"#,
+            component(2, ComponentError::OutOfRange),
+        ),
+        // The other JSON-based Credential Format Profiles (Appendix A.1).
+        (
+            "jwt_vc_json",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        (
+            "ldp_vc",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        (
+            "jwt_vc_json-ld",
+            r#"["p", -1]"#,
+            component(1, ComponentError::Negative),
+        ),
+        ("example_format", r#"[-1, null, "p"]"#, Ok(())),
+        (
+            "example_format",
+            r#"["p", true]"#,
+            component(1, ComponentError::WrongType),
+        ),
+    ];
+    for (format, text, expected) in cases {
+        let delivery = with_paths(format, &[path(text)]);
+        match expected {
+            Ok(()) => assert!(delivery.is_ok(), "{format} {text}: {delivery:?}"),
+            Err(expected) => assert!(
+                matches!(
+                    delivery,
+                    Err(SecretDeliveryError::MalformedClaimsPath { error, .. }) if error == expected
+                ),
+                "{format} {text}: {delivery:?}"
+            ),
+        }
+    }
+}
+
+/// A `hash_commitment` path reads by its credential's format (OpenID4VCI
+/// 1.0 Appendix C), and Appendix A defines the formats: in any other
+/// format, the wallet does not recognise the entry. It refuses the
+/// credential for a `to_wallet` entry, and leaves an optional `to_issuer`
+/// entry out (§4.1).
+#[test]
+fn an_entry_in_a_format_appendix_a_does_not_define_is_unrecognised() {
+    let entry = hash_commitment("sha-256", path(r#"["p"]"#));
+
+    let config = config_of(
+        "example_format",
+        serde_json::json!({ "to_wallet": [entry.clone()] }),
+    );
+    let delivery = secret_delivery_of(&config).expect("parses");
+    assert_eq!(
+        usable(&delivery, &config).map_err(|refusal| refusal.reason),
+        Err(UnsupportedReason::ToWallet(Unrecognised::Format))
+    );
+
+    let config = config_of(
+        "example_format",
+        serde_json::json!({ "to_issuer": [entry] }),
+    );
+    let delivery = secret_delivery_of(&config).expect("parses");
+    assert!(delivery.to_issuer.is_empty(), "{delivery:?}");
+    assert_eq!(delivery.to_issuer_left_out, [Unrecognised::Format]);
+    assert_eq!(usable(&delivery, &config), Ok(()));
 }

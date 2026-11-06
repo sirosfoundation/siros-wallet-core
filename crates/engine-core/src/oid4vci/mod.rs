@@ -340,7 +340,7 @@ impl FlowHandler for Oid4vciFlow {
                 wmp_core::error::ERR_FLOW_ERROR,
                 Some(serde_json::json!({
                     "reason": "auxiliary_data_unsupported",
-                    "detail": refusal.reason,
+                    "detail": refusal.reason.to_string(),
                     "retryable": false,
                 })),
             )));

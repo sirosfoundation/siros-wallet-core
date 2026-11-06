@@ -167,6 +167,43 @@ pub enum IssuerMetadataError {
     Status(u16),
 }
 
+// ─── Credential Format Profiles (OpenID4VCI 1.0 Appendix A) ───────────────
+
+/// A Credential Format Profile, named by its Credential Format Identifier
+/// in a credential configuration's `format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CredentialFormat {
+    /// `jwt_vc_json`: a W3C VC signed as a JWT, without JSON-LD
+    /// (Appendix A.1.1).
+    JwtVcJson,
+    /// `ldp_vc`: a W3C VC secured with Data Integrity, using JSON-LD
+    /// (Appendix A.1.2).
+    LdpVc,
+    /// `jwt_vc_json-ld`: a W3C VC signed as a JWT, using JSON-LD
+    /// (Appendix A.1.3).
+    JwtVcJsonLd,
+    /// `mso_mdoc`: an ISO/IEC 18013-5 mdoc (Appendix A.2).
+    MsoMdoc,
+    /// `dc+sd-jwt`: an IETF SD-JWT VC (Appendix A.3).
+    DcSdJwt,
+}
+
+impl CredentialFormat {
+    /// The profile the Credential Format Identifier `identifier` names;
+    /// `None` for an identifier Appendix A does not define.
+    #[must_use]
+    pub fn from_identifier(identifier: &str) -> Option<Self> {
+        match identifier {
+            "jwt_vc_json" => Some(Self::JwtVcJson),
+            "ldp_vc" => Some(Self::LdpVc),
+            "jwt_vc_json-ld" => Some(Self::JwtVcJsonLd),
+            "mso_mdoc" => Some(Self::MsoMdoc),
+            "dc+sd-jwt" => Some(Self::DcSdJwt),
+            _ => None,
+        }
+    }
+}
+
 // ─── AS Metadata (RFC 8414 / OIDC Discovery) ──────────────────────────────
 
 /// The parsed AS metadata document.
