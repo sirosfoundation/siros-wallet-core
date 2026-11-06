@@ -253,7 +253,7 @@ pub enum RegistrationError {
     /// `cnf.jwk` is no object with a string `crv` and, when stated, a string `alg` (RFC 7800 §3.2).
     #[error("cnf.jwk is no object with a string crv (RFC 7800 §3.2)")]
     Key,
-    /// `nbf` or `exp` is no NumericDate (RFC 7519 §2).
+    /// `nbf` or `exp` is no number a finite double holds (RFC 7519 §2).
     #[error("{0} is no NumericDate (RFC 7519 §2)")]
     Validity(#[explain(name = "claim")] &'static str),
     /// The curve the wallet resolved contradicts the curve the JWS algorithm fixes (RFC 7518

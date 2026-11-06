@@ -66,10 +66,28 @@ fn walk_keeps_issued_positions() {
     );
 }
 
+/// The view holds each number as the payload's text writes it, in a JSON text a beyond-double
+/// number leaves readable (RFC 8259 §6).
+#[test]
+fn numbers_stay_as_the_issuer_wrote_them() {
+    let payload = r#"{"vct":"t","nbf":1.50,"n":1.10,"m":1E2,"big":1e400}"#;
+    let registered = Registered::of(&compact(payload, &[]), &Resolved::default()).unwrap();
+    let text = std::str::from_utf8(registered.view()).unwrap();
+    for written in [
+        r#""n":1.10"#,
+        r#""m":1E2"#,
+        r#""big":1e400"#,
+        r#""not_before":1.50"#,
+    ] {
+        assert!(text.contains(written), "{written} in {text}");
+    }
+    assert!(Node::parse(text).is_ok(), "{text}");
+}
+
 /// What makes no view: one fixture per rule.
 #[test]
 fn refusals() {
-    let rows: [(&str, &str, RegistrationError); 4] = [
+    let rows: [(&str, &str, RegistrationError); 5] = [
         ("no vct", "{}", RegistrationError::Vct),
         (
             "an iss of a number",
@@ -84,6 +102,11 @@ fn refusals() {
         (
             "an exp of a string",
             r#"{"vct":"t","exp":"soon"}"#,
+            RegistrationError::Validity("exp"),
+        ),
+        (
+            "an exp beyond the double range",
+            r#"{"vct":"t","exp":1e400}"#,
             RegistrationError::Validity("exp"),
         ),
     ];

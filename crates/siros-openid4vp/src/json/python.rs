@@ -1,5 +1,6 @@
 //! JSON written as Python writes it: `json.dumps` with its separators and `ensure_ascii`, and
-//! `repr` of the value `json` reads.
+//! `repr` of the value `json` reads. Also a value as its sender wrote it, for what the End-User
+//! reads.
 
 use std::fmt;
 
@@ -11,21 +12,21 @@ impl<'a> Node<'a> {
     /// `": "` between items, integers by value, other numbers as Python's `repr` of the double.
     #[must_use]
     pub fn python_text(&self) -> PythonJson<'_, 'a> {
-        self.python_json(Separators::SPACED, Escaping::Unicode)
+        self.python_json(Separators::SPACED, Escaping::Unicode, Numbers::Python)
     }
 
     /// The value as Python's `json.dumps(value, separators=(",", ":"), ensure_ascii=False)`
     /// writes it: [`Node::python_text`] without the spaces after `,` and `:`.
     #[must_use]
     pub fn python_compact(&self) -> PythonJson<'_, 'a> {
-        self.python_json(Separators::COMPACT, Escaping::Unicode)
+        self.python_json(Separators::COMPACT, Escaping::Unicode, Numbers::Python)
     }
 
     /// The value as Python's `json.dumps(value)` writes it by default: [`Node::python_text`]
     /// with every character beyond ASCII a `\u` escape of its UTF-16 code units.
     #[must_use]
     pub fn python_ascii(&self) -> PythonJson<'_, 'a> {
-        self.python_json(Separators::SPACED, Escaping::Ascii)
+        self.python_json(Separators::SPACED, Escaping::Ascii, Numbers::Python)
     }
 
     /// The value as Python's `repr` writes the value `json` reads: `None`, `True` and `False`,
@@ -36,11 +37,44 @@ impl<'a> Node<'a> {
         PythonRepr(self)
     }
 
-    const fn python_json(&self, separators: Separators, escaping: Escaping) -> PythonJson<'_, 'a> {
+    /// The value as a message names it: a string's text, another value as [`Node::python_text`]
+    /// writes it with each number as the JSON text it came in (RFC 8259 §6).
+    #[must_use]
+    pub fn written_text(&self) -> String {
+        self.as_str().map_or_else(
+            || {
+                self.python_json(Separators::SPACED, Escaping::Unicode, Numbers::Written)
+                    .to_string()
+            },
+            str::to_owned,
+        )
+    }
+
+    /// The value as a template or a compact message names it: a string's text, another value as
+    /// [`Node::python_compact`] writes it with each number as the JSON text it came in
+    /// (RFC 8259 §6).
+    #[must_use]
+    pub fn written_compact(&self) -> String {
+        self.as_str().map_or_else(
+            || {
+                self.python_json(Separators::COMPACT, Escaping::Unicode, Numbers::Written)
+                    .to_string()
+            },
+            str::to_owned,
+        )
+    }
+
+    const fn python_json(
+        &self,
+        separators: Separators,
+        escaping: Escaping,
+        numbers: Numbers,
+    ) -> PythonJson<'_, 'a> {
         PythonJson {
             node: self,
             separators,
             escaping,
+            numbers,
         }
     }
 }
@@ -74,12 +108,22 @@ enum Escaping {
     Ascii,
 }
 
+/// What a number becomes in the text.
+#[derive(Debug, Clone, Copy)]
+enum Numbers {
+    /// Integers by value, other numbers as Python's `repr` of the double.
+    Python,
+    /// The JSON text it came in.
+    Written,
+}
+
 /// A [`Node`] written as Python's `json.dumps` writes it with one of its separators and
-/// `ensure_ascii` settings: integers by value, other numbers as Python's `repr` of the double.
+/// `ensure_ascii` settings, its numbers by [`Numbers`].
 pub struct PythonJson<'n, 'a> {
     node: &'n Node<'a>,
     separators: Separators,
     escaping: Escaping,
+    numbers: Numbers,
 }
 
 impl PythonJson<'_, '_> {
@@ -101,7 +145,7 @@ impl PythonJson<'_, '_> {
     }
 
     const fn nested<'m, 'b>(&self, node: &'m Node<'b>) -> PythonJson<'m, 'b> {
-        node.python_json(self.separators, self.escaping)
+        node.python_json(self.separators, self.escaping, self.numbers)
     }
 }
 
@@ -110,10 +154,12 @@ impl fmt::Display for PythonJson<'_, '_> {
         match self.node {
             Node::Null => f.write_str("null"),
             Node::Bool(value) => f.write_str(if *value { "true" } else { "false" }),
-            Node::Number(number) => match (number.integer(), number.double()) {
-                (Some(digits), _) => f.write_str(digits),
-                (None, Some(value)) => write_python_double(f, value),
-                (None, None) => f.write_str(number.text()),
+            Node::Number(number) => match (self.numbers, number.integer(), number.double()) {
+                (Numbers::Written, _, _) | (Numbers::Python, None, None) => {
+                    f.write_str(number.text())
+                }
+                (Numbers::Python, Some(digits), _) => f.write_str(digits),
+                (Numbers::Python, None, Some(value)) => write_python_double(f, value),
             },
             Node::String(text) => self.string(f, text),
             Node::Array(items) => {

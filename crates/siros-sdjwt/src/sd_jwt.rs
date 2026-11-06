@@ -128,9 +128,10 @@ impl SdJwt {
 /// The Issuer-signed JWT and the disclosures of `compact`.
 fn split(compact: &str) -> Result<(&str, Vec<&str>), ParseError> {
     let listed = compact.strip_suffix('~').ok_or(ParseError::NoFinalTilde)?;
-    let mut parts = listed.split('~');
-    let issuer_jwt = parts.next().unwrap_or(listed);
-    Ok((issuer_jwt, parts.collect()))
+    Ok(match listed.split_once('~') {
+        Some((issuer_jwt, disclosures)) => (issuer_jwt, disclosures.split('~').collect()),
+        None => (listed, Vec::new()),
+    })
 }
 
 /// The `x5c` header parameter (RFC 7515 §4.1.6): a non-empty array of base64 strings with padding,

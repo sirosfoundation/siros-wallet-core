@@ -48,7 +48,7 @@ impl Registered {
         let sd_jwt = SdJwt::parse(issued)?;
         let view = view(&sd_jwt, resolved)?;
         Ok(Self {
-            view: view.python_compact().to_string().into_bytes(),
+            view: view.written_compact().into_bytes(),
             document: issued.as_bytes().to_vec(),
         })
     }
@@ -188,12 +188,14 @@ fn holder_key(claims: &Object) -> Result<Option<(String, String)>, RegistrationE
 }
 
 /// `{"not_before": nbf, "not_after": exp}`, each a NumericDate as the issuer wrote it (SD-JWT VC
-/// §3.2.2.2, RFC 7519 §2); `None` when the issuer states neither.
+/// §3.2.2.2, RFC 7519 §2), which a finite double holds; `None` when the issuer states neither.
 fn validity(claims: &Object) -> Result<Option<Node<'static>>, RegistrationError> {
     let date = |name: &'static str| -> Result<Option<Node<'static>>, RegistrationError> {
         match claims.get(name).map(IssuedClaim::value) {
             None => Ok(None),
-            Some(ClaimValue::Number(number)) => Ok(Some(Node::Number(number.clone()))),
+            Some(ClaimValue::Number(number)) if number.to_double().is_some_and(f64::is_finite) => {
+                Ok(Some(Node::Number(number.clone())))
+            }
             Some(_) => Err(RegistrationError::Validity(name)),
         }
     };
