@@ -131,7 +131,6 @@ All notable changes to this workspace. The format follows
   filtering, then the entry without a locale; an array answering none gives no
   entry, and the row or the card takes its next choice. `type_metadata::convert`
   writes each tag's body by the same rule over that tag and the priority list.
-
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth
