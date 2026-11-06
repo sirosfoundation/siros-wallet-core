@@ -61,7 +61,12 @@ pub(super) fn tampered(
         let stray = case
             .request
             .indexed_entries()
-            .find(|(_, entry)| !entry.credential_ids().contains(&record.query))
+            .find(|(_, entry)| {
+                !entry
+                    .credential_ids()
+                    .iter()
+                    .any(|id| id.as_str() == record.query)
+            })
             .map(|(index, _)| index.get());
         if let Some(stray) = stray {
             diverging.push(changed(&|r: &mut Fields| {

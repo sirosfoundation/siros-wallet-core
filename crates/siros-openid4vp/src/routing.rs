@@ -11,6 +11,7 @@ use dyn_clone::DynClone;
 use siros_explain::{Explain, IntoArg, kind};
 
 use crate::envelope::{Channel, Parameters};
+use crate::ids::NamedResponseUri;
 use crate::json::Node;
 #[cfg(feature = "resolve")]
 use crate::plugins::Fault;
@@ -576,7 +577,7 @@ enum Routed<'r> {
 pub struct Routing<'r> {
     response_type: Option<ResponseTypeName>,
     mode: Routed<'r>,
-    response_uri: Option<Cow<'r, str>>,
+    response_uri: Option<NamedResponseUri<'r>>,
     state: Option<Echo<'r>>,
     refusals: Vec<RoutingRule>,
 }
@@ -644,7 +645,10 @@ impl<'r> Routing<'r> {
                     refusals.push(RoutingRule::State);
                 }
                 (
-                    parameters.text("response_uri").flatten(),
+                    parameters
+                        .text("response_uri")
+                        .flatten()
+                        .and_then(|uri| NamedResponseUri::parse(uri).ok()),
                     state.flatten().map(Echo::of),
                 )
             }
@@ -687,8 +691,8 @@ impl<'r> Routing<'r> {
 
     /// The `response_uri` as the request names it, which authentication parses (A13).
     #[must_use]
-    pub fn response_uri(&self) -> Option<&str> {
-        self.response_uri.as_deref()
+    pub const fn response_uri(&self) -> Option<&NamedResponseUri<'r>> {
+        self.response_uri.as_ref()
     }
 
     /// `state` as received.

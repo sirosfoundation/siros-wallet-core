@@ -162,7 +162,7 @@ pub fn emit(
         for slot in set {
             let mut choices = Vec::with_capacity(slot.len());
             for choice in slot {
-                let id = choice.id().to_owned();
+                let id = choice.id().as_str().to_owned();
                 let shown = match choice {
                     Choice::Nothing => {
                         choices.push(Emitted::Nothing);

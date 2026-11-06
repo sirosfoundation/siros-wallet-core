@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use siros_explain::Explain;
 
-use crate::ids::TransactionType;
+use crate::ids::{NamedQueryId, TransactionType};
 use crate::json::Node;
 
 /// base64url without padding: its alphabet only, no `=`, no length of 1 modulo 4; trailing bits
@@ -56,7 +56,7 @@ pub struct Entry<'a> {
     decoded: String,
     members: Node<'static>,
     kind: TransactionType<'static>,
-    credential_ids: Vec<String>,
+    credential_ids: Vec<NamedQueryId<'static>>,
 }
 
 impl<'a> Entry<'a> {
@@ -80,7 +80,10 @@ impl<'a> Entry<'a> {
             .filter(|ids| !ids.is_empty())
             .and_then(|ids| {
                 ids.iter()
-                    .map(|id| id.as_str().map(str::to_owned))
+                    .map(|id| {
+                        id.as_str()
+                            .and_then(|id| NamedQueryId::parse(id.to_owned()).ok())
+                    })
                     .collect::<Option<Vec<_>>>()
             })
             .ok_or(Malformed::CredentialIds)?;
@@ -119,7 +122,7 @@ impl<'a> Entry<'a> {
 
     /// The `credential_ids`, as received.
     #[must_use]
-    pub fn credential_ids(&self) -> &[String] {
+    pub fn credential_ids(&self) -> &[NamedQueryId<'static>] {
         &self.credential_ids
     }
 }

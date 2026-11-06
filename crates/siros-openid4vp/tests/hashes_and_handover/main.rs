@@ -195,7 +195,10 @@ fn answer<'a, H: CoreHost + Default>(
     let views = Views::of(&matched, env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
-    let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+    let first: Vec<&str> = shown.sets()[0]
+        .iter()
+        .map(|slot| slot[0].id().as_str())
+        .collect();
     let ids = shown
         .set(0)
         .and_then(|set| set.select(&first))
@@ -367,7 +370,10 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let views = Views::of(&matched, &env).expect("views");
         let sets = offer(&matched, &consent, Choice::First);
         let shown = display(&sets, &views, &[]).expect("display");
-        let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+        let first: Vec<&str> = shown.sets()[0]
+            .iter()
+            .map(|slot| slot[0].id().as_str())
+            .collect();
         let ids = shown
             .set(0)
             .and_then(|set| set.select(&first))

@@ -4,7 +4,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::Explain;
+use siros_explain::{Explain, IntoArg, kind};
 
 /// A language tag of the wallet's priority and fallback lists, and of a module's locales, and a
 /// text that is none.
@@ -58,6 +58,21 @@ macro_rules! text_id {
             }
         }
 
+        impl AsRef<str> for $name<'_> {
+            fn as_ref(&self) -> &str {
+                &self.0
+            }
+        }
+
+        /// An identifier is named by its text in a message.
+        impl IntoArg for $name<'_> {
+            type Kind = kind::Raw;
+
+            fn arg(&self) -> &str {
+                &self.0
+            }
+        }
+
         impl fmt::Display for $name<'_> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str(&self.0)
@@ -102,6 +117,34 @@ text_id!(
     /// A Credential Format Identifier (OpenID4VP Appendix B), selecting the format plug-in.
     FormatId,
     "Credential Format Identifier",
+    non_empty
+);
+text_id!(
+    /// A `credential_ids` element as a `transaction_data` entry wrote it (OpenID4VP §5.1): the
+    /// text rule C2 looks up among the Credential Query identifiers.
+    NamedQueryId,
+    "credential_ids element",
+    |_| true
+);
+text_id!(
+    /// An `expected_origins` element as a signed request wrote it (OpenID4VP Annex A): the text
+    /// rule C8 compares with the [`Origin`].
+    ExpectedOrigin,
+    "expected_origins element",
+    |_| true
+);
+text_id!(
+    /// The `response_uri` as the request wrote it, which authentication parses (A13) into a
+    /// `ResponseUri`.
+    NamedResponseUri,
+    "response_uri",
+    |_| true
+);
+text_id!(
+    /// A wallet's static consent entry's id, which the platform returns when the End-User picks
+    /// it.
+    StaticEntryId,
+    "static entry id",
     non_empty
 );
 text_id!(

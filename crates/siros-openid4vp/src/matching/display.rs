@@ -8,6 +8,7 @@ use siros_explain::{Count, Explain, IntoArg, Text, kind};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
+use crate::ids::StaticEntryId;
 use crate::plugins::{Fault, OptionIndex, OptionItems, Options, Shown};
 use crate::request::Item;
 use crate::rows::{Env, Selected, WalletText};
@@ -153,7 +154,7 @@ impl<'m> Views<'m> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticEntry {
     /// Its id, which the platform returns when the End-User picks it.
-    pub id: String,
+    pub id: StaticEntryId<'static>,
     /// What it shows.
     pub card: Card,
 }
@@ -169,15 +170,28 @@ pub enum Choice<'v> {
     Entry(&'v EntryView<'v>),
 }
 
-impl Choice<'_> {
-    /// The choice's id, which the platform returns when the End-User picks it.
+/// A choice's id: a static entry's, `none`, or a record's. The platform returns it when the
+/// End-User picks the choice. Only [`Choice::id`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChoiceId<'v>(&'v str);
+
+impl<'v> ChoiceId<'v> {
+    /// The text.
     #[must_use]
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Static(content) => &content.id,
+    pub const fn as_str(self) -> &'v str {
+        self.0
+    }
+}
+
+impl<'v> Choice<'v> {
+    /// The choice's id.
+    #[must_use]
+    pub fn id(&self) -> ChoiceId<'v> {
+        ChoiceId(match self {
+            Self::Static(content) => content.id.as_str(),
             Self::Nothing => "none",
             Self::Entry(view) => view.record.id().as_str(),
-        }
+        })
     }
 }
 
@@ -347,8 +361,10 @@ impl<'v> DisplaySet<'_, 'v> {
         }
         let mut chosen = Vec::new();
         for (slot, (choices, id)) in self.slots.iter().zip(ids).enumerate() {
-            let hits: Vec<&Choice<'v>> =
-                choices.iter().filter(|choice| choice.id() == *id).collect();
+            let hits: Vec<&Choice<'v>> = choices
+                .iter()
+                .filter(|choice| choice.id().as_str() == *id)
+                .collect();
             match hits.as_slice() {
                 [Choice::Entry(view)] => chosen.push(*view),
                 [_] => {}

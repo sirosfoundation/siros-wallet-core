@@ -226,7 +226,7 @@ impl Case {
 #[test]
 fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
     let statics = [StaticEntry {
-        id: "notice".to_owned(),
+        id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),
@@ -286,14 +286,14 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                             for (choice, emitted) in slot.iter().zip(choices) {
                                 match emitted {
                                     Emitted::Entry { id, shown } => {
-                                        assert_eq!(id, choice.id());
+                                        assert_eq!(id, choice.id().as_str());
                                         let title = match shown {
                                             Shown::Standard(entry) => &entry.title,
                                             Shown::Payment(entry) => &entry.method_name,
                                         };
                                         assert!(!title.is_empty());
                                     }
-                                    Emitted::Nothing => assert_eq!(choice.id(), "none"),
+                                    Emitted::Nothing => assert_eq!(choice.id().as_str(), "none"),
                                 }
                             }
                         }
@@ -318,7 +318,7 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
     let live = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let statics = [StaticEntry {
-        id: "notice".to_owned(),
+        id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),

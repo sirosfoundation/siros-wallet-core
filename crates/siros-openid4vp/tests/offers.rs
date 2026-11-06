@@ -399,7 +399,7 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
-    let id = shown.sets()[0][0][0].id().to_owned();
+    let id = shown.sets()[0][0][0].id().as_str().to_owned();
     let selection = shown
         .set(0)
         .and_then(|set| set.select(&[&id]))
@@ -485,7 +485,10 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
-    let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+    let ids: Vec<&str> = shown.sets()[0]
+        .iter()
+        .map(|slot| slot[0].id().as_str())
+        .collect();
     let set = shown.set(0).expect("the set");
     assert_eq!(set.select(&ids).expect("selection").ids(), ids);
     assert_eq!(
@@ -541,7 +544,10 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
         .collect();
     let both = [vec![vec![picks[0]], vec![picks[1]]]];
     let shown = display(&both, &views, &[]).expect("display");
-    let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+    let ids: Vec<&str> = shown.sets()[0]
+        .iter()
+        .map(|slot| slot[0].id().as_str())
+        .collect();
     assert_eq!(
         shown.set(0).and_then(|set| set.select(&ids)).err(),
         Some(SelectionError::TwoTransactions)

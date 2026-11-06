@@ -543,9 +543,7 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     env: &Env,
     rendering: &siros_openid4vp::rendering::Rendering<'_>,
 ) -> Result<Vec<String>, String> {
-    use siros_openid4vp::matching::{
-        Accepted, Choice as Offer, Consent, Match, Views, display, offer,
-    };
+    use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
     let accepted = Accepted::new(request, registry).map_err(|e| e.to_string())?;
     let matched = Match::run(&accepted, wallet, env, rendering).map_err(|e| e.to_string())?;
     let consent = Consent::of(&matched).ok_or("the wallet cannot meet the request")?;
@@ -555,7 +553,11 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     let first = shown.sets().first().ok_or("no set")?;
     let ids: Vec<&str> = first
         .iter()
-        .map(|slot| slot.first().map(Offer::id).ok_or("an empty slot"))
+        .map(|slot| {
+            slot.first()
+                .map(|choice| choice.id().as_str())
+                .ok_or("an empty slot")
+        })
         .collect::<Result<_, _>>()?;
     let chosen = shown
         .set(0)

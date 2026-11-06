@@ -299,7 +299,7 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
     let mut named: Vec<&str> = Vec::new();
     for id in own.iter().flat_map(|(_, entry)| entry.credential_ids()) {
         if !named.contains(&id.as_str()) {
-            named.push(id);
+            named.push(id.as_str());
         }
     }
     named
@@ -307,7 +307,7 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
         .filter_map(|id| {
             let naming: Vec<usize> = own
                 .iter()
-                .filter(|(_, entry)| entry.credential_ids().iter().any(|named| named == id))
+                .filter(|(_, entry)| entry.credential_ids().iter().any(|named| *named == *id))
                 .map(|(index, _)| index.get())
                 .collect();
             AllOf::new(naming)

@@ -93,8 +93,8 @@ fn offered_in<H: siros_openid4vp::plugins::Build>(
     let shown = display(&sets, &views, &[]).expect("display");
     let mut ids: Vec<String> = Vec::new();
     for choice in shown.sets().iter().flatten().flatten() {
-        if !ids.iter().any(|id| id == choice.id()) && choice.id() != "none" {
-            ids.push(choice.id().to_owned());
+        if !ids.iter().any(|id| id == choice.id().as_str()) && choice.id().as_str() != "none" {
+            ids.push(choice.id().as_str().to_owned());
         }
     }
     ids

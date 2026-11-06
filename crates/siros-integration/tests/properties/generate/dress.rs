@@ -208,7 +208,8 @@ pub(super) fn icons() -> Vec<(String, Icon)> {
 /// A static entry the wallet adds to every set.
 pub(super) fn static_entry(k: usize) -> StaticEntry {
     StaticEntry {
-        id: format!("static:{k}"),
+        id: siros_openid4vp::ids::StaticEntryId::parse(format!("static:{k}"))
+            .expect("a static entry id"),
         card: Card {
             icon: Icon {
                 reference: Cow::Borrowed("wallet:warning"),

@@ -399,10 +399,13 @@ fn credential_sets_and_entries_parse_as_written() {
     let [entry] = request.entries() else {
         panic!("one entry")
     };
-    assert_eq!(
-        (entry.kind().as_str(), entry.credential_ids()),
-        ("t1", &["pid".to_owned()][..])
-    );
+    assert_eq!(entry.kind().as_str(), "t1");
+    let named: Vec<&str> = entry
+        .credential_ids()
+        .iter()
+        .map(|id| id.as_str())
+        .collect();
+    assert_eq!(named, ["pid"]);
     // The entry decodes to the JSON text the Verifier encoded, its members as written.
     assert_eq!(entry.decoded(), json);
     assert_eq!(

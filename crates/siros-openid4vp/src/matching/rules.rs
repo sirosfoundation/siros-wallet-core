@@ -295,7 +295,7 @@ fn expected_origin(request: &Request<'_>) -> Option<Refusal> {
     let named = request
         .expected_origins()
         .iter()
-        .any(|expected| expected.as_ref() == origin.as_str());
+        .any(|expected| expected.as_str() == origin.as_str());
     (request.request_object().is_some() && !named).then(|| {
         Refusal::new(CoreRule::ExpectedOrigins {
             expected: ReprList::strings(request.expected_origins()),
@@ -316,10 +316,12 @@ fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
             }));
         }
         let ids = entry.credential_ids();
-        if !ids
-            .iter()
-            .all(|id| request.queries().iter().any(|query| *query.id() == **id))
-        {
+        if !ids.iter().all(|id| {
+            request
+                .queries()
+                .iter()
+                .any(|query| query.id().as_str() == id.as_str())
+        }) {
             refusals.push(Refusal::new(CoreRule::CredentialIds {
                 entry: k,
                 ids: ReprList::strings(ids),

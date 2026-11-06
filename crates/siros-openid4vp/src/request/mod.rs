@@ -17,7 +17,7 @@ use serde_json::value::RawValue;
 use siros_explain::{Count, IntoArg, kind};
 
 use crate::envelope::{Channel, Envelope, NonceError, Signatures};
-use crate::ids::{ClientId, Nonce};
+use crate::ids::{ClientId, ExpectedOrigin, Nonce};
 use crate::json;
 use crate::refusal::{Refusal, Refused};
 
@@ -95,7 +95,7 @@ pub struct Request<'a> {
     envelope: Envelope<'a>,
     nonce: Nonce<'a>,
     client_metadata: Option<&'a RawValue>,
-    expected_origins: Vec<Cow<'a, str>>,
+    expected_origins: Vec<ExpectedOrigin<'a>>,
     queries: Vec<Query<'a>>,
     sets: Option<Vec<CredentialSet>>,
     entries: Vec<Entry<'a>>,
@@ -171,7 +171,14 @@ impl<'a> Request<'a> {
             && !matches!(envelope.signatures(), Signatures::Unsigned);
         let expected_origins = match parameters.raw("expected_origins").filter(|_| signed_dc_api) {
             None => Vec::new(),
-            Some(raw) => strings(raw).ok_or_else(|| structure(StructureRule::ExpectedOrigins))?,
+            Some(raw) => strings(raw)
+                .and_then(|origins| {
+                    origins
+                        .into_iter()
+                        .map(|origin| ExpectedOrigin::parse(origin).ok())
+                        .collect()
+                })
+                .ok_or_else(|| structure(StructureRule::ExpectedOrigins))?,
         };
         let entries = match parameters.raw("transaction_data") {
             None => Vec::new(),
@@ -246,7 +253,7 @@ impl<'a> Request<'a> {
 
     /// A signed DC API request's `expected_origins` as received; empty for another request.
     #[must_use]
-    pub fn expected_origins(&self) -> &[Cow<'a, str>] {
+    pub fn expected_origins(&self) -> &[ExpectedOrigin<'a>] {
         &self.expected_origins
     }
 
@@ -302,7 +309,7 @@ impl<'a> Request<'a> {
         let id = self.query(query).map(|query| query.id().as_str());
         self.indexed_entries()
             .filter(|(_, entry)| {
-                id.is_some_and(|id| entry.credential_ids().iter().any(|named| named == id))
+                id.is_some_and(|id| entry.credential_ids().iter().any(|named| *named == *id))
             })
             .map(|(index, _)| index)
             .collect()

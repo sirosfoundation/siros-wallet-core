@@ -13,8 +13,8 @@ mod rules;
 
 pub use consent::{Consent, Slot, answer_slots, option_of};
 pub use display::{
-    Choice, Display, DisplaySet, EntryView, Selection, SelectionError, SetIndex, StaticEntry,
-    Views, display, option_items, wallet_header,
+    Choice, ChoiceId, Display, DisplaySet, EntryView, Selection, SelectionError, SetIndex,
+    StaticEntry, Views, display, option_items, wallet_header,
 };
 pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
 pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};

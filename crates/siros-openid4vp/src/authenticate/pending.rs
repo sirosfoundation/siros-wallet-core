@@ -167,7 +167,7 @@ impl<'e> Envelope<'e> {
         let reject = |cause: Unauthenticated, route| Box::new(Rejected::of(cause, route));
         let response_uri = match (self.channel(), self.routing().response_uri()) {
             (Channel::Uri, Some(text)) => Some(
-                ResponseUri::parse(text.to_owned())
+                ResponseUri::parse(text.to_string())
                     .map_err(|e| reject(Unauthenticated::EndpointScheme(e), None))?,
             ),
             _ => None,
