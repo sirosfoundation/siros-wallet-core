@@ -63,7 +63,7 @@ pub use transcript::{
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
-use siros_openid4vp::ids::{FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -217,18 +217,19 @@ impl ClaimsFormat for Mdoc {
 
     /// B.2.3: the credential's docType is `doctype_value`.
     /// The view's `type`, the doctype.
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         view.get("type")
             .and_then(Node::as_str)
+            .and_then(|doctype| CredentialType::parse(doctype).ok())
             .map(|doctype| vec![doctype])
             .ok_or_else(|| Fault::new(FAULT, siros_openid4vp::detail!("a view without a doctype")))
     }
 
     /// B.2.3: `doctype_value` is the credential's doctype.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
         meta.get("doctype_value")
             .and_then(Node::as_str)
-            .is_some_and(|doctype| types == [doctype])
+            .is_some_and(|doctype| matches!(types, [kind] if *kind == *doctype))
     }
 
     /// A `DeviceSigned` data element the transaction writes answers a claim naming it, unless the

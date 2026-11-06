@@ -255,8 +255,14 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
     let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
     let entries = BoundEntries::select(&offered, offered.clone()).expect("entries");
     let attested = Attested::new(vec![
-        ("display_locale".to_owned(), "de".to_owned()),
-        ("metadata_integrity".to_owned(), card.integrity()),
+        (
+            siros_openid4vp::plugins::AttestedName::new("display_locale"),
+            siros_openid4vp::plugins::AttestedText::new("de"),
+        ),
+        (
+            siros_openid4vp::plugins::AttestedName::new("metadata_integrity"),
+            siros_openid4vp::plugins::AttestedText::new(card.integrity()),
+        ),
     ])
     .expect("attested");
     let format = FormatId::parse("mso_mdoc").expect("format");

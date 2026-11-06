@@ -7,7 +7,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::{
     Accepted, Consent, Match, Offered, answer_slots, offer, option_items, option_of,
 };
-use siros_openid4vp::plugins::{OptionItems, Options};
+use siros_openid4vp::plugins::{AttestedName, AttestedText, OptionItems, Options};
 use siros_openid4vp::request::{Item, ItemSet, Request};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
@@ -311,8 +311,11 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .collect();
     let credential = CredentialId::parse("c \"1\" \\ \u{1} é").expect("id");
     let attested = Attested::new(vec![
-        ("display_locale".to_owned(), "de\n".to_owned()),
-        ("x".to_owned(), "é".to_owned()),
+        (
+            AttestedName::new("display_locale"),
+            AttestedText::new("de\n"),
+        ),
+        (AttestedName::new("x"), AttestedText::new("é")),
     ])
     .expect("attested");
     let query = &request.queries()[0].id();

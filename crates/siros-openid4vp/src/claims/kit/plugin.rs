@@ -7,6 +7,7 @@ use super::super::ConcretePath;
 use super::super::PathError;
 use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
 use crate::consent::Card;
+use crate::ids::CredentialType;
 use crate::json::Node;
 use crate::plugins::{
     Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown, ViewAdditions,
@@ -136,7 +137,7 @@ pub fn additions<'c>(
     let view = ClaimsView::read(credential)?;
     let types = format.types(view.json())?;
     Ok(Box::new(ViewTypes::new(
-        types.into_iter().map(str::to_owned).collect(),
+        types.into_iter().map(CredentialType::into_owned).collect(),
     )))
 }
 

@@ -23,7 +23,7 @@ pub use rules::{KitRule, NoAlgorithm, QueryRule};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
-use crate::ids::{LocaleTag, QueryId};
+use crate::ids::{CredentialType, LocaleTag, QueryId};
 use crate::json::Node;
 use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
@@ -60,9 +60,9 @@ pub trait ClaimsFormat {
     /// # Errors
     ///
     /// The view states them in a shape the format does not read, a fault of the wallet's data.
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault>;
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault>;
     /// Whether the credential's types match the query's `meta`.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool;
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool;
     /// Whether the claim names a response member the bound transaction writes.
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool;
     /// The format's rule a claims path pointer breaks: it cannot address the format's

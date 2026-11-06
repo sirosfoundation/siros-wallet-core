@@ -232,7 +232,8 @@ fn vct_values_match_a_type_the_credential_inherits_from() {
     let format = SdJwtVc::new().expect("format");
     let credential = card.credential().expect("credential");
     let additions = format.additions(&credential).expect("additions");
-    assert_eq!(additions.types(), [own, parent, root]);
+    let types: Vec<&str> = additions.types().iter().map(|kind| kind.as_str()).collect();
+    assert_eq!(types, [own, parent, root]);
     for (vct, want) in [(own, true), (root, true), ("https://other.example", false)] {
         let text = parameters(
             &format!(

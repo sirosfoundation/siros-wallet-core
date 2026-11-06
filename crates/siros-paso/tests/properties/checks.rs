@@ -9,7 +9,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_explain::RequestText;
 use siros_openid4vp::claims::Concrete;
-use siros_openid4vp::plugins::{Binding, Carriage, NoCandidate, Profile};
+use siros_openid4vp::plugins::{
+    AttestedName, AttestedText, Binding, Carriage, NoCandidate, Profile,
+};
 use siros_openid4vp::rows::{Amounts, Row};
 use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Source};
@@ -307,9 +309,15 @@ pub fn case(case: &Case, tally: &mut Tally) {
     }
     assert_eq!(bound.overlay.hint, view.actions.hint, "P-hint on the entry");
     // What the response attests: the locale shown (Core §7.2), the stored metadata's integrity.
-    let mut attested = vec![("display_locale".to_owned(), view.locale.to_string())];
+    let mut attested = vec![(
+        AttestedName::new("display_locale"),
+        AttestedText::new(view.locale.to_string()),
+    )];
     if let Source::Stored { integrity } = &rendered.source {
-        attested.push(("metadata_integrity".to_owned(), integrity.clone()));
+        attested.push((
+            AttestedName::new("metadata_integrity"),
+            AttestedText::new(integrity.clone()),
+        ));
     }
     assert_eq!(bound.attested.pairs(), attested.as_slice(), "P-attested");
     let meta = given(&entry, &types).expect("the metadata that rendered");

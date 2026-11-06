@@ -165,7 +165,7 @@ impl<H> AnsweredOption<H> for RecorderOption {
         let sealed = session
             .encrypted_to()
             .map(|key| [key.key().kid().as_str(), key.enc().as_str()]);
-        let text = serde_json::json!({"aud": session.audience(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
+        let text = serde_json::json!({"aud": session.audience().as_str(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
         Ok(Presentation::object(&text.to_string())
             .map_err(|e| Fault::caused(FAULT, detail!("recorded"), e))?)
     }
@@ -227,7 +227,10 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
         None,
         none.keys(),
     );
-    assert_eq!(redirect.audience(), "x509_san_dns:client.example.org");
+    assert_eq!(
+        redirect.audience().as_str(),
+        "x509_san_dns:client.example.org"
+    );
     // dc_api: the session is sealed to no key.
     let plain = parameters(&test_queries(&["q"]), "");
     let received = unsigned(&plain).expect("received");

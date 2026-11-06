@@ -201,7 +201,7 @@ impl Answer<'_> {
             ),
             (
                 sca::member(placement, Sca::DisplayLocale),
-                MemberValue::Text(attested("display_locale")?.to_owned()),
+                MemberValue::Text(attested("display_locale")?.as_str().to_owned()),
             ),
             (
                 sca::member(placement, Sca::TransactionDataHash),
@@ -218,7 +218,7 @@ impl Answer<'_> {
         if let Some(integrity) = self.attested.get("metadata_integrity") {
             out.push((
                 sca::member(placement, Sca::MetadataIntegrity),
-                MemberValue::Text(integrity.to_owned()),
+                MemberValue::Text(integrity.as_str().to_owned()),
             ));
         }
         let request_object = self.request.request_object().ok_or_else(|| {

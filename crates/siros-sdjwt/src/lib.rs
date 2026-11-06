@@ -45,7 +45,7 @@ mod presentation;
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
 use siros_openid4vp::claims::{Claim, ClaimPath};
-use siros_openid4vp::ids::{FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -212,7 +212,7 @@ impl ClaimsFormat for SdJwtVc {
     }
 
     /// The view's `type`, then each type of its `extends`, nearest first (§6.4).
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         let fault = || {
             Fault::new(
                 FAULT,
@@ -226,18 +226,23 @@ impl ClaimsFormat for SdJwtVc {
         };
         std::iter::once(Some(own))
             .chain(extended.iter().map(Node::as_str))
-            .map(|kind| kind.ok_or_else(fault))
+            .map(|kind| {
+                kind.and_then(|kind| CredentialType::parse(kind).ok())
+                    .ok_or_else(fault)
+            })
             .collect()
     }
 
     /// B.3.5: one of `vct_values` names the credential's type or a type it inherits from.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
         meta.get("vct_values")
             .and_then(Node::as_array)
             .is_some_and(|values| {
-                values
-                    .iter()
-                    .any(|value| value.as_str().is_some_and(|value| types.contains(&value)))
+                values.iter().any(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|value| types.iter().any(|kind| *kind == *value))
+                })
             })
     }
 

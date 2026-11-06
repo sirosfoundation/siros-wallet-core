@@ -24,6 +24,18 @@ pub enum SessionBinding<'s> {
     },
 }
 
+/// The audience a presentation names (Annex A, B.3.6). Only [`Session::audience`] makes one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Audience(String);
+
+impl Audience {
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What a presentation binds: the channel's binding, the `nonce`, the key and `enc` the core
 /// sealed the answer to, and the Verifier's keys. Only an answering route makes one
 /// (`AnswerRoute::session`), so each fact is the authenticated request's.
@@ -77,11 +89,11 @@ impl<'s> Session<'s> {
     /// The audience (Annex A, B.3.6): the Origin prefixed with `origin:` over the DC API, even for
     /// a signed request; the full Client Identifier by URI.
     #[must_use]
-    pub fn audience(&self) -> String {
-        match self.binding {
+    pub fn audience(&self) -> Audience {
+        Audience(match self.binding {
             SessionBinding::DcApi { origin } => format!("origin:{origin}"),
             SessionBinding::Redirect { client_id, .. } => client_id.to_string(),
-        }
+        })
     }
 }
 

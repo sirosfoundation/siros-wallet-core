@@ -154,6 +154,13 @@ text_id!(
     |_| true
 );
 text_id!(
+    /// A credential's type as its format reads it from the view: a `vct` (SD-JWT VC §3.2.2.2) or
+    /// a docType (ISO/IEC 18013-5 §7.1).
+    CredentialType,
+    "credential type",
+    |_| true
+);
+text_id!(
     /// The wallet's identifier of a credential it registered.
     CredentialId,
     "credential id",

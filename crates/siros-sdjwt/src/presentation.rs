@@ -105,7 +105,10 @@ fn payload<'p>(
     let id = || credential.id.to_string();
     let mut claims: Vec<(Cow<'p, str>, Node<'p>)> = vec![
         ("iat".into(), Node::integer(i128::from(platform.now().0))),
-        ("aud".into(), text(presenting.session.audience())),
+        (
+            "aud".into(),
+            text(presenting.session.audience().as_str().to_owned()),
+        ),
         (
             "nonce".into(),
             text(presenting.session.nonce().as_str().to_owned()),

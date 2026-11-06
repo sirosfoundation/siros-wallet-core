@@ -67,7 +67,9 @@ impl<'m> Record<'m> {
                 attested
                     .pairs()
                     .iter()
-                    .map(|(name, text)| format!("{}:{}", quote(name), quote(text)))
+                    .map(|(name, text)| {
+                        format!("{}:{}", quote(name.as_str()), quote(text.as_str()))
+                    })
                     .collect()
             })
             .unwrap_or_default();

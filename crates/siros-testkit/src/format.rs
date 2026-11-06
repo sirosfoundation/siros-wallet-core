@@ -401,7 +401,7 @@ impl TestOption<'_> {
         session: &Session<'_>,
     ) -> Result<Presentation, Fault> {
         let mut proof = vec![
-            format!("\"aud\":{}", quote(&session.audience())),
+            format!("\"aud\":{}", quote(session.audience().as_str())),
             format!("\"nonce\":{}", quote(session.nonce().as_str())),
         ];
         for (member, value) in members.iter() {

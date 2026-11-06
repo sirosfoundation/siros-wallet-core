@@ -74,7 +74,8 @@ pub(super) fn members(
             .attested()
             .and_then(|attested| attested.get("display_locale"));
         assert!(
-            get("display_locale") == Some(json!(shown)) && attested == Some(shown.as_str()),
+            get("display_locale") == Some(json!(shown))
+                && attested.map(|text| text.as_str()) == Some(shown.as_str()),
             "R-locale shown"
         );
         let digest = Sha256::digest(entry.raw().as_bytes());

@@ -7,7 +7,8 @@ use siros_explain::Explained;
 use siros_openid4vp::claims::kit::ClaimsFormat;
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{
-    AuthorityType, AuthorityValue, CredentialId, DocumentKey, FormatId, LocaleTag, TransactionType,
+    AuthorityType, AuthorityValue, CredentialId, CredentialType, DocumentKey, FormatId, LocaleTag,
+    TransactionType,
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
@@ -198,18 +199,22 @@ impl ClaimsFormat for ClaimsTest {
                 ))) as Box<dyn Explained>
             })
     }
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         view.get("type")
             .and_then(Node::as_str)
+            .and_then(|kind| CredentialType::parse(kind).ok())
             .map(|kind| vec![kind])
             .ok_or_else(|| Fault::new(siros_testkit::FAULT, siros_openid4vp::detail!("no type")))
     }
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
+        let names = |value: &Node<'_>| {
+            value
+                .as_str()
+                .is_some_and(|value| types.iter().any(|kind| *kind == *value))
+        };
         match meta.get(self.member) {
-            Some(Node::Array(values)) => values
-                .iter()
-                .any(|value| value.as_str().is_some_and(|value| types.contains(&value))),
-            Some(value) => value.as_str().is_some_and(|value| types.contains(&value)),
+            Some(Node::Array(values)) => values.iter().any(names),
+            Some(value) => names(value),
             None => false,
         }
     }

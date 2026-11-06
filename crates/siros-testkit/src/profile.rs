@@ -11,8 +11,8 @@ use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Answered, Attested, Binding, Bound, BoundEntries, Carriage, Exclude, Fault, FetchedRecord,
-    Member, MemberValue, Members, NoCandidate, Profile,
+    Answered, Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Carriage,
+    Exclude, Fault, FetchedRecord, Member, MemberValue, Members, NoCandidate, Profile,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{EntryIndex, Request};
@@ -202,8 +202,11 @@ impl Profile for TestProfile {
                 confirm: Text::Raw("Confirm".to_owned()),
                 cancel: Text::Raw("Cancel".to_owned()),
             },
-            attested: Attested::new(vec![("entries".to_owned(), reference.clone())])
-                .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
+            attested: Attested::new(vec![(
+                AttestedName::new("entries"),
+                AttestedText::new(reference.clone()),
+            )])
+            .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
             overlay: Overlay {
                 rows,
                 header: transaction,
@@ -281,8 +284,11 @@ impl<H> ProfileHost<H> for TestProfile {
                     .get("entries")
                     .ok_or_else(|| Fault::new(FAULT, detail!("the record attests no entries")))?;
                 let [binding] = BINDING.clone();
-                Members::new(vec![(binding, MemberValue::Text(entries.to_owned()))])
-                    .map_err(|e| Fault::caused(FAULT, detail!("binding"), e))
+                Members::new(vec![(
+                    binding,
+                    MemberValue::Text(entries.as_str().to_owned()),
+                )])
+                .map_err(|e| Fault::caused(FAULT, detail!("binding"), e))
             }
         }
     }

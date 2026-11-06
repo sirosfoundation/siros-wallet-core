@@ -113,7 +113,13 @@ impl Fields {
             entries: record.entries().iter().map(|e| e.get()).collect(),
             attested: record
                 .attested()
-                .map(|attested| attested.pairs().to_vec())
+                .map(|attested| {
+                    attested
+                        .pairs()
+                        .iter()
+                        .map(|(name, text)| (name.as_str().to_owned(), text.as_str().to_owned()))
+                        .collect()
+                })
                 .unwrap_or_default(),
             request: record.request().as_str().to_owned(),
             rendering: Self::parse(record.id().as_str()).rendering,

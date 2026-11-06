@@ -37,7 +37,7 @@ pub use registry::{
 pub use registry::{FindingData, InformError, ProfileFinding};
 
 use crate::consent::{Card, Header, Overlay};
-use crate::ids::FormatId;
+use crate::ids::{CredentialType, FormatId};
 use crate::json::Node;
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, EntryIndex, Item, ItemSet, Query, Request};
@@ -378,24 +378,24 @@ pub trait ViewAdditions: fmt::Debug {
     /// The credential's type, then each type its type metadata extends, nearest first, from the
     /// chain the caller resolved at registration (SD-JWT VC §6.4 for `dc+sd-jwt`); empty for a
     /// format whose credentials state no type.
-    fn types(&self) -> Vec<&str>;
+    fn types(&self) -> &[CredentialType<'static>];
 }
 
 /// A credential's types as its format read them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ViewTypes(Vec<String>);
+pub struct ViewTypes(Vec<CredentialType<'static>>);
 
 impl ViewTypes {
     /// The types, the credential's own first, then those it extends, nearest first.
     #[must_use]
-    pub const fn new(types: Vec<String>) -> Self {
+    pub const fn new(types: Vec<CredentialType<'static>>) -> Self {
         Self(types)
     }
 }
 
 impl ViewAdditions for ViewTypes {
-    fn types(&self) -> Vec<&str> {
-        self.0.iter().map(String::as_str).collect()
+    fn types(&self) -> &[CredentialType<'static>] {
+        &self.0
     }
 }
 
@@ -464,9 +464,45 @@ impl BoundEntries {
     }
 }
 
+/// A name a response attests a text of the display under.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttestedName(String);
+
+impl AttestedName {
+    /// The name.
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// The text of the name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A text of the display a response attests.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttestedText(String);
+
+impl AttestedText {
+    /// The text.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What a response attests of the display: (name, text) pairs, each name once.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct Attested(Vec<(String, String)>);
+pub struct Attested(Vec<(AttestedName, AttestedText)>);
 
 /// An attested name given twice.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -476,7 +512,7 @@ pub struct AttestedTwice(#[explain(name = "name")] pub String);
 
 impl Attested {
     /// The pairs, each name once.
-    pub fn new(pairs: Vec<(String, String)>) -> Result<Self, AttestedTwice> {
+    pub fn new(pairs: Vec<(AttestedName, AttestedText)>) -> Result<Self, AttestedTwice> {
         if let Some((name, _)) = pairs.iter().enumerate().find_map(|(k, (name, text))| {
             pairs.get(..k).and_then(|before| {
                 before
@@ -485,24 +521,24 @@ impl Attested {
                     .then_some((name, text))
             })
         }) {
-            return Err(AttestedTwice(name.clone()));
+            return Err(AttestedTwice(name.as_str().to_owned()));
         }
         Ok(Self(pairs))
     }
 
     /// The pairs in order.
     #[must_use]
-    pub fn pairs(&self) -> &[(String, String)] {
+    pub fn pairs(&self) -> &[(AttestedName, AttestedText)] {
         &self.0
     }
 
     /// The text attested under a name.
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&str> {
+    pub fn get(&self, name: &str) -> Option<&AttestedText> {
         self.0
             .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, text)| text.as_str())
+            .find(|(n, _)| n.as_str() == name)
+            .map(|(_, text)| text)
     }
 }
 

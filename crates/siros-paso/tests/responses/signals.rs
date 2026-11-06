@@ -186,7 +186,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
         PAY,
         &meta,
         &en(),
-        &siros_openid4vp::ids::LocaleTag::parse(locale).expect("a tag"),
+        &siros_openid4vp::ids::LocaleTag::parse(locale.as_str()).expect("a tag"),
     );
     let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(
@@ -489,8 +489,14 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
         let entries = BoundEntries::select(&offered, offered.clone()).expect("entries");
         let attested = Attested::new(vec![
-            ("display_locale".to_owned(), "en".to_owned()),
-            ("metadata_integrity".to_owned(), card.integrity()),
+            (
+                siros_openid4vp::plugins::AttestedName::new("display_locale"),
+                siros_openid4vp::plugins::AttestedText::new("en"),
+            ),
+            (
+                siros_openid4vp::plugins::AttestedName::new("metadata_integrity"),
+                siros_openid4vp::plugins::AttestedText::new(card.integrity()),
+            ),
         ])
         .expect("attested");
         let format_id = FormatId::parse(format).expect("format");
