@@ -8,7 +8,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_openid4vp::matching::{Accepted, UnmetCode};
 use siros_openid4vp::recourse::{DcApiErrors, Reply};
-use siros_openid4vp::refusal::Refused;
+use siros_openid4vp::refusal::{ErrorCode, Refusal, Refused, RequestRule};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Delivery, Outcome, PostBody, Route};
 use siros_testkit::{TestHost, TestTrust, fixtures};
@@ -220,4 +220,58 @@ fn a_uri_route_seals_its_errors_to_the_bound_key_else_sends_them_plain() {
     by_uri(&unsupported, |route, _| {
         assert!(matches!(route, Err(Outcome::Unroutable(_))));
     });
+}
+
+/// §8.2's example error: `invalid_request`, `unsupported client_id_prefix`, `state`
+/// `eyJhb...6-sVA`.
+#[derive(Debug, thiserror::Error, siros_explain::Explain)]
+#[explain(domain = "test.ka8")]
+#[error("unsupported client_id_prefix")]
+struct Section82;
+
+impl RequestRule for Section82 {
+    fn code(&self) -> ErrorCode {
+        ErrorCode::INVALID_REQUEST
+    }
+}
+
+/// KA8: §8.2's example error body, in this order, as RFC 6749 Appendix B encodes it (a space is
+/// `+`), from `direct_post` and from `direct_post.jwt` on a route without a key (§8.3.1).
+#[test]
+fn section_8_2s_error_body_is_each_uri_error_modes_plain_form() {
+    const SECTION_8_2: &str = "error=invalid_request\
+        &error_description=unsupported+client_id_prefix\
+        &state=eyJhb...6-sVA";
+    let host = TestHost::default();
+    let state = |payload: String| {
+        payload.replacen(r#""state":"eyJhb-6-sVA""#, r#""state":"eyJhb...6-sVA""#, 1)
+    };
+    let direct_post = with(
+        r#""response_mode":"direct_post.jwt""#,
+        r#""response_mode":"direct_post""#,
+    );
+    // C7 leaves direct_post.jwt's route without a key.
+    let keyless = with(
+        KEY,
+        &KEY.replace(r#","alg":"ECDH-ES""#, r#","alg":"RSA-OAEP""#),
+    );
+    for payload in [direct_post, keyless].map(state) {
+        by_uri(&payload, |route, _| {
+            let route = route.expect("a route");
+            assert!(route.answering().is_none(), "{payload}");
+            let refused = Refused::one(Refusal::new(Section82));
+            let Ok(Reply::Deliver(Delivery::Post { endpoint, body })) =
+                route.refusal(&refused, DcApiErrors::Respond, &host)
+            else {
+                panic!("an error by URI is delivered")
+            };
+            assert_eq!(endpoint.as_str(), RESPONSE_URI);
+            assert!(body.media_type().is_form(), "{payload}");
+            assert_eq!(
+                std::str::from_utf8(body.bytes()),
+                Ok(SECTION_8_2),
+                "{payload}"
+            );
+        });
+    }
 }

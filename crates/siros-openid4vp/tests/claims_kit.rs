@@ -8,7 +8,7 @@ mod common;
 
 use std::num::NonZeroU32;
 
-use siros_explain::Text;
+use siros_explain::{Count, Decimal, Text, Value as Typed};
 use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_formats_refusal};
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
@@ -463,4 +463,65 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
         ClaimsQuery::parse(&format, &request.queries()[0], None).is_ok()
     };
     assert_eq!((identified(r#""a""#), identified("1")), (true, false));
+}
+
+/// A claim's JSON number (RFC 8259 §6) shows as the value it writes, read by hand: a natural
+/// number as a count, another as an exact decimal; as written beyond a decimal's 38 fraction
+/// digits or an `i128`'s units, a text.
+#[test]
+fn a_json_number_shows_as_the_value_it_writes() {
+    let decimal = |units, scale| Decimal::new(units, scale).map(|d| Text::Value(Typed::Decimal(d)));
+    let count = |digits| Count::parse(digits).map(|c| Text::Value(Typed::Count(c)));
+    let table = [
+        ("0", count("0")),
+        ("42", count("42")),
+        (
+            "123456789012345678901234567890",
+            count("123456789012345678901234567890"),
+        ),
+        ("-7", decimal(-7, 0)),
+        ("1.5", decimal(15, 1)),
+        ("-0.25", decimal(-25, 2)),
+        ("1.0", decimal(10, 1)),
+        ("1e3", count("1000")),
+        ("2.50E-1", decimal(250, 3)),
+        ("-1.2e+2", decimal(-120, 0)),
+        ("1e-38", decimal(1, 38)),
+        ("1e-39", None),
+        ("1e39", None),
+    ];
+    let format = ClaimsTest {
+        member: "vct_values",
+        label: "label",
+    };
+    let env = Env::new(
+        vec![tag("en")],
+        Vec::new(),
+        OPTIONS,
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env");
+    for (written, value) in table {
+        let text = query_text(r#"[{"path": ["n"]}]"#, "vct_values", r#"["t"]"#);
+        let received = unsigned(&text).expect("received");
+        let request = request_of(&received).expect("request");
+        let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
+        let view = format!(r#"{{"type": "t", "values": {{"n": {written}}}}}"#);
+        let view = Node::parse(&view).expect("view");
+        let items = [Item::new(0).expect("item")];
+        let shown = Shown {
+            everyone: &items,
+            chosen: &[],
+        };
+        let card = query.card(&format, &view, shown, &env).expect("card");
+        let [row] = card.rows.as_slice() else {
+            panic!("one row for {written}: {:?}", card.rows)
+        };
+        let shown = row.value.as_ref().and_then(|value| value.text());
+        match (shown, value) {
+            (Some(Text::Raw(_)), None) => {}
+            (shown, value) => assert_eq!(shown, value.as_ref(), "{written}"),
+        }
+    }
 }
