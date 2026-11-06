@@ -142,15 +142,22 @@ pub struct CredentialRequestAux<'a> {
 /// `credential_issuer` audience. The engine builds the to-be-signed input
 /// and asks the host through `Host::request_sign`; the host signs with the
 /// key the credential is bound to.
+#[allow(clippy::too_many_arguments)] // the credential request's explicit context; a bundle would hide the flow id the e2e found
 pub async fn request_credential(
     http: &dyn HttpClient,
     host: &dyn Host,
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
+    flow_id: &str,
     aux: Option<&CredentialRequestAux<'_>>,
     nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
+    // `flow_id` is the RUNNING flow's id (the server's FlowSessions notes
+    // it at the flow's start): the host asks below route their child
+    // flows by it. A constant here (as the engine once had) sends the
+    // child start with no session to deliver it under — the ask times
+    // out, stalling the flow its own 30 seconds.
     let encryption = aux.and_then(|aux| aux.encryption);
     let dpop = aux.and_then(|aux| aux.dpop.as_ref());
     // Build the proof's to-be-signed input: a JWT with the `nonce` and
@@ -187,7 +194,7 @@ pub async fn request_credential(
     });
     if let Ok(answer) = host
         .request_signing_key(engine_ports::SigningKeyParams {
-            flow_id: "oid4vci-credential".to_owned(),
+            flow_id: flow_id.to_owned(),
             key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
         })
         .await
@@ -210,7 +217,7 @@ pub async fn request_credential(
     // original credential's cnf.jwk (ARF ISSU_65 same-key re-signing).
     let sign_result = host
         .request_sign(engine_ports::SignParams {
-            flow_id: "oid4vci-credential".to_owned(),
+            flow_id: flow_id.to_owned(),
             to_sign: proof_tbs.as_bytes().to_vec(),
             key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
             algorithm: "ES256".to_owned(),
@@ -452,12 +459,14 @@ pub async fn request_credential(
 ///   the fresh nonce comes from the endpoint first, then the body's
 ///   `c_nonce`; the proofs are re-requested and the request retried once.
 /// - A second `invalid_nonce` is terminal, with the underlying error.
+#[allow(clippy::too_many_arguments)] // the credential request's explicit context; a bundle would hide the flow id the e2e found
 pub async fn request_credential_with_retry(
     http: &dyn HttpClient,
     host: &dyn Host,
     metadata: &IssuerMetadata,
     token: &TokenResponse,
     configuration_id: &str,
+    flow_id: &str,
     aux: Option<&CredentialRequestAux<'_>>,
     initial_nonce: Option<&str>,
 ) -> Result<CredentialResponse, CredentialError> {
@@ -473,6 +482,7 @@ pub async fn request_credential_with_retry(
             metadata,
             token,
             configuration_id,
+            flow_id,
             aux,
             nonce.as_deref(),
         )
@@ -734,6 +744,7 @@ mod tests {
             credential_configurations: serde_json::json!({}),
             signed_metadata: None,
             is_signed: false,
+            raw: Vec::new(),
         }
     }
 
@@ -762,6 +773,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -782,6 +794,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -804,6 +817,7 @@ mod tests {
                 &test_metadata(),
                 &test_token(),
                 "X",
+                "flow-1",
                 None,
                 None
             )
@@ -879,6 +893,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             Some(&CredentialRequestAux {
                 auxiliary_data_to_issuer: &[],
                 auxiliary_data_to_wallet: &[],
@@ -913,6 +928,7 @@ mod tests {
                 &test_metadata(),
                 &test_token(),
                 "UniversityDegree",
+                "flow-1",
                 Some(&CredentialRequestAux {
                     auxiliary_data_to_issuer: &[],
                     auxiliary_data_to_wallet: &[],
@@ -941,6 +957,7 @@ mod tests {
                 &test_metadata(),
                 &test_token(),
                 "UniversityDegree",
+                "flow-1",
                 None,
                 Some("nonce-1"),
             )
@@ -993,6 +1010,7 @@ mod tests {
             &metadata,
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -1015,6 +1033,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -1125,6 +1144,7 @@ mod tests {
             &metadata_with_nonce_endpoint(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -1148,6 +1168,7 @@ mod tests {
                 &metadata_with_nonce_endpoint(),
                 &test_token(),
                 "UniversityDegree",
+                "flow-1",
                 None,
                 Some("nonce-1"),
             )
@@ -1172,6 +1193,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "UniversityDegree",
+            "flow-1",
             None,
             Some("nonce-1"),
         )
@@ -1253,6 +1275,7 @@ mod tests {
             &test_metadata(),
             &token,
             "X",
+            "flow-1",
             Some(&aux),
             None,
         )
@@ -1272,7 +1295,7 @@ mod tests {
             .map(|(_, v)| v.clone())
             .expect("a DPoP header");
         let payload = proof.split('.').nth(1).unwrap_or_default();
-        let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+        let decoded = jose_rs::base64url::decode(payload).expect("base64url");
         let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
         assert_eq!(claims["ath"], super::super::dpop::ath_of("at-dpop"));
         assert_eq!(claims["htm"], "POST");
@@ -1346,6 +1369,7 @@ mod tests {
             &test_metadata(),
             &token,
             "X",
+            "flow-1",
             Some(&aux),
             None,
         )
@@ -1367,7 +1391,7 @@ mod tests {
             .expect("the retried request carries a proof");
         let decode = |proof: &str| {
             let payload = proof.split('.').nth(1).unwrap_or_default();
-            let decoded = crate::oid4vp::test_util::base64url_decode(payload.as_bytes());
+            let decoded = jose_rs::base64url::decode(payload).expect("base64url");
             let claims: serde_json::Value = serde_json::from_slice(&decoded).expect("claims");
             claims
         };
@@ -1425,6 +1449,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "X",
+            "flow-1",
             Some(&aux),
             Some("nonce-1"),
         )
@@ -1436,7 +1461,7 @@ mod tests {
         let jwt = request["proofs"]["jwt"][0].as_str().expect("the proof jwt");
         let decode = |part: usize| {
             let payload = jwt.split('.').nth(part).unwrap_or_default();
-            crate::oid4vp::test_util::base64url_decode(payload.as_bytes())
+            jose_rs::base64url::decode(payload).expect("base64url")
         };
         let header: Value = serde_json::from_slice(&decode(0)).expect("the JOSE header");
         let claims: Value = serde_json::from_slice(&decode(1)).expect("the claims");
@@ -1510,6 +1535,7 @@ mod tests {
             &test_metadata(),
             &test_token(),
             "X",
+            "flow-1",
             Some(&aux),
             None,
         )

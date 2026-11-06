@@ -1,5 +1,9 @@
+import uniffi.engine_adapter_sdk.AttestationParams
+import uniffi.engine_adapter_sdk.AttestationResult
 import uniffi.engine_adapter_sdk.ConsentParams
 import uniffi.engine_adapter_sdk.ConsentResult
+import uniffi.engine_adapter_sdk.CredentialSelectionParams
+import uniffi.engine_adapter_sdk.CredentialSelectionResult
 import uniffi.engine_adapter_sdk.FetchPurpose
 import uniffi.engine_adapter_sdk.HeaderPair
 import uniffi.engine_adapter_sdk.Host
@@ -8,6 +12,8 @@ import uniffi.engine_adapter_sdk.HttpRequest
 import uniffi.engine_adapter_sdk.HttpResponse
 import uniffi.engine_adapter_sdk.MatchResult
 import uniffi.engine_adapter_sdk.MatchParams
+import uniffi.engine_adapter_sdk.SigningKeyParams
+import uniffi.engine_adapter_sdk.SigningKeyResult
 import uniffi.engine_adapter_sdk.VpParams
 import uniffi.engine_adapter_sdk.VpResult
 import uniffi.engine_adapter_sdk.DpopProofParams
@@ -80,6 +86,26 @@ class TestHost : Host {
         // No browser in the smoke.
     }
 
+    override suspend fun requestSigningKey(params: SigningKeyParams): SigningKeyResult {
+        // No named key in the smoke: the engine proceeds without key
+        // identification.
+        throw SdkException.Cannot("no named key")
+    }
+
+    override suspend fun requestAttestation(params: AttestationParams): AttestationResult {
+        // No client attestation in the smoke: the flow continues
+        // without it.
+        throw SdkException.Cannot("no attestation")
+    }
+
+    override suspend fun requestCredentialSelection(
+        params: CredentialSelectionParams,
+    ): CredentialSelectionResult {
+        // No selection UI in the smoke (a single-configuration offer
+        // never asks).
+        throw SdkException.Cannot("no selection UI")
+    }
+
     override fun progress(flowId: String, step: String, detail: String?) {
         // No progress in the smoke.
     }
@@ -109,6 +135,14 @@ fun main() = kotlinx.coroutines.runBlocking {
                     ConsentResult(false)
                 override suspend fun requestTxCode(flowId: String): String = ""
                 override suspend fun openAuthorization(flowId: String, url: String): Unit {}
+                override suspend fun requestSigningKey(params: SigningKeyParams): SigningKeyResult =
+                    throw SdkException.Cannot("no named key")
+                override suspend fun requestAttestation(params: AttestationParams): AttestationResult =
+                    throw SdkException.Cannot("no attestation")
+                override suspend fun requestCredentialSelection(
+                    params: CredentialSelectionParams,
+                ): CredentialSelectionResult =
+                    throw SdkException.Cannot("no selection UI")
                 override fun progress(flowId: String, step: String, detail: String?) {}
             },
             "https://issuer.example",

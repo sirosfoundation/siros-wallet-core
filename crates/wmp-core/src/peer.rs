@@ -23,8 +23,9 @@ use crate::registry::{DeferKind, Registry, StartOutcome};
 use crate::session::{Session, SessionStore, StoreError};
 use crate::sessionservice::METADATA_KEY_VERSION;
 use crate::token::RESUMPTION_TOKEN_BYTES;
-use crate::types::VERSION;
-use crate::version::{negotiate_version, version_rejection};
+use crate::version::{
+    negotiate_version, offered_version, version_not_supported, Version, VersionError, VERSION,
+};
 
 /// An optional hook that validates incoming JSON-RPC params before dispatch.
 pub trait Validator: Send + Sync {
@@ -498,21 +499,6 @@ impl Peer {
             .map_or_else(String::new, |id| id.session_id.clone())
     }
 
-    /// The version set this peer negotiates against.
-    fn supported_versions(&self) -> Vec<String> {
-        self.handler.supported_versions()
-    }
-
-    /// Selects a version against the supported set, or rejects with
-    /// `-31013` carrying `supported_versions`.
-    fn negotiate_or_reject(&self, offered: &str) -> Result<String, HandlerError> {
-        let supported = self.supported_versions();
-        let supported_refs: Vec<&str> = supported.iter().map(String::as_str).collect();
-        negotiate_version(offered, &supported_refs)
-            .map(str::to_owned)
-            .ok_or_else(|| version_rejection(Some(offered), &supported_refs).into())
-    }
-
     /// The negotiated version of the session, or [`VERSION`] — the
     /// `version_for` the [`PeerContext`](crate::profile::PeerContext)
     /// implementation exposes.
@@ -545,7 +531,7 @@ impl Peer {
     /// The negotiated version of the session, or [`VERSION`].
     fn version_for(&self, session_id: &str) -> String {
         self.recorded_version(&self.version_key(session_id))
-            .unwrap_or_else(|| VERSION.to_owned())
+            .unwrap_or_else(|| VERSION.to_string())
     }
 
     fn version_key(&self, session_id: &str) -> String {
@@ -781,10 +767,13 @@ impl Peer {
         ctx: &RequestContext,
         ps: &SessionCreateParams,
     ) -> Result<serde_json::Value, HandlerError> {
-        let selected = self.negotiate_or_reject(&ps.wmp.version)?;
+        let selected = negotiate_version(
+            offered_version(&ps.wmp.version)?,
+            self.handler.supported_versions(),
+        )?;
         let mut result = self.handler.session_create(ctx, ps)?;
         if result.wmp.version.is_empty() {
-            result.wmp.version = selected.clone();
+            result.wmp.version = selected.to_string();
         }
         if self.store().is_some() && !result.wmp.session_id.is_empty() {
             self.run_create_hooks(ctx, ps, &mut result)?;
@@ -864,11 +853,12 @@ impl Peer {
         ctx: &RequestContext,
         ps: &SessionResumeParams,
     ) -> Result<serde_json::Value, HandlerError> {
-        let selected = self.negotiate_or_reject(&ps.wmp.version)?;
+        let offered = offered_version(&ps.wmp.version)?;
+        let selected = negotiate_version(offered, self.handler.supported_versions())?;
         let mut result = self.handler.session_resume(ctx, ps)?;
         if !result.resumed {
             if result.wmp.version.is_empty() {
-                result.wmp.version = selected;
+                result.wmp.version = selected.to_string();
             }
             return serde_json::to_value(result).map_err(internal);
         }
@@ -877,7 +867,9 @@ impl Peer {
             // §2.2.3). Checked only after the handler authorised the
             // resume, so a version error cannot reveal that a session
             // exists.
-            result.wmp.version = self.resume_version(ps, &selected)?;
+            result.wmp.version = self
+                .resume_version(&ps.session_id, offered, selected)?
+                .to_string();
         }
         self.run_resume_hooks(ctx, ps)?;
         self.record_version(&ps.session_id, &result.wmp.version);
@@ -908,23 +900,20 @@ impl Peer {
     /// freshly negotiated one.
     fn resume_version(
         &self,
-        ps: &SessionResumeParams,
-        negotiated: &str,
-    ) -> Result<String, HandlerError> {
-        let Some(recorded) = self.recorded_version(&self.version_key(&ps.session_id)) else {
-            return Ok(negotiated.to_owned());
+        session_id: &str,
+        offered: Version,
+        negotiated: Version,
+    ) -> Result<Version, HandlerError> {
+        let Some(recorded) = self.recorded_version(&self.version_key(session_id)) else {
+            return Ok(negotiated);
         };
         // The recorded version must still be supported; never advertise one
         // that is not.
-        let supported = self.supported_versions();
-        if !supported.contains(&recorded) {
-            let refs: Vec<&str> = supported.iter().map(String::as_str).collect();
-            return Err(version_rejection(Some(&ps.wmp.version), &refs).into());
+        let supported = self.handler.supported_versions();
+        match recorded.parse() {
+            Ok(pinned) if supported.contains(&pinned) => Ok(negotiate_version(offered, &[pinned])?),
+            Ok(_) | Err(VersionError) => Err(version_not_supported(supported).into()),
         }
-        let pinned = [recorded.as_str()];
-        negotiate_version(&ps.wmp.version, &pinned)
-            .map(str::to_owned)
-            .ok_or_else(|| version_rejection(Some(&ps.wmp.version), &pinned).into())
     }
 
     /// Adds the session identity to the `wmp` object of outbound params.

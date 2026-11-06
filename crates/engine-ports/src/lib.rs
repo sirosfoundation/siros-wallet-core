@@ -290,6 +290,22 @@ impl ClientIdScheme {
             Self::Unknown(_) => "",
         }
     }
+
+    /// The scheme's claim name — the `client_id_scheme` the request
+    /// names and the trust evaluation's context carries (the Go
+    /// engine's `ClientIDScheme*` constants).
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::X509SanDns => "x509_san_dns",
+            Self::X509SanUri => "x509_san_uri",
+            Self::X509Hash => "x509_hash",
+            Self::DecentralizedIdentifier => "decentralized_identifier",
+            Self::VerifierAttestation => "verifier_attestation",
+            Self::RedirectUri => "redirect_uri",
+            Self::Unknown(_) => "unknown",
+        }
+    }
 }
 
 /// The verifier info the host's consent UI shows (OpenID4VP §5.2's
@@ -368,6 +384,15 @@ pub struct MatchResult {
     /// The selected credentials.
     #[serde(default)]
     pub selections: Vec<VpSelection>,
+    /// The transport's opaque selection handle, when it issued one
+    /// (WMP OpenID4x 3.2.3.1: the `select_credentials` ask's
+    /// correlation handle). The engine does not interpret it: it rides
+    /// unchanged into the presentation ask
+    /// ([`VpParams::selection_handle`](crate::VpParams::selection_handle)),
+    /// so the transport's answer correlates with its ask. Absent when
+    /// the transport has no handle (the plain host asks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
 }
 
 /// The presentation the engine asks the host to construct and sign:
@@ -402,6 +427,11 @@ pub struct VpParams {
     /// the KB-JWT (TS12).
     #[serde(default)]
     pub transaction_data: Vec<String>,
+    /// The transport's selection handle, as the match answer carried
+    /// it (WMP OpenID4x 3.2.3.1): passed through unchanged, never
+    /// interpreted. Absent when the transport has no handle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection_handle: Option<String>,
 }
 
 /// The presentation answer.
@@ -656,6 +686,23 @@ pub trait Host: Send + Sync {
         ))
     }
 
+    /// Asks the host's user to pick one of the offered credential
+    /// configurations, when the offer names more than one (the Go
+    /// `awaiting_selection` + `select_credential` action path): the
+    /// user decides what the wallet issues.
+    ///
+    /// The default implementation refuses — an older host keeps every
+    /// single-configuration flow working (exactly one configuration is
+    /// auto-selected and never asked).
+    async fn request_credential_selection(
+        &self,
+        _params: CredentialSelectionParams,
+    ) -> Result<CredentialSelectionResult, HostError> {
+        Err(HostError::Cannot(
+            "credential selection not supported by this host".to_owned(),
+        ))
+    }
+
     /// Reports progress on a flow (a notification, not a request).
     fn progress(&self, flow_id: &str, step: &str, detail: Option<String>);
 }
@@ -673,8 +720,24 @@ pub struct EvaluationRequest {
     pub subject: String,
     /// The key material from the signed metadata (x5c or jwk).
     pub key_material: Vec<u8>,
-    /// The resource type being resolved (for `/v1/resolve`).
+    /// The subject's role for the evaluator: `credential-issuer` on
+    /// the issuance side (the subject is the credential's issuer),
+    /// `credential-verifier` on the presentation side (the subject is
+    /// the presentation's verifier). The backend's proxy maps it to
+    /// the AuthZEN action name (one of its default rules' allowed
+    /// set); a plain PDP ignores it.
     pub resource_type: Option<String>,
+    /// The evaluation's context (the Go engine's
+    /// `buildVerifierEvalContext`, carried by
+    /// `EvaluateVerifierWithContext`): what the PDP decides on beside
+    /// the key material — the `client_id_scheme`, the `response_uri`
+    /// and `redirect_uri`, the `trust_chain` from the request object's
+    /// JAR header (OID4VP §5.9.3.6), and the verifier attestation's
+    /// `attestation_issuer`/`attestation_subject`/`attestation_jwt`
+    /// (§5.9.3.4, whose whole JWT the PDP verifies). An empty object
+    /// when there is nothing to carry (the issuer evaluation).
+    #[serde(default)]
+    pub context: serde_json::Value,
 }
 
 /// The PDP's verdict.
@@ -730,9 +793,397 @@ pub trait Pdp: Send + Sync {
 
     /// Resolves a URL to a metadata document (the `/v1/resolve` shape).
     async fn resolve(&self, request: ResolveRequest) -> Result<ResolveResponse, PdpError>;
+
+    /// Evaluates the issuer's entitlement (ARF 6.6.2.3): is the provider
+    /// registered to issue what it offers. A question distinct from
+    /// trust, with its own wire shapes.
+    ///
+    /// The default implementation is [`PdpError::NotImplemented`], which
+    /// the caller treats as "not evaluated" — the findings never arise,
+    /// the flow proceeds — so a minimal PDP keeps every flow working and
+    /// the backend's implementation answers the check.
+    async fn evaluate_entitlement(
+        &self,
+        _request: EntitlementRequest,
+    ) -> Result<EntitlementDecision, PdpError> {
+        Err(PdpError::NotImplemented)
+    }
+}
+
+// ─── The presentation consent policy ────────────────────────────────────
+//
+// How the engine treats a match answer that does not fit the DCQL query
+// it was sent (#525, the Go `presentation.dcql_consent_check`): the
+// modes off, warn and enforce. The mode is deployment policy — the
+// adapter parses its configured value and sets it on
+// [`crate::Ports`](engine_core::Ports).
+
+/// How a match answer that does not fit the DCQL query it was sent is
+/// treated: `warn` (the default) records the violation and proceeds,
+/// `enforce` refuses the presentation before anything is signed, `off`
+/// compares nothing.
+///
+/// The default is warn — a consent check that cannot run must never
+/// read as "checked and fine", and an unrecognised configured value
+/// becomes warn, never off, so a typo cannot silently disable the
+/// check (the Go `DCQLConsentCheckMode.Effective()`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConsentCheckMode {
+    /// Records the violation (telemetry) and proceeds.
+    #[default]
+    Warn,
+    /// Refuses the presentation before anything is signed: the
+    /// verifier is answered `access_denied`, as a decline is.
+    Enforce,
+    /// Compares nothing.
+    Off,
+}
+
+impl ConsentCheckMode {
+    /// Parses a configured mode name, defaulting to warn — an empty or
+    /// unrecognised value is warn, never off, so a typo cannot
+    /// silently disable the check.
+    #[must_use]
+    pub fn parse(configured: &str) -> Self {
+        match configured {
+            "off" => Self::Off,
+            "enforce" => Self::Enforce,
+            _ => Self::Warn,
+        }
+    }
+
+    /// The mode's configured name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Enforce => "enforce",
+            Self::Off => "off",
+        }
+    }
+}
+
+// ─── The credential configuration selection ─────────────────────────────
+
+/// One credential configuration the wallet may select, as the
+/// `awaiting_selection` progress carries it: the configuration's id
+/// and the display members the selection UI shows (the Go
+/// `AvailableCredential`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableCredential {
+    /// The credential configuration's id.
+    pub id: String,
+    /// The configuration's first `display` entry, raw, for the
+    /// selection UI to render (the core passes it through; it is
+    /// issuer-controlled display content).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<serde_json::Value>,
+    /// The configuration's credential format identifier.
+    #[serde(default)]
+    pub format: String,
+    /// The `vct` (SD-JWT VC), when the configuration carries one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vct: String,
+}
+
+/// The credential configuration selection the engine asks the host for,
+/// when the offer names more than one configuration: the user picks
+/// what to issue (the Go `awaiting_selection` + `select_credential`
+/// action path).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialSelectionParams {
+    /// The flow the selection belongs to.
+    pub flow_id: String,
+    /// The configurations on offer, in the offer's order.
+    pub available: Vec<AvailableCredential>,
+}
+
+/// The selection answer: the chosen configuration's id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialSelectionResult {
+    /// The chosen configuration's id.
+    pub credential_configuration_id: String,
 }
 
 // ─── TokenProvider ──────────────────────────────────────────────────────
+
+// ─── The issuer entitlement (ARF 6.6.2.3) ─────────────────────────────────
+//
+// The wallet-side registration check: is the provider entitled to issue
+// what it offers. A question distinct from trust (a trusted issuer can
+// still be unregistered), so it rides its own PDP operation with its own
+// wire shapes.
+
+/// What a failed entitlement check does (the mode, ARF 6.6.2.3): `warn`
+/// records findings and allows issuance (the default — the ARF obligation
+/// applies 24 months after the amending Regulation), `fail` refuses, `off`
+/// skips evaluation. The mode lives with the evaluator: the PDP
+/// implementation applies its own configured mode to the answer it returns.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EntitlementMode {
+    /// Records failures and still allows issuance (the default).
+    #[default]
+    Warn,
+    /// Turns the same failures into a refusal to request issuance.
+    Fail,
+    /// Skips evaluation entirely.
+    Off,
+}
+
+impl EntitlementMode {
+    /// Parses a configured mode name, defaulting to warn — an
+    /// unrecognised value becomes warn rather than off, so a typo cannot
+    /// silently disable the check.
+    #[must_use]
+    pub fn parse(configured: &str) -> Self {
+        match configured {
+            "off" => Self::Off,
+            "fail" => Self::Fail,
+            _ => Self::Warn,
+        }
+    }
+
+    /// The mode's wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Fail => "fail",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// Why an entitlement evaluation failed (the finding's code — a caller acts
+/// on the code, never on a sentence).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntitlementCode {
+    /// The issuer metadata was signed by no certificate chain.
+    NoAccessCertificate,
+    /// The chain's leaf does not meet the WRPAC profile.
+    NotWrpac,
+    /// The issuer metadata carries no registration certificate.
+    NoRegistrationCertificate,
+    /// The registration certificate is not a readable `rc-wrp+jwt`.
+    RegistrationMalformed,
+    /// The registration certificate is not current.
+    RegistrationExpired,
+    /// The registration certificate's validity is not conformant
+    /// (GEN-5.2.4-08's cap).
+    RegistrationOverlong,
+    /// The registration certificate describes another provider.
+    BindingMismatch,
+    /// The registered entitlements name no provider role.
+    NotProvider,
+    /// The provider is not registered for an offered credential.
+    TypeNotRegistered,
+    /// The registration certificate's signature was not verified (or
+    /// nobody checked): its claims are not used.
+    RegistrationUnverified,
+    /// The signature is valid but the signer is no trusted Registrar.
+    RegistrarNotTrusted,
+    /// Nothing established that the chain that signed the metadata is
+    /// trusted.
+    AccessCertificateNotTrusted,
+}
+
+impl EntitlementCode {
+    /// The code's wire name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NoAccessCertificate => "no_access_certificate",
+            Self::NotWrpac => "access_certificate_not_wrpac",
+            Self::NoRegistrationCertificate => "no_registration_certificate",
+            Self::RegistrationMalformed => "registration_certificate_malformed",
+            Self::RegistrationExpired => "registration_certificate_expired",
+            Self::RegistrationOverlong => "registration_certificate_validity_too_long",
+            Self::BindingMismatch => "registration_certificate_not_bound",
+            Self::NotProvider => "not_an_attestation_provider",
+            Self::TypeNotRegistered => "attestation_type_not_registered",
+            Self::RegistrationUnverified => "registration_certificate_unverified",
+            Self::RegistrarNotTrusted => "registrar_not_trusted",
+            Self::AccessCertificateNotTrusted => "access_certificate_not_trusted",
+        }
+    }
+}
+
+/// One thing that did not check out. The message is the code's own —
+/// never issuer text; `credential_type` is the offered type when the
+/// finding is about one (issuer-controlled: bounded).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntitlementFinding {
+    /// The finding's code.
+    pub code: EntitlementCode,
+    /// The code's message.
+    pub message: String,
+    /// The offered type, bounded, when the finding is about one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_type: Option<String>,
+}
+
+/// The bounded entitlement decision (the #526 relay shape): the verdict
+/// and the findings, never the registration certificate's own content
+/// (`entitlements`, `subject` — issuer-controlled and display-only).
+///
+/// The bounds are part of the type (AGENTS.md's "Types"): a
+/// [`BoundedEntitlementDecision`] cannot carry more than 16 findings, a
+/// message beyond 256 bytes, or a credential type beyond 128 bytes —
+/// whatever the evaluator returned.
+pub const MAX_ENTITLEMENT_FINDINGS: usize = 16;
+/// The bound on a finding message, in bytes.
+pub const MAX_FINDING_MESSAGE_BYTES: usize = 256;
+/// The bound on a finding's credential type, in bytes.
+pub const MAX_FINDING_TYPE_BYTES: usize = 128;
+
+/// The entitlement evaluation's input: the evidence the evaluator (the
+/// PDP implementation) needs — the issuer's identifier, the raw issuer
+/// metadata document (the evaluator reads the `issuer_info` registration
+/// certificate from it, ETSI TS 119 472-3: the core does not model that
+/// member), the signing key material, and the configurations the wallet
+/// is about to request.
+///
+/// The shape mirrors the Go evaluator's input (`pkg/issuertrust`'s
+/// `Evaluate`: `Metadata` the raw document, `SignerX5C` the resolver's
+/// signing chain) — with the chain in the form [`Pdp::evaluate`]
+/// already receives, so one evaluator handles both questions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitlementRequest {
+    /// The issuer's identifier (the metadata's `credential_issuer`).
+    pub issuer: String,
+    /// The raw issuer metadata document, as resolved (the signed form:
+    /// the verified payload), carrying the members the core does not
+    /// model (`issuer_info` among them).
+    pub metadata: Vec<u8>,
+    /// The metadata's signing key material, as [`Pdp::evaluate`] received
+    /// it: the signed metadata JWT, or the inline `jwks`. The WRPAC — the
+    /// access certificate the entitlement check reads — is the chain that
+    /// signed this document.
+    pub key_material: Vec<u8>,
+    /// The configurations the flow is about to request (the offer's
+    /// configuration ids): the evaluator matches these against the
+    /// registration's entitlements.
+    pub offers: Vec<EntitlementOffer>,
+}
+
+/// One offered credential the evaluator matches against the
+/// registration: the format identifier and the type (`vct` for
+/// SD-JWT, `doctype` for mdoc).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntitlementOffer {
+    /// The OpenID4VCI credential format identifier, e.g. `dc+sd-jwt`.
+    pub format: String,
+    /// The `vct` or `doctype`. May be empty, in which case the evaluator
+    /// matches the format alone.
+    pub credential_type: String,
+}
+
+/// The entitlement evaluator's decision, as the flow and the wire carry
+/// it — already bounded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundedEntitlementDecision {
+    /// Whether issuance may proceed. In warn mode it stays true even with
+    /// findings, so a wallet can still surface them.
+    pub allowed: bool,
+    /// Which mode produced the decision, so "passed" reads apart from
+    /// "would have failed but we are in warn mode".
+    pub mode: EntitlementMode,
+    /// False when there was nothing to evaluate against — no registration
+    /// certificate, or mode off. Deliberately distinct from `allowed`:
+    /// "not checked" must never read as "checked and fine".
+    pub evaluated: bool,
+    /// The findings, at most [`MAX_ENTITLEMENT_FINDINGS`].
+    pub findings: Vec<EntitlementFinding>,
+    /// True when more findings arose than the bound carries.
+    pub findings_truncated: bool,
+}
+
+/// The unbounded decision the evaluator returns, before the relay bounds
+/// it: the registration certificate's own content (`entitlements`,
+/// `subject`) rides here — display-only, stripped by
+/// [`EntitlementDecision::bounded`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntitlementDecision {
+    /// The verdict and the mode, as [`BoundedEntitlementDecision`].
+    pub allowed: bool,
+    /// The mode that produced the decision.
+    pub mode: EntitlementMode,
+    /// Whether anything was evaluated.
+    pub evaluated: bool,
+    /// The findings (unbounded in the evaluator's own answer).
+    #[serde(default)]
+    pub findings: Vec<EntitlementFinding>,
+    /// True when the findings were truncated upstream.
+    #[serde(default)]
+    pub findings_truncated: bool,
+}
+
+/// The no-evaluation decision: `Evaluated=false`, `Allowed=true`, mode
+/// off — nothing was checked, nothing refused. The answer a minimal PDP
+/// gives (its operation is not implemented), so the flow proceeds the
+/// way the ARF's grace period intends.
+#[must_use]
+pub fn entitlement_not_evaluated() -> EntitlementDecision {
+    EntitlementDecision {
+        allowed: true,
+        mode: EntitlementMode::Off,
+        evaluated: false,
+        findings: Vec::new(),
+        findings_truncated: false,
+    }
+}
+
+impl EntitlementDecision {
+    /// The bounded relay form (#526): the verdict and the findings, the
+    /// issuer-controlled display content (`entitlements`, `subject`)
+    /// stripped, the findings capped at [`MAX_ENTITLEMENT_FINDINGS`] with
+    /// `findings_truncated` set, the messages and types cut on rune
+    /// boundaries. Nothing of the registration certificate's own content
+    /// is relayed.
+    #[must_use]
+    pub fn bounded(&self) -> BoundedEntitlementDecision {
+        let mut findings = Vec::new();
+        let mut truncated = self.findings_truncated;
+        for finding in &self.findings {
+            if findings.len() >= MAX_ENTITLEMENT_FINDINGS {
+                truncated = true;
+                break;
+            }
+            findings.push(EntitlementFinding {
+                code: finding.code,
+                message: bound_text(&finding.message, MAX_FINDING_MESSAGE_BYTES),
+                credential_type: finding
+                    .credential_type
+                    .as_deref()
+                    .map(|text| bound_text(text, MAX_FINDING_TYPE_BYTES)),
+            });
+        }
+        BoundedEntitlementDecision {
+            allowed: self.allowed,
+            mode: self.mode,
+            evaluated: self.evaluated,
+            findings,
+            findings_truncated: truncated,
+        }
+    }
+}
+
+/// Cuts `text` to at most `max` bytes on a char boundary, dropping
+/// control and non-printable characters.
+#[must_use]
+fn bound_text(text: &str, max: usize) -> String {
+    let mut out = String::with_capacity(text.len().min(max));
+    for ch in text.chars() {
+        if !ch.is_control() && !ch.is_whitespace() || ch == ' ' {
+            if out.len() + ch.len_utf8() > max {
+                break;
+            }
+            out.push(ch);
+        }
+    }
+    out
+}
 
 /// Supplies the bearer token the engine's `BackendProxy` PDP implementation
 /// presents to the backend's proxy.

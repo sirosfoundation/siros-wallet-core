@@ -314,8 +314,19 @@ fn os_entropy() -> wmp_core::sessionservice::EntropyFn {
 /// The flows capability the session create advertises (core §10.3): the
 /// same shape the wasm dispatcher offers.
 fn flows_capability(max_concurrent: i64) -> Result<wmp_core::types::Capabilities, String> {
-    serde_json::from_value(serde_json::json!({ "flows": { "max_concurrent": max_concurrent } }))
-        .map_err(|err| format!("the flows capability does not serialize: {err}"))
+    // The credential_notification capability (WMP OpenID4x 2.4): the
+    // events the engine forwards and the TTL of the context it
+    // retains. A wallet that wants to run the flow offers it; a
+    // session that did not negotiate it refuses the flow (-31005,
+    // core 10.3).
+    serde_json::from_value(serde_json::json!({
+        "flows": { "max_concurrent": max_concurrent },
+        "credential_notification": {
+            "events": ["credential_accepted", "credential_failure"],
+            "context_ttl_seconds": 300,
+        },
+    }))
+    .map_err(|err| format!("the flows capability does not serialize: {err}"))
 }
 
 // ─── The gates and the translation ───────────────────────────────────────────

@@ -42,27 +42,24 @@ The Go engine (`oid4vp.go:56-72, 507-851, 1832-1859`) vs the Rust
 
 | Scheme | Go engine | Rust engine | Verdict |
 |---|---|---|---|
-| `redirect_uri` | default; no signature requirement; best-effort key material from `client_metadata` (x5c > jwks > jwks_uri), else unverified JWT header extraction | recognized; JWS verified under `x5c` when present; no key-material extraction | **aligned on acceptance**; key-material enrichment → §3 trust |
-| `did:` | `did:` and `decentralized_identifier:` both infer; server-side DID resolution (`TrustSvc.ResolveDID`); JWT must verify against ≥1 resolved key | `did:` infers; **no `decentralized_identifier:` prefix**; no resolution — trust goes straight to the PDP | **gap A1** (prefix); **gap A2** (resolution — architectural, see below) |
-| `x509_san_dns:` | JWT-required; JWS verified pre-cache (`:1986-1994`); key material must be `x5c`; SAN↔DNS binding delegated to the PDP | JWS verified under `x5c` when present; **unsigned/chainless accepted** | **gap A3**: enforce the signed+x5c requirement |
+| `redirect_uri` | default; no signature requirement; best-effort key material from `client_metadata` (x5c > jwks > jwks_uri), else unverified JWT header extraction | recognized; JWS verified under `x5c` when present; the best-effort key material (x5c > the metadata's jwks > the request JWT header's jwk) | **aligned (W8)** — the key-material enrichment landed |
+| `did:` | `did:` and `decentralized_identifier:` both infer; server-side DID resolution (`TrustSvc.ResolveDID`); JWT must verify against ≥1 resolved key | both prefixes infer (W1); the resolution behind the Pdp `resolve` port (`did_document`), the request JWT verified engine-side against the resolved `publicKeyJwk`s, the **matched key** the PDP evaluates; a PDP without DID resolution = best-effort, a failed one fails closed | **landed (W8)** — gap A2 closed per the recorded architecture |
+| `x509_san_dns:` | JWT-required; JWS verified pre-cache (`:1986-1994`); key material must be `x5c`; SAN↔DNS binding delegated to the PDP | signed+x5c enforced (W1); the `x5c` chain is the key material the PDP evaluates (W8) | **landed (W8)** |
 | `x509_san_uri:` | falls into the default best-effort path (no dedicated handling) | same (recognized, no dedicated path) | **aligned** (both best-effort) |
 | `x509_hash:` | JWT-required; JWS verified; the hash↔leaf binding **left to the PDP** | JWS verified; **hash↔leaf binding checked in-engine** (constant time; unsigned/chainless refused) | **aligned** (Rust stricter; the PDP check is redundant but compatible) |
-| `verifier_attestation:` | attestation extracted from the request JWT's `jwt` header param (`pkg/trust/jwtutil.go:93-168`): `iss`/`sub`/`cnf.jwk` required, request JWT signature verified against `cnf.jwk`, `sub` must equal `client_id` minus the prefix; attestation key material → PDP | recognized; **no handling** | **gap A4**: extraction + `sub` check + signature verification |
+| `verifier_attestation:` | attestation extracted from the request JWT's `jwt` header param (`pkg/trust/jwtutil.go:93-168`): `iss`/`sub`/`cnf.jwk` required, request JWT signature verified against `cnf.jwk`, `sub` must equal `client_id` minus the prefix; attestation key material → PDP | the extraction + checks (W1); the `cnf.jwk` is the key material and the whole attestation JWT rides the eval context (W8) — the PDP verifies it | **landed (W8)** |
 
-**A2 (DID resolution) — the architectural decision.** The Go engine resolves
-the DID document server-side and verifies the request JWT against the
-resolved keys before the PDP decides trust. The Rust core's `Pdp` port
-already carries the `/v1/resolve` shape (`ResolveRequest{uri,
-resource_type}`), and the wasm/mini host answers it always-trusted. The
-alignment decision, recorded here: **the DID document resolution moves
-behind the Pdp port** (`resolve` with a `did_document` resource type), with
-the **engine verifying the request JWT against the resolved keys** once the
-port returns them — the same split the Go engine makes between resolution
-(`TrustSvc`) and trust (`evaluate`). Until a `Pdp` implementation answers
-`did_document` resolutions, the engine treats a `did:`-schemed verifier as
-best-effort (the current behavior), the same way an unconfigured PDP fails
-closed. *(Open: extend `ResolveResponse` with the DID verification methods,
-or return the raw document and verify engine-side — preferred, the latter.)*
+**A2 (DID resolution) — landed (W8), as the decision recorded.** The DID
+document resolution moves behind the Pdp port (`resolve` with a
+`did_document` resource type), the port returning the **raw document** (the
+preferred form), and the engine verifying the request JWT against the
+resolved `publicKeyJwk`s itself — the matched key is the key material the
+PDP evaluates, exactly the Go engine's split between resolution
+(`TrustSvc.ResolveDID`) and trust (`evaluate`). The transition state, as
+recorded: a PDP that does not implement `did_document` resolutions answers
+the did-schemed verifier **best-effort** (the metadata's jwks, the request
+JWT unverified); a configured resolution that fails **fails closed**, as
+the evaluate step does.
 
 ## 2. Flow progress steps
 
@@ -131,7 +128,7 @@ whatever answers, including the user).
 
 | Gap | Action |
 |---|---|
-| eval-context (scheme, URIs, trust chain, attestation) | **gap C1**: extend `EvaluationRequest` with a context map |
+| eval-context (scheme, URIs, trust chain, attestation) | **landed (W8)**: `EvaluationRequest.context` — the `client_id_scheme` claim name, `response_uri`/`redirect_uri`, the `trust_chain` from the JAR header (OID4VP §5.9.3.6), the attestation's `attestation_issuer`/`attestation_subject`/`attestation_jwt` (§5.9.3.4) |
 | verdict cache | **gap C2**: adapter-side (the core is stateless; the server adapter caches) |
 | no-PDP frontend path | **by design** — the port's implementation bridges (documented); the SDK's `Pdp` callback answers |
 
@@ -151,10 +148,11 @@ Aligned after the conformance milestones unless noted:
 - OID4VCI: offers (by value/URI), both grants, PKCE, PAR + the RFC 7523
   assertion at both PAR and token, tx_code, deferred (5s×60), §11
   notification, DPoP, response encryption — suite-validated on both
-  grants. **Gap B1** (selection), **gap E1**: §10 client-initiated
-  notification (Go registers a TTL'd notification context and forwards the
-  client's later `credential_notification`; the SDK's WMP layer has
-  `wmp.credential.notification`).
+  grants. **Gap B1** (selection, landed W6), **gap E1**: the §10
+  client-initiated notification **landed (W7)** — the
+  `credential_notification` flow over the TTL'd, single-use context
+  store; the legacy `wmp.credential.notification` method is WS-era and
+  does not carry over.
 - Decline/no-match OAuth descriptions: Go sends the **same** description
   (`"The wallet did not fulfil the request"`) for decline and no-match so
   the verifier cannot probe which; Rust sends distinct strings —
@@ -191,8 +189,8 @@ not the engine.
 | **#522** issuer entitlement (ARF 6.6.2.3) | After the trust decision: WRPAC/WRPRC registration check per offered configuration (`pkg/issuertrust`), modes `fail`/`warn`/`off`, findings (≤16, truncated) as progress or `ISSUER_NOT_ENTITLED` refusal | **Absent** — only the `-31020` constant exists (`ERR_ISSUER_NOT_ENTITLED`, wmp-core); no rulebook parsing, no engine call site, no findings | W5 |
 | **#525** consent component | One transport-independent OID4VP consent component (DCQL vetting `dcql_consent_check`, selection handle, observer) | **Different architecture**: consent is the Host-port ask; decline→`access_denied` exists; DCQL vetting/selection-handle absent | W6 (SDK-side) |
 | **#526** entitlement→WMP mapping | `ISSUER_NOT_ENTITLED` → −31020 + `{issuer, issuer_entitlement}` data; `UNTRUSTED_ISSUER` → −31006 `{reason:"untrusted_issuer", retryable:false}`; bounding/filtering of findings | **Absent** (only the code constant) — folds into W5 | W5 |
-| **#527** credential_notification flow (OpenID4x 3.4) | The client-initiated notification as a **flow**: context store (bound to the issuance session+principal, single use per `notification_id`, ≤256 ids, TTL 5 min), capability advert, DPoP `sign_client_auth` sub-flow for client-held keys (htu = endpoint without query/fragment), failure reasons, completion gains `notification_endpoint` + `credentials[].notification_id`; legacy method kept | **Absent** (gap E1): the legacy `wmp.credential.notification` method dispatches (no-op default); the engine's own in-flow §10/§11.1 best-effort send exists (`deferred.rs`). No flow, no context store, no single-use semantics, no capability advert | W7 |
-| **#528** DPoP notification after flow end | The context is spent only after the issuer was actually contacted; a refused/timed-out `sign_client_auth` **restores** it (original expiry); retry until TTL | Absent by consequence of the above — must come with W7 | W7 |
+| **#527** credential_notification flow (OpenID4x 3.4) | The client-initiated notification as a **flow**: context store (bound to the issuance session+principal, single use per `notification_id`, ≤256 ids, TTL 5 min), capability advert, DPoP `sign_client_auth` sub-flow for client-held keys (htu = endpoint without query/fragment), failure reasons, completion gains `notification_endpoint` + `credentials[].notification_id`; legacy method kept | **Landed (W7)**: `oid4vci/notification.rs` — the `credential_notification` flow, the TTL'd single-use context store (`Ports.notifications`), the capability advert (server + wasm), the `-32602` member validation, the `-31006 {reason, retryable}` reasons, the issuance completion's `notification_endpoint` + `notification_id`, the DPoP proof over the stripped htu (the client-held key via `request_dpop_proof`, the engine-held key the fallback). The legacy WS method does not carry over | W7 ✅ |
+| **#528** DPoP notification after flow end | The context is spent only after the issuer was actually contacted; a refused/timed-out `sign_client_auth` **restores** it (original expiry); retry until TTL | **Landed (W7)**: the claim/unspend pair — `ForwardOutcome::NotSent` unspends with the original expiry, the seq check never revives a superseded registration, and the retry forwards the same id (tested through the flow) | W7 ✅ |
 | **#529** entitlement wiring into the bridge | `errorWire` → #526's mapping; one terminal error per flow (never −31020 and −31006 together); malformed findings dropped, never relayed as a trust result | Nothing to wire until W2/W5 — the rules fold into both | W2+W5 |
 
 ### §6.10 The #319 engine seam (the decision: the Rust adapter replicates it)
@@ -331,10 +329,9 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    wasm self-test. **#511 — the offer's `authorization_server` hint**
    (`select_as_url`, both grant paths + the resume): a grant-level hint
    MUST match a metadata entry exactly (else fail closed); absent + several
-   advertised: the documented first-entry choice. **Remaining from §2:
-   the `awaiting_selection` step + the multi-config `select_credential`
-   action path** — folded into W6 (the consent/selection wave), where the
-   selection UX belongs.
+   advertised: the documented first-entry choice. **The `awaiting_selection` step + the
+   multi-config `select_credential` action path** — landed with W6
+   (the consent/selection wave).
 2. **W2 — the bridge (#163): COMPLETE.** ✅ the SSE event pump (`id:`
    lines, `Last-Event-ID` replay, `410 Gone`, the
    `refresh_token`/`dpop_jwk`/`dpop_key_id` redaction, and the replayer
@@ -381,23 +378,138 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    builds the proof TBS, so no opening can enter structurally); the
    §7 metadata rule and the plain-secret check (§7.1); the conflict
    relay (§8). The engine never handles a secret value. Design survey
-   §6.12. **Remaining: the strict offer decode (pkg/strictjson's
-   unknown-member rejection on the offer)** — small, folded into W9's
-   hardening pass.
-5. **W5 — the entitlement stack (#522/#526/#529)**: `issuertrust`
-   (WRPAC/WRPRC, registrar PDP action), the engine call site + modes +
-   findings, the −31020 wire data with bounding.
-6. **W6 — the consent component (#525)**: the SDK-side DCQL vetting and
-   selection handle.
-7. **W7 — the notification flow (#527/#528)**: the flow type, the context
-   store with single-use/spend-after-contact/TTL semantics, the DPoP
-   sub-flow, the capability advert.
-8. **W8 — trust plumbing** (from §3): the eval-context map on
-   `EvaluationRequest`; DID resolution behind `resolve` + engine-side JWT
-   verification.
-9. **W9 — SDK adapter + transports + real testing**: port wiring (F2/F3),
-   `WmpUniFFITransport`, the AAR/XCFramework CI, then end-to-end against
-   the deployed stack.
+   §6.12. **The strict offer decode landed (W9)**: the third-party
+   offer documents (the `credential_offer` URI parameter, the fetched
+   offer, the inline form) refuse unknown members
+   (`OfferError::UnknownMember`); the by-value params form — the
+   wallet's own merge — stays lenient, exactly as the Go engine's
+   always-own-document differs.
+5. **W5 — COMPLETE (#522/#526/#529, the core's half)**: the
+   entitlement wire shapes on the `Pdp` port (`engine-ports`: the
+   warn/fail/off mode parsed with warn as the default, the twelve
+   finding codes, the decision with its bounded relay form, the
+   not-evaluated answer, `Pdp::evaluate_entitlement` with a
+   `NotImplemented` default); the call site in `oid4vci/entitlement.rs`
+   (the request: the raw document — `issuer_info` rides it unmodelled,
+   ETSI TS 119 472-3 — the signing key material as the trust decision
+   received it, the offers with the type each format counts, the Go
+   `OfferFor`); the flow wiring (start + resume, after the trust
+   decision, before the grant dispatch; the trust refusal answers
+   first, so never both refusals for one flow); the additive
+   `trust_evaluated` progress (`issuer_entitlement_evaluated`, never
+   `issuer_trust_evaluated`, no `trust_info`); the −31020 refusal with
+   the bounded decision. `IssuerMetadata` carries the raw document as
+   resolved. The evaluation itself stays behind the port (the backend
+   adapter implements it on `go-trust`'s rpcert); the mode lives there
+   too. **Remaining: the backend adapter's `evaluate_entitlement`**
+   (the WRPAC/WRPRC rulebook evaluation on `go-trust`'s rpcert,
+   mirroring `pkg/issuertrust`) — lands with the adapter work in W9.
+6. **W6 — COMPLETE (the consent component #525 + the selection)**:
+   `oid4vp/consent.rs` — the DCQL vetting of the host's match answer
+   (the Go `checkConsentAgainstDCQL`, its fixture table ported case
+   for case): the four reason classes, `always_disclosed`, the bounds
+   (a 32-element path, a 512-byte entry, a 64-character logged id),
+   the bare and `.`-joined entry spellings, the memoised wildcard
+   matcher, the `credential_sets` options constraint. The mode
+   (`presentation.dcql_consent_check`: off/warn/enforce, the default
+   warn) rides `Ports` — `engine_ports::ConsentCheckMode`. Warn
+   records the violation (telemetry: the reason class and the query id
+   alone, never a claim name) and proceeds; enforce answers the
+   verifier `access_denied` before the consent UI is asked — the
+   two-ask split vets at the match answer, where the Go single ask
+   vets after. The transport's selection handle (OpenID4x 3.2.3.1)
+   rides `MatchResult.handle` into `VpParams.selection_handle`,
+   unchanged. `oid4vci/selection.rs` — the `awaiting_selection` step
+   and the host ask (`Host::request_credential_selection`, default
+   refusal): exactly one resolvable configuration auto-selects (no
+   progress, no ask); more emits the progress with the
+   `available_credentials` (the Go wire names) and asks. The answer is
+   constrained to the offer — stronger than the Go engine's
+   metadata-wide check — because the entitlement check evaluated the
+   offered configurations: a selection outside the offer refuses. The
+   auth-code stash carries the selection; the resume requests the
+   stashed configuration, no second ask. The selected configuration
+   threads the auxiliary gate, the authorization request (the scope)
+   and the credential request — the blinded `first()` is gone.
+7. **W7 — COMPLETE (the notification flow #527/#528)**: the
+   `credential_notification` flow (`oid4vci/notification.rs`,
+   registered on the server, the wasm dispatcher and the conformance
+   runner); the context store (`Ports.notifications`, in-process,
+   never persisted — the access token rides it): the 5-minute TTL,
+   the single-use claim per `notification_id` bound to the issuance
+   session, the ≤256 blind ids, the spend-after-contact rule (#528:
+   `NotSent` unspends with the original expiry, the seq check never
+   revives a superseded registration), the 32-forward backpressure
+   (busy, retryable, the context kept); the start's validation
+   (OpenID4x 3.4.1's bounds, the `-32602 {member}` refusals); the
+   forward (the §10 body to the full endpoint, the DPoP proof over the
+   endpoint without query/fragment — the client-held key via
+   `request_dpop_proof`, the engine-held key the fallback — the nonce
+   retry, 204/200); the reasons (context_unavailable, busy,
+   signing_failed, forward_failed, timeout) on `-31006
+   {reason, retryable}`; the issuance completion registers and gains
+   `notification_endpoint` + `notification_id`; the capability advert
+   (`credential_notification: {events, context_ttl_seconds}` on the
+   server and the wasm dispatcher — the runtime gate answers `-31005`
+   without it). The server's runtime now registers its families
+   (oid4vci, oid4vp, credential_notification — it answered `-31005`
+   for everything before).
+8. **W8 — COMPLETE (trust plumbing, §1 + §3)**: the eval-context map on
+   `EvaluationRequest.context` (gap C1 — the Go
+   `buildVerifierEvalContext`: the scheme's claim name, the
+   response/redirect URIs, the JAR header's `trust_chain`
+   (OpenID4VP §5.9.3.6), the whole verifier attestation JWT
+   (§5.9.3.4, which the PDP verifies itself), forwarded by the
+   server's proxy); the DID resolution (gap A2, the recorded
+   architecture): the did-schemed request resolves the DID document
+   behind the Pdp `resolve` port (`did_document`), the engine verifies
+   the request JWT against the resolved `publicKeyJwk`s, and the
+   matched key — not the DID in the abstract — is the key material
+   the PDP evaluates; a PDP without DID resolution answers best-effort
+   (the documented transition), a failed one fails closed; the
+   per-scheme key material (the x.509 schemes' `x5c` chain as the
+   header carried it, the attestation's `cnf.jwk`, the best-effort
+   chain x5c > the metadata's jwks > the request JWT header's jwk).
+   The parser retains the raw request JWT, the chain and the
+   attestation on `AuthorizationRequest` for the evaluation.
+9. **W9 — IN PROGRESS (the Rust half landed)**: **the strict offer
+   decode** (the folded W4 remainder — see W4's entry); **the
+   peer↔runtime cycle fixed at the root** — `FlowRuntime::set_peer`:
+   the server's placeholder dance left its handler dispatching to a
+   runtime over a dead placeholder peer with no families (every flow
+   start answered -31005, and even registered families would have
+   sent their notifications nowhere) — one runtime now, the real peer
+   swapped in before any flow can start; **the F2/F3 wiring** —
+   `create_engine` over the full ports (the SDK's Host/HttpClient/Pdp
+   callbacks bridged to `engine-ports`, the built-ins, the three flow
+   families, the capability advert, the tokio runtime, the
+   notification channel with `take_notifications` and the blocking
+   `read_notification`); **the real e2e at the adapter**
+   (`engine-adapter-sdk/tests/engine_e2e.rs`): the session create with
+   the capability negotiation, an issuance flow through the bridges,
+   the completion — with W7's notification members — read from the
+   channel the transport polls, and the no-PDP fail-closed.
+   **The rest landed**: the **packaging CI** (ci.yml's
+   `xcframework`/`aar` jobs — the recipes verified on every push;
+   the first runs found and fixed the v4 input change of
+   setup-android and the BSD `wc` padding); the **real e2e**
+   (`engine-adapter-server/tests/e2e.rs` — a wallet client driving a
+   complete pre-authorized issuance and its credential_notification
+   flow through the HTTP+SSE binding, the child asks answered from
+   the stream while the parent POST is in flight, the PDP proxy, the
+   issuer fetches through ServerHttpClient — the drive found and
+   fixed the credential asks' constant flow id);
+   the **SDK transports** opened as PRs:
+   [siros-sdk-kotlin#383](https://github.com/sirosfoundation/siros-sdk-kotlin/pull/383)
+   (the bindings vendored source + `WmpUniFFITransport` + the tests,
+   which run where the native library loads and skip on a plain JVM)
+   and
+   [siros-sdk-swift#264](https://github.com/sirosfoundation/siros-sdk-swift/pull/264)
+   (the same, `#if canImport`-gated so the package builds everywhere
+   today). **Remaining: the first `siros-wallet-core` release tag**
+   (the owner's call) — the release workflow builds the
+   XCFramework/AAR artifacts; the Swift PR's `binaryTarget` line +
+   checksum lands with it.
 
 **The deployment notes (§6.11):** #432 — a multi-replica deployment needs
 shared WMP routing/replay state (the outbox and the flow registry are the
