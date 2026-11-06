@@ -122,8 +122,9 @@ impl ImageRef {
     }
 }
 
-/// Integrity metadata (W3C SRI §3.3.3) as a document wrote it: every text parses, the tokens no
-/// supported algorithm names are ignored, and [`crate::sri::matches`] reads the rest.
+/// Integrity metadata (W3C SRI §3.3.3) as a document wrote it: any text.
+/// [`crate::sri::matches`] reads it through [`crate::sri::Integrity::parse`], and a text the
+/// parser refuses matches nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SriMetadata(String);
 

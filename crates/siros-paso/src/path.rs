@@ -9,6 +9,8 @@ use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Ste
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::Quoted;
 
+use crate::conform::NullIndices;
+
 /// A path read where its element has another kind: a member name in a non-object, an index or
 /// `null` in a non-array (Core §7.4.2 step 2).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -93,7 +95,10 @@ pub fn selects(steps: &[Step<'_>], parts: &[Concrete<'_>]) -> bool {
 /// (View §2 expansion, View §3 template references); `None` when an index cannot exist (beyond
 /// the platform's integers) or a `null` has no index.
 #[must_use]
-pub fn substitute<'p>(steps: &[Step<'p>], indices: &[usize]) -> Option<ConcretePath<'p>> {
+pub(crate) fn substitute<'p>(
+    steps: &[Step<'p>],
+    indices: &NullIndices,
+) -> Option<ConcretePath<'p>> {
     let mut nulls = indices.iter();
     steps
         .iter()
@@ -103,7 +108,6 @@ pub fn substitute<'p>(steps: &[Step<'p>], indices: &[usize]) -> Option<ConcreteP
             Step::Beyond => None,
             Step::All => nulls
                 .next()
-                .copied()
                 .map(|index| Concrete::Index(ArrayIndex::new(index))),
         })
         .collect()

@@ -8,6 +8,7 @@ use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use siros_explain::Explain;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{
     HttpsUrl, Image, ImageHeight, ImageMedia, ImageRef, ImageSource, ImageWidth, RemoteImage,
     Shown, SriMetadata,
@@ -55,7 +56,7 @@ pub enum ImageFailure {
     IntegrityMismatch,
     /// Fetched content of a media type other than PNG, JPEG or SVG.
     #[error("media type {0}")]
-    MediaType(#[explain(name = "media_type")] String),
+    MediaType(#[explain(name = "media_type")] MediaType),
     /// Neither a Data URL of a supported image nor an https URL.
     #[error("neither a Data URL nor https")]
     NeitherDataNorHttps,
@@ -82,7 +83,7 @@ pub enum Resolution<'r> {
         /// The content.
         content: &'r [u8],
         /// The media type.
-        media: &'r str,
+        media: &'r MediaType,
     },
     /// Its fetch failed, for this reason.
     Failed(&'r str),
@@ -180,8 +181,8 @@ pub fn resolve<'r>(
             if !sri::matches(content, &integrity) {
                 return Err(refuse(ImageFailure::IntegrityMismatch));
             }
-            let media = Media::of(media)
-                .ok_or_else(|| refuse(ImageFailure::MediaType(media.to_owned())))?;
+            let media = Media::of(media.essence())
+                .ok_or_else(|| refuse(ImageFailure::MediaType(media.clone())))?;
             (
                 Cow::Borrowed(content),
                 media,

@@ -21,11 +21,12 @@ use rand::seq::IndexedRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::json;
+use siros_explain::Text;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::{ProfileFinding, Registry};
 use siros_openid4vp::resolve::{Finding, Outcome};
-use siros_qes::{CLAIM, FailedDocuments, Fetched, NAMESPACE, QesProfile};
+use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, QesTitle};
 use siros_testkit::Published;
 use siros_testkit::TestHost;
 
@@ -152,7 +153,7 @@ impl Case {
         QesProfile::new(
             self.held
                 .iter()
-                .map(|(k, fetched)| (DOCS[*k].to_owned(), fetched.clone())),
+                .map(|(k, fetched)| (DocumentHref::new(DOCS[*k]), fetched.clone())),
         )
     }
 
@@ -163,40 +164,28 @@ impl Case {
             .map(|(_, fetched)| fetched)
     }
 
-    /// The first binding rule the credential breaks, as (reason, clause).
-    fn broken(&self) -> Option<(String, &'static str)> {
+    /// The clause of the first binding rule the credential breaks.
+    fn broken(&self) -> Option<&'static str> {
         let approves = self
             .approved
             .as_ref()
             .is_some_and(|approved| approved.contains(&self.qualifier));
         if !approves {
-            return Some((
-                format!("the credential cannot approve {}", self.qualifier),
-                "CSC §6.3; §7.2.1 Note 22",
-            ));
+            return Some("CSC §6.3; §7.2.1 Note 22");
         }
         if !self.credential.carries() {
-            return Some((
-                "the presentation cannot carry qesApproval".to_owned(),
-                "CSC §7.2.1; OpenID4VP B.2",
-            ));
+            return Some("CSC §7.2.1; OpenID4VP B.2");
         }
         self.docs
             .iter()
-            .enumerate()
-            .find(|(_, doc)| {
+            .any(|doc| {
                 doc.checksum
                     && self.held(doc.href).is_some_and(|fetched| match fetched {
                         Fetched::Content(content) => sri(content) != sri(DOC),
                         Fetched::Failed => true,
                     })
             })
-            .map(|(k, _)| {
-                (
-                    format!("document {} does not match its checksum", k + 1),
-                    "CSC §6.3",
-                )
-            })
+            .then_some("CSC §6.3")
     }
 
     /// The documents phase 2 fetches and finds failing, with what the fetch returns.
@@ -228,12 +217,12 @@ fn the_profile_keeps_the_properties_the_model_states() {
         let registry = registry(Some(case.profile()));
         let held = std::slice::from_ref(&case.credential);
         let (matched, views) = phase_one(&text, held, &registry, &env("en")).expect("accepted");
-        if let Some((reason, clause)) = case.broken() {
+        if let Some(clause) = case.broken() {
             assert_eq!(
                 matched,
                 Matched {
                     candidates: Vec::new(),
-                    excluded: vec![("c".to_owned(), reason, clause.to_owned())],
+                    excluded: vec![("c".to_owned(), clause.to_owned())],
                 },
                 "case {at}: {}",
                 case.entry
@@ -247,18 +236,17 @@ fn the_profile_keeps_the_properties_the_model_states() {
         };
         let overlay = view.entry.overlay().expect("the approval's overlay");
         let rows: Vec<_> = view.entry.rows().collect();
-        let creates = if case.qualifier == "eu_eidas_qes" {
-            "signatures"
+        let title = if case.qualifier == "eu_eidas_qes" {
+            QesTitle::TitleSignatures
         } else {
-            "seals"
+            QesTitle::TitleSeals
         };
         assert!(
             overlay.header.is_none()
                 && overlay.hint.is_none()
                 && rows.first().is_some_and(|row| row.value.is_none())
                 && rows.last().map(|row| plain(&row.label, "en")).as_deref() == Some("userName")
-                && view.header.as_ref().map(|h| plain(&h.title, "en"))
-                    == Some(format!("Approve qualified {creates}")),
+                && view.header.as_ref().map(|h| &h.title) == Some(&Text::of(&title)),
             "case {at}: {:?}",
             view.entry
         );
@@ -284,11 +272,11 @@ fn the_profile_keeps_the_properties_the_model_states() {
                     .filter_map(|finding| finding.data::<FailedDocuments>())
                     .flat_map(|failed| failed.documents())
                     .map(|document| {
-                        let content = match &document.fetched {
+                        let content = match document.fetched() {
                             Fetched::Content(content) => Some(content.clone()),
                             Fetched::Failed => None,
                         };
-                        (document.href.clone(), content)
+                        (document.href().as_str().to_owned(), content)
                     })
                     .collect();
                 let want: Vec<(String, Option<Vec<u8>>)> = failing
@@ -303,7 +291,7 @@ fn the_profile_keeps_the_properties_the_model_states() {
                         && again
                             .excluded
                             .iter()
-                            .all(|(_, _, clause)| clause == "CSC §6.3"),
+                            .all(|(_, clause)| clause == "CSC §6.3"),
                     "case {at}: informed, {again:?}"
                 );
                 seen[1] += 1;
@@ -370,7 +358,7 @@ fn fails_on(
             | Finding::Format { .. } => None,
         })
         .flat_map(FailedDocuments::documents)
-        .any(|document| document.href == href && document.fetched == Fetched::Failed)
+        .any(|document| document.href().as_str() == href && *document.fetched() == Fetched::Failed)
 }
 
 /// What is published at the documents' hrefs.

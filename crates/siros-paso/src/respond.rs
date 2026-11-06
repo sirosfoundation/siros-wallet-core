@@ -237,7 +237,7 @@ impl Answer<'_> {
         ));
         out.push((
             sca::member(placement, Sca::WalletInstanceVersion),
-            MemberValue::Text(modules.paso.version().to_owned()),
+            MemberValue::Text(modules.paso.version().as_str().to_owned()),
         ));
         let envelopes = self.envelopes(modules, authentication)?;
         if !envelopes.is_empty() {

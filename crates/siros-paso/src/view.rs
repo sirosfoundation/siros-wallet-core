@@ -28,12 +28,13 @@ use siros_i18n::{
 use siros_openid4vp::json::Node;
 
 use crate::adhoc::Carried;
+use crate::conform::ClaimIndex;
 use crate::locale::{ArrayKey, chain, lookup, selectable};
 use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
 use crate::outcome::Outcome;
 use crate::render::{arrays, rulebook_metadata};
-use crate::rulebook::Family;
+use crate::rulebook::PasoType;
 use crate::template::{Placeholder, placeholders};
 use crate::value::{FormattedKind, ValueKind};
 
@@ -64,8 +65,8 @@ pub(crate) fn key(array: ArrayKey) -> DefinedKey {
 }
 
 /// The name of the argument a template's `{n}` gives claim n's value under.
-pub(crate) fn argument(claim: usize) -> ParamName {
-    ParamName::numbered(checked!(ArgName, "c"), claim)
+pub(crate) fn argument(claim: ClaimIndex) -> ParamName {
+    ParamName::numbered(checked!(ArgName, "c"), claim.get())
 }
 
 /// The name of the argument that tells whether the template entry at `position` of an array is
@@ -104,9 +105,6 @@ pub(crate) const fn argument_kind(value_type: ValueType) -> ArgKind {
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "paso.convert")]
 pub enum ConvertError {
-    /// The type is no PaSO type.
-    #[error("{0} is no urn:paso:sca: type")]
-    NotPaso(#[explain(name = "type")] String),
     /// The metadata breaks Proof Metadata §3, or a value type is unsupported.
     #[error(transparent)]
     Metadata(#[from] Outcome),
@@ -158,7 +156,7 @@ pub fn verified(
 
 /// Each JWT's metadata converted, each module once.
 fn converted<'a, 'r: 'a>(
-    jwts: impl Iterator<Item = (&'r str, &'a crate::adhoc::Read<'r>)>,
+    jwts: impl Iterator<Item = (&'a PasoType<'r>, &'a crate::adhoc::Read<'r>)>,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<Vec<DefinedForm>, ConvertError> {
@@ -172,8 +170,7 @@ fn converted<'a, 'r: 'a>(
             }
             Err(defined @ ConvertError::Defined(_)) => return Err(defined),
             Err(
-                ConvertError::NotPaso(_)
-                | ConvertError::Metadata(_)
+                ConvertError::Metadata(_)
                 | ConvertError::Reserved
                 | ConvertError::NoEntry(_)
                 | ConvertError::MixedOwn,
@@ -198,16 +195,15 @@ struct Converting<'a, 'm> {
 ///
 /// # Errors
 ///
-/// [`ConvertError`]: the type is no PaSO type, its metadata refuses, a template holds U+FDD0, or
-/// a main entry lacks a format a message calls.
+/// [`ConvertError`]: its metadata refuses, a template holds U+FDD0, or a main entry lacks a format
+/// a message calls.
 pub fn convert(
-    kind: &str,
+    kind: &PasoType<'_>,
     given: &Node<'_>,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<DefinedForm, ConvertError> {
-    let family = Family::of(kind).ok_or_else(|| ConvertError::NotPaso(kind.to_owned()))?;
-    let (metadata, _) = rulebook_metadata(kind, family, given)?;
+    let (metadata, _) = rulebook_metadata(kind, given)?;
     let arrays = arrays(&metadata);
     let mut messages: Vec<Converting<'_, '_>> = Vec::new();
     for (array, entries) in &arrays {
@@ -356,11 +352,11 @@ fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params),
     if text.contains(SLOT) {
         return Err(ConvertError::Reserved);
     }
-    let named: Vec<(Placeholder, usize)> = placeholders(text)
+    let named: Vec<(Placeholder, ClaimIndex)> = placeholders(text)
         .into_iter()
         .filter_map(|placeholder| {
             let index = placeholder.index.filter(|index| *index < claims.len())?;
-            Some((placeholder, index))
+            Some((placeholder, ClaimIndex(index)))
         })
         .collect();
     let mut marked = String::with_capacity(text.len());
@@ -389,7 +385,7 @@ fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params),
     }
     let params = named.iter().map(|(_, index)| {
         let value_type = claims
-            .get(*index)
+            .get(index.get())
             .and_then(|claim| claim.display.as_ref())
             .map_or(ValueType::Plain, |display| display.value);
         Entry::new(

@@ -145,7 +145,7 @@ use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 
 #[cfg(feature = "resolve")]
-use crate::adhoc::{self, Read as AdhocRead};
+use crate::adhoc::{self, AdhocJwt, Read as AdhocRead};
 #[cfg(feature = "resolve")]
 use crate::document::{DOCUMENT, PasoDocument};
 #[cfg(feature = "resolve")]
@@ -165,7 +165,6 @@ use crate::respond::{Answer, Modules};
 #[cfg(feature = "resolve")]
 use crate::risk::RiskSignal;
 #[cfg(feature = "resolve")]
-use crate::rulebook::Family;
 #[cfg(feature = "resolve")]
 use crate::{FAULT, PasoProfile};
 
@@ -207,7 +206,7 @@ fn read<T>(
         .request()
         .entry(*index)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's entry the request lacks")))?;
-    let entry = PasoEntry::read(entry)
+    let entry = PasoEntry::read(entry, crate::paso_type(entry)?)
         .map_err(|refused| Fault::caused(FAULT, detail!("a bound PaSO entry"), refused))?;
     let bytes = record.credential().document(DOCUMENT).ok_or_else(|| {
         Fault::new(
@@ -229,19 +228,19 @@ fn read<T>(
         let binding = adhoc::Binding {
             document: &document,
             format: &credential.format,
-            kind: entry.kind.as_str(),
+            kind: &entry.kind,
         };
         if let Err(failure) = jwt.verify(&binding, modules) {
             return Ok(Err(AdhocRefusal {
-                jwt: jwt.text().to_owned(),
-                credential: credential.id.as_str().to_owned(),
+                jwt: AdhocJwt::new(jwt.text()),
+                credential: credential.id.clone().into_owned(),
                 failure,
             }));
         }
     }
     let given = match &read {
         Some(read) => Some(read.metadata()),
-        None => document.metadata(entry.kind.as_str()),
+        None => document.metadata(&entry.kind),
     }
     .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
     then(Read {
@@ -264,14 +263,7 @@ struct Pending<'r> {
 #[cfg(feature = "resolve")]
 /// The images phase 2 resolves for the entry, in the metadata's claim order.
 fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>>, Fault> {
-    let kind = read.entry.kind.as_str();
-    let family = Family::of(kind).ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
-        )
-    })?;
-    let (metadata, _) = rulebook_metadata(kind, family, read.given)
+    let (metadata, _) = rulebook_metadata(&read.entry.kind, read.given)
         .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's metadata"), e))?;
     let payload = read.entry.payload.node();
     let mut pending = Vec::new();
@@ -379,10 +371,7 @@ pub(crate) fn revalidate(
                 })
                 .transpose()?;
             let resolution = |_: &str| match fetch {
-                Some(Fetch::Fetched { content, media }) => Resolution::Fetched {
-                    content,
-                    media: media.essence(),
-                },
+                Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },
                 Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
             };
             match image::resolve(image.text, image.integrity, resolution) {

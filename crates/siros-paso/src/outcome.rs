@@ -4,14 +4,18 @@
 
 use crate::value::BadValue;
 use siros_explain::Explain;
+use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::refusal::{QuotedList, ReprItem, ReprOption};
 
 use crate::adhoc::AdhocFailure;
+use crate::conform::ClaimIndex;
 use crate::image::ImageFailure;
 use crate::labels::{Directional, LabelViolation};
 use crate::metadata::{ArrayAt, UiKey};
 use crate::path::Mismatch;
 use crate::phase2::OptionalModule;
+use crate::render::ItemBound;
+use crate::rulebook::PasoType;
 
 /// Why an entry does not render for a credential.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -50,10 +54,10 @@ pub enum Unsupported {
     NoPasoMetadata,
     /// The signed credential metadata lists no entry for the type.
     #[error("the credential's metadata does not list {0}")]
-    NotListed(#[explain(name = "kind")] String),
+    NotListed(#[explain(name = "kind")] PasoType<'static>),
     /// The type's entry is `null`.
     #[error("no transaction_data_types entry for {0}")]
-    NoEntry(#[explain(name = "kind")] String),
+    NoEntry(#[explain(name = "kind")] PasoType<'static>),
     /// The entry is no object with a `claims` array.
     #[error("no claims array")]
     NoClaims,
@@ -62,7 +66,7 @@ pub enum Unsupported {
     TooManyClaims(#[explain(name = "claims")] usize),
     /// A claim that is no object with a claims path pointer.
     #[error("claim {0}: no valid path")]
-    InvalidPath(#[explain(name = "claim")] usize),
+    InvalidPath(#[explain(name = "claim")] ClaimIndex),
     /// Two claims with one path.
     #[error("two claims with path {0}")]
     PathTwice(#[explain(name = "path")] String),
@@ -121,10 +125,10 @@ pub enum Unsupported {
     ),
     /// A type under the Generic prefix that is no Generic type identifier.
     #[error("{0} is not a Generic type identifier")]
-    NotGeneric(#[explain(name = "kind")] String),
+    NotGeneric(#[explain(name = "kind")] PasoType<'static>),
     /// A type under the Mandate prefix that is no Mandate type identifier.
     #[error("{0} is not a Mandate type identifier")]
-    NotMandate(#[explain(name = "kind")] String),
+    NotMandate(#[explain(name = "kind")] PasoType<'static>),
 }
 
 impl Unsupported {
@@ -213,19 +217,19 @@ pub enum NotCompatible {
     /// A placeholder naming an `image`, `label_only` or template claim (View §3 template).
     #[error("placeholder {{{placeholder}}} references a {value_type} claim")]
     ForbiddenReference {
-        /// The claim index the placeholder names.
-        placeholder: usize,
+        /// The claim the placeholder names.
+        placeholder: ClaimIndex,
         /// The referenced claim's value type.
         value_type: String,
     },
     /// A placeholder naming a claim with more `null`s than the referencing claim (View §3
     /// template).
     #[error("placeholder {{{0}}} has more nulls than its referencing claim")]
-    MoreNulls(#[explain(name = "placeholder")] usize),
+    MoreNulls(#[explain(name = "placeholder")] ClaimIndex),
     /// A placeholder naming a claim without `value_type` whose value is no string (View §3
     /// template).
     #[error("placeholder {{{0}}}: a value without value_type is not a string")]
-    ReferenceNotString(#[explain(name = "placeholder")] usize),
+    ReferenceNotString(#[explain(name = "placeholder")] ClaimIndex),
     /// Every locale lost an entry to a template's absent claim (View §3 template).
     #[error("every locale lost an entry to a template's absent claim")]
     TemplatesExhausted,
@@ -243,7 +247,7 @@ pub enum NotCompatible {
         /// The rows and UI elements.
         items: usize,
         /// The bound.
-        bound: usize,
+        bound: ItemBound,
     },
     /// A field the Payment rulebook requires is absent (Payment §1).
     #[error("required {0} absent")]
@@ -350,11 +354,17 @@ pub enum RenderedAt {
 /// (View §4).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso")]
-#[error("no locale of {} matches every display array", QuotedList(.locales))]
+#[error("no locale of {} matches every display array", quoted(.locales))]
 pub struct Excluded {
     /// The wallet's locale priority list.
     #[explain(skip)]
-    pub locales: Vec<String>,
+    pub(crate) locales: Vec<LocaleTag>,
+}
+
+/// The tags as Python's `repr` of their list writes it.
+fn quoted(locales: &[LocaleTag]) -> String {
+    let tags: Vec<&str> = locales.iter().map(LocaleTag::as_str).collect();
+    QuotedList(&tags).to_string()
 }
 
 impl Excluded {

@@ -12,7 +12,7 @@ use siros_openid4vp::resolve::{Finding, Outcome as Phase2, Prepared};
 use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 use siros_openid4vp::wallet::Wallet;
-use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Verified};
+use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal, Verified};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoFinding, PasoProfile};
 use siros_testkit::verifier::{ISSUER, adhoc_jwt, secret_key};
@@ -21,11 +21,13 @@ use siros_x509::test_util as x509;
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{CARD_TYPE, Card, PAY, annex, en, parameters, png, request_app, sri};
+use crate::common::{
+    CARD_TYPE, Card, ExcludedBy, PAY, annex, en, parameters, png, request_app, sri,
+};
 
 use super::{NOW, answer, card, digest_b64, payment, payment_meta, proof, registry};
 
-/// The SCA claims of the response to a payment with ad-hoc metadata, the clause excluding the
+/// The SCA claims of the response to a payment with ad-hoc metadata, the rule excluding the
 /// card, or the finding phase 2 falls back on with the number of candidates the match informed
 /// of it finds.
 pub(super) fn adhoc_case(
@@ -50,7 +52,7 @@ pub(super) fn adhoc_case(
         let accepted = Accepted::new(&request, &registry).expect("accepted");
         let matched = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
         if let Some(excluded) = matched.excluded().first() {
-            return Err(AdhocOutcome::Excluded(excluded.exclude.rule().to_string()));
+            return Err(AdhocOutcome::Excluded(ExcludedBy::of(&excluded.exclude)));
         }
     }
     match answer(&request, card, &registry, &Published::default(), &host) {
@@ -90,7 +92,7 @@ pub(super) fn adhoc_case(
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AdhocOutcome {
-    Excluded(String),
+    Excluded(ExcludedBy),
     Fallback(Box<PasoFinding>, usize),
 }
 
@@ -354,8 +356,8 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     for (step, jwt, issuer, failure) in cases {
         let card = card(&stored, None, &issuer);
         let refusal = AdhocRefusal {
-            jwt: jwt.clone(),
-            credential: card.credential().id.as_str().to_owned(),
+            jwt: AdhocJwt::new(&jwt),
+            credential: card.credential().id.clone().into_owned(),
             failure,
         };
         // The matcher offered the entry; phase 2 refuses the JWT, and the match it informs
@@ -548,7 +550,7 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
         .id()
         .as_str()
         .to_owned();
-    let outcome = |request: &Request<'_>, id: &str| -> Result<(), Vec<String>> {
+    let outcome = |request: &Request<'_>, id: &str| -> Result<(), usize> {
         let host = PasoHost::at(Timestamp(NOW));
         let authenticated =
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
@@ -567,17 +569,16 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
             prepared.respond(|resource| Published::default().answer(resource), &host)
         }) {
             Ok(_) => Ok(()),
-            Err(Phase2::Fallback(findings)) => Err(findings
-                .items()
-                .iter()
-                .map(|f| {
-                    format!("{f:?}")
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or_default()
-                        .to_owned()
-                })
-                .collect()),
+            Err(Phase2::Fallback(findings)) => {
+                assert!(
+                    findings
+                        .items()
+                        .iter()
+                        .all(|finding| matches!(finding, Finding::Diverged { .. })),
+                    "{findings:?}"
+                );
+                Err(findings.items().len())
+            }
             Err(other) => panic!("{other}"),
         }
     };
@@ -589,14 +590,11 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
         "",
     );
     siros_testkit::signed_request!(let swapped = &swapped_parameters);
-    assert_eq!(outcome(&swapped, &id), Err(vec!["Diverged".to_owned()]));
+    assert_eq!(outcome(&swapped, &id), Err(1));
     // A record whose attested locale changed diverges too.
     let altered = id.replace(r#""display_locale":"en""#, r#""display_locale":"de""#);
     assert_ne!(altered, id);
-    assert_eq!(
-        outcome(&shown_request, &altered),
-        Err(vec!["Diverged".to_owned()])
-    );
+    assert_eq!(outcome(&shown_request, &altered), Err(1));
     assert_eq!(outcome(&shown_request, &id), Ok(()));
 }
 

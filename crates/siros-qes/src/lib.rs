@@ -61,11 +61,15 @@ use siros_openid4vp::{
     rows::HttpsUrl,
 };
 
+pub use approval::{DocumentAt, Problem, SignatureQualifier};
+
 use approval::ApprovalRequest;
 use binding::Encoding;
-pub use documents::{FailedDocument, FailedDocuments, Fetched};
+pub use documents::{DocumentHref, FailedDocument, FailedDocuments, Fetched};
 pub use render::{QesText, QesTitle};
-use rules::{Excluded, Positions, QesRule};
+pub use rules::{EntryPosition, Positions, QesRule};
+
+use rules::Excluded;
 
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "qes.fault");
@@ -136,12 +140,12 @@ pub const DOCUMENT: &str = "qes";
 /// of the documents that failed holds them too.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QesProfile {
-    held: FxHashMap<String, Fetched>,
+    held: FxHashMap<DocumentHref, Fetched>,
 }
 
 impl QesProfile {
     /// The profile holding the documents; a URL given twice holds the later one.
-    pub fn new(held: impl IntoIterator<Item = (String, Fetched)>) -> Self {
+    pub fn new(held: impl IntoIterator<Item = (DocumentHref, Fetched)>) -> Self {
         Self {
             held: held.into_iter().collect(),
         }
@@ -242,7 +246,7 @@ impl Profile for QesProfile {
             .flat_map(|(index, problems)| {
                 problems.into_iter().map(move |problem| {
                     Refusal::new(QesRule::Entry {
-                        entry: index.get(),
+                        entry: EntryPosition::of(*index),
                         problem,
                     })
                 })
@@ -265,7 +269,7 @@ impl Profile for QesProfile {
         let (index, _, approval) = approval_of(binding.request, binding.entries)?;
         if !binding::approves(binding.credential, approval.qualifier)? {
             return Err(Exclude::new(Excluded::Qualifier {
-                qualifier: approval.qualifier.as_str(),
+                qualifier: approval.qualifier,
             })
             .into());
         }
@@ -301,10 +305,10 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
     named
         .into_iter()
         .filter_map(|id| {
-            let naming: Vec<usize> = own
+            let naming: Vec<EntryPosition> = own
                 .iter()
                 .filter(|(_, entry)| entry.credential_ids().iter().any(|named| *named == *id))
-                .map(|(index, _)| index.get())
+                .map(|(index, _)| EntryPosition::of(*index))
                 .collect();
             AllOf::new(naming)
                 .filter(|entries| entries.items().len() > 1)
@@ -338,7 +342,7 @@ impl<H> ProfileHost<H> for QesProfile {
         let failed = findings
             .iter()
             .flat_map(|finding| finding.documents())
-            .map(|document| (document.href.clone(), document.fetched.clone()));
+            .map(|document| (document.href().clone(), document.fetched().clone()));
         Self::new(self.held.clone().into_iter().chain(failed))
     }
 
@@ -374,12 +378,8 @@ impl<H> ProfileHost<H> for QesProfile {
                     },
                     Err(_) => Fetched::Failed,
                 };
-                Ok(
-                    (!fetched.verifies(document.checksum)).then(|| FailedDocument {
-                        href: document.href.to_owned(),
-                        fetched,
-                    }),
-                )
+                Ok((!fetched.verifies(document.checksum))
+                    .then(|| FailedDocument::new(DocumentHref::new(document.href), fetched)))
             })
             .filter_map(Result::transpose)
             .collect::<Result<Vec<_>, Fault>>()?;

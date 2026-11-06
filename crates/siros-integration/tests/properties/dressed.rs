@@ -638,7 +638,7 @@ fn boxes(
                 let rest: Vec<_> = shown
                     .iter()
                     .enumerate()
-                    .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
+                    .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
                     .map(|(_, row)| row.clone())
                     .collect();
                 assert_eq!(rest.len() + 2, shown.len(), "P-proxy rows");

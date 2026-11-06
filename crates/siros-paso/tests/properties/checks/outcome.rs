@@ -110,9 +110,9 @@ pub(super) fn outcome(
             );
             claim.value_type.clone()
         } else {
-            let claim = &claims[row.claim.0];
+            let claim = &claims[row.claim.get()];
             let want = replay
-                .entry(Array::Claim(row.claim.0), locale)
+                .entry(Array::Claim(row.claim.get()), locale)
                 .expect("P-replay: the claim's array matches");
             let shown = screen.plain(&row.row.label);
             let (shows, template) = matches(&shown, want, "name", "display_type");
@@ -169,7 +169,7 @@ pub(super) fn outcome(
             if mandate {
                 json!(concrete(&row.path))
             } else {
-                json!([row.claim.0, concrete(&row.path)])
+                json!([row.claim.get(), concrete(&row.path)])
             }
         })
         .collect();

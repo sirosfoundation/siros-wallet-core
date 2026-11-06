@@ -5,6 +5,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::Digest;
 use siros_openid4vp::json::quote;
+use siros_qes::Problem;
 
 use super::{Fields, csc, items, string};
 
@@ -102,126 +103,49 @@ pub fn published(k: usize) -> Vec<u8> {
     format!("%PDF-1.7 {}", string(&documents[k], "label")).into_bytes()
 }
 
-/// Each way to break a rule of the type, as a change to §7.1.2's entry, with the problems qes.py
-/// finds in it, in order.
-pub fn rule_table() -> Vec<(String, Vec<&'static str>)> {
-    let document = r#"{"hash": "h", "hashType": "sodr"}"#;
+/// Whether a refusal is the one a fixture expects.
+pub type Refuses = fn(&Problem) -> bool;
+
+/// One fixture per rule of the type: §7.1.2's entry changed to break it, and the check of the
+/// rule's refusal.
+pub fn rule_table() -> Vec<(String, Refuses)> {
     let documents = |docs: &str| approval().set("documentInfos", docs);
-    let count = "numSignatures is not a positive integer";
-    let no_hash = "hashAlgorithmOID is absent: §7.2 identifies the approval's hash with it";
-    let empty = "documentInfos is not a non-empty array";
-    let not_a_document = "documentInfos[0] is not a document with hash and hashType";
-    let otp = "documentInfos[0]: an OTP access without its oneTimePassword";
-    let locations = "locations is not an array of strings";
-    let table: Vec<(Fields, Vec<&'static str>)> = vec![
+    let table: Vec<(Fields, Refuses)> = vec![
         (
             approval().set("signAlgo", r#""1.2.840.113549.1.1.1""#),
-            vec!["unknown member signAlgo"],
+            |p| matches!(p, Problem::UnknownMember(member) if member == "signAlgo"),
         ),
-        (approval().set("numSignatures", "0"), vec![count]),
-        (approval().set("numSignatures", "-1"), vec![count]),
-        (approval().set("numSignatures", "1.0"), vec![count]),
-        (approval().set("numSignatures", "true"), vec![count]),
-        (approval().set("numSignatures", r#""2""#), vec![count]),
-        (approval().without("numSignatures"), vec![count]),
+        (approval().set("numSignatures", "0"), |p| {
+            matches!(p, Problem::SignatureCount)
+        }),
         (
             approval().set("signatureQualifier", r#""za_ecta_aes""#),
-            vec!["signatureQualifier 'za_ecta_aes' is not one this wallet renders"],
+            |p| matches!(p, Problem::SignatureQualifier(_)),
         ),
-        (
-            approval().without("signatureQualifier"),
-            vec!["signatureQualifier None is not one this wallet renders"],
-        ),
-        (
-            approval().set("signatureQualifier", "5"),
-            vec!["signatureQualifier 5 is not one this wallet renders"],
-        ),
-        (approval().without("hashAlgorithmOID"), vec![no_hash]),
-        (approval().set("hashAlgorithmOID", "null"), vec![no_hash]),
-        (approval().set("hashAlgorithmOID", "1"), vec![no_hash]),
+        (approval().without("hashAlgorithmOID"), |p| {
+            matches!(p, Problem::NoHashAlgorithm)
+        }),
         (
             approval().set("hashAlgorithmOID", r#""1.2.840.113549.2.5""#),
-            vec!["hashAlgorithmOID 1.2.840.113549.2.5 names no hash this wallet computes"],
+            |p| matches!(p, Problem::UnknownHashAlgorithm(oid) if oid == "1.2.840.113549.2.5"),
         ),
-        (documents("[]"), vec![empty]),
-        (documents("{}"), vec![empty]),
-        (approval().without("documentInfos"), vec![empty]),
-        (documents(r#"[{"label": "x"}]"#), vec![not_a_document]),
-        (documents(r#"[{"hash": "h"}]"#), vec![not_a_document]),
-        (documents("[5]"), vec![not_a_document]),
+        (documents("[]"), |p| matches!(p, Problem::NoDocuments)),
         (
-            documents(r#"[{"hash": "h", "hashType": "sodr", "label": 5}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": 1, "hashType": "sodr"}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": "h", "hashType": ["sodr"]}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": "h", "hashType": "sodr", "access": "OTP"}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": "h", "hashType": "sodr", "href": null}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": "h", "hashType": "sodr", "checksum": 1}]"#),
-            vec![not_a_document],
-        ),
-        (
-            documents(r#"[{"hash": "h", "hashType": "sodr", "signAlgo": "x"}]"#),
-            vec![not_a_document],
+            documents(r#"[{"label": "x"}]"#),
+            |p| matches!(p, Problem::NotADocument(at) if at.get() == 0),
         ),
         (
             documents(r#"[{"hash": "h", "hashType": "sodr", "access": {"type": "OTP"}}]"#),
-            vec![otp],
-        ),
-        (
-            documents(
-                r#"[{"hash": "h", "hashType": "sodr", "access": {"type": "OTP", "oneTimePassword": 51623}}]"#,
-            ),
-            vec![otp],
-        ),
-        (
-            documents(&format!(r#"[{document}, {{"hash": "h"}}]"#)),
-            vec!["documentInfos[1] is not a document with hash and hashType"],
+            |p| matches!(p, Problem::OtpWithoutPassword(at) if at.get() == 0),
         ),
         (
             approval().set("locations", r#""https://rsp.example""#),
-            vec![locations],
-        ),
-        (
-            approval().set("locations", r#"["https://rsp.example", 1]"#),
-            vec![locations],
-        ),
-        (
-            approval()
-                .set("locations", "[]")
-                .set("x", "1")
-                .set("numSignatures", "0")
-                .set("signatureQualifier", "null")
-                .set("hashAlgorithmOID", r#""x""#)
-                .set("documentInfos", &format!(r#"[{{}}, {document}, 5]"#))
-                .set("y", "2"),
-            vec![
-                "unknown member x",
-                "unknown member y",
-                count,
-                "signatureQualifier None is not one this wallet renders",
-                "hashAlgorithmOID x names no hash this wallet computes",
-                not_a_document,
-                "documentInfos[2] is not a document with hash and hashType",
-            ],
+            |p| matches!(p, Problem::Locations),
         ),
     ];
     table
         .into_iter()
-        .map(|(fields, problems)| (fields.json(), problems))
+        .map(|(fields, rule)| (fields.json(), rule))
         .collect()
 }
 

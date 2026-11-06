@@ -4,11 +4,12 @@ use std::borrow::Cow;
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use siros_explain::{AllOf, Explain, IntoArg, Listed, kind};
+use siros_explain::{AllOf, Count, Explain, IntoArg, Listed, kind};
 use siros_openid4vp::plugins::Exclusion;
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
+use siros_openid4vp::request::EntryIndex;
 
-use crate::approval::Problem;
+use crate::approval::{Problem, SignatureQualifier};
 
 /// A rule a QES entry breaks: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -17,31 +18,65 @@ pub enum QesRule {
     /// An entry breaks the type's rules (CSC §7.1).
     #[error("QES entry {entry}: {problem}")]
     Entry {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryPosition,
         /// The rule it breaks.
         problem: Problem,
     },
     /// Two entries name one query: one presentation approves one request.
     #[error("QES entries {entries} name {query}: one presentation approves one request")]
     OneRequest {
-        /// The entries' positions.
+        /// The entries.
         entries: Positions,
-        /// The query's id.
+        /// The query's id, as the entries write it.
         query: String,
     },
+}
+
+/// An entry's position in `transaction_data`, as a rule names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryPosition(EntryIndex);
+
+impl EntryPosition {
+    pub(crate) const fn of(entry: EntryIndex) -> Self {
+        Self(entry)
+    }
+
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for EntryPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
+impl IntoArg for EntryPosition {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.get().arg()
+    }
 }
 
 /// The positions of the entries a rule names: the list `[1, 2]` in its text, an and-list in its
 /// message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Positions(AllOf<usize>);
+pub struct Positions(AllOf<EntryPosition>);
 
 impl Positions {
+    pub(crate) const fn new(entries: AllOf<EntryPosition>) -> Self {
+        Self(entries)
+    }
+
     /// The positions, in their order.
     #[must_use]
-    pub const fn new(entries: AllOf<usize>) -> Self {
-        Self(entries)
+    pub fn entries(&self) -> &[EntryPosition] {
+        self.0.items()
     }
 }
 
@@ -80,7 +115,7 @@ pub enum Excluded {
     #[error("the credential cannot approve {qualifier}")]
     Qualifier {
         /// The `signatureQualifier`.
-        qualifier: &'static str,
+        qualifier: SignatureQualifier,
     },
     /// The presentation cannot carry `qesApproval`.
     #[error("the presentation cannot carry qesApproval")]

@@ -2,6 +2,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE};
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Image, Value};
 use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome};
@@ -300,12 +301,11 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
     // A fetched image of 512 KiB exactly.
     let url = "https://cdn.example/l.png";
     let content = [png(1, 1), vec![0; 524_288 - 57]].concat();
-    assert_eq!(content.len(), 524_288);
     let fetched = PasoProfile::default().with_resource(
         siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
         Fetch::Fetched {
             content: content.clone(),
-            media: "image/png".to_owned(),
+            media: MediaType::parse("image/png").expect("a media type"),
         },
     );
     let meta = claims(

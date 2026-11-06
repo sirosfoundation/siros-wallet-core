@@ -519,8 +519,8 @@ pub fn shown<'r>(rows: impl IntoIterator<Item = &'r Row>) -> Vec<ShownRow> {
 pub struct Matched {
     /// (credential, bound entries).
     pub candidates: Vec<(String, Vec<usize>)>,
-    /// (credential, reason, clause).
-    pub excluded: Vec<(String, String, String)>,
+    /// (credential, clause).
+    pub excluded: Vec<(String, String)>,
 }
 
 /// One entry of the consent: what it shows, its header and record id.
@@ -581,7 +581,6 @@ pub fn phase_one(
             .map(|excluded| {
                 (
                     excluded.credential.id.to_string(),
-                    excluded.exclude.rule().to_string(),
                     excluded.exclude.clause().to_string(),
                 )
             })

@@ -27,6 +27,7 @@ use siros_openid4vp::request::{Query, Request};
 use siros_openid4vp::resolve::{Outcome as Phase2, Prepared};
 use siros_openid4vp::rows::{Amounts, Choice};
 use siros_openid4vp::wallet::Wallet;
+use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::risk::{
     Catalogue, DEFAULT_PROFILE, Effective, MaxAge, Need, ProfileId, RiskProfile, RiskSignal,
     Sealing, SignalSpec, SignalType,
@@ -353,7 +354,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
         .collect();
     let got = |effective: &Effective| -> Vec<(String, bool, Option<u64>)> {
         effective
-            .signals
+            .signals()
             .iter()
             .map(|spec| {
                 (
@@ -365,7 +366,7 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
             .collect()
     };
     assert_eq!(
-        (got(&effective), effective.sealing),
+        (got(&effective), effective.sealing()),
         (table.clone(), Sealing::Plain)
     );
     // §4.1 step 3: demoting amr or raising geolocation's bound has no effect beyond the profiles.
@@ -435,10 +436,13 @@ fn risk_signals_a7_resolves_two_profiles_and_a4s_enumeration_to_its_table() {
             )
             .expect("no fault")
             .map(|_| ())
-            .map_err(|outcome| outcome.clause())
     };
     assert_eq!(rendered(&holding), Ok(()));
-    assert_eq!(rendered(&PasoProfile::default()), Err("Risk Signals §4.1"));
+    // Risk Signals §4.1: a profile the wallet does not hold.
+    assert!(matches!(
+        rendered(&PasoProfile::default()),
+        Err(Outcome::NotCompatible(NotCompatible::UnknownRiskProfile(_)))
+    ));
 }
 
 #[test]

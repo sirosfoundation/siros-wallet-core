@@ -2,9 +2,10 @@
 //! rendering shows, in its rulebook's order (View §2, Generic §4, Mandate §2.1).
 
 use std::borrow::Cow;
+use std::fmt;
 
-use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
-use siros_explain::RequestText;
+use crate::value::{ValueKind, Written, formatted};
+use siros_explain::{Count, IntoArg, kind};
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprItem;
@@ -18,7 +19,50 @@ use crate::rulebook::Rulebook;
 
 /// A claim by its position in the metadata's `claims`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ClaimIndex(pub usize);
+pub struct ClaimIndex(pub(crate) usize);
+
+impl ClaimIndex {
+    /// The position in the metadata's `claims`.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for ClaimIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for ClaimIndex {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
+/// The array element each `null` of a claim's path resolved to, in path order.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NullIndices(Vec<usize>);
+
+impl NullIndices {
+    /// The indices with the next `null` resolved to `element`.
+    fn then(&self, element: usize) -> Self {
+        Self(self.0.iter().copied().chain([element]).collect())
+    }
+
+    /// How many `null`s resolved.
+    pub(crate) const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The elements, in path order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = usize> {
+        self.0.iter().copied()
+    }
+}
 
 /// Whether an instance sits in the delimited section of an embedded `payment_payload`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,8 +86,8 @@ pub struct Instance<'p> {
     pub path: ConcretePath<'p>,
     /// The element.
     pub value: &'p Node<'p>,
-    /// The index each `null` of the claim's path resolved to, in order.
-    pub nulls: Vec<usize>,
+    /// The element each `null` of the claim's path resolved to.
+    pub(crate) nulls: NullIndices,
     /// Where it sits.
     pub placement: Placement,
 }
@@ -53,7 +97,7 @@ struct Candidate<'p> {
     claim: ClaimIndex,
     display: &'p Displayed<'p>,
     path: ConcretePath<'p>,
-    nulls: Vec<usize>,
+    nulls: NullIndices,
     placement: Placement,
 }
 
@@ -75,19 +119,15 @@ pub(crate) fn conforms(kind: ValueKind, value: &Node<'_>) -> Result<(), NotCompa
             Node::String(_) => Ok(()),
             _ => Err(NotCompatible::ImageNotString(ReprItem::repr(value))),
         },
-        ValueKind::Formatted(kind) => parsed(kind, value).map(drop),
+        ValueKind::Formatted(kind) => {
+            formatted(kind, written(value))
+                .map(drop)
+                .map_err(|bad| NotCompatible::Value {
+                    value_type: kind_name(ValueKind::Formatted(kind)),
+                    bad,
+                })
+        }
     }
-}
-
-/// A value of a kind other than an image, parsed, with its text.
-pub(crate) fn parsed(
-    kind: FormattedKind,
-    value: &Node<'_>,
-) -> Result<(Parsed, RequestText), NotCompatible> {
-    formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
-        value_type: kind_name(ValueKind::Formatted(kind)),
-        bad,
-    })
 }
 
 /// Core §7.4.2 step 2: every payload field is covered by a claim path, an `#integrity`
@@ -243,7 +283,7 @@ struct Partial<'m> {
     claim: ClaimIndex,
     display: &'m Displayed<'m>,
     steps: Vec<Step<'m>>,
-    nulls: Vec<usize>,
+    nulls: NullIndices,
 }
 
 /// The claim instances the payload holds, in the rulebook's order: claims order with View §2's
@@ -275,7 +315,7 @@ pub(crate) fn instances<'p>(
                         claim: ClaimIndex(k),
                         display,
                         steps: claim.path.steps().to_vec(),
-                        nulls: Vec::new(),
+                        nulls: NullIndices::default(),
                     })
                 })
                 .collect();
@@ -389,7 +429,7 @@ fn expand<'m>(
                             }
                         })
                         .collect(),
-                    nulls: member.nulls.iter().copied().chain([element]).collect(),
+                    nulls: member.nulls.then(element),
                 })
                 .collect();
             expand(resolved, payload, out)?;
@@ -432,7 +472,7 @@ fn generic<'p>(
                         claim: ClaimIndex(k),
                         display,
                         path,
-                        nulls: Vec::new(),
+                        nulls: NullIndices::default(),
                         placement,
                     });
                 }

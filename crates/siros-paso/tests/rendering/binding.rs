@@ -4,14 +4,14 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Binding, Carriage, NoCandidate, Profile};
 use siros_paso::PasoProfile;
 
-use crate::common::{CUSTOM, Card, PAY, annex, en, member, parameters};
+use crate::common::{CUSTOM, Card, ExcludedBy, PAY, annex, en, member, parameters};
 
 /// A binding of the request's entries naming the query `q` for the card.
 pub(super) fn bind(
     entries: &[&str],
     card: &Card,
     carriage: Carriage,
-) -> Result<Vec<usize>, (String, String)> {
+) -> Result<Vec<usize>, ExcludedBy> {
     let parameters = parameters(&crate::common::one_query("dc+sd-jwt"), entries, "");
     siros_testkit::signed_request!(let request = &parameters);
     let query = &request.queries()[0];
@@ -29,9 +29,7 @@ pub(super) fn bind(
     };
     match PasoProfile::default().bind(binding, &en()) {
         Ok(bound) => Ok(bound.entries.entries().iter().map(|e| e.get()).collect()),
-        Err(NoCandidate::Excluded(exclude)) => {
-            Err((exclude.rule().to_string(), exclude.clause().into_owned()))
-        }
+        Err(NoCandidate::Excluded(exclude)) => Err(ExcludedBy::of(&exclude)),
         Err(NoCandidate::Fault(fault)) => panic!("{fault}"),
     }
 }
@@ -63,9 +61,8 @@ pub(super) fn first_match_binds_the_first_entry_that_renders_and_stops_at_a_loca
             &[&custom(CUSTOM, "a"), &custom(&other, "a")],
             &card,
             Carriage::Carried
-        )
-        .map_err(|(_, clause)| clause),
-        Err("View §4".to_owned())
+        ),
+        Err(ExcludedBy::Locale)
     );
     // A presentation that cannot carry the SCA response claims supports no PaSO type.
     assert_eq!(
@@ -74,17 +71,11 @@ pub(super) fn first_match_binds_the_first_entry_that_renders_and_stops_at_a_loca
             &Card::sd_jwt(&format!(r#"{{"{CUSTOM}": {ok}}}"#)),
             Carriage::Uncarried
         ),
-        Err((
-            "its presentation cannot carry the SCA response claims".to_owned(),
-            "Core §6; OpenID4VP B.2".to_owned()
-        ))
+        Err(ExcludedBy::Carriage)
     );
     assert_eq!(
         bind(&[&custom(CUSTOM, "a\\u202e")], &card, Carriage::Carried),
-        Err((
-            "no PaSO entry is compatible with the credential".to_owned(),
-            "Core §7.4.2 step 2".to_owned()
-        ))
+        Err(ExcludedBy::NoEntry)
     );
 }
 

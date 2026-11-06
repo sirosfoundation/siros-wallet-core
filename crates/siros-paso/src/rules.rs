@@ -1,10 +1,12 @@
 //! The rules PaSO adds to a request's, and the exclusions its binding gives.
 
 use std::borrow::Cow;
+use std::fmt;
 
-use siros_explain::Explain;
+use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::plugins::Exclusion;
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
+use siros_openid4vp::request::EntryIndex;
 
 use crate::entry::EntryRule;
 use crate::outcome::Excluded;
@@ -19,8 +21,8 @@ pub enum PasoRule {
     /// An entry's members break a rule.
     #[error("PaSO entry {entry}: {rule}")]
     Entry {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryPosition,
         /// The rule.
         rule: EntryRule,
     },
@@ -30,6 +32,36 @@ pub enum PasoRule {
     /// Core §7.4.1: the entries' queries sit in more than one credential set.
     #[error("PaSO transaction data names queries of more than one credential set (Core §7.4.1)")]
     Sets,
+}
+
+/// An entry's position in `transaction_data`, as a rule names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryPosition(EntryIndex);
+
+impl EntryPosition {
+    pub(crate) const fn of(entry: EntryIndex) -> Self {
+        Self(entry)
+    }
+
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+impl fmt::Display for EntryPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
+impl IntoArg for EntryPosition {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.get().arg()
+    }
 }
 
 impl RequestRule for PasoRule {

@@ -3,6 +3,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_explain::{IntoArg, kind};
 use siros_openid4vp::uri::ResponseUri;
 use x509_cert::ext::pkix::SubjectAltName;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -42,8 +43,28 @@ impl LeafHash {
 
     /// The hash as `x509_hash` writes it.
     #[must_use]
-    pub fn text(&self) -> String {
-        URL_SAFE_NO_PAD.encode(self.0)
+    pub fn text(&self) -> HashText {
+        HashText(URL_SAFE_NO_PAD.encode(self.0))
+    }
+}
+
+/// A [`LeafHash`] as `x509_hash` writes it, which a refusal quotes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HashText(String);
+
+impl HashText {
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl IntoArg for HashText {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
     }
 }
 
@@ -86,7 +107,7 @@ impl SanDnsName {
             .certificate()
             .tbs_certificate()
             .get_extension::<SubjectAltName>()
-            .map_err(|e| X509Refusal::SubjectAltName(e.to_string()))?;
+            .map_err(X509Refusal::SubjectAltName)?;
         Ok(extension.is_some_and(|(_, SubjectAltName(names))| {
             names.iter().any(|name| match name {
                 GeneralName::DnsName(dns) => dns.as_str().eq_ignore_ascii_case(&self.0),
@@ -104,6 +125,15 @@ impl SanDnsName {
     /// The name.
     #[must_use]
     pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A name is named by its text in a message.
+impl IntoArg for SanDnsName {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
         &self.0
     }
 }

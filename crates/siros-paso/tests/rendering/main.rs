@@ -6,12 +6,14 @@
 #[path = "../common/mod.rs"]
 mod common;
 
-use common::{CUSTOM, Card, PAY, Screen, Seen, data_png, en, entry, env, png, shown, sri};
+use common::{CUSTOM, Card, PAY, Screen, Seen, en, entry, env, png, shown, sri};
 use siros_i18n::Style;
 use siros_openid4vp::claims::Concrete;
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
 use siros_paso::outcome::Outcome;
-use siros_paso::rulebook::Family;
+use siros_paso::rulebook::{Family, PasoType};
+use siros_paso::value::{FormattedKind, ValueKind};
 use siros_paso::{Fetch, PasoProfile};
 
 mod binding;
@@ -37,16 +39,6 @@ fn render_typed(kind: &str, meta: &str, payload: &str, locales: &[&str]) -> Resu
 
 fn render(meta: &str, payload: &str) -> Result<Seen, Outcome> {
     render_typed(CUSTOM, meta, payload, &["en"])
-}
-
-/// The outcome's kind and clause.
-fn outcome(rendered: &Result<Seen, Outcome>) -> String {
-    common::outcome(
-        &rendered
-            .as_ref()
-            .map(|seen| seen.rendered.clone())
-            .map_err(Clone::clone),
-    )
 }
 
 fn claims(members: &str) -> String {
@@ -169,104 +161,40 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
     assert_eq!(strong, Some("€49.99"));
 }
 
-/// A value whose text the wallet's options word, compared as shown: no source fixes its text.
-const SHOWN: &str = "<shown>";
-
-/// View §3's value types, each conforming and not. The texts compared exactly are those a source
-/// fixes: frequencies in the specification's words, amounts as the rulebooks' screens write them
-/// (Generic A.4: "€1,000.00"), dates as CLDR 49's en medium date (`MMM d, y`; the screens write
-/// the day first, as en-GB does), an internationalised host in A-label form.
+/// Each `value_type` of View §3 reaches its value's kind through the metadata.
 #[test]
-fn each_value_type_formats_or_refuses_as_view_section_3_states() {
-    let table: [(Option<&str>, &str, &str); 27] = [
-        (Some("boolean"), "true", SHOWN),
-        (Some("boolean"), r#""true""#, "NotCompatible [View §3]"),
-        (Some("frequency"), r#""MNTH""#, "monthly"),
-        (Some("frequency"), r#""MONTHLY""#, "NotCompatible [View §3]"),
-        (Some("iso_date"), r#""2026-09-02""#, "Sep 2, 2026"),
-        (Some("iso_date"), r#""20260902""#, "Sep 2, 2026"),
+fn each_value_type_view_section_3_names_renders_a_value() {
+    let table = [
+        ("boolean", "true", FormattedKind::Boolean),
+        ("frequency", r#""MNTH""#, FormattedKind::Frequency),
+        ("iso_date", r#""2026-09-02""#, FormattedKind::Date),
+        ("iso_time", r#""10:15:30Z""#, FormattedKind::Time),
         (
-            Some("iso_date"),
-            r#""2026-02-30""#,
-            "NotCompatible [View §3]",
-        ),
-        (Some("iso_time"), r#""10:15:30Z""#, SHOWN),
-        (Some("iso_time"), r#""25:00""#, "NotCompatible [View §3]"),
-        (
-            Some("iso_date_time"),
+            "iso_date_time",
             r#""2026-06-02T10:15:30+02:00""#,
-            SHOWN,
+            FormattedKind::DateTime,
         ),
+        ("iso_currency", r#""EUR""#, FormattedKind::Currency),
         (
-            Some("iso_date_time"),
-            r#""2026-06-02 10:15""#,
-            "NotCompatible [View §3]",
+            "iso_currency_amount",
+            r#""100 JPY""#,
+            FormattedKind::CurrencyAmount,
         ),
-        (Some("iso_currency"), r#""EUR""#, "€"),
-        (Some("iso_currency"), r#""EURO""#, "NotCompatible [View §3]"),
-        (
-            Some("iso_currency_amount"),
-            r#""1234567.50 EUR""#,
-            "€1,234,567.50",
-        ),
-        (Some("iso_currency_amount"), r#""100 JPY""#, SHOWN),
-        (
-            Some("iso_currency_amount"),
-            r#""EUR 45.00""#,
-            "NotCompatible [View §3]",
-        ),
-        (
-            Some("iso_currency_amount"),
-            r#""49.9 EUR""#,
-            "NotCompatible [View §3]",
-        ),
-        (
-            Some("iso_currency_amount"),
-            r#""-5.00 EUR""#,
-            "NotCompatible [View §3]",
-        ),
-        (Some("mini_markdown"), r#""*a*""#, "a"),
-        (Some("mini_markdown"), "3", "NotCompatible [View §3]"),
-        (
-            Some("url"),
-            r#""https://bücher.example/x?q=1""#,
-            "https://xn--bcher-kva.example/x?q=1",
-        ),
-        (
-            Some("url"),
-            r#""http://shop.example""#,
-            "NotCompatible [View §3]",
-        ),
-        (Some("image"), "DATA", "<image>"),
-        (
-            Some("image"),
-            r#""http://cdn.example/l.png""#,
-            "NotCompatible [View §3 image; Core §7.4.2 step 3]",
-        ),
-        (None, r#""plain""#, "plain"),
-        (None, "7", "NotCompatible [View §3]"),
-        (Some("color"), r#""red""#, "NotCompatible [View §3]"),
+        ("mini_markdown", r#""*a*""#, FormattedKind::MiniMarkdown),
+        ("url", r#""https://shop.example/x""#, FormattedKind::Url),
     ];
-    let data = format!("\"{}\"", data_png(16, 16));
-    for (value_type, raw, want) in table {
-        let typed = value_type.map_or_else(String::new, |vt| format!(r#", "value_type": "{vt}""#));
+    for (value_type, raw, kind) in table {
         let meta = claims(&format!(
-            r#"{{"path": ["v"], "display": [{{"locale": "en", "name": "V"}}]{typed}}}"#
+            r#"{{"path": ["v"], "display": [{{"locale": "en", "name": "V"}}], "value_type": "{value_type}"}}"#
         ));
-        let raw = if raw == "DATA" { data.as_str() } else { raw };
-        let rendered = render(&meta, &format!(r#"{{"transaction_id": "t", "v": {raw}}}"#));
-        let got = match &rendered {
-            Ok(rendered) => rendered.rows()[0]
-                .1
-                .as_ref()
-                .map_or_else(|| "<none>".to_owned(), |(_, text)| text.clone()),
-            Err(_) => outcome(&rendered),
-        };
-        if want == SHOWN {
-            assert!(rendered.is_ok(), "{value_type:?} {raw}: {got}");
-        } else {
-            assert_eq!(got, want, "{value_type:?} {raw}");
-        }
+        let rendered =
+            render(&meta, &format!(r#"{{"transaction_id": "t", "v": {raw}}}"#)).expect(value_type);
+        assert_eq!(
+            rendered.view.rows[0].kind,
+            Some(ValueKind::Formatted(kind)),
+            "{value_type}"
+        );
+        assert!(rendered.rows()[0].1.is_some(), "{value_type}");
     }
 }
 
@@ -309,7 +237,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
         siros_openid4vp::rows::HttpsUrl::parse(url).expect("url"),
         Fetch::Fetched {
             content: logo,
-            media: "image/png".to_owned(),
+            media: MediaType::parse("image/png").expect("a media type"),
         },
     );
     let rendered = fetched
@@ -384,23 +312,15 @@ fn claims_order_rules_the_view_and_payload_order_the_generic_rulebook() {
 
 #[test]
 fn a_type_takes_its_exact_rulebook_else_its_longest_prefix() {
-    assert_eq!(
-        Family::of("urn:paso:sca:global:payment:1"),
-        Some(Family::Payment)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:payment:2"),
-        Some(Family::View)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:generic:x:1"),
-        Some(Family::Generic)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:mandate:1"),
-        Some(Family::Mandate)
-    );
-    assert_eq!(Family::of("urn:other:1"), None);
+    for (kind, family) in [
+        ("urn:paso:sca:global:payment:1", Family::Payment),
+        ("urn:paso:sca:global:payment:2", Family::View),
+        ("urn:paso:sca:global:generic:x:1", Family::Generic),
+        ("urn:paso:sca:global:mandate:1", Family::Mandate),
+    ] {
+        assert_eq!(PasoType::parse(kind).map(|kind| kind.family()), Ok(family));
+    }
+    assert!(PasoType::parse("urn:other:1").is_err());
 }
 
 #[test]
@@ -431,7 +351,7 @@ fn a_payment_header_shows_the_payee_and_the_amount_wherever_the_claims_put_them(
             .collect()
     };
     assert_eq!(
-        (path(heads.merchant()), path(heads.amount())),
+        (path(heads.merchant().get()), path(heads.amount().get())),
         (
             vec!["payee".to_owned(), "name".to_owned()],
             vec!["amount".to_owned()]

@@ -13,7 +13,7 @@ use siros_explain::{AllOf, Entry, ParamName, RequestText, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
-use crate::conform::written;
+use crate::conform::{ClaimIndex, NullIndices, written};
 use crate::metadata::{ClaimMeta, ValueType, kind_name};
 use crate::outcome::NotCompatible;
 use crate::path::{at, substitute};
@@ -59,14 +59,17 @@ pub(crate) fn placeholders(template: &str) -> Vec<Placeholder> {
 /// A placeholder's referenced claim, when its index names one: the referenced value is read
 /// with the referencing instance's `null` indices.
 struct Reference<'c, 'm> {
-    index: usize,
+    index: ClaimIndex,
     claim: &'c ClaimMeta<'m>,
 }
 
 impl<'c, 'm> Reference<'c, 'm> {
     fn of(placeholder: &Placeholder, claims: &'c [ClaimMeta<'m>]) -> Option<Self> {
         let index = placeholder.index?;
-        claims.get(index).map(|claim| Self { index, claim })
+        claims.get(index).map(|claim| Self {
+            index: ClaimIndex(index),
+            claim,
+        })
     }
 
     /// The referenced claim's value type: a claim without `display` has none.
@@ -82,7 +85,7 @@ impl<'c, 'm> Reference<'c, 'm> {
     fn read<'n>(
         &self,
         payload: &'n Node<'n>,
-        nulls: &[usize],
+        nulls: &NullIndices,
     ) -> Result<Option<&'n Node<'n>>, NotCompatible> {
         let value_type = self.value_type();
         let forbidden = match value_type {
@@ -128,7 +131,7 @@ impl Template<'_> {
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
-        nulls: &[usize],
+        nulls: &NullIndices,
     ) -> Result<bool, NotCompatible> {
         for placeholder in placeholders(self.0) {
             if let Some(reference) = Reference::of(&placeholder, claims)
@@ -148,7 +151,7 @@ impl Template<'_> {
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
-        nulls: &[usize],
+        nulls: &NullIndices,
     ) -> Result<String, NotCompatible> {
         let mut out = String::with_capacity(self.0.len());
         let mut copied = 0;
@@ -180,10 +183,10 @@ impl Template<'_> {
         kind: FormattedKind,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
-        nulls: &[usize],
+        nulls: &NullIndices,
     ) -> Result<RequestText, NotCompatible> {
         let interpolated = self.interpolate(claims, payload, nulls)?;
-        let (_, read) =
+        let read =
             formatted(kind, Written::Text(&interpolated)).map_err(|bad| NotCompatible::Value {
                 value_type: kind_name(ValueKind::Formatted(kind)),
                 bad,
@@ -224,7 +227,7 @@ impl Template<'_> {
         let slot = slot(&parts).ok_or_else(|| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad: BadValue {
-                kind: kind.as_str(),
+                kind,
                 written: Written::Text(self.0).named(),
                 why: Breach::NoSlot,
             },
@@ -266,7 +269,7 @@ impl Template<'_> {
         &self,
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
-        nulls: &[usize],
+        nulls: &NullIndices,
     ) -> Result<Vec<Entry<ParamName, RequestText>>, NotCompatible> {
         let mut args: Vec<Entry<ParamName, RequestText>> = Vec::new();
         for placeholder in placeholders(self.0) {
@@ -311,12 +314,10 @@ fn text(value_type: ValueType, value: &Node<'_>) -> Result<RequestText, NotCompa
         ValueType::Kind(ValueKind::Formatted(kind)) => kind,
         _ => FormattedKind::Text,
     };
-    formatted(kind, written(value))
-        .map(|(_, text)| text)
-        .map_err(|bad| NotCompatible::Value {
-            value_type: kind_name(ValueKind::Formatted(kind)),
-            bad,
-        })
+    formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
+        value_type: kind_name(ValueKind::Formatted(kind)),
+        bad,
+    })
 }
 
 /// A referenced value as written, once it conforms to its value type.

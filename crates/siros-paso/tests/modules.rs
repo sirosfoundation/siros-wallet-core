@@ -1,7 +1,8 @@
 //! siros-paso's modules' values: RFC 9562's random UUIDs for `jti`, and the `COSE_Encrypt` the
-//! module returns (RFC 9052 §5.1) under a content encryption it states.
+//! module returns (RFC 9052 §5.1) under a content encryption it states, and its trust store's
+//! roots.
 
-use siros_paso::{CoseEnc, NotSealedCose, RandomId, SealedCose};
+use siros_paso::{CoseEnc, NotSealedCose, RandomId, RootCertificate, SealedCose};
 
 #[test]
 fn a_random_id_is_a_version_4_uuid() {
@@ -54,4 +55,11 @@ fn a_cose_encrypt_of_another_form_or_encryption_is_refused() {
         SealedCose::parse(vec![0xd8, 0x60, 0x80], &[CoseEnc::A256GCM]),
         Err(NotSealedCose::Structure(_))
     ));
+}
+
+#[test]
+fn a_root_certificate_is_a_der_certificate() {
+    // RFC 5280 §4.1: a SEQUENCE holding an INTEGER is no Certificate.
+    assert!(RootCertificate::parse(&[0x30, 0x03, 0x02, 0x01, 0x01]).is_err());
+    assert!(RootCertificate::parse(&siros_x509::test_util::root()).is_ok());
 }

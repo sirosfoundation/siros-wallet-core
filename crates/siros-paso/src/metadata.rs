@@ -11,6 +11,7 @@ use siros_openid4vp::claims::ClaimPath;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::{ReprItem, ReprOption};
 
+use crate::conform::ClaimIndex;
 use crate::labels::{LabelSlot, LabelText, LabelViolation};
 use crate::mandate::MandateLabel;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
@@ -419,7 +420,7 @@ impl<'m> Metadata<'m> {
             let path = claim
                 .get("path")
                 .and_then(ClaimPath::parse)
-                .ok_or(Unsupported::InvalidPath(k))?;
+                .ok_or(Unsupported::InvalidPath(ClaimIndex(k)))?;
             if parsed.iter().any(|earlier| earlier.path == path) {
                 return Err(Unsupported::PathTwice(claim_text(path.steps())).into());
             }

@@ -14,18 +14,47 @@ use siros_explain::{ModuleId, Text};
 use siros_i18n::{DefinedForm, Formatted, Selected};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::Exclude;
 use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
-use siros_paso::outcome::Outcome;
+use siros_paso::outcome::Excluded;
 use siros_paso::render::{TransactionView, ViewRow};
+use siros_paso::rulebook::PasoType;
+use siros_paso::rules::BindExcluded;
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
 use siros_testkit::render::{
     App, CrateSource, ENGLISH_PASO, GERMAN_PASO, main_locales, main_module,
 };
 use siros_testkit::verifier;
+
+/// The rule that excluded a credential, read from its type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExcludedBy {
+    /// View §4: no locale completes the display.
+    Locale,
+    /// Core §6 and OpenID4VP B.2: the presentation cannot carry the SCA response claims.
+    Carriage,
+    /// Core §7.4.2 step 2: no entry renders for the credential.
+    NoEntry,
+}
+
+impl ExcludedBy {
+    /// The rule of an exclusion PaSO gave.
+    pub fn of(exclude: &Exclude) -> Self {
+        let rule: &dyn std::error::Error = exclude.rule();
+        if rule.downcast_ref::<Excluded>().is_some() {
+            return Self::Locale;
+        }
+        match rule.downcast_ref::<BindExcluded>() {
+            Some(BindExcluded::Carriage) => Self::Carriage,
+            Some(BindExcluded::NoEntry) => Self::NoEntry,
+            None => panic!("no exclusion of PaSO's: {exclude}"),
+        }
+    }
+}
 
 /// The Payment rulebook's type.
 pub const PAY: &str = "urn:paso:sca:global:payment:1";
@@ -283,7 +312,8 @@ pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> DefinedForm {
 pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let given = Node::parse(meta).expect("the metadata");
     let main = main_locales().expect("the main module");
-    siros_paso::view::convert(kind, &given, &main, priority).ok()
+    let kind = PasoType::parse(kind).ok()?;
+    siros_paso::view::convert(&kind, &given, &main, priority).ok()
 }
 
 /// The test app as the matcher renders a request for an `Env`, and the wallet in phase 2: the
@@ -317,7 +347,7 @@ fn app_with(cards: &[&Card], further: Vec<DefinedForm>, env: &Env) -> App {
         let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
         for (kind, meta) in document.types() {
             let meta = meta.python_compact().to_string();
-            if let Some(module) = self::converted(kind, &meta, env.priority())
+            if let Some(module) = self::converted(kind.as_str(), &meta, env.priority())
                 && defined.iter().all(|known| known.id() != module.id())
             {
                 defined.push(module);
@@ -463,16 +493,6 @@ impl Seen {
     /// A text of the rendering, formatted.
     pub fn formatted(&self, text: &Text) -> Formatted {
         self.screen.formatted(text)
-    }
-}
-
-/// The outcome's kind and clause, the model's way of naming the rule that decided it.
-pub fn outcome(rendered: &Result<Rendered, Outcome>) -> String {
-    match rendered {
-        Ok(_) => "Rendered".to_owned(),
-        Err(Outcome::Unsupported(rule)) => format!("Unsupported [{}]", rule.clause()),
-        Err(Outcome::NotCompatible(rule)) => format!("NotCompatible [{}]", rule.clause()),
-        Err(Outcome::Excluded(rule)) => format!("Excluded [{}]", rule.clause()),
     }
 }
 

@@ -5,7 +5,11 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Entry, Explain, Keyed, ParamName, RequestText, Text};
+use std::fmt;
+
+use siros_explain::{
+    Count, DefinedModule, Entry, Explain, IntoArg, Keyed, ParamName, RequestText, Text, kind,
+};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -14,7 +18,7 @@ use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
 
 use crate::PasoRequested;
 
-use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, written};
+use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
 use crate::labels::{LabelSlot, LabelText};
@@ -23,7 +27,7 @@ use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
 use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
-use crate::rulebook::{Family, Rulebook, Subtype};
+use crate::rulebook::{Family, PasoType, Rulebook, Subtype};
 use crate::template::Template;
 use crate::value::{self as values, FormattedKind, ValueKind};
 use crate::view;
@@ -36,7 +40,7 @@ pub struct ItemBound(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso")]
 #[error("View §2 bound {0} under 200")]
-pub struct BoundTooLow(#[explain(name = "bound")] pub usize);
+pub struct BoundTooLow(#[explain(name = "bound")] usize);
 
 impl ItemBound {
     /// View §2's least bound.
@@ -55,6 +59,20 @@ impl ItemBound {
     #[must_use]
     pub const fn get(self) -> usize {
         self.0
+    }
+}
+
+impl fmt::Display for ItemBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for ItemBound {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
     }
 }
 
@@ -86,20 +104,32 @@ pub struct Actions {
 /// `amount`, both with a text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaymentRows {
-    merchant: usize,
-    amount: usize,
+    merchant: RowPosition,
+    amount: RowPosition,
+}
+
+/// A row's position among a rendering's rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowPosition(usize);
+
+impl RowPosition {
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
 }
 
 impl PaymentRows {
     /// The merchant's row's position among the rows.
     #[must_use]
-    pub const fn merchant(self) -> usize {
+    pub const fn merchant(self) -> RowPosition {
         self.merchant
     }
 
     /// The amount's row's position among the rows.
     #[must_use]
-    pub const fn amount(self) -> usize {
+    pub const fn amount(self) -> RowPosition {
         self.amount
     }
 }
@@ -123,9 +153,9 @@ pub struct TransactionView {
 
 impl TransactionView {
     /// The text of the row at a position.
-    fn text(&self, position: usize) -> Option<&RequestText> {
+    fn text(&self, position: RowPosition) -> Option<&RequestText> {
         self.rows
-            .get(position)
+            .get(position.get())
             .and_then(|row| row.row.value.as_ref())
             .and_then(Value::text)
     }
@@ -141,8 +171,7 @@ impl TransactionView {
 /// What a rendering reads: the type, the payload, the metadata given for the type, the wallet's
 /// configuration and item bound, and what it knows of https images.
 pub(crate) struct Request<'r, R> {
-    pub(crate) kind: &'r str,
-    pub(crate) family: Family,
+    pub(crate) kind: &'r PasoType<'r>,
     pub(crate) payload: Payload<'r>,
     pub(crate) given: &'r Node<'r>,
     pub(crate) env: &'r Env,
@@ -171,7 +200,7 @@ struct Shown<'p> {
 impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     /// The rendering of the entry.
     pub(crate) fn render(&self) -> Result<TransactionView, Outcome> {
-        let (metadata, rulebook) = rulebook_metadata(self.kind, self.family, self.given)?;
+        let (metadata, rulebook) = rulebook_metadata(self.kind, self.given)?;
         rulebook.check_payload(self.payload)?;
         conform(self.payload, &metadata, &rulebook)?;
         let shown = self.images(&metadata, &rulebook)?;
@@ -204,8 +233,14 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 slot: key.slot(),
                 at: RenderedAt::Ui(key),
             };
-            self.label(module, &metadata, &discarded, &[], placed)
-                .map(Some)
+            self.label(
+                module,
+                &metadata,
+                &discarded,
+                &NullIndices::default(),
+                placed,
+            )
+            .map(Some)
         };
         let header = |key: UiKey, own: Text| -> Result<Text, NotCompatible> {
             Ok(ui(key)?.map_or(own, RequestText::into_text))
@@ -218,7 +253,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         if items > self.bound.get() {
             return Err(NotCompatible::TooManyItems {
                 items,
-                bound: self.bound.get(),
+                bound: self.bound,
             }
             .into());
         }
@@ -251,7 +286,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         let priority = self.env.priority();
         if select(arrays, priority, &Discarded::default()).is_none() {
             return Err(Excluded {
-                locales: priority.iter().map(ToString::to_string).collect(),
+                locales: priority.to_vec(),
             }
             .into());
         }
@@ -340,7 +375,11 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         for label in &metadata.ui {
             for (position, entry) in label.entries.entries().iter().enumerate() {
                 if let LabelForm::Template(text) = entry.label
-                    && !Template(text).complete(&metadata.claims, payload, &[])?
+                    && !Template(text).complete(
+                        &metadata.claims,
+                        payload,
+                        &NullIndices::default(),
+                    )?
                 {
                     discarded.discard(ArrayKey::Ui(label.key), position);
                 }
@@ -357,7 +396,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         module: DefinedModule,
         metadata: &Metadata<'_>,
         discarded: &Discarded,
-        nulls: &[usize],
+        nulls: &NullIndices,
         placed: Placed<'_, '_>,
     ) -> Result<RequestText, NotCompatible> {
         let claims = &metadata.claims;
@@ -473,7 +512,7 @@ struct Placed<'a, 'm> {
 /// A value of a kind other than an image, with its text.
 fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>, NotCompatible> {
     values::formatted(kind, written(value))
-        .map(|(_, text)| Value::Text(text))
+        .map(Value::Text)
         .map_err(|bad| NotCompatible::Value {
             value_type: kind_name(ValueKind::Formatted(kind)),
             bad,
@@ -484,14 +523,13 @@ fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>
 /// the given metadata's `security_hint`, else the given metadata; the Generic subtype read once
 /// the metadata parsed (Generic §1).
 pub(crate) fn rulebook_metadata<'m>(
-    kind: &'m str,
-    family: Family,
+    kind: &'m PasoType<'_>,
     given: &'m Node<'m>,
 ) -> Result<(Metadata<'m>, Rulebook<'m>), Outcome> {
     if *given == Node::Null {
-        return Err(Unsupported::NoEntry(kind.to_owned()).into());
+        return Err(Unsupported::NoEntry(kind.to_owned_type()).into());
     }
-    Ok(match family {
+    Ok(match kind.family() {
         Family::Mandate => {
             let subtype = Subtype::mandate(kind)?;
             (mandate::metadata(given)?, Rulebook::Mandate(subtype))
@@ -567,5 +605,8 @@ fn payment_rows(rows: &[ViewRow]) -> Option<PaymentRows> {
     };
     let merchant = at_path(&["payee", "name"])?;
     let amount = at_path(&["amount"])?;
-    (texted(merchant) && texted(amount)).then_some(PaymentRows { merchant, amount })
+    (texted(merchant) && texted(amount)).then_some(PaymentRows {
+        merchant: RowPosition(merchant),
+        amount: RowPosition(amount),
+    })
 }

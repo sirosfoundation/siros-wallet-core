@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use siros_explain::Explain;
+use siros_explain::{Explain, IntoArg, kind};
 
 /// A media type as received: the text a `Content-Type` field carried. Only [`MediaType::parse`]
 /// makes one.
@@ -289,6 +289,15 @@ impl MediaType {
 
 /// The form media type's essence.
 const FORM: &str = "application/x-www-form-urlencoded";
+
+/// A media type is named by its text as received.
+impl IntoArg for MediaType {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.text
+    }
+}
 
 impl fmt::Display for MediaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

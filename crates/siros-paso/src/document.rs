@@ -13,6 +13,9 @@ use base64::engine::general_purpose::STANDARD;
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption};
+use siros_openid4vp::sri::Integrity;
+
+use crate::rulebook::PasoType;
 
 /// The key of the PaSO document in a credential's registration.
 pub const DOCUMENT: &str = "paso";
@@ -32,6 +35,32 @@ pub enum DocumentError {
     Member(#[explain(name = "member")] &'static str),
 }
 
+/// The bytes a document's `issuer.x5c.root` decodes to, which Proof Metadata §7 step 6 compares
+/// byte for byte with the anchor's DER: bytes that are no DER equal no anchor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainRoot(Vec<u8>);
+
+impl ChainRoot {
+    /// The bytes.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// The bytes a document's `issuer.x5c.subject` decodes to, which Proof Metadata §7 step 6
+/// compares byte for byte with the leaf's Subject: bytes that are no DER equal no Subject.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainSubject(Vec<u8>);
+
+impl ChainSubject {
+    /// The bytes.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// The credential issuer's key material, which an ad-hoc metadata JWT verifies under (Proof
 /// Metadata §5.3 step 3) and binds to (§7 step 6).
 #[derive(Debug, Clone)]
@@ -47,10 +76,10 @@ pub enum Issuer<'d> {
     Chain {
         /// The Credential Issuer Identifier.
         iss: &'d str,
-        /// The DER of the chain's root certificate.
-        root: Vec<u8>,
-        /// The DER of the leaf certificate's Subject.
-        subject: Vec<u8>,
+        /// The chain's root certificate.
+        root: ChainRoot,
+        /// The leaf certificate's Subject.
+        subject: ChainSubject,
     },
 }
 
@@ -67,9 +96,9 @@ impl<'d> Issuer<'d> {
 /// A credential's PaSO document, read.
 #[derive(Debug, Clone)]
 pub struct PasoDocument<'d> {
-    /// The integrity value of the signed credential metadata JWT (Core §6.1
+    /// The [W3C.SRI] integrity value of its signed credential metadata JWT (Core §6.1
     /// `metadata_integrity`).
-    pub integrity: &'d str,
+    pub integrity: Integrity,
     /// The credential's type: its `vct` or its doctype.
     pub credential_type: &'d str,
     /// Its issuer's key material.
@@ -97,7 +126,7 @@ impl<'d> PasoDocument<'d> {
             .get("iss")
             .and_then(Node::as_str)
             .ok_or(DocumentError::Member("issuer.iss"))?;
-        let der = |chain: &Node<'_>, name: &'static str, member: &'static str| {
+        let decoded = |chain: &Node<'_>, name: &'static str, member: &'static str| {
             chain
                 .get(name)
                 .and_then(Node::as_str)
@@ -107,8 +136,8 @@ impl<'d> PasoDocument<'d> {
         let issuer = match (issuer.get("x5c"), issuer.get("keys")) {
             (Some(chain), _) => Issuer::Chain {
                 iss,
-                root: der(chain, "root", "issuer.x5c.root")?,
-                subject: der(chain, "subject", "issuer.x5c.subject")?,
+                root: ChainRoot(decoded(chain, "root", "issuer.x5c.root")?),
+                subject: ChainSubject(decoded(chain, "subject", "issuer.x5c.subject")?),
             },
             (None, Some(Node::Object(keys))) => Issuer::KeySet { iss, keys },
             (None, _) => return Err(DocumentError::Member("issuer.keys")),
@@ -123,7 +152,8 @@ impl<'d> PasoDocument<'d> {
             },
         };
         Ok(Self {
-            integrity: text("integrity")?,
+            integrity: Integrity::parse(text("integrity")?)
+                .map_err(|_| DocumentError::Member("integrity"))?,
             credential_type: text("type")?,
             issuer,
             types: node
@@ -136,17 +166,17 @@ impl<'d> PasoDocument<'d> {
 
     /// The metadata the signed credential metadata lists for a type.
     #[must_use]
-    pub fn metadata(&self, kind: &str) -> Option<&'d Node<'d>> {
-        self.types.get(kind)
+    pub fn metadata(&self, kind: &PasoType<'_>) -> Option<&'d Node<'d>> {
+        self.types.get(kind.as_str())
     }
 
-    /// Each type the signed credential metadata lists, with its metadata, which the wallet
+    /// Each PaSO type the signed credential metadata lists, with its metadata, which the wallet
     /// converts into a defined module when it registers the credential ([`crate::view::convert`]).
-    pub fn types(&self) -> impl Iterator<Item = (&'d str, &'d Node<'d>)> {
-        self.types
-            .members()
-            .iter()
-            .map(|member| (member.name.as_ref(), &member.value))
+    pub fn types(&self) -> impl Iterator<Item = (PasoType<'d>, &'d Node<'d>)> {
+        self.types.members().iter().filter_map(|member| {
+            let kind = PasoType::parse(member.name.as_ref()).ok()?;
+            Some((kind, &member.value))
+        })
     }
 
     /// Risk Signals §7.3: the first published key, `use` `enc` with a `kid` and an `alg`, that

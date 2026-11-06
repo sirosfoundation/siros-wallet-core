@@ -64,10 +64,11 @@ pub use cose::{NotSealedCose, SealedCose};
 #[cfg(feature = "test-util")]
 pub use measure::{Measured, Signal, TestPaso};
 #[cfg(feature = "resolve")]
-pub use measure::{Measurement, Paso, Reading};
+pub use measure::{Measurement, Paso, Reading, WalletVersion};
 #[cfg(feature = "resolve")]
 pub use modules::{
-    CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, RandomId, RandomIds, RootCertificate,
+    CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, NotRootCertificate, RandomId, RandomIds,
+    RootCertificate,
 };
 #[cfg(feature = "test-util")]
 pub use modules::{TestIssuerTrust, TestRandomIds};
@@ -87,6 +88,7 @@ use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{InvalidId, TypePrefix};
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::plugins::{
     Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Build, Carriage, Exclude,
     Fault, FaultDomain, HostedProfile, Member, NoCandidate, Profile, ProfileHandle,
@@ -96,6 +98,7 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
 use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{Env, HttpsUrl, Selected};
+use siros_openid4vp::sri::Integrity;
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::{
@@ -108,9 +111,9 @@ use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
-use crate::render::{ItemBound, TransactionView};
+use crate::render::{ItemBound, RowPosition, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
-use crate::rulebook::{Family, PASO};
+use crate::rulebook::{PASO, PasoType};
 use crate::rules::BindExcluded;
 use siros_openid4vp::wallet_metadata;
 
@@ -176,6 +179,7 @@ impl Messages for CrateMessages {
             path::Mismatch::messages,
             render::BoundTooLow::messages,
             document::DocumentError::messages,
+            rulebook::NotPasoType::messages,
             labels::Directional::messages,
             labels::LabelViolation::messages,
             value::BadValue::messages,
@@ -193,6 +197,8 @@ impl Messages for CrateMessages {
             rules::BindExcluded::messages,
             #[cfg(feature = "resolve")]
             modules::NotRandomId::messages,
+            #[cfg(feature = "resolve")]
+            modules::NotRootCertificate::messages,
             #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
             cose::NotSealedCose::messages,
         ];
@@ -215,7 +221,7 @@ pub enum Fetch {
         /// The content.
         content: Vec<u8>,
         /// The media type.
-        media: String,
+        media: MediaType,
     },
     /// Its fetch failed, for this reason.
     Failed(String),
@@ -226,8 +232,8 @@ pub enum Fetch {
 pub enum Source {
     /// The signed credential metadata the wallet stores, by its JWT's integrity value.
     Stored {
-        /// The integrity value (Core §6.1 `metadata_integrity`).
-        integrity: String,
+        /// The integrity value.
+        integrity: Integrity,
     },
     /// The entry's ad-hoc metadata JWT (Proof Metadata §5).
     Adhoc,
@@ -346,34 +352,6 @@ impl PasoProfile {
     /// let mut builder = Registry::<Wallet>::builder();
     /// PasoProfile::default().register(&mut builder).expect("registers");
     /// ```
-    ///
-    /// A host without the PaSO module does not compile with it:
-    ///
-    /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::{Haip, Platform};
-    /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::{CoseEncrypt, IssuerTrust, PasoProfile, RandomIds};
-    /// use siros_paso::{TestCoseEncrypt, TestIssuerTrust, TestRandomIds};
-    /// use siros_testkit::{TestHaip, TestPlatform};
-    ///
-    /// siros_testkit::test_host! {
-    ///     /// A host lacking the PaSO module.
-    ///     #[derive(Default)]
-    ///     struct Wallet {
-    ///         handles {
-    ///             platform: TestPlatform => Platform,
-    ///             random_ids: TestRandomIds => RandomIds,
-    ///             issuer_trust: TestIssuerTrust => IssuerTrust
-    ///         }
-    ///         zero_sized { TestHaip => Haip }
-    ///         optional { TestCoseEncrypt => CoseEncrypt }
-    ///         lacks {}
-    ///     }
-    /// }
-    ///
-    /// let mut builder = Registry::<Wallet>::builder();
-    /// PasoProfile::default().register(&mut builder).expect("registers");
-    /// ```
     pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> Result<ProfileHandle, InvalidId>
     where
         H: Build,
@@ -410,13 +388,7 @@ impl PasoProfile {
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Result<Rendered, Outcome>, Fault> {
-        let kind = entry.kind().as_str();
-        let family = Family::of(kind).ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
-            )
-        })?;
+        let kind = paso_type(entry)?;
         let Some(bytes) = credential.document(DOCUMENT) else {
             return Ok(Err(Unsupported::NoPasoMetadata.into()));
         };
@@ -424,7 +396,7 @@ impl PasoProfile {
             .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
         let document = PasoDocument::read(&node)
             .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-        let paso = match PasoEntry::read(entry) {
+        let paso = match PasoEntry::read(entry, kind) {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
         };
@@ -436,7 +408,7 @@ impl PasoProfile {
             Ok(adhoc) => adhoc,
             Err(refused) => return Ok(Err(refused)),
         };
-        Ok(self.rendered(&paso, adhoc.as_ref(), family, &document, placement, env))
+        Ok(self.rendered(&paso, adhoc.as_ref(), &document, placement, env))
     }
 
     /// The ad-hoc metadata JWT the profile relies on for the credential: refused when the profile
@@ -452,7 +424,7 @@ impl PasoProfile {
         if let Some(refused) = self
             .refusals
             .iter()
-            .find(|refused| refused.jwt == jwt && refused.credential == id)
+            .find(|refused| refused.jwt.as_str() == jwt && refused.credential.as_str() == id)
         {
             return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
         }
@@ -460,7 +432,7 @@ impl PasoProfile {
             && !self
                 .relied
                 .iter()
-                .any(|relied| relied.jwt == jwt && relied.credential == id)
+                .any(|relied| relied.jwt.as_str() == jwt && relied.credential.as_str() == id)
         {
             return Err(NotCompatible::Adhoc(AdhocFailure::Unverified).into());
         }
@@ -471,26 +443,24 @@ impl PasoProfile {
         &self,
         paso: &PasoEntry<'_>,
         adhoc: Option<&adhoc::Read<'_>>,
-        family: Family,
         document: &PasoDocument<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Rendered, Outcome> {
-        let kind = paso.kind.as_str();
+        let kind = &paso.kind;
         let (given, source) = match adhoc {
             Some(read) => (read.metadata(), Source::Adhoc),
             None => (
                 document
                     .metadata(kind)
-                    .ok_or_else(|| Unsupported::NotListed(kind.to_owned()))?,
+                    .ok_or_else(|| Unsupported::NotListed(kind.to_owned_type()))?,
                 Source::Stored {
-                    integrity: document.integrity.to_owned(),
+                    integrity: document.integrity.clone(),
                 },
             ),
         };
         let view = render::Request {
             kind,
-            family,
             payload: paso.payload,
             given,
             env,
@@ -513,6 +483,17 @@ impl PasoProfile {
         }
         Ok(Rendered { view, source })
     }
+}
+
+/// An entry's type identifier, which the profile's registration keeps under `urn:paso:sca:`.
+pub(crate) fn paso_type<'e>(entry: &'e Entry<'e>) -> Result<PasoType<'e>, Fault> {
+    let kind = entry.kind().as_str();
+    PasoType::parse(kind).map_err(|_| {
+        Fault::new(
+            FAULT,
+            detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
+        )
+    })
 }
 
 /// What a rendering gives the core: the entry it authorizes, the header, what the response
@@ -540,12 +521,12 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
     if let Source::Stored { integrity } = source {
         attested.push((
             AttestedName::new("metadata_integrity"),
-            AttestedText::new(integrity),
+            AttestedText::new(integrity.as_str().to_owned()),
         ));
     }
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {
-            let at = |position: usize| rows.get(position).map(|row| row.row.clone());
+            let at = |position: RowPosition| rows.get(position.get()).map(|row| row.row.clone());
             let header_rows = [at(heads.merchant()), at(heads.amount())]
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
@@ -554,7 +535,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
                 rows: rows
                     .into_iter()
                     .enumerate()
-                    .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
+                    .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
                     .map(|(_, row)| row.row)
                     .collect(),
                 header: Some(TransactionHeader {

@@ -17,7 +17,7 @@ use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Source};
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, env, one_query, parameters, section, tables};
+use crate::common::{Card, ExcludedBy, env, one_query, parameters, section, tables};
 use crate::generate::Case;
 
 mod members;
@@ -254,11 +254,11 @@ pub fn case(case: &Case, tally: &mut Tally) {
             (bound, entry, rendered)
         }
         (Err(NoCandidate::Excluded(exclude)), Some((_, _, Err(Outcome::Excluded(_))))) => {
-            assert_eq!(exclude.clause(), "View §4", "P-excluded");
+            assert_eq!(ExcludedBy::of(&exclude), ExcludedBy::Locale, "P-excluded");
             return tally.add("excluded View §4");
         }
         (Err(NoCandidate::Excluded(exclude)), None) => {
-            assert_eq!(exclude.clause(), "Core §7.4.2 step 2", "P-excluded");
+            assert_eq!(ExcludedBy::of(&exclude), ExcludedBy::NoEntry, "P-excluded");
             return tally.add("excluded no compatible entry");
         }
         (got, first) => panic!("P-first match: {got:?} against {first:?}"),
@@ -284,7 +284,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
             let rest: Vec<Row<RequestText>> = rows
                 .iter()
                 .enumerate()
-                .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
+                .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
                 .map(|(_, row)| row.clone())
                 .collect();
             assert_eq!(rest.len() + 2, rows.len(), "P-proxy rows");
@@ -296,7 +296,10 @@ pub fn case(case: &Case, tally: &mut Tally) {
             );
             assert_eq!(
                 header.rows,
-                [rows[heads.merchant()].clone(), rows[heads.amount()].clone()],
+                [
+                    rows[heads.merchant().get()].clone(),
+                    rows[heads.amount().get()].clone()
+                ],
                 "P-payment header rows"
             );
             tally.add("payment boxes");
@@ -316,7 +319,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
     if let Source::Stored { integrity } = &rendered.source {
         attested.push((
             AttestedName::new("metadata_integrity"),
-            AttestedText::new(integrity.clone()),
+            AttestedText::new(integrity.as_str().to_owned()),
         ));
     }
     assert_eq!(bound.attested.pairs(), attested.as_slice(), "P-attested");
