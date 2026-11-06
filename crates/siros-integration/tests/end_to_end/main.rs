@@ -36,8 +36,7 @@ use siros_testkit::sd_jwt_reading;
 use siros_testkit::verifier::{self, ISSUER};
 use siros_wallet_state::{
     Audience, CredentialId, PresentationData, PresentationId, PresentationRecord,
-    Timestamp as WalletTimestamp, TransactionId,
-    WalletState,
+    Timestamp as WalletTimestamp, TransactionId, WalletState,
 };
 
 use common::{paso_app, registry, sri};
