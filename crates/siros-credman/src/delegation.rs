@@ -90,7 +90,7 @@ pub enum Fulfilment {
 
 /// A background fulfilment refused: the set needs the wallet's display (A9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "credman.fulfilment")]
+#[explain(domain = "credman.fulfilment", id = "needed")]
 #[error("the set needs the wallet's display")]
 pub struct WalletDisplayNeeded;
 
