@@ -8,6 +8,8 @@ members = [
     "crates/siros-display",
     "crates/siros-explain",
     "crates/siros-explain-derive",
+    "crates/siros-i18n",
+    "crates/siros-cldr",
     "crates/siros-mdoc",
     "crates/siros-oid4vp",
     "crates/siros-presentation",
@@ -70,6 +72,27 @@ iso_currency = { version = "=0.7.1", features = ["iterator"] }
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.9", features = ["full"] }
+# RFC 9162's Merkle tree hashes and audit paths over an in-order node array.
+ct-merkle = "0.3.0"
+sha2 = "0.11.1"
+# UAX #15: MessageFormat 2 compares names and variant keys in NFC.
+unicode-normalization = { version = "0.1.26", default-features = false }
+# The currency format module tells letters (General Category L) beside a currency symbol.
+unicode-general-category = "1.1.0"
+# Test-only: ICU4X 2.4 and its compiled CLDR 49.0.0 data, siros-i18n's oracle.
+icu_plurals = { version = "=2.4.0", features = ["compiled_data"] }
+icu_decimal = { version = "=2.4.0", features = ["compiled_data"] }
+icu_list = { version = "=2.4.0", features = ["compiled_data"] }
+icu_datetime = { version = "=2.4.0", features = ["compiled_data"] }
+icu_calendar = { version = "=2.4.0", features = ["compiled_data"] }
+icu_time = { version = "=2.4.0", features = ["compiled_data"] }
+icu_locale_core = "=2.4.0"
+icu_experimental = { version = "=0.7.0", features = ["compiled_data"] }
+fixed_decimal = "=0.7.3"
+writeable = "0.6.3"
+# Test-only: a seeded generator.
+rand = "0.9.2"
+rand_chacha = "0.9.0"
 
 # clippy.toml names the std methods that panic on an argument. The tests may
 # call them; each crate root denies them outside its tests.

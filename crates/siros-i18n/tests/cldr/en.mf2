@@ -1,0 +1,877 @@
+# The format options of en from CLDR 49.0.0 (unicode-org/cldr-json), written by siros-cldr.
+@locale en
+@dir ltr
+---
+
+[formats.number]
+zero = 0
+decimal = .
+group = ,
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+  one: n % 10 = 1 and n % 100 != 11
+  two: n % 10 = 2 and n % 100 != 12
+  few: n % 10 = 3 and n % 100 != 13
+pattern = #,##0.###
+
+[formats.offset]
+zero = 0
+decimal = .
+group = ,
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+  one: n % 10 = 1 and n % 100 != 11
+  two: n % 10 = 2 and n % 100 != 12
+  few: n % 10 = 3 and n % 100 != 13
+pattern = #,##0.###
+
+[formats.currency]
+zero = 0
+decimal = .
+group = ,
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+  one: n % 10 = 1 and n % 100 != 11
+  two: n % 10 = 2 and n % 100 != 12
+  few: n % 10 = 3 and n % 100 != 13
+percent-sign = %
+percent-pattern = #,##0%
+pattern = #,##0.###
+standard = ¤#,##0.00
+standard-alpha = ¤ #,##0.00
+accounting = ¤#,##0.00;(¤#,##0.00)
+accounting-alpha = ¤ #,##0.00;(¤ #,##0.00)
+no-currency = #,##0.00
+no-currency-accounting = #,##0.00;(#,##0.00)
+unit-pattern =
+  one {0} {1}
+  other {0} {1}
+digits =
+  default 2
+  AFN 0
+  ALL 0
+  AMD 2
+  BHD 3
+  BIF 0
+  BYN 2
+  CAD 2
+  CHF 2
+  CLF 4
+  CLP 0
+  COP 0
+  CRC 2
+  CZK 2
+  DJF 0
+  DKK 2
+  GNF 0
+  GYD 2
+  HUF 0
+  IDR 0
+  IQD 0
+  IRR 0
+  ISK 0
+  JOD 3
+  JPY 0
+  KMF 0
+  KPW 0
+  KRW 0
+  KWD 3
+  LAK 0
+  LBP 0
+  LYD 3
+  MGA 0
+  MMK 0
+  MNT 2
+  MRU 2
+  MUR 2
+  NOK 2
+  OMR 3
+  PKR 2
+  PYG 0
+  RSD 2
+  RWF 0
+  SEK 2
+  SLE 2
+  SLL 0
+  SOS 0
+  SYP 0
+  TND 3
+  TWD 2
+  TZS 2
+  UGX 0
+  UYI 0
+  UYW 4
+  UZS 2
+  VND 0
+  VUV 0
+  XAD 2
+  XAF 0
+  XAU 2
+  XOF 0
+  XPF 0
+  YER 0
+symbols =
+  AUD A$
+  BRL R$
+  CAD CA$
+  CNY CN¥
+  EUR €
+  GBP £
+  HKD HK$
+  ILS ₪
+  INR ₹
+  JPY ¥
+  KRW ₩
+  MXN MX$
+  NZD NZ$
+  PHP ₱
+  TWD NT$
+  USD $
+  VND ₫
+  XAF FCFA
+  XCD EC$
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+narrow =
+  AFN ؋
+  AMD ֏
+  AOA Kz
+  ARS $
+  AUD $
+  AZN ₼
+  BAM KM
+  BBD $
+  BDT ৳
+  BMD $
+  BND $
+  BOB Bs
+  BRL R$
+  BSD $
+  BWP P
+  BZD $
+  CAD $
+  CHF Fr.
+  CLP $
+  CNY ¥
+  COP $
+  CRC ₡
+  CUC $
+  CUP $
+  CZK Kč
+  DKK kr
+  DOP $
+  EGP E£
+  EUR €
+  FJD $
+  FKP £
+  GBP £
+  GEL ₾
+  GHS GH₵
+  GIP £
+  GNF FG
+  GTQ Q
+  GYD $
+  HKD $
+  HNL L
+  HRK kn
+  HUF Ft
+  IDR Rp
+  ILS ₪
+  INR ₹
+  ISK kr
+  JMD $
+  JPY ¥
+  KGS ⃀
+  KHR ៛
+  KMF CF
+  KPW ₩
+  KRW ₩
+  KYD $
+  KZT ₸
+  LAK ₭
+  LBP L£
+  LKR Rs
+  LRD $
+  MGA Ar
+  MMK K
+  MNT ₮
+  MUR Rs
+  MXN $
+  MYR RM
+  NAD $
+  NGN ₦
+  NIO C$
+  NOK kr
+  NPR Rs
+  NZD $
+  PHP ₱
+  PKR Rs
+  PLN zł
+  PYG ₲
+  RON lei
+  RUB ₽
+  RWF RF
+  SBD $
+  SEK kr
+  SGD $
+  SHP £
+  SRD $
+  SSP £
+  STN Db
+  SYP £
+  THB ฿
+  TOP T$
+  TRY ₺
+  TTD $
+  TWD $
+  UAH ₴
+  USD $
+  UYU $
+  VND ₫
+  XAF FCFA
+  XCD $
+  XCG Cg.
+  XOF F CFA
+  XPF CFPF
+  XXX ¤
+  ZAR R
+  ZMW ZK
+names =
+  AED display United Arab Emirates Dirham
+  AED one UAE dirham
+  AED other UAE dirhams
+  AFN display Afghan Afghani
+  AFN one Afghan Afghani
+  AFN other Afghan Afghanis
+  ALL display Albanian Lek
+  ALL one Albanian lek
+  ALL other Albanian lekë
+  AMD display Armenian Dram
+  AMD one Armenian dram
+  AMD other Armenian drams
+  AOA display Angolan Kwanza
+  AOA one Angolan kwanza
+  AOA other Angolan kwanzas
+  ARS display Argentine Peso
+  ARS one Argentine peso
+  ARS other Argentine pesos
+  AUD display Australian Dollar
+  AUD one Australian dollar
+  AUD other Australian dollars
+  AWG display Aruban Florin
+  AWG one Aruban florin
+  AWG other Aruban florin
+  AZN display Azerbaijani Manat
+  AZN one Azerbaijani manat
+  AZN other Azerbaijani manats
+  BAM display Bosnia-Herzegovina Convertible Mark
+  BAM one Bosnia-Herzegovina convertible mark
+  BAM other Bosnia-Herzegovina convertible marks
+  BBD display Barbadian Dollar
+  BBD one Barbadian dollar
+  BBD other Barbadian dollars
+  BDT display Bangladeshi Taka
+  BDT one Bangladeshi taka
+  BDT other Bangladeshi takas
+  BGN display Bulgarian Lev
+  BGN one Bulgarian lev
+  BGN other Bulgarian leva
+  BHD display Bahraini Dinar
+  BHD one Bahraini dinar
+  BHD other Bahraini dinars
+  BIF display Burundian Franc
+  BIF one Burundian franc
+  BIF other Burundian francs
+  BMD display Bermudan Dollar
+  BMD one Bermudan dollar
+  BMD other Bermudan dollars
+  BND display Brunei Dollar
+  BND one Brunei dollar
+  BND other Brunei dollars
+  BOB display Bolivian Boliviano
+  BOB one Bolivian boliviano
+  BOB other Bolivian bolivianos
+  BOV display Bolivian Mvdol
+  BOV one Bolivian mvdol
+  BOV other Bolivian mvdols
+  BRL display Brazilian Real
+  BRL one Brazilian real
+  BRL other Brazilian reals
+  BSD display Bahamian Dollar
+  BSD one Bahamian dollar
+  BSD other Bahamian dollars
+  BTN display Bhutanese Ngultrum
+  BTN one Bhutanese ngultrum
+  BTN other Bhutanese ngultrums
+  BWP display Botswanan Pula
+  BWP one Botswanan pula
+  BWP other Botswanan pulas
+  BYN display Belarusian Ruble
+  BYN one Belarusian ruble
+  BYN other Belarusian rubles
+  BZD display Belize Dollar
+  BZD one Belize dollar
+  BZD other Belize dollars
+  CAD display Canadian Dollar
+  CAD one Canadian dollar
+  CAD other Canadian dollars
+  CDF display Congolese Franc
+  CDF one Congolese franc
+  CDF other Congolese francs
+  CHE display WIR Euro
+  CHE one WIR euro
+  CHE other WIR euros
+  CHF display Swiss Franc
+  CHF one Swiss franc
+  CHF other Swiss francs
+  CHW display WIR Franc
+  CHW one WIR franc
+  CHW other WIR francs
+  CLF display Chilean Unit of Account (UF)
+  CLF one Chilean unit of account (UF)
+  CLF other Chilean units of account (UF)
+  CLP display Chilean Peso
+  CLP one Chilean peso
+  CLP other Chilean pesos
+  CNY display Chinese Yuan
+  CNY one Chinese yuan
+  CNY other Chinese yuan
+  COP display Colombian Peso
+  COP one Colombian peso
+  COP other Colombian pesos
+  COU display Colombian Real Value Unit
+  COU one Colombian real value unit
+  COU other Colombian real value units
+  CRC display Costa Rican Colón
+  CRC one Costa Rican colón
+  CRC other Costa Rican colóns
+  CUC display Cuban Convertible Peso
+  CUC one Cuban convertible peso
+  CUC other Cuban convertible pesos
+  CUP display Cuban Peso
+  CUP one Cuban peso
+  CUP other Cuban pesos
+  CVE display Cape Verdean Escudo
+  CVE one Cape Verdean escudo
+  CVE other Cape Verdean escudos
+  CZK display Czech Koruna
+  CZK one Czech koruna
+  CZK other Czech korunas
+  DJF display Djiboutian Franc
+  DJF one Djiboutian franc
+  DJF other Djiboutian francs
+  DKK display Danish Krone
+  DKK one Danish krone
+  DKK other Danish kroner
+  DOP display Dominican Peso
+  DOP one Dominican peso
+  DOP other Dominican pesos
+  DZD display Algerian Dinar
+  DZD one Algerian dinar
+  DZD other Algerian dinars
+  EGP display Egyptian Pound
+  EGP one Egyptian pound
+  EGP other Egyptian pounds
+  ERN display Eritrean Nakfa
+  ERN one Eritrean nakfa
+  ERN other Eritrean nakfas
+  ETB display Ethiopian Birr
+  ETB one Ethiopian birr
+  ETB other Ethiopian birrs
+  EUR display Euro
+  EUR one euro
+  EUR other euros
+  FJD display Fijian Dollar
+  FJD one Fijian dollar
+  FJD other Fijian dollars
+  FKP display Falkland Islands Pound
+  FKP one Falkland Islands pound
+  FKP other Falkland Islands pounds
+  GBP display British Pound
+  GBP one British pound
+  GBP other British pounds
+  GEL display Georgian Lari
+  GEL one Georgian lari
+  GEL other Georgian laris
+  GHS display Ghanaian Cedi
+  GHS one Ghanaian cedi
+  GHS other Ghanaian cedis
+  GIP display Gibraltar Pound
+  GIP one Gibraltar pound
+  GIP other Gibraltar pounds
+  GMD display Gambian Dalasi
+  GMD one Gambian dalasi
+  GMD other Gambian dalasis
+  GNF display Guinean Franc
+  GNF one Guinean franc
+  GNF other Guinean francs
+  GTQ display Guatemalan Quetzal
+  GTQ one Guatemalan quetzal
+  GTQ other Guatemalan quetzals
+  GYD display Guyanaese Dollar
+  GYD one Guyanaese dollar
+  GYD other Guyanaese dollars
+  HKD display Hong Kong Dollar
+  HKD one Hong Kong dollar
+  HKD other Hong Kong dollars
+  HNL display Honduran Lempira
+  HNL one Honduran lempira
+  HNL other Honduran lempiras
+  HRK display Croatian Kuna
+  HRK one Croatian kuna
+  HRK other Croatian kunas
+  HTG display Haitian Gourde
+  HTG one Haitian gourde
+  HTG other Haitian gourdes
+  HUF display Hungarian Forint
+  HUF one Hungarian forint
+  HUF other Hungarian forints
+  IDR display Indonesian Rupiah
+  IDR one Indonesian rupiah
+  IDR other Indonesian rupiahs
+  ILS display Israeli New Shekel
+  ILS one Israeli new shekel
+  ILS other Israeli new shekels
+  INR display Indian Rupee
+  INR one Indian rupee
+  INR other Indian rupees
+  IQD display Iraqi Dinar
+  IQD one Iraqi dinar
+  IQD other Iraqi dinars
+  IRR display Iranian Rial
+  IRR one Iranian rial
+  IRR other Iranian rials
+  ISK display Icelandic Króna
+  ISK one Icelandic króna
+  ISK other Icelandic krónur
+  JMD display Jamaican Dollar
+  JMD one Jamaican dollar
+  JMD other Jamaican dollars
+  JOD display Jordanian Dinar
+  JOD one Jordanian dinar
+  JOD other Jordanian dinars
+  JPY display Japanese Yen
+  JPY one Japanese yen
+  JPY other Japanese yen
+  KES display Kenyan Shilling
+  KES one Kenyan shilling
+  KES other Kenyan shillings
+  KGS display Kyrgyz Som
+  KGS one Kyrgyz som
+  KGS other Kyrgyz soms
+  KHR display Cambodian Riel
+  KHR one Cambodian riel
+  KHR other Cambodian riels
+  KMF display Comorian Franc
+  KMF one Comorian franc
+  KMF other Comorian francs
+  KPW display North Korean Won
+  KPW one North Korean won
+  KPW other North Korean won
+  KRW display South Korean Won
+  KRW one South Korean won
+  KRW other South Korean won
+  KWD display Kuwaiti Dinar
+  KWD one Kuwaiti dinar
+  KWD other Kuwaiti dinars
+  KYD display Cayman Islands Dollar
+  KYD one Cayman Islands dollar
+  KYD other Cayman Islands dollars
+  KZT display Kazakhstani Tenge
+  KZT one Kazakhstani tenge
+  KZT other Kazakhstani tenges
+  LAK display Laotian Kip
+  LAK one Laotian kip
+  LAK other Laotian kips
+  LBP display Lebanese Pound
+  LBP one Lebanese pound
+  LBP other Lebanese pounds
+  LKR display Sri Lankan Rupee
+  LKR one Sri Lankan rupee
+  LKR other Sri Lankan rupees
+  LRD display Liberian Dollar
+  LRD one Liberian dollar
+  LRD other Liberian dollars
+  LSL display Lesotho Loti
+  LSL one Lesotho loti
+  LSL other Lesotho lotis
+  LYD display Libyan Dinar
+  LYD one Libyan dinar
+  LYD other Libyan dinars
+  MAD display Moroccan Dirham
+  MAD one Moroccan dirham
+  MAD other Moroccan dirhams
+  MDL display Moldovan Leu
+  MDL one Moldovan leu
+  MDL other Moldovan lei
+  MGA display Malagasy Ariary
+  MGA one Malagasy ariary
+  MGA other Malagasy ariaries
+  MKD display Macedonian Denar
+  MKD one Macedonian denar
+  MKD other Macedonian denari
+  MMK display Myanmar Kyat
+  MMK one Myanmar kyat
+  MMK other Myanmar kyats
+  MNT display Mongolian Tugrik
+  MNT one Mongolian tugrik
+  MNT other Mongolian tugriks
+  MOP display Macanese Pataca
+  MOP one Macanese pataca
+  MOP other Macanese patacas
+  MRU display Mauritanian Ouguiya
+  MRU one Mauritanian ouguiya
+  MRU other Mauritanian ouguiyas
+  MUR display Mauritian Rupee
+  MUR one Mauritian rupee
+  MUR other Mauritian rupees
+  MVR display Maldivian Rufiyaa
+  MVR one Maldivian rufiyaa
+  MVR other Maldivian rufiyaas
+  MWK display Malawian Kwacha
+  MWK one Malawian kwacha
+  MWK other Malawian kwachas
+  MXN display Mexican Peso
+  MXN one Mexican peso
+  MXN other Mexican pesos
+  MXV display Mexican Investment Unit
+  MXV one Mexican investment unit
+  MXV other Mexican investment units
+  MYR display Malaysian Ringgit
+  MYR one Malaysian ringgit
+  MYR other Malaysian ringgits
+  MZN display Mozambican Metical
+  MZN one Mozambican metical
+  MZN other Mozambican meticals
+  NAD display Namibian Dollar
+  NAD one Namibian dollar
+  NAD other Namibian dollars
+  NGN display Nigerian Naira
+  NGN one Nigerian naira
+  NGN other Nigerian nairas
+  NIO display Nicaraguan Córdoba
+  NIO one Nicaraguan córdoba
+  NIO other Nicaraguan córdobas
+  NOK display Norwegian Krone
+  NOK one Norwegian krone
+  NOK other Norwegian kroner
+  NPR display Nepalese Rupee
+  NPR one Nepalese rupee
+  NPR other Nepalese rupees
+  NZD display New Zealand Dollar
+  NZD one New Zealand dollar
+  NZD other New Zealand dollars
+  OMR display Omani Rial
+  OMR one Omani rial
+  OMR other Omani rials
+  PAB display Panamanian Balboa
+  PAB one Panamanian balboa
+  PAB other Panamanian balboas
+  PEN display Peruvian Sol
+  PEN one Peruvian sol
+  PEN other Peruvian soles
+  PGK display Papua New Guinean Kina
+  PGK one Papua New Guinean kina
+  PGK other Papua New Guinean kina
+  PHP display Philippine Peso
+  PHP one Philippine peso
+  PHP other Philippine pesos
+  PKR display Pakistani Rupee
+  PKR one Pakistani rupee
+  PKR other Pakistani rupees
+  PLN display Polish Zloty
+  PLN one Polish zloty
+  PLN other Polish zlotys
+  PYG display Paraguayan Guarani
+  PYG one Paraguayan guarani
+  PYG other Paraguayan guaranis
+  QAR display Qatari Riyal
+  QAR one Qatari riyal
+  QAR other Qatari riyals
+  RON display Romanian Leu
+  RON one Romanian leu
+  RON other Romanian lei
+  RSD display Serbian Dinar
+  RSD one Serbian dinar
+  RSD other Serbian dinars
+  RUB display Russian Ruble
+  RUB one Russian ruble
+  RUB other Russian rubles
+  RWF display Rwandan Franc
+  RWF one Rwandan franc
+  RWF other Rwandan francs
+  SAR display Saudi Riyal
+  SAR one Saudi riyal
+  SAR other Saudi riyals
+  SBD display Solomon Islands Dollar
+  SBD one Solomon Islands dollar
+  SBD other Solomon Islands dollars
+  SCR display Seychellois Rupee
+  SCR one Seychellois rupee
+  SCR other Seychellois rupees
+  SDG display Sudanese Pound
+  SDG one Sudanese pound
+  SDG other Sudanese pounds
+  SEK display Swedish Krona
+  SEK one Swedish krona
+  SEK other Swedish kronor
+  SGD display Singapore Dollar
+  SGD one Singapore dollar
+  SGD other Singapore dollars
+  SHP display St. Helena Pound
+  SHP one St. Helena pound
+  SHP other St. Helena pounds
+  SLE display Sierra Leonean Leone
+  SLE one Sierra Leonean leone
+  SLE other Sierra Leonean leones
+  SLL display Sierra Leonean Leone (1964—2022)
+  SLL one Sierra Leonean leone (1964—2022)
+  SLL other Sierra Leonean leones (1964—2022)
+  SOS display Somali Shilling
+  SOS one Somali shilling
+  SOS other Somali shillings
+  SRD display Surinamese Dollar
+  SRD one Surinamese dollar
+  SRD other Surinamese dollars
+  SSP display South Sudanese Pound
+  SSP one South Sudanese pound
+  SSP other South Sudanese pounds
+  STN display São Tomé & Príncipe Dobra
+  STN one São Tomé & Príncipe dobra
+  STN other São Tomé & Príncipe dobras
+  SVC display Salvadoran Colón
+  SVC one Salvadoran colón
+  SVC other Salvadoran colones
+  SYP display Syrian Pound
+  SYP one Syrian pound
+  SYP other Syrian pounds
+  SZL display Swazi Lilangeni
+  SZL one Swazi lilangeni
+  SZL other Swazi emalangeni
+  THB display Thai Baht
+  THB one Thai baht
+  THB other Thai baht
+  TJS display Tajikistani Somoni
+  TJS one Tajikistani somoni
+  TJS other Tajikistani somonis
+  TMT display Turkmenistani Manat
+  TMT one Turkmenistani manat
+  TMT other Turkmenistani manat
+  TND display Tunisian Dinar
+  TND one Tunisian dinar
+  TND other Tunisian dinars
+  TOP display Tongan Paʻanga
+  TOP one Tongan paʻanga
+  TOP other Tongan paʻanga
+  TRY display Turkish Lira
+  TRY one Turkish lira
+  TRY other Turkish Lira
+  TTD display Trinidad & Tobago Dollar
+  TTD one Trinidad & Tobago dollar
+  TTD other Trinidad & Tobago dollars
+  TWD display New Taiwan Dollar
+  TWD one New Taiwan dollar
+  TWD other New Taiwan dollars
+  TZS display Tanzanian Shilling
+  TZS one Tanzanian shilling
+  TZS other Tanzanian shillings
+  UAH display Ukrainian Hryvnia
+  UAH one Ukrainian hryvnia
+  UAH other Ukrainian hryvnias
+  UGX display Ugandan Shilling
+  UGX one Ugandan shilling
+  UGX other Ugandan shillings
+  USD display US Dollar
+  USD one US dollar
+  USD other US dollars
+  USN display US Dollar (Next day)
+  USN one US dollar (next day)
+  USN other US dollars (next day)
+  UYI display Uruguayan Peso (Indexed Units)
+  UYI one Uruguayan peso (indexed units)
+  UYI other Uruguayan pesos (indexed units)
+  UYU display Uruguayan Peso
+  UYU one Uruguayan peso
+  UYU other Uruguayan pesos
+  UYW display Uruguayan Nominal Wage Index Unit
+  UYW one Uruguayan nominal wage index unit
+  UYW other Uruguayan nominal wage index units
+  UZS display Uzbekistani Som
+  UZS one Uzbekistani som
+  UZS other Uzbekistani som
+  VED display Bolívar Soberano
+  VED one Bolívar Soberano
+  VED other Bolívar Soberanos
+  VES display Venezuelan Bolívar
+  VES one Venezuelan bolívar
+  VES other Venezuelan bolívars
+  VND display Vietnamese Dong
+  VND one Vietnamese dong
+  VND other Vietnamese dong
+  VUV display Vanuatu Vatu
+  VUV one Vanuatu vatu
+  VUV other Vanuatu vatus
+  WST display Samoan Tala
+  WST one Samoan tala
+  WST other Samoan tala
+  XAF display Central African CFA Franc
+  XAF one Central African CFA franc
+  XAF other Central African CFA francs
+  XAG display Silver
+  XAG one troy ounce of silver
+  XAG other troy ounces of silver
+  XAU display Gold
+  XAU one troy ounce of gold
+  XAU other troy ounces of gold
+  XBA display European Composite Unit
+  XBA one European composite unit
+  XBA other European composite units
+  XBB display European Monetary Unit
+  XBB one European monetary unit
+  XBB other European monetary units
+  XBC display European Unit of Account (XBC)
+  XBC one European unit of account (XBC)
+  XBC other European units of account (XBC)
+  XBD display European Unit of Account (XBD)
+  XBD one European unit of account (XBD)
+  XBD other European units of account (XBD)
+  XCD display East Caribbean Dollar
+  XCD one East Caribbean dollar
+  XCD other East Caribbean dollars
+  XCG display Caribbean guilder
+  XCG one Caribbean guilder
+  XCG other Caribbean guilders
+  XDR display Special Drawing Rights
+  XDR one special drawing rights
+  XDR other special drawing rights
+  XOF display West African CFA Franc
+  XOF one West African CFA franc
+  XOF other West African CFA francs
+  XPD display Palladium
+  XPD one troy ounce of palladium
+  XPD other troy ounces of palladium
+  XPF display CFP Franc
+  XPF one CFP franc
+  XPF other CFP francs
+  XPT display Platinum
+  XPT one troy ounce of platinum
+  XPT other troy ounces of platinum
+  XSU display Sucre
+  XSU one Sucre
+  XSU other Sucres
+  XTS display Testing Currency Code
+  XTS one Testing Currency unit
+  XTS other Testing Currency units
+  XUA display ADB Unit of Account
+  XUA one ADB unit of account
+  XUA other ADB units of account
+  XXX display Unknown Currency
+  XXX one (unknown unit of currency)
+  XXX other (unknown currency)
+  YER display Yemeni Rial
+  YER one Yemeni rial
+  YER other Yemeni rials
+  ZAR display South African Rand
+  ZAR one South African rand
+  ZAR other South African rand
+  ZMW display Zambian Kwacha
+  ZMW one Zambian kwacha
+  ZMW other Zambian kwachas
+  ZWG display Zimbabwean Gold
+  ZWG one Zimbabwean gold
+  ZWG other Zimbabwean gold
+  ZWL display Zimbabwean Dollar (2009–2024)
+  ZWL one Zimbabwean dollar (2009–2024)
+  ZWL other Zimbabwean dollars (2009–2024)
+
+[formats.date]
+zero = 0
+date-short = M/d/yy
+date-medium = MMM d, y
+date-long = MMMM d, y
+date-full = EEEE, MMMM d, y
+time-short = h:mm a
+time-medium = h:mm:ss a
+time-long = h:mm:ss a z
+time-full = h:mm:ss a zzzz
+datetime-short = {1}, {0}
+datetime-medium = {1}, {0}
+datetime-long = {1} 'at' {0}
+datetime-full = {1} 'at' {0}
+months-wide =
+  January
+  February
+  March
+  April
+  May
+  June
+  July
+  August
+  September
+  October
+  November
+  December
+months-abbreviated =
+  Jan
+  Feb
+  Mar
+  Apr
+  May
+  Jun
+  Jul
+  Aug
+  Sep
+  Oct
+  Nov
+  Dec
+days-wide =
+  Sunday
+  Monday
+  Tuesday
+  Wednesday
+  Thursday
+  Friday
+  Saturday
+days-abbreviated =
+  Sun
+  Mon
+  Tue
+  Wed
+  Thu
+  Fri
+  Sat
+periods =
+  AM
+  PM
+zone-gmt = GMT{0}
+zone-hours = +HH:mm;-HH:mm
+year-era = y G
+eras =
+  BC
+  AD
+
+[formats.list]
+and-start = {0}, {1}
+and-middle = {0}, {1}
+and-end = {0}, and {1}
+and-pair = {0} and {1}
+and-special =
+or-start = {0}, {1}
+or-middle = {0}, {1}
+or-end = {0}, or {1}
+or-pair = {0} or {1}
+or-special =
