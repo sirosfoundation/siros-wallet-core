@@ -21,13 +21,14 @@ use siros_openid4vp::plugins::{Fault, FindingData, Member};
 use siros_openid4vp::request::AgreeableKey;
 
 use crate::FAULT;
-use crate::cose::{Signer, device_mac, device_signature};
+use crate::cose::{DeviceKeyView, device_mac, device_signature};
 use crate::device_authentication::{
     DeviceNameSpacesBytes, Element, ElementValue, device_authentication_bytes,
 };
 use crate::device_mac::{DeviceMac, Mac};
 use crate::issuer_signed::{DOCUMENT, Disclosed, IssuerSigned};
 use crate::reader_key;
+use crate::stored::{ElementIdentifier, NameSpace};
 use crate::transcript::{Handover, SessionTranscript};
 use crate::view::MdocMembers;
 
@@ -41,6 +42,10 @@ pub enum DeviceAuthRefused {
     /// [`DeviceMac`] module.
     #[error("the Verifier accepts only a device MAC, and the build holds no device MAC module")]
     NoDeviceMac,
+    /// The device key signs nothing (RFC 9053 §7.1 keeps X25519 and X448 to ECDH), and no Verifier
+    /// key on its curve, listed for a device MAC, lets the wallet agree the MAC key (B.2.2).
+    #[error("the device key signs nothing, and no Verifier key lets the wallet agree a MAC key")]
+    KeyAgreementOnly,
 }
 
 /// How the device authenticates the document (ISO/IEC 18013-5 §9.1.3); `M` the device MAC
@@ -65,9 +70,10 @@ impl<'k, M> DeviceAuth<'k, M> {
     /// device MAC module (`module`). Refused when the MAC is the only one the Verifier lists and
     /// the build holds no device MAC module. `deviceSignature` otherwise, and when the Verifier
     /// states no `deviceauth_alg_values`; its algorithm is the device key's, which IANA's COSE
-    /// registry must hold.
+    /// registry must hold. A device key that signs nothing authenticates by MAC alone, also where
+    /// the Verifier states no `deviceauth_alg_values`, and is refused where it cannot.
     fn choose(
-        device: Signer,
+        device: DeviceKeyView,
         supported: Option<&Node<'_>>,
         keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
         transaction: bool,
@@ -86,9 +92,12 @@ impl<'k, M> DeviceAuth<'k, M> {
             |id: i64| allowed.is_some_and(|allowed| allowed.contains(&Node::integer(id.into())));
         let reader = reader_key(device, keys);
         let mac = reader
-            .and_then(|reader| crate::cose::mac(reader.curve()))
-            .is_some_and(lists);
-        let signature = allowed.is_none() || device.identifiers().into_iter().any(lists);
+            .and_then(|_| crate::cose::mac(device.curve))
+            .is_some_and(|ids| {
+                ids.into_iter().any(lists) || (allowed.is_none() && device.alg.is_none())
+            });
+        let signature = device.alg.is_some()
+            && (allowed.is_none() || device.signature_identifiers().into_iter().any(lists));
         Ok(Ok(match (reader, module) {
             (Some(reader), Some(module)) if mac && (!signature || !transaction) => {
                 Self::Mac { reader, module }
@@ -96,15 +105,20 @@ impl<'k, M> DeviceAuth<'k, M> {
             (Some(_), None) if mac && !signature => {
                 return Ok(Err(DeviceAuthRefused::NoDeviceMac));
             }
-            _ => Self::Signature(iana::Algorithm::from_i64(device.alg).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!(
-                        "the device key's algorithm {alg} is no entry of IANA's COSE registry",
-                        alg = device.alg
-                    ),
-                )
-            })?),
+            _ => {
+                let Some(alg) = device.alg else {
+                    return Ok(Err(DeviceAuthRefused::KeyAgreementOnly));
+                };
+                Self::Signature(iana::Algorithm::from_i64(alg).ok_or_else(|| {
+                    Fault::new(
+                        FAULT,
+                        detail!(
+                            "the device key's algorithm {alg} is no entry of IANA's COSE registry",
+                            alg = alg
+                        ),
+                    )
+                })?)
+            }
         }))
     }
 }
@@ -167,14 +181,14 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
         )
     })?;
     let issued = IssuerSigned::read(document).map_err(caused(id, "the stored IssuerSigned"))?;
-    let doctype = issued.doctype();
+    let doctype = issued.doctype().as_str();
     let disclosed = presenting
         .disclosed
         .iter()
         .map(|(path, shown)| match path.as_slice() {
             [Concrete::Key(namespace), Concrete::Key(element)] => Ok(Disclosed {
-                namespace,
-                element,
+                namespace: NameSpace::new(namespace),
+                element: ElementIdentifier::new(element),
                 shown,
             }),
             _ => Err(Fault::new(

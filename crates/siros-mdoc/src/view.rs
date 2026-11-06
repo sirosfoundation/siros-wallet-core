@@ -7,7 +7,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member};
 
 use crate::FAULT;
-use crate::cose::{Curve, Signer};
+use crate::cose::{Curve, DeviceKeyView, Signer};
 
 /// The mdoc members of a credential's view, each read when an operation needs it.
 pub(crate) struct MdocMembers<'a, 'v> {
@@ -33,33 +33,49 @@ impl<'a, 'v> MdocMembers<'a, 'v> {
         )
     }
 
-    /// The signer of the members `<prefix>_alg`, a COSE algorithm identifier, and
-    /// `<prefix>_curve`, a curve of ISO/IEC 18013-5 Table 22.
-    fn signer(&self, prefix: &str) -> Result<Signer, Fault> {
-        let view = self.view.json();
-        let alg = view
+    /// The member `<prefix>_alg`, a COSE algorithm identifier; `None` when absent.
+    fn algorithm(&self, prefix: &str) -> Result<Option<i64>, Fault> {
+        self.view
+            .json()
             .get(&format!("{prefix}_alg"))
-            .and_then(|alg| match alg {
-                Node::Number(number) => number.text().parse::<i64>().ok(),
-                _ => None,
+            .map(|alg| {
+                match alg {
+                    Node::Number(number) => number.text().parse::<i64>().ok(),
+                    _ => None,
+                }
+                .ok_or_else(|| self.fault(prefix, "_alg is no COSE algorithm identifier"))
             })
-            .ok_or_else(|| self.fault(prefix, "_alg is no COSE algorithm identifier"))?;
-        let curve = view
+            .transpose()
+    }
+
+    /// The member `<prefix>_curve`, a curve of ISO/IEC 18013-5 Table 22.
+    fn curve(&self, prefix: &str) -> Result<Curve, Fault> {
+        self.view
+            .json()
             .get(&format!("{prefix}_curve"))
             .and_then(Node::as_str)
             .and_then(Curve::parse)
-            .ok_or_else(|| self.fault(prefix, "_curve is no curve of Table 22"))?;
-        Ok(Signer { alg, curve })
+            .ok_or_else(|| self.fault(prefix, "_curve is no curve of Table 22"))
     }
 
     /// IssuerAuth's signer: `issuer_alg`, `issuer_curve`.
     pub(crate) fn issuer_auth(&self) -> Result<Signer, Fault> {
-        self.signer("issuer")
+        Ok(Signer {
+            alg: self
+                .algorithm("issuer")?
+                .ok_or_else(|| self.fault("issuer", "_alg is no COSE algorithm identifier"))?,
+            curve: self.curve("issuer")?,
+        })
     }
 
-    /// The device key's signer: `device_alg`, `device_curve`.
-    pub(crate) fn device_key(&self) -> Result<Signer, Fault> {
-        self.signer("device")
+    /// The device key: `device_curve` and `device_alg`, absent only on a curve kept to ECDH.
+    pub(crate) fn device_key(&self) -> Result<DeviceKeyView, Fault> {
+        let curve = self.curve("device")?;
+        let alg = self.algorithm("device")?;
+        if alg.is_none() && !curve.only_agrees() {
+            return Err(self.fault("device", "_alg is no COSE algorithm identifier"));
+        }
+        Ok(DeviceKeyView { alg, curve })
     }
 
     /// The MSO's KeyAuthorizations (ISO/IEC 18013-5 §9.1.2.4): `key_authorizations`, an object

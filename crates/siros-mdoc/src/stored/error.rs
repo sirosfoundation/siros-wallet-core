@@ -4,7 +4,7 @@ use base64::DecodeError;
 use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::cbor::CborError as Core;
 
-use super::names::{DigestId, NameSpace};
+use super::names::{DigestId, ElementIdentifier, NameSpace};
 
 /// Why a stored credential is no mdoc [`StoredMdoc::parse`](super::StoredMdoc::parse) reads.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -230,7 +230,7 @@ pub enum ValueDigestsFault {
     ),
     /// A namespace is not text.
     #[error("a namespace is not text")]
-    NameNotText,
+    NameSpace,
     /// The namespace's digests are no non-empty map.
     #[error("the digests of namespace `{0}` are no non-empty map")]
     Digests(
@@ -258,15 +258,6 @@ pub enum ValueDigestsFault {
         #[explain(name = "digest_id")] DigestId,
         #[explain(name = "length")] usize,
     ),
-    /// The namespace lists this `digestID` twice.
-    #[error("namespace `{0}` lists `digestID` {1} twice")]
-    RepeatedDigestId(
-        #[explain(name = "namespace")] NameSpace,
-        #[explain(name = "digest_id")] DigestId,
-    ),
-    /// The map holds this namespace twice.
-    #[error("the map holds namespace `{0}` twice")]
-    RepeatedNameSpace(#[explain(name = "namespace")] NameSpace),
 }
 
 /// Why `deviceKeyInfo.deviceKey` is refused.
@@ -316,6 +307,13 @@ pub enum KeyAuthorizationsFault {
     /// It is not a map.
     #[error("it is not a map")]
     NotMap,
+    /// It is no well-formed CBOR map.
+    #[error("it is no well-formed CBOR map")]
+    Cbor(
+        #[source]
+        #[explain(name = "cause")]
+        CborError,
+    ),
     /// `nameSpaces`.
     #[error("`nameSpaces`")]
     NameSpaces(
@@ -332,7 +330,7 @@ pub enum KeyAuthorizationsFault {
     ),
     /// A namespace of `dataElements` is not text.
     #[error("a namespace of `dataElements` is not text")]
-    NameNotText,
+    NameSpace,
     /// The element identifiers of this namespace.
     #[error("the element identifiers of namespace `{0}`")]
     Elements(
@@ -344,9 +342,6 @@ pub enum KeyAuthorizationsFault {
     /// This namespace is in `nameSpaces` and in `dataElements`.
     #[error("namespace `{0}` is in `nameSpaces` and in `dataElements`")]
     Overlap(#[explain(name = "namespace")] NameSpace),
-    /// `dataElements` holds this namespace twice.
-    #[error("`dataElements` holds namespace `{0}` twice")]
-    RepeatedNameSpace(#[explain(name = "namespace")] NameSpace),
 }
 
 /// A time of `validityInfo`.
@@ -400,10 +395,7 @@ pub enum NameSpacesFault {
     ),
     /// A namespace is not text.
     #[error("a namespace is not text")]
-    NameNotText,
-    /// The map holds this namespace twice.
-    #[error("the map holds namespace `{0}` twice")]
-    Repeated(#[explain(name = "namespace")] NameSpace),
+    NameSpace,
     /// The namespace's items are no non-empty array.
     #[error("the items of namespace `{0}` are no non-empty array")]
     Items(
@@ -525,6 +517,14 @@ impl IntoArg for DigestId {
 }
 
 impl IntoArg for NameSpace {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl IntoArg for ElementIdentifier {
     type Kind = kind::Raw;
 
     fn arg(&self) -> &str {

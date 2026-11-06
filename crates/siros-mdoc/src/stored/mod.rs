@@ -88,6 +88,7 @@ mod mso;
 mod names;
 mod signature;
 
+pub use crate::cose::Curve;
 pub use device::{DeviceNameSpaces, device_signing_input};
 pub use device_key::{DeviceKey, P256Key, PointError};
 pub use error::{
@@ -97,7 +98,7 @@ pub use error::{
     ValueDigestsFault,
 };
 pub use issuer_auth::{CertificateChain, IssuerAuth};
-pub use key_authorizations::KeyAuthorizations;
+pub use key_authorizations::{DataElements, KeyAuthorizations};
 pub use mdoc::{IssuerNameSpace, IssuerSignedItem, StoredMdoc};
 pub use mso::{DigestAlgorithm, ItemDigest, Mso, Validity};
 pub use names::{DigestId, DocType, ElementIdentifier, NameSpace};

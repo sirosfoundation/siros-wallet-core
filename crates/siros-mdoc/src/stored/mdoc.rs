@@ -4,14 +4,15 @@ use std::fmt;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rustc_hash::FxHashSet;
 use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::json::{Distinct, Named};
 
 use super::item::{Read as _, raw};
 use super::names::DocType;
 
 use super::error::{
-    DocTypeFault, EnvelopeFault, IssuerAuthFault, ItemFault, ItemMember, MdocError, NameSpacesFault,
+    CborError, DocTypeFault, EnvelopeFault, IssuerAuthFault, ItemFault, ItemMember, MdocError,
+    NameSpacesFault,
 };
 use super::issuer_auth::IssuerAuth;
 use super::mso::{Mso, non_empty_array, non_empty_map};
@@ -21,7 +22,7 @@ use super::names::{DigestId, ElementIdentifier, NameSpace};
 #[derive(Clone, PartialEq)]
 pub struct StoredMdoc {
     issuer_signed: Vec<u8>,
-    name_spaces: Vec<IssuerNameSpace>,
+    name_spaces: Distinct<IssuerNameSpace>,
     issuer_auth: IssuerAuth,
     mso: Mso,
 }
@@ -30,7 +31,19 @@ pub struct StoredMdoc {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IssuerNameSpace {
     name: NameSpace,
-    items: Vec<IssuerSignedItem>,
+    items: Distinct<IssuerSignedItem>,
+}
+
+impl Named for IssuerNameSpace {
+    fn name(&self) -> &str {
+        self.name.as_str()
+    }
+}
+
+impl Named for IssuerSignedItem {
+    fn name(&self) -> &str {
+        self.identifier.as_str()
+    }
 }
 
 /// An `IssuerSignedItem` whose digest the MSO lists.
@@ -64,7 +77,7 @@ impl StoredMdoc {
         }
         let name_spaces = match issuer_signed.get("nameSpaces") {
             Some(spaces) => read_name_spaces(spaces, &mso)?,
-            None => Vec::new(),
+            None => Distinct::default(),
         };
         Ok(Self {
             issuer_signed: raw(issuer_signed).map_err(|e| MdocError::Cbor(e.into()))?,
@@ -82,6 +95,11 @@ impl StoredMdoc {
 
     /// The namespaces of `IssuerSigned`, in the issuer's order.
     pub fn name_spaces(&self) -> &[IssuerNameSpace] {
+        self.name_spaces.as_slice()
+    }
+
+    /// The namespaces of `IssuerSigned`, in the issuer's order.
+    pub(crate) fn distinct_name_spaces(&self) -> &Distinct<IssuerNameSpace> {
         &self.name_spaces
     }
 
@@ -108,9 +126,14 @@ impl IssuerNameSpace {
         &self.name
     }
 
+    /// Its items, in the issuer's order.
+    pub(crate) fn distinct_items(&self) -> &Distinct<IssuerSignedItem> {
+        &self.items
+    }
+
     /// Its items, in the issuer's order, each element identifier once.
     pub fn items(&self) -> &[IssuerSignedItem] {
-        &self.items
+        self.items.as_slice()
     }
 }
 
@@ -215,42 +238,33 @@ fn envelope(root: &Value) -> Result<(&Value, Option<&str>), MdocError> {
 
 /// `IssuerNameSpaces = {+ NameSpace => [+ IssuerSignedItemBytes]}`, each item with the digest
 /// the MSO lists.
-fn read_name_spaces(spaces: &Value, mso: &Mso) -> Result<Vec<IssuerNameSpace>, MdocError> {
+fn read_name_spaces(spaces: &Value, mso: &Mso) -> Result<Distinct<IssuerNameSpace>, MdocError> {
     let fault = MdocError::NameSpaces;
     let entries = non_empty_map(Some(spaces)).map_err(|e| fault(NameSpacesFault::Member(e)))?;
-    let mut names = FxHashSet::default();
     let mut name_spaces = Vec::with_capacity(entries.len());
     for (name, items) in entries {
-        let name = name.as_text().ok_or(fault(NameSpacesFault::NameNotText))?;
-        if !names.insert(name) {
-            return Err(fault(NameSpacesFault::Repeated(NameSpace::new(name))));
-        }
-        let name = NameSpace::new(name);
+        let name = NameSpace::new(name.as_text().ok_or(fault(NameSpacesFault::NameSpace))?);
         let items = non_empty_array(Some(items))
             .map_err(|e| fault(NameSpacesFault::Items(name.clone(), e)))?;
         let items = read_items(&name, items, mso)?;
         name_spaces.push(IssuerNameSpace { name, items });
     }
-    Ok(name_spaces)
+    Distinct::new(name_spaces).map_err(|_| MdocError::Cbor(CborError::RepeatedKey))
 }
 
 fn read_items(
     name_space: &NameSpace,
     items: &[Value],
     mso: &Mso,
-) -> Result<Vec<IssuerSignedItem>, MdocError> {
-    let mut identifiers = FxHashSet::default();
+) -> Result<Distinct<IssuerSignedItem>, MdocError> {
     let mut read = Vec::with_capacity(items.len());
     for tagged in items {
         let item = IssuerSignedItem::read(name_space, tagged)?;
-        if !identifiers.insert(item.identifier.clone()) {
-            return Err(MdocError::RepeatedElement);
-        }
         let digest = mso.digest_algorithm().digest(&item.bytes);
         if mso.value_digest(name_space, item.digest_id) != Some(&digest) {
             return Err(MdocError::ItemDigest);
         }
         read.push(item);
     }
-    Ok(read)
+    Distinct::new(read).map_err(|_| MdocError::RepeatedElement)
 }

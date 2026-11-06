@@ -124,7 +124,7 @@ pub struct CertificateChain {
 impl CertificateChain {
     /// The chain of `first` and `rest` after it.
     #[must_use]
-    pub fn new(first: Vec<u8>, rest: Vec<Vec<u8>>) -> Self {
+    pub(crate) fn new(first: Vec<u8>, rest: Vec<Vec<u8>>) -> Self {
         Self { first, rest }
     }
 

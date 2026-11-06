@@ -76,7 +76,7 @@ use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
-use cose::Signer;
+use cose::DeviceKeyView;
 use view::MdocMembers;
 
 /// The Credential Format Identifier.
@@ -288,7 +288,10 @@ impl ClaimsPlugin for Mdoc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = MdocMembers::of(view);
         let device = members.device_key()?;
-        let mac = reader_key(device, keys).and_then(|reader| cose::mac(reader.curve()));
+        let mac = reader_key(device, keys)
+            .and_then(|_| cose::mac(device.curve))
+            .into_iter()
+            .flatten();
         let identifiers =
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
@@ -298,7 +301,13 @@ impl ClaimsPlugin for Mdoc {
             },
             Constraint {
                 member: VpFormatsMember::new("deviceauth_alg_values"),
-                matched: identifiers(device.identifiers().into_iter().chain(mac).collect()),
+                matched: identifiers(
+                    device
+                        .signature_identifiers()
+                        .into_iter()
+                        .chain(mac)
+                        .collect(),
+                ),
             },
         ])
     }
@@ -370,7 +379,7 @@ where
 /// wallet needs to make a presentation, here to agree the device MAC key (ISO/IEC 18013-5
 /// §9.1.3.5).
 fn reader_key<'k>(
-    device: Signer,
+    device: DeviceKeyView,
     keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
 ) -> Option<&'k AgreeableKey<'k>> {
     keys.into_iter()

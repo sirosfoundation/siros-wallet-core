@@ -320,7 +320,15 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
         (i64, &'static str),
         Option<&'static str>,
     );
-    let cases: [Admission; 19] = [
+    let bp256 =
+        r#"{"kty": "EC", "crv": "brainpoolP256r1", "kid": "reader-bp256", "x": "AA", "y": "AQ"}"#;
+    let bp320 =
+        r#"{"kty": "EC", "crv": "brainpoolP320r1", "kid": "reader-bp320", "x": "AA", "y": "AQ"}"#;
+    let bp384 =
+        r#"{"kty": "EC", "crv": "brainpoolP384r1", "kid": "reader-bp384", "x": "AA", "y": "AQ"}"#;
+    let bp512 =
+        r#"{"kty": "EC", "crv": "brainpoolP512r1", "kid": "reader-bp512", "x": "AA", "y": "AQ"}"#;
+    let cases: [Admission; 24] = [
         // B.2.4's example: -7 on P-256 matches the fully-specified -9.
         (
             r#"{"issuerauth_alg_values": [-9], "deviceauth_alg_values": [-9]}"#,
@@ -447,6 +455,43 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             (-7, "P-384"),
             (-7, "P-256"),
             Some(clause),
+        ),
+        // B.2.2, rule 1: a device MAC's `alg` is HMAC 256/256 (5), its header's.
+        (
+            r#"{"deviceauth_alg_values": [5]}"#,
+            p256,
+            (-7, "P-256"),
+            (-7, "P-256"),
+            None,
+        ),
+        // B.2.2's table: brainpoolP256r1 -65542, P320r1 -65543, P384r1 -65544, P512r1 -65545.
+        (
+            r#"{"deviceauth_alg_values": [-65542]}"#,
+            bp256,
+            (-7, "P-256"),
+            (-7, "brainpoolP256r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65543]}"#,
+            bp320,
+            (-7, "P-256"),
+            (-35, "brainpoolP320r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65544]}"#,
+            bp384,
+            (-7, "P-256"),
+            (-35, "brainpoolP384r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65545]}"#,
+            bp512,
+            (-7, "P-256"),
+            (-36, "brainpoolP512r1"),
+            None,
         ),
         // B.2.4's table: P-521 -65539, X448 -65541.
         (

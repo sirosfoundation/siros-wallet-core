@@ -2,11 +2,9 @@
 //! ISO/IEC 18013-5 Table 22, and B.2.4's identifiers of the device MAC per curve. Phase 2 builds
 //! DeviceSignature and DeviceMac over coset.
 
-use siros_openid4vp::request::Curve as Agreed;
-
 /// An elliptic curve a device or issuer key is on (ISO/IEC 18013-5 Table 22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Curve {
+pub enum Curve {
     /// P-256.
     P256,
     /// P-384.
@@ -46,13 +44,20 @@ impl Curve {
         Self::BrainpoolP512r1,
     ];
 
-    /// The curve of a name.
-    pub(crate) fn parse(name: &str) -> Option<Self> {
+    /// The curve of a name; `None` for a name outside Table 22.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|curve| curve.name() == name)
     }
 
-    /// The curve's name.
-    pub(crate) const fn name(self) -> &'static str {
+    /// Whether RFC 9053 §7.1 keeps the curve to ECDH.
+    pub(crate) const fn only_agrees(self) -> bool {
+        matches!(self, Self::X25519 | Self::X448)
+    }
+
+    /// The curve's name: its COSE and JOSE registry name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
         match self {
             Self::P256 => "P-256",
             Self::P384 => "P-384",
@@ -69,16 +74,46 @@ impl Curve {
     }
 }
 
-/// B.2.4: the identifier of HMAC 256/256 with its key agreed by ECDH (ISO/IEC 18013-5 §9.1.3.5)
-/// on the reader key's curve; `None` for a curve B.2.4's table does not name.
-pub(crate) fn mac(curve: Agreed<'_>) -> Option<i64> {
-    match curve.as_str() {
-        "P-256" => Some(-65537),
-        "P-384" => Some(-65538),
-        "P-521" => Some(-65539),
-        "X25519" => Some(-65540),
-        "X448" => Some(-65541),
-        _ => None,
+/// The `alg` of a DeviceMac's COSE header: HMAC 256/256 (RFC 9053 §3.1; ISO/IEC 18013-5 §9.1.3.5).
+const HMAC_256_256: i64 = 5;
+
+/// B.2.2: the identifiers a device MAC on the device key's curve matches, the header's `alg` and
+/// the curve's row of Table 2; `None` for a curve no ECDH agrees a key on.
+pub(crate) fn mac(curve: Curve) -> Option<[i64; 2]> {
+    let row = match curve {
+        Curve::P256 => -65537,
+        Curve::P384 => -65538,
+        Curve::P521 => -65539,
+        Curve::X25519 => -65540,
+        Curve::X448 => -65541,
+        Curve::BrainpoolP256r1 => -65542,
+        Curve::BrainpoolP320r1 => -65543,
+        Curve::BrainpoolP384r1 => -65544,
+        Curve::BrainpoolP512r1 => -65545,
+        Curve::Ed25519 | Curve::Ed448 => return None,
+    };
+    Some([HMAC_256_256, row])
+}
+
+/// A device key as the view states it: the `alg` it signs with, when it signs, and its curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeviceKeyView {
+    /// The COSE algorithm identifier; `None` for a key that only agrees a MAC key.
+    pub(crate) alg: Option<i64>,
+    /// The key's curve.
+    pub(crate) curve: Curve,
+}
+
+impl DeviceKeyView {
+    /// The identifiers a device signature matches; none for a key that signs nothing.
+    pub(crate) fn signature_identifiers(self) -> Vec<i64> {
+        self.alg.map_or_else(Vec::new, |alg| {
+            Signer {
+                alg,
+                curve: self.curve,
+            }
+            .identifiers()
+        })
     }
 }
 

@@ -173,7 +173,8 @@ pub(crate) fn non_empty_array(item: Option<&Value>) -> Result<&[Value], MemberFa
     }
 }
 
-/// `ValueDigests = {+ NameSpace => {+ DigestID => Digest}}`.
+/// `ValueDigests = {+ NameSpace => {+ DigestID => Digest}}`. CBOR's decoding has refused a key
+/// repeated in either map.
 fn read_value_digests(
     item: Option<&Value>,
     algorithm: DigestAlgorithm,
@@ -181,12 +182,9 @@ fn read_value_digests(
     let name_spaces = non_empty_map(item).map_err(ValueDigestsFault::Member)?;
     let mut value_digests = FxHashMap::default();
     for (name_space, digests) in name_spaces {
-        let name_space =
-            NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameNotText)?);
+        let name_space = NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameSpace)?);
         let digests = read_digests(&name_space, digests, algorithm)?;
-        if value_digests.insert(name_space.clone(), digests).is_some() {
-            return Err(ValueDigestsFault::RepeatedNameSpace(name_space));
-        }
+        drop(value_digests.insert(name_space, digests));
     }
     Ok(value_digests)
 }
@@ -215,9 +213,7 @@ fn read_digests(
                 digest.len(),
             ));
         }
-        if by_id.insert(id, ItemDigest(digest.to_vec())).is_some() {
-            return Err(ValueDigestsFault::RepeatedDigestId(name_space.clone(), id));
-        }
+        drop(by_id.insert(id, ItemDigest(digest.to_vec())));
     }
     Ok(by_id)
 }

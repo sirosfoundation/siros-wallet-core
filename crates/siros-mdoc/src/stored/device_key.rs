@@ -70,31 +70,28 @@ impl DeviceKey {
         }
     }
 
-    fn table_curve(&self) -> Curve {
+    /// The curve.
+    #[must_use]
+    pub fn curve(&self) -> Curve {
         match self.point {
             DevicePoint::P256(_) => Curve::P256,
             DevicePoint::Other(curve) => curve,
         }
     }
 
-    /// The curve's name in Table 22.
+    /// `alg` (label 3), else the signature algorithm of the curve. `None` on X25519 and X448
+    /// without a label 3: RFC 9053 §7.1 keeps them to ECDH, so such a key authenticates by device
+    /// MAC alone (ISO/IEC 18013-5 §9.1.3.5), whose header holds HMAC 256/256.
     #[must_use]
-    pub fn curve(&self) -> &'static str {
-        self.table_curve().name()
-    }
-
-    /// `alg` (label 3), else the algorithm RFC 9053 Sections 2.1 and 2.2 and Table 22 give the
-    /// curve; for a key-agreement curve ECDH-ES with HKDF-256 (RFC 9053, Section 6.3.1).
-    #[must_use]
-    pub fn algorithm(&self) -> CoseAlgorithm {
-        let of_curve = match self.table_curve() {
-            Curve::P256 | Curve::BrainpoolP256r1 => -7,
-            Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => -35,
-            Curve::P521 | Curve::BrainpoolP512r1 => -36,
-            Curve::Ed25519 | Curve::Ed448 => -8,
-            Curve::X25519 | Curve::X448 => -25,
+    pub fn algorithm(&self) -> Option<CoseAlgorithm> {
+        let of_curve = match self.curve() {
+            Curve::P256 | Curve::BrainpoolP256r1 => Some(-7),
+            Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => Some(-35),
+            Curve::P521 | Curve::BrainpoolP512r1 => Some(-36),
+            Curve::Ed25519 | Curve::Ed448 => Some(-8),
+            Curve::X25519 | Curve::X448 => None,
         };
-        self.alg.unwrap_or(CoseAlgorithm::new(of_curve))
+        self.alg.or(of_curve.map(CoseAlgorithm::new))
     }
 }
 

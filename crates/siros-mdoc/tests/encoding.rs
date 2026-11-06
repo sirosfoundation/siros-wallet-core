@@ -9,6 +9,7 @@ use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_mdoc::Mdoc;
 use siros_mdoc::issuer_signed::{Disclosed, IssuedError, IssuerSigned};
+use siros_mdoc::stored::{ElementIdentifier, NameSpace};
 use siros_mdoc::{DeviceMac, Mac, SessionTranscriptBytes, TestDeviceMac};
 use siros_openid4vp::cbor::cose::CoseShape;
 use siros_openid4vp::cbor::cose::coset::iana;
@@ -266,8 +267,8 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
     let stored = IssuerSigned::read(&issued).unwrap();
     let values = view.get("values").unwrap();
     let shown = |namespace, element| Disclosed {
-        namespace,
-        element,
+        namespace: NameSpace::new(namespace),
+        element: ElementIdentifier::new(element),
         shown: values.get(namespace).unwrap().get(element).unwrap(),
     };
     let disclosed = stored
@@ -319,8 +320,8 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
     let mut refusals = 0;
     let other = Node::parse("2").unwrap();
     let wrong = |element| Disclosed {
-        namespace: "ns1",
-        element,
+        namespace: NameSpace::new("ns1"),
+        element: ElementIdentifier::new(element),
         shown: &other,
     };
     assert!(matches!(
