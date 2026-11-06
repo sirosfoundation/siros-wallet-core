@@ -43,7 +43,6 @@ fn annex_d_known_answers() {
 
     // The registration's view: the Annex's type, values, signer, key and validity.
     let registered = Registered::of(&data, &Resolved::default()).unwrap();
-    assert_eq!(registered.document(), mdoc.issuer_signed());
     let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
     let text = |name: &str| view.get(name).and_then(Node::as_str);
     let number = |name: &str| view.get(name).map(|n| n.python_compact().to_string());

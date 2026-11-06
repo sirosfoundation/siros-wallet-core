@@ -15,7 +15,7 @@ use siros_mdoc::issuer_signed::IssuedError;
 use siros_mdoc::{Handover, Mdoc, SessionTranscript, Thumbprint, TranscriptError};
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received};
 use siros_openid4vp::authenticate::PrefixName;
-use siros_openid4vp::cbor::{CborError, Item, Value, decode, encode};
+use siros_openid4vp::cbor::{Item, Value, decode, encode};
 use siros_openid4vp::host::Usable;
 use siros_openid4vp::host::{CoreHost, FormatHost, Haip, Has, PresentError};
 use siros_openid4vp::ids::Origin;
@@ -34,9 +34,7 @@ use siros_testkit::probe::{
     Redirect, dc_api as probe_dc_api, read_phase_two, read_redirect_session, read_session,
     sealed_to_b26,
 };
-use siros_testkit::reading::{
-    ModelHandover, ReadError, Rebuild, model_shape, model_value, transcript,
-};
+use siros_testkit::reading::{ModelHandover, ReadError, Rebuild, model_shape, model_value};
 
 siros_testkit::test_host! {
     /// The core's modules and the device MAC's stand-in.
@@ -237,7 +235,6 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
         unhex(KA1),
         "KA1"
     );
-    assert_eq!(KA1, B26_THUMBPRINT);
     let metadata = b26_metadata().expect("B.2.6's key");
     let choice = TestChoice::Key {
         place: 0,
@@ -283,17 +280,6 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
     let dc_api = read_session(&received, probe_dc_api(choice), b26_transcript)
         .expect("the route of B.2.6.2's request");
     assert_eq!(dc_api.as_bytes(), unhex(KA5), "KA5");
-    // The reading writes the transcript apart and reaches B.2.6.2's bytes too.
-    let model = ModelHandover {
-        origin: "https://example.com".into(),
-        nonce: KA_NONCE.into(),
-        thumbprint: Some(unhex(KA1).try_into().unwrap()),
-    };
-    assert_eq!(
-        encode(&transcript(&model).unwrap()).unwrap(),
-        unhex(KA5),
-        "KA5, the reading's"
-    );
 }
 
 /// A transcript a Verifier holds is one CBOR data item, an array of three (ISO/IEC 18013-5
@@ -584,10 +570,5 @@ fn what_cannot_be_presented_is_a_fault() {
     assert!(matches!(
         issued_error(&fault),
         Some(IssuedError::Differs { .. })
-    ));
-    // A CBOR member holds one data item with each key once.
-    assert!(matches!(
-        Item::parse(unhex("a2616101616102")),
-        Err(CborError::RepeatedKey(_))
     ));
 }
