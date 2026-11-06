@@ -67,7 +67,7 @@ pub use cose::{NotSealedCose, SealedCose};
 #[cfg(feature = "test-util")]
 pub use measure::{Measured, Signal, TestPaso};
 #[cfg(feature = "resolve")]
-pub use measure::{Measurement, Paso, Reading};
+pub use measure::{Measurement, Paso, Reading, WalletVersion};
 #[cfg(feature = "resolve")]
 pub use modules::{
     CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, NotRootCertificate, RandomId, RandomIds,

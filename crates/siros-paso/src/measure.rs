@@ -26,6 +26,25 @@ pub enum Reading {
     Denied,
 }
 
+/// The wallet application's version identifier (Core §6.1 `wallet_instance_version`): the text
+/// the application names itself by, which Core gives no grammar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalletVersion<'a>(&'a str);
+
+impl<'a> WalletVersion<'a> {
+    /// The version the application writes.
+    #[must_use]
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The text.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
+
 /// The wallet's version and its risk signals; the app keeps the last measurement of each.
 ///
 /// # Implementing
@@ -37,7 +56,7 @@ pub enum Reading {
 /// requires it. The app implements it; `TestPaso` is the double.
 pub trait Paso {
     /// The wallet's version (Core §6.1 `wallet_instance_version`).
-    fn version(&self) -> &str;
+    fn version(&self) -> WalletVersion<'_>;
     /// A signal's last measurement when no older than `max_age`, else a new one when the wallet
     /// can measure again, else an unavailable one; `None` when the wallet does not implement the
     /// signal.
@@ -49,7 +68,7 @@ pub trait Paso {
 mod test_util {
     use siros_openid4vp::host::{Seconds, Timestamp};
 
-    use super::{Measurement, Paso, Reading, SignalType};
+    use super::{Measurement, Paso, Reading, SignalType, WalletVersion};
 
     /// A risk signal's last measurement.
     #[derive(Debug, Clone)]
@@ -103,8 +122,8 @@ mod test_util {
     }
 
     impl Paso for TestPaso {
-        fn version(&self) -> &str {
-            &self.version
+        fn version(&self) -> WalletVersion<'_> {
+            WalletVersion::new(&self.version)
         }
 
         fn measure(
