@@ -276,22 +276,63 @@ fn the_holder_key() {
     assert_eq!(keyless.holder(), Holder::Unbound);
 }
 
-/// A view the issuer stand-in writes, with objects and arrays in arrays, registers as it states.
+/// What the wallet resolved makes no view: a curve the JWS algorithm rules out (RFC 7518 §3.4), and
+/// metadata of no object.
 #[test]
-fn issued_view_returns() {
-    let written = Node::parse(
-        r#"{"type":"t","metadata":{},"values":{"name":"Ada","grp":{"c":1.5,"d":null},
-            "list":[1,{"e":true},[2,3]]},"issuer":"https://issuer.example","alg":"EdDSA",
-            "curve":"Ed25519","key_alg":"ES256","key_curve":"P-256",
-            "validity":{"not_before":1,"not_after":2}}"#,
-    )
-    .unwrap();
-    let issued = sd_jwt_issuer::issue(&written).unwrap();
-    let resolved = Resolved {
-        issuer_curve: Some("Ed25519"),
+fn resolved_refusals() {
+    let issued = compact(r#"{"vct":"t"}"#, &[]);
+    let curve = Resolved {
+        issuer_curve: Some("P-384"),
         ..Resolved::default()
     };
-    let registered = Registered::of(&issued, &resolved).unwrap();
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
-    assert_eq!(view, sd_jwt_issuer::registered_view(&written).unwrap());
+    assert_eq!(
+        Registered::of(&issued, &curve),
+        Err(RegistrationError::IssuerCurve {
+            alg: "ES256".to_owned(),
+            curve: "P-384".to_owned(),
+        })
+    );
+    let metadata = Resolved {
+        metadata: Some(Node::parse("[]").unwrap()),
+        ..Resolved::default()
+    };
+    assert_eq!(
+        Registered::of(&issued, &metadata),
+        Err(RegistrationError::Metadata)
+    );
+}
+
+/// A view the issuer stand-in writes, with objects and arrays in arrays, registers as it states:
+/// the permanent claims in `values`, `cnf` holding its key, `validity` the written dates.
+#[test]
+fn issued_view_returns() {
+    const ZERO: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    // (validity as written, `nbf` and `exp` as the payload's).
+    let dates = [
+        (r#"{"not_before":1,"not_after":2}"#, r#""nbf":1,"exp":2,"#),
+        (r#"{"not_after":1785000000}"#, r#""exp":1785000000,"#),
+        (r#"{"not_before":1.5}"#, r#""nbf":1.5,"#),
+    ];
+    for (validity, permanent) in dates {
+        let written = format!(
+            r#"{{"type":"t","metadata":{{}},"values":{{"name":"Ada","grp":{{"c":1.5,"d":null}},
+                "list":[1,{{"e":true}},[2,3]]}},"issuer":"https://issuer.example","alg":"EdDSA",
+                "curve":"Ed25519","key_alg":"ES256","key_curve":"P-256","validity":{validity}}}"#,
+        );
+        let expected = format!(
+            r#"{{"type":"t","metadata":{{}},"values":{{"vct":"t","iss":"https://issuer.example",
+                {permanent}"cnf":{{"jwk":{{"crv":"P-256","alg":"ES256","kty":"EC","x":"{ZERO}",
+                "y":"{ZERO}"}}}},"name":"Ada","grp":{{"c":1.5,"d":null}},
+                "list":[1,{{"e":true}},[2,3]]}},"issuer":"https://issuer.example","alg":"EdDSA",
+                "curve":"Ed25519","key_alg":"ES256","key_curve":"P-256","validity":{validity}}}"#,
+        );
+        let issued = sd_jwt_issuer::issue(&Node::parse(&written).unwrap()).unwrap();
+        let resolved = Resolved {
+            issuer_curve: Some("Ed25519"),
+            ..Resolved::default()
+        };
+        let registered = Registered::of(&issued, &resolved).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        assert_eq!(view, Node::parse(&expected).unwrap(), "{validity}");
+    }
 }
