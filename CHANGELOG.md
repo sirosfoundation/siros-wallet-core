@@ -115,6 +115,10 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `siros-mdoc`: X25519 and X448 are for ECDH only (RFC 9053 §7.1). `DeviceKey::algorithm` is `None` on them without a label 3, the view omits `device_alg`, and such a key authenticates by device MAC alone, or is refused (`DeviceAuthRefused::KeyAgreementOnly`). `deviceauth_alg_values` matches a device MAC by header `alg` 5 and over the whole of OpenID4VP B.2.2's table, the four brainpool rows included.
+- `siros-mdoc`'s and `siros-sdjwt`'s registration take typed input (`Resolved`) and refuse only what can happen: `RegistrationError::{Json, Metadata}` are gone. `siros-mdoc`'s `NameNotText` variants read `NameSpace`.
+- `siros-wallet-state` refuses a repeated member name and an empty `format`. `PresentationRecord::new` takes `PresentationData` and `Audience`.
+- `siros-trust`: `Certificate::p256_key` and `p384_key` return `P256Point` and `P384Point`.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth
