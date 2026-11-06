@@ -155,8 +155,9 @@ pub fn resolve<'r>(
             (Cow::Owned(content), media, ImageSource::Data)
         }
         None => {
-            let shown =
-                HttpsUrl::shown(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?;
+            let shown = Box::new(
+                HttpsUrl::shown(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?,
+            );
             let integrity = integrity
                 .and_then(Node::as_str)
                 .ok_or_else(|| refuse(ImageFailure::NoIntegrity))?;

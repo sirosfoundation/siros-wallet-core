@@ -30,7 +30,7 @@ pub enum ImageSource {
     /// A Data URL, of the image's media type.
     Data,
     /// An https URL.
-    Url(Shown),
+    Url(Box<Shown>),
 }
 
 /// An image the matcher holds.
@@ -80,7 +80,7 @@ impl SriMetadata {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteImage {
     /// The URL.
-    pub url: Shown,
+    pub url: Box<Shown>,
     /// Its integrity metadata.
     pub integrity: SriMetadata,
 }

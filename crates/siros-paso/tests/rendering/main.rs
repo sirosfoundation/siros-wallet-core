@@ -298,7 +298,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
     assert_eq!(
         pending.view.rows[1].row.value,
         Some(Value::Image(Image::Remote(RemoteImage {
-            url: siros_openid4vp::rows::HttpsUrl::shown(url).expect("an https URL"),
+            url: Box::new(siros_openid4vp::rows::HttpsUrl::shown(url).expect("an https URL")),
             integrity: siros_openid4vp::rows::SriMetadata::written(sri(&logo))
         })))
     );
