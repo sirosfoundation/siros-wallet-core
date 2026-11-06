@@ -5,6 +5,7 @@
 use crate::value::BadValue;
 use siros_explain::Explain;
 use siros_openid4vp::ids::LocaleTag;
+use siros_openid4vp::plugins::Clause;
 use siros_openid4vp::refusal::{QuotedList, ReprItem, ReprOption};
 
 use crate::adhoc::AdhocFailure;
@@ -35,7 +36,7 @@ pub enum Outcome {
 impl Outcome {
     /// The clause that decides it.
     #[must_use]
-    pub fn clause(&self) -> &'static str {
+    pub fn clause(&self) -> Clause {
         match self {
             Self::Unsupported(rule) => rule.clause(),
             Self::NotCompatible(rule) => rule.clause(),
@@ -134,8 +135,8 @@ pub enum Unsupported {
 impl Unsupported {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        match self {
+    pub const fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::NoPasoMetadata | Self::NotListed(_) => "Core §7.4.2 step 2",
             Self::NoEntry(_) | Self::NoClaims => "Proof Metadata §3",
             Self::TooManyClaims(_)
@@ -153,7 +154,7 @@ impl Unsupported {
             Self::MandatoryLabelOnly(_) => "View §3 label_only",
             Self::NotGeneric(_) => "Generic §1",
             Self::NotMandate(_) => "Mandate §1",
-        }
+        })
     }
 }
 
@@ -306,8 +307,8 @@ pub enum NotCompatible {
 impl NotCompatible {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        match self {
+    pub const fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::ValueType { .. } | Self::Value { .. } | Self::ImageNotString(_) => "View §3",
             Self::PayloadNotObject => "Core §7.1",
             Self::Mismatch(_) | Self::Uncovered(_) | Self::MandatoryAbsent(_) => {
@@ -334,7 +335,7 @@ impl NotCompatible {
             Self::NoEncryptionKey => "Risk Signals §7.3",
             Self::Lacks(_) => "Risk Signals §7.6",
             Self::Adhoc(_) => "Proof Metadata §5.3",
-        }
+        })
     }
 }
 
@@ -370,7 +371,7 @@ fn quoted(locales: &[LocaleTag]) -> String {
 impl Excluded {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        "View §4"
+    pub const fn clause(&self) -> Clause {
+        Clause::cited("View §4")
     }
 }

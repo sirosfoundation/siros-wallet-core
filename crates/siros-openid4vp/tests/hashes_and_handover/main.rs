@@ -306,7 +306,7 @@ fn transaction_data_hashes_follow_b_3_3_1() {
         let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
         let Some((alg, used)) = want else {
             assert_eq!(
-                matched.excluded()[0].exclude.clause(),
+                matched.excluded()[0].exclude.clause().as_str(),
                 "OpenID4VP B.3.3.1",
                 "{algs:?}"
             );

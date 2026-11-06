@@ -67,7 +67,7 @@ use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+    Carriage, Clause, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
 };
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
@@ -240,8 +240,8 @@ impl ClaimsFormat for SdJwtVc {
         "label"
     }
 
-    fn appendix(&self) -> &'static str {
-        "B.3"
+    fn vp_formats_clause(&self) -> Clause {
+        Clause::cited("OpenID4VP B.3 vp_formats_supported")
     }
 
     /// B.3.4: a JWS algorithm identifier is a string.

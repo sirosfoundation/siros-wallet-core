@@ -18,7 +18,6 @@ mod answered;
 pub(crate) mod members;
 pub(crate) mod registry;
 
-use std::borrow::Cow;
 use std::fmt;
 
 use dyn_clone::DynClone;
@@ -48,11 +47,36 @@ use crate::rows::{Env, Selected};
 use crate::wallet::Credential;
 use crate::wallet_metadata::Placement;
 
+/// The citation of the clause that decides a rule (`CSC §6.3`): a text its crate's source writes,
+/// so no received value becomes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clause(&'static str);
+
+impl Clause {
+    /// The clause this citation names.
+    #[must_use]
+    pub const fn cited(citation: &'static str) -> Self {
+        Self(citation)
+    }
+
+    /// The citation.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl fmt::Display for Clause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
 /// A rule that keeps a credential from answering a query: its message, and the clause that
 /// decides it.
 pub trait Exclusion: Explained {
     /// The clause that decides it.
-    fn clause(&self) -> Cow<'static, str>;
+    fn clause(&self) -> Clause;
 }
 
 /// A credential cannot answer a query: the plug-in's rule, kept as itself until a text is needed.
@@ -78,7 +102,7 @@ impl Exclude {
 
     /// The clause that decides it.
     #[must_use]
-    pub fn clause(&self) -> Cow<'static, str> {
+    pub fn clause(&self) -> Clause {
         self.rule.clause()
     }
 }

@@ -1,10 +1,9 @@
 //! The rules PaSO adds to a request's, and the exclusions its binding gives.
 
-use std::borrow::Cow;
 use std::fmt;
 
 use siros_explain::{Count, Explain, IntoArg, kind};
-use siros_openid4vp::plugins::Exclusion;
+use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 use siros_openid4vp::request::EntryIndex;
 
@@ -86,8 +85,8 @@ pub enum BindExcluded {
 }
 
 impl Exclusion for BindExcluded {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed(match self {
+    fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::Carriage => "Core §6; OpenID4VP B.2",
             Self::NoEntry => "Core §7.4.2 step 2",
         })
@@ -95,7 +94,7 @@ impl Exclusion for BindExcluded {
 }
 
 impl Exclusion for Excluded {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed(Excluded::clause(self))
+    fn clause(&self) -> Clause {
+        Excluded::clause(self)
     }
 }

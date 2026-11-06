@@ -1,7 +1,6 @@
 //! The rules a claims query breaks, the kit's and its format's, and the exclusion by the
 //! Verifier's algorithms.
 
-use std::borrow::Cow;
 use std::fmt;
 
 use siros_explain::{Explain, Explained, IntoArg, kind};
@@ -9,7 +8,7 @@ use siros_explain::{Explain, Explained, IntoArg, kind};
 use super::super::{ClaimsError, PathError};
 use crate::ids::{FormatName, QueryId};
 use crate::json::JsonError;
-use crate::plugins::Exclusion;
+use crate::plugins::{Clause, Exclusion};
 use crate::refusal::{ErrorCode, ReprList, RequestRule};
 use crate::text::TextError;
 
@@ -115,8 +114,8 @@ pub struct RefusedText {
 }
 
 impl Exclusion for RefusedText {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed("the rule of display text")
+    fn clause(&self) -> Clause {
+        Clause::cited("the rule of display text")
     }
 }
 
@@ -132,13 +131,13 @@ pub struct NoAlgorithm {
     pub listed: ReprList,
     /// The identifiers the presentation can match.
     pub matched: ReprList,
-    /// The format's OpenID4VP appendix.
+    /// The clause of the format's `vp_formats_supported`.
     #[explain(skip)]
-    pub appendix: &'static str,
+    pub clause: Clause,
 }
 
 impl Exclusion for NoAlgorithm {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Owned(format!("OpenID4VP {} vp_formats_supported", self.appendix))
+    fn clause(&self) -> Clause {
+        self.clause
     }
 }
