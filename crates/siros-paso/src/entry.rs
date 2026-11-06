@@ -139,7 +139,7 @@ pub fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
     for (index, entry) in &own {
         out.extend(broken(entry).into_iter().map(|rule| {
             Refusal::new(PasoRule::Entry {
-                entry: EntryPosition::at(index.get()),
+                entry: EntryPosition::of(*index),
                 rule,
             })
         }));

@@ -7,7 +7,7 @@ use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal};
 use siros_paso::entry::EntryRule;
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::risk::{ProfileId, RiskSignal};
-use siros_paso::rules::{EntryPosition, PasoRule};
+use siros_paso::rules::PasoRule;
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
 use siros_testkit::verifier::{self, adhoc_jwt, secret_key};
@@ -234,6 +234,15 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
             })
             .collect()
     };
+    let entry_rules = |parameters: &str| -> Vec<(usize, EntryRule, ErrorCode)> {
+        rules(parameters, true)
+            .into_iter()
+            .map(|(rule, code)| match rule {
+                PasoRule::Entry { entry, rule } => (entry.get(), rule, code),
+                other => panic!("no entry's rule: {other:?}"),
+            })
+            .collect()
+    };
     let valid = entry_with("");
     assert_eq!(rules(&parameters(&dcql, &[&valid], ""), true), []);
     assert_eq!(
@@ -241,45 +250,37 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         [(PasoRule::Unsigned, ErrorCode::INVALID_REQUEST)]
     );
     assert_eq!(
-        rules(
-            &parameters(
-                &dcql,
-                &[&entry_with(
-                    r#", "transaction_data_hashes_alg": ["sha-256"]"#
-                )],
-                ""
-            ),
-            true
-        ),
+        entry_rules(&parameters(
+            &dcql,
+            &[&entry_with(
+                r#", "transaction_data_hashes_alg": ["sha-256"]"#
+            )],
+            ""
+        )),
         [(
-            PasoRule::Entry {
-                entry: EntryPosition::at(0),
-                rule: EntryRule::UnknownMember("transaction_data_hashes_alg".to_owned()),
-            },
+            0,
+            EntryRule::UnknownMember("transaction_data_hashes_alg".to_owned()),
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     let not_object = format!(r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": ["x"]}}"#);
     assert_eq!(
-        rules(&parameters(&dcql, &[&not_object], ""), true),
+        entry_rules(&parameters(&dcql, &[&not_object], "")),
         [(
-            PasoRule::Entry {
-                entry: EntryPosition::at(0),
-                rule: EntryRule::PayloadNotObject,
-            },
+            0,
+            EntryRule::PayloadNotObject,
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     assert_eq!(
-        rules(
-            &parameters(&dcql, &[&entry_with(r#", "metadata": {"claims": []}"#)], ""),
-            true
-        ),
+        entry_rules(&parameters(
+            &dcql,
+            &[&entry_with(r#", "metadata": {"claims": []}"#)],
+            ""
+        )),
         [(
-            PasoRule::Entry {
-                entry: EntryPosition::at(0),
-                rule: EntryRule::MetadataNotString,
-            },
+            0,
+            EntryRule::MetadataNotString,
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );

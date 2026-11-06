@@ -6,6 +6,7 @@ use std::fmt;
 use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::plugins::Exclusion;
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
+use siros_openid4vp::request::EntryIndex;
 
 use crate::entry::EntryRule;
 use crate::outcome::Excluded;
@@ -35,19 +36,23 @@ pub enum PasoRule {
 
 /// An entry's position in `transaction_data`, as a rule names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EntryPosition(usize);
+pub struct EntryPosition(EntryIndex);
 
 impl EntryPosition {
-    /// The position of an entry.
+    pub(crate) const fn of(entry: EntryIndex) -> Self {
+        Self(entry)
+    }
+
+    /// The position.
     #[must_use]
-    pub const fn at(position: usize) -> Self {
-        Self(position)
+    pub const fn get(self) -> usize {
+        self.0.get()
     }
 }
 
 impl fmt::Display for EntryPosition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        self.get().fmt(f)
     }
 }
 
@@ -55,7 +60,7 @@ impl IntoArg for EntryPosition {
     type Kind = kind::Count;
 
     fn arg(&self) -> Count {
-        self.0.arg()
+        self.get().arg()
     }
 }
 
