@@ -30,14 +30,22 @@ All notable changes to this workspace. The format follows
   write packages whose identity is the RFC 9162 Merkle tree root of their
   entries; `Package::read` checks each entry when it is read. Feature `load`
   is the wallet's half, `render` the matcher's. The message-format-wg test
-  suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles. Edition 2024,
-  unpublished.
+  suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles. A profile's selected
+  locale and its RFC 4647 §3.4 truncations (`LocaleTag::truncations`) head the
+  priority list, and a registration's package holds those truncations. Feature
+  `render` writes a defined module's render form with no loader (`DefinedForm`):
+  a package holds one through `PackageBuilder::defined`, or a screen carries one
+  through `Screen::carrying`. `Package::keys` lists the compiled messages of a
+  package's main and crate modules, and `main_locales` gives a main module's
+  formats of bare values. Edition 2024, unpublished.
 - `siros-cldr` writes a language's format options from CLDR's JSON release
   49.0.0 as a resource head and `[formats.<format>]` sections.
 - CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
 - The architecture contract's messages component (§4.19, layer L0): the core
   renders each text at display and formats its numbers, amounts, dates and
-  lists; the UI lays out the result (D4, §4.17).
+  lists; the UI lays out the result (D4, §4.17). M3 states the selected
+  locale's truncations, M5 a registration's locales, M6 defined modules and M7
+  texts that depend on a request.
 
 ### Changed
 

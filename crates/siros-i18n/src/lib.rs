@@ -27,8 +27,8 @@
 //! `siros` functions, texts `:string`.
 //!
 //! A module defines each used format's options in each of its languages. `siros-cldr` writes
-//! them from CLDR 49.0.0: a resource head with `@locale` and `@dir`, the language's text
-//! direction, and one `[formats.<format>]` section per format module.
+//! them from CLDR 49.0.0 for a language: a resource head with `@locale` and `@dir`, the
+//! language's text direction, and one `[formats.<format>]` section per format module.
 //!
 //! ```
 //! use siros_explain::{Domain, Explain, Messages, ModuleId, Text, checked};
@@ -104,6 +104,8 @@ mod compile;
 mod currency;
 #[cfg(feature = "date")]
 mod date;
+#[cfg(feature = "render")]
+mod defined;
 mod error;
 #[cfg(feature = "render")]
 mod eval;
@@ -139,6 +141,8 @@ mod string;
 pub use currency::{CURRENCY, CurrencyFormat};
 #[cfg(feature = "date")]
 pub use date::{DATE, DateFormat};
+#[cfg(feature = "render")]
+pub use defined::{Body, DefinedBuilder, DefinedError, DefinedForm, MainLocale, Part, Variant};
 #[cfg(feature = "load")]
 pub use error::{ModuleError, OptionRefusal, Refusal, RefusedOption, ResourceRule, Validity};
 #[cfg(feature = "render")]
@@ -194,6 +198,8 @@ impl siros_explain::Messages for CrateMessages {
             RefusedOption::messages,
             #[cfg(feature = "render")]
             RenderError::messages,
+            #[cfg(feature = "render")]
+            DefinedError::messages,
             #[cfg(feature = "render")]
             NoLanguage::messages,
             #[cfg(feature = "render")]

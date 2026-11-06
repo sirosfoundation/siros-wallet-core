@@ -19,7 +19,7 @@ pub struct Cldr {
 }
 
 impl Cldr {
-    /// The output for `language`, from `tests/cldr/`; `None` for a language it holds none of.
+    /// The output for `language`, one of the fixtures in `tests/cldr`; `None` for another.
     pub fn of(language: &str) -> Option<Self> {
         let dir = env!("CARGO_MANIFEST_DIR");
         let text = std::fs::read_to_string(format!("{dir}/tests/cldr/{language}.mf2")).ok()?;

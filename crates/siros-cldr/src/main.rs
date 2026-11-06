@@ -6,7 +6,8 @@
 //!
 //! Usage: `siros-cldr <cldr-json directory> <language>`, the directory holding `cldr-core`,
 //! `cldr-numbers-full`, `cldr-dates-full` and `cldr-misc-full`. The resource is written to
-//! standard output.
+//! standard output. siros-i18n's test fixtures `crates/siros-i18n/tests/cldr/<language>.mf2` are
+//! its output for en, de, es, fr and he.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]

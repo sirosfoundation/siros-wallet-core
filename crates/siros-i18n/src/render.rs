@@ -109,7 +109,7 @@ impl RenderingInputs {
 pub struct Renderer<'m> {
     pub(crate) package: Package<'m>,
     pub(crate) manifest: Manifest,
-    pub(crate) chosen: Keyed<ModuleId, ChosenForm>,
+    pub(crate) chosen: Keyed<ModuleId, ChosenForm<'m>>,
     shown: Shown,
     pub(crate) formats: &'m Formats,
     pub(crate) options: RenderOptions,
@@ -126,7 +126,7 @@ impl<'m> Renderer<'m> {
     pub(crate) const fn new(
         package: Package<'m>,
         manifest: Manifest,
-        chosen: Keyed<ModuleId, ChosenForm>,
+        chosen: Keyed<ModuleId, ChosenForm<'m>>,
         shown: Shown,
         formats: &'m Formats,
         options: RenderOptions,
@@ -149,7 +149,7 @@ impl<'m> Renderer<'m> {
         RenderingInputs {
             selected: self.shown.selected.clone(),
             language: self.shown.language.clone(),
-            modules: self.chosen.map(|chosen| chosen.digest),
+            modules: self.chosen.map(ChosenForm::digest),
             amounts: self.options.amounts,
             bidi: self.options.bidi,
             renderer: RENDERER,

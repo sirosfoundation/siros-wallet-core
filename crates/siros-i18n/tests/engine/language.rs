@@ -1,5 +1,5 @@
 //! One language per presentation, by RFC 4647 basic filtering over the priority list headed by
-//! the locale a profile selected for its own module.
+//! the locale a profile selected for its own module and that locale's RFC 4647 §3.4 truncations.
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -8,8 +8,8 @@ use siros_explain::{
     names,
 };
 use siros_i18n::{
-    Bidi, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag, Module, NoLanguage,
-    Package, PackageError, Screen, Selected,
+    Bidi, BuiltPackage, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag,
+    Module, NoLanguage, Package, PackageError, RegistrationBuilder, Screen, Selected,
 };
 
 use crate::{options, package, tag};
@@ -54,6 +54,19 @@ fn locate(
     locate_selected(modules, None, priority, fallback)
 }
 
+/// The modules of these tags, the `n`-th numbered `n`.
+fn modules(modules: &[(&[&str], LanguagePolicy)]) -> Vec<Module> {
+    modules
+        .iter()
+        .zip(0..)
+        .map(|((tags, policy), n)| module(n, tags, *policy))
+        .collect()
+}
+
+fn tags(list: &[&str]) -> Vec<LocaleTag> {
+    list.iter().map(|t| tag(t)).collect()
+}
+
 /// [`locate`] with the first module shown in the locale its profile selected.
 fn locate_selected(
     modules: &[(&[&str], LanguagePolicy)],
@@ -61,12 +74,36 @@ fn locate_selected(
     priority: &[&str],
     fallback: &[&str],
 ) -> Result<(Language, Vec<String>), NoLanguage> {
-    let modules: Vec<Module> = modules
-        .iter()
-        .zip(0..)
-        .map(|((tags, policy), n)| module(n, tags, *policy))
-        .collect();
+    let modules = self::modules(modules);
     let built = package(&modules.iter().collect::<Vec<_>>());
+    located(&built, &modules, selected, priority, fallback)
+}
+
+/// [`locate_selected`] over the package a registration under the lists writes: the matcher's.
+fn locate_registered(
+    modules: &[(&[&str], LanguagePolicy)],
+    selected: Option<&str>,
+    priority: &[&str],
+    fallback: &[&str],
+) -> Result<(Language, Vec<String>), NoLanguage> {
+    let modules = self::modules(modules);
+    let mut builder = RegistrationBuilder::new(tags(priority), tags(fallback), options(Bidi::None))
+        .expect("a registration");
+    for module in &modules {
+        builder.module(module, None).expect("a module");
+    }
+    located(&builder.finish(), &modules, selected, priority, fallback)
+}
+
+/// The language a screen of `modules` over `built` decides, and the entry each module's text
+/// came from.
+fn located(
+    built: &BuiltPackage,
+    modules: &[Module],
+    selected: Option<&str>,
+    priority: &[&str],
+    fallback: &[&str],
+) -> Result<(Language, Vec<String>), NoLanguage> {
     let package = Package::read(built.bytes(), built.root()).expect("a package");
     let mut screen =
         Screen::new(&package, modules.iter().map(Module::id).collect()).expect("a screen");
@@ -75,7 +112,6 @@ fn locate_selected(
             .selecting(Selected::new(first.id(), tag(locale)))
             .expect("a module of the screen");
     }
-    let tags = |list: &[&str]| list.iter().map(|t| tag(t)).collect::<Vec<LocaleTag>>();
     let located = screen.locale(&tags(priority), &tags(fallback))?;
     let language = located.language().clone();
     let formats = Formats::new(&[]).expect("formats");
@@ -136,6 +172,21 @@ fn known_answers() {
         matches!(enforced, NoLanguage::NotUnderstood(_)),
         "{enforced:?}"
     );
+    // A profile's selected locale heads the list with its truncations: the wallet's `de` module
+    // follows PaSO's `de-CH`, and a selected `fr` it lacks leaves the End-User's list. The
+    // matcher, over the registration's package, decides the same.
+    let selection = [(&["de-CH", "fr"][..], any), (&["de", "en"][..], any)];
+    let entries = |first: &str, second: &str| vec![first.to_owned(), second.to_owned()];
+    for locate in [locate_selected, locate_registered] {
+        assert_eq!(
+            locate(&selection, Some("de-CH"), &["de-CH", "en"], &[]).expect("de"),
+            (understood("de"), entries("de-CH", "de"))
+        );
+        assert_eq!(
+            locate(&selection, Some("fr"), &["fr", "en"], &[]).expect("en"),
+            (understood("en"), entries("fr", "en"))
+        );
+    }
     // No module enforcing: the fallback list, marked.
     let mixed = [(&["de"][..], any), (&["en", "de"][..], any)];
     let fallback = locate(&mixed, &["fr"], &["en", "de"]).expect("de");
@@ -167,11 +218,58 @@ enum Refused {
     NoFallback,
 }
 
+/// RFC 4647 §3.4's ranges for `range`, from its text: the range, then each range left by
+/// removing the last subtag, and a single-character subtag left at the end with it, until no
+/// subtag remains.
+fn lookup_ranges(range: &str) -> Vec<String> {
+    let mut subtags: Vec<&str> = range.split('-').collect();
+    let mut out = Vec::new();
+    while !subtags.is_empty() {
+        out.push(subtags.join("-"));
+        subtags.pop();
+        while subtags.last().is_some_and(|subtag| subtag.len() == 1) {
+            subtags.pop();
+        }
+    }
+    out
+}
+
+/// RFC 4647 §3.4's example range, a two-subtag range, and ranges whose single-character subtags
+/// go with the subtag after them.
+#[test]
+fn truncations_follow_rfc_4647_3_4() {
+    let table: [(&str, &[&str]); 5] = [
+        (
+            "zh-Hant-CN-x-private1-private2",
+            &[
+                "zh-Hant-CN-x-private1-private2",
+                "zh-Hant-CN-x-private1",
+                "zh-Hant-CN",
+                "zh-Hant",
+                "zh",
+            ],
+        ),
+        ("de-CH", &["de-CH", "de"]),
+        ("en", &["en"]),
+        ("x-private", &["x-private"]),
+        ("en-a-bbb-x-a", &["en-a-bbb-x-a", "en-a-bbb", "en"]),
+    ];
+    for (range, ranges) in table {
+        let got: Vec<String> = tag(range)
+            .truncations()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(got, ranges, "{range}");
+    }
+}
+
 /// The language by the rule's words: the first module, when a locale is selected for it, shows
 /// its entry equal to that locale, and is refused without one; every other module takes the
-/// first tag of the list headed by the selected locale for which it has an entry equal to the
-/// tag or extending it; each module's entry the equal one, else its first match. With none, the
-/// first module enforcing understood languages refuses, else the fallback list decides.
+/// first tag of the list headed by the selected locale and its RFC 4647 §3.4 truncations for
+/// which it has an entry equal to the tag or extending it; each module's entry the equal one,
+/// else its first match. With none, the first module enforcing understood languages refuses,
+/// else the fallback list decides.
 fn oracle(
     modules: &[(Vec<&'static str>, LanguagePolicy)],
     selected: Option<&str>,
@@ -208,12 +306,13 @@ fn oracle(
             .collect();
         rest.map(|rest| pinned.iter().cloned().chain(rest).collect())
     };
-    let headed: Vec<&str> = selected
+    let headed: Vec<String> = selected
         .into_iter()
-        .chain(priority.iter().copied())
+        .flat_map(lookup_ranges)
+        .chain(priority.iter().map(|range| (*range).to_owned()))
         .collect();
-    if let Some((range, entries)) = headed.iter().find_map(|r| serve(r).map(|e| (*r, e))) {
-        return Ok((false, range.to_owned(), entries));
+    if let Some((range, entries)) = headed.iter().find_map(|r| serve(r).map(|e| (r, e))) {
+        return Ok((false, range.clone(), entries));
     }
     if let Some(enforcing) = others
         .iter()
@@ -264,9 +363,15 @@ fn the_language_is_the_first_tag_every_module_serves() {
             })
             .collect();
         let (priority, fallback) = (pick(&mut rng, 3, 0), pick(&mut rng, 2, 0));
-        let selected = rng
-            .random_bool(0.4)
-            .then(|| POOL[rng.random_range(0..POOL.len())]);
+        // A profile selects one of its module's locales, or one it lacks for the refusal.
+        let selected = rng.random_bool(0.5).then(|| {
+            let first = &modules[0].0;
+            if rng.random_bool(0.8) {
+                first[rng.random_range(0..first.len())]
+            } else {
+                POOL[rng.random_range(0..POOL.len())]
+            }
+        });
         let borrowed: Vec<(&[&str], LanguagePolicy)> = modules
             .iter()
             .map(|(tags, policy)| (tags.as_slice(), *policy))

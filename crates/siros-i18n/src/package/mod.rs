@@ -37,13 +37,12 @@ mod registration;
 
 #[cfg(feature = "load")]
 pub use builder::{BuiltPackage, PackageBuilder, PackageTexts, RegistrationBuilder};
-pub(crate) use codec::replay;
+pub(crate) use codec::{replay, write_direction, write_message};
 pub(crate) use held::{Held, TextKey};
-pub(crate) use manifest::{
-    LocaleIndex, LocaleRef, Manifest, ModuleRecord, StoredKind, module_name,
-};
+pub(crate) use manifest::{LocaleIndex, Manifest, ModuleRecord, StoredKind, module_name};
 pub use registration::{Candidates, CredentialRecord, Registration};
 
+use crate::defined::MainLocale;
 use crate::error::PackageError;
 use crate::form::MessageForm;
 
@@ -148,6 +147,28 @@ impl<'p> Package<'p> {
         Ok(spans)
     }
 
+    /// The identifiers of the compiled messages its main and crate modules hold, each once,
+    /// sorted. A defined module's keys are its converter's.
+    ///
+    /// # Errors
+    ///
+    /// The [`PackageError`] of the manifest or of a locale entry.
+    pub fn keys(&self) -> Result<Vec<String>, PackageError> {
+        let manifest = self.manifest()?;
+        let mut keys = Vec::new();
+        let named = manifest
+            .modules
+            .iter()
+            .filter(|module| !matches!(module.id.kind(), StoredKind::Defined { .. }));
+        for locale in named.flat_map(|module| &module.locales) {
+            let index = self.locale_index(&manifest, locale.entry)?;
+            keys.extend(index.messages.into_iter().map(|message| message.key));
+        }
+        keys.sort();
+        keys.dedup();
+        Ok(keys)
+    }
+
     /// What a registration's package was built from beside its modules; `None` for a package
     /// built without a registration.
     ///
@@ -156,6 +177,32 @@ impl<'p> Package<'p> {
     /// The [`PackageError`] of the manifest.
     pub fn registration(&self) -> Result<Option<Registration>, PackageError> {
         Ok(self.manifest()?.registration)
+    }
+
+    /// The main module's locale entries, in its order: what a defined module converted with no
+    /// loader formats its typed arguments with ([`DefinedForm`](crate::DefinedForm)). None for a
+    /// package without a main module.
+    ///
+    /// # Errors
+    ///
+    /// The [`PackageError`] of the manifest or of a locale entry.
+    pub fn main_locales(&self) -> Result<Vec<MainLocale>, PackageError> {
+        let manifest = self.manifest()?;
+        let main = manifest
+            .modules
+            .iter()
+            .find(|module| *module.id.kind() == StoredKind::Main);
+        main.iter()
+            .flat_map(|main| &main.locales)
+            .map(|locale| {
+                let index = self.locale_index(&manifest, locale.entry)?;
+                Ok(MainLocale {
+                    locale: index.locale,
+                    direction: index.direction,
+                    bare: index.bare,
+                })
+            })
+            .collect()
     }
 
     /// Its RFC 9162 Merkle tree root: its identity.

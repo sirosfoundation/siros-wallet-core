@@ -63,7 +63,8 @@ a socket, a clock, or a keystore.
 | `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
 
 siros-i18n's features: `load`, the wallet's half (parsing, checking and compiling modules,
-building packages); `render`, the matcher's half (reading packages, rendering); and one per
+building packages); `render`, the matcher's half (reading packages, writing a defined module's
+render form, rendering); and one per
 format module, `number`, `currency`, `offset`, `date` and `list`.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).

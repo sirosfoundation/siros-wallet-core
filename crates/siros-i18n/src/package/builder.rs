@@ -14,8 +14,9 @@ use super::manifest::{
 use super::registration::{Candidates, CredentialRecord, Registration, TransactionRecord};
 use super::{FORMAT, HEADER, Location, MAGIC, Package, merkle};
 use crate::bytes::Writer;
+use crate::defined::DefinedForm;
 use crate::error::{ModuleName, PackageError, RenderError};
-use crate::form::{CompiledModule, LocaleForm, MessageForm};
+use crate::form::{BareCalls, CompiledModule, LocaleForm, MessageForm};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::module::Module;
@@ -32,9 +33,10 @@ pub struct PackageBuilder {
     registration: Option<Registration>,
 }
 
-/// A registration's package under construction: its locales the tags of the End-User's priority list and the app's fallback
-/// list, its modules, the credentials and transaction types it serves, and the lists and options
-/// it records. Only [`RegistrationBuilder::new`] makes one.
+/// A registration's package under construction: its locales the tags of the End-User's priority
+/// list with their RFC 4647 §3.4 truncations and the tags of the app's fallback list, its modules,
+/// the credentials and transaction types it serves, and the lists and options it records. Only
+/// [`RegistrationBuilder::new`] makes one.
 #[derive(Debug)]
 pub struct RegistrationBuilder {
     builder: PackageBuilder,
@@ -171,7 +173,36 @@ impl PackageBuilder {
     /// [`PackageError::RepeatedModule`] for a module added twice; [`PackageError::RepeatedKey`]
     /// for a key given twice; [`PackageError::Key`] for a key the module does not hold.
     pub fn module(&mut self, module: &Module, keys: Option<&[&str]>) -> Result<(), PackageError> {
-        let form = module.form();
+        self.add(module.form(), keys)
+    }
+
+    /// Adds a defined module a plug-in wrote in its render form, every key, in the package's
+    /// locales as [`PackageBuilder::module`] adds a module.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageError::RepeatedModule`] for a module added twice.
+    pub fn defined(&mut self, form: &DefinedForm) -> Result<(), PackageError> {
+        let compiled = CompiledModule {
+            id: ModuleId::Defined(form.id),
+            digest: form.digest,
+            policy: form.policy,
+            locales: form
+                .locales
+                .iter()
+                .map(|locale| LocaleForm {
+                    locale: locale.locale.clone(),
+                    direction: locale.direction,
+                    messages: locale.messages.clone(),
+                    bare: BareCalls::default(),
+                })
+                .collect(),
+        };
+        self.add(&compiled, None)
+    }
+
+    /// Adds a module's compiled form in the package's locales, with every key or the keys given.
+    fn add(&mut self, form: &CompiledModule, keys: Option<&[&str]>) -> Result<(), PackageError> {
         if self.modules.iter().any(|added| added.whole.id == form.id) {
             return Err(PackageError::RepeatedModule(ModuleName::of(form.id)));
         }
@@ -263,8 +294,10 @@ impl PackageBuilder {
 
 impl RegistrationBuilder {
     /// A builder for a registration under the End-User's priority list, the app's fallback list
-    /// and its rendering options: the package's locales are the lists' tags, so each text it
-    /// precomputes is held under the tag a screen's language names.
+    /// and its rendering options: the package's locales are the lists' tags and the priority
+    /// list's truncations, which head a screen's list beside a locale a profile selected from it
+    /// ([`LocaleTag::truncations`]), so each text it precomputes is held under the tag a
+    /// screen's language names.
     ///
     /// # Errors
     ///
@@ -277,7 +310,11 @@ impl RegistrationBuilder {
         if priority.is_empty() {
             return Err(PackageError::NoLocale);
         }
-        let mut locales: Vec<LocaleTag> = priority.iter().chain(&fallback).cloned().collect();
+        let mut locales: Vec<LocaleTag> = priority
+            .iter()
+            .flat_map(LocaleTag::truncations)
+            .chain(fallback.iter().cloned())
+            .collect();
         locales.sort();
         locales.dedup();
         Ok(Self {
@@ -297,6 +334,15 @@ impl RegistrationBuilder {
     /// [`PackageBuilder::module`]'s.
     pub fn module(&mut self, module: &Module, keys: Option<&[&str]>) -> Result<(), PackageError> {
         self.builder.module(module, keys)
+    }
+
+    /// Adds a defined module, as [`PackageBuilder::defined`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`PackageBuilder::defined`]'s.
+    pub fn defined(&mut self, form: &DefinedForm) -> Result<(), PackageError> {
+        self.builder.defined(form)
     }
 
     /// Records a credential the registration serves, by its name, and the modules its card draws

@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind};
 
 use crate::compile::{self, Site};
+use crate::defined::MainLocale;
 use crate::error::{ModuleError, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
@@ -296,6 +297,24 @@ impl Module {
     /// The locales it supports, in its sources' order.
     pub fn locales(&self) -> impl Iterator<Item = &LocaleTag> {
         self.form.locales.iter().map(|form| &form.locale)
+    }
+
+    /// Its locale entries as a main module's, each with its formats of bare values: what a defined
+    /// module converted with no loader formats its typed arguments with
+    /// ([`DefinedForm`](crate::DefinedForm)); `None` for a module that is no main module.
+    #[must_use]
+    pub fn main_locales(&self) -> Option<Vec<MainLocale>> {
+        (self.form.id == ModuleId::Main).then(|| {
+            self.form
+                .locales
+                .iter()
+                .map(|locale| MainLocale {
+                    locale: locale.locale.clone(),
+                    direction: locale.direction,
+                    bare: locale.bare.clone(),
+                })
+                .collect()
+        })
     }
 
     /// Its render form, which a package carries.

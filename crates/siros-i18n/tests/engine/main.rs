@@ -1,7 +1,9 @@
 //! The engine's guarantees: each load rule refuses its fixture, rendering is a function of its
-//! inputs, `Raw` is shown as written and classed, one language serves a presentation, and a
-//! package serializes, reads back and renders the same whatever it holds.
+//! inputs, `Raw` is shown as written, one language serves a presentation, a package serializes,
+//! reads back and renders the same whatever it holds, and a defined module written with no loader
+//! renders as the loader compiles it.
 
+mod defined;
 mod language;
 mod load_rules;
 mod package;

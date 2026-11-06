@@ -3,26 +3,78 @@
 
 use siros_explain::{Entry, Keyed, ModuleId};
 
+use crate::defined::{DefinedForm, DefinedLocale};
 use crate::error::{ModuleName, NoLanguage, PackageError, RenderError};
-use crate::form::LanguagePolicy;
-use crate::format::Formats;
+use crate::form::{BareCalls, LanguagePolicy};
+use crate::format::{Direction, Formats};
 use crate::locale::LocaleTag;
-use crate::package::{LocaleIndex, LocaleRef, Manifest, ModuleRecord, Package};
+use crate::package::{LocaleIndex, Manifest, ModuleRecord, Package};
 use crate::render::{RENDERER, RenderOptions, Renderer};
 
-/// The modules of a package a screen draws its texts from, each once. Only [`Screen::new`] makes
-/// one.
+/// The modules a screen draws its texts from, each once: a package's, and defined modules carried
+/// beside it. Only [`Screen::new`] and [`Screen::carrying`] make one.
 #[derive(Debug)]
 pub struct Screen<'m> {
     package: Package<'m>,
     manifest: Manifest,
-    modules: Keyed<ModuleId, ModuleRecord>,
+    modules: Keyed<ModuleId, Source<'m>>,
     selected: Option<Selected>,
 }
 
+/// Where a screen's module lies: in its package, or carried beside it.
+#[derive(Debug, Clone)]
+enum Source<'m> {
+    /// The package's module.
+    Package(ModuleRecord),
+    /// A defined module carried beside the package.
+    Carried(&'m DefinedForm),
+}
+
+impl<'m> Source<'m> {
+    /// Its digest.
+    const fn digest(&self) -> [u8; 32] {
+        match self {
+            Self::Package(record) => record.digest,
+            Self::Carried(form) => form.digest,
+        }
+    }
+
+    /// Its language policy.
+    const fn policy(&self) -> LanguagePolicy {
+        match self {
+            Self::Package(record) => record.policy,
+            Self::Carried(form) => form.policy,
+        }
+    }
+
+    /// The tags of its locale entries, in its order.
+    fn tags(&self) -> Vec<LocaleTag> {
+        match self {
+            Self::Package(record) => record.locales.iter().map(|l| l.tag.clone()).collect(),
+            Self::Carried(form) => form.locales().cloned().collect(),
+        }
+    }
+
+    /// Its locale entry of tag `tag`, which `pick` finds among the tags.
+    fn chosen(&self, pick: impl Fn(&[LocaleTag]) -> Option<usize>) -> Option<Chosen<'m>> {
+        let tags = self.tags();
+        let at = pick(&tags)?;
+        let tag = tags.get(at)?.clone();
+        let place = match self {
+            Self::Package(record) => Place::Entry(record.locales.get(at)?.entry),
+            Self::Carried(form) => Place::Carried(form.locales.get(at)?),
+        };
+        Some(Chosen {
+            digest: self.digest(),
+            place,
+            tag,
+        })
+    }
+}
+
 /// A module whose texts show in a locale its profile selected, as PaSO View §4 selects a
-/// transaction's: the module's entry of that locale renders, and the locale heads the priority
-/// list the screen's other modules take their language from.
+/// transaction's: the module's entry of that locale renders, and the locale and its RFC 4647
+/// §3.4 truncations head the priority list the screen's other modules take their language from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Selected {
     module: ModuleId,
@@ -71,10 +123,19 @@ impl Language {
 
 /// A module's digest, and the locale entry a language chose.
 #[derive(Debug, Clone)]
-struct Chosen {
+struct Chosen<'m> {
     digest: [u8; 32],
-    entry: usize,
+    place: Place<'m>,
     tag: LocaleTag,
+}
+
+/// Where a chosen locale entry lies: the package's entry, or a carried module's locale.
+#[derive(Debug, Clone, Copy)]
+enum Place<'m> {
+    /// The package's entry of this index.
+    Entry(usize),
+    /// A carried module's locale.
+    Carried(&'m DefinedLocale),
 }
 
 /// A module as the language decision reads it: its identity, the tags of its locale entries in
@@ -89,15 +150,11 @@ struct Served<'t> {
     policy: LanguagePolicy,
 }
 
-/// The entry among `entries` the range `tag` matches by RFC 4647 basic filtering: the one whose
-/// tag equals the range, else the first in the module's order whose tag extends it.
-fn matching<'e, E>(
-    entries: &'e [E],
-    tag_of: impl Fn(&E) -> &LocaleTag,
-    tag: &LocaleTag,
-) -> Option<&'e E> {
-    let equal = entries.iter().find(|entry| tag_of(entry) == tag);
-    equal.or_else(|| entries.iter().find(|entry| tag.filters(tag_of(entry))))
+/// The position among `tags` the range `tag` matches by RFC 4647 basic filtering: the tag equal
+/// to the range, else the first in the module's order that extends it.
+fn matching(tags: &[LocaleTag], tag: &LocaleTag) -> Option<usize> {
+    let equal = tags.iter().position(|known| known == tag);
+    equal.or_else(|| tags.iter().position(|known| tag.filters(known)))
 }
 
 /// The presentation's language over its modules, the End-User's priority list and the app's
@@ -120,7 +177,7 @@ fn decide(
             .find(|tag| {
                 modules
                     .iter()
-                    .all(|module| matching(module.tags, |tag| tag, tag).is_some())
+                    .all(|module| matching(module.tags, tag).is_some())
             })
             .cloned()
     };
@@ -143,7 +200,7 @@ fn decide(
 pub struct Located<'m> {
     package: Package<'m>,
     manifest: Manifest,
-    chosen: Keyed<ModuleId, Chosen>,
+    chosen: Keyed<ModuleId, Chosen<'m>>,
     selected: Option<Selected>,
     language: Language,
 }
@@ -157,6 +214,21 @@ impl<'m> Screen<'m> {
     /// another version of the renderer built; [`PackageError::Module`] for a module the package
     /// does not hold, and [`PackageError::RepeatedModule`] for one given twice.
     pub fn new(package: &Package<'m>, modules: Vec<ModuleId>) -> Result<Self, PackageError> {
+        Self::carrying(package, modules, &[])
+    }
+
+    /// The screen of these modules, each the package's, else one of `carried`: the defined modules
+    /// carried beside the package, such as those of metadata that arrives with a request.
+    ///
+    /// # Errors
+    ///
+    /// [`Screen::new`]'s, [`PackageError::Module`] naming a module neither the package nor
+    /// `carried` holds.
+    pub fn carrying(
+        package: &Package<'m>,
+        modules: Vec<ModuleId>,
+        carried: &'m [DefinedForm],
+    ) -> Result<Self, PackageError> {
         let manifest = package.manifest()?;
         if manifest.renderer != RENDERER {
             return Err(PackageError::Renderer {
@@ -165,8 +237,16 @@ impl<'m> Screen<'m> {
         }
         let entries = modules.into_iter().map(|id| {
             let record = manifest.modules.iter().find(|module| module.id.is(id));
-            record
-                .map(|record| Entry::new(id, record.clone()))
+            let source = record
+                .map(|record| Source::Package(record.clone()))
+                .or_else(|| {
+                    carried
+                        .iter()
+                        .find(|form| ModuleId::Defined(form.id) == id)
+                        .map(Source::Carried)
+                });
+            source
+                .map(|source| Entry::new(id, source))
                 .ok_or_else(|| PackageError::Module(ModuleName::of(id)))
         });
         let modules = Keyed::new(entries.collect::<Result<_, _>>()?)
@@ -207,9 +287,10 @@ impl<'m> Screen<'m> {
     ) -> Result<Located<'m>, PackageError> {
         let all = Self::new(package, modules.to_vec())?;
         let chosen = all.modules.entries().iter().filter_map(|entry| {
-            let record = entry.value();
-            matching(&record.locales, |locale| &locale.tag, tag)
-                .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale)))
+            entry
+                .value()
+                .chosen(|tags| matching(tags, tag))
+                .map(|chosen| Entry::new(*entry.key(), chosen))
         });
         Ok(Located {
             package: all.package,
@@ -224,7 +305,9 @@ impl<'m> Screen<'m> {
     /// list: the first tag of the priority list every module of the screen matches; with none,
     /// and no module enforcing understood languages, the first tag of the fallback list every
     /// module matches. A selected module shows its entry of the locale its profile selected, and
-    /// the others decide over the priority list headed by that locale.
+    /// the others decide over the priority list headed by that locale and its RFC 4647 §3.4
+    /// truncations ([`LocaleTag::truncations`]): `de-CH` selected heads the list with `de-CH`,
+    /// `de`.
     ///
     /// # Errors
     ///
@@ -240,59 +323,50 @@ impl<'m> Screen<'m> {
         let selected = match &self.selected {
             None => None,
             Some(selected) => {
-                let record = self
+                let chosen = self
                     .modules
                     .get(&selected.module)
+                    .and_then(|source| {
+                        source.chosen(|tags| tags.iter().position(|tag| *tag == selected.locale))
+                    })
                     .ok_or_else(|| NoLanguage::selected(selected))?;
-                let locale = record
-                    .locales
-                    .iter()
-                    .find(|locale| locale.tag == selected.locale)
-                    .ok_or_else(|| NoLanguage::selected(selected))?;
-                Some(Entry::new(selected.module, Chosen::of(record, locale)))
+                Some(Entry::new(selected.module, chosen))
             }
         };
-        let others: Vec<&Entry<ModuleId, ModuleRecord>> = self
+        let others: Vec<&Entry<ModuleId, Source<'m>>> = self
             .modules
             .entries()
             .iter()
             .filter(|entry| Some(*entry.key()) != self.selected.as_ref().map(|s| s.module))
             .collect();
-        let tags: Vec<Vec<LocaleTag>> = others
-            .iter()
-            .map(|entry| {
-                entry
-                    .value()
-                    .locales
-                    .iter()
-                    .map(|l| l.tag.clone())
-                    .collect()
-            })
-            .collect();
+        let tags: Vec<Vec<LocaleTag>> = others.iter().map(|entry| entry.value().tags()).collect();
         let served: Vec<Served<'_>> = others
             .iter()
             .zip(&tags)
             .map(|(entry, tags)| Served {
                 id: *entry.key(),
                 tags,
-                policy: entry.value().policy,
+                policy: entry.value().policy(),
             })
             .collect();
         let headed: Vec<LocaleTag> = self
             .selected
             .iter()
-            .map(|selected| selected.locale.clone())
+            .flat_map(|selected| selected.locale.truncations())
             .chain(priority.iter().cloned())
             .collect();
         let language = decide(&served, &headed, fallback)?;
-        let chosen = self.modules.entries().iter().filter_map(|entry| {
-            let record = entry.value();
-            match &selected {
+        let chosen = self
+            .modules
+            .entries()
+            .iter()
+            .filter_map(|entry| match &selected {
                 Some(selected) if selected.key() == entry.key() => Some(selected.clone()),
-                _ => matching(&record.locales, |locale| &locale.tag, language.tag())
-                    .map(|locale| Entry::new(*entry.key(), Chosen::of(record, locale))),
-            }
-        });
+                _ => entry
+                    .value()
+                    .chosen(|tags| matching(tags, language.tag()))
+                    .map(|chosen| Entry::new(*entry.key(), chosen)),
+            });
         Ok(Located {
             package: self.package,
             chosen: Keyed::first_of(chosen),
@@ -300,17 +374,6 @@ impl<'m> Screen<'m> {
             selected: self.selected,
             language,
         })
-    }
-}
-
-impl Chosen {
-    /// A module's locale entry.
-    fn of(record: &ModuleRecord, locale: &LocaleRef) -> Self {
-        Self {
-            digest: record.digest,
-            entry: locale.entry,
-            tag: locale.tag.clone(),
-        }
     }
 }
 
@@ -340,14 +403,24 @@ impl<'m> Located<'m> {
         options: RenderOptions,
     ) -> Result<Renderer<'m>, RenderError> {
         let forms = self.chosen.try_map(|chosen| {
-            let index: LocaleIndex = self.package.locale_index(&self.manifest, chosen.entry)?;
-            if let Some(format) = index.formats.iter().find(|f| formats.get(f).is_none()) {
-                return Err(RenderError::Format(format.clone()));
+            let form = match chosen.place {
+                Place::Entry(entry) => ChosenForm::Package {
+                    digest: chosen.digest,
+                    index: Box::new(self.package.locale_index(&self.manifest, entry)?),
+                },
+                Place::Carried(locale) => ChosenForm::Carried {
+                    digest: chosen.digest,
+                    locale,
+                },
+            };
+            if let Some(format) = form
+                .formats()
+                .into_iter()
+                .find(|f| formats.get(f).is_none())
+            {
+                return Err(RenderError::Format(format));
             }
-            Ok(ChosenForm {
-                digest: chosen.digest,
-                index,
-            })
+            Ok(form)
         })?;
         Ok(Renderer::new(
             self.package,
@@ -370,9 +443,55 @@ pub(crate) struct Shown {
     pub(crate) language: Language,
 }
 
-/// A module's digest and the locale entry its language chose, read.
+/// A module's digest and the locale entry its language chose, read: the package's, or a carried
+/// module's.
 #[derive(Debug)]
-pub(crate) struct ChosenForm {
-    pub(crate) digest: [u8; 32],
-    pub(crate) index: LocaleIndex,
+pub(crate) enum ChosenForm<'m> {
+    /// A package's locale entry.
+    Package {
+        /// The module's digest.
+        digest: [u8; 32],
+        /// The entry.
+        index: Box<LocaleIndex>,
+    },
+    /// A carried module's locale.
+    Carried {
+        /// The module's digest.
+        digest: [u8; 32],
+        /// The locale.
+        locale: &'m DefinedLocale,
+    },
+}
+
+impl ChosenForm<'_> {
+    /// The module's digest.
+    pub(crate) const fn digest(&self) -> [u8; 32] {
+        match self {
+            Self::Package { digest, .. } | Self::Carried { digest, .. } => *digest,
+        }
+    }
+
+    /// The locale entry's direction.
+    pub(crate) const fn direction(&self) -> Direction {
+        match self {
+            Self::Package { index, .. } => index.direction,
+            Self::Carried { locale, .. } => locale.direction,
+        }
+    }
+
+    /// The locale entry's formats of bare values; a carried module has none.
+    pub(crate) const fn bare(&self) -> Option<&BareCalls> {
+        match self {
+            Self::Package { index, .. } => Some(&index.bare),
+            Self::Carried { .. } => None,
+        }
+    }
+
+    /// The format modules its messages and bare formats call.
+    fn formats(&self) -> Vec<String> {
+        match self {
+            Self::Package { index, .. } => index.formats.clone(),
+            Self::Carried { locale, .. } => locale.formats(),
+        }
+    }
 }

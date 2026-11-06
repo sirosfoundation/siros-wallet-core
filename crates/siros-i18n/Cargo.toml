@@ -16,7 +16,7 @@ default = ["load", "number", "currency", "offset", "date", "list"]
 # build without `currency` compiles it unused, as Cargo enables no dependency for two features
 # together.
 load = ["render", "dep:unicode-normalization", "dep:unicode-general-category"]
-# The matcher's half: the package reader, the renderer, and the sinks.
+# The matcher's half: the package reader, defined modules' render form, the renderer, and the sinks.
 render = ["dep:sha2", "dep:ct-merkle"]
 # The format modules, each with its load half under `load` and its render half under `render`.
 # `:number` and `:integer`.

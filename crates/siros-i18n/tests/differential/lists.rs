@@ -1,5 +1,5 @@
 //! And-lists and or-lists of one to five items, among them the initials of the
-//! special cases, in the shipped languages and in Spanish and Hebrew, whose special cases the
+//! special cases, in the test app's languages and in Spanish and Hebrew, whose special cases the
 //! list module's conditions decide.
 
 use icu_list::ListFormatter;
@@ -8,7 +8,7 @@ use icu_locale_core::Locale;
 use siros_explain::{AllOf, AnyOf, ListKind, Text};
 use writeable::Writeable as _;
 
-use crate::{Differences, SHIPPED, module, plain, renderer};
+use crate::{Differences, LANGUAGES, module, plain, renderer};
 
 #[derive(Debug, thiserror::Error, siros_explain::Explain)]
 #[explain(domain = "probe")]
@@ -32,7 +32,7 @@ const ITEMS: [&str; 16] = [
 fn and_and_or_lists_equal_icu4x() {
     let formats = crate::cldr::formats(&[]);
     let mut differences = Differences::default();
-    let languages = SHIPPED.iter().chain(&["es", "he"]);
+    let languages = LANGUAGES.iter().chain(&["es", "he"]);
     for &language in languages {
         let module = module::<Probe>(language, MESSAGES);
         let renderer = renderer(&module, language, &formats);
