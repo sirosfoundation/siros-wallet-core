@@ -22,6 +22,7 @@ siros-paso = { path = "../siros-paso", features = ["test-util", "sealed-signals"
 siros-qes = { path = "../siros-qes" }
 siros-credman = { workspace = true, features = ["register"] }
 siros-webuild = { workspace = true }
+siros-ts12 = { workspace = true }
 siros-x509 = { path = "../siros-x509", features = ["test-util"] }
 siros-testkit = { workspace = true }
 siros-wallet-state = { workspace = true }

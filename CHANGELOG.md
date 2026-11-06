@@ -11,6 +11,9 @@ All notable changes to this workspace. The format follows
   `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
   payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
   label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
+- `siros-integration` holds the WE BUILD build beside HAIP's: `x509_hash` alone,
+  `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
+  or `DeviceMac`, over F11 and F12.
 - `siros-paso` opens `render::Request`, `Registered`, `LabelLimits` and `bound` to a second profile.
 - `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
 - `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,

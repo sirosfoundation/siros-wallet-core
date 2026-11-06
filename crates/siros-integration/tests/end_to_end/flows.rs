@@ -15,22 +15,24 @@ use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{
-    Authentication, AuthenticationNeed, Factor, Knowledge, Seconds, Timestamp,
+    Authentication, AuthenticationNeed, CoreHost, Factor, Knowledge, Seconds, Timestamp,
 };
 use siros_openid4vp::ids::Origin;
 use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, ExcludedBy, Match, UnmetCode};
-use siros_openid4vp::plugins::{Registry, RegistryBuilder};
+use siros_openid4vp::plugins::{Build, Registry, RegistryBuilder};
 use siros_openid4vp::recourse::{DcApiErrors, ErrorTarget, Reply};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Built, Delivery, Outcome, Prepared, Route};
 use siros_openid4vp::routing::{ChannelKind, ModeName};
+use siros_openid4vp::rows::Env;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{self, B26_KEY, Held, first_selection};
 use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, Zip, compact_jws, encrypt_to, sign};
 use siros_testkit::prefix::Registration;
+use siros_testkit::render::App;
 use siros_testkit::{Published, TestChoice, TestMode, TestTrust};
 use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
 
@@ -39,17 +41,17 @@ use crate::common::{HaipHost, registry};
 use super::{NOW, english, read_sd_jwt};
 
 /// The Origin of the DC API flows.
-const ORIGIN: &str = "https://verifier.example";
+pub(super) const ORIGIN: &str = "https://verifier.example";
 /// The test Verifier's DNS name, its Response URI and Request URI (B.3.6's Client Identifier).
-const DNS: &str = "client.example.org";
-const RESPONSE_URI: &str = "https://client.example.org/post";
+pub(super) const DNS: &str = "client.example.org";
+pub(super) const RESPONSE_URI: &str = "https://client.example.org/post";
 const REQUEST_URI: &str = "https%3A%2F%2Fclient.example.org%2Frequest%2F1";
 /// B.3.6's Client Identifier (KA18).
 const SAN: &str = "x509_san_dns:client.example.org";
 /// The `state` of the URI flows (§5.2).
-const STATE: &str = "eyJhb-6-sVA";
+pub(super) const STATE: &str = "eyJhb-6-sVA";
 /// The `nonce` of every flow (§5.2's example).
-const NONCE: &str = "n-0S6_WzA2Mj";
+pub(super) const NONCE: &str = "n-0S6_WzA2Mj";
 
 /// One SD-JWT VC query of the PID's given name.
 const PID_QUERY: &str = r#"{"credentials":[{"id":"pid","format":"dc+sd-jwt","meta":{"vct_values":["urn:eudi:pid:1"]},"claims":[{"path":["given_name"]}]}]}"#;
@@ -66,7 +68,7 @@ fn pid() -> Held {
 }
 
 /// HAIP's width: a skew of 60 s, unsigned DC API requests accepted.
-fn config() -> TrustConfig {
+pub(super) fn config() -> TrustConfig {
     TrustConfig {
         skew: Skew::new(Seconds(60)).expect("a skew"),
         origins: OriginPolicy::Accept,
@@ -74,7 +76,7 @@ fn config() -> TrustConfig {
 }
 
 /// The test Verifier's leaf, naming its DNS name.
-fn leaf() -> Vec<u8> {
+pub(super) fn leaf() -> Vec<u8> {
     certificate(&Leaf {
         subject: DNS,
         point: point(VERIFIER_SECRET.octets()),
@@ -118,11 +120,11 @@ fn registry_with(more: impl FnOnce(&mut RegistryBuilder<HaipHost>)) -> Registry<
 }
 
 /// An envelope authenticated under the trust service's decisions.
-fn authentic<'e>(
+pub(super) fn authentic<'e, H: CoreHost>(
     envelope: &'e Envelope<'e>,
-    registry: &'e Registry<HaipHost>,
+    registry: &'e Registry<H>,
     trust: &TestTrust,
-    host: &HaipHost,
+    host: &H,
 ) -> Authenticated<'e> {
     envelope
         .questions(registry, &config(), host)
@@ -169,6 +171,28 @@ fn built<T>(
     host: &HaipHost,
     read: impl FnOnce(&Built<'_>) -> T,
 ) -> Result<T, Outcome> {
+    built_by(
+        authenticated,
+        held,
+        registry,
+        published,
+        host,
+        |wallet, request, env| crate::common::wallet_app(wallet, request, env, host),
+        read,
+    )
+}
+
+/// What `read` takes from phase 2's outcome of phase 1's first selection under the app `app` gives,
+/// phase 2's fetches answered from `published`.
+pub(super) fn built_by<H: CoreHost + Build, T>(
+    authenticated: &Authenticated<'_>,
+    held: &[Held],
+    registry: &Registry<H>,
+    published: &Published,
+    host: &H,
+    app: impl FnOnce(&Wallet<'_>, &Request<'_>, &Env) -> App,
+    read: impl FnOnce(&Built<'_>) -> T,
+) -> Result<T, Outcome> {
     let env = english();
     let wallet = Wallet::new(
         held.iter()
@@ -177,7 +201,7 @@ fn built<T>(
     )
     .expect("a wallet");
     let request = Request::parse(authenticated.envelope()).expect("the request");
-    let app = crate::common::wallet_app(&wallet, &request, &env, host);
+    let app = app(&wallet, &request, &env);
     let rendering = app.rendering().expect("the rendering");
     let ids = first_selection(&request, &wallet, registry, &env, &rendering).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -206,7 +230,7 @@ fn dc_api<'a>(protocol: &'a str, data: &'a str) -> Received<'a> {
 }
 
 /// The JSON of a DC API delivery.
-fn dc_api_data(delivery: &Delivery) -> Value {
+pub(super) fn dc_api_data(delivery: &Delivery) -> Value {
     let Delivery::DcApi(data) = delivery else {
         panic!("A.2: a DC API delivery, got {delivery:?}")
     };
@@ -214,7 +238,7 @@ fn dc_api_data(delivery: &Delivery) -> Value {
 }
 
 /// The form a URI delivery POSTs to the bound Response URI.
-fn posted(delivery: &Delivery) -> Vec<(String, String)> {
+pub(super) fn posted(delivery: &Delivery) -> Vec<(String, String)> {
     let Delivery::Post { endpoint, body } = delivery else {
         panic!("§8.2: a POST, got {delivery:?}")
     };
@@ -224,7 +248,7 @@ fn posted(delivery: &Delivery) -> Vec<(String, String)> {
 }
 
 /// The header and the plaintext of the test `Haip`'s JWE, which keeps its plaintext readable.
-fn opened(jwe: &str) -> (Value, Value) {
+pub(super) fn opened(jwe: &str) -> (Value, Value) {
     let parts: Vec<&str> = jwe.split('.').collect();
     let [header, "", "", plaintext, ""] = parts.as_slice() else {
         panic!("a compact JWE: {jwe}")
@@ -237,7 +261,7 @@ fn opened(jwe: &str) -> (Value, Value) {
 
 /// The Authorization Response a `response=<JWE>` form carries, sealed to B.2.6's key (`kid` 1)
 /// with A128GCM, the Verifier listing no `enc` (§5.1).
-fn sealed_form(delivery: &Delivery) -> Value {
+pub(super) fn sealed_form(delivery: &Delivery) -> Value {
     let form = posted(delivery);
     let [(name, jwe)] = form.as_slice() else {
         panic!("§8.3.1: response alone, got {form:?}")
@@ -454,10 +478,10 @@ fn f3_f4_a_signed_dc_api_request_answers_its_origin() {
 
 /// A URI flow's arrival: the link the OS hands over or the QR code holds, its Request Object
 /// fetched as `fetch` asks and answered by `object`.
-fn by_uri<'a>(
+pub(super) fn by_uri<'a, H: CoreHost>(
     uri: &'a str,
-    registry: &'a Registry<HaipHost>,
-    host: &HaipHost,
+    registry: &'a Registry<H>,
+    host: &H,
     object: impl FnOnce(RequestObjectFetch<'_>) -> String,
     body: &'a mut String,
 ) -> Received<'a> {
@@ -469,7 +493,7 @@ fn by_uri<'a>(
 }
 
 /// The link of the test Verifier's request by URI, the Request Object fetched by `method`.
-fn link(client_id: &str, method: &str) -> String {
+pub(super) fn link(client_id: &str, method: &str) -> String {
     format!(
         "openid4vp://?client_id={}&request_uri={REQUEST_URI}{method}",
         client_id.replace(':', "%3A")
@@ -477,7 +501,7 @@ fn link(client_id: &str, method: &str) -> String {
 }
 
 /// The Request Object of the payload, signed with the leaf in `x5c`.
-fn signed_object(payload: &str) -> String {
+pub(super) fn signed_object(payload: &str) -> String {
     compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf())), payload).expect("signs")
 }
 
@@ -539,7 +563,7 @@ fn f5_f6_a_request_by_uri_posts_its_sealed_answer_and_reads_the_response_uris_an
 
 /// The Request Object a POST of `wallet_metadata` asks for: encrypted to the posted key with the
 /// first `enc` the wallet lists when it posts one (§5.10, reading 21), else signed alone.
-fn posted_object(fetch: RequestObjectFetch<'_>, payload: &str) -> String {
+pub(super) fn posted_object(fetch: RequestObjectFetch<'_>, payload: &str) -> String {
     let RequestObjectFetch::Post { body, .. } = fetch else {
         panic!("U8: a POST for request_uri_method post")
     };

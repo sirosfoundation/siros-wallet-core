@@ -517,6 +517,12 @@
           ]
         },
         {
+          "name": "siros-ts12",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
           "name": "siros-webuild",
           "features": []
         },
@@ -575,6 +581,10 @@
           },
           {
             "name": "siros-paso",
+            "features": []
+          },
+          {
+            "name": "siros-ts12",
             "features": []
           },
           {

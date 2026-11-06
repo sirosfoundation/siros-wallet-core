@@ -1,4 +1,4 @@
-//! What the tests share: the HAIP build's host and the registry of every real plug-in over it,
+//! What the tests share: the HAIP and WE BUILD builds' hosts and registries,
 //! W3C SRI written from its definition, and the test app of a PaSO type's texts.
 
 #![allow(dead_code, reason = "each test binary uses a part")]
@@ -6,15 +6,19 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
-use siros_explain::ModuleId;
+use siros_explain::{AllOf, ModuleId};
 use siros_i18n::{DefinedForm, LocaleTag, Module, Selected};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::envelope::Channel;
+use siros_openid4vp::hash::Sha2;
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::json::Node;
+use siros_openid4vp::modes::{DcApiJwt, DirectPost, DirectPostJwt};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
+use siros_openid4vp::routing::VpToken;
 use siros_openid4vp::rows::Env;
+use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::{Carried, Verified};
 use siros_paso::document::PasoDocument;
@@ -28,6 +32,7 @@ use siros_testkit::render::{
     App, CrateSource, ENGLISH_PASO, ENGLISH_QES, GERMAN_PASO, GERMAN_QES, main_locales, main_module,
 };
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
+use siros_ts12::{AttestationType, Ts12Document, Ts12Profile, Ts12Type};
 
 siros_testkit::test_host! {
     /// The HAIP build's host: every module, each a test double.
@@ -46,6 +51,104 @@ siros_testkit::test_host! {
         optional { TestCoseEncrypt => CoseEncrypt, TestDeviceMac => DeviceMac }
         lacks {}
     }
+}
+
+siros_testkit::test_host! {
+    /// The WE BUILD build's host: no `CoseEncrypt` and no `DeviceMac` (section 4.10.4).
+    #[derive(Debug, Clone, Default)]
+    pub struct WeBuildHost {
+        handles {
+            platform: TestPlatform => Platform,
+            paso: TestPaso => Paso,
+            random_ids: TestRandomIds => RandomIds,
+            issuer_trust: TestIssuerTrust => IssuerTrust
+        }
+        zero_sized {
+            TestHaip => Haip,
+            TestRequestDecryption => RequestDecryption
+        }
+        optional {}
+        lacks { CoseEncrypt }
+    }
+}
+
+/// CS-12 §7.1 item 2: the three base types.
+const WE_BUILD_TYPES: [AttestationType; 3] = [
+    siros_explain::checked!(
+        AttestationType,
+        "https://webuildconsortium.eu/sca/sca-iban/1.0"
+    ),
+    siros_explain::checked!(
+        AttestationType,
+        "https://webuildconsortium.eu/sca/sca-user/1.0"
+    ),
+    siros_explain::checked!(
+        AttestationType,
+        "https://webuildconsortium.eu/sca/sca-card-dpc/1.0"
+    ),
+];
+
+/// The WE BUILD build's registry (section 4.10.4): SD-JWT VC, `x509_hash` alone, siros-paso and
+/// siros-ts12, CS-02's rule and answer reader, `direct_post.jwt`, `direct_post`'s errors and `dc_api.jwt`,
+/// the POST of `wallet_metadata` with encrypted Request Objects, `Sha2`.
+pub fn we_build_registry() -> Result<Registry<WeBuildHost>, String> {
+    let mut builder = Registry::<WeBuildHost>::builder();
+    builder.hash(Sha2::Sha256);
+    builder.response_type(VpToken);
+    builder.jwe_mode(DirectPostJwt);
+    builder.error_mode(DirectPostJwt);
+    builder.error_mode(DirectPost);
+    builder.jwe_mode(DcApiJwt);
+    builder.request_post(RequestPost);
+    builder.request_encryption(EncryptedRequests);
+    builder.format(SdJwtVc::new().map_err(|e| e.to_string())?);
+    builder.client_prefix(siros_x509::X509Hash);
+    PasoProfile::default()
+        .register(&mut builder)
+        .map(drop)
+        .map_err(|e| e.to_string())?;
+    let types = AllOf::new(WE_BUILD_TYPES.to_vec()).ok_or("the three base types")?;
+    Ts12Profile::new(types)
+        .register(&mut builder)
+        .map(drop)
+        .map_err(|e| e.to_string())?;
+    builder.object_rule(siros_webuild::Cs02Claims);
+    builder.answer_reader(siros_webuild::Cs02ErrorAnswer);
+    builder.build().map_err(|e| e.to_string())
+}
+
+/// The test app as a WE BUILD wallet registers its credentials for `env`'s priority list: the
+/// wallet's own modules and the module each type of each credential's TS12 document converts to.
+pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
+    let main = main_locales().expect("the main module");
+    let mut defined: Vec<DefinedForm> = Vec::new();
+    for credential in wallet.credentials() {
+        let Some(bytes) = credential.document(siros_ts12::DOCUMENT) else {
+            continue;
+        };
+        let text = std::str::from_utf8(bytes).expect("UTF-8");
+        let node = Node::parse(text).expect("a TS12 document");
+        let document = Ts12Document::read(&node).expect("a TS12 document");
+        for kind in [Ts12Type::Payment, Ts12Type::LoginRisk] {
+            let Some(built_in) = document
+                .entry(kind.urn())
+                .and_then(|entry| entry.built_in())
+            else {
+                continue;
+            };
+            let module =
+                siros_ts12::view::convert(&built_in, &main, env.priority()).expect("the module");
+            if defined.iter().all(|known| known.id() != module.id()) {
+                defined.push(module);
+            }
+        }
+    }
+    let modules = own_modules();
+    App::new(
+        &modules.iter().collect::<Vec<_>>(),
+        &defined.iter().collect::<Vec<_>>(),
+    )
+    .expect("the package")
 }
 
 impl HaipHost {
