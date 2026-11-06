@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use siros_explain::{
     Count, DefinedModule, Entry, Explain, IntoArg, Keyed, ParamName, RequestText, Text, kind,
@@ -21,7 +22,7 @@ use crate::PasoRequested;
 use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
-use crate::labels::{LabelSlot, LabelText};
+use crate::labels::{LabelLimits, LabelSlot, LabelText};
 use crate::locale::{ArrayKey, Discarded, matched, select};
 use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
@@ -168,15 +169,64 @@ impl TransactionView {
     }
 }
 
-/// What a rendering reads: the type, the payload, the metadata given for the type, the wallet's
-/// configuration and item bound, and what it knows of https images.
-pub(crate) struct Request<'r, R> {
-    pub(crate) kind: &'r PasoType<'r>,
-    pub(crate) payload: Payload<'r>,
-    pub(crate) given: &'r Node<'r>,
-    pub(crate) env: &'r Env,
-    pub(crate) bound: ItemBound,
-    pub(crate) resolve: R,
+/// A transaction type a profile registered: its identifier, the rulebook that renders it, and its
+/// metadata in PaSO's form (Proof Metadata §3), read together by each profile's registry lookup.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Registered<'r> {
+    kind: PasoType<'r>,
+    given: &'r Node<'r>,
+}
+
+impl<'r> Registered<'r> {
+    /// A type the profile keeps under its own identifier, rendered by `family`.
+    #[must_use]
+    pub const fn new(kind: &'r str, family: Family, given: &'r Node<'r>) -> Self {
+        Self {
+            kind: PasoType::rendered_by(kind, family),
+            given,
+        }
+    }
+
+    /// A type under `urn:paso:sca:`.
+    #[must_use]
+    pub const fn of(kind: PasoType<'r>, given: &'r Node<'r>) -> Self {
+        Self { kind, given }
+    }
+
+    /// The type identifier.
+    #[must_use]
+    pub fn kind(&self) -> &str {
+        self.kind.as_str()
+    }
+
+    /// The rulebook that renders it.
+    #[must_use]
+    pub const fn family(&self) -> Family {
+        self.kind.family()
+    }
+
+    /// The type's metadata.
+    #[must_use]
+    pub const fn given(&self) -> &'r Node<'r> {
+        self.given
+    }
+}
+
+/// What a rendering reads.
+#[derive(Debug, Clone)]
+pub struct Request<'r, R> {
+    /// The type, its rulebook and its metadata.
+    pub registered: Registered<'r>,
+    /// The payload, in PaSO's value forms.
+    pub payload: Payload<'r>,
+    /// The wallet's configuration.
+    pub env: &'r Env,
+    /// View §2's item bound.
+    pub bound: ItemBound,
+    /// The labels' maximum lengths.
+    pub limits: LabelLimits,
+    /// What the wallet knows of an https image.
+    pub resolve: R,
 }
 
 /// What an instance's row shows beside its label.
@@ -199,14 +249,18 @@ struct Shown<'p> {
 
 impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     /// The rendering of the entry.
-    pub(crate) fn render(&self) -> Result<TransactionView, Outcome> {
-        let (metadata, rulebook) = rulebook_metadata(self.kind, self.given)?;
+    ///
+    /// # Errors
+    ///
+    /// [`Outcome`]: what keeps the entry from rendering.
+    pub fn render(&self) -> Result<TransactionView, Outcome> {
+        let (metadata, rulebook) = rulebook_metadata(&self.registered, self.limits)?;
         rulebook.check_payload(self.payload)?;
         conform(self.payload, &metadata, &rulebook)?;
         let shown = self.images(&metadata, &rulebook)?;
         let discarded = self.discarded(&metadata, &shown)?;
         let arrays = arrays(&metadata);
-        let module = view::module_of(self.given);
+        let module = view::module_of(self.registered.given());
         let locale = self.locale(&arrays, &discarded)?;
         let taken = |key: ArrayKey, array: &DisplayArray<'_>| -> Option<usize> {
             matched(key, array, &locale, &discarded).map(|(position, _)| position)
@@ -230,7 +284,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 array,
                 entries: &label.entries,
                 position,
-                slot: key.slot(),
+                limit: self.limits.of(key.slot()),
                 at: RenderedAt::Ui(key),
             };
             self.label(
@@ -411,7 +465,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             }
             LabelForm::Template(template) => {
                 let text = Template(template).interpolate(claims, payload, nulls)?;
-                LabelText::parse(&text, placed.slot)
+                LabelText::parse(&text, placed.limit)
                     .map(drop)
                     .map_err(|violation| NotCompatible::RenderedLabel {
                         at: placed.at,
@@ -454,7 +508,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             array: ArrayKey::Claim(instance.claim),
             entries: &instance.display.names,
             position,
-            slot: LabelSlot::ClaimName,
+            limit: self.limits.of(LabelSlot::ClaimName),
             at: RenderedAt::Claim(concrete_text(&instance.path)),
         };
         let label = self.label(module, metadata, discarded, &instance.nulls, placed)?;
@@ -498,14 +552,14 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     }
 }
 
-/// Where a label shows: its array, the position of the entry the language takes, its slot, and
+/// Where a label shows: its array, the position of the entry the language takes, its limit, and
 /// how a refusal names it.
 #[derive(Debug, Clone)]
 struct Placed<'a, 'm> {
     array: ArrayKey,
     entries: &'a DisplayArray<'m>,
     position: usize,
-    slot: LabelSlot,
+    limit: NonZeroUsize,
     at: RenderedAt,
 }
 
@@ -523,21 +577,26 @@ fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>
 /// the given metadata's `security_hint`, else the given metadata; the Generic subtype read once
 /// the metadata parsed (Generic §1).
 pub(crate) fn rulebook_metadata<'m>(
-    kind: &'m PasoType<'_>,
-    given: &'m Node<'m>,
+    registered: &'m Registered<'m>,
+    limits: LabelLimits,
 ) -> Result<(Metadata<'m>, Rulebook<'m>), Outcome> {
+    let kind = &registered.kind;
+    let given = registered.given;
     if *given == Node::Null {
         return Err(Unsupported::NoEntry(kind.to_owned_type()).into());
     }
     Ok(match kind.family() {
         Family::Mandate => {
             let subtype = Subtype::mandate(kind)?;
-            (mandate::metadata(given)?, Rulebook::Mandate(subtype))
+            (
+                mandate::metadata(given, limits)?,
+                Rulebook::Mandate(subtype),
+            )
         }
-        Family::View => (Metadata::parse(given)?, Rulebook::View),
-        Family::Payment => (Metadata::parse(given)?, Rulebook::Payment),
+        Family::View => (Metadata::parse(given, limits)?, Rulebook::View),
+        Family::Payment => (Metadata::parse(given, limits)?, Rulebook::Payment),
         Family::Generic => {
-            let metadata = Metadata::parse(given)?;
+            let metadata = Metadata::parse(given, limits)?;
             (metadata, Rulebook::Generic(Subtype::generic(kind)?))
         }
     })

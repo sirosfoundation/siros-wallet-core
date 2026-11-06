@@ -58,7 +58,8 @@ impl Family {
     }
 }
 
-/// A type identifier under `urn:paso:sca:`, with the rulebook that renders it.
+/// A type identifier with the rulebook that renders it: one under `urn:paso:sca:`
+/// ([`PasoType::parse`]), or one another profile keeps ([`crate::render::Registered::new`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasoType<'t> {
     text: Cow<'t, str>,
@@ -84,6 +85,14 @@ impl<'t> PasoType<'t> {
                 family,
             })
             .ok_or_else(|| NotPasoType(text.to_owned()))
+    }
+
+    /// A type another profile keeps under its own identifier.
+    pub(crate) const fn rendered_by(text: &'t str, family: Family) -> Self {
+        Self {
+            text: Cow::Borrowed(text),
+            family,
+        }
     }
 
     /// The type identifier.

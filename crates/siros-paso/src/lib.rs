@@ -87,7 +87,7 @@ use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
-use siros_openid4vp::ids::{InvalidId, TypePrefix};
+use siros_openid4vp::ids::{InvalidId, LocaleTag, TypePrefix};
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::plugins::{
     Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Build, Carriage, Exclude,
@@ -110,8 +110,9 @@ use crate::adhoc::{AdhocFailure, AdhocRefusal, Relied};
 use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
+use crate::labels::LabelLimits;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
-use crate::render::{ItemBound, RowPosition, TransactionView};
+use crate::render::{ItemBound, Registered, RowPosition, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
 use crate::rulebook::{PASO, PasoType};
 use crate::rules::BindExcluded;
@@ -460,11 +461,11 @@ impl PasoProfile {
             ),
         };
         let view = render::Request {
-            kind,
+            registered: Registered::of(kind.clone(), given),
             payload: paso.payload,
-            given,
             env,
             bound: self.bound,
+            limits: LabelLimits::PASO,
             resolve: |url: &str| self.resolution(url),
         }
         .render()?;
@@ -496,12 +497,34 @@ pub(crate) fn paso_type<'e>(entry: &'e Entry<'e>) -> Result<PasoType<'e>, Fault>
     })
 }
 
-/// What a rendering gives the core: the entry it authorizes, the header, what the response
-/// attests (the locale shown, Core §7.2, and the stored metadata's integrity, Core §6.1), and
+/// What the response attests of a rendering: the locale shown (Core §7.2) and the stored
+/// metadata's integrity (Core §6.1).
+fn attested(locale: &LocaleTag, source: Source) -> Result<Attested, Fault> {
+    let mut attested = vec![(
+        AttestedName::new("display_locale"),
+        AttestedText::new(locale.to_string()),
+    )];
+    if let Source::Stored { integrity } = source {
+        attested.push((
+            AttestedName::new("metadata_integrity"),
+            AttestedText::new(integrity.as_str().to_owned()),
+        ));
+    }
+    Attested::new(attested).map_err(|e| Fault::caused(FAULT, detail!("the attested display"), e))
+}
+
+/// What a rendering gives the core: `entries`, which it authorizes, the header, `attested`, and
 /// the overlay: the transaction's rows before the card's, the hint, and for a payment its
 /// transaction header, whose payee and amount rows leave the entry's rows.
-fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Result<Bound, Fault> {
-    let Rendered { view, source } = rendered;
+///
+/// # Errors
+///
+/// The rendering's payment rows name rows it lacks.
+pub fn bound(
+    view: TransactionView,
+    attested: Attested,
+    entries: BoundEntries,
+) -> Result<Bound, Fault> {
     let payment = view
         .payment_texts()
         .map(|(merchant, amount)| (merchant.clone(), amount.clone()));
@@ -513,17 +536,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         actions,
         payment: payment_rows,
     } = view;
-    let selected = Selected::new(ModuleId::Defined(module), locale.clone());
-    let mut attested = vec![(
-        AttestedName::new("display_locale"),
-        AttestedText::new(locale.to_string()),
-    )];
-    if let Source::Stored { integrity } = source {
-        attested.push((
-            AttestedName::new("metadata_integrity"),
-            AttestedText::new(integrity.as_str().to_owned()),
-        ));
-    }
+    let selected = Selected::new(ModuleId::Defined(module), locale);
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {
             let at = |position: RowPosition| rows.get(position.get()).map(|row| row.row.clone());
@@ -553,15 +566,13 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         },
     };
     Ok(Bound {
-        entries: BoundEntries::select(offered, vec![entry])
-            .map_err(|e| Fault::caused(FAULT, detail!("the bound entry"), e))?,
+        entries,
         header: Header {
             title,
             confirm: actions.confirm,
             cancel: actions.deny,
         },
-        attested: Attested::new(attested)
-            .map_err(|e| Fault::caused(FAULT, detail!("the attested display"), e))?,
+        attested,
         overlay,
         selected: Some(selected),
     })
@@ -594,7 +605,12 @@ impl Profile for PasoProfile {
                 .ok_or_else(|| Fault::new(FAULT, detail!("an offered entry the request lacks")))?;
             let channel = binding.request.envelope().channel().kind();
             match self.render(entry, channel, binding.credential, binding.placement, env)? {
-                Ok(rendered) => return Ok(bound(rendered, binding.entries, *index)?),
+                Ok(Rendered { view, source }) => {
+                    let attested = attested(&view.locale, source)?;
+                    let entries = BoundEntries::select(binding.entries, vec![*index])
+                        .map_err(|e| Fault::caused(FAULT, detail!("the bound entry"), e))?;
+                    return Ok(bound(view, attested, entries)?);
+                }
                 Err(Outcome::Excluded(excluded)) => {
                     return Err(Exclude::new(excluded).into());
                 }

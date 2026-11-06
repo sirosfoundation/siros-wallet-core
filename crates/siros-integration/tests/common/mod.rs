@@ -108,8 +108,17 @@ pub fn placement(
 fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let node = Node::parse(given).expect("the metadata");
     let main = main_locales().expect("the main module");
-    let kind = siros_paso::rulebook::PasoType::parse(kind).ok()?;
-    siros_paso::view::convert(&kind, &node, &main, priority).ok()
+    let registered = siros_paso::render::Registered::of(
+        siros_paso::rulebook::PasoType::parse(kind).ok()?,
+        &node,
+    );
+    siros_paso::view::convert(
+        &registered,
+        siros_paso::labels::LabelLimits::PASO,
+        &main,
+        priority,
+    )
+    .ok()
 }
 
 /// The wallet's modules beside the defined ones: the main module, the test app's, the core's,

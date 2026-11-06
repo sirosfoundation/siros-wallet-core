@@ -4,6 +4,7 @@
 //! claim's value type the wallet does not support makes the entry not compatible (View §3).
 
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use siros_explain::Domain;
 use siros_explain::{Explain, IntoArg, kind};
@@ -12,7 +13,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::{ReprItem, ReprOption};
 
 use crate::conform::ClaimIndex;
-use crate::labels::{LabelSlot, LabelText, LabelViolation};
+use crate::labels::{LabelLimits, LabelSlot, LabelText, LabelViolation};
 use crate::mandate::MandateLabel;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::path::claim_text;
@@ -169,12 +170,12 @@ enum Typing {
 }
 
 /// How a JSON array of display entries reads: the member holding the text, the member typing
-/// it, the types admitted, where its labels show and how a refusal names it.
+/// it, the types admitted, its labels' limit and how a refusal names it.
 struct ArrayShape {
     text: &'static str,
     typed_by: &'static str,
     typing: Typing,
-    slot: LabelSlot,
+    limit: NonZeroUsize,
     at: ArrayAt,
 }
 
@@ -229,7 +230,7 @@ impl<'m> DisplayArray<'m> {
         }
         raw.into_iter()
             .map(|(locale, text, typed)| {
-                let checked = || LabelText::parse(text, shape.slot).map_err(|v| shape.at.label(v));
+                let checked = || LabelText::parse(text, shape.limit).map_err(|v| shape.at.label(v));
                 let label = match typed {
                     RawType::Plain => LabelForm::Plain(checked()?),
                     RawType::Markdown => LabelForm::Markdown(checked()?),
@@ -406,8 +407,8 @@ pub struct Metadata<'m> {
 impl<'m> Metadata<'m> {
     /// Parses a type's metadata in the order of Proof Metadata §3.1-3.3: the claims, each
     /// claim's path, display array, labels, `label_only` rule and value type; then the UI
-    /// labels, unrecognised identifiers ignored (§3.2).
-    pub fn parse(node: &'m Node<'m>) -> Result<Self, Outcome> {
+    /// labels, unrecognised identifiers ignored (§3.2). Each label meets `limits`.
+    pub fn parse(node: &'m Node<'m>, limits: LabelLimits) -> Result<Self, Outcome> {
         let claims = node
             .get("claims")
             .and_then(Node::as_array)
@@ -436,7 +437,7 @@ impl<'m> Metadata<'m> {
                     );
                 }
                 None => None,
-                Some(display) => Some(Displayed::parse(claim, display, &path, mandatory)?),
+                Some(display) => Some(Displayed::parse(claim, display, &path, mandatory, limits)?),
             };
             parsed.push(ClaimMeta {
                 path,
@@ -446,7 +447,7 @@ impl<'m> Metadata<'m> {
         }
         let ui = match node.get("ui_labels") {
             None => Vec::new(),
-            Some(labels) => UiLabel::parse_all(labels)?,
+            Some(labels) => UiLabel::parse_all(labels, limits)?,
         };
         Ok(Self { claims: parsed, ui })
     }
@@ -458,6 +459,7 @@ impl<'m> Displayed<'m> {
         display: &'m Node<'m>,
         path: &ClaimPath<'m>,
         mandatory: Mandatory,
+        limits: LabelLimits,
     ) -> Result<Self, Outcome> {
         let names = DisplayArray::parse(
             display,
@@ -465,7 +467,7 @@ impl<'m> Displayed<'m> {
                 text: "name",
                 typed_by: "display_type",
                 typing: Typing::Text,
-                slot: LabelSlot::ClaimName,
+                limit: limits.of(LabelSlot::ClaimName),
                 at: ArrayAt::Claim(claim_text(path.steps())),
             },
         )?;
@@ -484,18 +486,25 @@ impl<'m> Displayed<'m> {
 
 impl<'m> UiLabel<'m> {
     /// The recognised UI labels of a `ui_labels` object, in the order written.
-    pub(crate) fn parse_all(node: &'m Node<'m>) -> Result<Vec<Self>, Unsupported> {
+    pub(crate) fn parse_all(
+        node: &'m Node<'m>,
+        limits: LabelLimits,
+    ) -> Result<Vec<Self>, Unsupported> {
         let object = node.as_object().ok_or(Unsupported::UiLabelsNotObject)?;
         object
             .members()
             .iter()
             .filter_map(|member| UiKey::of(&member.name).map(|key| (key, &member.value)))
-            .map(|(key, value)| Self::parse(key, value))
+            .map(|(key, value)| Self::parse(key, value, limits))
             .collect()
     }
 
     /// One UI element's labels.
-    pub(crate) fn parse(key: UiKey, node: &'m Node<'m>) -> Result<Self, Unsupported> {
+    pub(crate) fn parse(
+        key: UiKey,
+        node: &'m Node<'m>,
+        limits: LabelLimits,
+    ) -> Result<Self, Unsupported> {
         let typing = if key == UiKey::SecurityHint {
             Typing::Plain
         } else {
@@ -507,7 +516,7 @@ impl<'m> UiLabel<'m> {
                 text: "value",
                 typed_by: "value_type",
                 typing,
-                slot: key.slot(),
+                limit: limits.of(key.slot()),
                 at: ArrayAt::Ui(key),
             },
         )?;
