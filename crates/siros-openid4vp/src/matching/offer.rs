@@ -126,12 +126,12 @@ fn ordered(matched: &Match<'_>, option: crate::request::QuerySet) -> Vec<QueryIn
 #[must_use]
 pub fn flatten(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
     let per_slot: Vec<Vec<Way>> = consent
-        .slots
+        .slots()
         .iter()
         .map(|slot| {
             let mut branches: Vec<Way> = Vec::new();
             let mut merged: Option<usize> = None;
-            for option in &slot.options {
+            for option in slot.options() {
                 let contributions: Vec<Way> = if option.is_empty() {
                     vec![vec![vec![Offered::Nothing]]]
                 } else {
@@ -178,10 +178,10 @@ pub fn flatten(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
 #[must_use]
 pub fn each(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
     let per_slot: Vec<Vec<Way>> = consent
-        .slots
+        .slots()
         .iter()
         .map(|slot| {
-            slot.options
+            slot.options()
                 .iter()
                 .flat_map(|option| -> Vec<Way> {
                     if option.is_empty() {

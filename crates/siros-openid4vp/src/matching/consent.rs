@@ -9,20 +9,37 @@ use crate::request::{ItemSet, QuerySet, factor, project};
 /// the empty set is ∅, presenting none of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Slot {
+    block: QuerySet,
+    options: Vec<QuerySet>,
+}
+
+impl Slot {
     /// The queries the choice decides.
-    pub block: QuerySet,
-    /// The options the wallet can meet.
-    pub options: Vec<QuerySet>,
+    #[must_use]
+    pub const fn block(&self) -> QuerySet {
+        self.block
+    }
+
+    /// The options the wallet can meet, at least one.
+    #[must_use]
+    pub fn options(&self) -> &[QuerySet] {
+        &self.options
+    }
 }
 
 /// The independent choices of a request the wallet can meet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Consent {
-    /// The choices in request order.
-    pub slots: Vec<Slot>,
+    slots: Vec<Slot>,
 }
 
 impl Consent {
+    /// The choices in request order.
+    #[must_use]
+    pub fn slots(&self) -> &[Slot] {
+        &self.slots
+    }
+
     /// The independent choices; `None` when the wallet cannot meet the request. Each slot lists
     /// its options in the order they first appear across the request's alternatives, which puts
     /// the first alternative's selection first (PaSO Core §7.4.1). An option naming a query

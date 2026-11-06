@@ -98,20 +98,40 @@ pub struct Constraint<'n> {
     pub matched: Vec<Node<'n>>,
 }
 
-/// A Credential Query of a claims format, parsed.
+/// A Credential Query of a claims format. Only [`ClaimsQuery::parse`] makes one.
 #[derive(Debug, Clone)]
 pub struct ClaimsQuery<'q> {
-    /// The query's id.
-    pub id: QueryId<'q>,
-    /// The query's `meta`.
-    pub meta: Node<'q>,
-    /// The query's claims and options.
-    pub claims: Claims<'q>,
-    /// The Verifier's `vp_formats_supported` value for the format.
-    pub supported: Option<Node<'q>>,
+    id: QueryId<'q>,
+    meta: Node<'q>,
+    claims: Claims<'q>,
+    supported: Option<Node<'q>>,
 }
 
 impl<'q> ClaimsQuery<'q> {
+    /// The query's id.
+    #[must_use]
+    pub const fn id(&self) -> &QueryId<'q> {
+        &self.id
+    }
+
+    /// The query's `meta`.
+    #[must_use]
+    pub const fn meta(&self) -> &Node<'q> {
+        &self.meta
+    }
+
+    /// The query's claims and options.
+    #[must_use]
+    pub const fn claims(&self) -> &Claims<'q> {
+        &self.claims
+    }
+
+    /// The Verifier's `vp_formats_supported` value for the format.
+    #[must_use]
+    pub const fn supported(&self) -> Option<&Node<'q>> {
+        self.supported.as_ref()
+    }
+
     /// Parses the query, or gives the rules it breaks: a `meta` the format accepts, a
     /// `vp_formats_supported` value of the format's algorithms, well-formed claims.
     pub fn parse(

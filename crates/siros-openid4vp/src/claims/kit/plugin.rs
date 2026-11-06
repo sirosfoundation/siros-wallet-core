@@ -197,7 +197,7 @@ impl<'q, P: ClaimsPlugin> PluginQuery<'q, P> {
 
 impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
     fn options(&self) -> &[OptionItems] {
-        self.claims.claims.options()
+        self.claims.claims().options()
     }
 
     /// The kit's rule over the identifiers the format gives; nothing to check when the Verifier
@@ -207,7 +207,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         credential: &Credential<'_>,
         keys: &[AgreeableKey<'_>],
     ) -> Result<(), NoCandidate> {
-        if self.claims.supported.is_none() {
+        if self.claims.supported().is_none() {
             return Ok(());
         }
         let view = ClaimsView::read(credential)?;

@@ -118,7 +118,7 @@ pub(crate) fn revalidate<H: MayHave<dyn DeviceMac>>(
     let held = <<H as MayHave<dyn DeviceMac>>::Slot as Slot<dyn DeviceMac>>::HELD;
     Ok(DeviceAuth::choose(
         MdocMembers::of(revalidating.view).device_key()?,
-        revalidating.query.supported.as_ref(),
+        revalidating.query.supported(),
         revalidating.session.keys().iter().map(|key| key.key()),
         !revalidating.provided.is_empty(),
         held.then_some(()),
@@ -225,7 +225,7 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
     );
     let auth = DeviceAuth::choose(
         MdocMembers::of(view).device_key()?,
-        presenting.query.supported.as_ref(),
+        presenting.query.supported(),
         presenting.session.keys().iter().map(|key| key.key()),
         !device.is_empty(),
         host.maybe::<dyn DeviceMac>(),

@@ -299,7 +299,7 @@ fn claims_path_pointers_follow_section_7() {
         let query = ClaimsQuery::parse(&format, &request.queries()[0], None)
             .map_err(|r| format!("refused: {}", r.items()[0].text()))?;
         let claim = query
-            .claims
+            .claims()
             .claim(Item::new(0).expect("item"))
             .expect("claim");
         let found = !query
