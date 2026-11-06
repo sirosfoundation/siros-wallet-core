@@ -82,7 +82,7 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
                 // The ids Credential Manager returns parse back to the selection's records; one
                 // transaction at most (C3, and one transaction-bearing member per `multiple`
                 // fill).
-                let selection = match shown.select(k, &ids) {
+                let selection = match shown.select(siros_openid4vp::matching::SetIndex(k), &ids) {
                     Ok(selection) => selection,
                     Err(SelectionError::TwoTransactions) => {
                         panic!("P-one transaction per selection: {ids:?}")
@@ -142,7 +142,9 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
             tampered.push((shown.sets().len(), ids.clone()));
             for (at, bad) in tampered {
                 assert!(
-                    shown.select(at, &bad).is_err(),
+                    shown
+                        .select(siros_openid4vp::matching::SetIndex(at), &bad)
+                        .is_err(),
                     "P-foreign selection accepted: set {at} {bad:?}"
                 );
                 tally.add("foreign selections refused");

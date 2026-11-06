@@ -6,7 +6,7 @@
 
 use siros_explain::{Explain, Text};
 use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::matching::{Choice, Display, SelectionError};
+use siros_openid4vp::matching::{Choice, Display, SelectionError, SetIndex};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 
@@ -208,7 +208,7 @@ impl Fulfilment {
         let sets = display.sets();
         let Some(slots) = sets.get(set) else {
             return Ok(Err(SelectionError::NoSet {
-                set,
+                set: SetIndex(set),
                 sets: sets.len(),
             }
             .into()));

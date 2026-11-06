@@ -557,7 +557,9 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
         .iter()
         .map(|slot| slot.first().map(Offer::id).ok_or("an empty slot"))
         .collect::<Result<_, _>>()?;
-    let chosen = shown.select(0, &ids).map_err(|e| e.to_string())?;
+    let chosen = shown
+        .select(siros_openid4vp::matching::SetIndex(0), &ids)
+        .map_err(|e| e.to_string())?;
     Ok(chosen.ids().into_iter().map(str::to_owned).collect())
 }
 

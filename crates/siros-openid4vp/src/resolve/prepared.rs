@@ -8,8 +8,8 @@ use siros_explain::AllOf;
 use super::route::Route;
 use super::selection::{check, derived};
 use super::{
-    AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, Rejection, ResponseMember,
-    VpToken,
+    AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, RecordIndex, Rejection,
+    ResponseMember, VpToken,
 };
 use crate::authenticate::Authenticated;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
@@ -434,6 +434,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
         let mut findings = Vec::new();
         let mut presenting = Vec::new();
         for (position, record) in records.iter().enumerate() {
+            let position = RecordIndex(position);
             let credential = record.picked.credential;
             let Some(credential) = self.host.get::<dyn Platform>().usable(credential) else {
                 findings.push(Finding::Unusable { record: position });
@@ -459,7 +460,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
         &self,
         picked: &Picked<'_, H>,
         filled: &Filled<Resource>,
-        position: usize,
+        position: RecordIndex,
     ) -> Result<Option<Finding>, Fault> {
         let Some(transacted) = &picked.transacted else {
             return Ok(None);

@@ -1,8 +1,10 @@
 //! The consent display every renderer draws: each entry's record, consent entry and header, the
 //! sets of slots of choices, and the selection read back from the ids the platform returns.
 
+use std::fmt;
+
 use rustc_hash::FxHashMap;
-use siros_explain::{Explain, Text};
+use siros_explain::{Count, Explain, IntoArg, Text, kind};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
@@ -217,6 +219,25 @@ pub fn display<'v>(
     Ok(Display { sets })
 }
 
+/// A set of a [`Display`] by its position in [`Display::sets`], as the platform returns it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SetIndex(pub usize);
+
+impl fmt::Display for SetIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A position is named as a count in a message.
+impl IntoArg for SetIndex {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
 /// A selection that is not one of the display's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.selection")]
@@ -225,7 +246,7 @@ pub enum SelectionError {
     #[error("set {set} of {sets}")]
     NoSet {
         /// The index.
-        set: usize,
+        set: SetIndex,
         /// The number of sets.
         sets: usize,
     },
@@ -233,7 +254,7 @@ pub enum SelectionError {
     #[error("set {set}: {ids} ids for {slots} slots")]
     Length {
         /// The set.
-        set: usize,
+        set: SetIndex,
         /// The ids returned.
         ids: usize,
         /// The slots.
@@ -243,7 +264,7 @@ pub enum SelectionError {
     #[error("set {set} slot {slot}: {id} is not one of its entries")]
     NotAChoice {
         /// The set.
-        set: usize,
+        set: SetIndex,
         /// The slot.
         slot: usize,
         /// The id.
@@ -263,8 +284,8 @@ impl<'v> Display<'v> {
 
     /// The selection the platform returned: the set's index and the chosen entry's id per slot.
     /// An id that is not one of its slot's choices is refused.
-    pub fn select(&self, set: usize, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
-        let slots = self.sets.get(set).ok_or(SelectionError::NoSet {
+    pub fn select(&self, set: SetIndex, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
+        let slots = self.sets.get(set.0).ok_or(SelectionError::NoSet {
             set,
             sets: self.sets.len(),
         })?;

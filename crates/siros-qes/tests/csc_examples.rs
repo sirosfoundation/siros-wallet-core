@@ -452,7 +452,7 @@ fn phase_2_verifies_each_document_the_profile_does_not_hold() {
         .items()
         .iter()
         .map(|finding| match finding {
-            Finding::Revalidation { record: 0, finding } => finding,
+            Finding::Revalidation { record, finding } if record.get() == 0 => finding,
             other => panic!("the record's revalidation: {other:?}"),
         })
         .collect();

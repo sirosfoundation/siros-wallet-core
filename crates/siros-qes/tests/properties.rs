@@ -275,7 +275,7 @@ fn the_profile_keeps_the_properties_the_model_states() {
                     .items()
                     .iter()
                     .map(|finding| match finding {
-                        Finding::Revalidation { record: 0, finding } => finding,
+                        Finding::Revalidation { record, finding } if record.get() == 0 => finding,
                         other => panic!("case {at}: {other:?}"),
                     })
                     .collect();

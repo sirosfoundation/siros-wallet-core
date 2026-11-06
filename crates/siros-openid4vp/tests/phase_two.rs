@@ -185,7 +185,7 @@ fn phase_2_falls_back_on_a_record_it_does_not_derive() {
     for (request, id) in &cases {
         match outcome(request, &held, &[id], &TestHost::default()) {
             Err(Outcome::Fallback(findings)) => assert!(
-                matches!(findings.items(), [Finding::Diverged { record: 0 }]),
+                matches!(findings.items(), [Finding::Diverged { record }] if record.get() == 0),
                 "{findings:?}"
             ),
             other => panic!("{id}: {other:?}"),
@@ -247,7 +247,7 @@ fn phase_2_refuses_a_pick_rendered_with_other_inputs() {
         assert_ne!(id, c1, "{want:?} alters the pick");
         match outcome(&text, &held, &[id], &TestHost::default()) {
             Err(Outcome::Fallback(findings)) => assert!(
-                matches!(findings.items(), [Finding::Rendered { record: 0, input }] if input == want),
+                matches!(findings.items(), [Finding::Rendered { record, input }] if record.get() == 0 && input == want),
                 "{want:?}: {findings:?}"
             ),
             other => panic!("{want:?}: {other:?}"),
@@ -266,14 +266,14 @@ fn phase_2_falls_back_on_what_no_longer_holds() {
     match outcome(&text, &held, &[c1], &host) {
         Err(Outcome::Fallback(findings)) => assert!(matches!(
             findings.items(),
-            [Finding::Unusable { record: 0 }]
+            [Finding::Unusable { record }] if record.get() == 0
         )),
         other => panic!("{other:?}"),
     }
     // An entry the profile finds stale, which the informed profile binds no longer.
     match outcome(&text, &held, &[c2], &TestHost::default()) {
         Err(Outcome::Fallback(findings)) => {
-            let [Finding::Revalidation { record: 0, finding }] = findings.items() else {
+            let [Finding::Revalidation { finding, .. }] = findings.items() else {
                 panic!("{findings:?}")
             };
             assert_eq!(

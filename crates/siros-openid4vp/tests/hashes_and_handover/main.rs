@@ -188,7 +188,10 @@ fn answer<'a, H: CoreHost + Default>(
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    let ids = shown.select(0, &first).expect("selection").ids();
+    let ids = shown
+        .select(siros_openid4vp::matching::SetIndex(0), &first)
+        .expect("selection")
+        .ids();
     let host = H::default();
     let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), registry, &host)
         .expect("authentic");
@@ -356,7 +359,10 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let sets = offer(&matched, &consent, Choice::First);
         let shown = display(&sets, &views, &[]).expect("display");
         let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-        let ids = shown.select(0, &first).expect("selection").ids();
+        let ids = shown
+            .select(siros_openid4vp::matching::SetIndex(0), &first)
+            .expect("selection")
+            .ids();
         let host = TestHost::default();
         let authenticated =
             siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)

@@ -22,6 +22,8 @@ pub use response::{
 };
 pub use route::{AnswerRoute, Route, Unroutable};
 
+use std::fmt;
+
 use siros_explain::{AllOf, Explain, Explained};
 
 use crate::host::{AuthenticationNeed, Categories};
@@ -30,32 +32,51 @@ use crate::plugins::{Fault, FindingData, ProfileFinding};
 use crate::refusal::{QuotedList, Refused};
 use crate::session::{Session, SessionBinding};
 
+/// A returned record by its position in the selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+#[serde(transparent)]
+pub struct RecordIndex(usize);
+
+impl RecordIndex {
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for RecordIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// What phase 2 found for one record, by its position in the selection.
 #[derive(Debug)]
 pub enum Finding {
     /// The record is none the wallet derives from the request and its data.
     Diverged {
         /// The record's position.
-        record: usize,
+        record: RecordIndex,
     },
     /// The record is one the wallet derives, its texts rendered with another input than the
     /// wallet's: a package built before the app changed a module, the language preferences or
     /// the options, or by another renderer.
     Rendered {
         /// The record's position.
-        record: usize,
+        record: RecordIndex,
         /// The first input that differs.
         input: RenderingInput,
     },
     /// Its credential can no longer be presented.
     Unusable {
         /// The record's position.
-        record: usize,
+        record: RecordIndex,
     },
     /// Its profile found that something the matcher assumed no longer holds.
     Revalidation {
         /// The record's position.
-        record: usize,
+        record: RecordIndex,
         /// The profile's finding.
         finding: ProfileFinding,
     },
@@ -63,7 +84,7 @@ pub enum Finding {
     /// longer holds.
     Format {
         /// The record's position.
-        record: usize,
+        record: RecordIndex,
         /// The format's finding.
         finding: Box<dyn FindingData>,
     },

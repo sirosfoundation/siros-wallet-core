@@ -393,7 +393,9 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let id = shown.sets()[0][0][0].id().to_owned();
-    let selection = shown.select(0, &[&id]).expect("selection");
+    let selection = shown
+        .select(siros_openid4vp::matching::SetIndex(0), &[&id])
+        .expect("selection");
     // The record names the entry and attests what the profile attests; the header is the
     // transaction's.
     assert!(id.contains(r#",[0],{"entries":"0"},"#), "{id}");
@@ -476,24 +478,37 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    assert_eq!(shown.select(0, &ids).expect("selection").ids(), ids);
     assert_eq!(
-        shown.select(1, &ids).err(),
-        Some(SelectionError::NoSet { set: 1, sets: 1 })
+        shown
+            .select(siros_openid4vp::matching::SetIndex(0), &ids)
+            .expect("selection")
+            .ids(),
+        ids
     );
     assert_eq!(
-        shown.select(0, &ids[..1]).err(),
+        shown
+            .select(siros_openid4vp::matching::SetIndex(1), &ids)
+            .err(),
+        Some(SelectionError::NoSet {
+            set: siros_openid4vp::matching::SetIndex(1),
+            sets: 1
+        })
+    );
+    assert_eq!(
+        shown
+            .select(siros_openid4vp::matching::SetIndex(0), &ids[..1])
+            .err(),
         Some(SelectionError::Length {
-            set: 0,
+            set: siros_openid4vp::matching::SetIndex(0),
             ids: 1,
             slots: 2
         })
     );
     let swapped = [ids[1], ids[0]];
     assert!(matches!(
-        shown.select(0, &swapped),
+        shown.select(siros_openid4vp::matching::SetIndex(0), &swapped),
         Err(SelectionError::NotAChoice {
-            set: 0,
+            set: siros_openid4vp::matching::SetIndex(0),
             slot: 0,
             ..
         })
@@ -532,7 +547,9 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let shown = display(&both, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     assert_eq!(
-        shown.select(0, &ids).err(),
+        shown
+            .select(siros_openid4vp::matching::SetIndex(0), &ids)
+            .err(),
         Some(SelectionError::TwoTransactions)
     );
 }

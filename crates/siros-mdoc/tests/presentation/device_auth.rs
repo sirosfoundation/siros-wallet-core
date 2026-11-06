@@ -184,7 +184,7 @@ fn a_build_without_the_device_mac_signs_where_the_verifier_lists_a_signature_and
                 assert_eq!(macless.platform.authentications(), 1, "{deviceauth:?}");
             }
             Err(Outcome::Fallback(findings)) if !signs => {
-                let [Finding::Format { record: 0, finding }] = findings.items() else {
+                let [Finding::Format { finding, .. }] = findings.items() else {
                     panic!("{deviceauth:?}: {findings:?}");
                 };
                 let finding: &dyn Any = finding.as_ref();

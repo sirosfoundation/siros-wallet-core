@@ -2,7 +2,7 @@
 
 use siros_explain::AllOf;
 
-use super::{Finding, Outcome, Rejection};
+use super::{Finding, Outcome, RecordIndex, Rejection};
 use crate::ids::QueryId;
 use crate::matching::{Accepted, EntryView, ReturnedRecord, Views};
 use crate::request::{Multiplicity, QuerySet};
@@ -21,12 +21,13 @@ pub(super) fn derived<'v>(
         .zip(returned)
         .enumerate()
         .filter(|(_, (view, _))| view.is_none())
-        .map(
-            |(record, (_, id))| match views.iter().find_map(|view| view.record.other_input(id)) {
+        .map(|(position, (_, id))| {
+            let record = RecordIndex(position);
+            match views.iter().find_map(|view| view.record.other_input(id)) {
                 Some(input) => Finding::Rendered { record, input },
                 None => Finding::Diverged { record },
-            },
-        )
+            }
+        })
         .collect();
     AllOf::new(diverged).map_or_else(
         || Ok(records.into_iter().flatten().collect()),

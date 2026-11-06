@@ -156,7 +156,7 @@ pub(super) fn tampered(
                     .items()
                     .iter()
                     .map(|finding| match finding {
-                        Finding::Diverged { record } => *record,
+                        Finding::Diverged { record } => record.get(),
                         other => panic!("R-diverged: {other:?}"),
                     })
                     .collect();
@@ -221,9 +221,11 @@ pub(super) fn renewed(
                 .items()
                 .iter()
                 .filter_map(|finding| match finding {
-                    Finding::Diverged { record } if *record == k => Some("diverged"),
-                    Finding::Unusable { record } if *record == k => Some("unusable"),
-                    Finding::Revalidation { record, .. } if *record == k => Some("revalidation"),
+                    Finding::Diverged { record } if record.get() == k => Some("diverged"),
+                    Finding::Unusable { record } if record.get() == k => Some("unusable"),
+                    Finding::Revalidation { record, .. } if record.get() == k => {
+                        Some("revalidation")
+                    }
                     _ => None,
                 })
                 .collect();

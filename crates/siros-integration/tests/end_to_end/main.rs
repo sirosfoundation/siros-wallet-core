@@ -130,7 +130,9 @@ fn answer(
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("no fault");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    let selection = shown.select(0, &ids).expect("the defaults are a selection");
+    let selection = shown
+        .select(siros_openid4vp::matching::SetIndex(0), &ids)
+        .expect("the defaults are a selection");
     let header = selection.header();
     let chosen = selection.ids();
     let entry = views

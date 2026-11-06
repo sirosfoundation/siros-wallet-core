@@ -243,8 +243,8 @@ pub fn check(
                 .items()
                 .iter()
                 .map(|finding| match finding {
-                    Finding::Unusable { record } => (*record, Found::Unusable),
-                    Finding::Revalidation { record, finding } => (*record, found(finding)),
+                    Finding::Unusable { record } => (record.get(), Found::Unusable),
+                    Finding::Revalidation { record, finding } => (record.get(), found(finding)),
                     Finding::Diverged { record } | Finding::Rendered { record, .. } => {
                         panic!("R-phase 2 derives every record: {record} diverged")
                     }
@@ -462,7 +462,7 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     let gone: Vec<&str> = findings
         .iter()
         .filter_map(|finding| match finding {
-            Finding::Unusable { record } => Some(records[*record].record.credential.as_str()),
+            Finding::Unusable { record } => Some(records[record.get()].record.credential.as_str()),
             Finding::Diverged { .. }
             | Finding::Rendered { .. }
             | Finding::Revalidation { .. }
@@ -483,8 +483,8 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     let again = Match::run(&accepted, &kept, case.env, case.rendering).expect("no fault");
     for finding in findings {
         let (record, revalidated) = match finding {
-            Finding::Unusable { record } => (*record, false),
-            Finding::Revalidation { record, .. } => (*record, true),
+            Finding::Unusable { record } => (record.get(), false),
+            Finding::Revalidation { record, .. } => (record.get(), true),
             Finding::Diverged { record } | Finding::Rendered { record, .. } => {
                 panic!("R-fallback: {record} diverged")
             }
