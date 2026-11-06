@@ -13,7 +13,7 @@ use siros_openid4vp::rows::{HttpsUrl, Shown};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Carried};
 use siros_paso::{PasoFinding, PasoProfile};
-use siros_testkit::verifier::{ISSUER, ISSUER_KEY, OTHER_KEY, adhoc_jwt};
+use siros_testkit::verifier::{ISSUER, adhoc_jwt, secret_key};
 use siros_testkit::{Published, PublishedResource};
 use siros_x509::test_util as x509;
 
@@ -151,7 +151,13 @@ fn sca_claims() -> Vec<String> {
 #[test]
 pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks() {
     let claims = adhoc_claims("https://issuer.bank.example", NOW + 600);
-    let keyed = adhoc_jwt(&claims, &ISSUER_KEY, Some("issuer-key-1"), None).expect("a keyed JWT");
+    let keyed = adhoc_jwt(
+        &claims,
+        &secret_key("issuer-secret-1"),
+        Some("issuer-key-1"),
+        None,
+    )
+    .expect("a keyed JWT");
     assert_eq!(
         adhoc_case(&keyed, &card("{}", None, ISSUER), PasoProfile::default()),
         Ok(sca_claims())
@@ -174,7 +180,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         adhoc_jwt(claims, key, Some(kid), None).expect("a keyed JWT")
     };
     let typed = siros_testkit::jose::compact_jws(
-        &ISSUER_KEY,
+        &secret_key("issuer-secret-1"),
         r#"{"alg": "ES256", "typ": "JWT", "kid": "issuer-key-1"}"#,
         &siros_testkit::verifier::python_json(&claims).expect("claims"),
     )
@@ -206,13 +212,13 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         ),
         (
             "step 2",
-            keyed(&claims, &OTHER_KEY, "issuer-key-1"),
+            keyed(&claims, &secret_key("another-secret"), "issuer-key-1"),
             keys.clone(),
             AdhocFailure::Signature,
         ),
         (
             "step 3, key set",
-            keyed(&claims, &ISSUER_KEY, "unknown-key"),
+            keyed(&claims, &secret_key("issuer-secret-1"), "unknown-key"),
             keys.clone(),
             AdhocFailure::UnknownKey,
         ),
@@ -226,7 +232,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             "step 4",
             keyed(
                 &adhoc_claims("https://other.example", NOW + 600),
-                &ISSUER_KEY,
+                &secret_key("issuer-secret-1"),
                 "issuer-key-1",
             ),
             keys.clone(),
@@ -234,7 +240,11 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         ),
         (
             "step 5",
-            keyed(&adhoc_claims(iss, NOW), &ISSUER_KEY, "issuer-key-1"),
+            keyed(
+                &adhoc_claims(iss, NOW),
+                &secret_key("issuer-secret-1"),
+                "issuer-key-1",
+            ),
             keys.clone(),
             AdhocFailure::Expired,
         ),
@@ -242,7 +252,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             "step 6, sub and format",
             keyed(
                 &claims.replace(CARD_TYPE, "org.example.other"),
-                &ISSUER_KEY,
+                &secret_key("issuer-secret-1"),
                 "issuer-key-1",
             ),
             keys.clone(),
@@ -264,7 +274,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             "step 7",
             keyed(
                 &claims.replace(PAY, "urn:paso:sca:com.example:fixture:1"),
-                &ISSUER_KEY,
+                &secret_key("issuer-secret-1"),
                 "issuer-key-1",
             ),
             keys,

@@ -327,8 +327,11 @@ fn refused_step(jwt: &str, document: &Value, format: &str) -> Option<AdhocFailur
             .expect("the JWT's header");
     let claims = jwt_claims(jwt);
     let input = format!("{}.{}", parts[0], parts[1]);
-    let issuers =
-        siros_testkit::jose::sign(&siros_testkit::verifier::ISSUER_KEY, &input).expect("signs");
+    let issuers = siros_testkit::jose::sign(
+        &siros_testkit::verifier::secret_key("issuer-secret-1"),
+        &input,
+    )
+    .expect("signs");
     if header["kid"] != json!("issuer-key-1") {
         Some(AdhocFailure::UnknownKey)
     } else if parts[2] != issuers {

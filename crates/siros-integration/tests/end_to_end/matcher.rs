@@ -18,7 +18,7 @@ use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::Carried;
 use siros_testkit::fixtures::{Held, ORIGIN, parameters};
 use siros_testkit::render::{App, MainModule, TestkitModule, formats};
-use siros_testkit::verifier::{self, ISSUER, ISSUER_KEY};
+use siros_testkit::verifier::{self, ISSUER, secret_key};
 
 use crate::common::{HaipHost, own_modules, registry};
 use crate::{NOW, PAY, annex, english, member, payment_metadata};
@@ -95,8 +95,13 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
     let claims = json!({"iss": "https://issuer.bank.example", "sub": "https://bank.example/sca/card",
         "format": "dc+sd-jwt", "iat": NOW - 60, "exp": NOW + 600, "transaction_data_type": PAY,
         "metadata": types[PAY]});
-    let jwt = verifier::adhoc_jwt(&claims.to_string(), &ISSUER_KEY, Some("issuer-key-1"), None)
-        .expect("the ad-hoc metadata JWT");
+    let jwt = verifier::adhoc_jwt(
+        &claims.to_string(),
+        &secret_key("issuer-secret-1"),
+        Some("issuer-key-1"),
+        None,
+    )
+    .expect("the ad-hoc metadata JWT");
     let mut entry: Value = serde_json::from_str(&core[1]).expect("Core A.1's entry");
     entry["metadata"] = json!(jwt);
     let entry = verifier::encode(&entry.to_string()).expect("the entry");

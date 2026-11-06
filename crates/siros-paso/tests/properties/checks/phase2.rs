@@ -105,7 +105,8 @@ pub(super) fn refused_step(jwt: &str, format: &str) -> Option<AdhocFailure> {
     };
     let (header, claims) = (json(parts[0]), json(parts[1]));
     let input = format!("{}.{}", parts[0], parts[1]);
-    let issuers = siros_testkit::jose::sign(&verifier::ISSUER_KEY, &input).expect("signs");
+    let issuers =
+        siros_testkit::jose::sign(&verifier::secret_key("issuer-secret-1"), &input).expect("signs");
     if header["kid"] != json!("issuer-key-1") {
         Some(AdhocFailure::UnknownKey)
     } else if parts[2] != issuers {

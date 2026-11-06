@@ -81,6 +81,16 @@ pub fn scalar_jwk(octet: u8) -> Result<Node<'static>, Fault> {
     Ok(Node::Object(public.object().clone()))
 }
 
+/// The public JWK of a P-256 scalar.
+///
+/// # Errors
+///
+/// The octets are no scalar of P-256.
+pub fn key_jwk(scalar: &[u8; 32]) -> Result<Node<'static>, Fault> {
+    let public = p256_jwk(&secret(scalar)?.public_key())?;
+    Ok(Node::Object(public.object().clone()))
+}
+
 /// The P-256 point of a JWK's `x` and `y`, 32 octets each (RFC 7518 §6.2.1.2, §6.2.1.3): SEC 1
 /// §2.3.4's uncompressed point, which p256 refuses off the curve.
 #[must_use]

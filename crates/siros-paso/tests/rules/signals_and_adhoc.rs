@@ -7,7 +7,7 @@ use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
-use siros_testkit::verifier::{self, ISSUER_KEY, OTHER_KEY, adhoc_jwt};
+use siros_testkit::verifier::{self, adhoc_jwt, secret_key};
 
 use crate::common::{CARD_TYPE, Card, PAY, en, entry, one_query, parameters};
 
@@ -146,12 +146,15 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     };
     // The matcher reads the JWT as it reads a signed request: a signature under a key the issuer
     // does not publish still renders (section 4.14 of the design); phase 2 verifies it.
-    for key in [&ISSUER_KEY, &OTHER_KEY] {
+    for key in [
+        &secret_key("issuer-secret-1"),
+        &secret_key("another-secret"),
+    ] {
         assert!(render_adhoc(&jwt(&good, key), &card, &PasoProfile::default()).is_ok());
     }
     let signed = |payload: &str| {
         siros_testkit::jose::compact_jws(
-            &ISSUER_KEY,
+            &secret_key("issuer-secret-1"),
             &format!(r#"{{"alg": "ES256", "typ": "{}"}}"#, verifier::ADHOC_TYP),
             payload,
         )
@@ -179,7 +182,7 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     // A JWT the wallet refused for the credential (§5.3) is not compatible for it, and the
     // stored metadata never stands in: the card lists the type.
     let listing = Card::sd_jwt(&format!(r#"{{"{PAY}": {}}}"#, risky("")));
-    let refused = jwt(&good, &OTHER_KEY);
+    let refused = jwt(&good, &secret_key("another-secret"));
     let knowing = PasoProfile::default().with_refusals(&[AdhocRefusal {
         jwt: refused.clone(),
         credential: listing.credential().id.as_str().to_owned(),

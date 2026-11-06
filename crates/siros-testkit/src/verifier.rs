@@ -1,8 +1,10 @@
 //! The Verifier's and the issuer's side: `transaction_data` entries encoded as OpenID4VP §5.1
 //! sends them, a signed Request Object, a PaSO credential's document as the wallet registers it
-//! from the issuer's signed credential metadata JWT, and ad-hoc metadata JWTs signed with ES256
-//! under the issuer's P-256 key. The Request Object and the credential metadata JWT, whose text
-//! alone the wallet reads, carry an HMAC under a secret in place of a signature.
+//! from the issuer's signed credential metadata JWT, and ad-hoc metadata JWTs. An issuer key is
+//! named by its secret: an ad-hoc metadata JWT is signed with ES256 under the secret's P-256
+//! scalar ([`secret_key`]), and the PaSO document names the scalar's public JWK. The Request
+//! Object and the credential metadata JWT, whose text alone the wallet reads, carry an HMAC under
+//! the secret in place of a signature.
 //!
 //! Objects are given as JSON text and written as Python's `json.dumps(value,
 //! ensure_ascii=False)` writes them, so their bytes equal the reference model's.
@@ -10,7 +12,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::sri::integrity;
@@ -21,15 +23,16 @@ pub const ORIGINS: [&str; 1] = ["https://verifier.example"];
 /// The `typ` of an ad-hoc metadata JWT (PaSO Proof Metadata §5).
 pub const ADHOC_TYP: &str = "adhoc-transaction-metadata+jwt";
 
-/// The P-256 scalar of the PaSO credentials' issuer key, `issuer-key-1`.
-pub const ISSUER_KEY: [u8; 32] = [1; 32];
+/// The issuer of the PaSO credentials: its identifier and its key set, `kid` to the key's secret.
+pub const ISSUER: &str =
+    r#"{"iss": "https://issuer.bank.example", "keys": {"issuer-key-1": "issuer-secret-1"}}"#;
 
-/// A P-256 scalar whose key the issuer does not publish.
-pub const OTHER_KEY: [u8; 32] = [2; 32];
-
-/// The issuer of the PaSO credentials: its identifier and its key set, `kid` to public JWK: the
-/// key of [`ISSUER_KEY`], its point computed by P-256's scalar multiplication (SEC 2 §2.4.2).
-pub const ISSUER: &str = r#"{"iss": "https://issuer.bank.example", "keys": {"issuer-key-1": {"kty": "EC", "crv": "P-256", "x": "b_A7lJJBzh2t1DUZ5pYOCoW0GmmgXDKBA6orzhWUyhY", "y": "PE91OlW_AdxT9sCwx-7ni0DG_30lqW4igrmJzvccFEo"}}}"#;
+/// The P-256 scalar of an issuer key's secret: its SHA-256, which is below P-256's order for the
+/// secrets the tests name.
+#[must_use]
+pub fn secret_key(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
 
 /// Why an encoder could not write its output.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -41,8 +44,8 @@ pub enum EncodeError {
     /// The HMAC refused the key.
     #[error("the HMAC refused the key")]
     Key,
-    /// The issuer names no `iss`.
-    #[error("the issuer names no iss")]
+    /// The issuer names no `iss`, or a key set whose keys are no secrets.
+    #[error("the issuer names no iss, or a key that is no secret")]
     Issuer,
     /// The key is no P-256 scalar.
     #[error(transparent)]
@@ -109,9 +112,10 @@ pub fn adhoc_jwt(
 }
 
 /// The issuer's signed credential metadata JWT (PaSO Proof Metadata §4) as the wallet registers
-/// it: the JWT's integrity value, the credential's type, the issuer's key material, the
-/// `transaction_data_types`, and the risk signal encryption keys when the metadata publishes
-/// them. `types`, `keys` and `issuer` are JSON texts.
+/// it: the JWT's integrity value, the credential's type, the issuer's key material, its key set
+/// naming each key's public JWK in place of its secret, the `transaction_data_types`, and the
+/// risk signal encryption keys when the metadata publishes them. `types`, `keys` and `issuer` are
+/// JSON texts.
 pub fn paso_document(
     credential_type: &str,
     credential_format: &str,
@@ -129,6 +133,10 @@ pub fn paso_document(
     let kid = key_set
         .and_then(|keys| keys.names().next())
         .unwrap_or("x5c");
+    let secret = key_set
+        .and_then(|keys| keys.get(kid))
+        .and_then(Node::as_str)
+        .unwrap_or("x5c-secret");
     let mut metadata = format!("\"transaction_data_types\": {}", python_json(types)?);
     if let Some(keys) = keys {
         metadata.push_str(&format!(
@@ -147,11 +155,40 @@ pub fn paso_document(
         quote(credential_format),
         quote(&format!("{iss}/metadata")),
     );
-    let jwt = jws(&header, &payload, "issuer-metadata-secret")?;
+    let jwt = jws(&header, &payload, secret)?;
+    let published = match key_set {
+        None => python_json(issuer)?,
+        Some(keys) => {
+            let mut jwks = Vec::new();
+            for member in keys.members() {
+                let secret = member.value.as_str().ok_or(EncodeError::Issuer)?;
+                let jwk = crate::jose::key_jwk(&secret_key(secret))?;
+                jwks.push(format!("{}: {}", quote(&member.name), jwk.python_text()));
+            }
+            let mut written = String::from("{");
+            for member in issuer_node
+                .as_object()
+                .ok_or(EncodeError::Issuer)?
+                .members()
+            {
+                if written.len() > 1 {
+                    written.push_str(", ");
+                }
+                written.push_str(&quote(&member.name));
+                written.push_str(": ");
+                if member.name == "keys" {
+                    written.push_str(&format!("{{{}}}", jwks.join(", ")));
+                } else {
+                    written.push_str(&member.value.python_text().to_string());
+                }
+            }
+            written.push('}');
+            written
+        }
+    };
     Ok(format!(
-        "{{\"integrity\": {}, \"type\": {}, \"issuer\": {}, {metadata}}}",
+        "{{\"integrity\": {}, \"type\": {}, \"issuer\": {published}, {metadata}}}",
         quote(&integrity(jwt.as_bytes())),
         quote(credential_type),
-        python_json(issuer)?
     ))
 }
