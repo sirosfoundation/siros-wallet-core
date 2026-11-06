@@ -21,7 +21,7 @@ use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 use siros_testkit::fixtures;
 use siros_testkit::fixtures::REQUEST_OBJECT_HEADER;
-use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
+use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestFormat, TestHost, TestPrefix, TestTrust};
 
 use super::{
@@ -425,7 +425,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
         r#""expected_origins":["https://verifier.example"]"#,
     );
     let payload = super::b64(&parameters);
-    let signature = |client_id: &str, key: &[u8; 32]| {
+    let signature = |client_id: &str, key: &P256Scalar| {
         let protected = super::b64(&format!(
             r#"{{"alg":"ES256","typ":"oauth-authz-req+jwt","client_id":"{client_id}"}}"#
         ));
@@ -433,7 +433,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
             siros_testkit::jose::sign(key, &format!("{protected}.{payload}")).expect("signs");
         format!(r#"{{"protected":"{protected}","signature":"{signed}"}}"#)
     };
-    let other = [7u8; 32];
+    let other = P256Scalar::new([7; 32]).expect("a scalar");
     let jws = |signatures: &[String]| {
         format!(
             r#"{{"payload":"{payload}","signatures":[{}]}}"#,

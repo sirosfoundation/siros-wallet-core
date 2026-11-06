@@ -28,7 +28,7 @@ use siros_openid4vp::routing::{ChannelKind, ModeName};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{self, B26_KEY, Held, first_selection};
-use siros_testkit::jose::{VERIFIER_SECRET, compact_jws, encrypt_to, sign};
+use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, Zip, compact_jws, encrypt_to, sign};
 use siros_testkit::prefix::Registration;
 use siros_testkit::{Published, TestChoice, TestMode, TestTrust};
 use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
@@ -74,7 +74,7 @@ fn config() -> TrustConfig {
 fn leaf() -> Vec<u8> {
     certificate(&Leaf {
         subject: DNS,
-        point: point(&VERIFIER_SECRET),
+        point: point(VERIFIER_SECRET.octets()),
         dns: &[DNS],
     })
 }
@@ -459,7 +459,7 @@ fn posted_object(fetch: RequestObjectFetch<'_>, payload: &str) -> String {
     let enc = metadata["authorization_encryption_enc_values_supported"][0]
         .as_str()
         .expect("an enc the wallet lists");
-    encrypt_to(&jwk, enc, false, object.as_bytes()).expect("encrypts")
+    encrypt_to(&jwk, enc, Zip::None, object.as_bytes()).expect("encrypts")
 }
 
 /// F7: `request_uri_method` `post`: `wallet_metadata` POSTed with a fresh key, the Request Object
@@ -546,7 +546,8 @@ fn f9_a_request_refused_before_authentication_replies_plain_on_its_route() {
     let host = HaipHost::at(Timestamp(NOW));
     // A8 after the decision listed the Response URI: the signature by another key.
     let payload = uri_payload(SAN, "direct_post.jwt", "");
-    let forged = compact_jws(&[7u8; 32], &header(&x5c(&leaf())), &payload).expect("signs");
+    let other = P256Scalar::new([7; 32]).expect("a scalar");
+    let forged = compact_jws(&other, &header(&x5c(&leaf())), &payload).expect("signs");
     let uri = link(SAN, "");
     let mut body = String::new();
     let received = by_uri(&uri, &registry, &host, |_| forged, &mut body);

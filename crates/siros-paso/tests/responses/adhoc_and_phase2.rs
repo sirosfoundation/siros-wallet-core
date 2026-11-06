@@ -103,14 +103,16 @@ pub(super) fn adhoc_claims(iss: &str, exp: u64) -> String {
 }
 
 /// The scalar of the ad-hoc metadata's x5c leaf.
-const LEAF: [u8; 32] = [5; 32];
+fn leaf() -> siros_testkit::jose::P256Scalar {
+    siros_testkit::jose::P256Scalar::new([5; 32]).expect("a scalar")
+}
 
 /// An x5c chain of a leaf of this subject under siros-x509's test root, the root in the host's
 /// trust store.
 fn chain(subject: &str) -> Vec<String> {
     x509::x5c(&x509::certificate(&x509::Leaf {
         subject,
-        point: x509::point(&LEAF),
+        point: x509::point(leaf().octets()),
         dns: &[],
     }))
 }
@@ -165,7 +167,7 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks() {
         Ok(sca_claims())
     );
     let chained =
-        adhoc_jwt(&claims, &LEAF, None, Some(&chain("Bank Issuer"))).expect("a chained JWT");
+        adhoc_jwt(&claims, &leaf(), None, Some(&chain("Bank Issuer"))).expect("a chained JWT");
     let issuer = chained_issuer(&x509::root(), "Bank Issuer");
     assert_eq!(
         adhoc_case(&chained, &card("{}", None, &issuer), PasoProfile::default()),
@@ -231,7 +233,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
  {
     let iss = "https://issuer.bank.example";
     let claims = adhoc_claims(iss, NOW + 600);
-    let keyed = |claims: &str, key: &[u8; 32], kid: &str| {
+    let keyed = |claims: &str, key: &siros_testkit::jose::P256Scalar, kid: &str| {
         adhoc_jwt(claims, key, Some(kid), None).expect("a keyed JWT")
     };
     let typed = siros_testkit::jose::compact_jws(
@@ -248,7 +250,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     });
     let elsewhere = adhoc_jwt(
         &claims,
-        &LEAF,
+        &leaf(),
         None,
         Some(&[
             chain("Bank Issuer")[0].clone(),
@@ -256,7 +258,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         ]),
     )
     .expect("a JWT chained elsewhere");
-    let chained = adhoc_jwt(&claims, &LEAF, None, Some(&chain("Bank Issuer"))).expect("chained");
+    let chained = adhoc_jwt(&claims, &leaf(), None, Some(&chain("Bank Issuer"))).expect("chained");
     let cases: Vec<(&str, String, String, AdhocFailure)> = vec![
         (
             "step 1",

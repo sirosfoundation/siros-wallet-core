@@ -198,7 +198,13 @@ impl Haip for JweHaip {
         enc: ContentEncryption<'_>,
         plaintext: &[u8],
     ) -> Result<SealedJwe, Fault> {
-        let jwe = crate::jose::seal(key.jwk(), Some(key.kid()), enc.as_str(), false, plaintext)?;
+        let jwe = crate::jose::seal(
+            key.jwk(),
+            Some(key.kid()),
+            enc.as_str(),
+            crate::jose::Zip::None,
+            plaintext,
+        )?;
         SealedJwe::parse(jwe).map_err(|e| Fault::caused(FAULT, detail!("the JWE"), e))
     }
 }
