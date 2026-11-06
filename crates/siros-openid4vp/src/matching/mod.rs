@@ -218,7 +218,7 @@ impl<'m> Match<'m> {
         if !alternatives.is_empty()
             && alternatives
                 .iter()
-                .all(|alternative| alternative.queries.iter().any(unsupported))
+                .all(|alternative| alternative.queries().iter().any(unsupported))
         {
             UnmetCode::VpFormatsNotSupported
         } else {

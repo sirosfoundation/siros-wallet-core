@@ -78,7 +78,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     if !request
         .alternatives()
         .iter()
-        .any(|alternative| alternative.set == presented)
+        .any(|alternative| alternative.set() == presented)
     {
         let mut names: Vec<String> = queries.iter().map(|(query, _)| query.to_string()).collect();
         names.sort();

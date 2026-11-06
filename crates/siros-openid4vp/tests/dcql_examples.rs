@@ -9,7 +9,7 @@ use siros_openid4vp::claims::kit::ClaimsQuery;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::OptionIndex;
-use siros_openid4vp::request::{Request, factor, project};
+use siros_openid4vp::request::{Request, SetNeed, factor, project};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
 
@@ -354,11 +354,11 @@ fn credential_sets_and_entries_parse_as_written() {
         .iter()
         .map(|set| {
             (
-                set.options
+                set.options()
                     .iter()
                     .map(|o| o.iter().map(id).collect())
                     .collect(),
-                set.required,
+                set.need() == SetNeed::Required,
             )
         })
         .collect();

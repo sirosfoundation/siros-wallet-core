@@ -144,9 +144,9 @@ impl<'a> Credential<'a> {
     pub fn trusted_for(&self, query: &Query<'_>) -> bool {
         query.trusted_authorities.is_empty()
             || query.trusted_authorities.iter().any(|wanted| {
-                self.facts.authority(&wanted.kind).is_some_and(|held| {
+                self.facts.authority(wanted.kind()).is_some_and(|held| {
                     wanted
-                        .values
+                        .values()
                         .iter()
                         .any(|value| held.values.contains(value))
                 })

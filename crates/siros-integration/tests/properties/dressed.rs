@@ -138,8 +138,8 @@ fn trusted(query: &Query<'_>, credential: &Credential<'_>) -> bool {
         || query.trusted_authorities.iter().any(|wanted| {
             credential
                 .facts
-                .authority(&wanted.kind)
-                .is_some_and(|held| wanted.values.iter().any(|v| held.values.contains(v)))
+                .authority(wanted.kind())
+                .is_some_and(|held| wanted.values().iter().any(|v| held.values.contains(v)))
         })
 }
 

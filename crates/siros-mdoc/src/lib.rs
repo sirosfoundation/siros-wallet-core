@@ -231,10 +231,10 @@ impl ClaimsFormat for Mdoc {
     /// A `DeviceSigned` data element the transaction writes answers a claim naming it, unless the
     /// claim asks for values: the element's value is made at presentation.
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool {
-        let [Step::Key(namespace), Step::Key(element)] = claim.path.steps() else {
+        let [Step::Key(namespace), Step::Key(element)] = claim.path().steps() else {
             return false;
         };
-        claim.values.is_none()
+        claim.values().is_none()
             && provided.iter().any(|member| {
                 matches!(member, Member::Element { namespace: n, element: e } if n == namespace && e == element)
             })

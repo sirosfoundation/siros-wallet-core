@@ -11,15 +11,17 @@ mod rules;
 mod sets;
 
 use std::borrow::Cow;
+use std::fmt;
 
 use serde_json::value::RawValue;
+use siros_explain::{Count, IntoArg, kind};
 
 use crate::envelope::{Channel, Envelope, NonceError, Signatures};
 use crate::ids::{ClientId, Nonce};
 use crate::json;
 use crate::refusal::{Refusal, Refused};
 
-pub use dcql::{CredentialSet, HolderBinding, Multiplicity, Query, TrustedAuthority};
+pub use dcql::{CredentialSet, HolderBinding, Multiplicity, Query, SetNeed, TrustedAuthority};
 pub use digest::RequestDigest;
 pub use entry::{Entry, Malformed};
 pub use factor::{factor, project, splits};
@@ -43,13 +45,47 @@ impl EntryIndex {
     }
 }
 
+impl fmt::Display for EntryIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A position is named as a count in a message.
+impl IntoArg for EntryIndex {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
 /// One combination of Credential Queries the Credential Sets allow (§6.4.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alternative {
+    queries: Vec<QueryIndex>,
+    set: QuerySet,
+}
+
+impl Alternative {
+    fn of(queries: Vec<QueryIndex>) -> Self {
+        Self {
+            set: QuerySet::of(queries.iter().copied()),
+            queries,
+        }
+    }
+
     /// The queries in set order then option order, each once.
-    pub queries: Vec<QueryIndex>,
+    #[must_use]
+    pub fn queries(&self) -> &[QueryIndex] {
+        &self.queries
+    }
+
     /// The same queries as a set.
-    pub set: QuerySet,
+    #[must_use]
+    pub const fn set(&self) -> QuerySet {
+        self.set
+    }
 }
 
 /// A request: its protocol parameters parsed from its envelope, its entries decoded (rule C0),
@@ -155,10 +191,7 @@ impl<'a> Request<'a> {
         }
         let alternatives = alternatives(&dcql.queries, dcql.sets.as_deref());
         let mut query_order = Vec::new();
-        for query in alternatives
-            .iter()
-            .flat_map(|alternative| &alternative.queries)
-        {
+        for query in alternatives.iter().flat_map(Alternative::queries) {
             if !query_order.contains(query) {
                 query_order.push(*query);
             }
@@ -295,10 +328,7 @@ impl<'a> Request<'a> {
     /// The alternatives as sets.
     #[must_use]
     pub fn alternative_sets(&self) -> Vec<QuerySet> {
-        self.alternatives
-            .iter()
-            .map(|alternative| alternative.set)
-            .collect()
+        self.alternatives.iter().map(Alternative::set).collect()
     }
 
     /// The queries in the order they first appear across the alternatives.
@@ -330,7 +360,7 @@ fn decode_entries(raw: Vec<Cow<'_, str>>) -> Result<Vec<Entry<'_>>, Refused> {
         match Entry::decode(text) {
             Ok(entry) => entries.push(entry),
             Err(malformed) => refusals.push(Refusal::new(UndecodedEntry {
-                entry: k,
+                entry: EntryIndex(k),
                 malformed,
             })),
         }
@@ -345,19 +375,15 @@ fn alternatives(queries: &[Query<'_>], sets: Option<&[CredentialSet]>) -> Vec<Al
             .collect::<Vec<_>>()
     };
     let Some(sets) = sets else {
-        let queries = all();
-        return vec![Alternative {
-            set: QuerySet::of(queries.iter().copied()),
-            queries,
-        }];
+        return vec![Alternative::of(all())];
     };
     let choices: Vec<Vec<Option<&Vec<QueryIndex>>>> = sets
         .iter()
         .map(|set| {
-            set.options
+            set.options()
                 .iter()
                 .map(Some)
-                .chain((!set.required).then_some(None))
+                .chain((set.need() == SetNeed::Optional).then_some(None))
                 .collect()
         })
         .collect();
@@ -369,12 +395,9 @@ fn alternatives(queries: &[Query<'_>], sets: Option<&[CredentialSet]>) -> Vec<Al
                 ordered.push(*query);
             }
         }
-        let set = QuerySet::of(ordered.iter().copied());
-        if !out.iter().any(|alternative| alternative.set == set) {
-            out.push(Alternative {
-                queries: ordered,
-                set,
-            });
+        let alternative = Alternative::of(ordered);
+        if !out.iter().any(|other| other.set == alternative.set) {
+            out.push(alternative);
         }
     }
     out

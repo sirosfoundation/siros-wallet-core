@@ -22,7 +22,7 @@ pub enum CoreRule {
     #[explain(id = "c1")]
     NoProfile {
         /// The entry's position.
-        entry: usize,
+        entry: EntryIndex,
         /// Its type.
         kind: String,
     },
@@ -31,7 +31,7 @@ pub enum CoreRule {
     #[explain(id = "c2")]
     CredentialIds {
         /// The entry's position.
-        entry: usize,
+        entry: EntryIndex,
         /// Its `credential_ids`.
         ids: ReprList,
     },
@@ -244,7 +244,7 @@ fn one_transaction(request: &Request<'_>) -> Option<Refusal> {
     request
         .alternatives()
         .iter()
-        .any(|alternative| alternative.set.intersection(named).len() > 1)
+        .any(|alternative| alternative.set().intersection(named).len() > 1)
         .then(|| Refusal::new(CoreRule::TwoTransactions))
 }
 
@@ -307,7 +307,6 @@ fn expected_origin(request: &Request<'_>) -> Option<Refusal> {
 fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
     let mut refusals = Vec::new();
     for (k, entry) in request.indexed_entries() {
-        let k = k.get();
         if registry.profile(entry.kind()).is_none() {
             refusals.push(Refusal::new(CoreRule::NoProfile {
                 entry: k,

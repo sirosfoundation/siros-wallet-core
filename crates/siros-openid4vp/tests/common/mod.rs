@@ -214,8 +214,8 @@ impl ClaimsFormat for ClaimsTest {
         }
     }
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool {
-        match claim.path.steps() {
-            [Step::Key(namespace), Step::Key(element)] if claim.values.is_none() => provided.iter().any(|member| {
+        match claim.path().steps() {
+            [Step::Key(namespace), Step::Key(element)] if claim.values().is_none() => provided.iter().any(|member| {
                 matches!(member, Member::Element { namespace: n, element: e } if n == namespace && e == element)
             }),
             _ => false,

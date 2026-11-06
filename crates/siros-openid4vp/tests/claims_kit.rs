@@ -307,7 +307,7 @@ fn claims_path_pointers_follow_section_7() {
             .expect("the view's types")
             .is_empty();
         let selected = claim
-            .path
+            .path()
             .select(values)
             .map_err(|e| format!("component {} fails, found {found}", e.step()))?;
         Ok(selected

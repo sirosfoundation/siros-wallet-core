@@ -199,15 +199,30 @@ fn extended<'n>(path: &[Concrete<'n>], step: Concrete<'n>) -> ConcretePath<'n> {
 /// A claims query (§6.3).
 #[derive(Debug, Clone)]
 pub struct Claim<'a> {
-    /// The `id`, required with `claim_sets`.
-    pub id: Option<Cow<'a, str>>,
-    /// The `path`.
-    pub path: ClaimPath<'a>,
-    /// The `values`, one of which a selected element must equal.
-    pub values: Option<Vec<Node<'a>>>,
+    id: Option<Cow<'a, str>>,
+    path: ClaimPath<'a>,
+    values: Option<Vec<Node<'a>>>,
 }
 
 impl<'a> Claim<'a> {
+    /// The `id`, required with `claim_sets`.
+    #[must_use]
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// The `path`.
+    #[must_use]
+    pub const fn path(&self) -> &ClaimPath<'a> {
+        &self.path
+    }
+
+    /// The `values`, at least one, one of which a selected element must equal.
+    #[must_use]
+    pub fn values(&self) -> Option<&[Node<'a>]> {
+        self.values.as_deref()
+    }
+
     /// §6.3: the path selects at least one element of the credential's values, and with
     /// `values` one of them equals one of the values (equal JSON of one type).
     #[must_use]

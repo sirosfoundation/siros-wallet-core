@@ -170,7 +170,7 @@ pub fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
     let holding = request.sets().map_or(0, |sets| {
         sets.iter()
             .filter(|set| {
-                set.options
+                set.options()
                     .iter()
                     .flatten()
                     .any(|query| named.contains(*query))

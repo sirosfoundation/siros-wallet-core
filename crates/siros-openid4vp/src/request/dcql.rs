@@ -29,13 +29,20 @@ pub enum HolderBinding {
 }
 
 /// A Trusted Authorities Query (§6.1.1): a type and the values one of which a credential's
-/// issuer must match.
+/// issuer must match. Only its parse makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustedAuthority<'a> {
-    /// The type.
-    pub kind: AuthorityType<'a>,
-    /// The values, at least one.
-    pub values: Vec<AuthorityValue<'a>>,
+    kind: AuthorityType<'a>,
+    values: Vec<AuthorityValue<'a>>,
+}
+
+/// Whether a selection must satisfy a Credential Set (§6.2 `required`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SetNeed {
+    /// It must, the default.
+    Required,
+    /// It need not.
+    Optional,
 }
 
 /// A Credential Query. [`Request::parse`](super::Request::parse) makes one, its object parsed as
@@ -60,10 +67,8 @@ pub struct Query<'a> {
 /// A Credential Set Query (§6.2): options of queries, one of which a selection presents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialSet {
-    /// The options, each a list of queries in the Verifier's order.
-    pub options: Vec<Vec<QueryIndex>>,
-    /// Whether a selection must satisfy the set.
-    pub required: bool,
+    options: Vec<Vec<QueryIndex>>,
+    need: SetNeed,
 }
 
 /// `dcql_query`: the queries, and the Credential Sets when present.
@@ -193,6 +198,18 @@ impl<'a> Query<'a> {
 }
 
 impl<'a> TrustedAuthority<'a> {
+    /// The type.
+    #[must_use]
+    pub const fn kind(&self) -> &AuthorityType<'a> {
+        &self.kind
+    }
+
+    /// The values, at least one.
+    #[must_use]
+    pub fn values(&self) -> &[AuthorityValue<'a>] {
+        &self.values
+    }
+
     /// The query, owning its texts.
     #[must_use]
     pub fn into_owned(self) -> TrustedAuthority<'static> {
@@ -257,10 +274,28 @@ impl CredentialSet {
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let required = match object.get("required") {
-            None => true,
-            Some(value) => serde_json::from_str(value.get()).map_err(|_| malformed())?,
+        let need = match object.get("required") {
+            None => SetNeed::Required,
+            Some(value) => {
+                if serde_json::from_str(value.get()).map_err(|_| malformed())? {
+                    SetNeed::Required
+                } else {
+                    SetNeed::Optional
+                }
+            }
         };
-        Ok(Self { options, required })
+        Ok(Self { options, need })
+    }
+
+    /// The options, at least one, each at least one query in the Verifier's order.
+    #[must_use]
+    pub fn options(&self) -> &[Vec<QueryIndex>] {
+        &self.options
+    }
+
+    /// Whether a selection must satisfy the set.
+    #[must_use]
+    pub const fn need(&self) -> SetNeed {
+        self.need
     }
 }
