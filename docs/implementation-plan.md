@@ -71,6 +71,8 @@ siros-wallet-engine/
     ├── siros-zkp-req/
     ├── siros-zkp-catalogues/
     ├── siros-presentation/
+    ├── siros-explain/         # the message contract: errors and texts the wallet renders
+    ├── siros-explain-derive/
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/

@@ -5,6 +5,20 @@ All notable changes to this workspace. The format follows
 
 ## Unreleased
 
+### Added
+
+- `siros-explain` and `siros-explain-derive`: errors and texts as messages.
+  `Explain` gives a text's stable `MessageId` and its arguments under
+  distinct names, each of the kind its type declares through `IntoArg`; a
+  type without `IntoArg`, a secret's, is no argument. `#[derive(Explain)]`
+  writes it beside `thiserror::Error`, and `Messages` declares each message's
+  English template and parameter kinds. `Text` holds a message unrendered;
+  `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
+  second), and amounts in ISO 4217 currencies. A `RequestText` is a text that
+  depends on a request: it holds a message of its module's one
+  `DeclaredModule::Requested` type, a value, a name, a received text or a
+  defined module's message. Edition 2024, unpublished.
+
 ### Changed
 
 - Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
