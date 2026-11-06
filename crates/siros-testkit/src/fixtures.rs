@@ -638,7 +638,12 @@ pub fn dc_api_context<'q>(
     request: &'q Request<'q>,
     supported: Option<siros_openid4vp::json::Node<'q>>,
 ) -> siros_openid4vp::host::AnsweredContext<'q> {
-    siros_openid4vp::host::AnsweredContext::new(request, DcApi.name(), false, supported)
+    siros_openid4vp::host::AnsweredContext::new(
+        request,
+        DcApi.name(),
+        siros_openid4vp::routing::EntryNaming::Unnamed,
+        supported,
+    )
 }
 
 /// `let $name = $parameters;` as a signed DC API request over the parameters, the test Verifier's
@@ -658,10 +663,10 @@ macro_rules! signed_request {
 #[must_use]
 pub fn query_context<'q>(
     request: &'q Request<'q>,
-    named: bool,
+    naming: siros_openid4vp::routing::EntryNaming,
     supported: Option<siros_openid4vp::json::Node<'q>>,
 ) -> siros_openid4vp::routing::QueryContext<'q> {
-    siros_openid4vp::routing::QueryContext::new(request, Some(DcApi.name()), named, supported)
+    siros_openid4vp::routing::QueryContext::new(request, Some(DcApi.name()), naming, supported)
 }
 
 /// The name of the response mode a request's routing answers in; `None` when C5 refuses its

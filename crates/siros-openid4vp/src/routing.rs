@@ -720,6 +720,27 @@ fn repr(value: Option<&Node<'_>>) -> String {
     )
 }
 
+/// Whether a `transaction_data` entry names a query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntryNaming {
+    /// An entry names it.
+    Named,
+    /// No entry names it.
+    Unnamed,
+}
+
+impl EntryNaming {
+    /// Whether the query is in the set of queries entries name.
+    #[cfg(feature = "match")]
+    pub(crate) fn of(named: crate::request::QuerySet, query: crate::request::QueryIndex) -> Self {
+        if named.contains(query) {
+            Self::Named
+        } else {
+            Self::Unnamed
+        }
+    }
+}
+
 /// What a format's request rules read beyond the query (the zkp_req proposal's M4): the request,
 /// its mode, whether transaction data names the query, and the Verifier's `vp_formats_supported`
 /// value for the format. Only `Accepted::new` makes one, from the request's routing, and phase 2
@@ -728,7 +749,7 @@ fn repr(value: Option<&Node<'_>>) -> String {
 pub struct QueryContext<'q> {
     request: &'q Request<'q>,
     mode: Option<ModeName>,
-    named: bool,
+    naming: EntryNaming,
     supported: Option<Node<'q>>,
 }
 
@@ -737,13 +758,13 @@ impl<'q> QueryContext<'q> {
     pub(crate) const fn of(
         request: &'q Request<'q>,
         mode: Option<ModeName>,
-        named: bool,
+        naming: EntryNaming,
         supported: Option<Node<'q>>,
     ) -> Self {
         Self {
             request,
             mode,
-            named,
+            naming,
             supported,
         }
     }
@@ -762,8 +783,8 @@ impl<'q> QueryContext<'q> {
 
     /// Whether a `transaction_data` entry names the query.
     #[must_use]
-    pub const fn named(&self) -> bool {
-        self.named
+    pub const fn naming(&self) -> EntryNaming {
+        self.naming
     }
 
     /// The Verifier's `vp_formats_supported` value for the format, from its `client_metadata`.
@@ -780,10 +801,10 @@ impl<'q> QueryContext<'q> {
     pub const fn new(
         request: &'q Request<'q>,
         mode: Option<ModeName>,
-        named: bool,
+        naming: EntryNaming,
         supported: Option<Node<'q>>,
     ) -> Self {
-        Self::of(request, mode, named, supported)
+        Self::of(request, mode, naming, supported)
     }
 }
 
@@ -825,11 +846,11 @@ impl<'q> AnsweredContext<'q> {
     pub const fn new(
         request: &'q Request<'q>,
         mode: ModeName,
-        named: bool,
+        naming: EntryNaming,
         supported: Option<Node<'q>>,
     ) -> Self {
         Self::of(
-            QueryContext::of(request, Some(mode), named, supported),
+            QueryContext::of(request, Some(mode), naming, supported),
             mode,
         )
     }

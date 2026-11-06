@@ -383,7 +383,7 @@ pub trait FormatQuery {
     ) -> Result<Vec<OptionIndex>, Fault>;
 
     /// Whether the credential's presentation can carry these transaction response members.
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault>;
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault>;
 
     /// The credential's card showing the items.
     fn draw(&self, credential: &Credential<'_>, shown: Shown<'_>, env: &Env)

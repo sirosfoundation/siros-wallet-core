@@ -38,7 +38,11 @@ fn card(
     let query = format
         .query(
             &request.queries()[0],
-            siros_testkit::fixtures::query_context(&request, false, None),
+            siros_testkit::fixtures::query_context(
+                &request,
+                siros_openid4vp::routing::EntryNaming::Unnamed,
+                None,
+            ),
         )
         .map_err(|refusals| format!("{refusals:?}"))
         .expect("query");

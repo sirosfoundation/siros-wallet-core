@@ -388,10 +388,8 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             return Ok(None);
         };
         let carriage = match self.members {
-            Some(members) if self.formatted.query.carries(credential, members)? => {
-                Carriage::Carried
-            }
-            _ => Carriage::Uncarried,
+            Some(members) => self.formatted.query.carries(credential, members)?,
+            None => Carriage::Uncarried,
         };
         let additions = self.formatted.format.additions(credential)?;
         let binding = Binding {

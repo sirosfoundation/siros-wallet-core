@@ -212,13 +212,17 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
         .indexed_queries()
         .map(|(index, query)| {
             registry.format(&query.format).map(|format| {
-                let named = !request.entries_naming(index).is_empty();
+                let naming = if request.entries_naming(index).is_empty() {
+                    siros_openid4vp::routing::EntryNaming::Unnamed
+                } else {
+                    siros_openid4vp::routing::EntryNaming::Named
+                };
                 format
                     .query(
                         query,
                         siros_testkit::fixtures::query_context(
                             &request,
-                            named,
+                            naming,
                             client.vp_formats(&query.format).cloned(),
                         ),
                     )
@@ -310,7 +314,10 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
             let members = crate::common::placement(&case.format_id(index))
                 .and_then(|placement| paso.members(placement));
             let carried = !own.is_empty()
-                && members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
+                && members.is_some_and(|m| {
+                    parsed.carries(credential, m).expect("no fault")
+                        == siros_openid4vp::plugins::Carriage::Carried
+                });
             let mut want = Want::Nothing;
             if carried {
                 for e in &own {
@@ -437,7 +444,10 @@ fn qes_binding(
     let qes = QesProfile::default();
     let members = crate::common::placement(&case.format_id(query))
         .and_then(|placement| qes.members(placement));
-    let carried = members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
+    let carried = members.is_some_and(|m| {
+        parsed.carries(credential, m).expect("no fault")
+            == siros_openid4vp::plugins::Carriage::Carried
+    });
     if approves && carried {
         let provided = members.expect("QES's members for the format");
         let answers = !parsed

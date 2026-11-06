@@ -441,7 +441,11 @@ fn a_key_binding_jwt_carries_claims_alone() {
         let query = format
             .query(
                 &request.queries()[0],
-                siros_testkit::fixtures::query_context(&request, false, None),
+                siros_testkit::fixtures::query_context(
+                    &request,
+                    siros_openid4vp::routing::EntryNaming::Unnamed,
+                    None,
+                ),
             )
             .map_err(|r| format!("{r:?}"))
             .expect("query");
@@ -450,6 +454,7 @@ fn a_key_binding_jwt_carries_claims_alone() {
         query
             .carries(&held.credential().expect("credential"), members)
             .expect("carries")
+            == siros_openid4vp::plugins::Carriage::Carried
     };
     let claim = [Member::claim("transaction_data_hashes")];
     assert!(carried(true, Holder::Bound, &claim));

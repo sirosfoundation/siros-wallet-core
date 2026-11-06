@@ -65,9 +65,12 @@ use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView,
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
+use siros_openid4vp::plugins::{
+    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+};
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
+use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
@@ -249,7 +252,7 @@ impl ClaimsFormat for Mdoc {
 
 impl ClaimsPlugin for Mdoc {
     /// None beyond the kit's.
-    fn rules(&self, _query: &Query<'_>, _named: bool) -> Vec<Refusal> {
+    fn rules(&self, _query: &Query<'_>, _naming: EntryNaming) -> Vec<Refusal> {
         Vec::new()
     }
 
@@ -285,11 +288,18 @@ impl ClaimsPlugin for Mdoc {
         _query: &Query<'_>,
         view: &ClaimsView<'_>,
         members: &[Member],
-    ) -> Result<bool, Fault> {
+    ) -> Result<Carriage, Fault> {
         let authorizations = MdocMembers::of(view).key_authorizations()?;
-        Ok(members
-            .iter()
-            .all(|member| authorizations.authorizes(member)))
+        Ok(
+            if members
+                .iter()
+                .all(|member| authorizations.authorizes(member))
+            {
+                Carriage::Carried
+            } else {
+                Carriage::Uncarried
+            },
+        )
     }
 }
 

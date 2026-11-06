@@ -47,9 +47,12 @@ use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView,
 use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
+use siros_openid4vp::plugins::{
+    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+};
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
+use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
 
@@ -252,8 +255,8 @@ impl ClaimsFormat for SdJwtVc {
 impl ClaimsPlugin for SdJwtVc {
     /// B.3.3: transaction data needs a Key Binding JWT, so a query transaction data names
     /// requires holder binding.
-    fn rules(&self, query: &Query<'_>, named: bool) -> Vec<Refusal> {
-        if named && query.holder_binding == HolderBinding::Waived {
+    fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal> {
+        if naming == EntryNaming::Named && query.holder_binding == HolderBinding::Waived {
             vec![Refusal::new(HolderBindingWaived {
                 query: query.id.to_string(),
             })]
@@ -290,12 +293,19 @@ impl ClaimsPlugin for SdJwtVc {
         query: &Query<'_>,
         view: &ClaimsView<'_>,
         members: &[Member],
-    ) -> Result<bool, Fault> {
-        Ok(query.holder_binding == HolderBinding::Required
-            && view.credential().facts.holder == Holder::Bound
-            && members
-                .iter()
-                .all(|member| matches!(member, Member::Claim(_))))
+    ) -> Result<Carriage, Fault> {
+        Ok(
+            if query.holder_binding == HolderBinding::Required
+                && view.credential().facts.holder == Holder::Bound
+                && members
+                    .iter()
+                    .all(|member| matches!(member, Member::Claim(_)))
+            {
+                Carriage::Carried
+            } else {
+                Carriage::Uncarried
+            },
+        )
     }
 }
 

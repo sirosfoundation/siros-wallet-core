@@ -20,7 +20,7 @@ use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::matching::{Accepted, Match, Views};
 use siros_openid4vp::plugins::{
-    Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
+    Carriage, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
     OptionIndex, OptionItems, Registry, Shown,
 };
 use siros_openid4vp::refusal::{Refusal, Refused};
@@ -295,11 +295,11 @@ impl FormatQuery for StandInQuery {
         Ok(vec![OptionIndex(0)])
     }
 
-    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<bool, Fault> {
-        Ok(!matches!(
-            view(credential)?.get("carries"),
-            Some(Node::Bool(false))
-        ))
+    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<Carriage, Fault> {
+        Ok(match view(credential)?.get("carries") {
+            Some(Node::Bool(false)) => Carriage::Uncarried,
+            _ => Carriage::Carried,
+        })
     }
 
     fn draw(

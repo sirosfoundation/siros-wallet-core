@@ -16,8 +16,8 @@ use siros_openid4vp::host::{
 use siros_openid4vp::ids::{FormatId, InvalidId, QueryId};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::plugins::{
-    Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
-    OptionIndex, OptionItems, Shown, ViewAdditions, ViewTypes,
+    Carriage, Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members,
+    NoCandidate, OptionIndex, OptionItems, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
@@ -303,10 +303,10 @@ impl FormatQuery for TestQuery<'_> {
             .collect())
     }
 
-    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<Carriage, Fault> {
         match view(credential)?.get("carries") {
-            None => Ok(true),
-            Some(Node::Bool(carries)) => Ok(*carries),
+            None | Some(Node::Bool(true)) => Ok(Carriage::Carried),
+            Some(Node::Bool(false)) => Ok(Carriage::Uncarried),
             Some(_) => Err(Fault::new(
                 FAULT,
                 detail!(

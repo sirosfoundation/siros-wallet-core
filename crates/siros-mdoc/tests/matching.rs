@@ -11,6 +11,7 @@ use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::{Format, Member, Registry, Shown};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::{Item, Request};
+use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::rows::BooleanText;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, icon, parameters, query_context};
@@ -159,7 +160,10 @@ fn the_openid4vci_example_draws_its_card() {
     siros_testkit::unsigned_request!(let request = &text);
     let format = Mdoc::new().expect("format");
     let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
+        .query(
+            &request.queries()[0],
+            query_context(&request, EntryNaming::Unnamed, None),
+        )
         .map_err(|r| format!("{r:?}"))
         .expect("query");
     let logo = "https://state.example.org/public/mdl.png";
@@ -494,7 +498,10 @@ fn key_authorizations_admit_the_response_members() {
     );
     siros_testkit::unsigned_request!(let request = &text);
     let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
+        .query(
+            &request.queries()[0],
+            query_context(&request, EntryNaming::Unnamed, None),
+        )
         .map_err(|r| format!("{r:?}"))
         .expect("query");
     let carried = |authorizations: &str, members: &[Member]| {
@@ -502,6 +509,7 @@ fn key_authorizations_admit_the_response_members() {
         query
             .carries(&held.credential().expect("credential"), members)
             .expect("carries")
+            == siros_openid4vp::plugins::Carriage::Carried
     };
     let paso = [
         Member::element("urn:paso:sca:1", "jti"),
@@ -546,7 +554,10 @@ fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
         );
         siros_testkit::unsigned_request!(let request = &text);
         let query = format
-            .query(&request.queries()[0], query_context(&request, false, None))
+            .query(
+                &request.queries()[0],
+                query_context(&request, EntryNaming::Unnamed, None),
+            )
             .map_err(|r| format!("{r:?}"))
             .expect("query");
         let held = mdoc("c", "t", "{}", (-7, "P-256"), "{}");
@@ -585,7 +596,10 @@ fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
     );
     siros_testkit::unsigned_request!(let request = &text);
     let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
+        .query(
+            &request.queries()[0],
+            query_context(&request, EntryNaming::Unnamed, None),
+        )
         .map_err(|r| format!("{r:?}"))
         .expect("query");
     let env = env(&["en"], Vec::new()).expect("env");

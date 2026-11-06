@@ -26,7 +26,7 @@ use crate::plugins::{
 use crate::refusal::Refused;
 use crate::rendering::Rendering;
 use crate::request::{ClientMetadata, Query, QueryIndex, Request};
-use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext, Routing};
+use crate::routing::{AnsweredContext, Carries, EntryNaming, ModeName, QueryContext, Routing};
 use crate::rows::Env;
 use crate::session::Session;
 use crate::wallet::{Credential, Wallet};
@@ -333,7 +333,7 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
             QueryContext::of(
                 request,
                 Some(self.mode),
-                request.entry_named().contains(picked.query),
+                EntryNaming::of(request.entry_named(), picked.query),
                 self.metadata.vp_formats(&query.format).cloned(),
             ),
             self.mode,

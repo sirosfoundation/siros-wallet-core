@@ -10,7 +10,7 @@ use crate::plugins::registry::{Catalog, Placed};
 use crate::plugins::{Build, Format, FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
-use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
+use crate::routing::{EntryNaming, QueryContext, RoutedMode, VerifierMetadata};
 use crate::wallet_metadata::Placement;
 
 /// The core's rules C1 to C8, each with its code.
@@ -226,7 +226,7 @@ impl<'q> Formatted<'q> {
         let context = QueryContext::of(
             request,
             mode,
-            request.entry_named().contains(index),
+            EntryNaming::of(request.entry_named(), index),
             metadata.vp_formats(&query.format).cloned(),
         );
         Some(format.query(query, context).map(|parsed| Self {

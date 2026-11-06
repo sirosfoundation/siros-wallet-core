@@ -184,7 +184,7 @@ impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
         &self,
         credential: &siros_openid4vp::wallet::Credential<'_>,
         members: &[siros_openid4vp::plugins::Member],
-    ) -> Result<bool, siros_openid4vp::plugins::Fault> {
+    ) -> Result<siros_openid4vp::plugins::Carriage, siros_openid4vp::plugins::Fault> {
         self.0.carries(credential, members)
     }
     fn draw(

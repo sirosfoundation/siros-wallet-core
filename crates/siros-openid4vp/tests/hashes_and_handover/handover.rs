@@ -14,7 +14,7 @@ use siros_openid4vp::host::{Haip, Platform, RequestDecryption};
 use siros_openid4vp::ids::{ClientId, FormatId, Nonce};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Fault, FindingData, Format, FormatQuery, Member, Members, NoCandidate, OptionIndex,
+    Carriage, Fault, FindingData, Format, FormatQuery, Member, Members, NoCandidate, OptionIndex,
     OptionItems, Registry, Shown,
 };
 use siros_openid4vp::refusal::Refusal;
@@ -112,7 +112,7 @@ impl<H> FormatQuery for RecorderQuery<'_, H> {
         self.0.answerable(credential, env, provided)
     }
 
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         self.0.carries(credential, members)
     }
 
