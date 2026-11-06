@@ -2,14 +2,13 @@
 
 use std::borrow::Cow;
 use std::fmt;
-use std::num::NonZeroUsize;
 
 use siros_explain::{AllOf, Count, Explain, IntoArg, Listed, kind};
 use siros_openid4vp::plugins::Exclusion;
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 use siros_openid4vp::request::EntryIndex;
 
-use crate::approval::{Problem, SignatureQualifier};
+use crate::approval::{DocumentNumber, Problem, SignatureQualifier};
 
 /// A rule a QES entry breaks: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -123,8 +122,8 @@ pub enum Excluded {
     /// A linked document fails its checksum.
     #[error("document {document} does not match its checksum")]
     Checksum {
-        /// The document's position in the approval's `documentInfos`, from 1.
-        document: NonZeroUsize,
+        /// The document.
+        document: DocumentNumber,
     },
 }
 

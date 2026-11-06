@@ -3,6 +3,7 @@
 //! members).
 
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::json::{Node, Object};
@@ -77,6 +78,33 @@ impl fmt::Display for DocumentAt {
 }
 
 impl IntoArg for DocumentAt {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
+/// A document's number as the approval shows it: its position in `documentInfos`, from 1. Only
+/// [`ApprovalRequest::numbered_documents`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentNumber(NonZeroUsize);
+
+impl DocumentNumber {
+    /// The number.
+    #[must_use]
+    pub const fn get(self) -> NonZeroUsize {
+        self.0
+    }
+}
+
+impl fmt::Display for DocumentNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for DocumentNumber {
     type Kind = kind::Count;
 
     fn arg(&self) -> Count {
@@ -312,6 +340,15 @@ impl<'e> ApprovalRequest<'e> {
             }
             _ => Err(problems.0),
         }
+    }
+
+    /// `documentInfos` in array order, each with its number.
+    pub(crate) fn numbered_documents(
+        &self,
+    ) -> impl Iterator<Item = (DocumentNumber, &DocumentInfo<'e>)> {
+        std::iter::successors(Some(NonZeroUsize::MIN), |n| n.checked_add(1))
+            .map(DocumentNumber)
+            .zip(&self.documents)
     }
 }
 
