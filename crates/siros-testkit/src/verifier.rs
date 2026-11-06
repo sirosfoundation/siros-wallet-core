@@ -17,6 +17,8 @@ use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::sri::integrity;
 
+use crate::jose::P256Scalar;
+
 /// The Origin a signed request's `expected_origins` hold: the default Origin.
 pub const ORIGINS: [&str; 1] = ["https://verifier.example"];
 
@@ -27,11 +29,16 @@ pub const ADHOC_TYP: &str = "adhoc-transaction-metadata+jwt";
 pub const ISSUER: &str =
     r#"{"iss": "https://issuer.bank.example", "keys": {"issuer-key-1": "issuer-secret-1"}}"#;
 
-/// The P-256 scalar of an issuer key's secret: its SHA-256, which is below P-256's order for the
-/// secrets the tests name.
+/// The P-256 scalar of an issuer key's secret: its SHA-256, hashed again while it is no scalar.
 #[must_use]
-pub fn secret_key(secret: &str) -> [u8; 32] {
-    Sha256::digest(secret.as_bytes()).into()
+pub fn secret_key(secret: &str) -> P256Scalar {
+    let mut digest: [u8; 32] = Sha256::digest(secret.as_bytes()).into();
+    loop {
+        if let Some(scalar) = P256Scalar::new(digest) {
+            return scalar;
+        }
+        digest = Sha256::digest(digest).into();
+    }
 }
 
 /// Why an encoder could not write its output.
@@ -90,7 +97,7 @@ pub fn signed_request() -> Result<String, EncodeError> {
 /// header naming the key by `kid` or carrying the `x5c` chain, each item base64 DER.
 pub fn adhoc_jwt(
     payload: &str,
-    key: &[u8; 32],
+    key: &P256Scalar,
     kid: Option<&str>,
     x5c: Option<&[String]>,
 ) -> Result<String, EncodeError> {

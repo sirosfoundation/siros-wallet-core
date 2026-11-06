@@ -23,28 +23,83 @@ use siros_openid4vp::request::{ContentEncryption, Curve, KeyAgreement};
 
 use crate::FAULT;
 
+/// P-256's group order n (SEC 2 §2.4.2), big-endian.
+const ORDER: [u8; 32] = [
+    0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+];
+
+/// A P-256 private key: a value of [1, n − 1] (SEC 1 §3.2.1), as 32 big-endian octets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct P256Scalar([u8; 32]);
+
+impl P256Scalar {
+    /// The scalar these octets write; `None` for zero or for a value of n or more.
+    #[must_use]
+    pub const fn new(octets: [u8; 32]) -> Option<Self> {
+        let (mut rest, mut order) = (octets.as_slice(), ORDER.as_slice());
+        let (mut zero, mut below) = (true, false);
+        while let ([octet, octets @ ..], [limit, limits @ ..]) = (rest, order) {
+            if !below && *octet > *limit {
+                return None;
+            }
+            below |= *octet < *limit;
+            zero &= *octet == 0;
+            (rest, order) = (octets, limits);
+        }
+        if below && !zero {
+            Some(Self(octets))
+        } else {
+            None
+        }
+    }
+
+    /// Its octets.
+    #[must_use]
+    pub const fn octets(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// A scalar the kit fixes, refused when the crate builds.
+macro_rules! fixed {
+    ($octets:expr) => {
+        const {
+            match P256Scalar::new($octets) {
+                Some(scalar) => scalar,
+                #[allow(
+                    clippy::panic,
+                    reason = "a panic in a constant fails the build (E0080)"
+                )]
+                None => panic!("the octets are a scalar of P-256"),
+            }
+        }
+    };
+}
+
 /// RFC 6979 A.2.5's P-256 private key: the test Verifier's signing key.
-pub const VERIFIER_SECRET: [u8; 32] = [
+pub const VERIFIER_SECRET: P256Scalar = fixed!([
     0xc9, 0xaf, 0xa9, 0xd8, 0x45, 0xba, 0x75, 0x16, 0x6b, 0x5c, 0x21, 0x57, 0x67, 0xb1, 0xd6, 0x93,
     0x4e, 0x50, 0xc3, 0xdb, 0x36, 0xe8, 0x9b, 0x12, 0x7b, 0x8a, 0x62, 0x2b, 0x12, 0x0f, 0x67, 0x21,
-];
+]);
 
 /// The scalar the [`TestRequestDecryption`] double draws: SHA-256 of
 /// `siros-testkit wallet ephemeral key`.
-const WALLET_EPHEMERAL: [u8; 32] = [
+const WALLET_EPHEMERAL: P256Scalar = fixed!([
     0x87, 0xf8, 0x5d, 0xe7, 0xd2, 0x36, 0x83, 0x9c, 0x1a, 0xa0, 0x04, 0x13, 0xe5, 0xcb, 0x6d, 0x8a,
     0x75, 0x2e, 0xbe, 0xc8, 0x62, 0x84, 0x96, 0x52, 0xd4, 0xbc, 0xff, 0xa0, 0x8d, 0x21, 0x6f, 0x26,
-];
+]);
 
 /// The Verifier's ephemeral scalar for the JWEs it encrypts: SHA-256 of
 /// `siros-testkit verifier ephemeral key`.
-const VERIFIER_EPHEMERAL: [u8; 32] = [
+const VERIFIER_EPHEMERAL: P256Scalar = fixed!([
     0xc2, 0xb2, 0xc2, 0xdc, 0xc1, 0x21, 0x37, 0x53, 0x53, 0x37, 0x77, 0x25, 0x8e, 0x48, 0x64, 0x46,
     0x8c, 0x11, 0x3a, 0xa5, 0x1c, 0xe8, 0x42, 0xab, 0x7b, 0x49, 0xa5, 0x5f, 0x3e, 0x5f, 0xac, 0xd8,
-];
+]);
 
-fn secret(bytes: &[u8; 32]) -> Result<SecretKey, Fault> {
-    SecretKey::from_slice(bytes).map_err(|e| Fault::caused(FAULT, detail!("a test scalar"), e))
+fn secret(scalar: &P256Scalar) -> Result<SecretKey, Fault> {
+    SecretKey::from_slice(scalar.octets())
+        .map_err(|e| Fault::caused(FAULT, detail!("a test scalar"), e))
 }
 
 /// The public JWK of a P-256 key: `kty` `EC`, `crv` `P-256`, `x`, `y` (RFC 7518 §6.2.1).
@@ -77,16 +132,17 @@ pub fn p256_jwk(public: &PublicKey) -> Result<PublicJwk, Fault> {
 ///
 /// The octets are no scalar of P-256.
 pub fn scalar_jwk(octet: u8) -> Result<Node<'static>, Fault> {
-    let public = p256_jwk(&secret(&[octet; 32])?.public_key())?;
-    Ok(Node::Object(public.object().clone()))
+    let scalar = P256Scalar::new([octet; 32])
+        .ok_or_else(|| Fault::new(FAULT, detail!("the octets are no scalar of P-256")))?;
+    key_jwk(&scalar)
 }
 
 /// The public JWK of a P-256 scalar.
 ///
 /// # Errors
 ///
-/// The octets are no scalar of P-256.
-pub fn key_jwk(scalar: &[u8; 32]) -> Result<Node<'static>, Fault> {
+/// p256 refuses the scalar.
+pub fn key_jwk(scalar: &P256Scalar) -> Result<Node<'static>, Fault> {
     let public = p256_jwk(&secret(scalar)?.public_key())?;
     Ok(Node::Object(public.object().clone()))
 }
@@ -120,7 +176,7 @@ fn jwk_point(jwk: &PublicJwk) -> Option<PublicKey> {
 ///
 /// # Errors
 ///
-/// The constant is no scalar of P-256, a bug of the kit.
+/// p256 refuses the scalar.
 pub fn verifier_key() -> Result<VerificationKey, Fault> {
     Ok(VerificationKey::of(p256_jwk(
         &secret(&VERIFIER_SECRET)?.public_key(),
@@ -131,8 +187,8 @@ pub fn verifier_key() -> Result<VerificationKey, Fault> {
 ///
 /// # Errors
 ///
-/// The scalar is no key of P-256.
-pub fn sign(key: &[u8; 32], signing_input: &str) -> Result<String, Fault> {
+/// p256 refuses the scalar.
+pub fn sign(key: &P256Scalar, signing_input: &str) -> Result<String, Fault> {
     let signer = SigningKey::from(secret(key)?);
     let signature: Signature = signer.sign(signing_input.as_bytes());
     Ok(URL_SAFE_NO_PAD.encode(signature.to_bytes()))
@@ -142,8 +198,8 @@ pub fn sign(key: &[u8; 32], signing_input: &str) -> Result<String, Fault> {
 ///
 /// # Errors
 ///
-/// The scalar is no key of P-256.
-pub fn compact_jws(key: &[u8; 32], header: &str, payload: &str) -> Result<String, Fault> {
+/// p256 refuses the scalar.
+pub fn compact_jws(key: &P256Scalar, header: &str, payload: &str) -> Result<String, Fault> {
     let input = format!(
         "{}.{}",
         URL_SAFE_NO_PAD.encode(header),
@@ -282,24 +338,32 @@ pub fn concat_kdf(
     digest.get(..(bits / 8) as usize).map(<[u8]>::to_vec)
 }
 
+/// How a JWE's plaintext is compressed before it is encrypted (RFC 7516 §4.1.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Zip {
+    /// As written, with no `zip` member.
+    None,
+    /// `DEF`.
+    Def,
+}
+
 /// A compact JWE of the plaintext to a P-256 JWK under ECDH-ES and `enc`, as a Verifier encrypts
-/// a Request Object to the posted key; `zip` compresses it with DEF first. The Verifier's
-/// ephemeral key and the IV are fixed.
+/// a Request Object to the posted key. The Verifier's ephemeral key and the IV are fixed.
 ///
 /// # Errors
 ///
 /// The JWK is no P-256 key, or `enc` neither A128GCM nor A256GCM.
-pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: bool, plaintext: &[u8]) -> Result<String, Fault> {
+pub fn encrypt_to(jwk: &Node<'_>, enc: &str, zip: Zip, plaintext: &[u8]) -> Result<String, Fault> {
     seal(jwk, None, enc, zip, plaintext)
 }
 
 /// A compact JWE of the plaintext to a P-256 JWK under ECDH-ES and `enc`, its header naming
-/// `kid` when given; `zip` compresses it with DEF first. The ephemeral key and the IV are fixed.
+/// `kid` when given. The ephemeral key and the IV are fixed.
 pub(crate) fn seal(
     jwk: &Node<'_>,
     kid: Option<&str>,
     enc: &str,
-    zip: bool,
+    zip: Zip,
     plaintext: &[u8],
 ) -> Result<String, Fault> {
     let fault = |what: &'static str| Fault::new(FAULT, detail!("the JWE's {what}", what = what));
@@ -325,7 +389,7 @@ pub(crate) fn seal(
         members.push((Cow::Borrowed("kid"), text(kid.to_owned())));
     }
     members.push((Cow::Borrowed("epk"), epk));
-    if zip {
+    if zip == Zip::Def {
         members.push((Cow::Borrowed("zip"), text("DEF".to_owned())));
     }
     let header = Node::object(members).map_err(|_| fault("header"))?;
@@ -333,7 +397,7 @@ pub(crate) fn seal(
     let content_key =
         concat_kdf(&ephemeral, &recipient, enc, &[], &[]).ok_or_else(|| fault("content key"))?;
     let compressed;
-    let message = if zip {
+    let message = if zip == Zip::Def {
         compressed = miniz_oxide::deflate::compress_to_vec(plaintext, 6);
         compressed.as_slice()
     } else {

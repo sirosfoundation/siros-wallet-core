@@ -17,7 +17,7 @@ use siros_paso::PasoProfile;
 use siros_paso::adhoc::Verified;
 use siros_testkit::TestTrust;
 use siros_testkit::fixtures::{self, REQUEST_OBJECT_HEADER, first_selection};
-use siros_testkit::jose::{VERIFIER_SECRET, compact_jws, encrypt_to};
+use siros_testkit::jose::{VERIFIER_SECRET, Zip, compact_jws, encrypt_to};
 
 use crate::common::{HaipHost, registry, registry_with};
 use crate::generate::{Dressed, ENC_KEY};
@@ -80,7 +80,8 @@ pub fn check(dressed: &Dressed, k: usize, tally: &mut Tally) {
             let jwk = Node::parse(&metadata["jwks"]["keys"][0].to_string())
                 .expect("a JWK")
                 .into_owned();
-            encrypt_to(&jwk, "A256GCM", k % 4 == 1, object.as_bytes()).expect("encrypts")
+            let zip = if k % 4 == 1 { Zip::Def } else { Zip::None };
+            encrypt_to(&jwk, "A256GCM", zip, object.as_bytes()).expect("encrypts")
         }
     };
     let received = fetch

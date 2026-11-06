@@ -10,7 +10,7 @@ use siros_openid4vp::recourse::{ErrorTarget, Failure};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::uri::{Fetch, FetchAnswer, NoFetch, RequestObjectFetch};
 use siros_testkit::TestHost;
-use siros_testkit::jose::encrypt_to;
+use siros_testkit::jose::{Zip, encrypt_to};
 
 use super::{RESPONSE_URI, b64, fetched, link, registry, request_object, uri_payload};
 
@@ -206,7 +206,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     // A signed Request Object encrypted to the posted key, compressed with DEF.
     let payload = uri_payload("");
     let object = request_object(&payload);
-    let jwe = encrypt_to(&jwk, "A128GCM", true, object.as_bytes()).expect("encrypts");
+    let jwe = encrypt_to(&jwk, "A128GCM", Zip::Def, object.as_bytes()).expect("encrypts");
     let received = fetch
         .resume(FetchAnswer::Body(&jwe), &registry, &host)
         .expect("decrypts");
@@ -216,7 +216,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
     );
     // U11 tamper: a JWE to another key.
     let other = siros_testkit::jose::scalar_jwk(9).expect("a JWK");
-    let jwe = encrypt_to(&other, "A128GCM", false, object.as_bytes()).expect("encrypts");
+    let jwe = encrypt_to(&other, "A128GCM", Zip::None, object.as_bytes()).expect("encrypts");
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
     let rejected = fetch
         .resume(FetchAnswer::Body(&jwe), &registry, &host)
