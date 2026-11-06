@@ -1,13 +1,13 @@
 //! A Verifier's reading of an SD-JWT presentation (RFC 9901 §7.2, §7.1), written apart from the
 //! plug-in: the compact form split at `~`, `sd_hash` checked over the bytes as sent, the disclosures
-//! processed into the claims. [`Read::shape`] gives the parts as one JSON object, so a test reads a
+//! processed into the claims, every shape §7.1 refuses refused. [`Read::shape`] gives the parts as one JSON object, so a test reads a
 //! Key Binding JWT's claims by name. Only `sha-256` is read.
 
 use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use sha2::{Digest, Sha256};
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node};
@@ -28,6 +28,15 @@ pub enum SdJwtReadError {
     /// No digest of the payload or another disclosure references this disclosure (§7.1 step 5).
     #[error("disclosure {0} is unreferenced")]
     Unreferenced(#[explain(name = "disclosure")] String),
+    /// A digest appears twice, or two disclosures share one (§7.1 step 4).
+    #[error("the digest {0} appears twice")]
+    RepeatedDigest(#[explain(name = "digest")] String),
+    /// A digest names a disclosure of the other form (§7.1 steps 3.c.ii.1, 3.c.iii.1).
+    #[error("the digest {0} names a disclosure of the other form")]
+    Misplaced(#[explain(name = "digest")] String),
+    /// `_sd`, `...` or `_sd_alg` appears outside its role (§7.1 step 3.c.ii.2).
+    #[error("a reserved claim name outside its role")]
+    Reserved,
     /// The payload names an algorithm other than `sha-256`.
     #[error("an _sd_alg other than sha-256")]
     SdAlg,
@@ -141,16 +150,19 @@ pub fn read(text: &str) -> Result<Read, SdJwtReadError> {
     {
         return Err(SdJwtReadError::SdAlg);
     }
-    let disclosures = parts
-        .filter(|part| !part.is_empty())
-        .map(disclosure)
-        .collect::<Result<Vec<_>, _>>()?;
+    let disclosures = parts.map(disclosure).collect::<Result<Vec<_>, _>>()?;
     let key_binding = (!kb.is_empty())
         .then(|| key_binding(kb, &sent))
         .transpose()?;
-    let mut pending: FxHashMap<String, &SentDisclosure> =
-        disclosures.iter().map(|d| (hash(&d.encoded), d)).collect();
-    let claims = processed(&payload, &mut pending)?;
+    let mut pending: FxHashMap<String, &SentDisclosure> = FxHashMap::default();
+    for sent in &disclosures {
+        let digest = hash(&sent.encoded);
+        if pending.insert(digest.clone(), sent).is_some() {
+            return Err(SdJwtReadError::RepeatedDigest(digest));
+        }
+    }
+    let mut seen = FxHashSet::default();
+    let claims = processed(&payload, &mut pending, &mut seen, true)?;
     if let Some(left) = pending.values().next() {
         return Err(SdJwtReadError::Unreferenced(left.encoded.clone()));
     }
@@ -204,32 +216,56 @@ fn key_binding(compact: &str, sent: &str) -> Result<KeyBindingJwt, SdJwtReadErro
     })
 }
 
-/// `node` with its digests replaced by what the disclosures of `pending` reveal.
+/// The disclosure the digest names, once; a digest named twice is refused.
+fn referenced<'d>(
+    digest: &str,
+    pending: &mut FxHashMap<String, &'d SentDisclosure>,
+    seen: &mut FxHashSet<String>,
+) -> Result<Option<&'d SentDisclosure>, SdJwtReadError> {
+    if !seen.insert(digest.to_owned()) {
+        return Err(SdJwtReadError::RepeatedDigest(digest.to_owned()));
+    }
+    Ok(pending.remove(digest))
+}
+
+/// `node` with its digests replaced by what the disclosures of `pending` reveal; `root` for the
+/// payload's top level, which alone holds `_sd_alg`.
 fn processed(
     node: &Node<'_>,
     pending: &mut FxHashMap<String, &SentDisclosure>,
+    seen: &mut FxHashSet<String>,
+    root: bool,
 ) -> Result<Node<'static>, SdJwtReadError> {
     match node {
         Node::Object(object) => {
             let mut members = Vec::new();
             for member in object.members() {
                 match member.name.as_ref() {
-                    "_sd_alg" => {}
+                    "_sd_alg" if root => {}
+                    "_sd_alg" | "..." => return Err(SdJwtReadError::Reserved),
                     "_sd" => {
-                        for digest in member.value.as_array().unwrap_or(&[]) {
-                            let found = digest.as_str().and_then(|digest| pending.remove(digest));
-                            if let Some(disclosed) = found {
-                                let name = disclosed.name.clone().ok_or(SdJwtReadError::Compact)?;
-                                members.push((
-                                    Cow::Owned(name),
-                                    processed(&disclosed.value, pending)?,
-                                ));
+                        let digests = member.value.as_array().ok_or(SdJwtReadError::Reserved)?;
+                        for digest in digests {
+                            let digest = digest.as_str().ok_or(SdJwtReadError::Reserved)?;
+                            let Some(disclosed) = referenced(digest, pending, seen)? else {
+                                continue;
+                            };
+                            let name = disclosed
+                                .name
+                                .clone()
+                                .ok_or_else(|| SdJwtReadError::Misplaced(digest.to_owned()))?;
+                            if matches!(name.as_str(), "_sd" | "..." | "_sd_alg") {
+                                return Err(SdJwtReadError::Reserved);
                             }
+                            members.push((
+                                Cow::Owned(name),
+                                processed(&disclosed.value, pending, seen, false)?,
+                            ));
                         }
                     }
                     name => members.push((
                         Cow::Owned(name.to_owned()),
-                        processed(&member.value, pending)?,
+                        processed(&member.value, pending, seen, false)?,
                     )),
                 }
             }
@@ -238,16 +274,31 @@ fn processed(
         Node::Array(items) => Ok(Node::Array(
             items
                 .iter()
-                .map(|item| {
-                    let digest = item.get("...").and_then(Node::as_str);
-                    match digest.and_then(|digest| pending.remove(digest)) {
-                        Some(disclosed) => processed(&disclosed.value, pending),
-                        None if digest.is_some() => Ok(item.clone().into_owned()),
-                        None => processed(item, pending),
-                    }
-                })
+                .map(|item| element(item, pending, seen))
                 .collect::<Result<_, _>>()?,
         )),
         scalar => Ok((*scalar).clone().into_owned()),
+    }
+}
+
+/// An array element: `{"...": digest}` alone is the value its disclosure reveals, or stays.
+fn element(
+    item: &Node<'_>,
+    pending: &mut FxHashMap<String, &SentDisclosure>,
+    seen: &mut FxHashSet<String>,
+) -> Result<Node<'static>, SdJwtReadError> {
+    let Some(marker) = item.get("...") else {
+        return processed(item, pending, seen, false);
+    };
+    let digest = marker.as_str().ok_or(SdJwtReadError::Reserved)?;
+    if item.as_object().map(|object| object.members().len()) != Some(1) {
+        return Err(SdJwtReadError::Reserved);
+    }
+    match referenced(digest, pending, seen)? {
+        None => Ok(item.clone().into_owned()),
+        Some(disclosed) if disclosed.name.is_some() => {
+            Err(SdJwtReadError::Misplaced(digest.to_owned()))
+        }
+        Some(disclosed) => processed(&disclosed.value, pending, seen, false),
     }
 }
