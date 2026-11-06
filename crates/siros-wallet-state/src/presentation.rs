@@ -6,6 +6,32 @@ use crate::ids::{CredentialId, PresentationId, TransactionId};
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::value::RawValue;
 
+/// `data`: the presentation as sent, the `vp_token` of an OpenID4VP response.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct PresentationData(String);
+
+impl PresentationData {
+    /// The presentation `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+}
+
+/// `audience`: whom the presentation was sent to.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct Audience(String);
+
+impl Audience {
+    /// The audience `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+}
+
 /// The members of `new_presentation`. It serialises to them, with
 /// `presentationTimestampSeconds` in seconds since 1970-01-01T00:00:00Z.
 #[derive(Serialize)]
@@ -13,14 +39,14 @@ use serde_json::value::RawValue;
 pub struct PresentationRecord {
     presentation_id: PresentationId,
     transaction_id: TransactionId,
-    data: String,
+    data: PresentationData,
     used_credential_ids: Vec<CredentialId>,
     #[serde(
         rename = "presentationTimestampSeconds",
         serialize_with = "unix_seconds"
     )]
     timestamp: Timestamp,
-    audience: String,
+    audience: Audience,
 }
 
 impl PresentationRecord {
@@ -29,10 +55,10 @@ impl PresentationRecord {
     pub fn new(
         presentation_id: PresentationId,
         transaction_id: TransactionId,
-        data: String,
+        data: PresentationData,
         used_credential_ids: Vec<CredentialId>,
         timestamp: Timestamp,
-        audience: String,
+        audience: Audience,
     ) -> Self {
         Self {
             presentation_id,
@@ -57,7 +83,7 @@ impl PresentationRecord {
         Ok(Self {
             presentation_id: PresentationId::new(stored.presentation_id),
             transaction_id: TransactionId::new(stored.transaction_id),
-            data: stored.data,
+            data: PresentationData(stored.data),
             used_credential_ids: stored
                 .used_credential_ids
                 .into_iter()
@@ -65,7 +91,7 @@ impl PresentationRecord {
                 .collect(),
             timestamp: Timestamp::from_unix(stored.presentation_timestamp_seconds)
                 .ok_or(fault(PresentationsFault::Timestamp))?,
-            audience: stored.audience,
+            audience: Audience(stored.audience),
         })
     }
 }

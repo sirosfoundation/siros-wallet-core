@@ -1,7 +1,10 @@
 //! An entry of `S.credentials` (privatedata 3.1, Section 6.0).
 
+use std::fmt;
+
 use rustc_hash::FxHashMap;
-use serde::de::DeserializeOwned;
+use serde::de::{DeserializeOwned, Error as _, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 
 use crate::error::{
@@ -12,9 +15,43 @@ use crate::ids::{
     KeyId,
 };
 
-/// The members of a JSON object, each as its text. A repeated name keeps its last value, as
-/// JavaScript's `JSON.parse` in `wallet-frontend` does.
-pub(crate) type Members<'a> = FxHashMap<String, &'a RawValue>;
+/// The members of a JSON object, each name once, each value as its text. A repeated name is a
+/// [`JsonTextFault::Value`](crate::JsonTextFault::Value).
+pub(crate) struct Members<'a>(FxHashMap<String, &'a RawValue>);
+
+impl<'a> Members<'a> {
+    /// The text of the member `name`.
+    pub(crate) fn get(&self, name: &str) -> Option<&'a RawValue> {
+        self.0.get(name).copied()
+    }
+}
+
+impl<'de: 'a, 'a> Deserialize<'de> for Members<'a> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Names<'a>(std::marker::PhantomData<&'a ()>);
+
+        impl<'de: 'a, 'a> Visitor<'de> for Names<'a> {
+            type Value = Members<'a>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON object with unique member names")
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut members = FxHashMap::default();
+                while let Some(name) = map.next_key::<String>()? {
+                    let value: &'a RawValue = map.next_value()?;
+                    if members.insert(name, value).is_some() {
+                        return Err(M::Error::custom("a repeated member name"));
+                    }
+                }
+                Ok(Members(members))
+            }
+        }
+
+        deserializer.deserialize_map(Names(std::marker::PhantomData))
+    }
+}
 
 /// The members of the object `raw` holds.
 ///
@@ -65,7 +102,9 @@ impl CredentialEntry {
         let text = |name: Member| member::<String>(&members, name);
         Ok(Self {
             credential_id: CredentialId::new(member(&members, Member::CredentialId)?),
-            format: FormatIdentifier::new(text(Member::Format)?),
+            format: FormatIdentifier::known(text(Member::Format)?).ok_or(
+                WalletStateError::CredentialMember(Member::Format, MemberFault::Empty),
+            )?,
             data: CredentialData(text(Member::Data)?),
             key_id: KeyId::known(text(Member::Kid)?),
             instance_id: InstanceId::new(member(&members, Member::InstanceId)?),

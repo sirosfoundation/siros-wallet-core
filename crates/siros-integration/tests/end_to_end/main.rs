@@ -35,7 +35,8 @@ use siros_testkit::reading::model_shape;
 use siros_testkit::sd_jwt_reading;
 use siros_testkit::verifier::{self, ISSUER};
 use siros_wallet_state::{
-    CredentialId, PresentationId, PresentationRecord, Timestamp as WalletTimestamp, TransactionId,
+    Audience, CredentialId, PresentationData, PresentationId, PresentationRecord,
+    Timestamp as WalletTimestamp, TransactionId,
     WalletState,
 };
 
@@ -182,10 +183,10 @@ fn assert_recorded(answered: &Answered, used: &str) {
     let record = PresentationRecord::new(
         PresentationId::new(1),
         TransactionId::new(1),
-        answered.vp_token.clone(),
+        PresentationData::new(answered.vp_token.clone()),
         vec![CredentialId::new(1)],
         WalletTimestamp::from_unix(i64::try_from(NOW).expect("seconds")).expect("the instant"),
-        answered.audience.clone(),
+        Audience::new(answered.audience.clone()),
     );
     let instance = |id: u64, instance: u64| {
         json!({"credentialId": id, "format": "dc+sd-jwt", "data": "", "kid": "",

@@ -70,13 +70,14 @@ impl fmt::Display for InstanceId {
     }
 }
 
-/// `format`: a credential format identifier, `dc+sd-jwt` for one.
+/// `format`: a credential format identifier, `dc+sd-jwt` for one. Never empty.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FormatIdentifier(String);
 
 impl FormatIdentifier {
-    pub(crate) fn new(format: String) -> Self {
-        Self(format)
+    /// The identifier `text`; `None` for the empty string, which names no format.
+    pub(crate) fn known(text: String) -> Option<Self> {
+        known(text).map(Self)
     }
 
     /// The identifier as the wallet state writes it.
