@@ -3,12 +3,13 @@
 use siros_explain::Explain;
 
 use crate::host::{Presentation, SealedJwe};
-use crate::ids::QueryId;
+use crate::ids::{CredentialId, QueryId};
 use crate::json::{Node, quote};
 use crate::media::MediaType;
 use crate::refusal::{ErrorCode, ErrorDescription};
 use crate::request::{AgreeableKey, ContentEncryption};
 use crate::routing::{Echo, State, VerifierKey};
+use crate::session::Audience;
 use crate::uri::{FormBody, ResponseUri};
 use crate::wallet_metadata::ParameterName;
 
@@ -384,11 +385,23 @@ pub enum Delivery {
 pub struct Built<'p> {
     response: AuthorizationResponse<'p>,
     delivery: Delivery,
+    used: Vec<CredentialId<'static>>,
+    audience: Audience,
 }
 
 impl<'p> Built<'p> {
-    pub(crate) const fn of(response: AuthorizationResponse<'p>, delivery: Delivery) -> Self {
-        Self { response, delivery }
+    pub(crate) fn of(
+        response: AuthorizationResponse<'p>,
+        delivery: Delivery,
+        used: Vec<CredentialId<'static>>,
+        audience: Audience,
+    ) -> Self {
+        Self {
+            response,
+            delivery,
+            used,
+            audience,
+        }
     }
 
     /// The Authorization Response.
@@ -401,5 +414,18 @@ impl<'p> Built<'p> {
     #[must_use]
     pub const fn delivery(&self) -> &Delivery {
         &self.delivery
+    }
+
+    /// The credentials the presentations used, each once, in the order the response presents
+    /// them.
+    #[must_use]
+    pub fn used(&self) -> &[CredentialId<'static>] {
+        &self.used
+    }
+
+    /// The audience the presentations bind to (Annex A, B.3.6).
+    #[must_use]
+    pub const fn audience(&self) -> &Audience {
+        &self.audience
     }
 }

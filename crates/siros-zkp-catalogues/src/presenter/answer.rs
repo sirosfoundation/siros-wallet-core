@@ -58,8 +58,7 @@ impl<'q> Answer<'q> {
         let query = pair.option().query().query();
         if !attestation
             .issuer()
-            .authorities()
-            .are_those_of(query.id(), query.trusted_authorities())
+            .is_for(query.id(), query.trusted_authorities())
         {
             return Err(Unanswerable::OtherQuery);
         }

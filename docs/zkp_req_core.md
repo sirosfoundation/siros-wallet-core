@@ -15,7 +15,7 @@ behind the nym_auth prover interface and the rulebooks' artifact pins.
 | Crate | Holds | Rust |
 | :-- | :-- | :-- |
 | `siros-zkp-req` | The protocol: the Credential Query with `_req` and `_req_sets`, `vp_formats_supported.zkp_req`, the usable pair of Section 1.3, `ZkpPresentation`, the backends' `Proof`, the `vp_token`, the Verifier's steps 1 to 5 of Section 4.1. Depends on `serde_json` and `siros-openid4vp`, whose DCQL reader parses the Credential Query: `ZkpReqQuery::parse` reads the core's `Query`. | 1.89 |
-| `siros-zkp-catalogues` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc`'s stored mdoc, `siros-trust` with `chain`, `zeroize`). With `request`: the nym_auth request of the core's authenticated request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests through the core and `siros-x509`, and a test host. | 1.89 |
+| `siros-zkp-catalogues` | The catalogue (`pseudonym`, `age_check` with E and C), `verifier_id`, the Longfellow and Vega systems, the session binding, the request policy. With the default feature `credential`: the nym_auth form of an mdoc, the Wallet's credential tests, the prover interface and the verifier (`siros-mdoc`'s stored mdoc, `siros-trust`, `zeroize`). With `request`: the nym_auth request of the core's authenticated request, the answer of an option and its presentation. With `test-fixtures`: a test issuer, signed requests through the core and `siros-x509`, and a test host. | 1.89 |
 | `siros-dc-matcher-core` | The matcher. It plans `zkp_req` with the two crates above, without `credential`. | 1.82 |
 | `siros-dc-matcher-ffi` | Module `zkp_req`: the session, the `vp_token` and the verifier for Kotlin and Swift (UniFFI), around a host's proof verifier. | 1.88 |
 | `siros-zkp-backend-longfellow` | `urn:circuits:longfellow:nym_auth:v1` on `longfellow-libzk-v1`: `LongfellowProver` and `LongfellowVerifier` over zk-cred-longfellow. | 1.95 |
@@ -41,7 +41,7 @@ Wallet (the plan)                                   host                  prover
 intake → VerifiedRequest → NymAuthRequest (N2)
 NymAuthQuery, ZkpFormats, NymAuthOption::pair
 TestedAttestation::of(mdoc, proof_time)          ←  wallet state, now
-AdmittedIssuer::resolve(trusted_authorities,     ←  trust store
+AdmittedIssuer::resolve(query,                   ←  trust store
                         issuer chain, store, now)
 UsableAttestation::new(tested, admitted, query)
 Answer::new(pair, usable, secret_seed)

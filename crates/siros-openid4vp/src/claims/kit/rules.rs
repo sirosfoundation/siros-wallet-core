@@ -6,11 +6,12 @@ use std::fmt;
 
 use siros_explain::{Explain, Explained, IntoArg, kind};
 
-use super::super::ClaimsError;
+use super::super::{ClaimsError, PathError};
 use crate::ids::{FormatName, QueryId};
 use crate::json::JsonError;
 use crate::plugins::Exclusion;
 use crate::refusal::{ErrorCode, ReprList, RequestRule};
+use crate::text::TextError;
 
 /// A member of a format's `vp_formats_supported` value that lists algorithm identifiers
 /// (Appendix B).
@@ -89,6 +90,34 @@ pub enum KitRule {
         /// The format's rule.
         rule: Box<dyn Explained>,
     },
+}
+
+/// Why a credential's view shows no card.
+#[derive(Debug, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.claims_kit")]
+pub enum CardError {
+    /// A claim's pointer selects nothing the values hold.
+    #[error("{0}")]
+    Path(#[explain(name = "cause")] PathError),
+    /// A metadata text, or a member name that stands in for one, breaks the rule of display text.
+    #[error("{0}")]
+    Text(#[explain(name = "cause")] TextError),
+}
+
+/// A credential's metadata text, or a member name that stands in for one, breaks the rule of
+/// display text: the End-User is not offered the credential.
+#[derive(Debug, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.claims_kit", id = "refused_text")]
+#[error("a text of the credential: {cause}")]
+pub struct RefusedText {
+    /// The rule the text breaks.
+    pub cause: TextError,
+}
+
+impl Exclusion for RefusedText {
+    fn clause(&self) -> Cow<'static, str> {
+        Cow::Borrowed("the rule of display text")
+    }
 }
 
 /// The Verifier's `vp_formats_supported` member admits no identifier the credential's

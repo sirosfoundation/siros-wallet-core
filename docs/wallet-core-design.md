@@ -1144,8 +1144,9 @@ impl<'a, H: CoreHost> AnswerRoute<'a, H> {
 
 /// `matching` (every `match` build): the plug-in that excluded a credential for a query, which
 /// `matching::Excluded` holds as `by`: `Format` for `FormatQuery::admits` (the Verifier's
-/// `vp_formats_supported`), `Profile` for the transaction profile's binding.
-pub enum ExcludedBy { Format, Profile }
+/// `vp_formats_supported`), `Profile` for the transaction profile's binding, `Language` for an
+/// entry's texts no language renders, `Display` for `FormatQuery::displayable`.
+pub enum ExcludedBy { Format, Profile, Language, Display }
 /// The code of a request the wallet does not meet (§8.5, §15.4.1); `code()` gives the
 /// `ErrorCode`.
 pub enum UnmetCode { AccessDenied, VpFormatsNotSupported }
@@ -1648,8 +1649,11 @@ pub struct Prepared<'p, H: CoreHost> { authenticated: &'p Authenticated<'p>,
                                        registry: &'p Registry<H>, env: &'p Env,
                                        request: Request<'p>, records: Vec<Picked<'p, H>>,
                                        resources: Slots<Resource> }
-/// Only `Prepared::respond` makes one; `response()` and `delivery()` read it.
-pub struct Built<'p> { response: AuthorizationResponse<'p>, delivery: Delivery }
+/// Only `Prepared::respond` makes one; `response()`, `delivery()`, `used()` and `audience()` read
+/// it. `used`: the credentials the presentations used, each once, in the order the response
+/// presents them. `audience`: what the presentations bind to (Annex A, B.3.6).
+pub struct Built<'p> { response: AuthorizationResponse<'p>, delivery: Delivery,
+                       used: Vec<CredentialId<'static>>, audience: Audience }
 
 impl<'p, H: CoreHost> Prepared<'p, H> {
     /// The request read from the authenticated envelope, with its routing, its rules run before
@@ -4570,8 +4574,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Prepared` | `phase2` | An authenticated request's records, and one slot per resource their profiles revalidate with | Fixed (caller list): `Slots<Resource>`; `respond` fills them through the caller's `fetch`; it holds the registry the envelope was read with, owns the request, and holds each record by index, so `respond` reads each query through `FormatHost::answer` again |
 | `Picked` | `phase2` | A derived record: its query and option by index, the wallet's credential, its transaction | Holds: a private struct; only `prepare` builds it from a record it derived and checked |
 | `Transacted` | `phase2` | A record's transaction: its profile and handle, the bound entries and display facts, the format's placement, the slots of its resources | Holds: a private struct; `prepare` builds it from the candidate's `TransactionBinding`, the one place that holds the transaction and its binding |
-| `Built` | `phase2` | The Authorization Response and the delivery that carries it | Holds: private fields; only `PhaseTwoApi::respond` makes one |
-| `BuiltApi` | `phase2` | Reads the response and its delivery | Holds: the inherent methods of `Built` |
+| `Built` | `phase2` | The Authorization Response, the delivery that carries it, the credentials it used and its audience | Holds: private fields; only `PhaseTwoApi::respond` makes one |
+| `BuiltApi` | `phase2` | Reads the response, its delivery, the credentials used and the audience | Holds: the inherent methods of `Built` |
 | `PhaseTwoApi` | `phase2` | Phase 2's steps from the chosen ids to the delivery | Fixed (relational rule outside a step): `prepare` reads the request and the routing from the `Authenticated`'s envelope, runs the request's rules before it reads the ids, reads the routed mode from the registry by its handle, and takes the ids as a slice, empty for a request whose every credential set is optional (§6.4.2), an empty selection of a required set `Rejection::NoAlternative`; `respond` takes `fetch` |
 | `OutcomeAdditions` | `phase2` | The outcomes phase 2 gains | Holds: a refusal enum, one variant per rule |
 | `PresentError` | `phase2` | A contract breach, or a failed step with its reason | Holds: a refusal enum |
@@ -4716,7 +4720,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Unroutable` | `response` | A URI request whose mode names no registered error mode (C5) | Holds: a refusal struct, one rule; domain `openid4vp.route` |
 | `UnmetCode` | `matching` | `access_denied` or `vp_formats_not_supported` (§8.5, §15.4.1) | Holds: an enum whose every variant is a code; the core derives it (`MatchAdditions::unmet`) |
 | `UnmetCodeApi` | `matching` | The code an unmet request's error carries | Holds: the inherent methods of `UnmetCode` |
-| `ExcludedBy` | `matching` | The plug-in that excluded a credential: the query's format or the transaction's profile | Holds: an enum whose every variant is a plug-in kind; the matching sets it where the plug-in refused |
+| `ExcludedBy` | `matching` | What excluded a credential: the query's format by the Verifier's algorithms, the transaction's profile, the rendering's languages, or the query's format by what the End-User could be shown | Holds: an enum whose every variant is a plug-in kind; the matching sets it where the plug-in refused |
 | `ExcludedAdditions` | `matching` | What `matching::Excluded` gains: `by` | Holds: a public field of a closed enum; only the matching builds an `Excluded` |
 | `TransactionBinding` | `matching` | A candidate's transaction: its query's `Transaction` and its profile's `Bound` | Holds: one struct holds both, so a binding without its transaction cannot be written; `Candidate::bound` holds it |
 | `MatchAdditions` | `matching` | The unmet request's code, from the plug-in that excluded each credential | Holds: the inherent methods of `Match`; `unmet` reads each query's candidates and the `ExcludedBy::Format` exclusions over the request's alternatives |
@@ -5907,7 +5911,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-qes | wallet-rs | `resolve`, `sha3`, both default | the core (`sri`); siros-explain |
 | siros-credman | new (section 6, commit 9) | | the core (`match`); siros-explain |
 | siros-webuild | new (section 6, commit 11) | | the core (`signed`, `uri`); siros-explain |
-| siros-trust | the base, carried over (section 10.3) | | the core (`match`): the `Facts` it writes |
+| siros-trust | the base, carried over (section 10.3) | | the core (`match`, `resolve`): the `Facts` it writes, `Timestamp` |
 | siros-wallet-state | the base, carried over | | none |
 | siros-i18n | wallet-rs | `load`, `render`, `number`, `currency`, `offset`, `date`, `list` | siros-explain |
 | siros-explain | wallet-rs | `derive` | none |
@@ -6069,10 +6073,11 @@ resolves `trusted_authorities` locally (TR1–TR5)").
 | `TrustStore`, `StoreEntry`, `StoreError`, `EntryError`, `Unanchored` (TR1) | siros-trust; the core's `json` reads the store's record. |
 | `IssuerChain`, `Certificate`, `CertificateError`, `DistinguishedName`, `ChainError`, the positions (TR2) | siros-trust, over the DER chain siros-mdoc and siros-sdjwt read, with the workspace's x509-cert and der. |
 | `validate_path`, `OnPath`, `PathRefusal`, `extensions` (TR3's RFC 5280 rules) | siros-trust. |
-| `IssuerFacts::at` (TR5) | siros-trust. It writes the core's `Facts`: one `HeldAuthority` for `aki`, with the chain's keyIdentifiers in base64url, and one per admitting store type with its values. |
-| `Admission`, `Issuer`, `Ground`, `Refusal`, `Unadmitted` over `IssuerFacts`; `FactRefusal` | The core's rule over `Facts`, which the matcher and phase 2 both run. The rule moves to `Facts::admits(&Query)`, and `Credential::trusted_for` calls it. |
-| `QueryAuthorities::of`, `Authority`, `KeyIdentifier`, `StoreType`, `StoreAuthority`, `AkiError`, `AuthorityError` | Read from the core's `Query` and its parsed `trusted_authorities`. |
-| `AdmittedIssuer::resolve`, `ChainRefusal` | siros-trust, for siros-zkp-catalogues' N3. It computes the chain's facts and asks the core's rule. |
+| `IssuerFacts::at` (TR5) | siros-trust. `IssuerFacts::facts(holder)` writes the core's `Facts` through `Facts::of(holder, (type, value) pairs)`: one `HeldAuthority` for `aki`, with the chain's keyIdentifiers in base64url, and one per admitting store type with its values. `holder` is the wallet's. |
+| `Admission`, `Issuer`, `Ground`, `Refusal`, `FactRefusal` | The core's rule over `Facts`, which the matcher and phase 2 both run. The rule moves to `Facts::admits(&Query)` in the core's `wallet`, and `Credential::trusted_for` calls it. |
+| `QueryAuthorities::of`, `Authority`, `AkiError`, `AuthorityError` | Read from the core's `Query` and its parsed `trusted_authorities`. `AuthorityType::of` and `AuthorityValue::of`, infallible, make the values the facts hold. |
+| `KeyIdentifier`, `StoreType`, `StoreAuthority` | siros-trust: the certificate's AuthorityKeyIdentifier and the store's entries (TR1). |
+| `AdmittedIssuer::resolve`, `ChainRefusal`, `Unadmitted` | siros-trust, for siros-zkp-catalogues' N3. `resolve` takes the `&Query`, computes the chain's facts and asks the core's rule. After a refusal, `Unadmitted` holds one `ChainRefusal` per value of the query. |
 | TR3's refusal of a malformed `aki` value | Superseded: OpenID4VP §6.1.1 states the value's form alone, and a malformed value equals no registered value. |
 | The `chain` feature | Folded into the crate: the matcher reads registered facts, and the registration alone links siros-trust. |
 | ISO/IEC 18013-5 Annex D's Document Signer (`annex_d_document_signer.der`) | Carried over as a known answer. |
@@ -6086,7 +6091,7 @@ SIROS crate.
 | `WalletState::parse` (W1: `schemaVersion` 3 or 4, absent meaning 1) | siros-wallet-state. |
 | `CredentialEntry`, `CredentialData`, `MetadataEntry`, `MetadataType`, `MetadataValue`, the identifiers (W2) | siros-wallet-state. |
 | `credentials`, `presentations`, `key_ids` (W3) | siros-wallet-state. |
-| `PresentationRecord` (W4: `new_presentation`'s members) | siros-wallet-state; the app fills it from `Built`. |
+| `PresentationRecord` (W4: `new_presentation`'s members) | siros-wallet-state; the app fills it from `Built`: `used()` under the state's credential numbers, `audience()` and the `vp_token`. |
 | Its errors over siros-codec's JSON errors | Its own errors over serde_json. |
 
 **siros-credential** (1,779 lines)
@@ -6097,7 +6102,7 @@ SIROS crate.
 | `TypedValue`, `Array`, `Object`, `Elements`, `Members` (C2) | The view's JSON values, the claims kit's; mdoc's through the core's `cbor::to_json` (RFC 8949 §6.1). |
 | `ClaimSource`, the pointer resolution (C3) | The core's `claims`. |
 | `UsableCredential::at`, `Validity`, `ValidityError` (C4) | The views' validity members, carried into the formats' registration: the MSO's `validityInfo`, the issuer JWT's `nbf` and `exp`. An app's `Platform::usable` reads them beside the credential's status. |
-| `least_used`, `Instance` (C5) | siros-wallet-state, which holds the presentation records it counts. |
+| `least_used`, `Instance` (C5) | siros-wallet-state, which holds the presentation records it counts: per batch, the instance the fewest records name, a record naming it twice counting once, the lowest `instanceId` on a tie. |
 | `ClaimTree`: `of`, `claims`, `to_cbor`, `from_cbor` (K1's projection) | Superseded: the matcher reads the same registration through the same core (owner, 2026-10-31: one code path inside and outside the DC API). The registration's bytes are siros-matcher's. |
 | `sd_jwt_vc`: SD-JWT VC's rules over the stored SD-JWT | siros-sdjwt, with S1. |
 | `holder_key`, `HolderKeyError`, `RegisteredClaim`, `ClaimFault`, `CborTag`, `Coordinate`, `CoordinateFault` | The view's `key_alg` and `key_curve`; `Facts::holder`; the formats' readers. |
@@ -6112,7 +6117,7 @@ SIROS crate.
 | `DisplayCache::card`, `DisplayCache::claim_rows` (D3: the format's display first, OpenID4VCI `credential_metadata` per language after it) | Carried over into the claims kit's merge. |
 | `DisplayValue` (D4) | The claims kit's rows, typed as decision 19 types them. |
 | `DisplayValue::Bytes`, shown by its length (D5) | Carried over into the claims kit's rows. |
-| `DisplayText`, `text::unsafe_ranges`: the characters of Cc, Cf, Zl, Zp, Co and Cn refused; `LABEL_MAX`, `VALUE_MAX`, `TEMPLATE_MAX`, `CARD_TEXT_MAX` | Carried over into the core's `text`, over unicode-general-category, which the core links. The claims kit reads every metadata text through it. siros-paso keeps PaSO's label rule (Proof Metadata §3.3). |
+| `DisplayText`, `text::unsafe_ranges`: the characters of Cc, Cf, Zl, Zp, Co and Cn refused; `LABEL_MAX`, `VALUE_MAX`, `TEMPLATE_MAX`, `CARD_TEXT_MAX` | Carried over into the core's `text`, over unicode-general-category, which the core links. The claims kit reads every metadata text through it, in every language: under the view's `metadata`, `name`, `alt_text` and the format's label as labels and `description` as a value, then the view's `issuer` and a member name standing in for a label. A refused text excludes the credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`); a label of white space alone gives way to the next choice. A claim's value shows as written. siros-paso keeps PaSO's label rule (Proof Metadata §3.3). |
 | `Card`, `CardWording`, `CardText`, `LabelText`, `IssuerTemplate`, `ClaimRow`, `ClaimLabels`, `DescribedLabel` | The consent entry's `Card` and `Row` (section 4.2), and the claims kit's card and rows. |
 | `Field`, `FieldText`, `FieldName`, `Extent`, `FIELD_MAX` (A9's clipped fields) | siros-credman, with A9 (siros-presentation's table). |
 | `Colour` | Superseded: section 4.2's `Card` holds an icon, a title, a subtitle and rows. The colours stay in the view's `metadata` for the app's layout. |
@@ -6298,7 +6303,7 @@ maps onto the plan's crates:
 | `siros_mdoc::{Mdoc, MdocError, IssuerSignedItem, ElementIdentifier, DigestAlgorithm, CoseAlgorithm, SigStructure, P256Key, PointError}` | siros-zkp-catalogues `mdoc`, `attestation`, tests | siros-mdoc's stored-mdoc reader (section 10.3) |
 | `siros_mdoc::es256_verifies` | siros-zkp-catalogues `attestation` | ECDSA verification through p256 in siros-zkp-catalogues |
 | `siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript, MessageDigest}` | siros-zkp-catalogues `prover`, `verify`, `presenter` | siros-mdoc's public device signing input and its `SessionTranscript` |
-| `siros_trust::{AdmittedIssuer, Certificate, CertificateError, IssuerChain, PathRefusal, ChainIndex, ChainRefusal, QueryAuthorities, TrustStore, Unadmitted}` | siros-zkp-catalogues `attestation`, `verify`, tests; proving `e2e` | siros-trust, kept; `features = ["chain"]` leaves the manifests with the feature |
+| `siros_trust::{AdmittedIssuer, Certificate, CertificateError, IssuerChain, PathRefusal, ChainIndex, ChainRefusal, TrustStore, Unadmitted}` | siros-zkp-catalogues `attestation`, `verify`, tests; proving `e2e` | siros-trust, kept; `AdmittedIssuer::resolve` reads the core's `Query` |
 
 `proving/Cargo.toml` swaps its siros-codec, siros-dcql and siros-oid4vp entries for
 siros-openid4vp. Its comment's reason for a second workspace becomes its 1.95 floor.

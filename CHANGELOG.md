@@ -13,6 +13,18 @@ All notable changes to this workspace. The format follows
   type with `Display`.
 - `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
+- `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
+  General Categories Cc, Cf, Zl, Zp, Co and Cn and text over `LABEL_MAX`,
+  `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every
+  metadata text through it, in every language; a text it refuses excludes the
+  credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`).
+- `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
+  C5). `Built::used` and `Built::audience` give the app what it fills a
+  `PresentationRecord` with, beside the `vp_token`.
+- `siros-trust` writes the core's `Facts` from an issuer chain and the trust
+  store (`IssuerFacts`): `aki` with the chain's keyIdentifiers in base64url, and
+  each admitting store type with its values. The admission rule is the core's
+  `Facts::admits`, which the matcher, phase 2 and `AdmittedIssuer::resolve` run.
 - The presentation core: `siros-openid4vp`, `siros-x509`, `siros-mdoc`,
   `siros-sdjwt`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
   `siros-explain-derive`, `siros-i18n`, `siros-cldr` and `siros-integration`,
@@ -110,6 +122,8 @@ All notable changes to this workspace. The format follows
 - `siros-testkit`'s issuers write what registration reads: `sd_jwt_issuer`
   issues the SD-JWT, `issuer` the view's validity, `keyAuthorizations` and
   device key algorithm. `sd_jwt_reading` reads a presentation back.
+- A malformed `aki` value of a Trusted Authorities Query equals no held value
+  (OpenID4VP section 6.1.1): `siros-trust` no longer refuses its form.
 - `siros-zkp-req`, `siros-zkp-catalogues`, `siros-trust` and `proving/` read
   DCQL, CBOR, JSON, identifiers, sessions and authenticated requests through
   `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
@@ -365,6 +379,10 @@ All notable changes to this workspace. The format follows
 
 ### Removed
 
+- `siros-trust`'s `QueryAuthorities`, `Admission`, `Issuer`, `Ground`, `Refusal`,
+  `FactRefusal`, `Authority`, `AkiError`, `AuthorityError`, `EntryError::Id` and
+  the generic parameter of `Unadmitted`: the core's `Facts::admits` and `Query`
+  replace them.
 - `TableLocale`, `DisplayLocale`, `EnvError::NotInTable`, `rows::Label` and
   `rows::LabelKind`, and the core's own calendar and currency types: the
   tables' texts are the crate modules' messages, and the typed values

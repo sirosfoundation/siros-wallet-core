@@ -40,7 +40,7 @@ of the wrong type. `ZkpReqQuery::parse` reads the `CredentialQuery` DCQL gives; 
 
 `trusted_authorities` follows OpenID4VP 1.0, Section 6.1.1: the core's DCQL reader parses it with the
 query, and `siros-trust` resolves it against the credential's issuer chain and the trust store.
-An issuer it does not admit matches nothing; a malformed `aki` value makes the request invalid.
+An issuer it does not admit matches nothing; a malformed `aki` value equals no registered value.
 
 ## The nym_auth catalogue's rules
 

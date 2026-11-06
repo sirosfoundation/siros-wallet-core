@@ -222,6 +222,18 @@ text_id!(
     "transaction data type prefix",
     non_empty
 );
+impl<'a> AuthorityType<'a> {
+    /// The type `text`: §6.1.1 sets no rule on its form.
+    pub fn of(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
+impl<'a> AuthorityValue<'a> {
+    /// The value `text`: §6.1.1 sets each type's values, and an unknown form equals no held value.
+    pub fn of(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
 /// A Credential Format Identifier a claims format names itself by, as its refusals name it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatName(&'static str);

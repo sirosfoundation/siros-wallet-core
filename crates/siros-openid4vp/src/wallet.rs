@@ -71,6 +71,43 @@ impl<'a> Facts<'a> {
         })
     }
 
+    /// The facts of `values`, each one the wallet resolved under its Trusted Authorities type,
+    /// gathered by type.
+    pub fn of(
+        holder: Holder,
+        values: impl IntoIterator<Item = (AuthorityType<'a>, AuthorityValue<'a>)>,
+    ) -> Self {
+        let mut authorities: Vec<HeldAuthority<'a>> = Vec::new();
+        for (kind, value) in values {
+            match authorities.iter_mut().find(|held| held.kind == kind) {
+                Some(held) => held.values.push(value),
+                None => authorities.push(HeldAuthority {
+                    kind,
+                    values: vec![value],
+                }),
+            }
+        }
+        Self {
+            holder,
+            authorities,
+        }
+    }
+
+    /// OpenID4VP §6.1.1: the query holds no Trusted Authorities Query, or the facts hold one of
+    /// its values under its type.
+    #[must_use]
+    pub fn admits(&self, query: &Query<'_>) -> bool {
+        query.trusted_authorities().is_empty()
+            || query.trusted_authorities().iter().any(|wanted| {
+                self.authority(wanted.kind()).is_some_and(|held| {
+                    wanted
+                        .values()
+                        .iter()
+                        .any(|value| held.values.contains(value))
+                })
+            })
+    }
+
     /// The values held under a type.
     #[must_use]
     pub fn authority(&self, kind: &AuthorityType<'_>) -> Option<&HeldAuthority<'a>> {
@@ -138,19 +175,10 @@ impl<'a> Credential<'a> {
             .map(|document| document.content)
     }
 
-    /// OpenID4VP §6.1.1: no Trusted Authorities Query, or one of the credential's values for one
-    /// of the query's types.
+    /// Whether the credential's [`Facts`] admit the query.
     #[must_use]
     pub fn trusted_for(&self, query: &Query<'_>) -> bool {
-        query.trusted_authorities().is_empty()
-            || query.trusted_authorities().iter().any(|wanted| {
-                self.facts.authority(wanted.kind()).is_some_and(|held| {
-                    wanted
-                        .values()
-                        .iter()
-                        .any(|value| held.values.contains(value))
-                })
-            })
+        self.facts.admits(query)
     }
 }
 

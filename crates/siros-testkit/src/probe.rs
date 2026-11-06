@@ -261,6 +261,15 @@ impl FormatQuery for ProbeQuery {
         Ok(Carriage::Carried)
     }
 
+    fn displayable(
+        &self,
+        _credential: &Credential<'_>,
+        _options: &[OptionIndex],
+        _env: &Env,
+    ) -> Result<(), NoCandidate> {
+        Ok(())
+    }
+
     fn draw(
         &self,
         credential: &Credential<'_>,
@@ -307,6 +316,15 @@ impl FormatQuery for Answering<'_> {
 
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         self.reading.carries(credential, members)
+    }
+
+    fn displayable(
+        &self,
+        credential: &Credential<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), NoCandidate> {
+        self.reading.displayable(credential, options, env)
     }
 
     fn draw(
