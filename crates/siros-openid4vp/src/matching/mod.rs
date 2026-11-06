@@ -13,8 +13,8 @@ mod rules;
 
 pub use consent::{Consent, Slot, answer_slots, option_of};
 pub use display::{
-    Choice, Display, EntryView, Selection, SelectionError, SetIndex, StaticEntry, Views, display,
-    option_items, wallet_header,
+    Choice, Display, DisplaySet, EntryView, Selection, SelectionError, SetIndex, StaticEntry,
+    Views, display, option_items, wallet_header,
 };
 pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
 pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};
@@ -30,9 +30,18 @@ use crate::wallet::{Credential, Holder, Wallet};
 use crate::{FAULT, detail};
 use rules::Formatted;
 
-/// A candidate by its position among a query's candidates.
+/// A candidate by its position among a query's candidates. Only the core's match makes one
+/// ([`Match::indexed_candidates`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CandidateIndex(pub usize);
+pub struct CandidateIndex(usize);
+
+impl CandidateIndex {
+    /// The position among the query's candidates.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
 
 /// One entry of the consent: a query, one of its candidates, one option it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -178,6 +187,17 @@ impl<'m> Match<'m> {
     #[must_use]
     pub fn candidates(&self, query: QueryIndex) -> &[Candidate<'m>] {
         self.candidates.get(query.get()).map_or(&[], Vec::as_slice)
+    }
+
+    /// A query's candidates with their indices.
+    pub fn indexed_candidates(
+        &self,
+        query: QueryIndex,
+    ) -> impl Iterator<Item = (CandidateIndex, &Candidate<'m>)> {
+        self.candidates(query)
+            .iter()
+            .enumerate()
+            .map(|(position, candidate)| (CandidateIndex(position), candidate))
     }
 
     /// A candidate.

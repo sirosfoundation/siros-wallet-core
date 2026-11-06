@@ -85,7 +85,7 @@ impl<'m> Views<'m> {
                 continue;
             };
             let options = formatted.query.options();
-            for (k, candidate) in matched.candidates(index).iter().enumerate() {
+            for (at, candidate) in matched.indexed_candidates(index) {
                 let bound = candidate.bound.as_ref().map(|binding| &binding.bound);
                 for option in &candidate.options {
                     let (everyone, chosen) = option_items(options, &candidate.options, *option);
@@ -110,7 +110,7 @@ impl<'m> Views<'m> {
                     views.push(EntryView {
                         pick: Pick {
                             query: index,
-                            candidate: super::CandidateIndex(k),
+                            candidate: at,
                             option: *option,
                         },
                         record,
@@ -219,9 +219,17 @@ pub fn display<'v>(
     Ok(Display { sets })
 }
 
-/// A set of a [`Display`] by its position in [`Display::sets`], as the platform returns it.
+/// A set of a [`Display`] by its position in [`Display::sets`]. Only [`Display::set`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SetIndex(pub usize);
+pub struct SetIndex(usize);
+
+impl SetIndex {
+    /// The position in [`Display::sets`].
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
 
 impl fmt::Display for SetIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -245,8 +253,8 @@ pub enum SelectionError {
     /// No set at that index.
     #[error("set {set} of {sets}")]
     NoSet {
-        /// The index.
-        set: SetIndex,
+        /// The position the platform returned.
+        set: usize,
         /// The number of sets.
         sets: usize,
     },
@@ -282,22 +290,63 @@ impl<'v> Display<'v> {
         &self.sets
     }
 
-    /// The selection the platform returned: the set's index and the chosen entry's id per slot.
-    /// An id that is not one of its slot's choices is refused.
-    pub fn select(&self, set: SetIndex, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
-        let slots = self.sets.get(set.0).ok_or(SelectionError::NoSet {
-            set,
-            sets: self.sets.len(),
-        })?;
-        if ids.len() != slots.len() {
+    /// The set at the position the platform returned.
+    ///
+    /// # Errors
+    ///
+    /// [`SelectionError::NoSet`]: the display holds no set there.
+    pub fn set(&self, position: usize) -> Result<DisplaySet<'_, 'v>, SelectionError> {
+        self.sets
+            .get(position)
+            .map(|slots| DisplaySet {
+                index: SetIndex(position),
+                slots,
+            })
+            .ok_or(SelectionError::NoSet {
+                set: position,
+                sets: self.sets.len(),
+            })
+    }
+}
+
+/// One set of a [`Display`], which the platform returned.
+#[derive(Debug, Clone, Copy)]
+pub struct DisplaySet<'d, 'v> {
+    index: SetIndex,
+    slots: &'d [Vec<Choice<'v>>],
+}
+
+impl<'v> DisplaySet<'_, 'v> {
+    /// Its position in the display.
+    #[must_use]
+    pub const fn index(&self) -> SetIndex {
+        self.index
+    }
+
+    /// Its slots of choices.
+    #[must_use]
+    pub const fn slots(&self) -> &[Vec<Choice<'v>>] {
+        self.slots
+    }
+
+    /// The selection of the chosen entry's id per slot. An id that is not one of its slot's
+    /// choices is refused.
+    ///
+    /// # Errors
+    ///
+    /// [`SelectionError`]: not one id per slot, an id of no choice of its slot, or two
+    /// transactions.
+    pub fn select(&self, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
+        let set = self.index;
+        if ids.len() != self.slots.len() {
             return Err(SelectionError::Length {
                 set,
                 ids: ids.len(),
-                slots: slots.len(),
+                slots: self.slots.len(),
             });
         }
         let mut chosen = Vec::new();
-        for (slot, (choices, id)) in slots.iter().zip(ids).enumerate() {
+        for (slot, (choices, id)) in self.slots.iter().zip(ids).enumerate() {
             let hits: Vec<&Choice<'v>> =
                 choices.iter().filter(|choice| choice.id() == *id).collect();
             match hits.as_slice() {

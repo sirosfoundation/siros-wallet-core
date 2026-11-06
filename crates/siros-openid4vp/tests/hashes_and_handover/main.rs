@@ -197,7 +197,8 @@ fn answer<'a, H: CoreHost + Default>(
     let shown = display(&sets, &views, &[]).expect("display");
     let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let ids = shown
-        .select(siros_openid4vp::matching::SetIndex(0), &first)
+        .set(0)
+        .and_then(|set| set.select(&first))
         .expect("selection")
         .ids();
     let host = H::default();
@@ -368,7 +369,8 @@ fn a_hash_algorithms_digest_holds_the_octets_it_states() {
         let shown = display(&sets, &views, &[]).expect("display");
         let first: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
         let ids = shown
-            .select(siros_openid4vp::matching::SetIndex(0), &first)
+            .set(0)
+            .and_then(|set| set.select(&first))
             .expect("selection")
             .ids();
         let host = TestHost::default();

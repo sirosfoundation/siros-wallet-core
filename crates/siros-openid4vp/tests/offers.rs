@@ -401,7 +401,8 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let shown = display(&sets, &views, &[]).expect("display");
     let id = shown.sets()[0][0][0].id().to_owned();
     let selection = shown
-        .select(siros_openid4vp::matching::SetIndex(0), &[&id])
+        .set(0)
+        .and_then(|set| set.select(&[&id]))
         .expect("selection");
     // The record names the entry and attests what the profile attests; the header is the
     // transaction's.
@@ -464,7 +465,7 @@ fn multiple_offers_one_transaction_bearing_credential_per_selection() {
 
 #[test]
 fn a_selection_is_read_back_only_from_its_sets_entries() {
-    use siros_openid4vp::matching::{CandidateIndex, Pick, SelectionError, Views, display};
+    use siros_openid4vp::matching::{Pick, SelectionError, Views, display};
     let text = parameters(&common::test_queries(&["q", "r"]), "");
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
@@ -485,40 +486,24 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+    let set = shown.set(0).expect("the set");
+    assert_eq!(set.select(&ids).expect("selection").ids(), ids);
     assert_eq!(
-        shown
-            .select(siros_openid4vp::matching::SetIndex(0), &ids)
-            .expect("selection")
-            .ids(),
-        ids
+        shown.set(1).err(),
+        Some(SelectionError::NoSet { set: 1, sets: 1 })
     );
     assert_eq!(
-        shown
-            .select(siros_openid4vp::matching::SetIndex(1), &ids)
-            .err(),
-        Some(SelectionError::NoSet {
-            set: siros_openid4vp::matching::SetIndex(1),
-            sets: 1
-        })
-    );
-    assert_eq!(
-        shown
-            .select(siros_openid4vp::matching::SetIndex(0), &ids[..1])
-            .err(),
+        set.select(&ids[..1]).err(),
         Some(SelectionError::Length {
-            set: siros_openid4vp::matching::SetIndex(0),
+            set: set.index(),
             ids: 1,
             slots: 2
         })
     );
     let swapped = [ids[1], ids[0]];
     assert!(matches!(
-        shown.select(siros_openid4vp::matching::SetIndex(0), &swapped),
-        Err(SelectionError::NotAChoice {
-            set: siros_openid4vp::matching::SetIndex(0),
-            slot: 0,
-            ..
-        })
+        set.select(&swapped),
+        Err(SelectionError::NotAChoice { slot: 0, .. })
     ));
     // One confirmation carries one transaction: a display offering two transaction-bearing
     // entries in one set, which no offer makes, refuses choosing both.
@@ -544,20 +529,21 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let views = Views::of(&matched, &env).expect("views");
     let m = request.indexed_queries().next().expect("m").0;
     let option = matched.candidates(m)[0].options[0];
-    let pick = |k: usize| {
-        Offered::Pick(Pick {
-            query: m,
-            candidate: CandidateIndex(k),
-            option,
+    let picks: Vec<Offered> = matched
+        .indexed_candidates(m)
+        .map(|(candidate, _)| {
+            Offered::Pick(Pick {
+                query: m,
+                candidate,
+                option,
+            })
         })
-    };
-    let both = [vec![vec![pick(0)], vec![pick(1)]]];
+        .collect();
+    let both = [vec![vec![picks[0]], vec![picks[1]]]];
     let shown = display(&both, &views, &[]).expect("display");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     assert_eq!(
-        shown
-            .select(siros_openid4vp::matching::SetIndex(0), &ids)
-            .err(),
+        shown.set(0).and_then(|set| set.select(&ids)).err(),
         Some(SelectionError::TwoTransactions)
     );
 }

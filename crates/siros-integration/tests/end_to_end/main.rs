@@ -131,7 +131,8 @@ fn answer(
     let shown = display(&sets, &views, &[]).expect("no fault");
     let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
     let selection = shown
-        .select(siros_openid4vp::matching::SetIndex(0), &ids)
+        .set(0)
+        .and_then(|set| set.select(&ids))
         .expect("the defaults are a selection");
     let header = selection.header();
     let chosen = selection.ids();

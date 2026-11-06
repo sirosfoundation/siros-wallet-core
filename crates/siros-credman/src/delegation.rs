@@ -6,7 +6,7 @@
 
 use siros_explain::{Explain, Text};
 use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::matching::{Choice, Display, SelectionError, SetIndex};
+use siros_openid4vp::matching::{Choice, Display, SelectionError};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 
@@ -205,15 +205,11 @@ impl Fulfilment {
         let Self::Background(host) = self else {
             return Ok(Ok(()));
         };
-        let sets = display.sets();
-        let Some(slots) = sets.get(set) else {
-            return Ok(Err(SelectionError::NoSet {
-                set: SetIndex(set),
-                sets: sets.len(),
-            }
-            .into()));
+        let chosen = match display.set(set) {
+            Ok(chosen) => chosen,
+            Err(refused) => return Ok(Err(refused.into())),
         };
-        let facts = SetFacts::of(slots, presentable, transactions, text_of)?;
+        let facts = SetFacts::of(chosen.slots(), presentable, transactions, text_of)?;
         Ok(match WalletDisplay::of(facts, host) {
             WalletDisplay::NotNeeded => Ok(()),
             WalletDisplay::Needed => Err(WalletDisplayNeeded::Needed { set }),
