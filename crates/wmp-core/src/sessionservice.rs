@@ -666,12 +666,12 @@ fn hex_lower(bytes: &[u8]) -> String {
 /// the service; the mirror injects the clock so tests are deterministic.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
-/// A [`Handler`](crate::Handler) whose session methods run a
+/// A [`Handler`](crate::handler::Handler) whose session methods run a
 /// [`SessionService`].
 ///
 /// go-wmp embeds this in an application handler so the other methods come
 /// from `BaseHandler`; in Rust an application implements
-/// [`Handler`](crate::Handler) for itself and delegates the three session
+/// [`Handler`](crate::handler::Handler) for itself and delegates the three session
 /// methods to a clone of this handler, or holds it and calls its methods
 /// directly.
 #[derive(Clone)]

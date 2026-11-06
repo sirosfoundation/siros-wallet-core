@@ -58,7 +58,7 @@ pub struct Session {
     /// does not expire on its own.
     pub expires_at: Option<i64>,
     /// The opaque owner key of the authenticated principal that created the
-    /// session ([`crate::Principal::key`]). Empty means unowned, which is
+    /// session ([`crate::principal::Principal::key`]). Empty means unowned, which is
     /// the behaviour of sessions created before owner binding existed.
     pub owner: String,
     /// When [`Session::resumption_token`] expires, unix seconds; absent
