@@ -152,7 +152,7 @@ impl<'a> AuthorizationResponse<'a> {
             text.push_str(&format!(
                 ",{}:{}",
                 quote(member.name.as_str()),
-                member.value.python_compact()
+                member.value.json_compact()
             ));
         }
         text.push('}');

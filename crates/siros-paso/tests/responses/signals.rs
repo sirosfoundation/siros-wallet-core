@@ -412,7 +412,7 @@ pub(super) fn the_authentication_methods_are_rfc_8176_values_and_one_biometric_c
             .expect("one factor or more");
         let authentication = Authentication::new(Timestamp(0), all);
         let got: Option<Json> = methods(&authentication).map(|methods| {
-            serde_json::from_str(&methods.python_compact().to_string()).expect("json")
+            serde_json::from_str(&methods.json_compact().to_string()).expect("json")
         });
         assert_eq!(got, want, "{factors:?}");
     }

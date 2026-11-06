@@ -26,7 +26,7 @@ fn text(value: &str) -> Node<'static> {
 }
 
 fn encoded_json(node: &Node<'_>) -> String {
-    URL_SAFE_NO_PAD.encode(node.written_compact())
+    URL_SAFE_NO_PAD.encode(node.json_compact().to_string())
 }
 
 fn hash(input: &str) -> String {

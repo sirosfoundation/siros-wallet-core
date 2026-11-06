@@ -252,7 +252,7 @@ impl Answer<'_> {
             .map_err(|twice| Fault::caused(FAULT, detail!("the SCA response claims"), twice))
     }
 
-    /// Risk Signals §7: the envelopes as `json.dumps` writes them by default, encrypted to the
+    /// Risk Signals §7: the envelopes as [`Node::json_ascii`] writes them, encrypted to the
     /// issuer's key with §7.6's A256GCM: a JWE for an SD-JWT VC, a `COSE_Encrypt` for an mdoc,
     /// which needs the build's `COSE_Encrypt` module.
     fn sealed(&self, envelopes: &Node<'_>, modules: Modules<'_>) -> Result<MemberValue, Fault> {
@@ -263,7 +263,7 @@ impl Answer<'_> {
         let key = self.document.encryption_key(sealer.as_ref()).ok_or_else(|| {
             Fault::new(FAULT, detail!("the entry rendered and revalidated with a key to encrypt its risk signals to, now without"))
         })?;
-        let plaintext = envelopes.python_ascii().to_string();
+        let plaintext = envelopes.json_ascii().to_string();
         Ok(match self.placement {
             Placement::Claims => MemberValue::Text(
                 modules

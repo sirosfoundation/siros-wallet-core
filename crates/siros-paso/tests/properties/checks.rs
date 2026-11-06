@@ -70,7 +70,7 @@ fn given_text(entry: &Value, types: &str) -> Option<String> {
     };
     let node = Node::parse(&text).expect("JSON");
     node.get(&member)
-        .map(|given| given.python_compact().to_string())
+        .map(|given| given.json_compact().to_string())
 }
 
 /// The metadata that renders an entry for the card: the ad-hoc JWT's when the entry carries one,

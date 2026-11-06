@@ -168,7 +168,7 @@ pub enum ConvertError {
 /// compact JSON.
 #[must_use]
 pub fn module_of(document: &Node<'_>) -> DefinedModule {
-    let digest = Sha256::digest(document.python_compact().to_string().as_bytes());
+    let digest = Sha256::digest(document.json_compact().to_string().as_bytes());
     DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
 }
 

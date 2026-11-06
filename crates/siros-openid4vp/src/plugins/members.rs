@@ -84,9 +84,8 @@ impl Item {
     }
 }
 
-/// The text of a JSON value whose objects name each member once, written as Python's
-/// `json.dumps(value, separators=(",", ":"), ensure_ascii=False)` writes it: object members in
-/// their order, integers by value, other numbers as Python's `repr` of the double.
+/// The text of a JSON value whose objects name each member once, as [`Node::json_compact`] writes
+/// it: object members in their order, each number as received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonText(String);
 
@@ -105,7 +104,7 @@ impl JsonText {
 
 impl From<&Node<'_>> for JsonText {
     fn from(node: &Node<'_>) -> Self {
-        Self(node.python_compact().to_string())
+        Self(node.json_compact().to_string())
     }
 }
 

@@ -8,6 +8,7 @@ use std::fmt;
 use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::refusal::ReprItem;
 
 use crate::entry::Payload;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
@@ -280,7 +281,7 @@ impl Rulebook<'_> {
 
 /// Each field the Payment rulebook requires present in a payment payload: a field of a
 /// non-object is absent.
-fn required(payment: &Node<'_>, absent: fn(String) -> NotCompatible) -> Result<(), Outcome> {
+fn required(payment: &Node<'_>, absent: fn(ReprItem) -> NotCompatible) -> Result<(), Outcome> {
     for path in PAYMENT_REQUIRED {
         let concrete: Vec<Concrete<'_>> = path
             .iter()
@@ -299,7 +300,7 @@ fn required(payment: &Node<'_>, absent: fn(String) -> NotCompatible) -> Result<(
 
 /// An embedded `payment_payload`, when present, holds the fields the Payment rulebook requires
 /// (Generic §3.2, Mandate §2.2).
-fn embedded(payload: &Object<'_>, absent: fn(String) -> NotCompatible) -> Result<(), Outcome> {
+fn embedded(payload: &Object<'_>, absent: fn(ReprItem) -> NotCompatible) -> Result<(), Outcome> {
     payload
         .get("payment_payload")
         .map_or(Ok(()), |embedded| required(embedded, absent))

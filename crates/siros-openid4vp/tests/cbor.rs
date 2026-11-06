@@ -219,8 +219,8 @@ fn json_converts_to_cbor_and_back() {
         assert_eq!(decode(&encode(&item).unwrap()).unwrap(), item, "{text}");
         // The reading writes the item as the model's Python writes the JSON.
         assert_eq!(
-            model_value(&item).unwrap().python_compact().to_string(),
-            node.python_compact().to_string(),
+            model_value(&item).unwrap().json_compact().to_string(),
+            node.json_compact().to_string(),
             "{text}"
         );
         assert_eq!(to_json(&item).unwrap(), node, "{text}");

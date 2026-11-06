@@ -199,7 +199,7 @@ pub fn member(json: &str, name: &str) -> String {
     let node = Node::parse(json).expect("JSON");
     node.get(name)
         .expect("the member")
-        .python_text()
+        .json_spaced()
         .to_string()
 }
 
@@ -346,7 +346,7 @@ fn app_with(cards: &[&Card], further: Vec<DefinedForm>, env: &Env) -> App {
             .expect("the document");
         let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
         for (kind, meta) in document.types() {
-            let meta = meta.python_compact().to_string();
+            let meta = meta.json_compact().to_string();
             if let Some(module) = self::converted(kind.as_str(), &meta, env.priority())
                 && defined.iter().all(|known| known.id() != module.id())
             {
