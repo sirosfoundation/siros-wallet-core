@@ -291,7 +291,7 @@ mod verify {
                         .leaf()
                         .subject()
                         .map_err(|_| AdhocFailure::Untrusted)?;
-                    let foreign = anchor.der() != root.der() || leaf != subject.der();
+                    let foreign = anchor.der() != root.bytes() || leaf != subject.bytes();
                     (key, Some(foreign))
                 }
                 Issuer::KeySet { keys, .. } => {

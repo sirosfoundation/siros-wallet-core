@@ -35,26 +35,28 @@ pub enum DocumentError {
     Member(#[explain(name = "member")] &'static str),
 }
 
-/// The DER of the root certificate a credential's chain ends in, compared byte for byte.
+/// The bytes a document's `issuer.x5c.root` decodes to, which Proof Metadata §7 step 6 compares
+/// byte for byte with the anchor's DER: bytes that are no DER equal no anchor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainRoot(Vec<u8>);
 
 impl ChainRoot {
-    /// The DER.
+    /// The bytes.
     #[must_use]
-    pub fn der(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
-/// The DER of the Subject of a credential's leaf certificate, compared byte for byte.
+/// The bytes a document's `issuer.x5c.subject` decodes to, which Proof Metadata §7 step 6
+/// compares byte for byte with the leaf's Subject: bytes that are no DER equal no Subject.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainSubject(Vec<u8>);
 
 impl ChainSubject {
-    /// The DER.
+    /// The bytes.
     #[must_use]
-    pub fn der(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         &self.0
     }
 }
@@ -124,7 +126,7 @@ impl<'d> PasoDocument<'d> {
             .get("iss")
             .and_then(Node::as_str)
             .ok_or(DocumentError::Member("issuer.iss"))?;
-        let der = |chain: &Node<'_>, name: &'static str, member: &'static str| {
+        let decoded = |chain: &Node<'_>, name: &'static str, member: &'static str| {
             chain
                 .get(name)
                 .and_then(Node::as_str)
@@ -134,8 +136,8 @@ impl<'d> PasoDocument<'d> {
         let issuer = match (issuer.get("x5c"), issuer.get("keys")) {
             (Some(chain), _) => Issuer::Chain {
                 iss,
-                root: ChainRoot(der(chain, "root", "issuer.x5c.root")?),
-                subject: ChainSubject(der(chain, "subject", "issuer.x5c.subject")?),
+                root: ChainRoot(decoded(chain, "root", "issuer.x5c.root")?),
+                subject: ChainSubject(decoded(chain, "subject", "issuer.x5c.subject")?),
             },
             (None, Some(Node::Object(keys))) => Issuer::KeySet { iss, keys },
             (None, _) => return Err(DocumentError::Member("issuer.keys")),
