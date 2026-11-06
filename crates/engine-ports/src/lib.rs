@@ -720,7 +720,12 @@ pub struct EvaluationRequest {
     pub subject: String,
     /// The key material from the signed metadata (x5c or jwk).
     pub key_material: Vec<u8>,
-    /// The resource type being resolved (for `/v1/resolve`).
+    /// The subject's role for the evaluator: `credential-issuer` on
+    /// the issuance side (the subject is the credential's issuer),
+    /// `credential-verifier` on the presentation side (the subject is
+    /// the presentation's verifier). The backend's proxy maps it to
+    /// the AuthZEN action name (one of its default rules' allowed
+    /// set); a plain PDP ignores it.
     pub resource_type: Option<String>,
     /// The evaluation's context (the Go engine's
     /// `buildVerifierEvalContext`, carried by

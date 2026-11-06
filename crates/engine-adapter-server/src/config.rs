@@ -39,6 +39,15 @@ pub struct Config {
     /// backend's proxy (the legacy fallback); a URL means the engine calls
     /// the PDP directly.
     pub pdp_url: String,
+    /// The bearer token the backend's proxy routes validate (the
+    /// `/v1/evaluate` and `/v1/resolve` TAC gate: an AS-issued token
+    /// with `tac` covering `r` and an audience the deployment accepts —
+    /// `wallet-backend` or `wallet-registry` on the default rules).
+    /// The deployment mints it: the dev stack's
+    /// `scripts/mint_engine_pdp_token.py`, Fly's deploy from the AS
+    /// signing key. Empty means no token: the proxy's routes 401 and
+    /// the engine's trust evaluation fails closed.
+    pub pdp_token: String,
     /// Whether plain `http` fetches are allowed (never in production; the
     /// Go engine's `http_client.allow_plaintext`).
     pub allow_plaintext: bool,
@@ -62,6 +71,7 @@ impl Default for Config {
             as_issuer: String::new(),
             as_audiences: vec!["wallet-engine".to_owned()],
             pdp_url: String::new(),
+            pdp_token: String::new(),
             allow_plaintext: false,
             metadata_type: "prefer-signed".to_owned(),
             max_concurrent_flows: 16,
@@ -131,6 +141,9 @@ impl Config {
         }
         if let Some(value) = text("ENGINE_PDP_URL") {
             config.pdp_url = value;
+        }
+        if let Some(value) = text("ENGINE_PDP_TOKEN") {
+            config.pdp_token = value;
         }
         if let Some(value) = text("ENGINE_ALLOW_PLAINTEXT") {
             // The truthy forms a compose file or a chart writes.

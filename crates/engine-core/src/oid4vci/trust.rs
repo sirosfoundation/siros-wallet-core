@@ -66,7 +66,11 @@ pub async fn evaluate_issuer_trust(
         .evaluate(EvaluationRequest {
             subject: issuer.to_owned(),
             key_material,
-            resource_type: None,
+            // The subject's role for the evaluator: the issuer side of
+            // the issuance. The backend's proxy maps this to the
+            // AuthZEN action name (credential-issuer — one of the
+            // default rules' allowed set); a plain PDP ignores it.
+            resource_type: Some("credential-issuer".to_owned()),
             // The issuer evaluation carries no context (the Go
             // engine's EvaluateIssuer has none — the verifier's
             // buildVerifierEvalContext is the presentation side's).

@@ -284,7 +284,7 @@ async fn the_engine_serves_an_issuance_and_its_notification_end_to_end() {
         |_| {
             vec![(
                 "/v1/evaluate".to_owned(),
-                r#"{"trusted": true, "decision": "in the registry"}"#,
+                r#"{"decision": true, "context": {"reason": [{"message": "in the registry"}]}}"#,
             )]
         },
         pdp_seen.clone(),
@@ -503,18 +503,42 @@ async fn the_engine_serves_an_issuance_and_its_notification_end_to_end() {
     );
 
     // ── The world the engine talked to ─────────────────────────────────
-    // The trust evaluation reached the backend's PDP, with the issuer as
-    // the subject (the /v1/evaluate proxy shape).
+    // The trust evaluation reached the backend's PDP, in the AuthZEN Trust
+    // Registry Profile's shape (the /v1/evaluate route binds it): the
+    // subject as {type,id} — the issuer, a url — the resource as
+    // {type,id,key} with the metadata's inline jwks, the action as
+    // {name} (credential-issuer), the context beside them.
     let evaluation: serde_json::Value = serde_json::from_str(
         &pdp_seen
             .body_of("/v1/evaluate")
             .expect("the PDP was called"),
     )
     .unwrap_or_default();
-    assert_eq!(evaluation["subject"], issuer, "the issuer was evaluated");
+    assert_eq!(
+        evaluation["subject"],
+        serde_json::json!({"type": "url", "id": issuer}),
+        "the issuer was evaluated, as the AuthZEN subject: {evaluation}"
+    );
+    assert_eq!(
+        evaluation["resource"]["id"], issuer,
+        "the resource is the subject: {evaluation}"
+    );
+    // The fixture's metadata carries no jwks: the engine's key material
+    // is empty, and the resource's key mirrors it (the x5c default, a
+    // null key) — the proxy decides on an empty answer, exactly what
+    // the PDP contract leaves it.
+    assert_eq!(
+        evaluation["resource"]["type"], "x5c",
+        "empty key material defaults to the chain form: {evaluation}"
+    );
     assert!(
-        evaluation.get("key_material").is_some(),
-        "the key material rode the evaluation: {evaluation}"
+        evaluation["resource"]["key"].is_null(),
+        "no key material rode the resource: {evaluation}"
+    );
+    assert_eq!(
+        evaluation["action"],
+        serde_json::json!({"name": "credential-issuer"}),
+        "the issuance side names its action: {evaluation}"
     );
 
     // The pre-authorized exchange reached the issuer's AS.
