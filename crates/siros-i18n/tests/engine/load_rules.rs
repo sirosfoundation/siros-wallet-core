@@ -1,16 +1,12 @@
 //! One fixture per load rule, each refused for its rule and no other.
 
-use std::borrow::Cow;
-
-use siros_explain::{
-    ArgKind, DefinedKey, Domain, Entry, Keyed, Message, MessageId, ModuleId, ParamKind, Presence,
-    checked, names,
-};
+use siros_explain::{Domain, Message, MessageId, ModuleId, checked, names};
 use siros_i18n::{
-    Compilers, Declaration, LanguagePolicy, Module, ModuleError, Refusal, ResourceRule, Validity,
+    Compilers, Declaration, FormatId, LanguagePolicy, Module, ModuleError, Refusal, ResourceRule,
+    Validity,
 };
 
-use crate::{BODY, PROBE, declaration, load, source};
+use crate::{BODY, PROBE, declaration, load, source, tag};
 
 /// The fixture module from the English source with `from` replaced by `to`.
 fn altered(from: &str, to: &str) -> Result<Module, ModuleError> {
@@ -85,7 +81,7 @@ fn each_resource_rule_refuses_its_fixture() {
 
 #[test]
 fn each_module_rule_refuses_its_fixture() {
-    let en = || "en".to_owned();
+    let en = || tag("en");
     let key = |key: &str| key.to_owned();
     let english = source("en", BODY);
     let other = ModuleId::Crate(checked!(Domain, "other"));
@@ -222,7 +218,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("digits = 3\n", ""),
             ModuleError::Option {
-                format: "number",
+                format: checked!(FormatId, "number"),
                 option: "digits",
                 locale: en(),
             },
@@ -230,7 +226,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("digits = 3", "digits = three"),
             ModuleError::OptionText {
-                format: "number",
+                format: checked!(FormatId, "number"),
                 option: "digits",
                 locale: en(),
                 text: "three".to_owned(),
@@ -260,26 +256,6 @@ fn declarations_and_registrations_refuse_their_fixtures() {
     assert_eq!(
         Declaration::new(same).expect("counted once").ids().count(),
         1
-    );
-    // A converter's argument name is one or more tokens, as a type's `Names` are.
-    let key = DefinedKey::parse("label".to_owned()).expect("a key");
-    let param = |name: &'static str| {
-        let kind = ParamKind::new(ArgKind::Raw, Presence::Required);
-        Keyed::new(vec![Entry::new(Cow::Borrowed(name), kind)]).expect("one name")
-    };
-    assert_eq!(
-        Declaration::defined(
-            Keyed::new(vec![Entry::new(key.clone(), param("1x"))]).expect("one key")
-        )
-        .expect_err("refused"),
-        ModuleError::ParameterName {
-            key: "label".to_owned(),
-            name: "1x".to_owned(),
-        }
-    );
-    assert!(
-        Declaration::defined(Keyed::new(vec![Entry::new(key, param("c1"))]).expect("one key"))
-            .is_ok()
     );
     assert!(matches!(
         Compilers::new(&[&PROBE, &PROBE]),

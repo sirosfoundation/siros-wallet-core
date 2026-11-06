@@ -48,7 +48,7 @@ fn each_crate_module_loads_whole_in_english_and_german() {
                 locale,
             }) => {
                 assert!(
-                    missing.ends_with(&key) && locale == "de",
+                    missing.ends_with(&key) && locale.as_str() == "de",
                     "{missing} in {locale}"
                 );
             }

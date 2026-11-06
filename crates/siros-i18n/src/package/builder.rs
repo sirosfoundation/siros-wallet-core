@@ -4,15 +4,17 @@
 
 use std::fmt;
 
-use siros_explain::{ModuleId, Text};
+use siros_explain::{MessageId, ModuleId, Text};
 
 use super::codec::write_message;
 use super::held::{Held, TextKey};
 use super::manifest::{
     HeldRef, LocaleIndex, LocaleRef, Manifest, MessageRef, ModuleRecord, StoredId,
 };
-use super::registration::{Candidates, CredentialRecord, Registration, TransactionRecord};
-use super::{FORMAT, HEADER, Location, MAGIC, Package, merkle};
+use super::registration::{
+    Candidates, CredentialName, CredentialRecord, Registration, TransactionKind, TransactionRecord,
+};
+use super::{FORMAT, HEADER, Location, MAGIC, Package, PackageRoot, merkle};
 use crate::bytes::Writer;
 use crate::defined::DefinedForm;
 use crate::error::{ModuleName, PackageError, RenderError};
@@ -51,7 +53,7 @@ pub struct RegistrationBuilder {
 /// locale entries the package holds of each.
 #[derive(Debug)]
 struct Recorded {
-    name: String,
+    name: CredentialName,
     modules: Vec<(ModuleId, Vec<LocaleTag>)>,
 }
 
@@ -110,7 +112,7 @@ impl fmt::Debug for PackageTexts<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuiltPackage {
     bytes: Vec<u8>,
-    root: [u8; 32],
+    root: PackageRoot,
 }
 
 impl BuiltPackage {
@@ -122,7 +124,7 @@ impl BuiltPackage {
 
     /// The root: the package's identity, which [`Package::read`] takes.
     #[must_use]
-    pub const fn root(&self) -> [u8; 32] {
+    pub const fn root(&self) -> PackageRoot {
         self.root
     }
 
@@ -172,7 +174,11 @@ impl PackageBuilder {
     ///
     /// [`PackageError::RepeatedModule`] for a module added twice; [`PackageError::RepeatedKey`]
     /// for a key given twice; [`PackageError::Key`] for a key the module does not hold.
-    pub fn module(&mut self, module: &Module, keys: Option<&[&str]>) -> Result<(), PackageError> {
+    pub fn module(
+        &mut self,
+        module: &Module,
+        keys: Option<&[MessageId]>,
+    ) -> Result<(), PackageError> {
         self.add(module.form(), keys)
     }
 
@@ -202,7 +208,11 @@ impl PackageBuilder {
     }
 
     /// Adds a module's compiled form in the package's locales, with every key or the keys given.
-    fn add(&mut self, form: &CompiledModule, keys: Option<&[&str]>) -> Result<(), PackageError> {
+    fn add(
+        &mut self,
+        form: &CompiledModule,
+        keys: Option<&[MessageId]>,
+    ) -> Result<(), PackageError> {
         if self.modules.iter().any(|added| added.whole.id == form.id) {
             return Err(PackageError::RepeatedModule(ModuleName::of(form.id)));
         }
@@ -332,7 +342,11 @@ impl RegistrationBuilder {
     /// # Errors
     ///
     /// [`PackageBuilder::module`]'s.
-    pub fn module(&mut self, module: &Module, keys: Option<&[&str]>) -> Result<(), PackageError> {
+    pub fn module(
+        &mut self,
+        module: &Module,
+        keys: Option<&[MessageId]>,
+    ) -> Result<(), PackageError> {
         self.builder.module(module, keys)
     }
 
@@ -352,9 +366,13 @@ impl RegistrationBuilder {
     ///
     /// [`PackageError::RepeatedCredential`] for a name given twice; [`PackageError::Module`] for a
     /// module not added, and [`PackageError::RepeatedModule`] for one given twice.
-    pub fn credential(&mut self, name: &str, modules: &[ModuleId]) -> Result<(), PackageError> {
+    pub fn credential(
+        &mut self,
+        name: CredentialName,
+        modules: &[ModuleId],
+    ) -> Result<(), PackageError> {
         if self.credentials.iter().any(|known| known.name == name) {
-            return Err(PackageError::RepeatedCredential(name.to_owned()));
+            return Err(PackageError::RepeatedCredential(name));
         }
         let mut tagged = Vec::with_capacity(modules.len());
         for (index, module) in modules.iter().enumerate() {
@@ -365,7 +383,7 @@ impl RegistrationBuilder {
             tagged.push((*module, tags.map(|l| l.locale.clone()).collect()));
         }
         self.credentials.push(Recorded {
-            name: name.to_owned(),
+            name,
             modules: tagged,
         });
         Ok(())
@@ -378,13 +396,17 @@ impl RegistrationBuilder {
     ///
     /// [`PackageError::RepeatedTransaction`] for a type given twice; [`PackageError::Module`] for
     /// a module not added.
-    pub fn transaction(&mut self, kind: &str, module: ModuleId) -> Result<(), PackageError> {
+    pub fn transaction(
+        &mut self,
+        kind: TransactionKind,
+        module: ModuleId,
+    ) -> Result<(), PackageError> {
         if self.transactions.iter().any(|known| known.kind == kind) {
-            return Err(PackageError::RepeatedTransaction(kind.to_owned()));
+            return Err(PackageError::RepeatedTransaction(kind));
         }
         let added = self.added(module)?.id;
         self.transactions.push(TransactionRecord {
-            kind: kind.to_owned(),
+            kind,
             module: StoredId::of(added),
         });
         Ok(())
@@ -450,29 +472,28 @@ impl RegistrationBuilder {
 }
 
 /// `keys`, each once and each a key that every locale of `form` holds.
-fn kept_keys(form: &CompiledModule, keys: &[&str]) -> Result<Vec<String>, PackageError> {
+fn kept_keys(form: &CompiledModule, keys: &[MessageId]) -> Result<Vec<String>, PackageError> {
     keys.iter()
         .enumerate()
         .map(|(index, key)| {
             let module = || ModuleName::of(form.id);
-            let key = (*key).to_owned();
-            if keys.iter().take(index).any(|earlier| *earlier == key) {
+            if keys.iter().take(index).any(|earlier| earlier == key) {
                 return Err(PackageError::RepeatedKey {
                     module: module(),
-                    key,
+                    key: *key,
                 });
             }
             let held = !form.locales.is_empty()
                 && form
                     .locales
                     .iter()
-                    .all(|locale| locale.message(&key).is_some());
+                    .all(|locale| locale.message(key.as_str()).is_some());
             if held {
-                Ok(key)
+                Ok(key.as_str().to_owned())
             } else {
                 Err(PackageError::Key {
                     module: module(),
-                    key,
+                    key: *key,
                 })
             }
         })
@@ -598,7 +619,7 @@ fn assemble(entries: Vec<Vec<u8>>) -> BuiltPackage {
     }
     BuiltPackage {
         bytes,
-        root: tree.root,
+        root: PackageRoot::new(tree.root),
     }
 }
 

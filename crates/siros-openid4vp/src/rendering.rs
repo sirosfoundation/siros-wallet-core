@@ -11,8 +11,8 @@ use std::borrow::Cow;
 
 use siros_explain::{Explain, ModuleId};
 use siros_i18n::{
-    DefinedForm, Formats, ModuleName, NoLanguage, Package, PackageError, Registration, Renderer,
-    Screen,
+    CredentialName, DefinedForm, Formats, ModuleName, NoLanguage, Package, PackageError,
+    Registration, Renderer, Screen,
 };
 
 use crate::plugins::{Exclusion, Fault};
@@ -111,7 +111,7 @@ impl<'p> Rendering<'p> {
                     None => (env.priority(), env.fallback()),
                     Some(credential) => {
                         let record = registration
-                            .credential(credential)
+                            .credential(&CredentialName::new(credential.to_owned()))
                             .filter(|record| record.draws_from(self.modules))
                             .ok_or_else(|| {
                                 Fault::new(

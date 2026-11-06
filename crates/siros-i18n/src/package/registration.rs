@@ -3,7 +3,7 @@
 //! module. The matcher reads its lists and options from it, and a package whose inputs differ
 //! from the app's is stale.
 
-use siros_explain::ModuleId;
+use siros_explain::{IntoArg, ModuleId, kind};
 
 #[cfg(feature = "load")]
 use super::codec::write_list;
@@ -62,10 +62,63 @@ impl Candidates {
     }
 }
 
+/// A credential's name in a registration: the identifier its query or its wallet's configuration
+/// gives it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CredentialName(String);
+
+impl CredentialName {
+    /// The credential of this name.
+    #[must_use]
+    pub const fn new(name: String) -> Self {
+        Self(name)
+    }
+
+    /// The name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl IntoArg for CredentialName {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A transaction data type in a registration.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TransactionKind(String);
+
+impl TransactionKind {
+    /// The transaction type of this name.
+    #[must_use]
+    pub const fn new(name: String) -> Self {
+        Self(name)
+    }
+
+    /// The name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl IntoArg for TransactionKind {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A credential the registration serves: its name, its card's modules and its candidates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CredentialRecord {
-    pub(crate) name: String,
+    pub(crate) name: CredentialName,
     pub(crate) modules: Vec<StoredId>,
     pub(crate) candidates: Candidates,
 }
@@ -91,7 +144,7 @@ impl CredentialRecord {
 /// to, whose languages and policy the package's module record holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TransactionRecord {
-    pub(crate) kind: String,
+    pub(crate) kind: TransactionKind,
     pub(crate) module: StoredId,
 }
 
@@ -127,10 +180,10 @@ impl Registration {
 
     /// The credential `name`; `None` for a credential the registration does not serve.
     #[must_use]
-    pub fn credential(&self, name: &str) -> Option<&CredentialRecord> {
+    pub fn credential(&self, name: &CredentialName) -> Option<&CredentialRecord> {
         self.credentials
             .iter()
-            .find(|credential| credential.name == name)
+            .find(|credential| credential.name == *name)
     }
 
     /// Whether `module` is the module of a transaction type the registration serves.
@@ -153,7 +206,7 @@ impl Registration {
         writer.flag(self.options.bidi == Bidi::None);
         writer.flag(self.options.on_error == OnRenderError::Rendered);
         write_list(writer, &self.credentials, |writer, credential| {
-            writer.text(&credential.name);
+            writer.text(credential.name.as_str());
             write_list(writer, &credential.modules, |writer, module| {
                 writer.raw(module.encoded());
             });
@@ -161,7 +214,7 @@ impl Registration {
             tags(writer, &credential.candidates.fallback);
         });
         write_list(writer, &self.transactions, |writer, transaction| {
-            writer.text(&transaction.kind);
+            writer.text(transaction.kind.as_str());
             writer.raw(transaction.module.encoded());
         });
     }
@@ -199,7 +252,7 @@ impl Registration {
             }
         };
         let credentials = list(reader, |reader| {
-            let name = text(reader)?;
+            let name = CredentialName::new(text(reader)?);
             let modules = list(reader, |reader| {
                 let id = StoredId::decode(reader)?;
                 held(reader, id)
@@ -216,22 +269,22 @@ impl Registration {
             })
         })?;
         let transactions = list(reader, |reader| {
-            let kind = text(reader)?;
+            let kind = TransactionKind::new(text(reader)?);
             let id = StoredId::decode(reader)?;
             Ok(TransactionRecord {
                 kind,
                 module: held(reader, id)?,
             })
         })?;
-        let ascending = |names: &mut dyn Iterator<Item = &String>| {
-            let names: Vec<&String> = names.collect();
+        let ascending = |names: &mut dyn Iterator<Item = &str>| {
+            let names: Vec<&str> = names.collect();
             names.windows(2).all(|pair| match pair {
                 [a, b] => a < b,
                 _ => true,
             })
         };
-        if !ascending(&mut credentials.iter().map(|c| &c.name))
-            || !ascending(&mut transactions.iter().map(|t| &t.kind))
+        if !ascending(&mut credentials.iter().map(|c| c.name.as_str()))
+            || !ascending(&mut transactions.iter().map(|t| t.kind.as_str()))
         {
             return Err(reader.malformed());
         }

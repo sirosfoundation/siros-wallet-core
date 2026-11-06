@@ -43,6 +43,14 @@ impl FormatId {
     }
 }
 
+impl siros_explain::IntoArg for FormatId {
+    type Kind = siros_explain::kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.0
+    }
+}
+
 /// What a placeholder's function applies to, as the loader hands it to the function's module.
 #[cfg(feature = "load")]
 #[derive(Debug, Clone, Copy)]
@@ -451,7 +459,7 @@ impl Formats {
         let mut held: Vec<&'static dyn FormatRenderer> = vec![&crate::string::STRING];
         for &renderer in renderers {
             if held.iter().any(|earlier| earlier.id() == renderer.id()) {
-                return Err(RenderError::Registered(renderer.id().as_str()));
+                return Err(RenderError::Registered(renderer.id()));
             }
             held.push(renderer);
         }

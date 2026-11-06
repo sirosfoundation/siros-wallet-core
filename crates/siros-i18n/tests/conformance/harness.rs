@@ -1,12 +1,10 @@
 //! One suite test: its message loaded as a module of one key in the test's locale, its params
 //! declared and given as the key's arguments, and its text rendered.
 
-use std::borrow::Cow;
-
 use serde_json::Value as Json;
 use siros_explain::{
-    Count, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId, ModuleId,
-    Names, ParamKind, Query, Text, Value, checked,
+    Count, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId,
+    MetadataDigest, ModuleId, Names, ParamKind, ParamName, Query, Text, Value, checked,
 };
 use siros_i18n::{
     Amounts, Bidi, BuiltPackage, Declaration, Formats, Formatted, LocaleTag, Module, ModuleError,
@@ -152,7 +150,7 @@ fn module_error(error: &ModuleError) -> Option<&'static str> {
 /// The MF2 error type a render refusal stands for.
 fn render_error(error: &RenderError) -> Option<&'static str> {
     match error {
-        RenderError::Message(kind) => Some(kind),
+        RenderError::Message(kind) => Some(kind.name()),
         RenderError::AbsentArgument { .. } => Some("unresolved-variable"),
         _ => None,
     }
@@ -162,7 +160,7 @@ fn render_error(error: &RenderError) -> Option<&'static str> {
 fn package(
     module: &Module,
     tag: &LocaleTag,
-    keys: Option<&[&str]>,
+    keys: Option<&[MessageId]>,
     held: Option<&Held<'_>>,
 ) -> Result<BuiltPackage, String> {
     let mut builder = PackageBuilder::new(vec![tag.clone()]).map_err(|e| e.to_string())?;
@@ -213,7 +211,7 @@ fn packaged(
     tag: &LocaleTag,
     held: &Held<'_>,
 ) -> Result<Result<Formatted, RenderError>, String> {
-    let keys: &[&str] = &[KEY];
+    let keys = &[checked!(MessageId, "conformance.message")][..];
     let compiled = package(module, tag, Some(keys), None)?;
     if package(module, tag, Some(keys), None)? != compiled {
         return Err("a package built twice differs".to_owned());
@@ -248,7 +246,7 @@ fn packaged(
 fn render(locale: &str, bidi: Bidi, src: &str, params: &[Param]) -> Result<Rendered, String> {
     let declaration = declaration(params)?;
     let plugin = checked!(Domain, "conformance");
-    let defined = DefinedModule::new(plugin, [0; 32]);
+    let defined = DefinedModule::new(plugin, MetadataDigest::new([0; 32]));
     let compilers = cldr::compilers(&[&TEST]);
     let source = resource(src);
     let module = match cldr::load(
@@ -277,8 +275,12 @@ fn render(locale: &str, bidi: Bidi, src: &str, params: &[Param]) -> Result<Rende
     };
     let args = params
         .iter()
-        .map(|p| Entry::new(Cow::Borrowed(p.name), p.value.clone()));
-    let args = Keyed::new(args.collect()).map_err(|e| e.to_string())?;
+        .map(|p| {
+            let name = ParamName::parse(p.name.to_owned()).ok_or("a param name")?;
+            Ok(Entry::new(name, p.value.clone()))
+        })
+        .collect::<Result<Vec<_>, &str>>()?;
+    let args = Keyed::new(args).map_err(|e| e.to_string())?;
     let key = DefinedKey::parse(KEY.to_owned()).ok_or("the key")?;
     let text = Text::Query(Query::defined(defined, key, args));
     let held = Held {

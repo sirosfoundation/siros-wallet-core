@@ -4,8 +4,8 @@
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use siros_explain::{
-    DefinedKey, DefinedModule, Domain, Keyed, Message, MessageId, ModuleId, Query, Text, checked,
-    names,
+    DefinedKey, DefinedModule, Domain, Keyed, Message, MessageId, MetadataDigest, ModuleId, Query,
+    Text, checked, names,
 };
 use siros_i18n::{
     Bidi, BuiltPackage, Compilers, Declaration, Formats, Language, LanguagePolicy, LocaleTag,
@@ -24,7 +24,10 @@ fn module(n: u8, tags: &[&str], policy: LanguagePolicy) -> Module {
         .map(|tag| format!("@locale {tag}\n---\nlang.entry = {tag}\n"))
         .collect();
     let sources: Vec<&str> = sources.iter().map(String::as_str).collect();
-    let id = ModuleId::Defined(DefinedModule::new(checked!(Domain, "lang"), [n; 32]));
+    let id = ModuleId::Defined(DefinedModule::new(
+        checked!(Domain, "lang"),
+        MetadataDigest::new([n; 32]),
+    ));
     Module::load(
         id,
         &declaration,
@@ -384,7 +387,9 @@ fn the_language_is_the_first_tag_every_module_serves() {
             .map_err(|refused| match refused {
                 NoLanguage::Selected { .. } => Refused::Selected,
                 NoLanguage::NotUnderstood(module) => match module.id() {
-                    ModuleId::Defined(defined) => Refused::NotUnderstood(defined.digest()[0]),
+                    ModuleId::Defined(defined) => {
+                        Refused::NotUnderstood(defined.digest().bytes()[0])
+                    }
                     other => panic!("a test module: {other:?}"),
                 },
                 NoLanguage::NoFallback => Refused::NoFallback,
@@ -412,7 +417,10 @@ fn a_selection_the_screen_cannot_show_is_refused() {
     let one = module(0, &["en"], any);
     let built = package(&[&one]);
     let package = Package::read(built.bytes(), built.root()).expect("a package");
-    let absent = ModuleId::Defined(DefinedModule::new(checked!(Domain, "lang"), [9; 32]));
+    let absent = ModuleId::Defined(DefinedModule::new(
+        checked!(Domain, "lang"),
+        MetadataDigest::new([9; 32]),
+    ));
     let refused = Screen::new(&package, vec![one.id()])
         .expect("a screen")
         .selecting(Selected::new(absent, tag("en")))

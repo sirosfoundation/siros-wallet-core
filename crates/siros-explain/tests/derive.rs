@@ -3,12 +3,10 @@
 //! Then the identifier grammar, a name given twice, the calendar rule of a date, a key given
 //! twice, and where RFC 3339 places a leap second.
 
-use std::borrow::Cow;
-
 use siros_explain::{
     ArgKind, ArgName, ArgValue, Count, Date, DateTime, DefinedKey, Domain, Entry, Explain,
-    Fraction, Key, Keyed, MessageId, Messages, Names, Offset, Presence, Repeated, Second, Text,
-    Value, checked,
+    Fraction, Key, Keyed, MessageId, Messages, Names, Offset, ParamName, Presence, Repeated,
+    Second, Text, Value, checked,
 };
 
 #[derive(Debug, thiserror::Error, Explain)]
@@ -114,9 +112,9 @@ fn errors_explain_beside_thiserror() {
         panic!("a query: {cause:?}")
     };
     assert_eq!(
-        (cause.key(), query.key(), query.args()),
+        (cause.key().as_str(), query.key(), query.args()),
         (
-            &Cow::Borrowed("cause"),
+            "cause",
             &Key::Message(checked!(MessageId, "openid4vp.routing.p1_absent")),
             &[][..]
         )
@@ -205,8 +203,15 @@ fn an_identifier_follows_the_grammar() {
                 Domain::new(text).is_some(),
                 ArgName::new(text).is_some(),
                 DefinedKey::parse(text.to_owned()).is_some(),
+                ParamName::parse(text.to_owned()).is_some(),
             ),
-            (at_least(2), at_least(1), at_least(1), at_least(1)),
+            (
+                at_least(2),
+                at_least(1),
+                at_least(1),
+                at_least(1),
+                at_least(1)
+            ),
             "{text:?}"
         );
     }

@@ -78,9 +78,9 @@ pub fn load(
         };
         match Module::load(id, declaration, &[&source], LanguagePolicy::Any, compilers) {
             Err(ModuleError::Option { format, .. })
-                if cldr.is_some() && !formats.iter().any(|f| f == format) =>
+                if cldr.is_some() && !formats.iter().any(|f| f == format.as_str()) =>
             {
-                formats.push(format.to_owned());
+                formats.push(format.as_str().to_owned());
             }
             result => return result,
         }

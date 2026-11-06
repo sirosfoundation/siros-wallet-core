@@ -10,6 +10,7 @@ use crate::form::{
     SelectorForm, VariantForm,
 };
 use crate::format::{Call, Compilers, FormatCompiler, FormatId, Operand, ParsedFormats, Uses};
+use crate::locale::LocaleTag;
 use crate::mf2::ast::{self, Body, Declaration, Function, Key, MarkupKind, Part};
 use crate::module::Declared;
 use crate::sink::Style;
@@ -17,7 +18,7 @@ use crate::sink::Style;
 /// Where a message stands: its key, its locale, and its declaration.
 pub(crate) struct Site<'a> {
     pub(crate) key: &'a str,
-    pub(crate) locale: &'a str,
+    pub(crate) locale: &'a LocaleTag,
     pub(crate) message: &'a Declared,
 }
 
@@ -25,18 +26,18 @@ impl Site<'_> {
     fn kind(&self, call: &str, refusal: Refusal) -> ModuleError {
         ModuleError::Kind {
             key: self.key.to_owned(),
-            locale: self.locale.to_owned(),
+            locale: self.locale.clone(),
             call: call.to_owned(),
             refusal,
         }
     }
 
-    fn markup(&self, markup: &str, make: fn(String, String, String) -> ModuleError) -> ModuleError {
-        make(
-            self.key.to_owned(),
-            self.locale.to_owned(),
-            markup.to_owned(),
-        )
+    fn markup(
+        &self,
+        markup: &str,
+        make: fn(String, LocaleTag, String) -> ModuleError,
+    ) -> ModuleError {
+        make(self.key.to_owned(), self.locale.clone(), markup.to_owned())
     }
 }
 
@@ -197,7 +198,7 @@ impl Resolved<'_> {
             let format = spec.compiler.id();
             let parsed = parsed(format).ok_or_else(|| ModuleError::Function {
                 key: resolver.site.key.to_owned(),
-                locale: resolver.site.locale.to_owned(),
+                locale: resolver.site.locale.clone(),
                 function: spec.function.to_owned(),
             })?;
             let bytes = resolver
@@ -260,7 +261,7 @@ impl Resolver<'_> {
     fn invalid(&self, rule: Validity) -> ModuleError {
         ModuleError::Invalid {
             key: self.site.key.to_owned(),
-            locale: self.site.locale.to_owned(),
+            locale: self.site.locale.clone(),
             rule,
         }
     }
@@ -279,7 +280,7 @@ impl Resolver<'_> {
             })
             .ok_or_else(|| ModuleError::Argument {
                 key: self.site.key.to_owned(),
-                locale: self.site.locale.to_owned(),
+                locale: self.site.locale.clone(),
                 argument: name.to_owned(),
             })
     }
@@ -395,7 +396,7 @@ impl Resolver<'_> {
             .provider(function)
             .ok_or_else(|| ModuleError::Function {
                 key: self.site.key.to_owned(),
-                locale: self.site.locale.to_owned(),
+                locale: self.site.locale.clone(),
                 function: function.to_owned(),
             })
     }
@@ -571,7 +572,7 @@ impl Resolver<'_> {
     }
 }
 
-const fn markup_error(key: String, locale: String, markup: String) -> ModuleError {
+const fn markup_error(key: String, locale: LocaleTag, markup: String) -> ModuleError {
     ModuleError::Markup {
         key,
         locale,
@@ -579,7 +580,7 @@ const fn markup_error(key: String, locale: String, markup: String) -> ModuleErro
     }
 }
 
-const fn markup_option(key: String, locale: String, markup: String) -> ModuleError {
+const fn markup_option(key: String, locale: LocaleTag, markup: String) -> ModuleError {
     ModuleError::MarkupOption {
         key,
         locale,
@@ -587,7 +588,7 @@ const fn markup_option(key: String, locale: String, markup: String) -> ModuleErr
     }
 }
 
-const fn nesting(key: String, locale: String, markup: String) -> ModuleError {
+const fn nesting(key: String, locale: LocaleTag, markup: String) -> ModuleError {
     ModuleError::Nesting {
         key,
         locale,

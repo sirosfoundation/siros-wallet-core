@@ -58,13 +58,13 @@ fn write_text(writer: &mut Writer, text: &Text) {
                 Key::Defined { module, key } => {
                     writer.byte(1);
                     writer.text(module.plugin().as_str());
-                    writer.raw(&module.digest());
+                    writer.raw(&module.digest().bytes());
                     writer.text(key.as_str());
                 }
             }
             writer.count(query.args().len());
             for arg in query.args() {
-                writer.text(arg.key());
+                writer.text(arg.key().as_str());
                 write_text(writer, arg.value());
             }
         }

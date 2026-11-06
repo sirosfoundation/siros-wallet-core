@@ -8,7 +8,7 @@
 use siros_explain::{Date, Offset, Value, checked};
 
 use crate::bytes::Reader;
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::format::{Direction, FormatId, FormatRenderer, Input, VariantKey, VariantKeys};
 use crate::sink::Sink;
 
@@ -52,7 +52,7 @@ struct Moment {
 
 impl Moment {
     fn of(kind: Kind, input: &Input<'_>) -> Result<Self, RenderError> {
-        let bad = RenderError::Message("bad-operand");
+        let bad = RenderError::Message(FormatFailure::BadOperand);
         let time = |at: siros_explain::Time, date, offset| Self {
             date,
             hour: at.hour(),
@@ -212,7 +212,7 @@ impl<'a> Form<'a> {
     }
 
     fn name(names: &[&str], index: usize, out: &mut String) -> Result<(), RenderError> {
-        out.push_str(names.get(index).ok_or(RenderError::Compiled(ID.as_str()))?);
+        out.push_str(names.get(index).ok_or(RenderError::Compiled(ID))?);
         Ok(())
     }
 
@@ -222,7 +222,7 @@ impl<'a> Form<'a> {
         let pattern = self
             .hours
             .get(usize::from(minutes < 0))
-            .ok_or(RenderError::Compiled(ID.as_str()))?;
+            .ok_or(RenderError::Compiled(ID))?;
         let (hours, rest) = (
             u32::from(minutes.unsigned_abs() / 60),
             u32::from(minutes.unsigned_abs() % 60),
@@ -243,7 +243,7 @@ impl<'a> Form<'a> {
                         self.digits(rest, 2, &mut text);
                     }
                 }
-                Item::Field(..) => return Err(RenderError::Compiled(ID.as_str())),
+                Item::Field(..) => return Err(RenderError::Compiled(ID)),
             }
         }
         text.push_str(&pending);
@@ -269,7 +269,7 @@ impl<'a> Form<'a> {
                 Item::Field(letter, width) => (letter, width),
             };
             if letter == b'y' {
-                let date = moment.date.ok_or(RenderError::Compiled(ID.as_str()))?;
+                let date = moment.date.ok_or(RenderError::Compiled(ID))?;
                 self.year(date.year(), width, shows_era, out)?;
             } else {
                 self.field(letter, width, moment, out)?;
@@ -295,7 +295,7 @@ impl<'a> Form<'a> {
                         Item::Text(text) => out.push_str(text),
                         Item::Field(b'y', width) => self.digits(in_era(year).1, width, out),
                         Item::Field(b'G', _) => Self::name(&self.eras, in_era(year).0, out)?,
-                        Item::Field(..) => return Err(RenderError::Compiled(ID.as_str())),
+                        Item::Field(..) => return Err(RenderError::Compiled(ID)),
                     }
                 }
             }
@@ -320,8 +320,8 @@ impl<'a> Form<'a> {
         moment: &Moment,
         out: &mut String,
     ) -> Result<(), RenderError> {
-        let malformed = RenderError::Compiled(ID.as_str());
-        let date = || moment.date.ok_or(RenderError::Compiled(ID.as_str()));
+        let malformed = RenderError::Compiled(ID);
+        let date = || moment.date.ok_or(RenderError::Compiled(ID));
         match letter {
             b'G' => Self::name(&self.eras, in_era(date()?.year()).0, out)?,
             b'M' if width >= 3 => {
@@ -343,9 +343,7 @@ impl<'a> Form<'a> {
             b'S' => {
                 let nanos = format!("{:09}", moment.nanos);
                 let shown = nanos.get(..usize::from(width).min(9)).unwrap_or_default();
-                let value: u32 = shown
-                    .parse()
-                    .map_err(|_| RenderError::Compiled(ID.as_str()))?;
+                let value: u32 = shown.parse().map_err(|_| RenderError::Compiled(ID))?;
                 self.digits(value, width, out);
             }
             b'a' => Self::name(&self.periods, usize::from(moment.hour >= 12), out)?,
@@ -378,7 +376,7 @@ impl<'a> Form<'a> {
                         Item::Text(text) => out.push_str(text),
                         Item::Field(0, _) => self.time(moment, &mut out)?,
                         Item::Field(1, _) => self.pattern(&self.date, moment, &mut out)?,
-                        Item::Field(..) => return Err(RenderError::Compiled(ID.as_str())),
+                        Item::Field(..) => return Err(RenderError::Compiled(ID)),
                     }
                 }
             }
@@ -414,6 +412,6 @@ impl FormatRenderer for DateFormat {
         _input: &Input<'_>,
         _keys: VariantKeys<'k>,
     ) -> Result<Vec<VariantKey<'k>>, RenderError> {
-        Err(RenderError::Message("bad-selector"))
+        Err(RenderError::Message(FormatFailure::BadSelector))
     }
 }

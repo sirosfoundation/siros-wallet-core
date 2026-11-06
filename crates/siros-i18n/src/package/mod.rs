@@ -40,7 +40,9 @@ pub use builder::{BuiltPackage, PackageBuilder, PackageTexts, RegistrationBuilde
 pub(crate) use codec::{replay, write_direction, write_message};
 pub(crate) use held::{Held, TextKey};
 pub(crate) use manifest::{LocaleIndex, Manifest, ModuleRecord, StoredKind, module_name};
-pub use registration::{Candidates, CredentialRecord, Registration};
+pub use registration::{
+    Candidates, CredentialName, CredentialRecord, Registration, TransactionKind,
+};
 
 use crate::defined::MainLocale;
 use crate::error::PackageError;
@@ -66,12 +68,30 @@ pub(crate) struct Location {
     pub(crate) length: usize,
 }
 
+/// A package's RFC 9162 Merkle tree root: its identity, which its holder keeps beside its bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackageRoot([u8; 32]);
+
+impl PackageRoot {
+    /// The root a holder kept as these bytes.
+    #[must_use]
+    pub const fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// The root's bytes.
+    #[must_use]
+    pub const fn bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
 /// A package over its serialized bytes, its header read. Each entry is checked against the root
 /// when it is read. Only [`Package::read`] makes one.
 #[derive(Debug, Clone, Copy)]
 pub struct Package<'p> {
     bytes: &'p [u8],
-    root: [u8; 32],
+    root: PackageRoot,
     entries: usize,
     manifest: usize,
 }
@@ -90,14 +110,14 @@ impl<'p> Package<'p> {
     /// [`PackageError::Version`] for bytes that are no package of format version [`FORMAT`],
     /// [`PackageError::Root`] for a header or a root node whose root is not `root`, and
     /// [`PackageError::Bounds`] for a manifest the bytes cannot hold.
-    pub fn read(bytes: &'p [u8], root: [u8; 32]) -> Result<Self, PackageError> {
+    pub fn read(bytes: &'p [u8], root: PackageRoot) -> Result<Self, PackageError> {
         let header = bytes.get(..HEADER).ok_or(PackageError::Version)?;
         if header.get(..8) != Some(MAGIC.as_slice())
             || header.get(8..10) != Some(FORMAT.to_be_bytes().as_slice())
         {
             return Err(PackageError::Version);
         }
-        if header.get(10..42) != Some(root.as_slice()) {
+        if header.get(10..42) != Some(root.bytes().as_slice()) {
             return Err(PackageError::Root);
         }
         let bounds = PackageError::Bounds { entry: 0 };
@@ -119,7 +139,7 @@ impl<'p> Package<'p> {
         let root_node = merkle::root_index(entries)
             .ok_or(PackageError::Bounds { entry: 0 })
             .and_then(|index| package.node(0, index))?;
-        if root_node != root {
+        if root_node != *root.bytes() {
             return Err(PackageError::Root);
         }
         Ok(package)
@@ -207,7 +227,7 @@ impl<'p> Package<'p> {
 
     /// Its RFC 9162 Merkle tree root: its identity.
     #[must_use]
-    pub const fn root(&self) -> [u8; 32] {
+    pub const fn root(&self) -> PackageRoot {
         self.root
     }
 
@@ -295,7 +315,7 @@ impl<'p> Package<'p> {
             .into_iter()
             .map(|node| self.node(index, node))
             .collect::<Result<Vec<_>, _>>()?;
-        if merkle::includes(self.root, self.entries, index, bytes, &path) {
+        if merkle::includes(*self.root.bytes(), self.entries, index, bytes, &path) {
             Ok(bytes)
         } else {
             Err(PackageError::Integrity { entry: index })
