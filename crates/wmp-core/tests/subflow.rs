@@ -17,7 +17,8 @@ use wmp_core::profile::{DispatchResult, PeerContext, Profile};
 use wmp_core::registry::Registry;
 use wmp_core::session::Session;
 use wmp_core::subflow::SubFlowRequestError;
-use wmp_core::types::{Metadata, VERSION};
+use wmp_core::types::Metadata;
+use wmp_core::version::VERSION;
 
 /// How the simulated responder answers a `wmp.flow.start`.
 type StartAnswer = Box<dyn Fn(&str, &Value) -> Result<Value, HandlerError> + Send + Sync>;
@@ -256,7 +257,7 @@ fn sub_flow_completes() {
             &RequestContext::default(),
             &FlowStartParams {
                 wmp: Metadata {
-                    version: VERSION.to_owned(),
+                    version: VERSION.to_string(),
                     session_id: "ses-test".to_owned(),
                     ..Metadata::default()
                 },
@@ -325,7 +326,7 @@ fn sub_flow_refused_is_reported() {
             &RequestContext::default(),
             &FlowStartParams {
                 wmp: Metadata {
-                    version: VERSION.to_owned(),
+                    version: VERSION.to_string(),
                     session_id: "ses-test".to_owned(),
                     ..Metadata::default()
                 },
@@ -375,7 +376,7 @@ fn sub_flow_timeout_cancels_the_child() {
             &RequestContext::default(),
             &FlowStartParams {
                 wmp: Metadata {
-                    version: VERSION.to_owned(),
+                    version: VERSION.to_string(),
                     session_id: "ses-test".to_owned(),
                     ..Metadata::default()
                 },

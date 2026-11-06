@@ -199,3 +199,103 @@ jobs:
           grep -Eq "func requestTxCode\(flowId: String\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
           grep -Eq "func send\(request: HttpRequest\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
           grep -Eq "func runPreAuthorizedFlow\(http: HttpClient, host: Host, issuerUrl: String\)[[:space:]]*async throws" bindings/swift/engine_adapter_sdk.swift
+
+  # ── The mobile packaging recipes (AAR / XCFramework) ────────────────────
+  #
+  # The release workflow (release.yml) builds the artifacts on tags; these
+  # jobs keep the recipes themselves honest on every push — the
+  # engine-switching table's "Makefile targets defined, need CI" — so a
+  # change that breaks the packaging fails the pull request, not the
+  # release. The assertions read what the recipes produce, the same way
+  # the SDKs consume them.
+
+  xcframework:
+    name: XCFramework packaging
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Build the host library (the bindgen source)
+        run: cargo build -p engine-adapter-sdk
+      - run: make bindings-swift
+      - name: The XCFramework recipe
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        run: |
+          make xcframework
+          # The product the SDKs link: two static-library slices (the
+          # device and the simulator) and the FFI headers, named by
+          # whatever xcodebuild names them (the slice directory depends
+          # on the architectures it finds in the archives).
+          test -d target/xcframework/engine_adapter_sdk.xcframework
+          # The layout, for the assertion failures' diagnosis. The counts
+          # are stripped: BSD wc pads its output.
+          find target/xcframework -type f | sort
+          test "$(find target/xcframework -name 'libengine_adapter_sdk.a' | wc -l | tr -d '[:space:]')" = 2
+          test "$(find target/xcframework -name 'engine_adapter_sdkFFI.h' | wc -l | tr -d '[:space:]')" -ge 1
+          test "$(find target/xcframework -name 'module.modulemap' | wc -l | tr -d '[:space:]')" -ge 1
+
+  aar:
+    name: AAR packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+      # v4 takes `packages` (the SDK manager's list), not v3's
+      # api-level/ndk-version; 27.2.12479018 is the NDK the release
+      # workflow pins, and the `--platform 28` the recipe passes
+      # cargo-ndk needs no platform package.
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: 'ndk;27.2.12479018'
+      - name: The AAR and POM recipes
+        run: |
+          make aar pom VERSION=0.0.0-ci
+          # The artifact the SDKs consume (the Maven coordinate
+          # org.siros:siros-wallet-core, JNA provided transitively by the
+          # POM): the native .so per ABI, the manifest, an empty
+          # classes.jar — the UniFFI Kotlin bindings are vendored source.
+          unzip -l target/siros-wallet-core-0.0.0-ci.aar | grep -q 'AndroidManifest.xml'
+          unzip -l target/siros-wallet-core-0.0.0-ci.aar | grep -q 'jni/arm64-v8a/libengine_adapter_sdk.so'
+          unzip -l target/siros-wallet-core-0.0.0-ci.aar | grep -q 'jni/armeabi-v7a/libengine_adapter_sdk.so'
+          unzip -l target/siros-wallet-core-0.0.0-ci.aar | grep -q 'jni/x86_64/libengine_adapter_sdk.so'
+          # The POM names the coordinate and the JNA dependency it carries.
+          grep -q '<groupId>org.siros</groupId>' target/siros-wallet-core-0.0.0-ci.pom
+          grep -q '<artifactId>siros-wallet-core</artifactId>' target/siros-wallet-core-0.0.0-ci.pom
+
+  # ── The engine server's container image ─────────────────────────────────
+  #
+  # The recipe verified on every push (the release workflow builds and
+  # pushes it on tags); a broken Dockerfile fails the pull request, not
+  # the release.
+
+  docker:
+    name: Engine image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build the image
+        run: docker build -t sirosfoundation/engine-server:ci .
+      - name: The image serves its health probes
+        run: |
+          docker run -d --name engine-probe -p 18780:8780 sirosfoundation/engine-server:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18780/healthz > /dev/null 2>&1; then
+              echo "the engine answers its health probe"
+              docker rm -f engine-probe
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the engine never answered its health probe"
+          docker logs engine-probe
+          docker rm -f engine-probe
+          exit 1

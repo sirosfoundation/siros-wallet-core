@@ -35,6 +35,7 @@ uniffi::setup_scaffolding!();
 
 pub mod client;
 pub mod engine;
+pub mod ports;
 
 // ─── UniFFI-compatible types (mirror the engine-ports types) ─────────────
 
@@ -353,12 +354,16 @@ impl From<engine_ports::MatchParams> for MatchParams {
 pub struct MatchResult {
     /// The selected credentials; empty means nothing matched.
     pub selections: Vec<VpSelection>,
+    /// The transport's opaque selection handle (WMP OpenID4x 3.2.3.1),
+    /// when it issued one; the engine passes it through unchanged.
+    pub handle: Option<String>,
 }
 
 impl From<engine_ports::MatchResult> for MatchResult {
     fn from(r: engine_ports::MatchResult) -> Self {
         Self {
             selections: r.selections.into_iter().map(Into::into).collect(),
+            handle: r.handle,
         }
     }
 }
@@ -385,6 +390,9 @@ pub struct VpParams {
     pub verifier_session_id: String,
     /// The transaction data entries, raw — the KB-JWT hashes.
     pub transaction_data: Vec<String>,
+    /// The transport's selection handle, as the match answer carried
+    /// it (WMP OpenID4x 3.2.3.1): passed through unchanged.
+    pub selection_handle: Option<String>,
 }
 
 impl From<engine_ports::VpParams> for VpParams {
@@ -398,6 +406,7 @@ impl From<engine_ports::VpParams> for VpParams {
             verifier_jwk_thumbprint: p.verifier_jwk_thumbprint,
             verifier_session_id: p.verifier_session_id,
             transaction_data: p.transaction_data,
+            selection_handle: p.selection_handle,
         }
     }
 }
@@ -623,6 +632,32 @@ pub trait Host: Send + Sync {
     /// Opens the authorization URL in the host's browser.
     async fn open_authorization(&self, flow_id: String, url: String) -> Result<(), SdkError>;
 
+    /// Asks the host for the public JWK of a named signing key, so the
+    /// engine can identify the key in the proof headers it builds. Keys
+    /// always live in the app; the engine only ever sees the public
+    /// JWK. A refusal keeps the flows working without key identification.
+    async fn request_signing_key(
+        &self,
+        params: SigningKeyParams,
+    ) -> Result<SigningKeyResult, SdkError>;
+
+    /// Asks the host for a client attestation (a Wallet Instance
+    /// Attestation and its proof of possession), when the AS demands
+    /// one. A refusal continues without client attestation.
+    async fn request_attestation(
+        &self,
+        params: AttestationParams,
+    ) -> Result<AttestationResult, SdkError>;
+
+    /// Asks the host's user to pick one of the offered credential
+    /// configurations, when the offer names more than one. A refusal
+    /// fails the flow closed (exactly one configuration is
+    /// auto-selected and never asked).
+    async fn request_credential_selection(
+        &self,
+        params: CredentialSelectionParams,
+    ) -> Result<CredentialSelectionResult, SdkError>;
+
     /// Reports progress on a flow.
     fn progress(&self, flow_id: String, step: String, detail: Option<String>);
 }
@@ -690,4 +725,490 @@ pub async fn run_pre_authorized_flow(
 pub async fn ping() -> String {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     "pong".to_owned()
+}
+
+// ─── The key, attestation and selection asks ─────────────────────────────
+
+/// The signing-key request. Mirrors `engine_ports::SigningKeyParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SigningKeyParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The key the engine will sign with, named when the flow knows it.
+    pub key_id: Option<String>,
+}
+
+impl From<SigningKeyParams> for engine_ports::SigningKeyParams {
+    fn from(p: SigningKeyParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            key_id: p.key_id,
+        }
+    }
+}
+
+/// The public JWK answer. Mirrors `engine_ports::SigningKeyResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct SigningKeyResult {
+    /// The public JWK as JSON text, public members only.
+    pub jwk: String,
+}
+
+impl From<SigningKeyResult> for engine_ports::SigningKeyResult {
+    fn from(r: SigningKeyResult) -> Self {
+        Self {
+            jwk: serde_json::from_str(&r.jwk).unwrap_or_default(),
+        }
+    }
+}
+
+/// The client-attestation request. Mirrors
+/// `engine_ports::AttestationParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct AttestationParams {
+    /// The flow the ask belongs to.
+    pub flow_id: String,
+    /// The PoP audience: the authorization server.
+    pub audience: String,
+    /// The client_id the WIA names as `sub`.
+    pub client_id: String,
+    /// The server-provided challenge, when the AS demanded one.
+    pub challenge: String,
+}
+
+impl From<AttestationParams> for engine_ports::AttestationParams {
+    fn from(p: AttestationParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            audience: p.audience,
+            client_id: p.client_id,
+            challenge: p.challenge,
+        }
+    }
+}
+
+/// The client-attestation answer. Mirrors
+/// `engine_ports::AttestationResult`.
+#[derive(uniffi::Record, Clone, Debug, Default)]
+pub struct AttestationResult {
+    /// The Wallet Instance Attestation JWT, when the host provided one.
+    pub wia: String,
+    /// The PoP JWT binding the WIA to the audience, when provided.
+    pub pop: String,
+}
+
+impl From<AttestationResult> for engine_ports::AttestationResult {
+    fn from(r: AttestationResult) -> Self {
+        Self {
+            wia: r.wia,
+            pop: r.pop,
+        }
+    }
+}
+
+/// One credential configuration the host may select. Mirrors
+/// `engine_ports::AvailableCredential`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct AvailableCredential {
+    /// The configuration's id.
+    pub id: String,
+    /// The first display entry, as JSON text, for the selection UI.
+    pub display: Option<String>,
+    /// The configuration's credential format identifier.
+    pub format: String,
+    /// The `vct`, when the configuration carries one.
+    pub vct: String,
+}
+
+impl From<engine_ports::AvailableCredential> for AvailableCredential {
+    fn from(a: engine_ports::AvailableCredential) -> Self {
+        Self {
+            id: a.id,
+            display: a.display.and_then(|d| serde_json::to_string(&d).ok()),
+            format: a.format,
+            vct: a.vct,
+        }
+    }
+}
+
+impl From<AvailableCredential> for engine_ports::AvailableCredential {
+    fn from(a: AvailableCredential) -> Self {
+        Self {
+            id: a.id,
+            display: a.display.and_then(|text| serde_json::from_str(&text).ok()),
+            format: a.format,
+            vct: a.vct,
+        }
+    }
+}
+
+/// The credential configuration selection ask. Mirrors
+/// `engine_ports::CredentialSelectionParams`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct CredentialSelectionParams {
+    /// The flow the selection belongs to.
+    pub flow_id: String,
+    /// The configurations on offer, in the offer's order.
+    pub available: Vec<AvailableCredential>,
+}
+
+impl From<CredentialSelectionParams> for engine_ports::CredentialSelectionParams {
+    fn from(p: CredentialSelectionParams) -> Self {
+        Self {
+            flow_id: p.flow_id,
+            available: p.available.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// The selection answer. Mirrors
+/// `engine_ports::CredentialSelectionResult`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct CredentialSelectionResult {
+    /// The chosen configuration's id.
+    pub credential_configuration_id: String,
+}
+
+impl From<CredentialSelectionResult> for engine_ports::CredentialSelectionResult {
+    fn from(r: CredentialSelectionResult) -> Self {
+        Self {
+            credential_configuration_id: r.credential_configuration_id,
+        }
+    }
+}
+
+// ─── The trust port (the PDP) ────────────────────────────────────────────
+
+/// The trust evaluation request. Mirrors
+/// `engine_ports::EvaluationRequest`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EvaluationRequest {
+    /// The subject whose trust is being evaluated.
+    pub subject: String,
+    /// The key material, as the engine extracted it.
+    pub key_material: Vec<u8>,
+    /// The resource type being resolved, when there is one.
+    pub resource_type: Option<String>,
+    /// The evaluation's context, as JSON text (the client_id scheme,
+    /// the response/redirect URIs, the trust chain, the attestation).
+    pub context: String,
+}
+
+impl From<engine_ports::EvaluationRequest> for EvaluationRequest {
+    fn from(r: engine_ports::EvaluationRequest) -> Self {
+        Self {
+            subject: r.subject,
+            key_material: r.key_material,
+            resource_type: r.resource_type,
+            context: r.context.to_string(),
+        }
+    }
+}
+
+/// The trust evaluation's verdict. Mirrors
+/// `engine_ports::EvaluationResponse`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EvaluationResponse {
+    /// Whether the subject is trusted.
+    pub trusted: bool,
+    /// The decision text, when there is one.
+    pub decision: Option<String>,
+}
+
+impl From<EvaluationResponse> for engine_ports::EvaluationResponse {
+    fn from(r: EvaluationResponse) -> Self {
+        Self {
+            trusted: r.trusted,
+            decision: r.decision,
+        }
+    }
+}
+
+/// The metadata resolution request. Mirrors
+/// `engine_ports::ResolveRequest`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ResolveRequest {
+    /// The URL subject to resolve.
+    pub uri: String,
+    /// The resource type (`credential_issuer`,
+    /// `oauth-authorization-server`, `did_document`).
+    pub resource_type: String,
+}
+
+impl From<ResolveRequest> for engine_ports::ResolveRequest {
+    fn from(r: ResolveRequest) -> Self {
+        Self {
+            uri: r.uri,
+            resource_type: r.resource_type,
+        }
+    }
+}
+
+/// The metadata resolution's answer. Mirrors
+/// `engine_ports::ResolveResponse`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct ResolveResponse {
+    /// The resolved document, raw.
+    pub metadata: Vec<u8>,
+    /// Trust information, when the PDP carries it.
+    pub trust_info: Option<Vec<u8>>,
+}
+
+impl From<ResolveResponse> for engine_ports::ResolveResponse {
+    fn from(r: ResolveResponse) -> Self {
+        Self {
+            metadata: r.metadata,
+            trust_info: r.trust_info,
+        }
+    }
+}
+
+/// One offered credential the entitlement evaluator matches against
+/// the registration. Mirrors `engine_ports::EntitlementOffer`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EntitlementOffer {
+    /// The OpenID4VCI credential format identifier.
+    pub format: String,
+    /// The `vct` or `doctype`.
+    pub credential_type: String,
+}
+
+impl From<EntitlementOffer> for engine_ports::EntitlementOffer {
+    fn from(o: EntitlementOffer) -> Self {
+        Self {
+            format: o.format,
+            credential_type: o.credential_type,
+        }
+    }
+}
+
+impl From<engine_ports::EntitlementOffer> for EntitlementOffer {
+    fn from(o: engine_ports::EntitlementOffer) -> Self {
+        Self {
+            format: o.format,
+            credential_type: o.credential_type,
+        }
+    }
+}
+
+/// The issuer entitlement evaluation's request. Mirrors
+/// `engine_ports::EntitlementRequest`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EntitlementRequest {
+    /// The issuer's identifier.
+    pub issuer: String,
+    /// The raw issuer metadata document.
+    pub metadata: Vec<u8>,
+    /// The metadata's signing key material.
+    pub key_material: Vec<u8>,
+    /// The configurations the flow is about to request.
+    pub offers: Vec<EntitlementOffer>,
+}
+
+impl From<EntitlementRequest> for engine_ports::EntitlementRequest {
+    fn from(r: EntitlementRequest) -> Self {
+        Self {
+            issuer: r.issuer,
+            metadata: r.metadata,
+            key_material: r.key_material,
+            offers: r.offers.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// The entitlement mode. Mirrors `engine_ports::EntitlementMode`.
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum EntitlementMode {
+    /// Records findings and still allows issuance.
+    Warn,
+    /// Turns the findings into a refusal.
+    Fail,
+    /// Skips the evaluation.
+    Off,
+}
+
+impl From<EntitlementMode> for engine_ports::EntitlementMode {
+    fn from(m: EntitlementMode) -> Self {
+        match m {
+            EntitlementMode::Warn => Self::Warn,
+            EntitlementMode::Fail => Self::Fail,
+            EntitlementMode::Off => Self::Off,
+        }
+    }
+}
+
+impl From<engine_ports::EntitlementMode> for EntitlementMode {
+    fn from(m: engine_ports::EntitlementMode) -> Self {
+        match m {
+            engine_ports::EntitlementMode::Warn => Self::Warn,
+            engine_ports::EntitlementMode::Fail => Self::Fail,
+            engine_ports::EntitlementMode::Off => Self::Off,
+        }
+    }
+}
+
+/// One entitlement finding. Mirrors `engine_ports::EntitlementFinding`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EntitlementFinding {
+    /// The finding's code.
+    pub code: EntitlementCode,
+    /// The code's message.
+    pub message: String,
+    /// The offered type, when the finding is about one.
+    pub credential_type: Option<String>,
+}
+
+impl From<EntitlementFinding> for engine_ports::EntitlementFinding {
+    fn from(f: EntitlementFinding) -> Self {
+        Self {
+            code: f.code.into(),
+            message: f.message,
+            credential_type: f.credential_type,
+        }
+    }
+}
+
+impl From<engine_ports::EntitlementFinding> for EntitlementFinding {
+    fn from(f: engine_ports::EntitlementFinding) -> Self {
+        Self {
+            code: f.code.into(),
+            message: f.message,
+            credential_type: f.credential_type,
+        }
+    }
+}
+
+/// The entitlement finding's code. Mirrors
+/// `engine_ports::EntitlementCode`.
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum EntitlementCode {
+    /// The issuer metadata was signed by no certificate chain.
+    NoAccessCertificate,
+    /// The chain's leaf does not meet the WRPAC profile.
+    NotWrpac,
+    /// The issuer metadata carries no registration certificate.
+    NoRegistrationCertificate,
+    /// The registration certificate is not readable.
+    RegistrationMalformed,
+    /// The registration certificate is not current.
+    RegistrationExpired,
+    /// The registration certificate's validity is not conformant.
+    RegistrationOverlong,
+    /// The registration certificate describes another provider.
+    BindingMismatch,
+    /// The registered entitlements name no provider role.
+    NotProvider,
+    /// The provider is not registered for an offered credential.
+    TypeNotRegistered,
+    /// The registration certificate's signature was not verified.
+    RegistrationUnverified,
+    /// The signer is no trusted Registrar.
+    RegistrarNotTrusted,
+    /// Nothing established the signing chain's trust.
+    AccessCertificateNotTrusted,
+}
+
+impl From<EntitlementCode> for engine_ports::EntitlementCode {
+    fn from(c: EntitlementCode) -> Self {
+        match c {
+            EntitlementCode::NoAccessCertificate => Self::NoAccessCertificate,
+            EntitlementCode::NotWrpac => Self::NotWrpac,
+            EntitlementCode::NoRegistrationCertificate => Self::NoRegistrationCertificate,
+            EntitlementCode::RegistrationMalformed => Self::RegistrationMalformed,
+            EntitlementCode::RegistrationExpired => Self::RegistrationExpired,
+            EntitlementCode::RegistrationOverlong => Self::RegistrationOverlong,
+            EntitlementCode::BindingMismatch => Self::BindingMismatch,
+            EntitlementCode::NotProvider => Self::NotProvider,
+            EntitlementCode::TypeNotRegistered => Self::TypeNotRegistered,
+            EntitlementCode::RegistrationUnverified => Self::RegistrationUnverified,
+            EntitlementCode::RegistrarNotTrusted => Self::RegistrarNotTrusted,
+            EntitlementCode::AccessCertificateNotTrusted => Self::AccessCertificateNotTrusted,
+        }
+    }
+}
+
+impl From<engine_ports::EntitlementCode> for EntitlementCode {
+    fn from(c: engine_ports::EntitlementCode) -> Self {
+        match c {
+            engine_ports::EntitlementCode::NoAccessCertificate => Self::NoAccessCertificate,
+            engine_ports::EntitlementCode::NotWrpac => Self::NotWrpac,
+            engine_ports::EntitlementCode::NoRegistrationCertificate => {
+                Self::NoRegistrationCertificate
+            }
+            engine_ports::EntitlementCode::RegistrationMalformed => Self::RegistrationMalformed,
+            engine_ports::EntitlementCode::RegistrationExpired => Self::RegistrationExpired,
+            engine_ports::EntitlementCode::RegistrationOverlong => Self::RegistrationOverlong,
+            engine_ports::EntitlementCode::BindingMismatch => Self::BindingMismatch,
+            engine_ports::EntitlementCode::NotProvider => Self::NotProvider,
+            engine_ports::EntitlementCode::TypeNotRegistered => Self::TypeNotRegistered,
+            engine_ports::EntitlementCode::RegistrationUnverified => Self::RegistrationUnverified,
+            engine_ports::EntitlementCode::RegistrarNotTrusted => Self::RegistrarNotTrusted,
+            engine_ports::EntitlementCode::AccessCertificateNotTrusted => {
+                Self::AccessCertificateNotTrusted
+            }
+        }
+    }
+}
+
+/// The entitlement evaluation's decision. Mirrors
+/// `engine_ports::EntitlementDecision`.
+#[derive(uniffi::Record, Clone, Debug)]
+pub struct EntitlementDecision {
+    /// Whether issuance may proceed.
+    pub allowed: bool,
+    /// Which mode produced the decision.
+    pub mode: EntitlementMode,
+    /// Whether anything was evaluated.
+    pub evaluated: bool,
+    /// The findings.
+    pub findings: Vec<EntitlementFinding>,
+    /// True when more findings arose than the answer carries.
+    pub findings_truncated: bool,
+}
+
+impl From<EntitlementDecision> for engine_ports::EntitlementDecision {
+    fn from(d: EntitlementDecision) -> Self {
+        Self {
+            allowed: d.allowed,
+            mode: d.mode.into(),
+            evaluated: d.evaluated,
+            findings: d.findings.into_iter().map(Into::into).collect(),
+            findings_truncated: d.findings_truncated,
+        }
+    }
+}
+
+impl From<engine_ports::EntitlementDecision> for EntitlementDecision {
+    fn from(d: engine_ports::EntitlementDecision) -> Self {
+        Self {
+            allowed: d.allowed,
+            mode: d.mode.into(),
+            evaluated: d.evaluated,
+            findings: d.findings.into_iter().map(Into::into).collect(),
+            findings_truncated: d.findings_truncated,
+        }
+    }
+}
+
+/// The engine's trust port: the policy decision point the engine
+/// evaluates issuer, verifier and entitlement trust through. The
+/// Kotlin/Swift implementation is the adapter's `engine_ports::Pdp` —
+/// the app's trust stack (the backend's `/v1/evaluate` over the app's
+/// HTTP, or a local evaluator).
+#[uniffi::export(callback_interface)]
+#[async_trait::async_trait]
+pub trait Pdp: Send + Sync {
+    /// Evaluates the trust of a subject with the key material the
+    /// engine extracted.
+    async fn evaluate(&self, request: EvaluationRequest) -> Result<EvaluationResponse, SdkError>;
+
+    /// Resolves a URL to a metadata document (the `/v1/resolve`
+    /// shape), including the DID documents of `did:`-schemed verifiers.
+    async fn resolve(&self, request: ResolveRequest) -> Result<ResolveResponse, SdkError>;
+
+    /// Evaluates the issuer's entitlement (ARF 6.6.2.3).
+    async fn evaluate_entitlement(
+        &self,
+        request: EntitlementRequest,
+    ) -> Result<EntitlementDecision, SdkError>;
 }

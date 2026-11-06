@@ -14,7 +14,8 @@ use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 use wmp_core::profile::{DispatchResult, PeerContext, Profile};
 use wmp_core::session::Session;
-use wmp_core::types::{Capabilities, Metadata, VERSION};
+use wmp_core::types::{Capabilities, Metadata};
+use wmp_core::version::VERSION;
 
 /// A peer context that records every notification it is sent.
 struct RecordingPeer {
@@ -73,7 +74,7 @@ impl PeerContext for RecordingPeer {
     }
 
     fn version_for(&self, _session_id: &str) -> String {
-        VERSION.to_owned()
+        VERSION.to_string()
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -84,7 +85,7 @@ impl PeerContext for RecordingPeer {
 fn start_params(flow_type: &str, flow_id: &str) -> FlowStartParams {
     FlowStartParams {
         wmp: Metadata {
-            version: VERSION.to_owned(),
+            version: VERSION.to_string(),
             session_id: "ses-test".to_owned(),
             ..Metadata::default()
         },
@@ -139,7 +140,7 @@ fn approval_flow_lifecycle() {
             &RequestContext::default(),
             &FlowActionParams {
                 wmp: Metadata {
-                    version: VERSION.to_owned(),
+                    version: VERSION.to_string(),
                     session_id: "ses-test".to_owned(),
                     ..Metadata::default()
                 },

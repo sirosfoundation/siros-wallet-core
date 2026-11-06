@@ -17,9 +17,6 @@ small and protocol-specific.
 - **The core is pure and offline.** No networking, storage, clock, randomness or
   key operations inside; effects in, results out (R-G2). Every error carries a
   stable code.
-- **Construction guards validity.** Data enters through a parser whose output
-  type can only hold valid states; no separate `validate()` beside a parser.
-  Witness types carry runtime checks (trust, time, selection) between steps.
 - **`zkp_req` is protocol; nym_auth is a credential capability.**
   `siros-zkp-req` extends DCQL so a verifier can state a zero-knowledge
   request and a wallet can answer it; it holds no prover and no system.
@@ -59,6 +56,44 @@ small and protocol-specific.
   the PDP. Keep both: the `Pdp` seam is shaped so a local evaluator can plug in
   without a redesign.
 
+## Tests
+
+- **Tests live outside the source files**, in each crate's `tests/` directory,
+  and check the crate through its public API: no `#[test]` or `#[cfg(test)]`
+  under `src/`, and no visibility widened for a test.
+- **Every test enforces a source of truth outside the code it tests**: a
+  specification, published vectors, an independent implementation, or a
+  property that must hold. Delete a test whose expected value comes from the
+  code it tests: a snapshot, a digest or a count copied from a run, a constant
+  of the code under test.
+- **Trust the dependencies.** A library the crate uses is tested by its own
+  project. Delete a test of its guarantees, such as a JSON parser parsing or a
+  hash crate hashing; a dependency may still serve as an independent oracle.
+- **Leave to the compiler what it enforces.** Delete a test of an invariant
+  the type system already guarantees: a type that cannot be built invalid, an
+  exhaustive match, a trait bound, a visibility, or a compile-fail check of any
+  of them.
+- **One test per guarantee and one fixture per refusal rule**, known answers in
+  one table. A test of wording is no test.
+
+## Types
+
+- **Parse, don't validate.** Every type carries a meaning and its guarantees,
+  and no value of it is invalid. Checking happens once, at construction: data
+  enters through a parser whose output can only hold valid states, with no
+  `validate()` beside it. Witness types carry runtime checks (trust, time,
+  selection) between steps.
+- **Newtypes give general primitives their meaning.** A value with a
+  constraint or a role (an identifier, a tag, an amount, a path, a key) is its
+  own type, so a wrong use does not compile.
+
+## Wording
+
+- **The core gets no say on what gets said.** A crate ships no End-User text in
+  any language. It declares its messages (keys, typed arguments, the situation
+  each reports), and the wallet implementation provides every text. `#[error]`
+  templates stay English, for logs and the Verifier's `error_description`.
+
 ## Read first
 
 - `docs/wallet-core-architecture.md` — the contract, especially §3
@@ -86,7 +121,7 @@ The toolchain itself is pinned exactly in `rust-toolchain.toml`.
 
 - Git over SSH only. Commits are signed. No force-push. No merges, tags or
   publishes without the owner's explicit go.
-- Every test must be shown to fail when its fix is reverted.
+- A test that guards a guarantee fails when its fix is reverted.
 - Fix every review finding and every instance of the same class of bug.
 - Cite the spec, not the implementation: every non-obvious rule carries a doc
   comment naming its source (`OpenID4VP 1.0 §6.4.2`, `RFC 9901 §7.1`). An

@@ -683,12 +683,30 @@ internal interface UniffiCallbackInterfaceHostMethod6 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteVoid,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
 }
 internal interface UniffiCallbackInterfaceHostMethod7 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod8 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod9 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfaceHostMethod10 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
 }
 internal interface UniffiCallbackInterfaceHttpClientMethod0 : com.sun.jna.Callback {
     fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
 }
-@Structure.FieldOrder("requestSign", "requestMatch", "requestVp", "requestDpopProof", "requestConsent", "requestTxCode", "openAuthorization", "progress", "uniffiFree")
+internal interface UniffiCallbackInterfacePdpMethod0 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfacePdpMethod1 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+internal interface UniffiCallbackInterfacePdpMethod2 : com.sun.jna.Callback {
+    fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,)
+}
+@Structure.FieldOrder("requestSign", "requestMatch", "requestVp", "requestDpopProof", "requestConsent", "requestTxCode", "openAuthorization", "requestSigningKey", "requestAttestation", "requestCredentialSelection", "progress", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceHost(
     @JvmField internal var `requestSign`: UniffiCallbackInterfaceHostMethod0? = null,
     @JvmField internal var `requestMatch`: UniffiCallbackInterfaceHostMethod1? = null,
@@ -697,7 +715,10 @@ internal open class UniffiVTableCallbackInterfaceHost(
     @JvmField internal var `requestConsent`: UniffiCallbackInterfaceHostMethod4? = null,
     @JvmField internal var `requestTxCode`: UniffiCallbackInterfaceHostMethod5? = null,
     @JvmField internal var `openAuthorization`: UniffiCallbackInterfaceHostMethod6? = null,
-    @JvmField internal var `progress`: UniffiCallbackInterfaceHostMethod7? = null,
+    @JvmField internal var `requestSigningKey`: UniffiCallbackInterfaceHostMethod7? = null,
+    @JvmField internal var `requestAttestation`: UniffiCallbackInterfaceHostMethod8? = null,
+    @JvmField internal var `requestCredentialSelection`: UniffiCallbackInterfaceHostMethod9? = null,
+    @JvmField internal var `progress`: UniffiCallbackInterfaceHostMethod10? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
@@ -708,9 +729,12 @@ internal open class UniffiVTableCallbackInterfaceHost(
         `requestConsent`: UniffiCallbackInterfaceHostMethod4? = null,
         `requestTxCode`: UniffiCallbackInterfaceHostMethod5? = null,
         `openAuthorization`: UniffiCallbackInterfaceHostMethod6? = null,
-        `progress`: UniffiCallbackInterfaceHostMethod7? = null,
+        `requestSigningKey`: UniffiCallbackInterfaceHostMethod7? = null,
+        `requestAttestation`: UniffiCallbackInterfaceHostMethod8? = null,
+        `requestCredentialSelection`: UniffiCallbackInterfaceHostMethod9? = null,
+        `progress`: UniffiCallbackInterfaceHostMethod10? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceHost(`requestSign`,`requestMatch`,`requestVp`,`requestDpopProof`,`requestConsent`,`requestTxCode`,`openAuthorization`,`progress`,`uniffiFree`,), Structure.ByValue
+    ): UniffiVTableCallbackInterfaceHost(`requestSign`,`requestMatch`,`requestVp`,`requestDpopProof`,`requestConsent`,`requestTxCode`,`openAuthorization`,`requestSigningKey`,`requestAttestation`,`requestCredentialSelection`,`progress`,`uniffiFree`,), Structure.ByValue
 
    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceHost) {
         `requestSign` = other.`requestSign`
@@ -720,6 +744,9 @@ internal open class UniffiVTableCallbackInterfaceHost(
         `requestConsent` = other.`requestConsent`
         `requestTxCode` = other.`requestTxCode`
         `openAuthorization` = other.`openAuthorization`
+        `requestSigningKey` = other.`requestSigningKey`
+        `requestAttestation` = other.`requestAttestation`
+        `requestCredentialSelection` = other.`requestCredentialSelection`
         `progress` = other.`progress`
         `uniffiFree` = other.`uniffiFree`
     }
@@ -741,6 +768,37 @@ internal open class UniffiVTableCallbackInterfaceHttpClient(
     }
 
 }
+@Structure.FieldOrder("evaluate", "resolve", "evaluateEntitlement", "uniffiFree")
+internal open class UniffiVTableCallbackInterfacePdp(
+    @JvmField internal var `evaluate`: UniffiCallbackInterfacePdpMethod0? = null,
+    @JvmField internal var `resolve`: UniffiCallbackInterfacePdpMethod1? = null,
+    @JvmField internal var `evaluateEntitlement`: UniffiCallbackInterfacePdpMethod2? = null,
+    @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+) : Structure() {
+    class UniffiByValue(
+        `evaluate`: UniffiCallbackInterfacePdpMethod0? = null,
+        `resolve`: UniffiCallbackInterfacePdpMethod1? = null,
+        `evaluateEntitlement`: UniffiCallbackInterfacePdpMethod2? = null,
+        `uniffiFree`: UniffiCallbackInterfaceFree? = null,
+    ): UniffiVTableCallbackInterfacePdp(`evaluate`,`resolve`,`evaluateEntitlement`,`uniffiFree`,), Structure.ByValue
+
+   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfacePdp) {
+        `evaluate` = other.`evaluate`
+        `resolve` = other.`resolve`
+        `evaluateEntitlement` = other.`evaluateEntitlement`
+        `uniffiFree` = other.`uniffiFree`
+    }
+
+}
+
+
+
+
+
+
+
+
+
 
 
 
@@ -836,6 +894,7 @@ internal interface UniffiLib : Library {
                 uniffiCheckApiChecksums(lib)
                 uniffiCallbackInterfaceHost.register(lib)
                 uniffiCallbackInterfaceHttpClient.register(lib)
+                uniffiCallbackInterfacePdp.register(lib)
                 }
         }
         
@@ -851,6 +910,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_engine_adapter_sdk_fn_method_wmpengine_is_ready(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    fun uniffi_engine_adapter_sdk_fn_method_wmpengine_read_notification(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_engine_adapter_sdk_fn_method_wmpengine_send(`ptr`: Pointer,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_engine_adapter_sdk_fn_method_wmpengine_take_notifications(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -859,7 +920,9 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_engine_adapter_sdk_fn_init_callback_vtable_httpclient(`vtable`: UniffiVTableCallbackInterfaceHttpClient,
     ): Unit
-    fun uniffi_engine_adapter_sdk_fn_func_create_engine(`config`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_engine_adapter_sdk_fn_init_callback_vtable_pdp(`vtable`: UniffiVTableCallbackInterfacePdp,
+    ): Unit
+    fun uniffi_engine_adapter_sdk_fn_func_create_engine(`config`: RustBuffer.ByValue,`http`: Long,`host`: Long,`pdp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Pointer
     fun uniffi_engine_adapter_sdk_fn_func_ping(
     ): Long
@@ -985,6 +1048,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_wmpengine_is_ready(
     ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_wmpengine_read_notification(
+    ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_wmpengine_send(
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications(
@@ -1003,9 +1068,21 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_open_authorization(
     ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_signing_key(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_attestation(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection(
+    ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_host_progress(
     ): Short
     fun uniffi_engine_adapter_sdk_checksum_method_httpclient_send(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_pdp_resolve(
+    ): Short
+    fun uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate_entitlement(
     ): Short
     fun ffi_engine_adapter_sdk_uniffi_contract_version(
     ): Int
@@ -1024,7 +1101,7 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_engine_adapter_sdk_checksum_func_create_engine() != 23132.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_func_create_engine() != 40731.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_func_ping() != 18660.toShort()) {
@@ -1036,10 +1113,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_is_ready() != 45057.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_send() != 19937.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_read_notification() != 24427.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 56681.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_send() != 29158.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 42796.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394.toShort()) {
@@ -1063,10 +1143,28 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 25041.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_progress() != 22765.toShort()) {
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_signing_key() != 24687.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_attestation() != 52881.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection() != 63084.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_host_progress() != 3981.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate() != 16147.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_pdp_resolve() != 45791.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate_entitlement() != 15208.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1566,9 +1664,11 @@ private class JavaLangRefCleanable(
  *
  * The engine runs the full WMP stack in-process: the peer dispatches
  * every method, the session service manages sessions, and the flow
- * families (when they land) register on the runtime. No WebSocket, no
- * network to the engine — the only HTTP is the engine's own outgoing
- * fetches through the `HttpClient` port.
+ * families (oid4vci, oid4vp, credential_notification) register on the
+ * flow runtime. No WebSocket, no network to the engine — the only HTTP
+ * is the engine's own outgoing fetches through the SDK's `HttpClient`
+ * callback, and the wallet's asks go through the SDK's `Host`
+ * callback.
  */
 public interface WmpEngineInterface {
     
@@ -1578,12 +1678,29 @@ public interface WmpEngineInterface {
     fun `isReady`(): kotlin.Boolean
     
     /**
+     * Blocks until the engine queues one notification, and answers it.
+     * The transport's polling thread calls this in a loop — the
+     * blocking form of [`WmpEngine::take_notifications`], for a
+     * transport that serves notifications the moment they arrive
+     * instead of on a cadence. The call answers `None` only when the
+     * engine's channel closed, which the in-process engine never does:
+     * run it on a thread that dies with the engine.
+     */
+    fun `readNotification`(): kotlin.ByteArray?
+    
+    /**
      * Sends one WMP message (a JSON-RPC request or notification) to the
      * engine and answers the reply. A notification answers `None`.
      *
      * This is the SDK Transport's `send` method: the SDK serialises the
      * WMP message, calls this, and delivers the reply bytes to its
      * `WmpSession` through the `incoming()` flow.
+     *
+     * The call blocks until the engine answers. The engine's sub-flow
+     * asks arrive on the `Host` callback while it is in flight, so the
+     * transport's caller must be free to serve them: call `send` from a
+     * worker whose dispatcher the callbacks can run on (never from the
+     * thread that must answer them).
      */
     fun `send`(`message`: kotlin.ByteArray): kotlin.ByteArray?
     
@@ -1592,7 +1709,9 @@ public interface WmpEngineInterface {
      * requests, completions) that arrived since the last call. The SDK
      * delivers these to its `WmpSession` through the `incoming()` flow.
      *
-     * Returns an empty list when nothing arrived.
+     * Returns an empty list when nothing arrived. Poll it after each
+     * `send` and on the transport's own cadence — the engine's flow
+     * progress arrives while the wallet's UI is on screen.
      */
     fun `takeNotifications`(): List<kotlin.ByteArray>
     
@@ -1606,9 +1725,11 @@ public interface WmpEngineInterface {
  *
  * The engine runs the full WMP stack in-process: the peer dispatches
  * every method, the session service manages sessions, and the flow
- * families (when they land) register on the runtime. No WebSocket, no
- * network to the engine — the only HTTP is the engine's own outgoing
- * fetches through the `HttpClient` port.
+ * families (oid4vci, oid4vp, credential_notification) register on the
+ * flow runtime. No WebSocket, no network to the engine — the only HTTP
+ * is the engine's own outgoing fetches through the SDK's `HttpClient`
+ * callback, and the wallet's asks go through the SDK's `Host`
+ * callback.
  */
 open class WmpEngine: Disposable, AutoCloseable, WmpEngineInterface {
 
@@ -1708,12 +1829,39 @@ open class WmpEngine: Disposable, AutoCloseable, WmpEngineInterface {
 
     
     /**
+     * Blocks until the engine queues one notification, and answers it.
+     * The transport's polling thread calls this in a loop — the
+     * blocking form of [`WmpEngine::take_notifications`], for a
+     * transport that serves notifications the moment they arrive
+     * instead of on a cadence. The call answers `None` only when the
+     * engine's channel closed, which the in-process engine never does:
+     * run it on a thread that dies with the engine.
+     */override fun `readNotification`(): kotlin.ByteArray? {
+            return FfiConverterOptionalByteArray.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_method_wmpengine_read_notification(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Sends one WMP message (a JSON-RPC request or notification) to the
      * engine and answers the reply. A notification answers `None`.
      *
      * This is the SDK Transport's `send` method: the SDK serialises the
      * WMP message, calls this, and delivers the reply bytes to its
      * `WmpSession` through the `incoming()` flow.
+     *
+     * The call blocks until the engine answers. The engine's sub-flow
+     * asks arrive on the `Host` callback while it is in flight, so the
+     * transport's caller must be free to serve them: call `send` from a
+     * worker whose dispatcher the callbacks can run on (never from the
+     * thread that must answer them).
      */
     @Throws(SdkException::class)override fun `send`(`message`: kotlin.ByteArray): kotlin.ByteArray? {
             return FfiConverterOptionalByteArray.lift(
@@ -1733,7 +1881,9 @@ open class WmpEngine: Disposable, AutoCloseable, WmpEngineInterface {
      * requests, completions) that arrived since the last call. The SDK
      * delivers these to its `WmpSession` through the `incoming()` flow.
      *
-     * Returns an empty list when nothing arrived.
+     * Returns an empty list when nothing arrived. Poll it after each
+     * `send` and on the transport's own cadence — the engine's flow
+     * progress arrives while the wallet's UI is on screen.
      */override fun `takeNotifications`(): List<kotlin.ByteArray> {
             return FfiConverterSequenceByteArray.lift(
     callWithPointer {
@@ -1779,6 +1929,160 @@ public object FfiConverterTypeWmpEngine: FfiConverter<WmpEngine, Pointer> {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+
+/**
+ * The client-attestation request. Mirrors
+ * `engine_ports::AttestationParams`.
+ */
+data class AttestationParams (
+    /**
+     * The flow the ask belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The PoP audience: the authorization server.
+     */
+    var `audience`: kotlin.String, 
+    /**
+     * The client_id the WIA names as `sub`.
+     */
+    var `clientId`: kotlin.String, 
+    /**
+     * The server-provided challenge, when the AS demanded one.
+     */
+    var `challenge`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttestationParams: FfiConverterRustBuffer<AttestationParams> {
+    override fun read(buf: ByteBuffer): AttestationParams {
+        return AttestationParams(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AttestationParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterString.allocationSize(value.`audience`) +
+            FfiConverterString.allocationSize(value.`clientId`) +
+            FfiConverterString.allocationSize(value.`challenge`)
+    )
+
+    override fun write(value: AttestationParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterString.write(value.`audience`, buf)
+            FfiConverterString.write(value.`clientId`, buf)
+            FfiConverterString.write(value.`challenge`, buf)
+    }
+}
+
+
+
+/**
+ * The client-attestation answer. Mirrors
+ * `engine_ports::AttestationResult`.
+ */
+data class AttestationResult (
+    /**
+     * The Wallet Instance Attestation JWT, when the host provided one.
+     */
+    var `wia`: kotlin.String, 
+    /**
+     * The PoP JWT binding the WIA to the audience, when provided.
+     */
+    var `pop`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAttestationResult: FfiConverterRustBuffer<AttestationResult> {
+    override fun read(buf: ByteBuffer): AttestationResult {
+        return AttestationResult(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AttestationResult) = (
+            FfiConverterString.allocationSize(value.`wia`) +
+            FfiConverterString.allocationSize(value.`pop`)
+    )
+
+    override fun write(value: AttestationResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`wia`, buf)
+            FfiConverterString.write(value.`pop`, buf)
+    }
+}
+
+
+
+/**
+ * One credential configuration the host may select. Mirrors
+ * `engine_ports::AvailableCredential`.
+ */
+data class AvailableCredential (
+    /**
+     * The configuration's id.
+     */
+    var `id`: kotlin.String, 
+    /**
+     * The first display entry, as JSON text, for the selection UI.
+     */
+    var `display`: kotlin.String?, 
+    /**
+     * The configuration's credential format identifier.
+     */
+    var `format`: kotlin.String, 
+    /**
+     * The `vct`, when the configuration carries one.
+     */
+    var `vct`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAvailableCredential: FfiConverterRustBuffer<AvailableCredential> {
+    override fun read(buf: ByteBuffer): AvailableCredential {
+        return AvailableCredential(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AvailableCredential) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterOptionalString.allocationSize(value.`display`) +
+            FfiConverterString.allocationSize(value.`format`) +
+            FfiConverterString.allocationSize(value.`vct`)
+    )
+
+    override fun write(value: AvailableCredential, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterOptionalString.write(value.`display`, buf)
+            FfiConverterString.write(value.`format`, buf)
+            FfiConverterString.write(value.`vct`, buf)
     }
 }
 
@@ -1868,6 +2172,83 @@ public object FfiConverterTypeConsentResult: FfiConverterRustBuffer<ConsentResul
 
     override fun write(value: ConsentResult, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`consented`, buf)
+    }
+}
+
+
+
+/**
+ * The credential configuration selection ask. Mirrors
+ * `engine_ports::CredentialSelectionParams`.
+ */
+data class CredentialSelectionParams (
+    /**
+     * The flow the selection belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The configurations on offer, in the offer's order.
+     */
+    var `available`: List<AvailableCredential>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCredentialSelectionParams: FfiConverterRustBuffer<CredentialSelectionParams> {
+    override fun read(buf: ByteBuffer): CredentialSelectionParams {
+        return CredentialSelectionParams(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeAvailableCredential.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CredentialSelectionParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterSequenceTypeAvailableCredential.allocationSize(value.`available`)
+    )
+
+    override fun write(value: CredentialSelectionParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterSequenceTypeAvailableCredential.write(value.`available`, buf)
+    }
+}
+
+
+
+/**
+ * The selection answer. Mirrors
+ * `engine_ports::CredentialSelectionResult`.
+ */
+data class CredentialSelectionResult (
+    /**
+     * The chosen configuration's id.
+     */
+    var `credentialConfigurationId`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCredentialSelectionResult: FfiConverterRustBuffer<CredentialSelectionResult> {
+    override fun read(buf: ByteBuffer): CredentialSelectionResult {
+        return CredentialSelectionResult(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CredentialSelectionResult) = (
+            FfiConverterString.allocationSize(value.`credentialConfigurationId`)
+    )
+
+    override fun write(value: CredentialSelectionResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`credentialConfigurationId`, buf)
     }
 }
 
@@ -1988,7 +2369,18 @@ data class EngineConfig (
     /**
      * The default session TTL in seconds (default 3600).
      */
-    var `defaultSessionTtlSecs`: kotlin.ULong
+    var `defaultSessionTtlSecs`: kotlin.ULong, 
+    /**
+     * The concurrent-flow limit the engine advertises in its `flows`
+     * capability.
+     */
+    var `maxConcurrentFlows`: kotlin.ULong, 
+    /**
+     * The presentation consent check's mode (`warn`, `enforce`,
+     * `off`): how a match answer that does not fit the DCQL query it
+     * was sent is treated. An unrecognised value is warn, never off.
+     */
+    var `consentCheck`: kotlin.String
 ) {
     
     companion object
@@ -2002,17 +2394,331 @@ public object FfiConverterTypeEngineConfig: FfiConverterRustBuffer<EngineConfig>
         return EngineConfig(
             FfiConverterULong.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
         )
     }
 
     override fun allocationSize(value: EngineConfig) = (
             FfiConverterULong.allocationSize(value.`maxMessageSize`) +
-            FfiConverterULong.allocationSize(value.`defaultSessionTtlSecs`)
+            FfiConverterULong.allocationSize(value.`defaultSessionTtlSecs`) +
+            FfiConverterULong.allocationSize(value.`maxConcurrentFlows`) +
+            FfiConverterString.allocationSize(value.`consentCheck`)
     )
 
     override fun write(value: EngineConfig, buf: ByteBuffer) {
             FfiConverterULong.write(value.`maxMessageSize`, buf)
             FfiConverterULong.write(value.`defaultSessionTtlSecs`, buf)
+            FfiConverterULong.write(value.`maxConcurrentFlows`, buf)
+            FfiConverterString.write(value.`consentCheck`, buf)
+    }
+}
+
+
+
+/**
+ * The entitlement evaluation's decision. Mirrors
+ * `engine_ports::EntitlementDecision`.
+ */
+data class EntitlementDecision (
+    /**
+     * Whether issuance may proceed.
+     */
+    var `allowed`: kotlin.Boolean, 
+    /**
+     * Which mode produced the decision.
+     */
+    var `mode`: EntitlementMode, 
+    /**
+     * Whether anything was evaluated.
+     */
+    var `evaluated`: kotlin.Boolean, 
+    /**
+     * The findings.
+     */
+    var `findings`: List<EntitlementFinding>, 
+    /**
+     * True when more findings arose than the answer carries.
+     */
+    var `findingsTruncated`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementDecision: FfiConverterRustBuffer<EntitlementDecision> {
+    override fun read(buf: ByteBuffer): EntitlementDecision {
+        return EntitlementDecision(
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeEntitlementMode.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeEntitlementFinding.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EntitlementDecision) = (
+            FfiConverterBoolean.allocationSize(value.`allowed`) +
+            FfiConverterTypeEntitlementMode.allocationSize(value.`mode`) +
+            FfiConverterBoolean.allocationSize(value.`evaluated`) +
+            FfiConverterSequenceTypeEntitlementFinding.allocationSize(value.`findings`) +
+            FfiConverterBoolean.allocationSize(value.`findingsTruncated`)
+    )
+
+    override fun write(value: EntitlementDecision, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`allowed`, buf)
+            FfiConverterTypeEntitlementMode.write(value.`mode`, buf)
+            FfiConverterBoolean.write(value.`evaluated`, buf)
+            FfiConverterSequenceTypeEntitlementFinding.write(value.`findings`, buf)
+            FfiConverterBoolean.write(value.`findingsTruncated`, buf)
+    }
+}
+
+
+
+/**
+ * One entitlement finding. Mirrors `engine_ports::EntitlementFinding`.
+ */
+data class EntitlementFinding (
+    /**
+     * The finding's code.
+     */
+    var `code`: EntitlementCode, 
+    /**
+     * The code's message.
+     */
+    var `message`: kotlin.String, 
+    /**
+     * The offered type, when the finding is about one.
+     */
+    var `credentialType`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementFinding: FfiConverterRustBuffer<EntitlementFinding> {
+    override fun read(buf: ByteBuffer): EntitlementFinding {
+        return EntitlementFinding(
+            FfiConverterTypeEntitlementCode.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EntitlementFinding) = (
+            FfiConverterTypeEntitlementCode.allocationSize(value.`code`) +
+            FfiConverterString.allocationSize(value.`message`) +
+            FfiConverterOptionalString.allocationSize(value.`credentialType`)
+    )
+
+    override fun write(value: EntitlementFinding, buf: ByteBuffer) {
+            FfiConverterTypeEntitlementCode.write(value.`code`, buf)
+            FfiConverterString.write(value.`message`, buf)
+            FfiConverterOptionalString.write(value.`credentialType`, buf)
+    }
+}
+
+
+
+/**
+ * One offered credential the entitlement evaluator matches against
+ * the registration. Mirrors `engine_ports::EntitlementOffer`.
+ */
+data class EntitlementOffer (
+    /**
+     * The OpenID4VCI credential format identifier.
+     */
+    var `format`: kotlin.String, 
+    /**
+     * The `vct` or `doctype`.
+     */
+    var `credentialType`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementOffer: FfiConverterRustBuffer<EntitlementOffer> {
+    override fun read(buf: ByteBuffer): EntitlementOffer {
+        return EntitlementOffer(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EntitlementOffer) = (
+            FfiConverterString.allocationSize(value.`format`) +
+            FfiConverterString.allocationSize(value.`credentialType`)
+    )
+
+    override fun write(value: EntitlementOffer, buf: ByteBuffer) {
+            FfiConverterString.write(value.`format`, buf)
+            FfiConverterString.write(value.`credentialType`, buf)
+    }
+}
+
+
+
+/**
+ * The issuer entitlement evaluation's request. Mirrors
+ * `engine_ports::EntitlementRequest`.
+ */
+data class EntitlementRequest (
+    /**
+     * The issuer's identifier.
+     */
+    var `issuer`: kotlin.String, 
+    /**
+     * The raw issuer metadata document.
+     */
+    var `metadata`: kotlin.ByteArray, 
+    /**
+     * The metadata's signing key material.
+     */
+    var `keyMaterial`: kotlin.ByteArray, 
+    /**
+     * The configurations the flow is about to request.
+     */
+    var `offers`: List<EntitlementOffer>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementRequest: FfiConverterRustBuffer<EntitlementRequest> {
+    override fun read(buf: ByteBuffer): EntitlementRequest {
+        return EntitlementRequest(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterSequenceTypeEntitlementOffer.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EntitlementRequest) = (
+            FfiConverterString.allocationSize(value.`issuer`) +
+            FfiConverterByteArray.allocationSize(value.`metadata`) +
+            FfiConverterByteArray.allocationSize(value.`keyMaterial`) +
+            FfiConverterSequenceTypeEntitlementOffer.allocationSize(value.`offers`)
+    )
+
+    override fun write(value: EntitlementRequest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`issuer`, buf)
+            FfiConverterByteArray.write(value.`metadata`, buf)
+            FfiConverterByteArray.write(value.`keyMaterial`, buf)
+            FfiConverterSequenceTypeEntitlementOffer.write(value.`offers`, buf)
+    }
+}
+
+
+
+/**
+ * The trust evaluation request. Mirrors
+ * `engine_ports::EvaluationRequest`.
+ */
+data class EvaluationRequest (
+    /**
+     * The subject whose trust is being evaluated.
+     */
+    var `subject`: kotlin.String, 
+    /**
+     * The key material, as the engine extracted it.
+     */
+    var `keyMaterial`: kotlin.ByteArray, 
+    /**
+     * The resource type being resolved, when there is one.
+     */
+    var `resourceType`: kotlin.String?, 
+    /**
+     * The evaluation's context, as JSON text (the client_id scheme,
+     * the response/redirect URIs, the trust chain, the attestation).
+     */
+    var `context`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEvaluationRequest: FfiConverterRustBuffer<EvaluationRequest> {
+    override fun read(buf: ByteBuffer): EvaluationRequest {
+        return EvaluationRequest(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EvaluationRequest) = (
+            FfiConverterString.allocationSize(value.`subject`) +
+            FfiConverterByteArray.allocationSize(value.`keyMaterial`) +
+            FfiConverterOptionalString.allocationSize(value.`resourceType`) +
+            FfiConverterString.allocationSize(value.`context`)
+    )
+
+    override fun write(value: EvaluationRequest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`subject`, buf)
+            FfiConverterByteArray.write(value.`keyMaterial`, buf)
+            FfiConverterOptionalString.write(value.`resourceType`, buf)
+            FfiConverterString.write(value.`context`, buf)
+    }
+}
+
+
+
+/**
+ * The trust evaluation's verdict. Mirrors
+ * `engine_ports::EvaluationResponse`.
+ */
+data class EvaluationResponse (
+    /**
+     * Whether the subject is trusted.
+     */
+    var `trusted`: kotlin.Boolean, 
+    /**
+     * The decision text, when there is one.
+     */
+    var `decision`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEvaluationResponse: FfiConverterRustBuffer<EvaluationResponse> {
+    override fun read(buf: ByteBuffer): EvaluationResponse {
+        return EvaluationResponse(
+            FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EvaluationResponse) = (
+            FfiConverterBoolean.allocationSize(value.`trusted`) +
+            FfiConverterOptionalString.allocationSize(value.`decision`)
+    )
+
+    override fun write(value: EvaluationResponse, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`trusted`, buf)
+            FfiConverterOptionalString.write(value.`decision`, buf)
     }
 }
 
@@ -2259,7 +2965,12 @@ data class MatchResult (
     /**
      * The selected credentials; empty means nothing matched.
      */
-    var `selections`: List<VpSelection>
+    var `selections`: List<VpSelection>, 
+    /**
+     * The transport's opaque selection handle (WMP OpenID4x 3.2.3.1),
+     * when it issued one; the engine passes it through unchanged.
+     */
+    var `handle`: kotlin.String?
 ) {
     
     companion object
@@ -2272,15 +2983,103 @@ public object FfiConverterTypeMatchResult: FfiConverterRustBuffer<MatchResult> {
     override fun read(buf: ByteBuffer): MatchResult {
         return MatchResult(
             FfiConverterSequenceTypeVpSelection.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
     override fun allocationSize(value: MatchResult) = (
-            FfiConverterSequenceTypeVpSelection.allocationSize(value.`selections`)
+            FfiConverterSequenceTypeVpSelection.allocationSize(value.`selections`) +
+            FfiConverterOptionalString.allocationSize(value.`handle`)
     )
 
     override fun write(value: MatchResult, buf: ByteBuffer) {
             FfiConverterSequenceTypeVpSelection.write(value.`selections`, buf)
+            FfiConverterOptionalString.write(value.`handle`, buf)
+    }
+}
+
+
+
+/**
+ * The metadata resolution request. Mirrors
+ * `engine_ports::ResolveRequest`.
+ */
+data class ResolveRequest (
+    /**
+     * The URL subject to resolve.
+     */
+    var `uri`: kotlin.String, 
+    /**
+     * The resource type (`credential_issuer`,
+     * `oauth-authorization-server`, `did_document`).
+     */
+    var `resourceType`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResolveRequest: FfiConverterRustBuffer<ResolveRequest> {
+    override fun read(buf: ByteBuffer): ResolveRequest {
+        return ResolveRequest(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResolveRequest) = (
+            FfiConverterString.allocationSize(value.`uri`) +
+            FfiConverterString.allocationSize(value.`resourceType`)
+    )
+
+    override fun write(value: ResolveRequest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`uri`, buf)
+            FfiConverterString.write(value.`resourceType`, buf)
+    }
+}
+
+
+
+/**
+ * The metadata resolution's answer. Mirrors
+ * `engine_ports::ResolveResponse`.
+ */
+data class ResolveResponse (
+    /**
+     * The resolved document, raw.
+     */
+    var `metadata`: kotlin.ByteArray, 
+    /**
+     * Trust information, when the PDP carries it.
+     */
+    var `trustInfo`: kotlin.ByteArray?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResolveResponse: FfiConverterRustBuffer<ResolveResponse> {
+    override fun read(buf: ByteBuffer): ResolveResponse {
+        return ResolveResponse(
+            FfiConverterByteArray.read(buf),
+            FfiConverterOptionalByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResolveResponse) = (
+            FfiConverterByteArray.allocationSize(value.`metadata`) +
+            FfiConverterOptionalByteArray.allocationSize(value.`trustInfo`)
+    )
+
+    override fun write(value: ResolveResponse, buf: ByteBuffer) {
+            FfiConverterByteArray.write(value.`metadata`, buf)
+            FfiConverterOptionalByteArray.write(value.`trustInfo`, buf)
     }
 }
 
@@ -2342,6 +3141,44 @@ public object FfiConverterTypeSignParams: FfiConverterRustBuffer<SignParams> {
 
 
 /**
+ * A sign-stage refusal with its allowlisted code (the Go
+ * `SignError.Code` — only the code crosses, never the wallet's
+ * free-form reason).
+ */
+data class SignRefusal (
+    /**
+     * The refusal's code: `SIGN_REFUSED` (the user declined at the
+     * sign step) or `UNSUPPORTED_TRANSACTION_DATA` (the client
+     * refuses a transaction type only it can judge).
+     */
+    var `code`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSignRefusal: FfiConverterRustBuffer<SignRefusal> {
+    override fun read(buf: ByteBuffer): SignRefusal {
+        return SignRefusal(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SignRefusal) = (
+            FfiConverterString.allocationSize(value.`code`)
+    )
+
+    override fun write(value: SignRefusal, buf: ByteBuffer) {
+            FfiConverterString.write(value.`code`, buf)
+    }
+}
+
+
+
+/**
  * The signature. Mirrors `engine_ports::SignResult`.
  */
 data class SignResult (
@@ -2370,6 +3207,81 @@ public object FfiConverterTypeSignResult: FfiConverterRustBuffer<SignResult> {
 
     override fun write(value: SignResult, buf: ByteBuffer) {
             FfiConverterByteArray.write(value.`signature`, buf)
+    }
+}
+
+
+
+/**
+ * The signing-key request. Mirrors `engine_ports::SigningKeyParams`.
+ */
+data class SigningKeyParams (
+    /**
+     * The flow the ask belongs to.
+     */
+    var `flowId`: kotlin.String, 
+    /**
+     * The key the engine will sign with, named when the flow knows it.
+     */
+    var `keyId`: kotlin.String?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSigningKeyParams: FfiConverterRustBuffer<SigningKeyParams> {
+    override fun read(buf: ByteBuffer): SigningKeyParams {
+        return SigningKeyParams(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SigningKeyParams) = (
+            FfiConverterString.allocationSize(value.`flowId`) +
+            FfiConverterOptionalString.allocationSize(value.`keyId`)
+    )
+
+    override fun write(value: SigningKeyParams, buf: ByteBuffer) {
+            FfiConverterString.write(value.`flowId`, buf)
+            FfiConverterOptionalString.write(value.`keyId`, buf)
+    }
+}
+
+
+
+/**
+ * The public JWK answer. Mirrors `engine_ports::SigningKeyResult`.
+ */
+data class SigningKeyResult (
+    /**
+     * The public JWK as JSON text, public members only.
+     */
+    var `jwk`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSigningKeyResult: FfiConverterRustBuffer<SigningKeyResult> {
+    override fun read(buf: ByteBuffer): SigningKeyResult {
+        return SigningKeyResult(
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SigningKeyResult) = (
+            FfiConverterString.allocationSize(value.`jwk`)
+    )
+
+    override fun write(value: SigningKeyResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`jwk`, buf)
     }
 }
 
@@ -2497,7 +3409,12 @@ data class VpParams (
     /**
      * The transaction data entries, raw — the KB-JWT hashes.
      */
-    var `transactionData`: List<kotlin.String>
+    var `transactionData`: List<kotlin.String>, 
+    /**
+     * The transport's selection handle, as the match answer carried
+     * it (WMP OpenID4x 3.2.3.1): passed through unchanged.
+     */
+    var `selectionHandle`: kotlin.String?
 ) {
     
     companion object
@@ -2517,6 +3434,7 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2528,7 +3446,8 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.allocationSize(value.`responseUri`) +
             FfiConverterString.allocationSize(value.`verifierJwkThumbprint`) +
             FfiConverterString.allocationSize(value.`verifierSessionId`) +
-            FfiConverterSequenceString.allocationSize(value.`transactionData`)
+            FfiConverterSequenceString.allocationSize(value.`transactionData`) +
+            FfiConverterOptionalString.allocationSize(value.`selectionHandle`)
     )
 
     override fun write(value: VpParams, buf: ByteBuffer) {
@@ -2540,6 +3459,7 @@ public object FfiConverterTypeVpParams: FfiConverterRustBuffer<VpParams> {
             FfiConverterString.write(value.`verifierJwkThumbprint`, buf)
             FfiConverterString.write(value.`verifierSessionId`, buf)
             FfiConverterSequenceString.write(value.`transactionData`, buf)
+            FfiConverterOptionalString.write(value.`selectionHandle`, buf)
     }
 }
 
@@ -2553,7 +3473,13 @@ data class VpResult (
      * The VP token: newline-separated per selection, or a pre-formed
      * JSON object.
      */
-    var `vpToken`: kotlin.String
+    var `vpToken`: kotlin.String, 
+    /**
+     * The sign refusal, when the host answered with a refusal instead
+     * of a token (the Go `sign_response.error_code`, #472): the
+     * engine answers the verifier `access_denied` at once.
+     */
+    var `refusal`: SignRefusal?
 ) {
     
     companion object
@@ -2566,15 +3492,18 @@ public object FfiConverterTypeVpResult: FfiConverterRustBuffer<VpResult> {
     override fun read(buf: ByteBuffer): VpResult {
         return VpResult(
             FfiConverterString.read(buf),
+            FfiConverterOptionalTypeSignRefusal.read(buf),
         )
     }
 
     override fun allocationSize(value: VpResult) = (
-            FfiConverterString.allocationSize(value.`vpToken`)
+            FfiConverterString.allocationSize(value.`vpToken`) +
+            FfiConverterOptionalTypeSignRefusal.allocationSize(value.`refusal`)
     )
 
     override fun write(value: VpResult, buf: ByteBuffer) {
             FfiConverterString.write(value.`vpToken`, buf)
+            FfiConverterOptionalTypeSignRefusal.write(value.`refusal`, buf)
     }
 }
 
@@ -2645,6 +3574,12 @@ enum class ClientIdScheme {
      */
     X509_SAN_URI,
     /**
+     * The base64url SHA-256 over the verifier's certificate
+     * (`x509_hash:`, OpenID4VP 1.0 §5.2.3) — the chain rides the
+     * request object's `x5c`.
+     */
+    X509_HASH,
+    /**
      * A DID-based request (`did:`).
      */
     DECENTRALIZED_IDENTIFIER,
@@ -2677,6 +3612,129 @@ public object FfiConverterTypeClientIdScheme: FfiConverterRustBuffer<ClientIdSch
     override fun allocationSize(value: ClientIdScheme) = 4UL
 
     override fun write(value: ClientIdScheme, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * The entitlement finding's code. Mirrors
+ * `engine_ports::EntitlementCode`.
+ */
+
+enum class EntitlementCode {
+    
+    /**
+     * The issuer metadata was signed by no certificate chain.
+     */
+    NO_ACCESS_CERTIFICATE,
+    /**
+     * The chain's leaf does not meet the WRPAC profile.
+     */
+    NOT_WRPAC,
+    /**
+     * The issuer metadata carries no registration certificate.
+     */
+    NO_REGISTRATION_CERTIFICATE,
+    /**
+     * The registration certificate is not readable.
+     */
+    REGISTRATION_MALFORMED,
+    /**
+     * The registration certificate is not current.
+     */
+    REGISTRATION_EXPIRED,
+    /**
+     * The registration certificate's validity is not conformant.
+     */
+    REGISTRATION_OVERLONG,
+    /**
+     * The registration certificate describes another provider.
+     */
+    BINDING_MISMATCH,
+    /**
+     * The registered entitlements name no provider role.
+     */
+    NOT_PROVIDER,
+    /**
+     * The provider is not registered for an offered credential.
+     */
+    TYPE_NOT_REGISTERED,
+    /**
+     * The registration certificate's signature was not verified.
+     */
+    REGISTRATION_UNVERIFIED,
+    /**
+     * The signer is no trusted Registrar.
+     */
+    REGISTRAR_NOT_TRUSTED,
+    /**
+     * Nothing established the signing chain's trust.
+     */
+    ACCESS_CERTIFICATE_NOT_TRUSTED;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementCode: FfiConverterRustBuffer<EntitlementCode> {
+    override fun read(buf: ByteBuffer) = try {
+        EntitlementCode.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: EntitlementCode) = 4UL
+
+    override fun write(value: EntitlementCode, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * The entitlement mode. Mirrors `engine_ports::EntitlementMode`.
+ */
+
+enum class EntitlementMode {
+    
+    /**
+     * Records findings and still allows issuance.
+     */
+    WARN,
+    /**
+     * Turns the findings into a refusal.
+     */
+    FAIL,
+    /**
+     * Skips the evaluation.
+     */
+    OFF;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEntitlementMode: FfiConverterRustBuffer<EntitlementMode> {
+    override fun read(buf: ByteBuffer) = try {
+        EntitlementMode.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: EntitlementMode) = 4UL
+
+    override fun write(value: EntitlementMode, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -3042,6 +4100,29 @@ public interface Host {
     suspend fun `openAuthorization`(`flowId`: kotlin.String, `url`: kotlin.String)
     
     /**
+     * Asks the host for the public JWK of a named signing key, so the
+     * engine can identify the key in the proof headers it builds. Keys
+     * always live in the app; the engine only ever sees the public
+     * JWK. A refusal keeps the flows working without key identification.
+     */
+    suspend fun `requestSigningKey`(`params`: SigningKeyParams): SigningKeyResult
+    
+    /**
+     * Asks the host for a client attestation (a Wallet Instance
+     * Attestation and its proof of possession), when the AS demands
+     * one. A refusal continues without client attestation.
+     */
+    suspend fun `requestAttestation`(`params`: AttestationParams): AttestationResult
+    
+    /**
+     * Asks the host's user to pick one of the offered credential
+     * configurations, when the offer names more than one. A refusal
+     * fails the flow closed (exactly one configuration is
+     * auto-selected and never asked).
+     */
+    suspend fun `requestCredentialSelection`(`params`: CredentialSelectionParams): CredentialSelectionResult
+    
+    /**
      * Reports progress on a flow.
      */
     fun `progress`(`flowId`: kotlin.String, `step`: kotlin.String, `detail`: kotlin.String?)
@@ -3335,7 +4416,115 @@ internal object uniffiCallbackInterfaceHost {
             )
         }
     }
-    internal object `progress`: UniffiCallbackInterfaceHostMethod7 {
+    internal object `requestSigningKey`: UniffiCallbackInterfaceHostMethod7 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestSigningKey`(
+                    FfiConverterTypeSigningKeyParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: SigningKeyResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeSigningKeyResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestAttestation`: UniffiCallbackInterfaceHostMethod8 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestAttestation`(
+                    FfiConverterTypeAttestationParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: AttestationResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeAttestationResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `requestCredentialSelection`: UniffiCallbackInterfaceHostMethod9 {
+        override fun callback(`uniffiHandle`: Long,`params`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`requestCredentialSelection`(
+                    FfiConverterTypeCredentialSelectionParams.lift(`params`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: CredentialSelectionResult ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeCredentialSelectionResult.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `progress`: UniffiCallbackInterfaceHostMethod10 {
         override fun callback(`uniffiHandle`: Long,`flowId`: RustBuffer.ByValue,`step`: RustBuffer.ByValue,`detail`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
             val uniffiObj = FfiConverterTypeHost.handleMap.get(uniffiHandle)
             val makeCall = { ->
@@ -3364,6 +4553,9 @@ internal object uniffiCallbackInterfaceHost {
         `requestConsent`,
         `requestTxCode`,
         `openAuthorization`,
+        `requestSigningKey`,
+        `requestAttestation`,
+        `requestCredentialSelection`,
         `progress`,
         uniffiFree,
     )
@@ -3470,6 +4662,179 @@ public object FfiConverterTypeHttpClient: FfiConverterCallbackInterface<HttpClie
 
 
 
+
+/**
+ * The engine's trust port: the policy decision point the engine
+ * evaluates issuer, verifier and entitlement trust through. The
+ * Kotlin/Swift implementation is the adapter's `engine_ports::Pdp` —
+ * the app's trust stack (the backend's `/v1/evaluate` over the app's
+ * HTTP, or a local evaluator).
+ */
+public interface Pdp {
+    
+    /**
+     * Evaluates the trust of a subject with the key material the
+     * engine extracted.
+     */
+    suspend fun `evaluate`(`request`: EvaluationRequest): EvaluationResponse
+    
+    /**
+     * Resolves a URL to a metadata document (the `/v1/resolve`
+     * shape), including the DID documents of `did:`-schemed verifiers.
+     */
+    suspend fun `resolve`(`request`: ResolveRequest): ResolveResponse
+    
+    /**
+     * Evaluates the issuer's entitlement (ARF 6.6.2.3).
+     */
+    suspend fun `evaluateEntitlement`(`request`: EntitlementRequest): EntitlementDecision
+    
+    companion object
+}
+
+
+
+// Put the implementation in an object so we don't pollute the top-level namespace
+internal object uniffiCallbackInterfacePdp {
+    internal object `evaluate`: UniffiCallbackInterfacePdpMethod0 {
+        override fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypePdp.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`evaluate`(
+                    FfiConverterTypeEvaluationRequest.lift(`request`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: EvaluationResponse ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeEvaluationResponse.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `resolve`: UniffiCallbackInterfacePdpMethod1 {
+        override fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypePdp.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`resolve`(
+                    FfiConverterTypeResolveRequest.lift(`request`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: ResolveResponse ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeResolveResponse.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+    internal object `evaluateEntitlement`: UniffiCallbackInterfacePdpMethod2 {
+        override fun callback(`uniffiHandle`: Long,`request`: RustBuffer.ByValue,`uniffiFutureCallback`: UniffiForeignFutureCompleteRustBuffer,`uniffiCallbackData`: Long,`uniffiOutReturn`: UniffiForeignFuture,) {
+            val uniffiObj = FfiConverterTypePdp.handleMap.get(uniffiHandle)
+            val makeCall = suspend { ->
+                uniffiObj.`evaluateEntitlement`(
+                    FfiConverterTypeEntitlementRequest.lift(`request`),
+                )
+            }
+            val uniffiHandleSuccess = { returnValue: EntitlementDecision ->
+                val uniffiResult = UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                    FfiConverterTypeEntitlementDecision.lower(returnValue),
+                    UniffiRustCallStatus.ByValue()
+                )
+                uniffiResult.write()
+                uniffiFutureCallback.callback(uniffiCallbackData, uniffiResult)
+            }
+            val uniffiHandleError = { callStatus: UniffiRustCallStatus.ByValue ->
+                uniffiFutureCallback.callback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer.UniffiByValue(
+                        RustBuffer.ByValue(),
+                        callStatus,
+                    ),
+                )
+            }
+
+            uniffiOutReturn.uniffiSetValue(
+                uniffiTraitInterfaceCallAsyncWithError(
+                    makeCall,
+                    uniffiHandleSuccess,
+                    uniffiHandleError,
+                    { e: SdkException -> FfiConverterTypeSdkError.lower(e) }
+                )
+            )
+        }
+    }
+
+    internal object uniffiFree: UniffiCallbackInterfaceFree {
+        override fun callback(handle: Long) {
+            FfiConverterTypePdp.handleMap.remove(handle)
+        }
+    }
+
+    internal var vtable = UniffiVTableCallbackInterfacePdp.UniffiByValue(
+        `evaluate`,
+        `resolve`,
+        `evaluateEntitlement`,
+        uniffiFree,
+    )
+
+    // Registers the foreign callback with the Rust side.
+    // This method is generated for each callback interface.
+    internal fun register(lib: UniffiLib) {
+        lib.uniffi_engine_adapter_sdk_fn_init_callback_vtable_pdp(vtable)
+    }
+}
+
+/**
+ * The ffiConverter which transforms the Callbacks in to handles to pass to Rust.
+ *
+ * @suppress
+ */
+public object FfiConverterTypePdp: FfiConverterCallbackInterface<Pdp>()
+
+
+
+
 /**
  * @suppress
  */
@@ -3537,6 +4902,70 @@ public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteA
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeSignRefusal: FfiConverterRustBuffer<SignRefusal?> {
+    override fun read(buf: ByteBuffer): SignRefusal? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeSignRefusal.read(buf)
+    }
+
+    override fun allocationSize(value: SignRefusal?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeSignRefusal.allocationSize(value)
+        }
+    }
+
+    override fun write(value: SignRefusal?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeSignRefusal.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePdp: FfiConverterRustBuffer<Pdp?> {
+    override fun read(buf: ByteBuffer): Pdp? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePdp.read(buf)
+    }
+
+    override fun allocationSize(value: Pdp?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePdp.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Pdp?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePdp.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
     override fun read(buf: ByteBuffer): List<kotlin.String> {
         val len = buf.getInt()
@@ -3583,6 +5012,90 @@ public object FfiConverterSequenceByteArray: FfiConverterRustBuffer<List<kotlin.
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterByteArray.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAvailableCredential: FfiConverterRustBuffer<List<AvailableCredential>> {
+    override fun read(buf: ByteBuffer): List<AvailableCredential> {
+        val len = buf.getInt()
+        return List<AvailableCredential>(len) {
+            FfiConverterTypeAvailableCredential.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AvailableCredential>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAvailableCredential.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AvailableCredential>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAvailableCredential.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeEntitlementFinding: FfiConverterRustBuffer<List<EntitlementFinding>> {
+    override fun read(buf: ByteBuffer): List<EntitlementFinding> {
+        val len = buf.getInt()
+        return List<EntitlementFinding>(len) {
+            FfiConverterTypeEntitlementFinding.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<EntitlementFinding>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeEntitlementFinding.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<EntitlementFinding>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeEntitlementFinding.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeEntitlementOffer: FfiConverterRustBuffer<List<EntitlementOffer>> {
+    override fun read(buf: ByteBuffer): List<EntitlementOffer> {
+        val len = buf.getInt()
+        return List<EntitlementOffer>(len) {
+            FfiConverterTypeEntitlementOffer.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<EntitlementOffer>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeEntitlementOffer.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<EntitlementOffer>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeEntitlementOffer.write(it, buf)
         }
     }
 }
@@ -3651,19 +5164,26 @@ public object FfiConverterSequenceTypeVpSelection: FfiConverterRustBuffer<List<V
 
 
         /**
-         * Creates the in-process WMP engine with the given configuration. The
-         * SDK calls this once and holds the returned handle as its Transport.
+         * Creates the in-process WMP engine with the given configuration and
+         * ports. The SDK calls this once and holds the returned handle as its
+         * Transport.
          *
          * The engine runs the full WMP stack: the peer, the session service,
-         * and (when they land) the flow families registered on the runtime.
-         * The SDK's `HttpClient` and `Host` callback interfaces connect through
-         * the exported async functions (`run_pre_authorized_flow` and its
-         * siblings).
-         */ fun `createEngine`(`config`: EngineConfig): WmpEngine {
+         * and the flow families (oid4vci, oid4vp, credential_notification)
+         * registered on the flow runtime. The SDK supplies the world through
+         * the callbacks:
+         * - `http`: the engine's outgoing fetches (the app's platform stack
+         * handles TLS, proxies and VPNs);
+         * - `host`: the wallet's own asks — the sub-flows, the consents, the
+         * key custody;
+         * - `pdp`: the trust port, the app's trust stack. `None` is an
+         * unconfigured PDP: the engine's trust evaluation fails closed on
+         * it, so no flow passes the trust step until the app supplies one.
+         */ fun `createEngine`(`config`: EngineConfig, `http`: HttpClient, `host`: Host, `pdp`: Pdp?): WmpEngine {
             return FfiConverterTypeWmpEngine.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_engine_adapter_sdk_fn_func_create_engine(
-        FfiConverterTypeEngineConfig.lower(`config`),_status)
+        FfiConverterTypeEngineConfig.lower(`config`),FfiConverterTypeHttpClient.lower(`http`),FfiConverterTypeHost.lower(`host`),FfiConverterOptionalTypePdp.lower(`pdp`),_status)
 }
     )
     }
