@@ -470,8 +470,13 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
 /// digits or an `i128`'s units, a text.
 #[test]
 fn a_json_number_shows_as_the_value_it_writes() {
-    let decimal = |units, scale| Decimal::new(units, scale).map(|d| Text::Value(Typed::Decimal(d)));
-    let count = |digits| Count::parse(digits).map(|c| Text::Value(Typed::Count(c)));
+    let decimal = |units, scale| {
+        Text::Value(Typed::Decimal(
+            Decimal::new(units, scale).expect("a decimal"),
+        ))
+    };
+    let count = |digits| Text::Value(Typed::Count(Count::parse(digits).expect("a count")));
+    let raw = |written: &str| Text::Raw(written.to_owned());
     let table = [
         ("0", count("0")),
         ("42", count("42")),
@@ -487,8 +492,10 @@ fn a_json_number_shows_as_the_value_it_writes() {
         ("2.50E-1", decimal(250, 3)),
         ("-1.2e+2", decimal(-120, 0)),
         ("1e-38", decimal(1, 38)),
-        ("1e-39", None),
-        ("1e39", None),
+        ("1e-39", raw("1e-39")),
+        ("1e39", raw("1e39")),
+        ("1e400", raw("1e400")),
+        ("1e-400", raw("1e-400")),
     ];
     let format = ClaimsTest {
         member: "vct_values",
@@ -502,7 +509,7 @@ fn a_json_number_shows_as_the_value_it_writes() {
         Choice::First,
     )
     .expect("env");
-    for (written, value) in table {
+    for (written, expected) in table {
         let text = query_text(r#"[{"path": ["n"]}]"#, "vct_values", r#"["t"]"#);
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
@@ -519,9 +526,6 @@ fn a_json_number_shows_as_the_value_it_writes() {
             panic!("one row for {written}: {:?}", card.rows)
         };
         let shown = row.value.as_ref().and_then(|value| value.text());
-        match (shown, value) {
-            (Some(Text::Raw(_)), None) => {}
-            (shown, value) => assert_eq!(shown, value.as_ref(), "{written}"),
-        }
+        assert_eq!(shown, Some(&expected), "{written}");
     }
 }
