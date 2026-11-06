@@ -14,7 +14,10 @@ All notable changes to this workspace. The format follows
   writes it beside `thiserror::Error`, and `Messages` declares each message's
   English template and parameter kinds. `Text` holds a message unrendered;
   `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
-  second), and amounts in ISO 4217 currencies. Edition 2024, unpublished.
+  second), and amounts in ISO 4217 currencies. A `RequestText` is a text that
+  depends on a request: it holds a message of its module's one
+  `DeclaredModule::Requested` type, a value, a name, a received text or a
+  defined module's message. Edition 2024, unpublished.
 
 ### Changed
 
