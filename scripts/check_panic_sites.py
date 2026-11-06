@@ -9,9 +9,11 @@ cannot recover. A test host (a crate named `*-testhost`) runs the matcher in
 the tests, so its code is test code. Every other crate of the named
 workspaces runs in a normal flow, where a panic crashes the wallet, and the
 check covers it with no list to extend. Each root of its targets that ship
-carries `#![cfg_attr(not(test), deny(...))]` over the lints in PANIC_LINTS,
-and this check fails on a root without it and on an `allow`, `expect` or
-`warn` of those lints outside test code: clippy then denies `panic!`,
+carries `#![deny(...)]` over the lints in PANIC_LINTS, or
+`#![cfg_attr(not(test), deny(...))]` in the engine crates, whose tests sit in
+their source files, and this check fails on a root without either and on an
+`allow`, `expect` or `warn` of those lints outside test code: clippy then
+denies `panic!`,
 `unreachable!`, `todo!`, `unimplemented!`, `unwrap`, `expect`, indexing, and
 the std methods that clippy.toml's `disallowed-methods` names, which panic
 and share their name with a method that does not. This check finds the rest
@@ -409,17 +411,19 @@ class _Scanner:
 
 
 def _denied_outside_tests(items: list[Token]) -> frozenset[str]:
-    """The clippy lints an inner `#![cfg_attr(not(test), deny(...))]` names."""
+    """The clippy lints an inner `#![deny(...)]` or `#![cfg_attr(not(test), deny(...))]` names."""
     texts = [token.text for token in items]
-    head = ["#", "!", "[", "cfg_attr", "(", "not", "(", "test", ")", ",", "deny", "("]
+    heads = (["#", "!", "[", "deny", "("],
+             ["#", "!", "[", "cfg_attr", "(", "not", "(", "test", ")", ",", "deny", "("])
     found: set[str] = set()
-    for start in range(len(texts) - len(head)):
-        if texts[start:start + len(head)] != head:
-            continue
-        opener = start + len(head) - 1
-        for begin, end in _arguments(items, opener, matching_closer(items, opener)):
-            if texts[begin:end - 1] == ["clippy", "::"]:
-                found.add(texts[end - 1])
+    for head in heads:
+        for start in range(len(texts) - len(head)):
+            if texts[start:start + len(head)] != head:
+                continue
+            opener = start + len(head) - 1
+            for begin, end in _arguments(items, opener, matching_closer(items, opener)):
+                if texts[begin:end - 1] == ["clippy", "::"]:
+                    found.add(texts[end - 1])
     return frozenset(found)
 
 
@@ -433,8 +437,8 @@ def _read(path: Path) -> list[Token]:
 def _walk_tree(root: Path, walk: Walk) -> None:
     missing = PANIC_LINTS - _denied_outside_tests(_read(root))
     if missing:
-        walk.unlinted.append(Site(root, 1, "the root lacks #![cfg_attr(not(test), deny(clippy::"
-                                  + ", clippy::".join(sorted(missing)) + "))]"))
+        walk.unlinted.append(Site(root, 1, "the root lacks #![deny(clippy::"
+                                  + ", clippy::".join(sorted(missing)) + ")]"))
     pending = [ModuleFile(root, root.parent, in_test=False)]
     while pending:
         module = pending.pop()

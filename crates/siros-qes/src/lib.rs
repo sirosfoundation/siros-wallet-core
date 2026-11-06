@@ -23,18 +23,15 @@
     clippy::let_underscore_untyped,
     clippy::disallowed_types
 )]
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::panic,
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::indexing_slicing,
-        clippy::disallowed_methods
-    )
+#![deny(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::indexing_slicing,
+    clippy::disallowed_methods
 )]
 
 mod approval;
