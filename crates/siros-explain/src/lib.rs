@@ -78,6 +78,7 @@ mod keyed;
 pub mod kind;
 mod list;
 mod message;
+mod requested;
 mod text;
 mod value;
 
@@ -87,6 +88,7 @@ pub use iso4217::Currency;
 pub use keyed::{Entry, Keyed, Repeated};
 pub use list::{AllOf, AnyOf, ListKind, Listed};
 pub use message::{Domain, Explain, Explained, Message, MessageId, Messages, Param, ParamKind};
+pub use requested::{DeclaredModule, RequestText, Requested};
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;
 pub use text::{DefinedKey, DefinedModule, Key, ModuleId, Query, Text};
