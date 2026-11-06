@@ -18,6 +18,7 @@ use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::{Member, Node, Object};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::recourse::{Failure, Rejected};
+use siros_openid4vp::request::Request;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
@@ -160,6 +161,13 @@ fn each_x509_rule_refuses_its_claim() {
         ),
         X509Refusal::Certificate { item, .. } if item.get() == 0
     ));
+    // RFC 5280's Certificate is the whole item: one trailing byte hashes differently and parses
+    // the same under a reader that stops at the certificate's end.
+    let trailing = [good.as_slice(), &[0]].concat();
+    assert!(matches!(
+        refusal(&header(&[STANDARD.encode(trailing)]), &hash),
+        X509Refusal::Certificate { item, .. } if item.get() == 0
+    ));
     // A compressed point (RFC 5480 §2.2 reads the uncompressed form).
     let mut compressed = point(&VERIFIER_SECRET);
     compressed.truncate(33);
@@ -186,7 +194,8 @@ fn each_x509_rule_refuses_its_claim() {
 
 #[test]
 fn a_dc_api_request_authenticates_under_either_prefix() {
-    // KA14: A.3.2.1's payload as data.request; the classification names x509_san_dns.
+    // KA14: A.3.2.1's payload as data.request: the envelope reads its client_id, two
+    // expected_origins and dc_api; the classification names x509_san_dns.
     let good = leaf(&["rp.example.com"]);
     let san = "x509_san_dns:rp.example.com";
     let data = data(&header(&x5c(&good)), &payload(san));
@@ -199,6 +208,8 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     )
     .expect("an envelope");
     assert_eq!(envelope.client_id().map(|id| id.as_str()), Some(san));
+    let request = Request::parse(&envelope).expect("a request");
+    assert_eq!(request.expected_origins().len(), 2);
     let registry = registry();
     let done = outcome(&envelope, &registry).expect("authenticated");
     assert!(matches!(done.verifier().id(), VerifierId::Client(id) if id.as_str() == san));
