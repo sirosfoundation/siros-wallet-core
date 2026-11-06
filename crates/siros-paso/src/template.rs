@@ -303,9 +303,7 @@ fn slot(parts: &[Part]) -> Option<char> {
 
 /// A referenced value as written: a string's text, any other JSON value's compact text.
 fn value_written(value: &Node<'_>) -> String {
-    value
-        .as_str()
-        .map_or_else(|| value.python_compact().to_string(), str::to_owned)
+    value.written_compact()
 }
 
 /// A referenced value's text by its value type: a string as written without one.

@@ -4,6 +4,7 @@
 
 use siros_explain::{Count, Explain};
 use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::refusal::ReprItem;
 
 use crate::binding::ApprovalHash;
 use crate::repr::Repr;
@@ -32,9 +33,9 @@ pub(crate) enum Problem {
     /// `numSignatures` is no positive integer.
     #[error("numSignatures is not a positive integer")]
     SignatureCount,
-    /// `signatureQualifier` is none the wallet renders; the value as Python's `repr` writes it.
+    /// `signatureQualifier` is none the wallet renders.
     #[error("signatureQualifier {0} is not one this wallet renders")]
-    SignatureQualifier(#[explain(name = "qualifier")] String),
+    SignatureQualifier(#[explain(name = "qualifier")] ReprItem),
     /// `hashAlgorithmOID` is no string.
     #[error("hashAlgorithmOID is absent: §7.2 identifies the approval's hash with it")]
     NoHashAlgorithm,
@@ -291,7 +292,12 @@ fn qualifier(object: &Object<'_>) -> Result<SignatureQualifier, Problem> {
     value
         .and_then(Node::as_str)
         .and_then(SignatureQualifier::parse)
-        .ok_or_else(|| Problem::SignatureQualifier(Repr(value).to_string()))
+        .ok_or_else(|| {
+            Problem::SignatureQualifier(value.map_or_else(
+                || ReprItem::absent("None"),
+                |written| ReprItem::new(Repr(Some(written)), written),
+            ))
+        })
 }
 
 fn hash(object: &Object<'_>) -> Result<ApprovalHash, Problem> {

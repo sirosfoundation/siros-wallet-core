@@ -359,13 +359,12 @@ impl<T: AsRef<str>> fmt::Display for QuotedList<'_, T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprList(Vec<ReprItem>);
 
-/// One value of a [`ReprList`].
+/// A received value a rule names: the rule's text writes it as Python writes the value `json`
+/// reads, and its message, which the End-User may read, as its sender wrote it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ReprItem {
-    /// A string, quoted in the list's `repr`.
-    Text(String),
-    /// Another JSON value, as Python writes the value `json` reads.
-    Value(String),
+pub struct ReprItem {
+    repr: String,
+    written: String,
 }
 
 impl ReprList {
@@ -375,7 +374,10 @@ impl ReprList {
         Self(
             items
                 .iter()
-                .map(|item| ReprItem::Text(item.as_ref().to_owned()))
+                .map(|item| ReprItem {
+                    repr: Quoted(item.as_ref()).to_string(),
+                    written: item.as_ref().to_owned(),
+                })
                 .collect(),
         )
     }
@@ -388,29 +390,59 @@ impl ReprList {
                 .iter()
                 .map(|item| {
                     item.as_str().map_or_else(
-                        || ReprItem::Value(item.python_text().to_string()),
-                        |text| ReprItem::Text(text.to_owned()),
+                        || ReprItem::new(item.python_text(), item),
+                        |text| ReprItem::new(Quoted(text), item),
                     )
                 })
+                .collect(),
+        )
+    }
+
+    /// JSON values as Python's `sorted` list of their `str`s, in that order.
+    #[must_use]
+    pub fn names(items: &[Node<'_>]) -> Self {
+        let mut named: Vec<(String, &Node<'_>)> = items
+            .iter()
+            .map(|item| {
+                let name = item
+                    .as_str()
+                    .map_or_else(|| item.python_text().to_string(), str::to_owned);
+                (name, item)
+            })
+            .collect();
+        named.sort_by(|a, b| a.0.cmp(&b.0));
+        Self(
+            named
+                .into_iter()
+                .map(|(name, item)| ReprItem::new(Quoted(&name), item))
                 .collect(),
         )
     }
 }
 
 impl ReprItem {
-    fn text(&self) -> &str {
-        match self {
-            Self::Text(text) | Self::Value(text) => text,
+    /// A JSON value the rule's text writes as `repr`.
+    #[must_use]
+    pub fn new(repr: impl fmt::Display, value: &Node<'_>) -> Self {
+        Self {
+            repr: repr.to_string(),
+            written: value.written_text(),
+        }
+    }
+
+    /// The word a rule's text and its message name when there is no value.
+    #[must_use]
+    pub fn absent(word: &str) -> Self {
+        Self {
+            repr: word.to_owned(),
+            written: word.to_owned(),
         }
     }
 }
 
 impl fmt::Display for ReprItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Text(text) => write!(f, "{}", Quoted(text)),
-            Self::Value(value) => f.write_str(value),
-        }
+        f.write_str(&self.repr)
     }
 }
 
@@ -431,7 +463,7 @@ impl IntoArg for ReprItem {
     type Kind = kind::Raw;
 
     fn arg(&self) -> &str {
-        self.text()
+        &self.written
     }
 }
 

@@ -3,6 +3,7 @@
 //! draft-ietf-oauth-sd-jwt-vc-14, as the reference model reads them (page furniture removed).
 
 use siros_openid4vp::json::Node;
+use siros_openid4vp::refusal::ReprItem;
 use siros_sdjwt::type_metadata::{ExtendError, extend};
 
 fn json(text: &str) -> Node<'_> {
@@ -42,6 +43,10 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
         {"path": ["allowed"], "sd": "allowed"}, {"path": ["plain"]},
         {"path": ["required"], "mandatory": true}, {"path": ["optional"], "mandatory": false}]}"#;
     let base = json(base);
+    let path = |text| {
+        let node = json(text);
+        ReprItem::new(node.python_text(), &node)
+    };
     let cases: [(&str, Result<(), ExtendError>); 9] = [
         // §8.5.1: allowed or absent may become always or never; optional may become mandatory.
         (r#"{"path": ["allowed"], "sd": "never"}"#, Ok(())),
@@ -53,21 +58,21 @@ fn a_child_tightens_sd_and_mandatory_and_loosens_neither() {
         (
             r#"{"path": ["always"], "sd": "allowed"}"#,
             Err(ExtendError::Sd {
-                path: r#"["always"]"#.to_owned(),
+                path: path(r#"["always"]"#),
                 base: "always".to_owned(),
             }),
         ),
         (
             r#"{"path": ["never"], "sd": "always"}"#,
             Err(ExtendError::Sd {
-                path: r#"["never"]"#.to_owned(),
+                path: path(r#"["never"]"#),
                 base: "never".to_owned(),
             }),
         ),
         (
             r#"{"path": ["required"], "mandatory": false}"#,
             Err(ExtendError::Mandatory {
-                path: r#"["required"]"#.to_owned(),
+                path: path(r#"["required"]"#),
             }),
         ),
         // A claim without a path cannot be matched to the extended type's.
