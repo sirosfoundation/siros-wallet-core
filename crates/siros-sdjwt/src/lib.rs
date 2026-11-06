@@ -13,7 +13,10 @@
 //! it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
-//! wallet registers the view's `metadata` from.
+//! wallet registers the view's `metadata` from, and converts a document's `display` into a defined
+//! module (section 4.14 of the design). A view whose `display_module` names that module, by the
+//! document's SHA-256, shows the module's texts: they take one language with the entry's other
+//! modules.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -59,8 +62,10 @@ mod select;
 #[cfg(feature = "resolve")]
 mod tree;
 
-use siros_explain::{AllOf, Explain, Explained, Message, Messages};
-use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_explain::{AllOf, DefinedKey, DefinedModule, Explain, Explained, Message, Messages};
+use siros_openid4vp::claims::kit::{
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, DisplayItem,
+};
 use siros_openid4vp::claims::{Claim, ClaimPath};
 use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::Node;
@@ -149,6 +154,7 @@ impl Messages for CrateMessages {
             SdJwtRule::messages,
             HolderBindingWaived::messages,
             type_metadata::ExtendError::messages,
+            type_metadata::ConvertError::messages,
             phase_two,
         ];
         declared
@@ -305,6 +311,34 @@ impl ClaimsFormat for SdJwtVc {
         element
             .as_object()
             .is_some_and(|object| matches!(object.members(), [only] if only.name == "..."))
+    }
+
+    /// The module the view's `display_module` names, by the metadata's digest in hexadecimal.
+    fn display_module(&self, view: &Node<'_>) -> Result<Option<DefinedModule>, Fault> {
+        let Some(digest) = view.get("display_module") else {
+            return Ok(None);
+        };
+        let fault = || {
+            Fault::new(
+                FAULT,
+                siros_openid4vp::detail!("a view whose display_module is no SHA-256 digest"),
+            )
+        };
+        let digest = digest.as_str().ok_or_else(fault)?;
+        let mut bytes = [0u8; 32];
+        if digest.len() != 64 || !digest.is_ascii() {
+            return Err(fault());
+        }
+        for (byte, pair) in bytes.iter_mut().zip(digest.as_bytes().chunks(2)) {
+            let pair = std::str::from_utf8(pair).map_err(|_| fault())?;
+            *byte = u8::from_str_radix(pair, 16).map_err(|_| fault())?;
+        }
+        Ok(Some(DefinedModule::new(type_metadata::PLUGIN, bytes)))
+    }
+
+    /// `name`, or `claim_<position>`.
+    fn display_key(&self, item: DisplayItem) -> Option<DefinedKey> {
+        Some(type_metadata::key(item))
     }
 
     /// §7.1: every claims path pointer addresses a JSON-based credential.

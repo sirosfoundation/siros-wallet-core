@@ -2,6 +2,7 @@
 //! sets of slots of choices, and the selection read back from the ids the platform returns.
 
 use rustc_hash::FxHashMap;
+use siros_explain::DefinedModule;
 use siros_explain::{Explain, Text};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
@@ -58,6 +59,8 @@ pub struct EntryView<'m> {
     pub header: Option<&'m Header>,
     /// The module whose texts show in the locale the transaction's profile selected.
     pub selected: Option<&'m Selected>,
+    /// The defined module the card draws its texts from.
+    pub card_module: Option<DefinedModule>,
 }
 
 /// Every consent entry: one per query, candidate and answerable option.
@@ -105,6 +108,7 @@ impl<'m> Views<'m> {
                         },
                         env,
                     )?;
+                    let card_module = formatted.query.card_module(candidate.credential)?;
                     views.push(EntryView {
                         pick: Pick {
                             query: index,
@@ -115,6 +119,7 @@ impl<'m> Views<'m> {
                         entry: ConsentEntry::new(card, bound.map(|bound| bound.overlay.clone())),
                         header: bound.map(|bound| &bound.header),
                         selected: bound.and_then(|bound| bound.selected.as_ref()),
+                        card_module,
                     });
                 }
             }

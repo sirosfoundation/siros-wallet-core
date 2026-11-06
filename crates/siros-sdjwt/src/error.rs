@@ -262,8 +262,8 @@ pub enum RegistrationError {
         /// The curve the wallet resolved.
         curve: String,
     },
-    /// The metadata is no object whose `display` and `claims`, when present, are arrays.
-    #[error("the type metadata is no object whose display and claims are arrays")]
+    /// The metadata is no object.
+    #[error("the type metadata is no object")]
     Metadata,
     /// The view repeats a member name.
     #[error(transparent)]

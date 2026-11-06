@@ -83,7 +83,7 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             everyone: &items,
             chosen: &[],
         };
-        let card = query.card(&MDOC, &view, shown, &env).expect("card");
+        let card = query.card(&MDOC, &view, shown, &env, None).expect("card");
         let rows: Vec<(String, Option<String>)> = card
             .rows
             .iter()
@@ -419,6 +419,7 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
                 chosen: &[],
             },
             &env,
+            None,
         )
         .expect("card");
     let rows: Vec<(String, Option<String>)> = card
@@ -514,7 +515,7 @@ fn a_json_number_shows_as_the_value_it_writes() {
             everyone: &items,
             chosen: &[],
         };
-        let card = query.card(&format, &view, shown, &env).expect("card");
+        let card = query.card(&format, &view, shown, &env, None).expect("card");
         let [row] = card.rows.as_slice() else {
             panic!("one row for {written}: {:?}", card.rows)
         };

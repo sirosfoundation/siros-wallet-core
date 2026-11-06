@@ -3518,6 +3518,7 @@ dependencies = [
  "rustc-hash",
  "sha2 0.11.1",
  "siros-explain",
+ "siros-i18n",
  "siros-openid4vp",
  "siros-sdjwt",
  "siros-testkit",

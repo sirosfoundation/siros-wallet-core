@@ -220,11 +220,11 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
             assert!(view.selected.is_some(), "the ad-hoc module shows");
             let credential = Some(view.record.credential.as_str());
             let renderer = matcher
-                .renderer(view.selected, credential, &env)
+                .renderer(view.selected, view.card_module, credential, &env)
                 .expect("no fault")
                 .expect("a language");
             let wallet = wallet_rendering
-                .renderer(view.selected, None, &env)
+                .renderer(view.selected, view.card_module, None, &env)
                 .expect("no fault")
                 .expect("a language");
             assert_eq!(renderer.inputs(), wallet.inputs());

@@ -9,7 +9,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{Explain, ModuleId};
+use siros_explain::{DefinedModule, Explain, ModuleId};
 use siros_i18n::{
     DefinedForm, Formats, ModuleName, NoLanguage, Package, PackageError, Registration, Renderer,
     Screen,
@@ -66,8 +66,8 @@ impl<'p> Rendering<'p> {
         self.registration.as_ref()
     }
 
-    /// An entry's renderer: the app's modules and the module its profile selected a locale for,
-    /// that module in its locale and the others in the language `Screen::locale` decides over
+    /// An entry's renderer: the app's modules, the module the credential's card draws from
+    /// (`card_module`), and the module its profile selected a locale for, that module in its locale and the others in the language `Screen::locale` decides over
     /// `env`'s priority list headed by that locale and its RFC 4647 truncations, `env`'s fallback
     /// list and the modules' policies; with `env`'s rendering options. Over a registration's
     /// package, a credential's language is decided over its candidate languages, which give the
@@ -84,9 +84,11 @@ impl<'p> Rendering<'p> {
     pub fn renderer(
         &self,
         selected: Option<&Selected>,
+        card_module: Option<DefinedModule>,
         credential: Option<&str>,
         env: &Env,
     ) -> Result<Result<Renderer<'p>, Unrendered>, Fault> {
+        let card = card_module.map(ModuleId::Defined);
         let (priority, fallback) = match &self.registration {
             None => (env.priority(), env.fallback()),
             Some(registration) => {
@@ -106,6 +108,12 @@ impl<'p> Rendering<'p> {
                     && !self.carries(selected.module())
                 {
                     return Ok(Err(Unrendered::Module(ModuleName::of(selected.module()))));
+                }
+                if let Some(module) = card
+                    && !registration.transacts(module)
+                    && !self.carries(module)
+                {
+                    return Ok(Err(Unrendered::Module(ModuleName::of(module))));
                 }
                 match credential {
                     None => (env.priority(), env.fallback()),
@@ -134,11 +142,17 @@ impl<'p> Rendering<'p> {
         {
             modules.push(selected.module());
         }
+        if let Some(module) = card
+            && !modules.contains(&module)
+        {
+            modules.push(module);
+        }
         let refused = |e| Fault::caused(FAULT, detail!("the package refuses the screen"), e);
         let mut screen = match Screen::carrying(&self.package, modules, self.carried) {
             Ok(screen) => screen,
             Err(PackageError::Module(module))
-                if selected.is_some_and(|selected| selected.module() == module.id()) =>
+                if selected.is_some_and(|selected| selected.module() == module.id())
+                    || card == Some(module.id()) =>
             {
                 return Ok(Err(Unrendered::Module(module)));
             }
@@ -175,8 +189,9 @@ pub enum Unrendered {
     #[error(transparent)]
     Language(#[from] NoLanguage),
     /// Neither the package nor the modules carried beside it hold the module whose locale the
-    /// profile selected: metadata the package was built without, converted by no one.
-    #[error("the package holds no module {0}, whose locale the profile selected")]
+    /// profile selected, or the one the credential's card draws from: metadata the package was
+    /// built without, converted by no one.
+    #[error("the package holds no module {0}, which the entry draws from")]
     Module(#[explain(name = "module")] ModuleName),
 }
 

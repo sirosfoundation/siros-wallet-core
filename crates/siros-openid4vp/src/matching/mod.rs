@@ -332,19 +332,21 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         let selected = bound
             .as_ref()
             .and_then(|binding| binding.bound.selected.as_ref());
-        let inputs =
-            match self
-                .rendering
-                .renderer(selected, Some(credential.id.as_str()), self.env)?
-            {
-                Ok(renderer) => renderer.inputs(),
-                Err(unrendered) => {
-                    return Ok(Considered::Excluded(
-                        ExcludedBy::Language,
-                        Exclude::new(unrendered),
-                    ));
-                }
-            };
+        let card_module = self.formatted.query.card_module(credential)?;
+        let inputs = match self.rendering.renderer(
+            selected,
+            card_module,
+            Some(credential.id.as_str()),
+            self.env,
+        )? {
+            Ok(renderer) => renderer.inputs(),
+            Err(unrendered) => {
+                return Ok(Considered::Excluded(
+                    ExcludedBy::Language,
+                    Exclude::new(unrendered),
+                ));
+            }
+        };
         let provided = match (&bound, self.members) {
             (Some(_), Some(members)) => members,
             _ => &[],

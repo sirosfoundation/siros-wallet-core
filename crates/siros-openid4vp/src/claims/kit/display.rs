@@ -2,7 +2,7 @@
 //! the rows of its claims.
 
 use super::super::{ClaimPath, Concrete};
-use super::{ClaimsFormat, text_of};
+use super::{ClaimsFormat, Display, DisplayItem, text_of};
 use crate::ids::LocaleTag;
 use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
@@ -49,24 +49,34 @@ pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>]
         .unwrap_or(&[])
 }
 
+/// An entry of the metadata's `claims` with a pointer.
+pub(super) struct Described<'v, 'a> {
+    pub(super) path: ClaimPath<'v>,
+    pub(super) claim: &'v Node<'a>,
+    /// Its position in `claims`.
+    pub(super) position: usize,
+}
+
 fn label_of(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
-    described: &[(ClaimPath<'_>, &Node<'_>)],
-    locales: &[LocaleTag],
-) -> Option<String> {
-    let (_, claim) = described
-        .iter()
-        .find(|(pointer, _)| pointer.matches(path))?;
+    described: &[Described<'_, '_>],
+    display: Display<'_>,
+) -> Option<Text> {
+    let found = described.iter().find(|known| known.path.matches(path))?;
     let entry = format_entry(
-        claim.get("display").and_then(Node::as_array).unwrap_or(&[]),
-        locales,
+        found
+            .claim
+            .get("display")
+            .and_then(Node::as_array)
+            .unwrap_or(&[]),
+        display.locales,
     )?;
     entry
         .get(format.label_key())
         .and_then(Node::as_str)
         .filter(|name| !name.trim_matches(python_space).is_empty())
-        .map(str::to_owned)
+        .map(|name| display.text(format, DisplayItem::Claim(found.position), name))
 }
 
 /// An object is a heading row then its members; an array of values gives each element the
@@ -78,14 +88,11 @@ pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
     value: &Node<'_>,
-    described: &[(ClaimPath<'_>, &Node<'_>)],
-    locales: &[LocaleTag],
+    described: &[Described<'_, '_>],
+    display: Display<'_>,
     inherited: Option<&Text>,
 ) -> Vec<Row> {
-    let label = label_of(format, path, described, locales)
-        .filter(|l| !l.is_empty())
-        .map(Text::Raw)
-        .or_else(|| inherited.cloned());
+    let label = label_of(format, path, described, display).or_else(|| inherited.cloned());
     let fallback = path
         .iter()
         .rev()
@@ -110,7 +117,7 @@ pub(super) fn value_rows(
                     &child(Concrete::Key(member.name.clone())),
                     &member.value,
                     described,
-                    locales,
+                    display,
                     None,
                 )
             }))
@@ -133,7 +140,7 @@ pub(super) fn value_rows(
                                 &child(Concrete::Index(at)),
                                 item,
                                 described,
-                                locales,
+                                display,
                                 passed.as_ref(),
                             )
                         }),

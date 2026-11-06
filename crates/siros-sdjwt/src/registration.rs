@@ -9,6 +9,7 @@ use siros_openid4vp::json::Node;
 use crate::error::RegistrationError;
 use crate::sd_jwt::SdJwt;
 use crate::tree::{ClaimValue, IssuedClaim, Object};
+use crate::type_metadata;
 
 /// The key of the document a registration holds.
 pub const DOCUMENT: &str = "dc+sd-jwt";
@@ -19,6 +20,9 @@ pub struct Resolved<'a> {
     /// The effective Type Metadata of the credential's type ([`crate::type_metadata`]); `None`
     /// when its issuer publishes none.
     pub metadata: Option<Node<'a>>,
+    /// Whether the wallet loaded the metadata's `display` as a defined module
+    /// ([`type_metadata::convert`]), so the view names it.
+    pub display_loaded: bool,
     /// Each type the credential's type extends, nearest first (§6.4).
     pub extends: Vec<&'a str>,
     /// The curve of the issuer's key: RFC 7518 §3.4 and RFC 9864 fix it for each JWS algorithm but
@@ -50,7 +54,7 @@ impl Registered {
     }
 
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
-    /// "key_curve"?, "extends"?, "validity"?}`.
+    /// "key_curve"?, "extends"?, "validity"?, "display_module"?}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -96,6 +100,11 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     if let Some(validity) = validity(claims)? {
         members.push(("validity".into(), validity));
     }
+    if let (true, Some(document)) = (resolved.display_loaded, resolved.metadata.as_ref()) {
+        let digest = type_metadata::module_of(document);
+        let hex: String = digest.digest().iter().map(|b| format!("{b:02x}")).collect();
+        members.push(("display_module".into(), text(&hex)));
+    }
     Ok(Node::object(members)?)
 }
 
@@ -111,12 +120,7 @@ fn metadata(metadata: Option<&Node<'_>>) -> Result<Node<'static>, RegistrationEr
     let Some(metadata) = metadata else {
         return Node::object([]).map_err(RegistrationError::Json);
     };
-    let listed = |name| {
-        metadata
-            .get(name)
-            .is_none_or(|value| value.as_array().is_some())
-    };
-    if metadata.as_object().is_none() || !listed("display") || !listed("claims") {
+    if metadata.as_object().is_none() {
         return Err(RegistrationError::Metadata);
     }
     Ok(metadata.clone().into_owned())

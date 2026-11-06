@@ -259,11 +259,11 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                     for view in views.iter() {
                         let credential = Some(view.record.credential.as_str());
                         let renderer = rendering
-                            .renderer(view.selected, credential, &env)
+                            .renderer(view.selected, view.card_module, credential, &env)
                             .expect("no fault")
                             .expect("a language");
                         let wallet = live_rendering
-                            .renderer(view.selected, None, &env)
+                            .renderer(view.selected, view.card_module, None, &env)
                             .expect("no fault")
                             .expect("a language");
                         assert_eq!(renderer.inputs(), *view.record.inputs);
