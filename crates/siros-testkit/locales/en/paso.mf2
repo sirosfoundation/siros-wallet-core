@@ -1,5 +1,4 @@
-# The paso module's English source: the rulebooks' own labels, titles, actions and sections, and
-# the ISO 20022 frequencies.
+# The test app's English source of the paso module.
 @locale en
 @dir ltr
 ---

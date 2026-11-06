@@ -119,16 +119,14 @@ use siros_openid4vp::wallet_metadata;
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "paso.fault");
 
-/// The crate's module, `paso`: the messages of the texts the End-User sees, which the crate
-/// ships in English and the app in its other languages.
+/// The crate's module, `paso`: the messages of the texts the End-User sees. The wallet provides
+/// their text in each of its languages, checked against this declaration when it loads.
 pub struct CrateModule;
 
 impl CrateModule {
     /// The module's identity.
     pub const ID: siros_explain::ModuleId =
         siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "paso"));
-    /// The English source.
-    pub const ENGLISH: &'static str = include_str!("../locales/en/paso.mf2");
 }
 
 impl Messages for CrateModule {
@@ -153,17 +151,17 @@ impl siros_explain::DeclaredModule for CrateModule {
 
 /// The texts of the crate's module that a transaction's overlay shows: the module's request
 /// messages, which a registration's package holds compiled (section 4.14 of the design).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, siros_explain::Explain)]
 #[explain(domain = "paso")]
 pub enum PasoRequested {
     /// A Mandate claim's label.
-    #[error(transparent)]
+    #[explain(transparent)]
     Mandate(mandate::MandateLabel),
     /// The section an embedded claim sits in.
-    #[error(transparent)]
+    #[explain(transparent)]
     Section(rulebook::Section),
     /// A frequency.
-    #[error(transparent)]
+    #[explain(transparent)]
     Frequency(frequency::Frequency),
 }
 

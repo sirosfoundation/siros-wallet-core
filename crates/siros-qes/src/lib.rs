@@ -74,16 +74,14 @@ use rules::{Excluded, Positions, QesRule};
 /// The profile's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "qes.fault");
 
-/// The crate's module, `qes`: the messages of the texts the End-User sees, which the crate ships
-/// in English and the app in its other languages.
+/// The crate's module, `qes`: the messages of the texts the End-User sees. The wallet provides
+/// their text in each of its languages, checked against this declaration when it loads.
 pub struct CrateModule;
 
 impl CrateModule {
     /// The module's identity.
     pub const ID: siros_explain::ModuleId =
         siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "qes"));
-    /// The English source.
-    pub const ENGLISH: &'static str = include_str!("../locales/en/qes.mf2");
 }
 
 impl Messages for CrateModule {

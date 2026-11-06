@@ -1,6 +1,6 @@
 //! I35 and I36: the format modules with the CLDR tool's options render as ICU4X 2.4 renders over
-//! its compiled data of the same CLDR release, 49.0.0, for the languages the wallet ships, en and
-//! de: plural categories and number texts, amounts in every ISO 4217 currency, and- and
+//! its compiled data of the same CLDR release, 49.0.0, for the test app's languages, en and de:
+//! plural categories and number texts, amounts in every ISO 4217 currency, and- and
 //! or-lists, and dates and times at every length. Spanish and Hebrew add the list patterns'
 //! special cases.
 
@@ -16,8 +16,8 @@ use siros_i18n::{
     PackageBuilder, RenderOptions, Renderer, Screen,
 };
 
-/// The languages the wallet ships.
-pub const SHIPPED: [&str; 2] = ["en", "de"];
+/// The test app's languages.
+pub const LANGUAGES: [&str; 2] = ["en", "de"];
 
 /// A package of a main module of `messages` in `language`, its declaration `M`'s, with every
 /// format's options.

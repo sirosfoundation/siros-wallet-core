@@ -32,7 +32,7 @@ use siros_openid4vp::wallet::{Credential, Document, Facts, Holder, Wallet};
 use siros_qes::QesProfile;
 use siros_testkit::FAULT;
 use siros_testkit::fixtures::OPTIONS;
-use siros_testkit::render::{App, CrateSource, GERMAN_QES};
+use siros_testkit::render::{App, CrateSource, ENGLISH_QES, GERMAN_QES};
 use siros_testkit::{Published, PublishedResource, TestHost};
 
 /// The Origin of the requests.
@@ -469,12 +469,12 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
     Wallet::new(held.iter().map(Holding::credential).collect()).expect("wallet")
 }
 
-/// The test app: the core's and the profile's modules, in English and the test app's German.
+/// The test app: the core's and the profile's modules in its English and German.
 fn app() -> App {
     let qes = CrateSource {
         id: siros_qes::CrateModule::ID,
         messages: siros_qes::CrateModule::messages(),
-        english: siros_qes::CrateModule::ENGLISH,
+        english: ENGLISH_QES,
         german: GERMAN_QES,
     };
     App::of(&[CrateSource::openid4vp(), qes]).expect("the test app")

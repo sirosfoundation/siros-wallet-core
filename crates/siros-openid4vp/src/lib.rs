@@ -99,16 +99,14 @@ pub mod wallet_metadata;
 pub(crate) const FAULT: plugins::FaultDomain =
     siros_explain::checked!(plugins::FaultDomain, "openid4vp.fault");
 
-/// The crate's module, `openid4vp`: the messages of the texts the End-User sees, which the crate
-/// ships in English and the app in its other languages.
+/// The crate's module, `openid4vp`: the messages of the texts the End-User sees. The wallet
+/// provides their text in each of its languages, checked against this declaration when it loads.
 pub struct CrateModule;
 
 impl CrateModule {
     /// The module's identity.
     pub const ID: siros_explain::ModuleId =
         siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "openid4vp"));
-    /// The English source.
-    pub const ENGLISH: &'static str = include_str!("../locales/en/openid4vp.mf2");
 }
 
 impl siros_explain::Messages for CrateModule {

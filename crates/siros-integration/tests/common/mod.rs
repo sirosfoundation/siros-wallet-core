@@ -24,7 +24,9 @@ use siros_paso::{
 };
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
-use siros_testkit::render::{App, CrateSource, GERMAN_PASO, GERMAN_QES, main_locales, main_module};
+use siros_testkit::render::{
+    App, CrateSource, ENGLISH_PASO, ENGLISH_QES, GERMAN_PASO, GERMAN_QES, main_locales, main_module,
+};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 
 siros_testkit::test_host! {
@@ -113,13 +115,13 @@ pub fn own_modules() -> Vec<Module> {
     let paso = CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
-        english: siros_paso::CrateModule::ENGLISH,
+        english: ENGLISH_PASO,
         german: GERMAN_PASO,
     };
     let qes = CrateSource {
         id: siros_qes::CrateModule::ID,
         messages: siros_qes::CrateModule::messages(),
-        english: siros_qes::CrateModule::ENGLISH,
+        english: ENGLISH_QES,
         german: GERMAN_QES,
     };
     vec![

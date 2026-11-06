@@ -10,7 +10,7 @@ use icu_plurals::{PluralCategory, PluralRules};
 use siros_explain::{Amount, Currency, Decimal, Explain, Text, Value};
 use writeable::Writeable as _;
 
-use crate::{Differences, SHIPPED, cldr, module, plain, renderer};
+use crate::{Differences, LANGUAGES, cldr, module, plain, renderer};
 
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "probe")]
@@ -108,7 +108,7 @@ fn plural_categories_and_number_texts_equal_icu4x() {
     let values = values();
     assert_eq!(values.len(), 153);
     let mut differences = Differences::default();
-    for language in SHIPPED {
+    for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
         let renderer = renderer(&module, language, &formats);
         let locale: Locale = language.parse().expect("a locale");
@@ -185,7 +185,7 @@ fn amounts_in_every_currency_equal_icu4x() {
     let currencies = currencies();
     let amounts = ["1234567.891", "-1234.5", "0", "1", "2.5", "0.005"];
     let mut differences = Differences::default();
-    for language in SHIPPED {
+    for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
         let renderer = renderer(&module, language, &formats);
         let locale: Locale = language.parse().expect("a locale");

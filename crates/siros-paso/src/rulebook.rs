@@ -223,74 +223,56 @@ fn embedded(payload: &Object<'_>, absent: fn(String) -> NotCompatible) -> Result
 }
 
 /// A transaction title of the wallet's own, by rulebook: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "paso.title")]
 pub enum Title {
     /// PaSO View's generic renderer.
-    #[error("Confirm Transaction")]
     Transaction,
     /// The Payment rulebook.
-    #[error("Payment Confirmation")]
     Payment,
     /// The Generic rulebook's `aisp` subtype.
-    #[error("Authorize Data Sharing")]
     DataSharing,
     /// The Generic rulebook's other subtypes.
-    #[error("Confirm Payment")]
     GenericPayment,
     /// The Mandate rulebook without a subtype.
-    #[error("Authorize Account Delegate")]
     AccountDelegate,
     /// The Mandate rulebook's `emandate` subtype.
-    #[error("Authorize Recurring Payment")]
     RecurringPayment,
     /// The Mandate rulebook's `agentic` subtype.
-    #[error("Authorize Agent Purchase")]
     AgentPurchase,
     /// The Mandate rulebook's other subtypes.
-    #[error("Authorize Mandate")]
     Mandate,
 }
 
 /// A confirm action of the wallet's own, by rulebook: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "paso.confirm")]
 pub enum Confirm {
     /// PaSO View's generic renderer.
-    #[error("Confirm")]
     Confirm,
     /// The Generic rulebook's `aisp` subtype.
-    #[error("Authorize")]
     AllowSharing,
     /// The Payment rulebook and the Generic rulebook's other subtypes.
-    #[error("Pay")]
     Pay,
     /// The Mandate rulebook without a subtype.
-    #[error("Authorize Delegate")]
     Delegate,
     /// The Mandate rulebook's `emandate` subtype.
-    #[error("Authorize Mandate")]
     Mandate,
     /// The Mandate rulebook's `agentic` subtype.
-    #[error("Authorize Agent")]
     Agent,
     /// The Mandate rulebook's other subtypes.
-    #[error("Authorize")]
     Authorize,
 }
 
 /// The title of the section an embedded `payment_payload` renders in: a message of the crate's
 /// module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "paso.section")]
 pub enum Section {
     /// The Generic rulebook's.
-    #[error("Payment Details")]
     PaymentDetails,
     /// The Mandate rulebook's `emandate` subtype's.
-    #[error("First Collection")]
     FirstCollection,
     /// The Mandate rulebook's other subtypes'.
-    #[error("Payment")]
     Payment,
 }

@@ -62,12 +62,14 @@ released version yet.
 - The crate modules `openid4vp`, `paso` and `qes`: each crate declares the
   messages of the texts the End-User sees through its `CrateModule` (the
   wallet's own texts; the Mandate labels, the rulebooks' titles, actions and
-  sections, and the ISO 20022 frequencies; CSC's QES approval) and ships their
-  English source, `locales/en/<domain>.mf2`, with siros-cldr's options of the
-  formats its messages call. `siros-testkit::render` is the test app: its main
-  module of siros-cldr's en and de options, its German sources, and a renderer
-  over a package of the modules for an `Env`, with its own module, `testkit`,
-  for the test format's texts.
+  sections, and the ISO 20022 frequencies; CSC's QES approval), each message's
+  documentation naming the situation it reports and its arguments. The crates
+  ship no message source: the wallet provides every locale of every crate
+  module, checked against the declaration when it loads. `siros-testkit::render`
+  is the test app: its main module of siros-cldr's en and de options
+  (siros-i18n's test fixtures, `tests/cldr`), English and German sources of
+  each crate module, and a renderer over a package of the modules for an
+  `Env`, with its own module, `testkit`, for the test format's texts.
 - `siros-paso` classifies the inherence facts the platform reports as Risk
   Signal Registry §2.8's `bio_strong` and `bio_weak` (`BiometricClass`).
 

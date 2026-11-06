@@ -3,57 +3,45 @@
 
 use siros_explain::Explain;
 
-/// An ISO 20022 frequency code (PaSO View §3 `frequency`): a message of the crate's module, in
-/// the words of its definition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+/// A payment's frequency, shown for its ISO 20022 code (PaSO View §3 `frequency`): a message of
+/// the crate's module, one per code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "paso.frequency")]
 pub enum Frequency {
-    /// `INDA`.
-    #[error("intraday")]
+    /// The code `INDA`.
     #[explain(id = "inda")]
     Intraday,
-    /// `DAIL`.
-    #[error("daily")]
+    /// The code `DAIL`.
     #[explain(id = "dail")]
     Daily,
-    /// `WEEK`.
-    #[error("weekly")]
+    /// The code `WEEK`.
     #[explain(id = "week")]
     Weekly,
-    /// `TOWK`.
-    #[error("every two weeks")]
+    /// The code `TOWK`.
     #[explain(id = "towk")]
     EveryTwoWeeks,
-    /// `TWMN`.
-    #[error("twice a month")]
+    /// The code `TWMN`.
     #[explain(id = "twmn")]
     TwiceAMonth,
-    /// `MNTH`.
-    #[error("monthly")]
+    /// The code `MNTH`.
     #[explain(id = "mnth")]
     Monthly,
-    /// `TOMN`.
-    #[error("every two months")]
+    /// The code `TOMN`.
     #[explain(id = "tomn")]
     EveryTwoMonths,
-    /// `QUTR`.
-    #[error("quarterly")]
+    /// The code `QUTR`.
     #[explain(id = "qutr")]
     Quarterly,
-    /// `FOMN`.
-    #[error("every four months")]
+    /// The code `FOMN`.
     #[explain(id = "fomn")]
     EveryFourMonths,
-    /// `SEMI`.
-    #[error("twice a year")]
+    /// The code `SEMI`.
     #[explain(id = "semi")]
     TwiceAYear,
-    /// `YEAR`.
-    #[error("yearly")]
+    /// The code `YEAR`.
     #[explain(id = "year")]
     Yearly,
-    /// `TYEA`.
-    #[error("every two years")]
+    /// The code `TYEA`.
     #[explain(id = "tyea")]
     EveryTwoYears,
 }

@@ -19,12 +19,10 @@ pub struct Cldr {
 }
 
 impl Cldr {
-    /// The output for `language`: the shipped en and de, the tests' fr; `None` for another.
+    /// The output for `language`, one of the fixtures in `tests/cldr`; `None` for another.
     pub fn of(language: &str) -> Option<Self> {
         let dir = env!("CARGO_MANIFEST_DIR");
-        let text = std::fs::read_to_string(format!("{dir}/cldr/{language}.mf2"))
-            .or_else(|_| std::fs::read_to_string(format!("{dir}/tests/cldr/{language}.mf2")))
-            .ok()?;
+        let text = std::fs::read_to_string(format!("{dir}/tests/cldr/{language}.mf2")).ok()?;
         let (head, body) = text.split_once("\n---\n").expect("a frontmatter");
         let head = head
             .lines()

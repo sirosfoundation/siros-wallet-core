@@ -20,17 +20,14 @@ use crate::documents::Fetched;
 use crate::rules::Excluded;
 
 /// The consent header's texts of the profile's own: messages of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Explain)]
 #[explain(domain = "qes.approval")]
 pub enum QesTitle {
     /// The consent title of signatures.
-    #[error("Approve qualified signatures")]
     TitleSignatures,
     /// The consent title of seals.
-    #[error("Approve qualified seals")]
     TitleSeals,
     /// The confirm action.
-    #[error("Approve")]
     Confirm,
 }
 
@@ -46,46 +43,34 @@ impl QesTitle {
 
 /// The approval's rows' texts of the profile's own, which its overlay shows: the module's
 /// request messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Explain)]
 #[explain(domain = "qes.approval")]
 pub enum QesText {
     /// What an `eu_eidas_qes` approval creates.
-    #[error("Creates qualified electronic signatures under the EU eIDAS regulation")]
     CreatesEidasSignatures,
     /// What an `eu_eidas_qeseal` approval creates.
-    #[error("Creates qualified electronic seals under the EU eIDAS regulation")]
     CreatesEidasSeals,
     /// The label of the number of signatures.
-    #[error("Signatures")]
     Count,
     /// The label of a document's label.
-    #[error("Name")]
     Name,
     /// The row of a document without a label.
-    #[error("This document has no name")]
     NoName,
     /// The label of a document's one-time password.
-    #[error("One-time password")]
     OneTimePassword,
     /// The label of a document's link.
-    #[error("Document link")]
     Link,
     /// A link other than https: the document came with the request.
-    #[error("Included in the request")]
     Embedded,
     /// The label of a document's integrity.
-    #[error("Integrity")]
     Integrity,
     /// The integrity checked against the document the wallet holds.
-    #[error("Checked automatically")]
     Verified,
     /// The integrity not checked.
-    #[error("Not checked")]
     Unverified,
-    /// The section of the document at a position, from 1.
-    #[error("Document {document}")]
+    /// The heading of the rows of a document of the approval.
     Section {
-        /// The position.
+        /// The document's position in the approval's `documentInfos`, from 1.
         document: usize,
     },
 }

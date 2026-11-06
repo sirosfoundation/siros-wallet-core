@@ -26,10 +26,9 @@
 //! counts and decimals `:number`, amounts and currencies `:currency`, dates, times and lists the
 //! `siros` functions, texts `:string`.
 //!
-//! A module defines each used format's options in each of its languages. The crate's `cldr`
-//! directory holds them for English and German as `siros-cldr` writes them from CLDR 49.0.0: a
-//! resource head with `@locale` and `@dir`, the language's text direction, and one
-//! `[formats.<format>]` section per format module.
+//! A module defines each used format's options in each of its languages. `siros-cldr` writes
+//! them from CLDR 49.0.0 for a language: a resource head with `@locale` and `@dir`, the
+//! language's text direction, and one `[formats.<format>]` section per format module.
 //!
 //! ```
 //! use siros_explain::{Domain, Explain, Messages, ModuleId, Text, checked};

@@ -22,7 +22,9 @@ use siros_paso::outcome::Outcome;
 use siros_paso::render::{TransactionView, ViewRow};
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
-use siros_testkit::render::{App, CrateSource, GERMAN_PASO, main_locales, main_module};
+use siros_testkit::render::{
+    App, CrateSource, ENGLISH_PASO, GERMAN_PASO, main_locales, main_module,
+};
 use siros_testkit::verifier;
 
 /// The Payment rulebook's type.
@@ -270,7 +272,7 @@ pub fn paso_module() -> CrateSource {
     CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
-        english: siros_paso::CrateModule::ENGLISH,
+        english: ENGLISH_PASO,
         german: GERMAN_PASO,
     }
 }

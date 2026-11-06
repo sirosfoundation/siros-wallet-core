@@ -1,6 +1,6 @@
 //! The test app's texts, as a wallet app loads and renders them: its main module of siros-cldr's
-//! en and de format options, each crate module in the crate's English and the test app's German,
-//! and a renderer over a package of the modules for a screen and an [`Env`].
+//! en and de format options, each crate module in the test app's English and German, and a
+//! renderer over a package of the modules for a screen and an [`Env`].
 
 use siros_explain::{DeclaredModule, Message, Messages, ModuleId, Text};
 use siros_i18n::{
@@ -13,10 +13,16 @@ use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::rendering::{Rendering, Unrendered};
 use siros_openid4vp::rows::Env;
 
+/// The test app's English source of the `openid4vp` module.
+pub const ENGLISH_OPENID4VP: &str = include_str!("../locales/en/openid4vp.mf2");
 /// The test app's German source of the `openid4vp` module.
 pub const GERMAN_OPENID4VP: &str = include_str!("../locales/de/openid4vp.mf2");
+/// The test app's English source of the `paso` module.
+pub const ENGLISH_PASO: &str = include_str!("../locales/en/paso.mf2");
 /// The test app's German source of the `paso` module.
 pub const GERMAN_PASO: &str = include_str!("../locales/de/paso.mf2");
+/// The test app's English source of the `qes` module.
+pub const ENGLISH_QES: &str = include_str!("../locales/en/qes.mf2");
 /// The test app's German source of the `qes` module.
 pub const GERMAN_QES: &str = include_str!("../locales/de/qes.mf2");
 /// The test app's own module's English source.
@@ -24,10 +30,10 @@ const ENGLISH_TESTKIT: &str = include_str!("../locales/en/testkit.mf2");
 /// The test app's own module's German source.
 const GERMAN_TESTKIT: &str = include_str!("../locales/de/testkit.mf2");
 
-/// siros-cldr's en options, which siros-i18n ships.
-const CLDR_EN: &str = include_str!("../../siros-i18n/cldr/en.mf2");
-/// siros-cldr's de options, which siros-i18n ships.
-const CLDR_DE: &str = include_str!("../../siros-i18n/cldr/de.mf2");
+/// siros-cldr's en options, siros-i18n's test fixture.
+const CLDR_EN: &str = include_str!("../../siros-i18n/tests/cldr/en.mf2");
+/// siros-cldr's de options, siros-i18n's test fixture.
+const CLDR_DE: &str = include_str!("../../siros-i18n/tests/cldr/de.mf2");
 
 /// The format modules the test app registers: the main module's and the crate modules'.
 const COMPILERS: [&dyn FormatCompiler; 4] = [&NUMBER, &CURRENCY, &DATE, &LIST];
@@ -74,14 +80,14 @@ impl DeclaredModule for TestkitModule {
     type Requested = ();
 }
 
-/// A crate's module as the test app loads it: its identity, its declaration, the crate's English
-/// source and the test app's German.
+/// A crate's module as the test app loads it: its identity, its declaration, and the test app's
+/// English and German sources.
 pub struct CrateSource {
     /// The module's identity.
     pub id: ModuleId,
     /// Its declaration.
     pub messages: Vec<Message>,
-    /// The crate's English source.
+    /// The test app's English source.
     pub english: &'static str,
     /// The test app's German source.
     pub german: &'static str,
@@ -94,7 +100,7 @@ impl CrateSource {
         Self {
             id: siros_openid4vp::CrateModule::ID,
             messages: siros_openid4vp::CrateModule::messages(),
-            english: siros_openid4vp::CrateModule::ENGLISH,
+            english: ENGLISH_OPENID4VP,
             german: GERMAN_OPENID4VP,
         }
     }

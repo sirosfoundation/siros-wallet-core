@@ -1,5 +1,5 @@
-# The qes module's English source: CSC's QES approval as the End-User sees it. The number format's
-# options are siros-cldr's for en (CLDR 49.0.0).
+# The test app's English source of the qes module. The number format's options are siros-cldr's
+# for en (CLDR 49.0.0).
 @locale en
 @dir ltr
 ---

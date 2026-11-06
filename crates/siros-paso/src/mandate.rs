@@ -17,44 +17,33 @@ use crate::value::{FormattedKind, ValueKind};
 
 /// A label of the Mandate claims, by the screens of the rulebook's examples: a message of the
 /// crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "paso.mandate")]
 pub enum MandateLabel {
-    /// `mandate_id`.
-    #[error("Mandate reference")]
+    /// The label of the claim `mandate_id`.
     MandateId,
-    /// `mandatee.name` and `mandatee.logo`, which draws under it (Mandate A.2).
-    #[error("Authorized party")]
+    /// The label of the claims `mandatee.name` and `mandatee.logo`, which draws under it
+    /// (Mandate A.2).
     Mandatee,
-    /// `action`.
-    #[error("Authorized action")]
+    /// The label of the claim `action`.
     Action,
-    /// `conditions`.
-    #[error("Conditions")]
+    /// The label of the claim `conditions`.
     Conditions,
-    /// `max_amount`.
-    #[error("Maximum amount per use")]
+    /// The label of the claim `max_amount`.
     MaxAmount,
-    /// `max_count`.
-    #[error("Maximum uses")]
+    /// The label of the claim `max_count`.
     MaxCount,
-    /// `period`.
-    #[error("Per period")]
+    /// The label of the claim `period`.
     Period,
-    /// `valid_from`.
-    #[error("Valid from")]
+    /// The label of the claim `valid_from`.
     ValidFrom,
-    /// `valid_until`.
-    #[error("Valid until")]
+    /// The label of the claim `valid_until`.
     ValidUntil,
-    /// `payment_payload.amount`, as Payment A.1's metadata labels it.
-    #[error("Amount")]
+    /// The label of the claim `payment_payload.amount`, which Payment A.1's metadata labels.
     Amount,
-    /// `payment_payload.payee.name`, as Payment A.1's metadata labels it.
-    #[error("Payee")]
+    /// The label of the claim `payment_payload.payee.name`, which Payment A.1's metadata labels.
     Payee,
-    /// `payment_payload.payee.logo`, as Payment A.1's metadata labels it.
-    #[error("Payee logo")]
+    /// The label of the claim `payment_payload.payee.logo`, which Payment A.1's metadata labels.
     PayeeLogo,
 }
 

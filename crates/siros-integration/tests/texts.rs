@@ -1,15 +1,15 @@
-//! The crate modules: each loads whole in English and in the test app's German.
+//! I30: each crate module's declaration loads whole with the test app's English and German sources.
 
 use siros_explain::Messages;
 use siros_i18n::ModuleError;
 use siros_openid4vp::ids::LocaleTag;
-use siros_testkit::render::{CrateSource, GERMAN_PASO, GERMAN_QES};
+use siros_testkit::render::{CrateSource, ENGLISH_PASO, ENGLISH_QES, GERMAN_PASO, GERMAN_QES};
 
 fn paso() -> CrateSource {
     CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
-        english: siros_paso::CrateModule::ENGLISH,
+        english: ENGLISH_PASO,
         german: GERMAN_PASO,
     }
 }
@@ -18,7 +18,7 @@ fn qes() -> CrateSource {
     CrateSource {
         id: siros_qes::CrateModule::ID,
         messages: siros_qes::CrateModule::messages(),
-        english: siros_qes::CrateModule::ENGLISH,
+        english: ENGLISH_QES,
         german: GERMAN_QES,
     }
 }

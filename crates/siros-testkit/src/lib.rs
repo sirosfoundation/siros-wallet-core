@@ -13,7 +13,7 @@
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
 //! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
 //! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
-//! crate modules in English and in its German, and a renderer over them ([`render`]).
+//! crate modules in its English and German, and a renderer over them ([`render`]).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]

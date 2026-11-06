@@ -11,41 +11,32 @@ use crate::ids::LocaleTag;
 use crate::media::{MediaType, NotMediaType};
 
 /// A text of the wallet's own: a message of the crate's module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "openid4vp.wallet")]
 pub enum WalletText {
     /// The denial action.
-    #[error("Cancel")]
     Deny,
     /// The confirm action of a request without a transaction.
-    #[error("Share")]
     Share,
     /// The empty choice.
-    #[error("None")]
     None,
     /// A card without a name.
-    #[error("Credential")]
     Credential,
     /// The title of a request without a transaction.
-    #[error("Share your data")]
     RequestTitle,
     /// A claim whose path names no member.
-    #[error("claim")]
     Claim,
     /// A claim's `null` value.
-    #[error("None")]
     Null,
 }
 
 /// A boolean's text, which a transaction's overlay shows: the module's request messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "openid4vp.wallet")]
 pub enum BooleanText {
     /// A true boolean.
-    #[error("Yes")]
     Yes,
     /// A false boolean.
-    #[error("No")]
     No,
 }
 

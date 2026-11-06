@@ -7,7 +7,7 @@ use siros_paso::labels::{LabelSlot, LabelText, LabelViolation};
 use siros_paso::mandate::MandateLabel;
 use siros_paso::rulebook::{Rulebook, Subtype};
 use siros_testkit::fixtures::OPTIONS;
-use siros_testkit::render::{App, CrateSource, GERMAN_PASO};
+use siros_testkit::render::{App, CrateSource, ENGLISH_PASO, GERMAN_PASO};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
 /// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
@@ -71,7 +71,7 @@ fn the_wallets_own_labels_meet_section_3_3() {
     let paso = CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
-        english: siros_paso::CrateModule::ENGLISH,
+        english: ENGLISH_PASO,
         german: GERMAN_PASO,
     };
     let app = App::of(&[CrateSource::openid4vp(), paso]).expect("the test app");

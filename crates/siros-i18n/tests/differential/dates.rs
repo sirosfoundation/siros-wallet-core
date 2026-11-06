@@ -22,7 +22,7 @@ use icu_time::zone::{TimeZone, UtcOffset};
 use icu_time::{DateTime as IcuDateTime, Time as IsoTime, TimeZoneInfo, ZonedDateTime};
 use siros_explain::{Date, DateTime, Explain, Offset, OffsetTime, Time};
 
-use crate::{Differences, SHIPPED, module, plain, renderer};
+use crate::{Differences, LANGUAGES, module, plain, renderer};
 
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "probe")]
@@ -164,7 +164,7 @@ fn dates_and_times_equal_icu4x() {
     let days = days();
     assert_eq!(days.len(), 11_323);
     let mut differences = Differences::default();
-    for language in SHIPPED {
+    for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
         let renderer = renderer(&module, language, &formats);
         let locale: Locale = language.parse().expect("a locale");
@@ -275,7 +275,7 @@ fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool
 fn years_equal_icu4x() {
     let formats = crate::cldr::formats(&[]);
     let mut differences = Differences::default();
-    for language in SHIPPED {
+    for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
         let renderer = renderer(&module, language, &formats);
         let theirs = Theirs::of(&language.parse().expect("a locale"));
