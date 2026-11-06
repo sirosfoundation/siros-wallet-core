@@ -68,6 +68,12 @@ pub trait ClaimsFormat {
     /// The format's rule a claims path pointer breaks: it cannot address the format's
     /// credentials. `None` when it can.
     fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explained>>;
+    /// Whether an array element of the view's `values` marks a position the credential holds no
+    /// value for: pointers select nothing there and the rows leave it out. A format whose views
+    /// hold no such position keeps this answer.
+    fn withheld(&self, _element: &Node<'_>) -> bool {
+        false
+    }
 }
 
 /// A query's refusals in rule order: the first, the `vp_formats_supported` one when it follows,
@@ -213,7 +219,10 @@ impl<'q> ClaimsQuery<'q> {
             .claims
             .claims()
             .iter()
-            .map(|claim| claim.found(values) || format.written(claim, provided))
+            .map(|claim| {
+                claim.found(values, |element| format.withheld(element))
+                    || format.written(claim, provided)
+            })
             .collect();
         Ok(self
             .claims
@@ -295,7 +304,10 @@ impl<'q> ClaimsQuery<'q> {
         let values = view.get("values").unwrap_or(&NULL);
         let mut rows = Vec::new();
         for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
-            for (path, value) in claim.path.select(values)? {
+            let selected = claim
+                .path
+                .select_held(values, |element| format.withheld(element))?;
+            for (path, value) in selected {
                 rows.extend(value_rows(format, &path, value, &described, locales, None));
             }
         }
@@ -322,7 +334,10 @@ impl<'q> ClaimsQuery<'q> {
             if format.written(claim, provided) {
                 continue;
             }
-            for (path, value) in claim.path.select(values)? {
+            let selected = claim
+                .path
+                .select_held(values, |element| format.withheld(element))?;
+            for (path, value) in selected {
                 if !out.iter().any(|(seen, _)| *seen == path) {
                     out.push((path, value));
                 }

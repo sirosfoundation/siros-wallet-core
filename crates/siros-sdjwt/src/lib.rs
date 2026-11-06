@@ -40,7 +40,19 @@ pub mod type_metadata;
 mod view;
 
 #[cfg(feature = "resolve")]
+mod alg;
+#[cfg(feature = "resolve")]
+mod error;
+#[cfg(feature = "resolve")]
 mod presentation;
+#[cfg(feature = "resolve")]
+mod process;
+#[cfg(feature = "resolve")]
+mod registration;
+#[cfg(feature = "resolve")]
+mod sd_jwt;
+#[cfg(feature = "resolve")]
+mod tree;
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
 use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
@@ -54,6 +66,19 @@ use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
 
 use view::SdJwtMembers;
+
+#[cfg(feature = "resolve")]
+pub use {
+    alg::Digest,
+    error::{
+        DisclosureFault, EncodedJsonFault, IssuerJwtFault, Misplaced, ParseError,
+        RegistrationError, ReservedFault, SdAlgFault, X5cError,
+    },
+    process::MAX_DEPTH,
+    registration::{DOCUMENT, Registered, Resolved},
+    sd_jwt::SdJwt,
+    tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
+};
 
 /// The Credential Format Identifier.
 const ID: &str = "dc+sd-jwt";
@@ -85,6 +110,28 @@ impl RequestRule for HolderBindingWaived {
     }
 }
 
+#[cfg(feature = "resolve")]
+/// The messages phase 2's error types declare.
+fn phase_two() -> Vec<Message> {
+    [
+        EncodedJsonFault::messages(),
+        IssuerJwtFault::messages(),
+        DisclosureFault::messages(),
+        SdAlgFault::messages(),
+        ReservedFault::messages(),
+        ParseError::messages(),
+        X5cError::messages(),
+        RegistrationError::messages(),
+    ]
+    .concat()
+}
+
+#[cfg(not(feature = "resolve"))]
+/// The messages phase 2's error types declare: none without phase 2.
+fn phase_two() -> Vec<Message> {
+    Vec::new()
+}
+
 /// The plug-in's messages: those its error types and rules declare, and its fault's.
 pub struct CrateMessages;
 
@@ -94,6 +141,7 @@ impl Messages for CrateMessages {
             SdJwtRule::messages,
             HolderBindingWaived::messages,
             type_metadata::ExtendError::messages,
+            phase_two,
         ];
         declared
             .iter()
@@ -241,6 +289,14 @@ impl ClaimsFormat for SdJwtVc {
     /// A Key Binding JWT claim is no claim of the credential.
     fn written(&self, _claim: &Claim<'_>, _provided: &[Member]) -> bool {
         false
+    }
+
+    /// RFC 9901 §4.2.4.2: `{"...": digest}` keeps the position of an element the credential does
+    /// not hold; S1 refuses `...` elsewhere.
+    fn withheld(&self, element: &Node<'_>) -> bool {
+        element
+            .as_object()
+            .is_some_and(|object| matches!(object.members(), [only] if only.name == "..."))
     }
 
     /// §7.1: every claims path pointer addresses a JSON-based credential.

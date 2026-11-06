@@ -22,6 +22,9 @@ pub enum IssueError {
     /// The view lacks a member, or holds one of another type.
     #[error("the view's {0}")]
     View(#[explain(name = "member")] &'static str),
+    /// The view repeats a member name.
+    #[error(transparent)]
+    Json(#[from] siros_openid4vp::json::JsonError),
     /// A value does not convert or encode.
     #[error("a value of the view")]
     Cbor(

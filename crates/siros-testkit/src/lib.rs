@@ -9,7 +9,7 @@
 //! type and its parameters, a response mode, a hash algorithm and a scope query a test
 //! configures ([`TestResponseType`], [`TestResponseParameters`], [`TestMode`], [`TestHash`],
 //! [`TestScope`]), the resources
-//! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-in ([`issuer`]), the
+//! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-ins ([`issuer`], [`sd_jwt_issuer`]), the
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
 //! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
 //! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
@@ -51,6 +51,7 @@ mod published;
 pub mod reading;
 pub mod render;
 pub mod rules;
+pub mod sd_jwt_issuer;
 pub mod verifier;
 
 use siros_explain::{Message, Messages};

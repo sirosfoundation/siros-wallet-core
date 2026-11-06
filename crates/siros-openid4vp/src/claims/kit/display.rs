@@ -116,22 +116,28 @@ pub(super) fn value_rows(
             }))
             .collect(),
         Node::Array(items) => {
-            let nested = items
-                .iter()
-                .any(|item| matches!(item, Node::Object(_) | Node::Array(_)));
+            let nested = items.iter().any(|item| {
+                matches!(item, Node::Object(_) | Node::Array(_)) && !format.withheld(item)
+            });
             let head = label.clone().filter(|_| nested).map(Row::full_text);
             let passed = (!nested).then(|| label.unwrap_or_else(|| fallback.clone()));
             head.into_iter()
-                .chain(items.iter().enumerate().flat_map(|(at, item)| {
-                    value_rows(
-                        format,
-                        &child(Concrete::Index(at)),
-                        item,
-                        described,
-                        locales,
-                        passed.as_ref(),
-                    )
-                }))
+                .chain(
+                    items
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, item)| !format.withheld(item))
+                        .flat_map(|(at, item)| {
+                            value_rows(
+                                format,
+                                &child(Concrete::Index(at)),
+                                item,
+                                described,
+                                locales,
+                                passed.as_ref(),
+                            )
+                        }),
+                )
                 .collect()
         }
         scalar => vec![Row::new(
