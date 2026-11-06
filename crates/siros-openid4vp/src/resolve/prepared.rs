@@ -242,7 +242,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                         PresentError::Fault(fault) => Outcome::Fault(fault),
                         PresentError::Failed { reason } => Outcome::NotPresented(reason),
                     })?;
-            vp_token.push(&record.query.id, presentation);
+            vp_token.push(record.query.id(), presentation);
         }
         let members = parameters(registry, routing, &session, host)?;
         let response = AuthorizationResponse::of(vp_token, routing.state(), members);
@@ -327,14 +327,14 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
             .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
         let Placed { format, .. } = self
             .registry
-            .placed_host(&query.format)
+            .placed_host(query.format())
             .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
         let context = AnsweredContext::of(
             QueryContext::of(
                 request,
                 Some(self.mode),
                 EntryNaming::of(request.entry_named(), picked.query),
-                self.metadata.vp_formats(&query.format).cloned(),
+                self.metadata.vp_formats(query.format()).cloned(),
             ),
             self.mode,
         );
@@ -374,7 +374,7 @@ fn picked<'p, H: CoreHost>(
         .query(view.pick.query)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
     let Placed { placement, .. } = registry
-        .placed_host(&query.format)
+        .placed_host(query.format())
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
     let transacted = match &candidate.bound {
         Some(TransactionBinding { transaction, bound }) => {

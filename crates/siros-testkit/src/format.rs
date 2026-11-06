@@ -169,7 +169,7 @@ impl<H> FormatHost<H> for TestFormat {
 impl<'q> TestQuery<'q> {
     fn parse(query: &'q Query<'q>, supported: Option<Node<'q>>) -> Result<Self, AllOf<Refusal>> {
         let refuse = |rule: FormatRule| AllOf::one(Refusal::new(rule));
-        let id = || query.id.to_string();
+        let id = || query.id().to_string();
         let algs_ok = supported.as_ref().is_none_or(|value| {
             value.as_object().is_some_and(|object| {
                 object
@@ -180,7 +180,7 @@ impl<'q> TestQuery<'q> {
         if !algs_ok {
             return Err(refuse(FormatRule::Algs { query: id() }));
         }
-        let object = Node::from_raw(query.object)
+        let object = Node::from_raw(query.object())
             .map_err(|cause| refuse(FormatRule::Json { query: id(), cause }))?;
         let options = match object.get("options") {
             None => vec![OptionItems::new(Vec::new())],
@@ -190,7 +190,7 @@ impl<'q> TestQuery<'q> {
                 .ok_or_else(|| refuse(FormatRule::Options { query: id() }))?,
         };
         Ok(Self {
-            id: query.id.clone(),
+            id: query.id().clone(),
             options,
             supported,
         })

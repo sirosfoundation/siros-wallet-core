@@ -91,7 +91,7 @@ impl<'m> Views<'m> {
                     let (everyone, chosen) = option_items(options, &candidate.options, *option);
                     let entries = bound.map_or(&[][..], |bound| bound.entries.entries());
                     let record = Record::new(
-                        &query.id,
+                        query.id(),
                         &candidate.credential.id,
                         *option,
                         entries,

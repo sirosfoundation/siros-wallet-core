@@ -140,14 +140,14 @@ impl ZkpReqQuery {
     /// and `meta`, which the core's reader leaves to the format, then Sections 1.1, 2 and 2.1.
     pub fn parse(query: &Query<'_>) -> Result<Self, RequestRule> {
         let object: Map<String, Value> =
-            serde_json::from_str(query.object.get()).map_err(|_| RequestRule::QueryNotObject)?;
+            serde_json::from_str(query.object().get()).map_err(|_| RequestRule::QueryNotObject)?;
         let claims = claims(query)?;
         let meta = match object.get("meta") {
             None => return Err(RequestRule::MetaInvalid(MemberFault::Absent)),
             Some(Value::Object(meta)) => meta,
             Some(_) => return Err(RequestRule::MetaInvalid(MemberFault::WrongType)),
         };
-        if query.format.as_str() != FORMAT {
+        if query.format().as_str() != FORMAT {
             return Err(RequestRule::FormatNotZkpReq);
         }
         if claims {
@@ -157,11 +157,11 @@ impl ZkpReqQuery {
         let items = read_items(object.get("_req"))?;
         let (options, req_sets) = read_options(object.get("_req_sets"), items.len())?;
         Ok(Self {
-            id: query.id.clone().into_owned(),
-            multiplicity: query.multiple,
-            holder_binding: query.holder_binding,
+            id: query.id().clone().into_owned(),
+            multiplicity: query.multiple(),
+            holder_binding: query.holder_binding(),
             trusted_authorities: query
-                .trusted_authorities
+                .trusted_authorities()
                 .iter()
                 .cloned()
                 .map(TrustedAuthority::into_owned)
@@ -279,7 +279,7 @@ impl CredentialType {
 /// Whether the query has claims: `claims` and `claim_sets` as the core's reader of OpenID4VP 1.0,
 /// Section 6.1 reads them.
 fn claims(query: &Query<'_>) -> Result<bool, RequestRule> {
-    let node = Node::from_raw(query.object)
+    let node = Node::from_raw(query.object())
         .map_err(|_| RequestRule::ClaimsInvalid(ClaimsFault::Claims))?;
     match Claims::parse(&node) {
         Ok(claims) => Ok(!claims.claims().is_empty()),

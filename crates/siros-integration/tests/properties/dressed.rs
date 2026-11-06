@@ -74,7 +74,7 @@ impl Case<'_> {
 
     /// The format's identifier for a query.
     pub fn format_id(&self, query: QueryIndex) -> FormatId<'_> {
-        self.query(query).format.borrowed()
+        self.query(query).format().borrowed()
     }
 
     /// A PaSO entry rendered for a credential.
@@ -134,8 +134,8 @@ pub fn document(credential: &Credential<'_>, key: &str) -> Option<Value> {
 /// OpenID4VP §6.1.1: no Trusted Authorities Query, or a value the credential holds under one of
 /// the query's types.
 fn trusted(query: &Query<'_>, credential: &Credential<'_>) -> bool {
-    query.trusted_authorities.is_empty()
-        || query.trusted_authorities.iter().any(|wanted| {
+    query.trusted_authorities().is_empty()
+        || query.trusted_authorities().iter().any(|wanted| {
             credential
                 .facts
                 .authority(wanted.kind())
@@ -211,7 +211,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
     let parsed = request
         .indexed_queries()
         .map(|(index, query)| {
-            registry.format(&query.format).map(|format| {
+            registry.format(query.format()).map(|format| {
                 let naming = if request.entries_naming(index).is_empty() {
                     siros_openid4vp::routing::EntryNaming::Unnamed
                 } else {
@@ -223,7 +223,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
                         siros_testkit::fixtures::query_context(
                             &request,
                             naming,
-                            client.vp_formats(&query.format).cloned(),
+                            client.vp_formats(query.format()).cloned(),
                         ),
                     )
                     .map_err(|refusals| format!("{refusals:?}"))
@@ -267,7 +267,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
             assert!(
                 candidates.is_empty(),
                 "P-no format, no candidate {}",
-                query.id
+                query.id()
             );
             continue;
         };
@@ -275,16 +275,16 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
         for credential in case.wallet.credentials() {
             let (got, excluded) = given(matched, index, credential);
             let trusted = trusted(query, credential);
-            let keyed = query.holder_binding == HolderBinding::Waived
+            let keyed = query.holder_binding() == HolderBinding::Waived
                 || credential.facts.holder == Holder::Bound;
-            if credential.format != query.format || !trusted || !keyed {
+            if credential.format != *query.format() || !trusted || !keyed {
                 assert!(
                     got.is_none() && !excluded,
                     "P-not a candidate {} {}",
-                    query.id,
+                    query.id(),
                     credential.id
                 );
-                if credential.format == query.format && trusted {
+                if credential.format == *query.format() && trusted {
                     tally.add("not candidates: holder binding without a key");
                 }
                 continue;
@@ -295,7 +295,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-algorithms {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add("excluded by the Verifier's algorithms");
@@ -348,7 +348,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_some() == answers(&[]) && got.is_none_or(|got| got.bound.is_none()),
                         "P-unnamed {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                 }
@@ -359,13 +359,13 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                         got.is_some(),
                         answers(provided),
                         "P-matched {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     assert!(
                         got.is_none_or(|got| bound_entries(got) == [e]),
                         "P-first match {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     if got.is_some() {
@@ -377,7 +377,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-excluded {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add(format!("excluded {clause}"));
@@ -387,7 +387,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-excluded {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add("excluded no compatible entry");

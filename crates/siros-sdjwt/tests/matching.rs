@@ -85,7 +85,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
                     )
                 })
                 .collect();
-            (query.id.to_string(), found)
+            (query.id().to_string(), found)
         })
         .collect();
     let excluded = matched
@@ -93,7 +93,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
         .iter()
         .map(|x| {
             (
-                request.query(x.query).expect("query").id.to_string(),
+                request.query(x.query).expect("query").id().to_string(),
                 x.credential.id.to_string(),
                 x.exclude.clause().to_string(),
             )
@@ -507,7 +507,7 @@ fn shape(dcql: &str, held: &[Held]) -> Vec<Vec<Vec<String>>> {
                             Offered::Nothing => "none".to_owned(),
                             Offered::Pick(pick) => format!(
                                 "{} {} {}",
-                                request.query(pick.query).expect("query").id,
+                                request.query(pick.query).expect("query").id(),
                                 matched
                                     .candidate(pick.query, pick.candidate)
                                     .expect("candidate")

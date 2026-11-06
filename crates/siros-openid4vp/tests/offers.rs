@@ -47,7 +47,7 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
                             Offered::Nothing => "none".to_owned(),
                             Offered::Pick(p) => format!(
                                 "{}/{}/{}",
-                                request.query(p.query).expect("query").id,
+                                request.query(p.query).expect("query").id(),
                                 matched
                                     .candidate(p.query, p.candidate)
                                     .expect("candidate")
@@ -310,7 +310,7 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         ("x".to_owned(), "é".to_owned()),
     ])
     .expect("attested");
-    let query = &request.queries()[0].id;
+    let query = &request.queries()[0].id();
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");

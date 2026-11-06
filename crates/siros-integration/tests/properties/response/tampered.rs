@@ -46,7 +46,7 @@ pub(super) fn tampered(
     let index_of = |query: &str| {
         case.request
             .indexed_queries()
-            .find(|(_, q)| q.id.as_str() == query)
+            .find(|(_, q)| q.id().as_str() == query)
             .map(|(index, _)| index)
             .expect("a query of the request")
     };
@@ -88,7 +88,7 @@ pub(super) fn tampered(
                     && o.record.credential() != view.record.credential()
             })
             .collect();
-        let multiple = case.query(view.pick.query).multiple == Multiplicity::Many;
+        let multiple = case.query(view.pick.query).multiple() == Multiplicity::Many;
         if !multiple {
             rejected.push(with(ids[k].clone()));
             rejected.extend(

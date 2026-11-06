@@ -254,7 +254,7 @@ fn a_registered_scope_value_reads_as_its_dcql_query() {
     let ids: Vec<&str> = request
         .queries()
         .iter()
-        .map(|query| query.id.as_str())
+        .map(|query| query.id().as_str())
         .collect();
     assert_eq!(ids, ["scoped"]);
 }

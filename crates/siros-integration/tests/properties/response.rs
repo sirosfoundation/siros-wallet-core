@@ -543,8 +543,8 @@ fn answered(
             .request
             .queries()
             .iter()
-            .find(|q| q.id.as_str() == *query)
-            .is_some_and(|q| q.multiple == Multiplicity::Many);
+            .find(|q| q.id().as_str() == *query)
+            .is_some_and(|q| q.multiple() == Multiplicity::Many);
         assert!(
             token[query].as_array().expect("presentations").len() == views.len()
                 && (views.len() == 1 || multiple),
@@ -628,8 +628,8 @@ fn answered(
             .request
             .queries()
             .iter()
-            .find(|q| q.id.as_str() == *query)
-            .map(|q| q.format.as_str())
+            .find(|q| q.id().as_str() == *query)
+            .map(|q| q.format().as_str())
             .expect("the query's format");
         for (view, written) in views
             .iter()

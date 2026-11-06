@@ -48,20 +48,13 @@ pub enum SetNeed {
 /// A Credential Query. [`Request::parse`](super::Request::parse) makes one, its object parsed as
 /// JSON with unique member names; [`Query::read_all`] makes those of a `dcql_query` alone.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct Query<'a> {
-    /// The identifier.
-    pub id: QueryId<'a>,
-    /// The format, which selects the format plug-in.
-    pub format: FormatId<'a>,
-    /// How many credentials it takes.
-    pub multiple: Multiplicity,
-    /// Whether it requires holder binding.
-    pub holder_binding: HolderBinding,
-    /// The Trusted Authorities Queries; empty when absent.
-    pub trusted_authorities: Vec<TrustedAuthority<'a>>,
-    /// The whole query object, for its format.
-    pub object: &'a RawValue,
+    id: QueryId<'a>,
+    format: FormatId<'a>,
+    multiple: Multiplicity,
+    holder_binding: HolderBinding,
+    trusted_authorities: Vec<TrustedAuthority<'a>>,
+    object: &'a RawValue,
 }
 
 /// A Credential Set Query (§6.2): options of queries, one of which a selection presents.
@@ -135,6 +128,42 @@ impl<'a> Dcql<'a> {
 }
 
 impl<'a> Query<'a> {
+    /// The identifier.
+    #[must_use]
+    pub const fn id(&self) -> &QueryId<'a> {
+        &self.id
+    }
+
+    /// The format, which selects the format plug-in.
+    #[must_use]
+    pub const fn format(&self) -> &FormatId<'a> {
+        &self.format
+    }
+
+    /// How many credentials it takes.
+    #[must_use]
+    pub const fn multiple(&self) -> Multiplicity {
+        self.multiple
+    }
+
+    /// Whether it requires holder binding.
+    #[must_use]
+    pub const fn holder_binding(&self) -> HolderBinding {
+        self.holder_binding
+    }
+
+    /// The Trusted Authorities Queries; empty when absent.
+    #[must_use]
+    pub fn trusted_authorities(&self) -> &[TrustedAuthority<'a>] {
+        &self.trusted_authorities
+    }
+
+    /// The whole query object, for its format.
+    #[must_use]
+    pub const fn object(&self) -> &'a RawValue {
+        self.object
+    }
+
     /// The Credential Queries of `dcql_query` as [`Request::parse`](super::Request::parse) reads
     /// them (§6.1, §6.2), for a Verifier that checks its own query under the wallet's rules.
     ///

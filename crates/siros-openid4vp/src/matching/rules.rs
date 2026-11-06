@@ -222,12 +222,12 @@ impl<'q> Formatted<'q> {
         index: QueryIndex,
         query: &'q crate::request::Query<'q>,
     ) -> Option<Result<Self, AllOf<Refusal>>> {
-        let Placed { format, placement } = registry.placed(&query.format)?;
+        let Placed { format, placement } = registry.placed(query.format())?;
         let context = QueryContext::of(
             request,
             mode,
             EntryNaming::of(request.entry_named(), index),
-            metadata.vp_formats(&query.format).cloned(),
+            metadata.vp_formats(query.format()).cloned(),
         );
         Some(format.query(query, context).map(|parsed| Self {
             format,
@@ -270,7 +270,7 @@ fn transactions(
         }
         if profiles.len() > 1 {
             refusals.push(Refusal::new(CoreRule::TwoProfiles {
-                query: query.id.to_string(),
+                query: query.id().to_string(),
             }));
         }
         transactions.push(match profiles.first() {
@@ -316,7 +316,7 @@ fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
         let ids = entry.credential_ids();
         if !ids
             .iter()
-            .all(|id| request.queries().iter().any(|query| query.id == **id))
+            .all(|id| request.queries().iter().any(|query| *query.id() == **id))
         {
             refusals.push(Refusal::new(CoreRule::CredentialIds {
                 entry: k,

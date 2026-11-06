@@ -256,9 +256,9 @@ impl ClaimsPlugin for SdJwtVc {
     /// B.3.3: transaction data needs a Key Binding JWT, so a query transaction data names
     /// requires holder binding.
     fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal> {
-        if naming == EntryNaming::Named && query.holder_binding == HolderBinding::Waived {
+        if naming == EntryNaming::Named && query.holder_binding() == HolderBinding::Waived {
             vec![Refusal::new(HolderBindingWaived {
-                query: query.id.to_string(),
+                query: query.id().to_string(),
             })]
         } else {
             Vec::new()
@@ -295,7 +295,7 @@ impl ClaimsPlugin for SdJwtVc {
         members: &[Member],
     ) -> Result<Carriage, Fault> {
         Ok(
-            if query.holder_binding == HolderBinding::Required
+            if query.holder_binding() == HolderBinding::Required
                 && view.credential().facts.holder == Holder::Bound
                 && members
                     .iter()

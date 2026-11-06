@@ -142,17 +142,17 @@ impl<'q> ClaimsQuery<'q> {
         let refuse = |rule: KitRule| {
             Refusal::new(QueryRule {
                 format: format.id(),
-                query: query.id.to_string(),
+                query: query.id().to_string(),
                 rule,
             })
         };
         let object =
-            Node::from_raw(query.object).map_err(|e| AllOf::one(refuse(KitRule::Json(e))))?;
+            Node::from_raw(query.object()).map_err(|e| AllOf::one(refuse(KitRule::Json(e))))?;
         let meta = format
             .read_meta(object.get("meta"))
             .cloned()
             .map_err(|rule| refuse(KitRule::Meta(rule)));
-        let algorithms = vp_formats_refusal(format, &query.id, supported.as_ref());
+        let algorithms = vp_formats_refusal(format, query.id(), supported.as_ref());
         let claims = Claims::parse(&object)
             .map_err(|why| AllOf::one(refuse(KitRule::Claims(why))))
             .and_then(|claims| {
@@ -170,7 +170,7 @@ impl<'q> ClaimsQuery<'q> {
             });
         match (meta, algorithms, claims) {
             (Ok(meta), None, Ok(claims)) => Ok(Self {
-                id: query.id.clone(),
+                id: query.id().clone(),
                 meta,
                 claims,
                 supported,

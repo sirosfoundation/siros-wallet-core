@@ -54,7 +54,7 @@ pub fn ways(matched: &Match<'_>, query: QueryIndex) -> Vec<Way> {
         .accepted()
         .request()
         .query(query)
-        .is_some_and(|q| q.multiple == Multiplicity::Many);
+        .is_some_and(|q| q.multiple() == Multiplicity::Many);
     if !multiple {
         return vec![vec![
             indices

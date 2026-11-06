@@ -21,7 +21,7 @@ fn shape(request: &Request<'_>) -> Vec<(Vec<String>, Vec<Vec<String>>)> {
         let mut ids: Vec<String> = set
             .iter()
             .filter_map(|q| request.query(q))
-            .map(|q| q.id.to_string())
+            .map(|q| q.id().to_string())
             .collect();
         ids.sort();
         ids
@@ -359,8 +359,9 @@ fn credential_sets_and_entries_parse_as_written() {
     );
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
-    let id =
-        |q: &siros_openid4vp::request::QueryIndex| request.query(*q).expect("query").id.to_string();
+    let id = |q: &siros_openid4vp::request::QueryIndex| {
+        request.query(*q).expect("query").id().to_string()
+    };
     let sets: Vec<(Vec<Vec<String>>, bool)> = request
         .sets()
         .expect("credential sets")

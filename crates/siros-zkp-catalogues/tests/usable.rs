@@ -23,7 +23,10 @@ fn admission(
     now: DateTime,
 ) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
     let authorities = read_query(query, |query| {
-        QueryAuthorities::of(&query.id.clone().into_owned(), &query.trusted_authorities)
+        QueryAuthorities::of(
+            &query.id().clone().into_owned(),
+            query.trusted_authorities(),
+        )
     })
     .unwrap()
     .unwrap();

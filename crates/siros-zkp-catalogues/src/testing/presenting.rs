@@ -175,7 +175,11 @@ fn admitted(
     now: DateTime,
 ) -> Result<AdmittedIssuer, Unadmitted<ChainRefusal>> {
     let authorities = read_query(query, |query| {
-        QueryAuthorities::of(&query.id.clone().into_owned(), &query.trusted_authorities).unwrap()
+        QueryAuthorities::of(
+            &query.id().clone().into_owned(),
+            query.trusted_authorities(),
+        )
+        .unwrap()
     })
     .unwrap();
     let x5chain = mdoc.issuer_auth().x5chain();

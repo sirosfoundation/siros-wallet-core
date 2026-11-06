@@ -306,9 +306,9 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
     /// OpenID4VP §6.1: the query's format, an issuer the query trusts, and a key the credential
     /// is bound to unless the query waives holder binding.
     fn eligible(&self, credential: &Credential<'_>) -> bool {
-        let holder = self.query.holder_binding == HolderBinding::Waived
+        let holder = self.query.holder_binding() == HolderBinding::Waived
             || credential.facts.holder == Holder::Bound;
-        credential.format == self.query.format && credential.trusted_for(self.query) && holder
+        credential.format == *self.query.format() && credential.trusted_for(self.query) && holder
     }
 
     /// The credential as a candidate, when the plug-ins admit and bind it and it answers an
@@ -362,7 +362,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 FAULT,
                 detail!(
                     "{query}: the format answered options {options:?} of {count}",
-                    query = self.query.id.to_string()
+                    query = self.query.id().to_string()
                 ),
             ));
         }
@@ -414,7 +414,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 FAULT,
                 detail!(
                     "{query}: a profile bound entries no entry naming the query offered",
-                    query = self.query.id.to_string()
+                    query = self.query.id().to_string()
                 ),
             )
             .into())

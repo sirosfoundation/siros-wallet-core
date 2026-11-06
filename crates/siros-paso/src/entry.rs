@@ -148,7 +148,7 @@ pub fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
         .indexed_queries()
         .filter(|(_, query)| {
             own.iter()
-                .any(|(_, entry)| entry.credential_ids().iter().any(|id| query.id == **id))
+                .any(|(_, entry)| entry.credential_ids().iter().any(|id| *query.id() == **id))
         })
         .map(|(index, _)| index)
         .collect();

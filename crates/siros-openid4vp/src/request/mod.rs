@@ -185,7 +185,7 @@ impl<'a> Request<'a> {
             && dcql
                 .queries
                 .iter()
-                .any(|query| query.holder_binding == HolderBinding::Waived)
+                .any(|query| query.holder_binding() == HolderBinding::Waived)
         {
             return Err(Refused::one(Refusal::new(ParameterRule::StateRequired)));
         }
@@ -299,7 +299,7 @@ impl<'a> Request<'a> {
     /// The entries whose `credential_ids` name the query, in array order.
     #[must_use]
     pub fn entries_naming(&self, query: QueryIndex) -> Vec<EntryIndex> {
-        let id = self.query(query).map(|query| query.id.as_str());
+        let id = self.query(query).map(|query| query.id().as_str());
         self.indexed_entries()
             .filter(|(_, entry)| {
                 id.is_some_and(|id| entry.credential_ids().iter().any(|named| named == id))

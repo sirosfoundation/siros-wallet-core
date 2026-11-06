@@ -111,7 +111,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
     for (query, want) in [("sca_card", 0), ("sca_account", 1)] {
         let (index, query) = request
             .indexed_queries()
-            .find(|(_, q)| q.id.as_str() == query)
+            .find(|(_, q)| q.id().as_str() == query)
             .expect("query");
         let naming = request.entries_naming(index);
         let credential = card.credential();

@@ -58,7 +58,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
         let multiple = request
             .queries()
             .iter()
-            .any(|q| q.id == **query && q.multiple == Multiplicity::Many);
+            .any(|q| *q.id() == **query && q.multiple() == Multiplicity::Many);
         if distinct.len() != credentials.len() || (credentials.len() > 1 && !multiple) {
             return Err(Rejection::QueryRecords {
                 query: query.to_string(),
