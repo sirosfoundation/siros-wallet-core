@@ -7,8 +7,9 @@
 mod common;
 
 use common::{Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Amounts, Env, HttpsUrl, Image, ImageRef, Value};
-use siros_paso::image::{FetchedMedia, ImageFailure};
+use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome, Unsupported};
 use siros_paso::{Fetch, PasoProfile};
 use siros_testkit::verifier::ISSUER;
@@ -58,7 +59,7 @@ fn with_logo(url: &str, content: Vec<u8>) -> PasoProfile {
         HttpsUrl::parse(url).expect("url"),
         Fetch::Fetched {
             content,
-            media: FetchedMedia::parse("image/png").expect("a media type"),
+            media: MediaType::parse("image/png").expect("a media type"),
         },
     )
 }

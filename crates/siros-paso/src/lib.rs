@@ -91,6 +91,7 @@ use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{InvalidId, TypePrefix};
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
     HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
@@ -109,7 +110,7 @@ use siros_openid4vp::{
 use crate::adhoc::{AdhocFailure, AdhocRefusal, Relied};
 use crate::document::{DOCUMENT, MetadataIntegrity, PasoDocument};
 use crate::entry::PasoEntry;
-use crate::image::{FetchedMedia, Resolution};
+use crate::image::Resolution;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::render::{ItemBound, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
@@ -220,7 +221,7 @@ pub enum Fetch {
         /// The content.
         content: Vec<u8>,
         /// The media type.
-        media: FetchedMedia,
+        media: MediaType,
     },
     /// Its fetch failed, for this reason.
     Failed(String),
@@ -368,7 +369,7 @@ impl PasoProfile {
             None => Resolution::Unknown,
             Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched {
                 content,
-                media: media.as_str(),
+                media: media.essence(),
             },
             Some((_, Fetch::Failed(reason))) => Resolution::Failed(reason),
         }

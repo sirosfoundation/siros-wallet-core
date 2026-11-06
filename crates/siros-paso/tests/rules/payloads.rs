@@ -1,8 +1,9 @@
 //! Core §7.1 and §7.4.2, View §2-4 and the rulebooks on a payload: conformance, templates,
 //! images, the rulebooks' rules, the wallet's bound on items, and the locales.
 
+use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Amounts, HttpsUrl};
-use siros_paso::image::{FetchedMedia, ImageFailure};
+use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
@@ -190,7 +191,7 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
             HttpsUrl::parse(url).expect("url"),
             Fetch::Fetched {
                 content,
-                media: FetchedMedia::parse(media).expect("a media type"),
+                media: MediaType::parse(media).expect("a media type"),
             },
         )
     };
