@@ -10,7 +10,7 @@ use std::num::NonZeroU32;
 
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_formats_refusal};
-use siros_openid4vp::claims::{ClaimPath, Step};
+use siros_openid4vp::claims::{ClaimPath, Claims, ClaimsError, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, Shown};
@@ -451,27 +451,51 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
         ]
         .map(|(label, value)| (label.to_owned(), value.map(str::to_owned)))
     );
-    // claim_sets is a non-empty array (§6.4.1).
-    let empty_sets = parameters(
-        r#"{"credentials": [{"id": "q", "format": "x", "meta": {"vct_values": ["t"]}, "claims": [{"id": "a", "path": ["a"]}], "claim_sets": []}]}"#,
-        "",
-    );
-    let received = unsigned(&empty_sets).expect("received");
-    let request = request_of(&received).expect("request");
-    assert!(ClaimsQuery::parse(&format, &request.queries()[0], None).is_err());
-    // A claim's id is a string (§6.3).
-    let identified = |id: &str| {
-        let text = parameters(
-            &format!(
-                r#"{{"credentials": [{{"id": "q", "format": "x", "meta": {{"vct_values": ["t"]}}, "claims": [{{"id": {id}, "path": ["a"]}}]}}]}}"#
-            ),
-            "",
-        );
-        let received = unsigned(&text).expect("received");
-        let request = request_of(&received).expect("request");
-        ClaimsQuery::parse(&format, &request.queries()[0], None).is_ok()
+}
+
+/// OpenID4VP §6.3's `id` and §6.4.1's `claim_sets`, one fixture per clause.
+#[test]
+fn claims_breaking_section_6_3_or_6_4_1_are_refused() {
+    let with = |members: &str| {
+        let query = format!("{{{members}}}");
+        Claims::parse(&Node::parse(&query).expect("JSON")).map(|_| ())
     };
-    assert_eq!((identified(r#""a""#), identified("1")), (true, false));
+    let table = [
+        (
+            r#""claims":[{"id":"a b","path":["a"]}]"#,
+            ClaimsError::Id(0),
+        ),
+        (r#""claims":[{"id":"","path":["a"]}]"#, ClaimsError::Id(0)),
+        (r#""claims":[{"id":1,"path":["a"]}]"#, ClaimsError::Id(0)),
+        (
+            r#""claims":[{"id":"a","path":["a"]},{"id":"a","path":["b"]}]"#,
+            ClaimsError::IdTwice("a".to_owned()),
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]},{"path":["b"]}],"claim_sets":[["a"]]"#,
+            ClaimsError::IdAbsent(1),
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[]"#,
+            ClaimsError::ClaimSets,
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[["b"]]"#,
+            ClaimsError::ClaimSets,
+        ),
+        (r#""claim_sets":[["a"]]"#, ClaimsError::ClaimSets),
+    ];
+    for (members, refused) in table {
+        assert_eq!(with(members), Err(refused), "{members}");
+    }
+    assert_eq!(
+        with(r#""claims":[{"id":"a-b_1","path":["a"]},{"path":["b"]}]"#),
+        Ok(())
+    );
+    assert_eq!(
+        with(r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[["a"]]"#),
+        Ok(())
+    );
 }
 
 /// A claim's JSON number (RFC 8259 §6) shows as the value it writes, read by hand: a natural

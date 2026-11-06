@@ -76,12 +76,27 @@ fn non_empty(text: &str) -> bool {
     !text.is_empty()
 }
 
+/// OpenID4VP §6.1 and §6.3's identifier rule: non-empty, of ASCII letters, digits, `_` and `-`.
+fn dcql_id(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 text_id!(
     /// A Credential Query identifier (OpenID4VP §6.1): non-empty, of ASCII letters, digits,
     /// `_` and `-`.
     QueryId,
     "Credential Query id",
-    |text| !text.is_empty() && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    dcql_id
+);
+text_id!(
+    /// A claims query identifier (OpenID4VP §6.3): non-empty, of ASCII letters, digits, `_` and
+    /// `-`.
+    ClaimId,
+    "claims query id",
+    dcql_id
 );
 text_id!(
     /// A Credential Format Identifier (OpenID4VP Appendix B), selecting the format plug-in.

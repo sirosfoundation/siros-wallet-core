@@ -10,6 +10,7 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 
+use crate::ids::ClaimId;
 use crate::json::Node;
 use crate::plugins::{OptionItems, Options};
 use crate::request::Item;
@@ -199,16 +200,16 @@ fn extended<'n>(path: &[Concrete<'n>], step: Concrete<'n>) -> ConcretePath<'n> {
 /// A claims query (§6.3).
 #[derive(Debug, Clone)]
 pub struct Claim<'a> {
-    id: Option<Cow<'a, str>>,
+    id: Option<ClaimId<'a>>,
     path: ClaimPath<'a>,
     values: Option<Vec<Node<'a>>>,
 }
 
 impl<'a> Claim<'a> {
-    /// The `id`, required with `claim_sets`.
+    /// The `id`, present on every claim of a query with `claim_sets`.
     #[must_use]
-    pub fn id(&self) -> Option<&str> {
-        self.id.as_deref()
+    pub const fn id(&self) -> Option<&ClaimId<'a>> {
+        self.id.as_ref()
     }
 
     /// The `path`.
@@ -254,6 +255,15 @@ pub enum ClaimsError {
     /// `values` is no non-empty array.
     #[error("claims[{0}].values is not a non-empty array")]
     Values(#[explain(name = "claim")] usize),
+    /// `id` is no non-empty string of letters, digits, `_` and `-` (§6.3).
+    #[error("claims[{0}].id is not a non-empty string of letters, digits, _ and -")]
+    Id(#[explain(name = "claim")] usize),
+    /// Two claims queries share an `id` (§6.3).
+    #[error("the id {0} names two claims queries")]
+    IdTwice(#[explain(name = "id")] String),
+    /// A claims query without an `id` beside `claim_sets` (§6.3).
+    #[error("claims[{0}] has no id, which claim_sets requires")]
+    IdAbsent(#[explain(name = "claim")] usize),
     /// `claim_sets` without `claims`, or not a non-empty array of non-empty arrays of claim ids.
     #[error("claim_sets is not a non-empty array of non-empty arrays of claim ids")]
     ClaimSets,
@@ -277,6 +287,16 @@ impl<'a> Claims<'a> {
                 .map(|(k, claim)| Claim::parse(k, claim))
                 .collect::<Result<Vec<_>, _>>()?,
         };
+        if let Some(twice) = claims.iter().enumerate().find_map(|(k, claim)| {
+            let before = claims.get(..k)?;
+            claim.id.as_ref().filter(|id| {
+                before
+                    .iter()
+                    .any(|earlier| earlier.id.as_ref() == Some(*id))
+            })
+        }) {
+            return Err(ClaimsError::IdTwice(twice.to_string()));
+        }
         let item = |k: usize| Item::new(k).ok_or(ClaimsError::TooMany);
         let options = match query.get("claim_sets") {
             None => vec![OptionItems::new(
@@ -287,6 +307,9 @@ impl<'a> Claims<'a> {
                     .as_array()
                     .filter(|sets| !sets.is_empty() && !claims.is_empty())
                     .ok_or(ClaimsError::ClaimSets)?;
+                if let Some(absent) = claims.iter().position(|claim| claim.id.is_none()) {
+                    return Err(ClaimsError::IdAbsent(absent));
+                }
                 sets.iter()
                     .map(|set| {
                         let ids = set
@@ -299,7 +322,9 @@ impl<'a> Claims<'a> {
                                 let id = id.as_str().ok_or(ClaimsError::ClaimSets)?;
                                 let k = claims
                                     .iter()
-                                    .rposition(|claim| claim.id.as_deref() == Some(id))
+                                    .position(|claim| {
+                                        claim.id.as_ref().is_some_and(|known| *known == *id)
+                                    })
                                     .ok_or(ClaimsError::ClaimSets)?;
                                 item(k)
                             })
@@ -342,8 +367,10 @@ impl<'a> Claim<'a> {
             .ok_or(ClaimsError::Claims)?;
         let id = match node.get("id") {
             None => None,
-            Some(Node::String(id)) => Some(id.clone()),
-            Some(_) => return Err(ClaimsError::Claims),
+            Some(Node::String(id)) => {
+                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id(k))?)
+            }
+            Some(_) => return Err(ClaimsError::Id(k)),
         };
         let values = node
             .get("values")
