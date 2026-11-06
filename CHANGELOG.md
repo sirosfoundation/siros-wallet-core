@@ -262,9 +262,37 @@ released version yet.
   `Match::run` and `Prepared::prepare` take the `Rendering` the app built (the
   package, the render halves, the app's modules beside the defined ones); an
   entry no language serves, or whose selected module the package lacks, is
-  excluded (`ExcludedBy::Language`). The wallet converts the ad-hoc metadata
-  a request's entries carry with `siros-paso::view::carried` and loads each
-  module into its package; the matcher excludes such an entry.
+  excluded (`ExcludedBy::Language`).
+- `siros-i18n::DefinedForm` holds a defined module's compiled messages, which a
+  plug-in writes from parts with no loader, each typed argument taking the
+  bare format of the main module's entry of its locale (`MainLocale`, from
+  `Package::main_locales` or `Module::main_locales`). `Screen::carrying`
+  renders such modules beside a package, `PackageBuilder::defined` adds one,
+  and `Package::keys` lists the compiled messages a package holds.
+  `siros-paso::view::convert` writes a type's display rules as one, and the
+  registration writer takes each transaction type with it.
+- The matcher offers an entry with ad-hoc PaSO metadata (Proof Metadata §5):
+  `siros-paso::adhoc::Carried::read` reads each entry's `metadata` JWT as a
+  signed request is read, unverified; `view::carried` converts it over the
+  registration's main entries; `Rendering::carrying` renders it beside the
+  package. The wallet verifies the JWT as §5.3 states, in phase 2
+  (`PasoFinding::refused`) and in the URI flow before it converts
+  (`Carried::verified`): the `typ`, the key (the `x5c` chain anchored in the
+  trust store through the `IssuerTrust` module, or the `kid` in the issuer's
+  key set), the ES256 signature through `Haip::verify`, `iss`, `exp`, the
+  credential binding of §7 step 6 and the type. A JWT that fails is
+  incompatible for the credential, and the informed profile
+  (`PasoProfile::with_refusals`) moves past its entry. The PaSO document
+  records the issuer's key set as public JWKs, or the credential's chain root
+  and leaf subject as DER.
+- A text that depends on a request is a `siros-explain::RequestText`, built
+  from the one message type its module declares (`DeclaredModule::Requested`,
+  `Requested`), a value, a name, a received text or a defined module's
+  message. A transaction's overlay holds request texts (`Row<RequestText>`),
+  and siros-credman's registration writer takes each module as
+  `Registered::of::<M>`, so the registration's package holds those messages
+  and no others. The core declares `BooleanText`, PaSO `PasoRequested`, QES
+  `QesText`.
 - A record commits to its rendering inputs: its id's last item writes the
   module a profile selected and its locale, the language and its fallback
   flag, each module's name and digest, the amounts,
@@ -288,7 +316,7 @@ released version yet.
   other inputs than its record (`EmitError::Inputs`) and a card text the
   package does not hold (`EmitError::NotHeld`). The feature `register`
   writes the package of a `Registration` with each card's texts
-  precomputed. `Renderer::holds` tells a held text and `Package::spans`
+  precomputed and each module's request messages compiled. `Renderer::holds` tells a held text and `Package::spans`
   places each entry. `siros-testkit`'s `App` renders as the core's renderer
   of an entry, the selection given per call.
 
