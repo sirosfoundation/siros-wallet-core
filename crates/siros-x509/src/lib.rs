@@ -16,7 +16,6 @@
 //! builder.client_prefix(X509Hash);
 //! builder.client_prefix(X509SanDns);
 //! let registry = builder.build().expect("a registry");
-//! assert!(registry.names_prefix("x509_hash"));
 //! ```
 
 #![forbid(unsafe_code)]

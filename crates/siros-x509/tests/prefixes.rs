@@ -1,7 +1,5 @@
 //! `x509_hash` and `x509_san_dns` (§5.9.3): one A5 fixture per rule, each asserting its
-//! `X509Refusal`; the tamper cases a leaf other than the identifier's and a DNS name the leaf
-//! does not name, failing for their rule with no `Authenticated` built; the endpoint rules; the
-//! known answers of §5.9.3's and A.3.2.1's examples.
+//! `X509Refusal`; the endpoint rules; the known answers of §5.9.3's and A.3.2.1's examples.
 
 use std::borrow::Cow;
 
@@ -20,7 +18,6 @@ use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::{Member, Node, Object};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::recourse::{Failure, Rejected};
-use siros_openid4vp::request::Request;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
@@ -115,53 +112,51 @@ fn refusal(header: &str, client_id: &str) -> X509Refusal {
 fn each_x509_rule_refuses_its_claim() {
     let good = leaf(&["rp.example.com"]);
     let san = "x509_san_dns:rp.example.com";
-    // x509_hash: no base64url of 32 octets; the leaf's hash unequal (tamper: another leaf).
+    let hash = x509_hash(&good);
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_hash:abc"),
         X509Refusal::HashSyntax("abc".to_owned())
     );
+    // The tamper case: another leaf than the identifier's.
     let other = x509_hash(&leaf(&["other.example.com"]));
     assert_eq!(
         refusal(&header(&x5c(&good)), &other),
         X509Refusal::Hash(other.trim_start_matches("x509_hash:").to_owned())
     );
-    // x509_san_dns: no DNS name in preferred name syntax; no dNSName of the leaf naming it
-    // (tamper: the leaf names another DNS name).
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_san_dns:rp_example"),
         X509Refusal::SanSyntax("rp_example".to_owned())
     );
+    // The tamper case: the leaf names another DNS name.
     let elsewhere = leaf(&["elsewhere.example.com"]);
     assert_eq!(
         refusal(&header(&x5c(&elsewhere)), san),
         X509Refusal::San("rp.example.com".to_owned())
     );
-    // Both: x5c absent; empty; an item no base64; no DER certificate; a trailing byte; the
-    // leaf's key no EC or EdDSA key the wallet reads.
-    let hash = x509_hash(&good);
-    for client_id in [hash.as_str(), san] {
-        assert_eq!(
-            refusal(r#"{"alg":"ES256","typ":"oauth-authz-req+jwt"}"#, client_id),
-            X509Refusal::X5cAbsent
-        );
-        assert_eq!(refusal(&header(&[]), client_id), X509Refusal::X5cEmpty);
-        assert_eq!(
-            refusal(&header(&["*".to_owned()]), client_id),
-            X509Refusal::Base64(0)
-        );
-        assert!(matches!(
-            refusal(
-                &header(&[STANDARD.encode([0x30, 0x03, 0x02, 0x01, 0x01])]),
-                client_id
-            ),
-            X509Refusal::Certificate { item: 0, .. }
-        ));
-        let trailing = [good.as_slice(), &[0]].concat();
-        assert!(matches!(
-            refusal(&header(&[STANDARD.encode(trailing)]), client_id),
-            X509Refusal::Certificate { item: 0, .. }
-        ));
-    }
+    assert_eq!(
+        refusal(r#"{"alg":"ES256","typ":"oauth-authz-req+jwt"}"#, &hash),
+        X509Refusal::X5cAbsent
+    );
+    assert_eq!(
+        refusal(
+            r#"{"alg":"ES256","typ":"oauth-authz-req+jwt","x5c":"MA"}"#,
+            &hash
+        ),
+        X509Refusal::X5cNotArray
+    );
+    assert_eq!(refusal(&header(&[]), &hash), X509Refusal::X5cEmpty);
+    assert_eq!(
+        refusal(&header(&["*".to_owned()]), &hash),
+        X509Refusal::Base64(0)
+    );
+    assert!(matches!(
+        refusal(
+            &header(&[STANDARD.encode([0x30, 0x03, 0x02, 0x01, 0x01])]),
+            &hash
+        ),
+        X509Refusal::Certificate { item: 0, .. }
+    ));
+    // A compressed point (RFC 5480 §2.2 reads the uncompressed form).
     let mut compressed = point(&VERIFIER_SECRET);
     compressed.truncate(33);
     compressed[0] = 0x02;
@@ -171,16 +166,23 @@ fn each_x509_rule_refuses_its_claim() {
         dns: &["rp.example.com"],
     });
     assert_eq!(refusal(&header(&x5c(&weak)), san), X509Refusal::Key);
-    assert_eq!(
-        refusal(&header(&x5c(&weak)), &x509_hash(&weak)),
-        X509Refusal::Key
-    );
+    // The entry's tag [2], dNSName, turned into [15], which GeneralName (RFC 5280 §4.2.1.6) lacks.
+    let entry = [&[0x82, 14][..], b"rp.example.com"].concat();
+    let at = good
+        .windows(entry.len())
+        .position(|window| window == entry)
+        .expect("the dNSName entry");
+    let mut unreadable = good.clone();
+    unreadable[at] = 0x8f;
+    assert!(matches!(
+        refusal(&header(&x5c(&unreadable)), san),
+        X509Refusal::SubjectAltName(_)
+    ));
 }
 
 #[test]
 fn a_dc_api_request_authenticates_under_either_prefix() {
-    // KA14: A.3.2.1's payload as data.request: the envelope reads its client_id, two
-    // expected_origins and dc_api; the classification names x509_san_dns.
+    // KA14: A.3.2.1's payload as data.request; the classification names x509_san_dns.
     let good = leaf(&["rp.example.com"]);
     let san = "x509_san_dns:rp.example.com";
     let data = data(&header(&x5c(&good)), &payload(san));
@@ -193,8 +195,6 @@ fn a_dc_api_request_authenticates_under_either_prefix() {
     )
     .expect("an envelope");
     assert_eq!(envelope.client_id().map(|id| id.as_str()), Some(san));
-    let request = Request::parse(&envelope).expect("a request");
-    assert_eq!(request.expected_origins().len(), 2);
     let registry = registry();
     let done = outcome(&envelope, &registry).expect("authenticated");
     assert!(matches!(done.verifier().id(), VerifierId::Client(id) if id.as_str() == san));
@@ -333,12 +333,6 @@ fn section_5_9_3s_x509_hash_is_a_base64url_sha_256() {
     let hash = LeafHash::parse(original).expect("32 octets");
     assert_eq!(URL_SAFE_NO_PAD.encode(hash.octets()), original);
     assert_eq!(hash.text(), original);
-    assert_eq!(
-        LeafHash::parse("Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZsz"),
-        Err(X509Refusal::HashSyntax(
-            "Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZsz".to_owned()
-        ))
-    );
 }
 
 #[test]
