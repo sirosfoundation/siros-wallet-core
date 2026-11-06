@@ -22,15 +22,21 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+engine-core = { path = "../engine-core" }
 engine-ports = { path = "../engine-ports" }
 wmp-core = { path = "../wmp-core" }
+rustc-hash = { workspace = true }
 serde_json = { workspace = true }
 uniffi = { version = "0.28", features = ["tokio"] }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
 async-trait = "0.1"
+parking_lot = "0.12"
 
 [build-dependencies]
 uniffi = { version = "0.28", features = ["build"] }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread", "macros"] }

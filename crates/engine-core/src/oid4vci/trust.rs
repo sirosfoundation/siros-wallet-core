@@ -66,7 +66,15 @@ pub async fn evaluate_issuer_trust(
         .evaluate(EvaluationRequest {
             subject: issuer.to_owned(),
             key_material,
-            resource_type: None,
+            // The subject's role for the evaluator: the issuer side of
+            // the issuance. The backend's proxy maps this to the
+            // AuthZEN action name (credential-issuer — one of the
+            // default rules' allowed set); a plain PDP ignores it.
+            resource_type: Some("credential-issuer".to_owned()),
+            // The issuer evaluation carries no context (the Go
+            // engine's EvaluateIssuer has none — the verifier's
+            // buildVerifierEvalContext is the presentation side's).
+            context: serde_json::json!({}),
         })
         .await
         .map_err(|err| match err {
@@ -101,7 +109,11 @@ pub async fn evaluate_issuer_trust(
 /// Returns an empty vector when no key material was found (the PDP decides
 /// what that means — some trust frameworks evaluate on the identifier
 /// alone).
-fn extract_key_material(metadata: &IssuerMetadata) -> Vec<u8> {
+/// The metadata's signing key material: the signed metadata JWT, or the
+/// inline `jwks` — what [`Pdp::evaluate`](engine_ports::Pdp::evaluate)
+/// receives for the trust decision, and the entitlement evaluation for
+/// the WRPAC (the chain that signed the document).
+pub(crate) fn extract_key_material(metadata: &IssuerMetadata) -> Vec<u8> {
     // The signed metadata JWT carries the key material in its payload.
     if let Some(signed) = &metadata.signed_metadata {
         // For S3, we pass the signed metadata JWT as the key material; the
@@ -187,6 +199,7 @@ mod tests {
             }),
             signed_metadata: None,
             is_signed: false,
+            raw: Vec::new(),
         }
     }
 

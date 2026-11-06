@@ -34,7 +34,8 @@ use wmp_core::handler::HandlerError;
 use wmp_core::methods::*;
 use wmp_core::peer::Peer;
 use wmp_core::profile::Profile;
-use wmp_core::types::{Metadata, VERSION};
+use wmp_core::types::Metadata;
+use wmp_core::version::VERSION;
 
 /// The Go engine's per-ask timeout bounds (the survey,
 /// `docs/engine-parity.md` §6): the sign ask 3 min, the presentation 3
@@ -184,7 +185,7 @@ impl WmpHostBridge {
         // own complete, not a reply to this message.
         let start = FlowStartParams {
             wmp: Metadata {
-                version: VERSION.to_owned(),
+                version: VERSION.to_string(),
                 session_id: session.to_owned(),
                 ..Metadata::default()
             },
@@ -236,7 +237,7 @@ impl WmpHostBridge {
     ) -> Result<(), HandlerError> {
         let params = FlowProgressParams {
             wmp: Metadata {
-                version: VERSION.to_owned(),
+                version: VERSION.to_string(),
                 session_id: session.to_owned(),
                 ..Metadata::default()
             },

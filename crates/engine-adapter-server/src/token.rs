@@ -131,8 +131,8 @@ impl JwksCache {
 pub struct TokenValidator {
     jwks: JwksCache,
     issuer: String,
-    #[allow(dead_code)]
-    // wired through jose-rs's Validation; kept for the revocation adapter's config
+    // The accepted `aud` claims: empty accepts every audience (the
+    // go-tokenauth behaviour the backend's AS relies on).
     audiences: Vec<String>,
     revocation: Arc<dyn RevocationChecker>,
     #[allow(dead_code)] // jose-rs's Validation carries the leeway; kept for the config
@@ -141,16 +141,31 @@ pub struct TokenValidator {
 
 impl TokenValidator {
     /// Builds the validator from the engine's config. The `as_external_url`
-    /// names the AS; the JWKS URL is its `.well-known/jwks.json`.
+    /// names the AS: the JWKS URL defaults to its
+    /// `.well-known/jwks.json` and the issuer to itself — the Go engine's
+    /// shape — with `as_jwks_url`/`as_issuer` overriding each (the Go
+    /// backend's own AS publishes its JWKS under `/auth/.well-known/` and
+    /// issues with its configured `WALLET_AS_ISSUER`). The audiences
+    /// default to the engine's own `wallet-engine`; an empty list accepts
+    /// every audience, the go-tokenauth behaviour the backend's AS relies on.
     pub fn from_config(config: &Config) -> Self {
-        let jwks_url = format!(
-            "{}/.well-known/jwks.json",
-            config.as_external_url.trim_end_matches('/')
-        );
+        let jwks_url = if config.as_jwks_url.is_empty() {
+            format!(
+                "{}/.well-known/jwks.json",
+                config.as_external_url.trim_end_matches('/')
+            )
+        } else {
+            config.as_jwks_url.clone()
+        };
+        let issuer = if config.as_issuer.is_empty() {
+            config.as_external_url.clone()
+        } else {
+            config.as_issuer.clone()
+        };
         Self {
             jwks: JwksCache::new(&jwks_url, Duration::from_secs(300)),
-            issuer: config.as_external_url.clone(),
-            audiences: vec!["wallet-engine".to_owned()],
+            issuer,
+            audiences: config.as_audiences.clone(),
             revocation: Arc::new(NoRevocation),
             leeway: Duration::from_secs(5),
         }
@@ -192,13 +207,21 @@ impl TokenValidator {
         // `decode_with_jwkset` handles the signature, the `exp`/`nbf`/`iss`
         // checks, and the `kid` selection; the Validation restricts the
         // algorithms and pins the issuer.
-        let validation = jose_rs::jwt::Validation::new()
+        let mut validation = jose_rs::jwt::Validation::new()
             .with_issuer(&self.issuer)
             .with_allowed_algorithms(vec![
                 jose_rs::JwsAlgorithm::ES256,
                 jose_rs::JwsAlgorithm::ES384,
                 jose_rs::JwsAlgorithm::EdDSA,
             ]);
+        // The accepted audiences, when any are configured: jose-rs's
+        // `audience` is one required value, so the first configured
+        // audience pins it (the engine's own single-audience default);
+        // an empty list skips the check entirely, exactly as
+        // go-tokenauth treats an empty audiences list.
+        if let Some(audience) = self.audiences.first() {
+            validation = validation.with_audience(audience);
+        }
         let claims = jose_rs::jwt::decode_with_jwkset(&jwks, raw_token, &validation)
             .map_err(|_| TokenError::Signature)?;
 

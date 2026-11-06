@@ -81,4 +81,18 @@ pub struct Ports {
     pub kv: std::sync::Arc<dyn engine_ports::KeyValue>,
     /// The telemetry the engine reports to (default: no-op).
     pub telemetry: std::sync::Arc<dyn engine_ports::Telemetry>,
+    /// The presentation consent policy (the Go
+    /// `presentation.dcql_consent_check`): how a match answer that
+    /// does not fit the DCQL query it was sent is treated. Deployment
+    /// policy — the adapter parses its configured value; the default
+    /// is warn.
+    pub consent_check: engine_ports::ConsentCheckMode,
+    /// The notification context registry (#527/#528): the ephemeral,
+    /// in-process store the OID4VCI completions register their
+    /// issuance contexts in and the `credential_notification` flows
+    /// forward from. Never persisted (the Go engine's rule): the
+    /// default is in-memory, and a store-backed adapter would breach
+    /// the design before it helped — the context carries the
+    /// issuance access token.
+    pub notifications: std::sync::Arc<crate::oid4vci::notification::NotificationContexts>,
 }

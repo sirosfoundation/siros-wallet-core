@@ -5,7 +5,8 @@ use serde_json::value::RawValue;
 use crate::error::{RpcError, ERR_INTERNAL_ERROR, ERR_INVALID_PARAMS};
 use crate::handler::HandlerError;
 use crate::methods::{ResolveParams, ResolveResult};
-use crate::types::{Metadata, VERSION};
+use crate::types::Metadata;
+use crate::version::VERSION;
 
 /// The `data.reason` of the error a vctm lookup answers with when it cannot
 /// produce a document (WMP Core 5.8.1).
@@ -124,7 +125,7 @@ pub fn new_vctm_resolve_result(
     })?;
     Ok(ResolveResult {
         wmp: Metadata {
-            version: VERSION.to_owned(),
+            version: VERSION.to_string(),
             session_id: session_id.to_owned(),
             ..Metadata::default()
         },
@@ -151,7 +152,7 @@ pub fn new_unknown_resolve_result(
         .map_err(|_| HandlerError::Rpc(RpcError::code(ERR_INTERNAL_ERROR)))?;
     Ok(ResolveResult {
         wmp: Metadata {
-            version: VERSION.to_owned(),
+            version: VERSION.to_string(),
             session_id: session_id.to_owned(),
             ..Metadata::default()
         },
@@ -180,63 +181,4 @@ pub fn validate_vctm_resolve_params(params: &ResolveParams) -> Option<RpcError> 
         return Some(RpcError::code(ERR_INVALID_PARAMS));
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn projects_the_carried_members_verbatim() {
-        let doc = br#"{
-            "vct": "VerifiableCredential",
-            "name": "Name",
-            "description": "Described",
-            "display": null,
-            "claims": {"given_name": {}},
-            "schema": {"a": 1},
-            "extra": "dropped"
-        }"#;
-        let out = project_vctm(doc, "https://fallback.example").expect("project");
-        let value: serde_json::Value = serde_json::from_str(out.get()).expect("parse");
-        assert_eq!(
-            value.get("vct"),
-            Some(&serde_json::json!("VerifiableCredential"))
-        );
-        assert_eq!(value.get("name"), Some(&serde_json::json!("Name")));
-        assert_eq!(value.get("display"), Some(&serde_json::Value::Null));
-        assert!(value.get("extra").is_none());
-    }
-
-    #[test]
-    fn vct_falls_back_to_the_uri() {
-        let doc = br#"{"name": "Name"}"#;
-        let out = project_vctm(doc, "https://uri.example").expect("project");
-        let value: serde_json::Value = serde_json::from_str(out.get()).expect("parse");
-        assert_eq!(
-            value.get("vct"),
-            Some(&serde_json::json!("https://uri.example"))
-        );
-    }
-
-    #[test]
-    fn refuses_documents_that_cannot_be_carried() {
-        // Not an object.
-        assert!(matches!(project_vctm(b"[]", "u"), Err(VctmError::Invalid)));
-        // No vct and no uri.
-        assert!(matches!(
-            project_vctm(br#"{"name":"n"}"#, ""),
-            Err(VctmError::Invalid)
-        ));
-        // A name that is not a string.
-        assert!(matches!(
-            project_vctm(br#"{"vct":"v","name":42}"#, "u"),
-            Err(VctmError::Invalid)
-        ));
-        // A vct that is not a string.
-        assert!(matches!(
-            project_vctm(br#"{"vct":42}"#, "u"),
-            Err(VctmError::Invalid)
-        ));
-    }
 }

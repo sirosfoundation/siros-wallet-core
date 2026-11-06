@@ -295,7 +295,25 @@ typedef void (*UniffiCallbackInterfaceHostMethod6)(uint64_t, RustBuffer, RustBuf
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD7
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD7
-typedef void (*UniffiCallbackInterfaceHostMethod7)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceHostMethod7)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD8
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD8
+typedef void (*UniffiCallbackInterfaceHostMethod8)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD9
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD9
+typedef void (*UniffiCallbackInterfaceHostMethod9)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD10
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HOST_METHOD10
+typedef void (*UniffiCallbackInterfaceHostMethod10)(uint64_t, RustBuffer, RustBuffer, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -303,6 +321,24 @@ typedef void (*UniffiCallbackInterfaceHostMethod7)(uint64_t, RustBuffer, RustBuf
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_HTTP_CLIENT_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_HTTP_CLIENT_METHOD0
 typedef void (*UniffiCallbackInterfaceHttpClientMethod0)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD0
+typedef void (*UniffiCallbackInterfacePdpMethod0)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD1
+typedef void (*UniffiCallbackInterfacePdpMethod1)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_PDP_METHOD2
+typedef void (*UniffiCallbackInterfacePdpMethod2)(uint64_t, RustBuffer, UniffiForeignFutureCompleteRustBuffer _Nonnull, uint64_t, UniffiForeignFuture* _Nonnull
     );
 
 #endif
@@ -316,7 +352,10 @@ typedef struct UniffiVTableCallbackInterfaceHost {
     UniffiCallbackInterfaceHostMethod4 _Nonnull requestConsent;
     UniffiCallbackInterfaceHostMethod5 _Nonnull requestTxCode;
     UniffiCallbackInterfaceHostMethod6 _Nonnull openAuthorization;
-    UniffiCallbackInterfaceHostMethod7 _Nonnull progress;
+    UniffiCallbackInterfaceHostMethod7 _Nonnull requestSigningKey;
+    UniffiCallbackInterfaceHostMethod8 _Nonnull requestAttestation;
+    UniffiCallbackInterfaceHostMethod9 _Nonnull requestCredentialSelection;
+    UniffiCallbackInterfaceHostMethod10 _Nonnull progress;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceHost;
 
@@ -327,6 +366,16 @@ typedef struct UniffiVTableCallbackInterfaceHttpClient {
     UniffiCallbackInterfaceHttpClientMethod0 _Nonnull send;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceHttpClient;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_PDP
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_PDP
+typedef struct UniffiVTableCallbackInterfacePdp {
+    UniffiCallbackInterfacePdpMethod0 _Nonnull evaluate;
+    UniffiCallbackInterfacePdpMethod1 _Nonnull resolve;
+    UniffiCallbackInterfacePdpMethod2 _Nonnull evaluateEntitlement;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfacePdp;
 
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_CLONE_WMPENGINE
@@ -342,6 +391,11 @@ void uniffi_engine_adapter_sdk_fn_free_wmpengine(void*_Nonnull ptr, RustCallStat
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_IS_READY
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_IS_READY
 int8_t uniffi_engine_adapter_sdk_fn_method_wmpengine_is_ready(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_READ_NOTIFICATION
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_READ_NOTIFICATION
+RustBuffer uniffi_engine_adapter_sdk_fn_method_wmpengine_read_notification(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_METHOD_WMPENGINE_SEND
@@ -364,9 +418,14 @@ void uniffi_engine_adapter_sdk_fn_init_callback_vtable_host(UniffiVTableCallback
 void uniffi_engine_adapter_sdk_fn_init_callback_vtable_httpclient(UniffiVTableCallbackInterfaceHttpClient* _Nonnull vtable
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_INIT_CALLBACK_VTABLE_PDP
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_INIT_CALLBACK_VTABLE_PDP
+void uniffi_engine_adapter_sdk_fn_init_callback_vtable_pdp(UniffiVTableCallbackInterfacePdp* _Nonnull vtable
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_FUNC_CREATE_ENGINE
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_FUNC_CREATE_ENGINE
-void*_Nonnull uniffi_engine_adapter_sdk_fn_func_create_engine(RustBuffer config, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_engine_adapter_sdk_fn_func_create_engine(RustBuffer config, uint64_t http, uint64_t host, RustBuffer pdp, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_FN_FUNC_PING
@@ -684,6 +743,12 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpengine_is_ready(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPENGINE_READ_NOTIFICATION
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPENGINE_READ_NOTIFICATION
+uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpengine_read_notification(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPENGINE_SEND
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_WMPENGINE_SEND
 uint16_t uniffi_engine_adapter_sdk_checksum_method_wmpengine_send(void
@@ -738,6 +803,24 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_host_open_authorization(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGNING_KEY
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_SIGNING_KEY
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_signing_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_ATTESTATION
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_ATTESTATION
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_attestation(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CREDENTIAL_SELECTION
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_REQUEST_CREDENTIAL_SELECTION
+uint16_t uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_PROGRESS
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HOST_PROGRESS
 uint16_t uniffi_engine_adapter_sdk_checksum_method_host_progress(void
@@ -747,6 +830,24 @@ uint16_t uniffi_engine_adapter_sdk_checksum_method_host_progress(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HTTPCLIENT_SEND
 #define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_HTTPCLIENT_SEND
 uint16_t uniffi_engine_adapter_sdk_checksum_method_httpclient_send(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_EVALUATE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_EVALUATE
+uint16_t uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_RESOLVE
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_RESOLVE
+uint16_t uniffi_engine_adapter_sdk_checksum_method_pdp_resolve(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_EVALUATE_ENTITLEMENT
+#define UNIFFI_FFIDEF_UNIFFI_ENGINE_ADAPTER_SDK_CHECKSUM_METHOD_PDP_EVALUATE_ENTITLEMENT
+uint16_t uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate_entitlement(void
     
 );
 #endif

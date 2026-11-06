@@ -537,9 +537,11 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
  *
  * The engine runs the full WMP stack in-process: the peer dispatches
  * every method, the session service manages sessions, and the flow
- * families (when they land) register on the runtime. No WebSocket, no
- * network to the engine — the only HTTP is the engine's own outgoing
- * fetches through the `HttpClient` port.
+ * families (oid4vci, oid4vp, credential_notification) register on the
+ * flow runtime. No WebSocket, no network to the engine — the only HTTP
+ * is the engine's own outgoing fetches through the SDK's `HttpClient`
+ * callback, and the wallet's asks go through the SDK's `Host`
+ * callback.
  */
 public protocol WmpEngineProtocol : AnyObject {
     
@@ -549,12 +551,29 @@ public protocol WmpEngineProtocol : AnyObject {
     func isReady()  -> Bool
     
     /**
+     * Blocks until the engine queues one notification, and answers it.
+     * The transport's polling thread calls this in a loop — the
+     * blocking form of [`WmpEngine::take_notifications`], for a
+     * transport that serves notifications the moment they arrive
+     * instead of on a cadence. The call answers `None` only when the
+     * engine's channel closed, which the in-process engine never does:
+     * run it on a thread that dies with the engine.
+     */
+    func readNotification()  -> Data?
+    
+    /**
      * Sends one WMP message (a JSON-RPC request or notification) to the
      * engine and answers the reply. A notification answers `None`.
      *
      * This is the SDK Transport's `send` method: the SDK serialises the
      * WMP message, calls this, and delivers the reply bytes to its
      * `WmpSession` through the `incoming()` flow.
+     *
+     * The call blocks until the engine answers. The engine's sub-flow
+     * asks arrive on the `Host` callback while it is in flight, so the
+     * transport's caller must be free to serve them: call `send` from a
+     * worker whose dispatcher the callbacks can run on (never from the
+     * thread that must answer them).
      */
     func send(message: Data) throws  -> Data?
     
@@ -563,7 +582,9 @@ public protocol WmpEngineProtocol : AnyObject {
      * requests, completions) that arrived since the last call. The SDK
      * delivers these to its `WmpSession` through the `incoming()` flow.
      *
-     * Returns an empty list when nothing arrived.
+     * Returns an empty list when nothing arrived. Poll it after each
+     * `send` and on the transport's own cadence — the engine's flow
+     * progress arrives while the wallet's UI is on screen.
      */
     func takeNotifications()  -> [Data]
     
@@ -576,9 +597,11 @@ public protocol WmpEngineProtocol : AnyObject {
  *
  * The engine runs the full WMP stack in-process: the peer dispatches
  * every method, the session service manages sessions, and the flow
- * families (when they land) register on the runtime. No WebSocket, no
- * network to the engine — the only HTTP is the engine's own outgoing
- * fetches through the `HttpClient` port.
+ * families (oid4vci, oid4vp, credential_notification) register on the
+ * flow runtime. No WebSocket, no network to the engine — the only HTTP
+ * is the engine's own outgoing fetches through the SDK's `HttpClient`
+ * callback, and the wallet's asks go through the SDK's `Host`
+ * callback.
  */
 open class WmpEngine:
     WmpEngineProtocol {
@@ -641,12 +664,34 @@ open func isReady() -> Bool {
 }
     
     /**
+     * Blocks until the engine queues one notification, and answers it.
+     * The transport's polling thread calls this in a loop — the
+     * blocking form of [`WmpEngine::take_notifications`], for a
+     * transport that serves notifications the moment they arrive
+     * instead of on a cadence. The call answers `None` only when the
+     * engine's channel closed, which the in-process engine never does:
+     * run it on a thread that dies with the engine.
+     */
+open func readNotification() -> Data? {
+    return try!  FfiConverterOptionData.lift(try! rustCall() {
+    uniffi_engine_adapter_sdk_fn_method_wmpengine_read_notification(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Sends one WMP message (a JSON-RPC request or notification) to the
      * engine and answers the reply. A notification answers `None`.
      *
      * This is the SDK Transport's `send` method: the SDK serialises the
      * WMP message, calls this, and delivers the reply bytes to its
      * `WmpSession` through the `incoming()` flow.
+     *
+     * The call blocks until the engine answers. The engine's sub-flow
+     * asks arrive on the `Host` callback while it is in flight, so the
+     * transport's caller must be free to serve them: call `send` from a
+     * worker whose dispatcher the callbacks can run on (never from the
+     * thread that must answer them).
      */
 open func send(message: Data)throws  -> Data? {
     return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeSdkError.lift) {
@@ -661,7 +706,9 @@ open func send(message: Data)throws  -> Data? {
      * requests, completions) that arrived since the last call. The SDK
      * delivers these to its `WmpSession` through the `incoming()` flow.
      *
-     * Returns an empty list when nothing arrived.
+     * Returns an empty list when nothing arrived. Poll it after each
+     * `send` and on the transport's own cadence — the engine's flow
+     * progress arrives while the wallet's UI is on screen.
      */
 open func takeNotifications() -> [Data] {
     return try!  FfiConverterSequenceData.lift(try! rustCall() {
@@ -722,6 +769,308 @@ public func FfiConverterTypeWmpEngine_lift(_ pointer: UnsafeMutableRawPointer) t
 #endif
 public func FfiConverterTypeWmpEngine_lower(_ value: WmpEngine) -> UnsafeMutableRawPointer {
     return FfiConverterTypeWmpEngine.lower(value)
+}
+
+
+/**
+ * The client-attestation request. Mirrors
+ * `engine_ports::AttestationParams`.
+ */
+public struct AttestationParams {
+    /**
+     * The flow the ask belongs to.
+     */
+    public var flowId: String
+    /**
+     * The PoP audience: the authorization server.
+     */
+    public var audience: String
+    /**
+     * The client_id the WIA names as `sub`.
+     */
+    public var clientId: String
+    /**
+     * The server-provided challenge, when the AS demanded one.
+     */
+    public var challenge: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow the ask belongs to.
+         */flowId: String, 
+        /**
+         * The PoP audience: the authorization server.
+         */audience: String, 
+        /**
+         * The client_id the WIA names as `sub`.
+         */clientId: String, 
+        /**
+         * The server-provided challenge, when the AS demanded one.
+         */challenge: String) {
+        self.flowId = flowId
+        self.audience = audience
+        self.clientId = clientId
+        self.challenge = challenge
+    }
+}
+
+
+
+extension AttestationParams: Equatable, Hashable {
+    public static func ==(lhs: AttestationParams, rhs: AttestationParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.audience != rhs.audience {
+            return false
+        }
+        if lhs.clientId != rhs.clientId {
+            return false
+        }
+        if lhs.challenge != rhs.challenge {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(audience)
+        hasher.combine(clientId)
+        hasher.combine(challenge)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttestationParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttestationParams {
+        return
+            try AttestationParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                audience: FfiConverterString.read(from: &buf), 
+                clientId: FfiConverterString.read(from: &buf), 
+                challenge: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttestationParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterString.write(value.audience, into: &buf)
+        FfiConverterString.write(value.clientId, into: &buf)
+        FfiConverterString.write(value.challenge, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttestationParams_lift(_ buf: RustBuffer) throws -> AttestationParams {
+    return try FfiConverterTypeAttestationParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttestationParams_lower(_ value: AttestationParams) -> RustBuffer {
+    return FfiConverterTypeAttestationParams.lower(value)
+}
+
+
+/**
+ * The client-attestation answer. Mirrors
+ * `engine_ports::AttestationResult`.
+ */
+public struct AttestationResult {
+    /**
+     * The Wallet Instance Attestation JWT, when the host provided one.
+     */
+    public var wia: String
+    /**
+     * The PoP JWT binding the WIA to the audience, when provided.
+     */
+    public var pop: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The Wallet Instance Attestation JWT, when the host provided one.
+         */wia: String, 
+        /**
+         * The PoP JWT binding the WIA to the audience, when provided.
+         */pop: String) {
+        self.wia = wia
+        self.pop = pop
+    }
+}
+
+
+
+extension AttestationResult: Equatable, Hashable {
+    public static func ==(lhs: AttestationResult, rhs: AttestationResult) -> Bool {
+        if lhs.wia != rhs.wia {
+            return false
+        }
+        if lhs.pop != rhs.pop {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(wia)
+        hasher.combine(pop)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAttestationResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AttestationResult {
+        return
+            try AttestationResult(
+                wia: FfiConverterString.read(from: &buf), 
+                pop: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AttestationResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.wia, into: &buf)
+        FfiConverterString.write(value.pop, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttestationResult_lift(_ buf: RustBuffer) throws -> AttestationResult {
+    return try FfiConverterTypeAttestationResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAttestationResult_lower(_ value: AttestationResult) -> RustBuffer {
+    return FfiConverterTypeAttestationResult.lower(value)
+}
+
+
+/**
+ * One credential configuration the host may select. Mirrors
+ * `engine_ports::AvailableCredential`.
+ */
+public struct AvailableCredential {
+    /**
+     * The configuration's id.
+     */
+    public var id: String
+    /**
+     * The first display entry, as JSON text, for the selection UI.
+     */
+    public var display: String?
+    /**
+     * The configuration's credential format identifier.
+     */
+    public var format: String
+    /**
+     * The `vct`, when the configuration carries one.
+     */
+    public var vct: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The configuration's id.
+         */id: String, 
+        /**
+         * The first display entry, as JSON text, for the selection UI.
+         */display: String?, 
+        /**
+         * The configuration's credential format identifier.
+         */format: String, 
+        /**
+         * The `vct`, when the configuration carries one.
+         */vct: String) {
+        self.id = id
+        self.display = display
+        self.format = format
+        self.vct = vct
+    }
+}
+
+
+
+extension AvailableCredential: Equatable, Hashable {
+    public static func ==(lhs: AvailableCredential, rhs: AvailableCredential) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.display != rhs.display {
+            return false
+        }
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.vct != rhs.vct {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(display)
+        hasher.combine(format)
+        hasher.combine(vct)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAvailableCredential: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AvailableCredential {
+        return
+            try AvailableCredential(
+                id: FfiConverterString.read(from: &buf), 
+                display: FfiConverterOptionString.read(from: &buf), 
+                format: FfiConverterString.read(from: &buf), 
+                vct: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AvailableCredential, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.display, into: &buf)
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.vct, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAvailableCredential_lift(_ buf: RustBuffer) throws -> AvailableCredential {
+    return try FfiConverterTypeAvailableCredential.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAvailableCredential_lower(_ value: AvailableCredential) -> RustBuffer {
+    return FfiConverterTypeAvailableCredential.lower(value)
 }
 
 
@@ -898,6 +1247,156 @@ public func FfiConverterTypeConsentResult_lift(_ buf: RustBuffer) throws -> Cons
 #endif
 public func FfiConverterTypeConsentResult_lower(_ value: ConsentResult) -> RustBuffer {
     return FfiConverterTypeConsentResult.lower(value)
+}
+
+
+/**
+ * The credential configuration selection ask. Mirrors
+ * `engine_ports::CredentialSelectionParams`.
+ */
+public struct CredentialSelectionParams {
+    /**
+     * The flow the selection belongs to.
+     */
+    public var flowId: String
+    /**
+     * The configurations on offer, in the offer's order.
+     */
+    public var available: [AvailableCredential]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow the selection belongs to.
+         */flowId: String, 
+        /**
+         * The configurations on offer, in the offer's order.
+         */available: [AvailableCredential]) {
+        self.flowId = flowId
+        self.available = available
+    }
+}
+
+
+
+extension CredentialSelectionParams: Equatable, Hashable {
+    public static func ==(lhs: CredentialSelectionParams, rhs: CredentialSelectionParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.available != rhs.available {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(available)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialSelectionParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialSelectionParams {
+        return
+            try CredentialSelectionParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                available: FfiConverterSequenceTypeAvailableCredential.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CredentialSelectionParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterSequenceTypeAvailableCredential.write(value.available, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialSelectionParams_lift(_ buf: RustBuffer) throws -> CredentialSelectionParams {
+    return try FfiConverterTypeCredentialSelectionParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialSelectionParams_lower(_ value: CredentialSelectionParams) -> RustBuffer {
+    return FfiConverterTypeCredentialSelectionParams.lower(value)
+}
+
+
+/**
+ * The selection answer. Mirrors
+ * `engine_ports::CredentialSelectionResult`.
+ */
+public struct CredentialSelectionResult {
+    /**
+     * The chosen configuration's id.
+     */
+    public var credentialConfigurationId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The chosen configuration's id.
+         */credentialConfigurationId: String) {
+        self.credentialConfigurationId = credentialConfigurationId
+    }
+}
+
+
+
+extension CredentialSelectionResult: Equatable, Hashable {
+    public static func ==(lhs: CredentialSelectionResult, rhs: CredentialSelectionResult) -> Bool {
+        if lhs.credentialConfigurationId != rhs.credentialConfigurationId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(credentialConfigurationId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialSelectionResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialSelectionResult {
+        return
+            try CredentialSelectionResult(
+                credentialConfigurationId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CredentialSelectionResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.credentialConfigurationId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialSelectionResult_lift(_ buf: RustBuffer) throws -> CredentialSelectionResult {
+    return try FfiConverterTypeCredentialSelectionResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialSelectionResult_lower(_ value: CredentialSelectionResult) -> RustBuffer {
+    return FfiConverterTypeCredentialSelectionResult.lower(value)
 }
 
 
@@ -1118,6 +1617,17 @@ public struct EngineConfig {
      * The default session TTL in seconds (default 3600).
      */
     public var defaultSessionTtlSecs: UInt64
+    /**
+     * The concurrent-flow limit the engine advertises in its `flows`
+     * capability.
+     */
+    public var maxConcurrentFlows: UInt64
+    /**
+     * The presentation consent check's mode (`warn`, `enforce`,
+     * `off`): how a match answer that does not fit the DCQL query it
+     * was sent is treated. An unrecognised value is warn, never off.
+     */
+    public var consentCheck: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1127,9 +1637,20 @@ public struct EngineConfig {
          */maxMessageSize: UInt64, 
         /**
          * The default session TTL in seconds (default 3600).
-         */defaultSessionTtlSecs: UInt64) {
+         */defaultSessionTtlSecs: UInt64, 
+        /**
+         * The concurrent-flow limit the engine advertises in its `flows`
+         * capability.
+         */maxConcurrentFlows: UInt64, 
+        /**
+         * The presentation consent check's mode (`warn`, `enforce`,
+         * `off`): how a match answer that does not fit the DCQL query it
+         * was sent is treated. An unrecognised value is warn, never off.
+         */consentCheck: String) {
         self.maxMessageSize = maxMessageSize
         self.defaultSessionTtlSecs = defaultSessionTtlSecs
+        self.maxConcurrentFlows = maxConcurrentFlows
+        self.consentCheck = consentCheck
     }
 }
 
@@ -1143,12 +1664,20 @@ extension EngineConfig: Equatable, Hashable {
         if lhs.defaultSessionTtlSecs != rhs.defaultSessionTtlSecs {
             return false
         }
+        if lhs.maxConcurrentFlows != rhs.maxConcurrentFlows {
+            return false
+        }
+        if lhs.consentCheck != rhs.consentCheck {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(maxMessageSize)
         hasher.combine(defaultSessionTtlSecs)
+        hasher.combine(maxConcurrentFlows)
+        hasher.combine(consentCheck)
     }
 }
 
@@ -1161,13 +1690,17 @@ public struct FfiConverterTypeEngineConfig: FfiConverterRustBuffer {
         return
             try EngineConfig(
                 maxMessageSize: FfiConverterUInt64.read(from: &buf), 
-                defaultSessionTtlSecs: FfiConverterUInt64.read(from: &buf)
+                defaultSessionTtlSecs: FfiConverterUInt64.read(from: &buf), 
+                maxConcurrentFlows: FfiConverterUInt64.read(from: &buf), 
+                consentCheck: FfiConverterString.read(from: &buf)
         )
     }
 
     public static func write(_ value: EngineConfig, into buf: inout [UInt8]) {
         FfiConverterUInt64.write(value.maxMessageSize, into: &buf)
         FfiConverterUInt64.write(value.defaultSessionTtlSecs, into: &buf)
+        FfiConverterUInt64.write(value.maxConcurrentFlows, into: &buf)
+        FfiConverterString.write(value.consentCheck, into: &buf)
     }
 }
 
@@ -1184,6 +1717,611 @@ public func FfiConverterTypeEngineConfig_lift(_ buf: RustBuffer) throws -> Engin
 #endif
 public func FfiConverterTypeEngineConfig_lower(_ value: EngineConfig) -> RustBuffer {
     return FfiConverterTypeEngineConfig.lower(value)
+}
+
+
+/**
+ * The entitlement evaluation's decision. Mirrors
+ * `engine_ports::EntitlementDecision`.
+ */
+public struct EntitlementDecision {
+    /**
+     * Whether issuance may proceed.
+     */
+    public var allowed: Bool
+    /**
+     * Which mode produced the decision.
+     */
+    public var mode: EntitlementMode
+    /**
+     * Whether anything was evaluated.
+     */
+    public var evaluated: Bool
+    /**
+     * The findings.
+     */
+    public var findings: [EntitlementFinding]
+    /**
+     * True when more findings arose than the answer carries.
+     */
+    public var findingsTruncated: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether issuance may proceed.
+         */allowed: Bool, 
+        /**
+         * Which mode produced the decision.
+         */mode: EntitlementMode, 
+        /**
+         * Whether anything was evaluated.
+         */evaluated: Bool, 
+        /**
+         * The findings.
+         */findings: [EntitlementFinding], 
+        /**
+         * True when more findings arose than the answer carries.
+         */findingsTruncated: Bool) {
+        self.allowed = allowed
+        self.mode = mode
+        self.evaluated = evaluated
+        self.findings = findings
+        self.findingsTruncated = findingsTruncated
+    }
+}
+
+
+
+extension EntitlementDecision: Equatable, Hashable {
+    public static func ==(lhs: EntitlementDecision, rhs: EntitlementDecision) -> Bool {
+        if lhs.allowed != rhs.allowed {
+            return false
+        }
+        if lhs.mode != rhs.mode {
+            return false
+        }
+        if lhs.evaluated != rhs.evaluated {
+            return false
+        }
+        if lhs.findings != rhs.findings {
+            return false
+        }
+        if lhs.findingsTruncated != rhs.findingsTruncated {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(allowed)
+        hasher.combine(mode)
+        hasher.combine(evaluated)
+        hasher.combine(findings)
+        hasher.combine(findingsTruncated)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementDecision: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementDecision {
+        return
+            try EntitlementDecision(
+                allowed: FfiConverterBool.read(from: &buf), 
+                mode: FfiConverterTypeEntitlementMode.read(from: &buf), 
+                evaluated: FfiConverterBool.read(from: &buf), 
+                findings: FfiConverterSequenceTypeEntitlementFinding.read(from: &buf), 
+                findingsTruncated: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EntitlementDecision, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.allowed, into: &buf)
+        FfiConverterTypeEntitlementMode.write(value.mode, into: &buf)
+        FfiConverterBool.write(value.evaluated, into: &buf)
+        FfiConverterSequenceTypeEntitlementFinding.write(value.findings, into: &buf)
+        FfiConverterBool.write(value.findingsTruncated, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementDecision_lift(_ buf: RustBuffer) throws -> EntitlementDecision {
+    return try FfiConverterTypeEntitlementDecision.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementDecision_lower(_ value: EntitlementDecision) -> RustBuffer {
+    return FfiConverterTypeEntitlementDecision.lower(value)
+}
+
+
+/**
+ * One entitlement finding. Mirrors `engine_ports::EntitlementFinding`.
+ */
+public struct EntitlementFinding {
+    /**
+     * The finding's code.
+     */
+    public var code: EntitlementCode
+    /**
+     * The code's message.
+     */
+    public var message: String
+    /**
+     * The offered type, when the finding is about one.
+     */
+    public var credentialType: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The finding's code.
+         */code: EntitlementCode, 
+        /**
+         * The code's message.
+         */message: String, 
+        /**
+         * The offered type, when the finding is about one.
+         */credentialType: String?) {
+        self.code = code
+        self.message = message
+        self.credentialType = credentialType
+    }
+}
+
+
+
+extension EntitlementFinding: Equatable, Hashable {
+    public static func ==(lhs: EntitlementFinding, rhs: EntitlementFinding) -> Bool {
+        if lhs.code != rhs.code {
+            return false
+        }
+        if lhs.message != rhs.message {
+            return false
+        }
+        if lhs.credentialType != rhs.credentialType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(code)
+        hasher.combine(message)
+        hasher.combine(credentialType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementFinding: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementFinding {
+        return
+            try EntitlementFinding(
+                code: FfiConverterTypeEntitlementCode.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                credentialType: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EntitlementFinding, into buf: inout [UInt8]) {
+        FfiConverterTypeEntitlementCode.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.credentialType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementFinding_lift(_ buf: RustBuffer) throws -> EntitlementFinding {
+    return try FfiConverterTypeEntitlementFinding.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementFinding_lower(_ value: EntitlementFinding) -> RustBuffer {
+    return FfiConverterTypeEntitlementFinding.lower(value)
+}
+
+
+/**
+ * One offered credential the entitlement evaluator matches against
+ * the registration. Mirrors `engine_ports::EntitlementOffer`.
+ */
+public struct EntitlementOffer {
+    /**
+     * The OpenID4VCI credential format identifier.
+     */
+    public var format: String
+    /**
+     * The `vct` or `doctype`.
+     */
+    public var credentialType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The OpenID4VCI credential format identifier.
+         */format: String, 
+        /**
+         * The `vct` or `doctype`.
+         */credentialType: String) {
+        self.format = format
+        self.credentialType = credentialType
+    }
+}
+
+
+
+extension EntitlementOffer: Equatable, Hashable {
+    public static func ==(lhs: EntitlementOffer, rhs: EntitlementOffer) -> Bool {
+        if lhs.format != rhs.format {
+            return false
+        }
+        if lhs.credentialType != rhs.credentialType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(format)
+        hasher.combine(credentialType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementOffer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementOffer {
+        return
+            try EntitlementOffer(
+                format: FfiConverterString.read(from: &buf), 
+                credentialType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EntitlementOffer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.format, into: &buf)
+        FfiConverterString.write(value.credentialType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementOffer_lift(_ buf: RustBuffer) throws -> EntitlementOffer {
+    return try FfiConverterTypeEntitlementOffer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementOffer_lower(_ value: EntitlementOffer) -> RustBuffer {
+    return FfiConverterTypeEntitlementOffer.lower(value)
+}
+
+
+/**
+ * The issuer entitlement evaluation's request. Mirrors
+ * `engine_ports::EntitlementRequest`.
+ */
+public struct EntitlementRequest {
+    /**
+     * The issuer's identifier.
+     */
+    public var issuer: String
+    /**
+     * The raw issuer metadata document.
+     */
+    public var metadata: Data
+    /**
+     * The metadata's signing key material.
+     */
+    public var keyMaterial: Data
+    /**
+     * The configurations the flow is about to request.
+     */
+    public var offers: [EntitlementOffer]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The issuer's identifier.
+         */issuer: String, 
+        /**
+         * The raw issuer metadata document.
+         */metadata: Data, 
+        /**
+         * The metadata's signing key material.
+         */keyMaterial: Data, 
+        /**
+         * The configurations the flow is about to request.
+         */offers: [EntitlementOffer]) {
+        self.issuer = issuer
+        self.metadata = metadata
+        self.keyMaterial = keyMaterial
+        self.offers = offers
+    }
+}
+
+
+
+extension EntitlementRequest: Equatable, Hashable {
+    public static func ==(lhs: EntitlementRequest, rhs: EntitlementRequest) -> Bool {
+        if lhs.issuer != rhs.issuer {
+            return false
+        }
+        if lhs.metadata != rhs.metadata {
+            return false
+        }
+        if lhs.keyMaterial != rhs.keyMaterial {
+            return false
+        }
+        if lhs.offers != rhs.offers {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(issuer)
+        hasher.combine(metadata)
+        hasher.combine(keyMaterial)
+        hasher.combine(offers)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementRequest {
+        return
+            try EntitlementRequest(
+                issuer: FfiConverterString.read(from: &buf), 
+                metadata: FfiConverterData.read(from: &buf), 
+                keyMaterial: FfiConverterData.read(from: &buf), 
+                offers: FfiConverterSequenceTypeEntitlementOffer.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EntitlementRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.issuer, into: &buf)
+        FfiConverterData.write(value.metadata, into: &buf)
+        FfiConverterData.write(value.keyMaterial, into: &buf)
+        FfiConverterSequenceTypeEntitlementOffer.write(value.offers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementRequest_lift(_ buf: RustBuffer) throws -> EntitlementRequest {
+    return try FfiConverterTypeEntitlementRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementRequest_lower(_ value: EntitlementRequest) -> RustBuffer {
+    return FfiConverterTypeEntitlementRequest.lower(value)
+}
+
+
+/**
+ * The trust evaluation request. Mirrors
+ * `engine_ports::EvaluationRequest`.
+ */
+public struct EvaluationRequest {
+    /**
+     * The subject whose trust is being evaluated.
+     */
+    public var subject: String
+    /**
+     * The key material, as the engine extracted it.
+     */
+    public var keyMaterial: Data
+    /**
+     * The resource type being resolved, when there is one.
+     */
+    public var resourceType: String?
+    /**
+     * The evaluation's context, as JSON text (the client_id scheme,
+     * the response/redirect URIs, the trust chain, the attestation).
+     */
+    public var context: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The subject whose trust is being evaluated.
+         */subject: String, 
+        /**
+         * The key material, as the engine extracted it.
+         */keyMaterial: Data, 
+        /**
+         * The resource type being resolved, when there is one.
+         */resourceType: String?, 
+        /**
+         * The evaluation's context, as JSON text (the client_id scheme,
+         * the response/redirect URIs, the trust chain, the attestation).
+         */context: String) {
+        self.subject = subject
+        self.keyMaterial = keyMaterial
+        self.resourceType = resourceType
+        self.context = context
+    }
+}
+
+
+
+extension EvaluationRequest: Equatable, Hashable {
+    public static func ==(lhs: EvaluationRequest, rhs: EvaluationRequest) -> Bool {
+        if lhs.subject != rhs.subject {
+            return false
+        }
+        if lhs.keyMaterial != rhs.keyMaterial {
+            return false
+        }
+        if lhs.resourceType != rhs.resourceType {
+            return false
+        }
+        if lhs.context != rhs.context {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(subject)
+        hasher.combine(keyMaterial)
+        hasher.combine(resourceType)
+        hasher.combine(context)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEvaluationRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EvaluationRequest {
+        return
+            try EvaluationRequest(
+                subject: FfiConverterString.read(from: &buf), 
+                keyMaterial: FfiConverterData.read(from: &buf), 
+                resourceType: FfiConverterOptionString.read(from: &buf), 
+                context: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EvaluationRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.subject, into: &buf)
+        FfiConverterData.write(value.keyMaterial, into: &buf)
+        FfiConverterOptionString.write(value.resourceType, into: &buf)
+        FfiConverterString.write(value.context, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvaluationRequest_lift(_ buf: RustBuffer) throws -> EvaluationRequest {
+    return try FfiConverterTypeEvaluationRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvaluationRequest_lower(_ value: EvaluationRequest) -> RustBuffer {
+    return FfiConverterTypeEvaluationRequest.lower(value)
+}
+
+
+/**
+ * The trust evaluation's verdict. Mirrors
+ * `engine_ports::EvaluationResponse`.
+ */
+public struct EvaluationResponse {
+    /**
+     * Whether the subject is trusted.
+     */
+    public var trusted: Bool
+    /**
+     * The decision text, when there is one.
+     */
+    public var decision: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether the subject is trusted.
+         */trusted: Bool, 
+        /**
+         * The decision text, when there is one.
+         */decision: String?) {
+        self.trusted = trusted
+        self.decision = decision
+    }
+}
+
+
+
+extension EvaluationResponse: Equatable, Hashable {
+    public static func ==(lhs: EvaluationResponse, rhs: EvaluationResponse) -> Bool {
+        if lhs.trusted != rhs.trusted {
+            return false
+        }
+        if lhs.decision != rhs.decision {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(trusted)
+        hasher.combine(decision)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEvaluationResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EvaluationResponse {
+        return
+            try EvaluationResponse(
+                trusted: FfiConverterBool.read(from: &buf), 
+                decision: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EvaluationResponse, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.trusted, into: &buf)
+        FfiConverterOptionString.write(value.decision, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvaluationResponse_lift(_ buf: RustBuffer) throws -> EvaluationResponse {
+    return try FfiConverterTypeEvaluationResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEvaluationResponse_lower(_ value: EvaluationResponse) -> RustBuffer {
+    return FfiConverterTypeEvaluationResponse.lower(value)
 }
 
 
@@ -1659,14 +2797,24 @@ public struct MatchResult {
      * The selected credentials; empty means nothing matched.
      */
     public var selections: [VpSelection]
+    /**
+     * The transport's opaque selection handle (WMP OpenID4x 3.2.3.1),
+     * when it issued one; the engine passes it through unchanged.
+     */
+    public var handle: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
          * The selected credentials; empty means nothing matched.
-         */selections: [VpSelection]) {
+         */selections: [VpSelection], 
+        /**
+         * The transport's opaque selection handle (WMP OpenID4x 3.2.3.1),
+         * when it issued one; the engine passes it through unchanged.
+         */handle: String?) {
         self.selections = selections
+        self.handle = handle
     }
 }
 
@@ -1677,11 +2825,15 @@ extension MatchResult: Equatable, Hashable {
         if lhs.selections != rhs.selections {
             return false
         }
+        if lhs.handle != rhs.handle {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(selections)
+        hasher.combine(handle)
     }
 }
 
@@ -1693,12 +2845,14 @@ public struct FfiConverterTypeMatchResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchResult {
         return
             try MatchResult(
-                selections: FfiConverterSequenceTypeVpSelection.read(from: &buf)
+                selections: FfiConverterSequenceTypeVpSelection.read(from: &buf), 
+                handle: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: MatchResult, into buf: inout [UInt8]) {
         FfiConverterSequenceTypeVpSelection.write(value.selections, into: &buf)
+        FfiConverterOptionString.write(value.handle, into: &buf)
     }
 }
 
@@ -1715,6 +2869,172 @@ public func FfiConverterTypeMatchResult_lift(_ buf: RustBuffer) throws -> MatchR
 #endif
 public func FfiConverterTypeMatchResult_lower(_ value: MatchResult) -> RustBuffer {
     return FfiConverterTypeMatchResult.lower(value)
+}
+
+
+/**
+ * The metadata resolution request. Mirrors
+ * `engine_ports::ResolveRequest`.
+ */
+public struct ResolveRequest {
+    /**
+     * The URL subject to resolve.
+     */
+    public var uri: String
+    /**
+     * The resource type (`credential_issuer`,
+     * `oauth-authorization-server`, `did_document`).
+     */
+    public var resourceType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The URL subject to resolve.
+         */uri: String, 
+        /**
+         * The resource type (`credential_issuer`,
+         * `oauth-authorization-server`, `did_document`).
+         */resourceType: String) {
+        self.uri = uri
+        self.resourceType = resourceType
+    }
+}
+
+
+
+extension ResolveRequest: Equatable, Hashable {
+    public static func ==(lhs: ResolveRequest, rhs: ResolveRequest) -> Bool {
+        if lhs.uri != rhs.uri {
+            return false
+        }
+        if lhs.resourceType != rhs.resourceType {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(uri)
+        hasher.combine(resourceType)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResolveRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResolveRequest {
+        return
+            try ResolveRequest(
+                uri: FfiConverterString.read(from: &buf), 
+                resourceType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ResolveRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.uri, into: &buf)
+        FfiConverterString.write(value.resourceType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolveRequest_lift(_ buf: RustBuffer) throws -> ResolveRequest {
+    return try FfiConverterTypeResolveRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolveRequest_lower(_ value: ResolveRequest) -> RustBuffer {
+    return FfiConverterTypeResolveRequest.lower(value)
+}
+
+
+/**
+ * The metadata resolution's answer. Mirrors
+ * `engine_ports::ResolveResponse`.
+ */
+public struct ResolveResponse {
+    /**
+     * The resolved document, raw.
+     */
+    public var metadata: Data
+    /**
+     * Trust information, when the PDP carries it.
+     */
+    public var trustInfo: Data?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The resolved document, raw.
+         */metadata: Data, 
+        /**
+         * Trust information, when the PDP carries it.
+         */trustInfo: Data?) {
+        self.metadata = metadata
+        self.trustInfo = trustInfo
+    }
+}
+
+
+
+extension ResolveResponse: Equatable, Hashable {
+    public static func ==(lhs: ResolveResponse, rhs: ResolveResponse) -> Bool {
+        if lhs.metadata != rhs.metadata {
+            return false
+        }
+        if lhs.trustInfo != rhs.trustInfo {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(metadata)
+        hasher.combine(trustInfo)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResolveResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResolveResponse {
+        return
+            try ResolveResponse(
+                metadata: FfiConverterData.read(from: &buf), 
+                trustInfo: FfiConverterOptionData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ResolveResponse, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.metadata, into: &buf)
+        FfiConverterOptionData.write(value.trustInfo, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolveResponse_lift(_ buf: RustBuffer) throws -> ResolveResponse {
+    return try FfiConverterTypeResolveResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolveResponse_lower(_ value: ResolveResponse) -> RustBuffer {
+    return FfiConverterTypeResolveResponse.lower(value)
 }
 
 
@@ -1828,6 +3148,79 @@ public func FfiConverterTypeSignParams_lower(_ value: SignParams) -> RustBuffer 
 
 
 /**
+ * A sign-stage refusal with its allowlisted code (the Go
+ * `SignError.Code` — only the code crosses, never the wallet's
+ * free-form reason).
+ */
+public struct SignRefusal {
+    /**
+     * The refusal's code: `SIGN_REFUSED` (the user declined at the
+     * sign step) or `UNSUPPORTED_TRANSACTION_DATA` (the client
+     * refuses a transaction type only it can judge).
+     */
+    public var code: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The refusal's code: `SIGN_REFUSED` (the user declined at the
+         * sign step) or `UNSUPPORTED_TRANSACTION_DATA` (the client
+         * refuses a transaction type only it can judge).
+         */code: String) {
+        self.code = code
+    }
+}
+
+
+
+extension SignRefusal: Equatable, Hashable {
+    public static func ==(lhs: SignRefusal, rhs: SignRefusal) -> Bool {
+        if lhs.code != rhs.code {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(code)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSignRefusal: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SignRefusal {
+        return
+            try SignRefusal(
+                code: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SignRefusal, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.code, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignRefusal_lift(_ buf: RustBuffer) throws -> SignRefusal {
+    return try FfiConverterTypeSignRefusal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSignRefusal_lower(_ value: SignRefusal) -> RustBuffer {
+    return FfiConverterTypeSignRefusal.lower(value)
+}
+
+
+/**
  * The signature. Mirrors `engine_ports::SignResult`.
  */
 public struct SignResult {
@@ -1891,6 +3284,154 @@ public func FfiConverterTypeSignResult_lift(_ buf: RustBuffer) throws -> SignRes
 #endif
 public func FfiConverterTypeSignResult_lower(_ value: SignResult) -> RustBuffer {
     return FfiConverterTypeSignResult.lower(value)
+}
+
+
+/**
+ * The signing-key request. Mirrors `engine_ports::SigningKeyParams`.
+ */
+public struct SigningKeyParams {
+    /**
+     * The flow the ask belongs to.
+     */
+    public var flowId: String
+    /**
+     * The key the engine will sign with, named when the flow knows it.
+     */
+    public var keyId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The flow the ask belongs to.
+         */flowId: String, 
+        /**
+         * The key the engine will sign with, named when the flow knows it.
+         */keyId: String?) {
+        self.flowId = flowId
+        self.keyId = keyId
+    }
+}
+
+
+
+extension SigningKeyParams: Equatable, Hashable {
+    public static func ==(lhs: SigningKeyParams, rhs: SigningKeyParams) -> Bool {
+        if lhs.flowId != rhs.flowId {
+            return false
+        }
+        if lhs.keyId != rhs.keyId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(flowId)
+        hasher.combine(keyId)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSigningKeyParams: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SigningKeyParams {
+        return
+            try SigningKeyParams(
+                flowId: FfiConverterString.read(from: &buf), 
+                keyId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SigningKeyParams, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.flowId, into: &buf)
+        FfiConverterOptionString.write(value.keyId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSigningKeyParams_lift(_ buf: RustBuffer) throws -> SigningKeyParams {
+    return try FfiConverterTypeSigningKeyParams.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSigningKeyParams_lower(_ value: SigningKeyParams) -> RustBuffer {
+    return FfiConverterTypeSigningKeyParams.lower(value)
+}
+
+
+/**
+ * The public JWK answer. Mirrors `engine_ports::SigningKeyResult`.
+ */
+public struct SigningKeyResult {
+    /**
+     * The public JWK as JSON text, public members only.
+     */
+    public var jwk: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The public JWK as JSON text, public members only.
+         */jwk: String) {
+        self.jwk = jwk
+    }
+}
+
+
+
+extension SigningKeyResult: Equatable, Hashable {
+    public static func ==(lhs: SigningKeyResult, rhs: SigningKeyResult) -> Bool {
+        if lhs.jwk != rhs.jwk {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(jwk)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSigningKeyResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SigningKeyResult {
+        return
+            try SigningKeyResult(
+                jwk: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SigningKeyResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.jwk, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSigningKeyResult_lift(_ buf: RustBuffer) throws -> SigningKeyResult {
+    return try FfiConverterTypeSigningKeyResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSigningKeyResult_lower(_ value: SigningKeyResult) -> RustBuffer {
+    return FfiConverterTypeSigningKeyResult.lower(value)
 }
 
 
@@ -2099,6 +3640,11 @@ public struct VpParams {
      * The transaction data entries, raw — the KB-JWT hashes.
      */
     public var transactionData: [String]
+    /**
+     * The transport's selection handle, as the match answer carried
+     * it (WMP OpenID4x 3.2.3.1): passed through unchanged.
+     */
+    public var selectionHandle: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2128,7 +3674,11 @@ public struct VpParams {
          */verifierSessionId: String, 
         /**
          * The transaction data entries, raw — the KB-JWT hashes.
-         */transactionData: [String]) {
+         */transactionData: [String], 
+        /**
+         * The transport's selection handle, as the match answer carried
+         * it (WMP OpenID4x 3.2.3.1): passed through unchanged.
+         */selectionHandle: String?) {
         self.flowId = flowId
         self.audience = audience
         self.nonce = nonce
@@ -2137,6 +3687,7 @@ public struct VpParams {
         self.verifierJwkThumbprint = verifierJwkThumbprint
         self.verifierSessionId = verifierSessionId
         self.transactionData = transactionData
+        self.selectionHandle = selectionHandle
     }
 }
 
@@ -2168,6 +3719,9 @@ extension VpParams: Equatable, Hashable {
         if lhs.transactionData != rhs.transactionData {
             return false
         }
+        if lhs.selectionHandle != rhs.selectionHandle {
+            return false
+        }
         return true
     }
 
@@ -2180,6 +3734,7 @@ extension VpParams: Equatable, Hashable {
         hasher.combine(verifierJwkThumbprint)
         hasher.combine(verifierSessionId)
         hasher.combine(transactionData)
+        hasher.combine(selectionHandle)
     }
 }
 
@@ -2198,7 +3753,8 @@ public struct FfiConverterTypeVpParams: FfiConverterRustBuffer {
                 responseUri: FfiConverterString.read(from: &buf), 
                 verifierJwkThumbprint: FfiConverterString.read(from: &buf), 
                 verifierSessionId: FfiConverterString.read(from: &buf), 
-                transactionData: FfiConverterSequenceString.read(from: &buf)
+                transactionData: FfiConverterSequenceString.read(from: &buf), 
+                selectionHandle: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -2211,6 +3767,7 @@ public struct FfiConverterTypeVpParams: FfiConverterRustBuffer {
         FfiConverterString.write(value.verifierJwkThumbprint, into: &buf)
         FfiConverterString.write(value.verifierSessionId, into: &buf)
         FfiConverterSequenceString.write(value.transactionData, into: &buf)
+        FfiConverterOptionString.write(value.selectionHandle, into: &buf)
     }
 }
 
@@ -2239,6 +3796,12 @@ public struct VpResult {
      * JSON object.
      */
     public var vpToken: String
+    /**
+     * The sign refusal, when the host answered with a refusal instead
+     * of a token (the Go `sign_response.error_code`, #472): the
+     * engine answers the verifier `access_denied` at once.
+     */
+    public var refusal: SignRefusal?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2246,8 +3809,14 @@ public struct VpResult {
         /**
          * The VP token: newline-separated per selection, or a pre-formed
          * JSON object.
-         */vpToken: String) {
+         */vpToken: String, 
+        /**
+         * The sign refusal, when the host answered with a refusal instead
+         * of a token (the Go `sign_response.error_code`, #472): the
+         * engine answers the verifier `access_denied` at once.
+         */refusal: SignRefusal?) {
         self.vpToken = vpToken
+        self.refusal = refusal
     }
 }
 
@@ -2258,11 +3827,15 @@ extension VpResult: Equatable, Hashable {
         if lhs.vpToken != rhs.vpToken {
             return false
         }
+        if lhs.refusal != rhs.refusal {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(vpToken)
+        hasher.combine(refusal)
     }
 }
 
@@ -2274,12 +3847,14 @@ public struct FfiConverterTypeVpResult: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VpResult {
         return
             try VpResult(
-                vpToken: FfiConverterString.read(from: &buf)
+                vpToken: FfiConverterString.read(from: &buf), 
+                refusal: FfiConverterOptionTypeSignRefusal.read(from: &buf)
         )
     }
 
     public static func write(_ value: VpResult, into buf: inout [UInt8]) {
         FfiConverterString.write(value.vpToken, into: &buf)
+        FfiConverterOptionTypeSignRefusal.write(value.refusal, into: &buf)
     }
 }
 
@@ -2412,6 +3987,12 @@ public enum ClientIdScheme {
      */
     case x509SanUri
     /**
+     * The base64url SHA-256 over the verifier's certificate
+     * (`x509_hash:`, OpenID4VP 1.0 §5.2.3) — the chain rides the
+     * request object's `x5c`.
+     */
+    case x509Hash
+    /**
      * A DID-based request (`did:`).
      */
     case decentralizedIdentifier
@@ -2444,13 +4025,15 @@ public struct FfiConverterTypeClientIdScheme: FfiConverterRustBuffer {
         
         case 2: return .x509SanUri
         
-        case 3: return .decentralizedIdentifier
+        case 3: return .x509Hash
         
-        case 4: return .verifierAttestation
+        case 4: return .decentralizedIdentifier
         
-        case 5: return .redirectUri
+        case 5: return .verifierAttestation
         
-        case 6: return .unknown
+        case 6: return .redirectUri
+        
+        case 7: return .unknown
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -2468,20 +4051,24 @@ public struct FfiConverterTypeClientIdScheme: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .decentralizedIdentifier:
+        case .x509Hash:
             writeInt(&buf, Int32(3))
         
         
-        case .verifierAttestation:
+        case .decentralizedIdentifier:
             writeInt(&buf, Int32(4))
         
         
-        case .redirectUri:
+        case .verifierAttestation:
             writeInt(&buf, Int32(5))
         
         
-        case .unknown:
+        case .redirectUri:
             writeInt(&buf, Int32(6))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(7))
         
         }
     }
@@ -2505,6 +4092,263 @@ public func FfiConverterTypeClientIdScheme_lower(_ value: ClientIdScheme) -> Rus
 
 
 extension ClientIdScheme: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The entitlement finding's code. Mirrors
+ * `engine_ports::EntitlementCode`.
+ */
+
+public enum EntitlementCode {
+    
+    /**
+     * The issuer metadata was signed by no certificate chain.
+     */
+    case noAccessCertificate
+    /**
+     * The chain's leaf does not meet the WRPAC profile.
+     */
+    case notWrpac
+    /**
+     * The issuer metadata carries no registration certificate.
+     */
+    case noRegistrationCertificate
+    /**
+     * The registration certificate is not readable.
+     */
+    case registrationMalformed
+    /**
+     * The registration certificate is not current.
+     */
+    case registrationExpired
+    /**
+     * The registration certificate's validity is not conformant.
+     */
+    case registrationOverlong
+    /**
+     * The registration certificate describes another provider.
+     */
+    case bindingMismatch
+    /**
+     * The registered entitlements name no provider role.
+     */
+    case notProvider
+    /**
+     * The provider is not registered for an offered credential.
+     */
+    case typeNotRegistered
+    /**
+     * The registration certificate's signature was not verified.
+     */
+    case registrationUnverified
+    /**
+     * The signer is no trusted Registrar.
+     */
+    case registrarNotTrusted
+    /**
+     * Nothing established the signing chain's trust.
+     */
+    case accessCertificateNotTrusted
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementCode: FfiConverterRustBuffer {
+    typealias SwiftType = EntitlementCode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementCode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .noAccessCertificate
+        
+        case 2: return .notWrpac
+        
+        case 3: return .noRegistrationCertificate
+        
+        case 4: return .registrationMalformed
+        
+        case 5: return .registrationExpired
+        
+        case 6: return .registrationOverlong
+        
+        case 7: return .bindingMismatch
+        
+        case 8: return .notProvider
+        
+        case 9: return .typeNotRegistered
+        
+        case 10: return .registrationUnverified
+        
+        case 11: return .registrarNotTrusted
+        
+        case 12: return .accessCertificateNotTrusted
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EntitlementCode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .noAccessCertificate:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .notWrpac:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .noRegistrationCertificate:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .registrationMalformed:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .registrationExpired:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .registrationOverlong:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .bindingMismatch:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .notProvider:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .typeNotRegistered:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .registrationUnverified:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .registrarNotTrusted:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .accessCertificateNotTrusted:
+            writeInt(&buf, Int32(12))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementCode_lift(_ buf: RustBuffer) throws -> EntitlementCode {
+    return try FfiConverterTypeEntitlementCode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementCode_lower(_ value: EntitlementCode) -> RustBuffer {
+    return FfiConverterTypeEntitlementCode.lower(value)
+}
+
+
+
+extension EntitlementCode: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The entitlement mode. Mirrors `engine_ports::EntitlementMode`.
+ */
+
+public enum EntitlementMode {
+    
+    /**
+     * Records findings and still allows issuance.
+     */
+    case warn
+    /**
+     * Turns the findings into a refusal.
+     */
+    case fail
+    /**
+     * Skips the evaluation.
+     */
+    case off
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEntitlementMode: FfiConverterRustBuffer {
+    typealias SwiftType = EntitlementMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EntitlementMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .warn
+        
+        case 2: return .fail
+        
+        case 3: return .off
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EntitlementMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .warn:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .fail:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .off:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementMode_lift(_ buf: RustBuffer) throws -> EntitlementMode {
+    return try FfiConverterTypeEntitlementMode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEntitlementMode_lower(_ value: EntitlementMode) -> RustBuffer {
+    return FfiConverterTypeEntitlementMode.lower(value)
+}
+
+
+
+extension EntitlementMode: Equatable, Hashable {}
 
 
 
@@ -2939,6 +4783,29 @@ public protocol Host : AnyObject {
     func openAuthorization(flowId: String, url: String) async throws 
     
     /**
+     * Asks the host for the public JWK of a named signing key, so the
+     * engine can identify the key in the proof headers it builds. Keys
+     * always live in the app; the engine only ever sees the public
+     * JWK. A refusal keeps the flows working without key identification.
+     */
+    func requestSigningKey(params: SigningKeyParams) async throws  -> SigningKeyResult
+    
+    /**
+     * Asks the host for a client attestation (a Wallet Instance
+     * Attestation and its proof of possession), when the AS demands
+     * one. A refusal continues without client attestation.
+     */
+    func requestAttestation(params: AttestationParams) async throws  -> AttestationResult
+    
+    /**
+     * Asks the host's user to pick one of the offered credential
+     * configurations, when the offer names more than one. A refusal
+     * fails the flow closed (exactly one configuration is
+     * auto-selected and never asked).
+     */
+    func requestCredentialSelection(params: CredentialSelectionParams) async throws  -> CredentialSelectionResult
+    
+    /**
      * Reports progress on a flow.
      */
     func progress(flowId: String, step: String, detail: String?) 
@@ -3260,6 +5127,135 @@ fileprivate struct UniffiCallbackInterfaceHost {
             )
             uniffiOutReturn.pointee = uniffiForeignFuture
         },
+        requestSigningKey: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> SigningKeyResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestSigningKey(
+                     params: try FfiConverterTypeSigningKeyParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: SigningKeyResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeSigningKeyResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestAttestation: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> AttestationResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestAttestation(
+                     params: try FfiConverterTypeAttestationParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: AttestationResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeAttestationResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        requestCredentialSelection: { (
+            uniffiHandle: UInt64,
+            params: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> CredentialSelectionResult in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceHost.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.requestCredentialSelection(
+                     params: try FfiConverterTypeCredentialSelectionParams.lift(params)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: CredentialSelectionResult) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeCredentialSelectionResult.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
         progress: { (
             uniffiHandle: UInt64,
             flowId: RustBuffer,
@@ -3472,6 +5468,232 @@ extension FfiConverterCallbackInterfaceHttpClient : FfiConverter {
     }
 }
 
+
+
+
+/**
+ * The engine's trust port: the policy decision point the engine
+ * evaluates issuer, verifier and entitlement trust through. The
+ * Kotlin/Swift implementation is the adapter's `engine_ports::Pdp` —
+ * the app's trust stack (the backend's `/v1/evaluate` over the app's
+ * HTTP, or a local evaluator).
+ */
+public protocol Pdp : AnyObject {
+    
+    /**
+     * Evaluates the trust of a subject with the key material the
+     * engine extracted.
+     */
+    func evaluate(request: EvaluationRequest) async throws  -> EvaluationResponse
+    
+    /**
+     * Resolves a URL to a metadata document (the `/v1/resolve`
+     * shape), including the DID documents of `did:`-schemed verifiers.
+     */
+    func resolve(request: ResolveRequest) async throws  -> ResolveResponse
+    
+    /**
+     * Evaluates the issuer's entitlement (ARF 6.6.2.3).
+     */
+    func evaluateEntitlement(request: EntitlementRequest) async throws  -> EntitlementDecision
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfacePdp {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfacePdp = UniffiVTableCallbackInterfacePdp(
+        evaluate: { (
+            uniffiHandle: UInt64,
+            request: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> EvaluationResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePdp.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.evaluate(
+                     request: try FfiConverterTypeEvaluationRequest.lift(request)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: EvaluationResponse) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeEvaluationResponse.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        resolve: { (
+            uniffiHandle: UInt64,
+            request: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> ResolveResponse in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePdp.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.resolve(
+                     request: try FfiConverterTypeResolveRequest.lift(request)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: ResolveResponse) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeResolveResponse.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        evaluateEntitlement: { (
+            uniffiHandle: UInt64,
+            request: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<UniffiForeignFuture>
+        ) in
+            let makeCall = {
+                () async throws -> EntitlementDecision in
+                guard let uniffiObj = try? FfiConverterCallbackInterfacePdp.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.evaluateEntitlement(
+                     request: try FfiConverterTypeEntitlementRequest.lift(request)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: EntitlementDecision) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: FfiConverterTypeEntitlementDecision.lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureStructRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            let uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeSdkError.lower
+            )
+            uniffiOutReturn.pointee = uniffiForeignFuture
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfacePdp.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface Pdp: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitPdp() {
+    uniffi_engine_adapter_sdk_fn_init_callback_vtable_pdp(&UniffiCallbackInterfacePdp.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfacePdp {
+    fileprivate static var handleMap = UniffiHandleMap<Pdp>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfacePdp : FfiConverter {
+    typealias SwiftType = Pdp
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -3523,6 +5745,54 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeSignRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = SignRefusal?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeSignRefusal.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeSignRefusal.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionCallbackInterfacePdp: FfiConverterRustBuffer {
+    typealias SwiftType = Pdp?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterCallbackInterfacePdp.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterCallbackInterfacePdp.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -3565,6 +5835,81 @@ fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeAvailableCredential: FfiConverterRustBuffer {
+    typealias SwiftType = [AvailableCredential]
+
+    public static func write(_ value: [AvailableCredential], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAvailableCredential.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AvailableCredential] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AvailableCredential]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAvailableCredential.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeEntitlementFinding: FfiConverterRustBuffer {
+    typealias SwiftType = [EntitlementFinding]
+
+    public static func write(_ value: [EntitlementFinding], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEntitlementFinding.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EntitlementFinding] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EntitlementFinding]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEntitlementFinding.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeEntitlementOffer: FfiConverterRustBuffer {
+    typealias SwiftType = [EntitlementOffer]
+
+    public static func write(_ value: [EntitlementOffer], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeEntitlementOffer.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [EntitlementOffer] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [EntitlementOffer]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeEntitlementOffer.read(from: &buf))
         }
         return seq
     }
@@ -3732,19 +6077,29 @@ public func uniffiForeignFutureHandleCountEngineAdapterSdk() -> Int {
     UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
 }
 /**
- * Creates the in-process WMP engine with the given configuration. The
- * SDK calls this once and holds the returned handle as its Transport.
+ * Creates the in-process WMP engine with the given configuration and
+ * ports. The SDK calls this once and holds the returned handle as its
+ * Transport.
  *
  * The engine runs the full WMP stack: the peer, the session service,
- * and (when they land) the flow families registered on the runtime.
- * The SDK's `HttpClient` and `Host` callback interfaces connect through
- * the exported async functions (`run_pre_authorized_flow` and its
- * siblings).
+ * and the flow families (oid4vci, oid4vp, credential_notification)
+ * registered on the flow runtime. The SDK supplies the world through
+ * the callbacks:
+ * - `http`: the engine's outgoing fetches (the app's platform stack
+ * handles TLS, proxies and VPNs);
+ * - `host`: the wallet's own asks — the sub-flows, the consents, the
+ * key custody;
+ * - `pdp`: the trust port, the app's trust stack. `None` is an
+ * unconfigured PDP: the engine's trust evaluation fails closed on
+ * it, so no flow passes the trust step until the app supplies one.
  */
-public func createEngine(config: EngineConfig) -> WmpEngine {
+public func createEngine(config: EngineConfig, http: HttpClient, host: Host, pdp: Pdp?) -> WmpEngine {
     return try!  FfiConverterTypeWmpEngine.lift(try! rustCall() {
     uniffi_engine_adapter_sdk_fn_func_create_engine(
-        FfiConverterTypeEngineConfig.lower(config),$0
+        FfiConverterTypeEngineConfig.lower(config),
+        FfiConverterCallbackInterfaceHttpClient.lower(http),
+        FfiConverterCallbackInterfaceHost.lower(host),
+        FfiConverterOptionCallbackInterfacePdp.lower(pdp),$0
     )
 })
 }
@@ -3800,7 +6155,7 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_func_create_engine() != 23132) {
+    if (uniffi_engine_adapter_sdk_checksum_func_create_engine() != 40731) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_func_ping() != 18660) {
@@ -3812,10 +6167,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_is_ready() != 45057) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_send() != 19937) {
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_read_notification() != 24427) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 56681) {
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_send() != 29158) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_wmpengine_take_notifications() != 42796) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_method_host_request_sign() != 1394) {
@@ -3839,15 +6197,34 @@ private var initializationResult: InitializationResult = {
     if (uniffi_engine_adapter_sdk_checksum_method_host_open_authorization() != 25041) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_engine_adapter_sdk_checksum_method_host_progress() != 22765) {
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_signing_key() != 24687) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_attestation() != 52881) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_request_credential_selection() != 63084) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_host_progress() != 3981) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_engine_adapter_sdk_checksum_method_httpclient_send() != 49403) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate() != 16147) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_pdp_resolve() != 45791) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_engine_adapter_sdk_checksum_method_pdp_evaluate_entitlement() != 15208) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
     uniffiCallbackInitHost()
     uniffiCallbackInitHttpClient()
+    uniffiCallbackInitPdp()
     return InitializationResult.ok
 }()
 

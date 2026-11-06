@@ -18,11 +18,36 @@ pub struct Config {
     pub default_session_ttl_secs: i64,
     /// The AS's external URL, whose JWKS the standalone engine validates
     /// tokens against — the `as.external_url` the Go engine requires.
+    /// Drives the derived JWKS URL and issuer (the defaults) when they
+    /// are not named.
     pub as_external_url: String,
+    /// The AS's JWKS URL, when it is not the derived
+    /// `{as_external_url}/.well-known/jwks.json` — the Go backend's own AS
+    /// publishes it at `{as_external_url}/auth/.well-known/jwks.json`.
+    /// Empty means the derived form.
+    pub as_jwks_url: String,
+    /// The `iss` claim the tokens carry, when it is not the
+    /// `as_external_url` (the Go AS's `iss` is its configured issuer,
+    /// `WALLET_AS_ISSUER`, which can differ from its external URL).
+    /// Empty means the `as_external_url`.
+    pub as_issuer: String,
+    /// The accepted `aud` claims. Empty accepts every audience (the
+    /// go-tokenauth behaviour the backend's AS relies on); the default
+    /// is `wallet-engine` (the engine's own audience).
+    pub as_audiences: Vec<String>,
     /// The PDP URL the engine evaluates trust through. Empty means the
     /// backend's proxy (the legacy fallback); a URL means the engine calls
     /// the PDP directly.
     pub pdp_url: String,
+    /// The bearer token the backend's proxy routes validate (the
+    /// `/v1/evaluate` and `/v1/resolve` TAC gate: an AS-issued token
+    /// with `tac` covering `r` and an audience the deployment accepts —
+    /// `wallet-backend` or `wallet-registry` on the default rules).
+    /// The deployment mints it: the dev stack's
+    /// `scripts/mint_engine_pdp_token.py`, Fly's deploy from the AS
+    /// signing key. Empty means no token: the proxy's routes 401 and
+    /// the engine's trust evaluation fails closed.
+    pub pdp_token: String,
     /// Whether plain `http` fetches are allowed (never in production; the
     /// Go engine's `http_client.allow_plaintext`).
     pub allow_plaintext: bool,
@@ -42,10 +67,99 @@ impl Default for Config {
             max_message_size: 1 << 20,
             default_session_ttl_secs: 3600,
             as_external_url: String::new(),
+            as_jwks_url: String::new(),
+            as_issuer: String::new(),
+            as_audiences: vec!["wallet-engine".to_owned()],
             pdp_url: String::new(),
+            pdp_token: String::new(),
             allow_plaintext: false,
             metadata_type: "prefer-signed".to_owned(),
             max_concurrent_flows: 16,
         }
+    }
+}
+
+impl Config {
+    /// The configuration from the environment (`ENGINE_*`), over the
+    /// defaults — the container's form: `ENGINE_ADDR`,
+    /// `ENGINE_MAX_MESSAGE_SIZE`, `ENGINE_DEFAULT_SESSION_TTL_SECS`,
+    /// `ENGINE_AS_EXTERNAL_URL`, `ENGINE_PDP_URL`,
+    /// `ENGINE_ALLOW_PLAINTEXT`, `ENGINE_METADATA_TYPE`,
+    /// `ENGINE_MAX_CONCURRENT_FLOWS`. An unset variable is the
+    /// default; an empty `ENGINE_ADDR`-style string is the default
+    /// too (the container's `ENV ENGINE_LISTEN_ADDR=` form), and an
+    /// unparseable one is the default rather than a refusal — a
+    /// misconfigured scaler's pod still starts and serves its
+    /// probes, exactly as the Go engine's config treats its
+    /// environment.
+    ///
+    /// A `ENGINE_CONFIG`-named JSON file remains the full-fidelity
+    /// form (`main_entry` reads it); the variables are the container
+    /// platform's deployment shape.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let mut config = Self::default();
+        let text = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        };
+        if let Some(value) = text("ENGINE_LISTEN_ADDR").or_else(|| text("ENGINE_ADDR")) {
+            config.listen_addr = value;
+        }
+        if let Some(value) = text("ENGINE_MAX_MESSAGE_SIZE") {
+            if let Ok(parsed) = value.trim().parse() {
+                config.max_message_size = parsed;
+            }
+        }
+        if let Some(value) = text("ENGINE_DEFAULT_SESSION_TTL_SECS") {
+            if let Ok(parsed) = value.trim().parse() {
+                config.default_session_ttl_secs = parsed;
+            }
+        }
+        if let Some(value) = text("ENGINE_AS_EXTERNAL_URL") {
+            config.as_external_url = value;
+        }
+        if let Some(value) = text("ENGINE_AS_JWKS_URL") {
+            config.as_jwks_url = value;
+        }
+        if let Some(value) = text("ENGINE_AS_ISSUER") {
+            config.as_issuer = value;
+        }
+        // The audiences, comma-separated: `ENGINE_AS_AUDIENCES=wallet-engine,
+        //wallet-backend`. The var is read set-but-empty too (unlike the
+        // others): an empty list accepts every audience, the go-tokenauth
+        // behaviour the backend's AS relies on, so `ENGINE_AS_AUDIENCES=`
+        // is the operator's way to say exactly that.
+        if let Ok(value) = std::env::var("ENGINE_AS_AUDIENCES") {
+            config.as_audiences = value
+                .split(',')
+                .map(str::trim)
+                .filter(|audience| !audience.is_empty())
+                .map(str::to_owned)
+                .collect();
+        }
+        if let Some(value) = text("ENGINE_PDP_URL") {
+            config.pdp_url = value;
+        }
+        if let Some(value) = text("ENGINE_PDP_TOKEN") {
+            config.pdp_token = value;
+        }
+        if let Some(value) = text("ENGINE_ALLOW_PLAINTEXT") {
+            // The truthy forms a compose file or a chart writes.
+            config.allow_plaintext = matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            );
+        }
+        if let Some(value) = text("ENGINE_METADATA_TYPE") {
+            config.metadata_type = value;
+        }
+        if let Some(value) = text("ENGINE_MAX_CONCURRENT_FLOWS") {
+            if let Ok(parsed) = value.trim().parse() {
+                config.max_concurrent_flows = parsed;
+            }
+        }
+        config
     }
 }

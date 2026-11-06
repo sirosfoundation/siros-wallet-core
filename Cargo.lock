@@ -1053,7 +1053,10 @@ name = "engine-adapter-sdk"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "engine-core",
  "engine-ports",
+ "parking_lot",
+ "rustc-hash",
  "serde_json",
  "tokio",
  "uniffi",
@@ -1155,6 +1158,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

@@ -85,6 +85,24 @@ pub struct AuthorizationRequest {
     /// The scope, when the request uses scope instead of dcql_query.
     #[serde(default)]
     pub scope: String,
+    /// The raw signed request object (RFC 9101), when the request is
+    /// JWT-secured: the trust evaluation verifies the DID-schemed
+    /// request against the resolved keys (gap A2) and reads the JAR
+    /// header's `trust_chain` (OID4VP §5.9.3.6) from it.
+    #[serde(default)]
+    pub request_jwt: Option<String>,
+    /// The request JWT's `x5c` chain, as the header carried it (RFC 7515
+    /// §4.1.6: base64-encoded DER): the trust evaluation's key material
+    /// for the x.509 schemes.
+    #[serde(default)]
+    pub x5c: Option<Vec<String>>,
+    /// The verifier attestation JWT (§5.9.3.4), when the request's
+    /// `jwt` header parameter carried one: the trust evaluation's
+    /// context forwards the whole JWT — the PDP verifies its signature,
+    /// issuer chain, expiry and redirect_uris claims, not just the
+    /// subject and key it asserts.
+    #[serde(default)]
+    pub attestation_jwt: Option<String>,
 }
 
 /// Why an authorization request was refused.

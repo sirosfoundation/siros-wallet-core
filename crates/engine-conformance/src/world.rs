@@ -570,7 +570,12 @@ impl engine_ports::Host for ScriptedHost {
                             .collect()
                     })
                     .unwrap_or_default();
-                Ok(engine_ports::MatchResult { selections })
+                Ok(engine_ports::MatchResult {
+                    selections,
+                    // The scripted conformance host has no transport
+                    // handle: the ask is answered in-process.
+                    handle: None,
+                })
             }
             Err(reason) => {
                 self.world.fail(reason);

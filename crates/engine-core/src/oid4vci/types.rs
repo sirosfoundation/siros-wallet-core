@@ -35,6 +35,16 @@ pub enum OfferError {
     /// The `openid-credential-offer:` URI is malformed.
     #[error("oid4vci: malformed offer URI: {0}")]
     MalformedUri(String),
+    /// A strictly decoded offer document carries a member the offer
+    /// schema does not define (pkg/strictjson's unknown-member
+    /// rejection, go-wallet-backend 2a6fd510: the strict decode guards
+    /// a document against its own author, so it stays where a third
+    /// party writes the document and two parties read it — the
+    /// credential offer; the superseded SIROS secret shapes
+    /// (`secret_seed`, `holder_commitments`, `psc`) are ordinary
+    /// unknown members now).
+    #[error("oid4vci: offer document carries an unknown member")]
+    UnknownMember,
 }
 
 // ─── Issuer Metadata (OpenID4VCI §11.2) ───────────────────────────────────
@@ -123,6 +133,13 @@ pub struct IssuerMetadata {
     /// Whether the document was served in the signed form.
     #[serde(default, skip_serializing)]
     pub is_signed: bool,
+    /// The document as resolved — the JSON text (the signed form: the
+    /// verified payload) — carrying every member as published, including
+    /// the members this type does not model (`issuer_info`, ETSI TS
+    /// 119 472-3): the ports that evaluate them (the entitlement PDP)
+    /// receive the document, not the model.
+    #[serde(default, skip_serializing)]
+    pub raw: Vec<u8>,
 }
 
 /// Why the issuer metadata resolution refused.

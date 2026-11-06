@@ -17,8 +17,11 @@ use crate::methods::{
 };
 use crate::session::{Session, SessionStore, StoreError};
 use crate::token::{new_resumption_token, tokens_equal, RESUMPTION_TOKEN_BYTES};
-use crate::types::{Capabilities, Metadata, SecurityMode, SUPPORTED_VERSIONS};
-use crate::version::{negotiate_version, version_rejection};
+use crate::types::{Capabilities, Metadata, SecurityMode};
+use crate::version::{
+    negotiate_version, offered_version, version_not_supported, Version, VersionError,
+    SUPPORTED_VERSIONS,
+};
 
 /// Session metadata key holding the protocol version negotiated at create.
 pub const METADATA_KEY_VERSION: &str = "wmp.version";
@@ -100,7 +103,7 @@ pub struct SessionServiceConfig {
     /// Persists sessions. Required.
     pub store: Option<Arc<dyn SessionStore>>,
     /// The protocol versions offered; empty means [`SUPPORTED_VERSIONS`].
-    pub versions: Vec<String>,
+    pub versions: Vec<Version>,
     /// The capability set the default negotiation grants: the result is the
     /// offered capabilities that appear here, with these parameters. Ignored
     /// when [`SessionServiceConfig::capabilities`] is set.
@@ -152,7 +155,7 @@ pub struct SessionService {
 
 struct NormalizedConfig {
     store: Arc<dyn SessionStore>,
-    versions: Vec<String>,
+    versions: Vec<Version>,
     supported: Capabilities,
     capabilities: Option<CapabilitiesFn>,
     security_modes: Vec<String>,
@@ -171,7 +174,7 @@ impl SessionService {
     pub fn new(cfg: SessionServiceConfig) -> Result<Self, ConfigError> {
         let store = cfg.store.ok_or(ConfigError::MissingStore)?;
         let versions = if cfg.versions.is_empty() {
-            SUPPORTED_VERSIONS.iter().map(|v| v.to_string()).collect()
+            SUPPORTED_VERSIONS.to_vec()
         } else {
             cfg.versions
         };
@@ -219,12 +222,8 @@ impl SessionService {
 
     /// The protocol versions this service offers — what a peer negotiates
     /// against when the handler is a [`SessionHandler`].
-    pub fn supported_versions(&self) -> Vec<String> {
-        self.cfg.versions.clone()
-    }
-
-    fn versions(&self) -> Vec<&str> {
-        self.cfg.versions.iter().map(String::as_str).collect()
+    pub fn supported_versions(&self) -> &[Version] {
+        &self.cfg.versions
     }
 
     /// Implements `wmp.session.create`.
@@ -243,9 +242,7 @@ impl SessionService {
             .as_ref()
             .filter(|p| p.is_authenticated())
             .ok_or_else(|| RpcError::code(ERR_NOT_AUTHORIZED))?;
-        let versions = self.versions();
-        let selected = negotiate_version(&p.wmp.version, &versions)
-            .ok_or_else(|| version_rejection(Some(&p.wmp.version), &versions))?;
+        let selected = negotiate_version(offered_version(&p.wmp.version)?, &self.cfg.versions)?;
         let mode = if p.security.mode.is_empty() {
             self.cfg.security_modes.first().cloned().unwrap_or_default()
         } else {
@@ -277,7 +274,7 @@ impl SessionService {
         let token = self.new_resumption_token()?;
         let expires = now + ttl;
         let mut meta = std::collections::BTreeMap::new();
-        meta.insert(METADATA_KEY_VERSION.to_owned(), selected.to_owned());
+        meta.insert(METADATA_KEY_VERSION.to_owned(), selected.to_string());
         if !p.wmp.sender.is_empty() {
             meta.insert(METADATA_KEY_SENDER.to_owned(), p.wmp.sender.clone());
         }
@@ -301,7 +298,7 @@ impl SessionService {
             .map_err(|_| RpcError::code(ERR_INTERNAL_ERROR))?;
         Ok(SessionCreateResult {
             wmp: Metadata {
-                version: selected.to_owned(),
+                version: selected.to_string(),
                 session_id: id,
                 ..Metadata::default()
             },
@@ -330,10 +327,8 @@ impl SessionService {
             .as_ref()
             .filter(|p| p.is_authenticated())
             .ok_or_else(|| RpcError::code(ERR_NOT_AUTHORIZED))?;
-        let versions = self.versions();
-        if negotiate_version(&p.wmp.version, &versions).is_none() {
-            return Err(version_rejection(Some(&p.wmp.version), &versions).into());
-        }
+        let offered = offered_version(&p.wmp.version)?;
+        let negotiated = negotiate_version(offered, &self.cfg.versions)?;
         let session = match self.cfg.store.get(&p.session_id) {
             Some(session) if session.owned_by(&principal.key()) => session,
             _ => return Err(RpcError::code(ERR_SESSION_NOT_FOUND).into()),
@@ -343,7 +338,7 @@ impl SessionService {
             return Err(RpcError::code(ERR_SESSION_EXPIRED).into());
         }
         // All messages of a session use the version negotiated at create.
-        let version = self.session_version(&session, &p.wmp.version, &versions)?;
+        let version = self.session_version(&session, offered, negotiated)?;
 
         let new_token = self.new_resumption_token()?;
         let rotated = match self.rotate(
@@ -377,7 +372,7 @@ impl SessionService {
             .map_or(0, |r| r.missed_since(&p.session_id, &p.last_received_id));
         Ok(SessionResumeResult {
             wmp: Metadata {
-                version,
+                version: version.to_string(),
                 session_id: p.session_id.clone(),
                 ..Metadata::default()
             },
@@ -498,31 +493,27 @@ impl SessionService {
 
     /// The version to use on resume: the one stored at create, provided the
     /// client still offers at least that. Sessions without a stored version
-    /// (not created by this service) fall back to negotiation.
+    /// (not created by this service) keep the `negotiated` one.
     fn session_version(
         &self,
         session: &Session,
-        offered: &str,
-        versions: &[&str],
-    ) -> Result<String, HandlerError> {
-        let stored = session
+        offered: Version,
+        negotiated: Version,
+    ) -> Result<Version, HandlerError> {
+        let Some(stored) = session
             .metadata
             .get(METADATA_KEY_VERSION)
-            .cloned()
-            .unwrap_or_default();
-        if stored.is_empty() {
-            let selected = negotiate_version(offered, versions)
-                .ok_or_else(|| version_rejection(Some(offered), versions))?;
-            return Ok(selected.to_owned());
-        }
+            .filter(|stored| !stored.is_empty())
+        else {
+            return Ok(negotiated);
+        };
         // The pinned version must still be one this service supports.
-        if !versions.contains(&stored.as_str()) {
-            return Err(version_rejection(Some(offered), versions).into());
+        match stored.parse() {
+            Ok(pinned) if self.cfg.versions.contains(&pinned) => {
+                Ok(negotiate_version(offered, &[pinned])?)
+            }
+            Ok(_) | Err(VersionError) => Err(version_not_supported(&self.cfg.versions).into()),
         }
-        let pinned = [stored.as_str()];
-        let selected = negotiate_version(offered, &pinned)
-            .ok_or_else(|| version_rejection(Some(offered), &pinned))?;
-        Ok(selected.to_owned())
     }
 
     /// Stores a new session, refusing an identifier that is already taken
@@ -751,7 +742,7 @@ impl crate::handler::Handler for SessionHandler {
         Some(self.service.store().clone())
     }
 
-    fn supported_versions(&self) -> Vec<String> {
+    fn supported_versions(&self) -> &[Version] {
         self.service.supported_versions()
     }
 }
