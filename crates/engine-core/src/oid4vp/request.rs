@@ -215,6 +215,14 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
             .and_then(|v| v.as_str())
             .filter(|jwt| !jwt.is_empty())
             .map(str::to_owned);
+        // The chain, as the header carried it (the trust evaluation's
+        // key material for the x.509 schemes).
+        let x5c = header.get("x5c").and_then(|v| v.as_array()).map(|chain| {
+            chain
+                .iter()
+                .filter_map(|cert| cert.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        });
         // The payload is the second segment.
         let payload = parts
             .get(1)
@@ -226,8 +234,14 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // x509_hash binding (§5.2.3), the x509_san_dns signed form (§5),
         // and the verifier_attestation extraction (§5.9.3.4) — all
         // against the payload's client_id.
-        parse_request_value(&value).and_then(|request| {
-            validate_scheme_requirements(&request, leaf_der, attestation_jwt, text)?;
+        parse_request_value(&value).and_then(|mut request| {
+            validate_scheme_requirements(&request, leaf_der, attestation_jwt.clone(), text)?;
+            // The trust evaluation's inputs ride the request: the raw
+            // JWT (the DID verification, the trust_chain extraction),
+            // the x5c chain, and the attestation.
+            request.request_jwt = Some(text.to_owned());
+            request.x5c = x5c.clone();
+            request.attestation_jwt = attestation_jwt.clone();
             Ok(request)
         })
     } else {
@@ -505,6 +519,11 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         client_metadata_uri,
         verifier_jwk,
         scope,
+        // The trust evaluation's inputs: the parser's caller fills them
+        // when the request is JWT-secured (parse_request_object).
+        request_jwt: None,
+        x5c: None,
+        attestation_jwt: None,
     })
 }
 

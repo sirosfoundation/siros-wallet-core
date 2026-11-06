@@ -5,9 +5,18 @@
 
 use engine_ports::{
     EvaluationRequest, FetchPurpose, HttpClient, HttpRequest, Pdp, PdpError, RedirectPolicy,
+    ResolveRequest,
 };
 
 use super::types::{AuthorizationRequest, ClientIdScheme};
+
+/// The DID document resource type of the `Pdp::resolve` port (the
+/// recorded gap-A2 architecture, docs/engine-parity.md §1): the DID
+/// document resolution moves behind the port, and the engine verifies
+/// the request JWT against the resolved keys itself — the same split
+/// the Go engine makes between resolution (`TrustSvc.ResolveDID`) and
+/// trust (`evaluate`).
+pub const RESOURCE_TYPE_DID_DOCUMENT: &str = "did_document";
 
 /// The maximum size of a client metadata document: 1 MiB. The Go engine
 /// reads this stream unbounded (a Go bug class the sans-network core
@@ -94,6 +103,14 @@ pub enum TrustError {
     /// The PDP answered an error; the engine fails closed.
     #[error("oid4vp: PDP error: {0}")]
     PdpError(String),
+    /// The DID-schemed verifier's request could not be verified against
+    /// the resolved DID document (gap A2): the client_id names no DID,
+    /// the request is not JWT-secured, the document carries no
+    /// verification method, or no resolved key verifies the request's
+    /// signature — the Go engine's `DID resolution failed` /
+    /// `DID request JWT verification failed`.
+    #[error("oid4vp: DID request verification failed: {0}")]
+    DidVerification(String),
     /// The PDP answered untrusted; the flow refuses.
     #[error("oid4vp: untrusted verifier {verifier}: {reason}")]
     Untrusted {
@@ -192,9 +209,14 @@ pub fn build_verifier_info(
 /// Evaluates the verifier's trust through the PDP port — the OID4VP
 /// mirror of the issuer trust evaluation, with the same fail-closed rule.
 ///
-/// The key material is the client metadata's `jwks` when the verifier
-/// published one, else empty: the PDP decides what an empty key material
-/// means (some trust frameworks evaluate on the identifier alone).
+/// The key material is the scheme's (the Go engine's
+/// `extractVerifierKeyMaterial`): the DID-schemed request's matched
+/// resolved key (gap A2), the x.509 schemes' `x5c` chain as the JAR
+/// header carried it, the attestation's `cnf.jwk` (§5.9.3.4), else the
+/// client metadata's `jwks` — and the PDP decides what an empty key
+/// material means (some trust frameworks evaluate on the identifier
+/// alone). The evaluation's context (gap C1) carries what the PDP
+/// decides on beside it.
 ///
 /// The P0.6-verified behaviour: "Fail closed: a PDP error is never
 /// equivalent to 'no PDP configured' and must never fall back to asking
@@ -205,16 +227,33 @@ pub async fn evaluate_verifier_trust(
     client_metadata: Option<&ClientMetadata>,
     verifier: &mut VerifierInfo,
 ) -> Result<(), TrustError> {
-    let key_material = client_metadata
-        .and_then(|m| m.jwks.as_ref())
-        .map(|jwks| jwks.to_string().into_bytes())
-        .unwrap_or_default();
+    let key_material = match auth_req.client_id_scheme {
+        // Gap A2: the engine resolves the DID document behind the port
+        // and verifies the request JWT against the resolved keys; the
+        // matched key is what the PDP evaluates.
+        ClientIdScheme::DecentralizedIdentifier => {
+            did_key_material(pdp, auth_req, client_metadata).await?
+        }
+        // The other schemes: the parser has verified the signatures;
+        // the key material is the scheme's own.
+        _ => best_effort_key_material(auth_req, client_metadata),
+    };
 
     let response = pdp
         .evaluate(EvaluationRequest {
             subject: auth_req.client_id.clone(),
             key_material,
-            resource_type: None,
+            // The subject's role for the evaluator: the verifier side
+            // of the presentation. The backend's proxy maps this to
+            // the AuthZEN action name (credential-verifier — one of
+            // the default rules' allowed set); a plain PDP ignores
+            // it. (The richer mdoc actions — mdoc-reader-auth,
+            // mdoc-issuer-auth — are the SDK-side flows' calls, not
+            // this engine's single verifier evaluation.)
+            resource_type: Some("credential-verifier".to_owned()),
+            // Gap C1: the evaluation's context (the Go
+            // `buildVerifierEvalContext`).
+            context: build_eval_context(auth_req),
         })
         .await
         .map_err(|err| match err {
@@ -239,6 +278,298 @@ pub async fn evaluate_verifier_trust(
     }
 
     Ok(())
+}
+
+// ─── The key material (the Go extractVerifierKeyMaterial) ─────────────────
+
+/// The DID the client_id names: the `did:` form itself, or the value
+/// after the `decentralized_identifier:` alias (the Go
+/// `didFromClientID`); `None` when the client_id names no DID.
+fn did_of(client_id: &str) -> Option<String> {
+    let rest = client_id
+        .strip_prefix("decentralized_identifier:")
+        .unwrap_or(client_id);
+    rest.starts_with("did:").then(|| rest.to_owned())
+}
+
+/// The DID-schemed verifier's key material (gap A2, the recorded
+/// architecture): the engine resolves the DID document behind the
+/// Pdp `resolve` port — the raw document, exactly as the port answers
+/// it — and verifies the request JWT against the document's
+/// verification methods itself, the matched key being what the PDP
+/// evaluates.
+///
+/// **A PDP that does not implement `did_document` resolutions** answers
+/// `NotImplemented`: the engine treats the verifier as best-effort,
+/// the documented transition state — the key material falls back to
+/// the client metadata's `jwks`, the request JWT unverified, the same
+/// way the current behavior did. A PDP that answers an error failed
+/// mid-resolution and fails closed, exactly as the Go engine's
+/// `ResolveDID` error does.
+async fn did_key_material(
+    pdp: &dyn Pdp,
+    auth_req: &AuthorizationRequest,
+    client_metadata: Option<&ClientMetadata>,
+) -> Result<Vec<u8>, TrustError> {
+    // The DID the client_id names (the Go check: a did: scheme whose
+    // client_id is not a DID is a refusal).
+    let Some(did) = did_of(&auth_req.client_id) else {
+        return Err(TrustError::DidVerification(format!(
+            "client_id_scheme={} but the client_id names no DID",
+            auth_req.client_id_scheme.name()
+        )));
+    };
+    // The request MUST be JWT-secured (the Go rule).
+    let Some(jwt) = auth_req.request_jwt.as_deref() else {
+        return Err(TrustError::DidVerification(
+            "a did-schemed request must be JWT-secured".to_owned(),
+        ));
+    };
+    match pdp
+        .resolve(ResolveRequest {
+            uri: did,
+            resource_type: RESOURCE_TYPE_DID_DOCUMENT.to_owned(),
+        })
+        .await
+    {
+        // The raw document (the recorded decision: the port returns
+        // the document, the engine verifies) — the request JWT must
+        // verify against at least one verification method.
+        Ok(response) => {
+            let matched = verify_request_against_did(jwt, &response.metadata)?;
+            Ok(matched.to_string().into_bytes())
+        }
+        // Until a Pdp implementation answers did_document resolutions
+        // (the wasm mini host among them), the did-schemed verifier is
+        // best-effort: the key material the client metadata published,
+        // the request JWT unverified.
+        Err(PdpError::NotImplemented) => Ok(metadata_jwks(client_metadata)),
+        // The resolution was configured and failed: fail closed, as
+        // the evaluate step does.
+        Err(PdpError::Unreachable) => Err(TrustError::PdpUnreachable),
+        Err(PdpError::Error(detail)) => Err(TrustError::PdpError(detail)),
+    }
+}
+
+/// Verifies the request JWT against a resolved DID document's
+/// verification methods (W3C DID Core §5.3): the first `publicKeyJwk`
+/// whose verification succeeds is the matched key the PDP evaluates.
+/// No method, no readable document, or no verifying key is a refusal
+/// — the Go engine's `resolved but contains no verification method
+/// keys` and `DID request JWT verification failed`.
+fn verify_request_against_did(jwt: &str, document: &[u8]) -> Result<serde_json::Value, TrustError> {
+    let malformed = |reason: &str| {
+        TrustError::DidVerification(format!("the DID document is unusable: {reason}"))
+    };
+    let document: serde_json::Value =
+        serde_json::from_slice(document).map_err(|_| malformed("not JSON"))?;
+    let methods = document
+        .get("verificationMethod")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| malformed("no verificationMethod array"))?;
+    for method in methods {
+        // A verification method's key: the `publicKeyJwk` (RFC 7515's
+        // JWK form). The other key forms (multibase and the like) are
+        // not JWS keys; a method without a JWK cannot verify.
+        let Some(jwk) = method.get("publicKeyJwk") else {
+            continue;
+        };
+        let jwk: jose_rs::jwk::Jwk = serde_json::from_value(jwk.clone())
+            .map_err(|_| malformed("a publicKeyJwk is not a JWK"))?;
+        if jose_rs::jws::compact::verify_with_jwk(&jwk, jwt).is_ok() {
+            return serde_json::to_value(&jwk)
+                .map_err(|_| malformed("the matched key does not serialize"));
+        }
+    }
+    Err(TrustError::DidVerification(
+        "no resolved key verifies the request signature".to_owned(),
+    ))
+}
+
+/// The non-DID schemes' key material: the x.509 schemes' `x5c` chain
+/// (as the JAR header carried it — the PDP evaluates the chain), the
+/// attestation's `cnf.jwk` (§5.9.3.4), else the best-effort chain
+/// (the `x5c`, the client metadata's `jwks`, the request JWT header's
+/// `jwk` — the Go order) — and empty when none of them is there: the
+/// PDP decides what an empty key material means.
+fn best_effort_key_material(
+    auth_req: &AuthorizationRequest,
+    client_metadata: Option<&ClientMetadata>,
+) -> Vec<u8> {
+    match auth_req.client_id_scheme {
+        // The x.509 schemes: the chain is the material (§5.2.3's hash
+        // binding and §5's SAN binding are the parser's; the chain's
+        // trust is the PDP's).
+        ClientIdScheme::X509SanDns | ClientIdScheme::X509SanUri | ClientIdScheme::X509Hash => {
+            if let Some(chain) = &auth_req.x5c {
+                return serde_json::to_vec(chain).unwrap_or_default();
+            }
+            Vec::new()
+        }
+        // The attestation's confirmation key (RFC 7800): the parser
+        // verified the request signature under it; the PDP evaluates
+        // the attestation it asserts.
+        ClientIdScheme::VerifierAttestation => {
+            if let Some(jwk) = attestation_cnf_jwk(auth_req) {
+                return jwk.to_string().into_bytes();
+            }
+            Vec::new()
+        }
+        // The best-effort default: the request's own chain, the
+        // metadata's jwks, the request JWT header's jwk.
+        _ => {
+            if let Some(chain) = &auth_req.x5c {
+                return serde_json::to_vec(chain).unwrap_or_default();
+            }
+            let jwks = metadata_jwks(client_metadata);
+            if !jwks.is_empty() {
+                return jwks;
+            }
+            jwt_header_jwk(auth_req)
+        }
+    }
+}
+
+/// The client metadata's `jwks`, as bytes — the key material when
+/// nothing scheme-specific applies.
+fn metadata_jwks(client_metadata: Option<&ClientMetadata>) -> Vec<u8> {
+    client_metadata
+        .and_then(|metadata| metadata.jwks.as_ref())
+        .map(|jwks| jwks.to_string().into_bytes())
+        .unwrap_or_default()
+}
+
+/// The `jwk` of an unsigned request JWT's header — the best-effort
+/// extraction of last resort (the Go `unverified JWT header
+/// extraction`): the header names the key even when nothing verified
+/// against it.
+fn jwt_header_jwk(auth_req: &AuthorizationRequest) -> Vec<u8> {
+    auth_req
+        .request_jwt
+        .as_deref()
+        .and_then(jwt_header)
+        .and_then(|header| header.get("jwk").cloned())
+        .map(|jwk| jwk.to_string().into_bytes())
+        .unwrap_or_default()
+}
+
+/// The verifier attestation's `cnf.jwk` (RFC 7800): the confirmation
+/// key the attestation asserts, which the request JWT's signature
+/// verified under (the parser's §5.9.3.4 check).
+fn attestation_cnf_jwk(auth_req: &AuthorizationRequest) -> Option<serde_json::Value> {
+    let attestation = auth_req.attestation_jwt.as_deref()?;
+    let payload = jwt_payload(attestation)?;
+    payload.get("cnf")?.get("jwk").cloned()
+}
+
+/// The decoded JOSE header of a JWT.
+fn jwt_header(jwt: &str) -> Option<serde_json::Value> {
+    let segment = jwt.split('.').next()?;
+    let bytes = decode_base64url(segment)?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// The decoded JSON payload of a JWT.
+fn jwt_payload(jwt: &str) -> Option<serde_json::Value> {
+    let segment = jwt.split('.').nth(1)?;
+    let bytes = decode_base64url(segment)?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Minimal base64url decoding, padding tolerated.
+fn decode_base64url(encoded: &str) -> Option<Vec<u8>> {
+    fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'-' => Some(62),
+            b'_' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes: Vec<u8> = encoded.bytes().filter(|byte| *byte != b'=').collect();
+    let mut out = Vec::with_capacity(bytes.len() * 3 / 4);
+    for chunk in bytes.chunks(4) {
+        let b0 = value(*chunk.first()?)?;
+        let b1 = value(*chunk.get(1)?)?;
+        out.push((b0 << 2) | (b1 >> 4));
+        if let Some(byte) = chunk.get(2) {
+            let b2 = value(*byte)?;
+            out.push((b1 << 4) | (b2 >> 2));
+            if let Some(byte) = chunk.get(3) {
+                let b3 = value(*byte)?;
+                out.push((b2 << 6) | b3);
+            }
+        }
+    }
+    Some(out)
+}
+
+// ─── The evaluation's context (gap C1) ────────────────────────────────────
+
+/// The trust evaluation's context (the Go
+/// `buildVerifierEvalContext`, carried by `EvaluateVerifierWithContext`):
+/// what the PDP decides on beside the key material — the
+/// `client_id_scheme` (the claim's name), the `response_uri` and
+/// `redirect_uri` the request named, the `trust_chain` from the request
+/// object's JAR header (OID4VP §5.9.3.6 — a pre-supplied OIDF trust
+/// chain the PDP validates instead of resolving it from scratch), and
+/// the verifier attestation's `attestation_issuer`,
+/// `attestation_subject` and `attestation_jwt` (§5.9.3.4: the PDP
+/// verifies the whole attestation JWT — its signature, issuer chain,
+/// expiry and redirect_uris claims — not just the subject and key it
+/// asserts).
+pub fn build_eval_context(auth_req: &AuthorizationRequest) -> serde_json::Value {
+    let mut context = serde_json::json!({
+        "client_id_scheme": auth_req.client_id_scheme.name(),
+    });
+    let Some(object) = context.as_object_mut() else {
+        return context;
+    };
+    if !auth_req.response_uri.is_empty() {
+        object.insert(
+            "response_uri".to_owned(),
+            serde_json::Value::String(auth_req.response_uri.clone()),
+        );
+    }
+    if !auth_req.redirect_uri.is_empty() {
+        object.insert(
+            "redirect_uri".to_owned(),
+            serde_json::Value::String(auth_req.redirect_uri.clone()),
+        );
+    }
+    // The trust chain from the JAR header (§5.9.3.6).
+    if let Some(trust_chain) = auth_req
+        .request_jwt
+        .as_deref()
+        .and_then(jwt_header)
+        .and_then(|header| header.get("trust_chain").cloned())
+    {
+        object.insert("trust_chain".to_owned(), trust_chain);
+    }
+    // The attestation context (§5.9.3.4).
+    if let Some(attestation) = auth_req.attestation_jwt.as_deref().and_then(jwt_payload) {
+        if let Some(issuer) = attestation.get("iss").and_then(|v| v.as_str()) {
+            object.insert(
+                "attestation_issuer".to_owned(),
+                serde_json::Value::String(issuer.to_owned()),
+            );
+        }
+        if let Some(subject) = attestation.get("sub").and_then(|v| v.as_str()) {
+            object.insert(
+                "attestation_subject".to_owned(),
+                serde_json::Value::String(subject.to_owned()),
+            );
+        }
+        if let Some(attestation_jwt) = auth_req.attestation_jwt.clone() {
+            object.insert(
+                "attestation_jwt".to_owned(),
+                serde_json::Value::String(attestation_jwt),
+            );
+        }
+    }
+    context
 }
 
 /// Extracts the domain from a client_id: the host part of a redirect_uri

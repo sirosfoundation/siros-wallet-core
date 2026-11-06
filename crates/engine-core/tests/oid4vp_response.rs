@@ -44,6 +44,11 @@ fn test_request(mode: ResponseMode) -> AuthorizationRequest {
         client_metadata_uri: String::new(),
         verifier_jwk: None,
         scope: String::new(),
+        // The trust evaluation's inputs: the tests carry no
+        // signed request object.
+        request_jwt: None,
+        x5c: None,
+        attestation_jwt: None,
     }
 }
 

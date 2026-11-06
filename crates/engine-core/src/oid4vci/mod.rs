@@ -1263,6 +1263,9 @@ async fn request_and_deliver(
         issuer_metadata,
         token,
         configuration_id,
+        // The running flow's id: the host asks (the signing key, the
+        // credential proof) route their child flows by it.
+        ctx.flow_id.as_str(),
         Some(&aux),
         token.nonce.as_deref().or(token.c_nonce.as_deref()),
     )
