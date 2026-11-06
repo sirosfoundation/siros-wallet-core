@@ -378,9 +378,12 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    builds the proof TBS, so no opening can enter structurally); the
    §7 metadata rule and the plain-secret check (§7.1); the conflict
    relay (§8). The engine never handles a secret value. Design survey
-   §6.12. **Remaining: the strict offer decode (pkg/strictjson's
-   unknown-member rejection on the offer)** — small, folded into W9's
-   hardening pass.
+   §6.12. **The strict offer decode landed (W9)**: the third-party
+   offer documents (the `credential_offer` URI parameter, the fetched
+   offer, the inline form) refuse unknown members
+   (`OfferError::UnknownMember`); the by-value params form — the
+   wallet's own merge — stays lenient, exactly as the Go engine's
+   always-own-document differs.
 5. **W5 — COMPLETE (#522/#526/#529, the core's half)**: the
    entitlement wire shapes on the `Pdp` port (`engine-ports`: the
    warn/fail/off mode parsed with warn as the default, the twelve
@@ -469,9 +472,44 @@ three refusals (unusable, required-without-proof-type, plain-secret).
    chain x5c > the metadata's jwks > the request JWT header's jwk).
    The parser retains the raw request JWT, the chain and the
    attestation on `AuthorizationRequest` for the evaluation.
-9. **W9 — SDK adapter + transports + real testing**: port wiring (F2/F3),
-   `WmpUniFFITransport`, the AAR/XCFramework CI, then end-to-end against
-   the deployed stack.
+9. **W9 — IN PROGRESS (the Rust half landed)**: **the strict offer
+   decode** (the folded W4 remainder — see W4's entry); **the
+   peer↔runtime cycle fixed at the root** — `FlowRuntime::set_peer`:
+   the server's placeholder dance left its handler dispatching to a
+   runtime over a dead placeholder peer with no families (every flow
+   start answered -31005, and even registered families would have
+   sent their notifications nowhere) — one runtime now, the real peer
+   swapped in before any flow can start; **the F2/F3 wiring** —
+   `create_engine` over the full ports (the SDK's Host/HttpClient/Pdp
+   callbacks bridged to `engine-ports`, the built-ins, the three flow
+   families, the capability advert, the tokio runtime, the
+   notification channel with `take_notifications` and the blocking
+   `read_notification`); **the real e2e at the adapter**
+   (`engine-adapter-sdk/tests/engine_e2e.rs`): the session create with
+   the capability negotiation, an issuance flow through the bridges,
+   the completion — with W7's notification members — read from the
+   channel the transport polls, and the no-PDP fail-closed.
+   **The rest landed**: the **packaging CI** (ci.yml's
+   `xcframework`/`aar` jobs — the recipes verified on every push;
+   the first runs found and fixed the v4 input change of
+   setup-android and the BSD `wc` padding); the **real e2e**
+   (`engine-adapter-server/tests/e2e.rs` — a wallet client driving a
+   complete pre-authorized issuance and its credential_notification
+   flow through the HTTP+SSE binding, the child asks answered from
+   the stream while the parent POST is in flight, the PDP proxy, the
+   issuer fetches through ServerHttpClient — the drive found and
+   fixed the credential asks' constant flow id);
+   the **SDK transports** opened as PRs:
+   [siros-sdk-kotlin#383](https://github.com/sirosfoundation/siros-sdk-kotlin/pull/383)
+   (the bindings vendored source + `WmpUniFFITransport` + the tests,
+   which run where the native library loads and skip on a plain JVM)
+   and
+   [siros-sdk-swift#264](https://github.com/sirosfoundation/siros-sdk-swift/pull/264)
+   (the same, `#if canImport`-gated so the package builds everywhere
+   today). **Remaining: the first `siros-wallet-core` release tag**
+   (the owner's call) — the release workflow builds the
+   XCFramework/AAR artifacts; the Swift PR's `binaryTarget` line +
+   checksum lands with it.
 
 **The deployment notes (§6.11):** #432 — a multi-replica deployment needs
 shared WMP routing/replay state (the outbox and the flow registry are the

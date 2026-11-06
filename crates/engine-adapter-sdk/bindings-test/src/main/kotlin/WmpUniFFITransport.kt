@@ -7,7 +7,7 @@
 //
 // The class is a drop-in replacement for WmpWebSocketTransport:
 //
-//   val transport = WmpUniFFITransport()
+//   val transport = WmpUniFFITransport(http, host, pdp)
 //   val session = WmpSession(config, transport)
 //   val peer = WmpPeer(session)
 //   peer.use(OpenID4xProfile(config))
@@ -24,26 +24,38 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import uniffi.engine_adapter_sdk.EngineConfig
+import uniffi.engine_adapter_sdk.Host
+import uniffi.engine_adapter_sdk.HttpClient
+import uniffi.engine_adapter_sdk.Pdp
 import uniffi.engine_adapter_sdk.WmpEngine
 import uniffi.engine_adapter_sdk.createEngine
 
 /**
  * The SDK's Transport interface implemented over the in-process Rust
- * engine. Sends a WMP message through the engine's UniFFI-exposed
- * `send`, and delivers the engine's notifications through the
- * `incoming()` flow.
+ * engine. Creates the engine over the app's callbacks — the
+ * `HttpClient` (the engine's outgoing fetches, the platform's own
+ * stack), the `Host` (the wallet's asks: the sub-flows, the consents,
+ * the key custody) and the `Pdp` (the app's trust stack; null fails
+ * closed at the trust step) — then sends WMP messages through the
+ * engine's UniFFI-exposed `send`, and delivers the engine's
+ * notifications through the `incoming()` flow.
  *
  * No WebSocket, no network to the engine — the only HTTP is the
- * engine's own outgoing fetches through the SDK's HttpClient port.
+ * engine's own outgoing fetches through the SDK's HttpClient callback.
  */
 class WmpUniFFITransport(
+    private val http: HttpClient,
+    private val host: Host,
+    private val pdp: Pdp? = null,
     private val config: EngineConfig = EngineConfig(
         maxMessageSize = 1048576uL,
         defaultSessionTtlSecs = 3600uL,
+        maxConcurrentFlows = 16uL,
+        consentCheck = "warn",
     ),
 ) : Transport {
 
-    private val engine: WmpEngine = createEngine(config)
+    private val engine: WmpEngine = createEngine(config, http, host, pdp)
 
     private val _state = MutableStateFlow(TransportState.DISCONNECTED)
     override val state: StateFlow<TransportState> = _state

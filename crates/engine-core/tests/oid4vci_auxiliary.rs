@@ -44,9 +44,11 @@ fn an_unsupported_to_wallet_alg_makes_the_configuration_unusable() {
         "to_wallet": [hash_commitment("sha-512", serde_json::json!(["family_name"]))],
     }));
     let delivery = secret_delivery_of(&config).expect("parses");
+    let refusal =
+        usable(&delivery, &config).expect_err("the sha-512 entry the wallet cannot check");
     assert!(
-        usable(&delivery, &config).is_err(),
-        "the sha-512 entry the wallet cannot check"
+        refusal.reason.contains("alg or encoding"),
+        "the refusal names the class: {refusal}"
     );
 }
 

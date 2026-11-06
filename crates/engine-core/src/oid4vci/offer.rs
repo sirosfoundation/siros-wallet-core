@@ -73,7 +73,9 @@ async fn parse_offer_uri(http: &dyn HttpClient, uri: &str) -> Result<CredentialO
                 let decoded = urldecode(value);
                 let value: serde_json::Value =
                     serde_json::from_str(&decoded).map_err(|_| OfferError::NotAnObject)?;
-                return parse_offer_value(&value);
+                // The offer document, third-party authored: strictly
+                // decoded.
+                return parse_offer_document(&value);
             }
             if key == "credential_offer_uri" {
                 let decoded = urldecode(value);
@@ -83,11 +85,12 @@ async fn parse_offer_uri(http: &dyn HttpClient, uri: &str) -> Result<CredentialO
     }
 
     // The URI may carry the offer inline (the pre-1.0 form): the whole
-    // rest is the URL-encoded offer JSON.
+    // rest is the URL-encoded offer JSON — a third-party document,
+    // strictly decoded.
     let decoded = urldecode(rest);
     let value: serde_json::Value =
         serde_json::from_str(&decoded).map_err(|_| OfferError::NotAnObject)?;
-    parse_offer_value(&value)
+    parse_offer_document(&value)
 }
 
 /// Fetches an offer by reference through the HTTP port, with the size
@@ -120,12 +123,42 @@ async fn fetch_offer(http: &dyn HttpClient, uri: &str) -> Result<CredentialOffer
 
     let value: serde_json::Value =
         serde_json::from_slice(&response.body).map_err(|_| OfferError::NotAnObject)?;
-    parse_offer_value(&value)
+    // The fetched document, third-party authored: strictly decoded.
+    parse_offer_document(&value)
 }
 
-/// Parses an offer from its JSON value — the shared validation for all
-/// three forms. Requires `credential_issuer` and
-/// `credential_configuration_ids`.
+/// Parses a third-party offer document (the `credential_offer` URI
+/// parameter's JSON, the fetched offer, the inline URI form): the
+/// strict decode (pkg/strictjson's unknown-member rejection,
+/// go-wallet-backend 2a6fd510, which keeps the strict decode for the
+/// credential offer alone — where a third party writes the document
+/// and two parties read it, a repeated or unknown member would let
+/// the two readers differ).
+fn parse_offer_document(value: &serde_json::Value) -> Result<CredentialOffer, OfferError> {
+    let Some(obj) = value.as_object() else {
+        return Err(OfferError::NotAnObject);
+    };
+    // The offer schema's members (OID4VCI §4.1.1); everything else is
+    // an unknown member.
+    for member in obj.keys() {
+        if !matches!(
+            member.as_str(),
+            "credential_issuer" | "credential_configuration_ids" | "grants"
+        ) {
+            return Err(OfferError::UnknownMember);
+        }
+    }
+    parse_offer_value(value)
+}
+
+/// Parses an offer from its JSON value — the validation shared with
+/// the strict document parse, and the whole of the lenient form: the
+/// flow start's params ARE the offer object, with the wallet's own
+/// members (the `redirect_uri`, the `client_id`) riding beside the
+/// offer's — a form the wallet itself authored, so the strict decode
+/// does not apply (the Go engine's offer is always its own document;
+/// this core's by-value form is the wallet's merge). Requires
+/// `credential_issuer` and `credential_configuration_ids`.
 fn parse_offer_value(value: &serde_json::Value) -> Result<CredentialOffer, OfferError> {
     let Some(obj) = value.as_object() else {
         return Err(OfferError::NotAnObject);
