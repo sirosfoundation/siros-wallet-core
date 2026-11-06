@@ -7,7 +7,9 @@
 //! type with its module. The registration's bytes are siros-dc-matcher's.
 
 use siros_explain::{Explain, ModuleId};
-use siros_i18n::{BuiltPackage, Formats, Module, PackageError, RegistrationBuilder, RenderError};
+use siros_i18n::{
+    BuiltPackage, DefinedForm, Formats, Module, PackageError, RegistrationBuilder, RenderError,
+};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::rows::Env;
 
@@ -28,7 +30,7 @@ pub enum RegisterError {
 /// What a registration serves.
 #[derive(Debug, Clone, Copy)]
 pub struct Registration<'r> {
-    /// The modules the package holds: the app's, and each transaction type's.
+    /// The app's modules the package holds.
     pub modules: &'r [&'r Module],
     /// The modules every card draws from: the app's main module and its crate modules, as the
     /// matcher's `Rendering` names them.
@@ -37,8 +39,8 @@ pub struct Registration<'r> {
     pub credentials: &'r [(&'r str, &'r Card)],
     /// The static entries' cards.
     pub statics: &'r [&'r Card],
-    /// Each transaction type, with the module its metadata converts to.
-    pub transactions: &'r [(&'r str, ModuleId)],
+    /// Each transaction type, with the defined module its metadata converts to.
+    pub transactions: &'r [(&'r str, &'r DefinedForm)],
 }
 
 /// The package of a registration under `env`'s lists and options: every key of each module, each
@@ -67,8 +69,15 @@ pub fn package(
     for credential in credentials {
         builder.credential(credential, registration.own)?;
     }
-    for (kind, module) in registration.transactions {
-        builder.transaction(kind, *module)?;
+    let mut defined: Vec<&DefinedForm> = Vec::new();
+    for (_, form) in registration.transactions {
+        if defined.iter().all(|known| known.id() != form.id()) {
+            builder.defined(form)?;
+            defined.push(form);
+        }
+    }
+    for (kind, form) in registration.transactions {
+        builder.transaction(kind, ModuleId::Defined(form.id()))?;
     }
     let mut texts = builder.texts(formats);
     let cards = registration

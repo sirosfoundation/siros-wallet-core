@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
 use siros_explain::{Messages, ModuleId};
-use siros_i18n::{Declaration, LocaleTag, Module, Selected};
+use siros_i18n::{DefinedForm, LocaleTag, Module, Selected};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
 use siros_openid4vp::json::Node;
@@ -21,9 +21,7 @@ use siros_paso::{
 };
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
-use siros_testkit::render::{
-    App, CrateSource, GERMAN_PASO, GERMAN_QES, compilers, main_module, main_sources,
-};
+use siros_testkit::render::{App, CrateSource, GERMAN_PASO, GERMAN_QES, main_locales, main_module};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 
 siros_testkit::test_host! {
@@ -89,31 +87,12 @@ pub fn placement(
     siros_testkit::fixtures::placement(&[&mdoc, &sd_jwt, &test], format)
 }
 
-/// A PaSO type's metadata converted for a priority list and loaded; `None` for metadata that does
-/// not convert, whose entries do not render.
-fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<Module> {
+/// A PaSO type's metadata converted for a priority list; `None` for metadata that does not
+/// convert, whose entries do not render.
+fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let node = Node::parse(given).expect("the metadata");
-    let [en, de] = main_sources();
-    let converted = siros_paso::view::convert(kind, &node, &[&en, &de], priority).ok()?;
-    Some(loaded(converted))
-}
-
-/// A converted module, loaded as the test app loads it.
-fn loaded(converted: siros_paso::view::Converted) -> Module {
-    let sources: Vec<&str> = converted
-        .sources
-        .entries()
-        .iter()
-        .map(|entry| entry.value().as_str())
-        .collect();
-    Module::load(
-        ModuleId::Defined(converted.module),
-        &Declaration::defined(converted.declaration).expect("a declaration"),
-        &sources,
-        converted.policy,
-        &compilers().expect("compilers"),
-    )
-    .expect("the converted module loads")
+    let main = main_locales().expect("the main module");
+    siros_paso::view::convert(kind, &node, &main, priority).ok()
 }
 
 /// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
@@ -146,10 +125,9 @@ fn own_modules() -> Vec<Module> {
 /// metadata converts to for the priority list, shown in the locale View §4 selected.
 pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &LocaleTag) -> App {
     let defined = converted(kind, given, priority).expect("converts");
-    let selected = Selected::new(defined.id(), locale.clone());
-    let mut modules = own_modules();
-    modules.push(defined);
-    App::new(&modules.iter().collect::<Vec<_>>())
+    let selected = Selected::new(ModuleId::Defined(defined.id()), locale.clone());
+    let modules = own_modules();
+    App::new(&modules.iter().collect::<Vec<_>>(), &[&defined])
         .expect("the package")
         .selecting(selected)
 }
@@ -172,21 +150,26 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App 
                 .map(|(kind, meta)| (kind.to_owned(), meta.python_compact().to_string())),
         );
     }
-    let mut modules = own_modules();
+    let modules = own_modules();
+    let mut defined: Vec<DefinedForm> = Vec::new();
     for (kind, meta) in &metadata {
         if let Some(module) = converted(kind, meta, env.priority())
-            && modules.iter().all(|known| known.id() != module.id())
+            && defined.iter().all(|known| known.id() != module.id())
         {
-            modules.push(module);
+            defined.push(module);
         }
     }
-    let [en, de] = main_sources();
-    let carried = siros_paso::view::carried(request, &[&en, &de], env.priority())
-        .expect("the main module's resources");
-    for module in carried.into_iter().map(loaded) {
-        if modules.iter().all(|known| known.id() != module.id()) {
-            modules.push(module);
+    let main = main_locales().expect("the main module");
+    let carried = siros_paso::view::carried(request, &main, env.priority())
+        .expect("the main module's formats");
+    for module in carried {
+        if defined.iter().all(|known| known.id() != module.id()) {
+            defined.push(module);
         }
     }
-    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
+    App::new(
+        &modules.iter().collect::<Vec<_>>(),
+        &defined.iter().collect::<Vec<_>>(),
+    )
+    .expect("the package")
 }

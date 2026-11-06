@@ -1,4 +1,5 @@
 //! What a presentation's texts render from: the package the app built from its modules, the
+//! defined modules carried beside it (those of metadata that arrives with the request), the
 //! build's format modules, and the app's modules beside the defined ones. Each consent entry's
 //! renderer shows the module its profile selected a locale for in that locale, and every other
 //! module in the language `Screen::locale` decides over `Env`'s lists (section 4.14 of the
@@ -10,20 +11,22 @@ use std::borrow::Cow;
 
 use siros_explain::{Explain, ModuleId};
 use siros_i18n::{
-    Formats, ModuleName, NoLanguage, Package, PackageError, Registration, Renderer, Screen,
+    DefinedForm, Formats, ModuleName, NoLanguage, Package, PackageError, Registration, Renderer,
+    Screen,
 };
 
 use crate::plugins::{Exclusion, Fault};
 use crate::rows::{Env, Selected};
 use crate::{FAULT, detail};
 
-/// The package a presentation's texts render from, its registration when it has one, the build's
-/// render halves, and the modules every entry draws from: the app's main module and its crate
-/// modules.
+/// The package a presentation's texts render from, its registration when it has one, the defined
+/// modules carried beside it, the build's render halves, and the modules every entry draws from:
+/// the app's main module and its crate modules.
 #[derive(Clone)]
 pub struct Rendering<'p> {
     package: Package<'p>,
     registration: Option<Registration>,
+    carried: &'p [DefinedForm],
     formats: &'p Formats,
     modules: &'p [ModuleId],
 }
@@ -42,9 +45,19 @@ impl<'p> Rendering<'p> {
         Ok(Self {
             registration: package.registration()?,
             package,
+            carried: &[],
             formats,
             modules,
         })
+    }
+
+    /// The rendering with defined modules carried beside its package: a profile's selected module
+    /// the package lacks is one of them. The matcher carries the modules of the ad-hoc metadata a
+    /// request's entries carry (section 4.14 of the design, "Ad-hoc metadata").
+    #[must_use]
+    pub const fn carrying(mut self, carried: &'p [DefinedForm]) -> Self {
+        self.carried = carried;
+        self
     }
 
     /// What the package's registration was built from; `None` for a package built without one.
@@ -58,7 +71,7 @@ impl<'p> Rendering<'p> {
     /// `env`'s priority list headed by that locale and its RFC 4647 truncations, `env`'s fallback
     /// list and the modules' policies; with `env`'s rendering options. Over a registration's
     /// package, a credential's language is decided over its candidate languages, which give the
-    /// language the lists give.
+    /// language the lists give. A selected module the package lacks is one carried beside it.
     /// The inner error excludes the entry.
     ///
     /// # Errors
@@ -90,6 +103,7 @@ impl<'p> Rendering<'p> {
                 }
                 if let Some(selected) = selected
                     && !registration.transacts(selected.module())
+                    && !self.carries(selected.module())
                 {
                     return Ok(Err(Unrendered::Module(ModuleName::of(selected.module()))));
                 }
@@ -121,7 +135,7 @@ impl<'p> Rendering<'p> {
             modules.push(selected.module());
         }
         let refused = |e| Fault::caused(FAULT, detail!("the package refuses the screen"), e);
-        let mut screen = match Screen::new(&self.package, modules) {
+        let mut screen = match Screen::carrying(&self.package, modules, self.carried) {
             Ok(screen) => screen,
             Err(PackageError::Module(module))
                 if selected.is_some_and(|selected| selected.module() == module.id()) =>
@@ -142,6 +156,13 @@ impl<'p> Rendering<'p> {
             .map(Ok)
             .map_err(|e| Fault::caused(FAULT, detail!("the screen's renderer"), e))
     }
+
+    /// Whether a defined module carried beside the package is `module`.
+    fn carries(&self, module: ModuleId) -> bool {
+        self.carried
+            .iter()
+            .any(|form| ModuleId::Defined(form.id()) == module)
+    }
 }
 
 /// Why an entry's texts cannot render, which excludes it.
@@ -153,8 +174,8 @@ pub enum Unrendered {
     /// entry of it.
     #[error(transparent)]
     Language(#[from] NoLanguage),
-    /// The package holds no module whose locale the profile selected: metadata the package was
-    /// built without, such as metadata that arrives with the request.
+    /// Neither the package nor the modules carried beside it hold the module whose locale the
+    /// profile selected: metadata the package was built without, converted by no one.
     #[error("the package holds no module {0}, whose locale the profile selected")]
     Module(#[explain(name = "module")] ModuleName),
 }

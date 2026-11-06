@@ -4,9 +4,10 @@
 
 use siros_explain::{Message, Messages, ModuleId, Text};
 use siros_i18n::{
-    BuiltPackage, CURRENCY, Compilers, DATE, Declaration, FormatCompiler, FormatRenderer, Formats,
-    Formatted, LIST, LanguagePolicy, LocaleTag, Module, ModuleError, NUMBER, NoLanguage, Package,
-    PackageBuilder, PackageError, RenderError, Renderer, Selected,
+    BuiltPackage, CURRENCY, Compilers, DATE, Declaration, DefinedForm, FormatCompiler,
+    FormatRenderer, Formats, Formatted, LIST, LanguagePolicy, LocaleTag, MainLocale, Module,
+    ModuleError, ModuleName, NUMBER, NoLanguage, Package, PackageBuilder, PackageError,
+    RenderError, Renderer, Selected,
 };
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::rendering::{Rendering, Unrendered};
@@ -185,6 +186,18 @@ pub fn main_module() -> Result<Module, ModuleError> {
     )
 }
 
+/// The test app's main module's locale entries, which the defined modules it converts format
+/// their typed arguments with.
+///
+/// # Errors
+///
+/// [`AppError::Module`]: the main module does not load.
+pub fn main_locales() -> Result<Vec<MainLocale>, AppError> {
+    main_module()?
+        .main_locales()
+        .ok_or_else(|| PackageError::Module(ModuleName::of(ModuleId::Main)).into())
+}
+
 /// The test app's package of its modules, in every locale one of them supports, its render
 /// halves, and the module a profile selected a locale for.
 pub struct App {
@@ -195,22 +208,26 @@ pub struct App {
 }
 
 impl App {
-    /// The package of `modules`, every key of each.
+    /// The package of `modules` and the converted `defined` modules, every key of each.
     ///
     /// # Errors
     ///
     /// The [`PackageError`] of a module the builder refuses; [`RenderError::Registered`] for two
     /// render halves of one format.
-    pub fn new(modules: &[&Module]) -> Result<Self, AppError> {
+    pub fn new(modules: &[&Module], defined: &[&DefinedForm]) -> Result<Self, AppError> {
         let mut locales: Vec<LocaleTag> = modules
             .iter()
             .flat_map(|module| module.locales().cloned())
+            .chain(defined.iter().flat_map(|form| form.locales().cloned()))
             .collect();
         locales.sort();
         locales.dedup();
         let mut builder = PackageBuilder::new(locales)?;
         for module in modules {
             builder.module(module, None)?;
+        }
+        for form in defined {
+            builder.defined(form)?;
         }
         Ok(Self {
             built: builder.finish(),
@@ -259,7 +276,7 @@ impl App {
         for source in crates {
             modules.push(source.load()?);
         }
-        Self::new(&modules.iter().collect::<Vec<_>>())
+        Self::new(&modules.iter().collect::<Vec<_>>(), &[])
     }
 
     /// The language of an entry's texts, as the core's renderer of the entry chooses it.

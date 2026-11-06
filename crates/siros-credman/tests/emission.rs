@@ -225,7 +225,8 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
     for tags in tagged {
         let modules = modules(tags);
         let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
-        let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+        let live =
+            App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
         let live_rendering = live.rendering().expect("the live rendering");
         for priority in [&["en"][..], &["de", "en"]] {
             let env = env_of(priority, OPTIONS);
@@ -299,7 +300,7 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
     let modules = modules(&[]);
     let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
     let formats = siros_testkit::render::formats().expect("the render halves");
-    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+    let live = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let statics = [StaticEntry {
         id: "notice".to_owned(),
@@ -358,7 +359,7 @@ fn the_emission_refuses_other_inputs_unheld_cards_and_other_lists() {
     let modules = modules(&[]);
     let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
     let formats = siros_testkit::render::formats().expect("the render halves");
-    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+    let live = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let case = Case::new(requests().swap_remove(0));
     let env = env_of(&["en"], OPTIONS);
@@ -477,7 +478,7 @@ fn a_request_reads_whole_entries_and_their_audit_paths() {
     let accepted = Accepted::new(&request, &registry).expect("accepted");
     let modules = modules(&[]);
     let own: Vec<ModuleId> = modules.iter().map(Module::id).collect();
-    let live = App::new(&modules.iter().collect::<Vec<_>>()).expect("the live modules' app");
+    let live = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let matched = Match::run(&accepted, &wallet, &env, &live_rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");

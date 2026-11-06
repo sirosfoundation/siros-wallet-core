@@ -11,7 +11,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_explain::{Messages, ModuleId, Text};
-use siros_i18n::{Declaration, Formatted, Module, Selected};
+use siros_i18n::{DefinedForm, Formatted, Selected};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Entry;
@@ -22,7 +22,7 @@ use siros_paso::outcome::Outcome;
 use siros_paso::render::{TransactionView, ViewRow};
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
-use siros_testkit::render::{App, CrateSource, GERMAN_PASO, compilers, main_module, main_sources};
+use siros_testkit::render::{App, CrateSource, GERMAN_PASO, main_locales, main_module};
 use siros_testkit::verifier;
 
 /// The Payment rulebook's type.
@@ -277,60 +277,41 @@ pub fn paso_module() -> CrateSource {
 
 /// The module a type's metadata converts to for a priority list, over the test app's main
 /// module.
-pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> Module {
+pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> DefinedForm {
     converted(kind, meta, priority).expect("converts")
 }
 
 /// The module a type's metadata converts to for a priority list, over the test app's main
 /// module; `None` for metadata that does not convert, whose entries do not render.
-pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<Module> {
+pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let given = Node::parse(meta).expect("the metadata");
-    let [en, de] = main_sources();
-    let converted = siros_paso::view::convert(kind, &given, &[&en, &de], priority).ok()?;
-    Some(loaded(converted))
-}
-
-/// A converted module, loaded as the test app loads it.
-pub fn loaded(converted: siros_paso::view::Converted) -> Module {
-    let sources: Vec<&str> = converted
-        .sources
-        .entries()
-        .iter()
-        .map(|entry| entry.value().as_str())
-        .collect();
-    Module::load(
-        ModuleId::Defined(converted.module),
-        &Declaration::defined(converted.declaration).expect("a declaration"),
-        &sources,
-        converted.policy,
-        &compilers().expect("compilers"),
-    )
-    .expect("the converted module loads")
+    let main = main_locales().expect("the main module");
+    siros_paso::view::convert(kind, &given, &main, priority).ok()
 }
 
 /// The test app as a wallet renders a request for an `Env`: the main module, the core's and the
 /// profile's modules, the module each type of each card's PaSO document converts to, and the
-/// modules of the ad-hoc metadata each entry of the request carries, which the wallet converts
-/// when the request arrives (`siros_paso::view::carried`).
+/// modules of the ad-hoc metadata each entry of the request carries (`siros_paso::view::carried`).
 pub fn request_app(
     request: &siros_openid4vp::request::Request<'_>,
     cards: &[&Card],
     env: &Env,
 ) -> App {
-    let [en, de] = main_sources();
-    let carried = siros_paso::view::carried(request, &[&en, &de], env.priority())
-        .expect("the main module's resources");
-    app_with(cards, carried.into_iter().map(loaded).collect(), env)
+    let main = main_locales().expect("the main module");
+    let carried = siros_paso::view::carried(request, &main, env.priority())
+        .expect("the main module's formats");
+    app_with(cards, carried, env)
 }
 
 /// The test app of the main module, the core's and the profile's modules, each card's converted
 /// modules and `further`.
-fn app_with(cards: &[&Card], further: Vec<Module>, env: &Env) -> App {
-    let mut modules = vec![
+fn app_with(cards: &[&Card], further: Vec<DefinedForm>, env: &Env) -> App {
+    let modules = [
         main_module().expect("the main module"),
         CrateSource::openid4vp().load().expect("the core's module"),
         paso_module().load().expect("the profile's module"),
     ];
+    let mut defined: Vec<DefinedForm> = Vec::new();
     for card in cards {
         let node = siros_paso::document::PasoDocument::json(card.document.as_bytes())
             .expect("the document");
@@ -338,18 +319,22 @@ fn app_with(cards: &[&Card], further: Vec<Module>, env: &Env) -> App {
         for (kind, meta) in document.types() {
             let meta = meta.python_compact().to_string();
             if let Some(module) = self::converted(kind, &meta, env.priority())
-                && modules.iter().all(|known| known.id() != module.id())
+                && defined.iter().all(|known| known.id() != module.id())
             {
-                modules.push(module);
+                defined.push(module);
             }
         }
     }
     for module in further {
-        if modules.iter().all(|known| known.id() != module.id()) {
-            modules.push(module);
+        if defined.iter().all(|known| known.id() != module.id()) {
+            defined.push(module);
         }
     }
-    App::new(&modules.iter().collect::<Vec<_>>()).expect("the package")
+    App::new(
+        &modules.iter().collect::<Vec<_>>(),
+        &defined.iter().collect::<Vec<_>>(),
+    )
+    .expect("the package")
 }
 
 /// The test app of a type's renderings in an `Env`: the main module, the core's and the
@@ -365,15 +350,14 @@ impl Screen {
     /// language the app's practice list chooses, `env`'s list with each tag's generic form.
     pub fn of(kind: &str, meta: &str, env: &Env, locale: &LocaleTag) -> Self {
         let converted = defined(kind, meta, env.priority());
-        let selected = Selected::new(converted.id(), locale.clone());
+        let selected = Selected::new(ModuleId::Defined(converted.id()), locale.clone());
         let modules = [
             main_module().expect("the main module"),
             CrateSource::openid4vp().load().expect("the core's module"),
             paso_module().load().expect("the profile's module"),
-            converted,
         ];
         Self {
-            app: App::new(&modules.iter().collect::<Vec<_>>())
+            app: App::new(&modules.iter().collect::<Vec<_>>(), &[&converted])
                 .expect("the package")
                 .selecting(selected),
             env: Env::new(

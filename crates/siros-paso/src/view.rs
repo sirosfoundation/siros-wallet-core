@@ -1,19 +1,21 @@
 //! PaSO View's display rules as a defined module (section 4.14 of the design): the conversion the
-//! wallet runs when a type's metadata loads, and the identity and keys phase 1's texts name.
+//! wallet runs when a type's metadata loads, and the matcher when ad-hoc metadata arrives with a
+//! request, and the identity and keys phase 1's texts name.
 //!
 //! Each display array is one message of the module, under the key of what it labels: a claim's
 //! `claim_<k>`, a UI label's name. The module supports each tag of the End-User's priority list
 //! View §4 can select ([`crate::locale::selectable`]); in each, an array's message is the text of
 //! the entries View §4 tries for that tag ([`crate::locale::chain`]): one entry's, or for a
-//! template that an absent claim discards, a `.match` over each such entry's argument `e<j>`
-//! (`live` or `dead`, by its position) whose catch-all is the last entry tried. A plain label is
-//! literal text, a `mini_markdown` label its emphasis, strong and underline spans as MF2 markup, a
+//! template that an absent claim discards, a selection over each such entry's argument `e<j>`
+//! (`live` or `dead`, by its position) whose fallback is the last entry tried. A plain label is
+//! literal text, a `mini_markdown` label its emphasis, strong and underline spans as styles, a
 //! template label its spans with each `{n}` naming a claim as the argument `c<n>` of claim n's
-//! value kind, absent when the claim is. Each tag copies the main module's options of the formats
-//! its arguments call, and its direction when it states one, from the main module's resource
-//! RFC 4647 Lookup finds for the tag; a tag no main resource serves where an argument calls a
-//! format has no source, and a screen showing the module in it refuses it. Its language policy is
-//! `Understood`: View §4 excludes a credential when no tag matches every array.
+//! value kind, absent when the claim is. The conversion writes the module in its render form with
+//! no loader ([`DefinedForm`]): each tag's typed arguments format as the main module's entry RFC
+//! 4647 Lookup finds for the tag formats a bare value of their kind, and the tag takes that
+//! entry's direction; a tag no main entry serves where an argument calls a format has no locale,
+//! and a screen showing the module in it refuses it. Its language policy is `Understood`: View §4
+//! excludes a credential when no tag matches every array.
 
 use std::borrow::Cow;
 
@@ -21,7 +23,9 @@ use sha2::{Digest, Sha256};
 use siros_explain::{
     ArgKind, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, ParamKind, Presence, checked,
 };
-use siros_i18n::{LanguagePolicy, LocaleTag};
+use siros_i18n::{
+    Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part, Variant,
+};
 use siros_openid4vp::json::Node;
 
 use crate::locale::{ArrayKey, chain, lookup, selectable};
@@ -96,20 +100,6 @@ pub(crate) const fn argument_kind(value_type: ValueType) -> ArgKind {
     }
 }
 
-/// A type's display rules as a defined module's declaration and sources.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Converted {
-    /// The module's identity.
-    pub module: DefinedModule,
-    /// Each array's key, with its template entries' liveness and referenced values as arguments,
-    /// and their kinds.
-    pub declaration: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
-    /// For each tag it supports, once, its resource.
-    pub sources: Keyed<LocaleTag, String>,
-    /// View §4's: `Understood`.
-    pub policy: LanguagePolicy,
-}
-
 /// Why a type's metadata does not convert.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "paso.convert")]
@@ -120,23 +110,12 @@ pub enum ConvertError {
     /// The metadata breaks Proof Metadata §3, or a value type is unsupported.
     #[error(transparent)]
     Metadata(#[from] Outcome),
-    /// A main module's resource names no locale.
-    #[error("the main module's resource {0} names no locale")]
-    Main(#[explain(name = "source")] usize),
-    /// The main module lacks a format's options in a language the module supports.
-    #[error("the main module defines no {format} options for {locale}")]
-    Format {
-        /// The format.
-        format: &'static str,
-        /// The language.
-        locale: LocaleTag,
-    },
+    /// The module is no render form: a main entry lacks the format of a typed argument.
+    #[error(transparent)]
+    Defined(#[from] DefinedError),
     /// A template holds the character the conversion reads its placeholders as.
     #[error("a template holds U+FDD0")]
     Reserved,
-    /// Two main module resources name one locale.
-    #[error("two main module resources name {0}")]
-    Locale(#[explain(name = "locale")] LocaleTag),
     /// A display array holds no entry for a language the converted module supports.
     #[error("a display array holds no entry for {0}")]
     NoEntry(#[explain(name = "locale")] LocaleTag),
@@ -146,22 +125,21 @@ pub enum ConvertError {
 }
 
 /// The defined modules of the ad-hoc metadata a request's entries carry (Proof Metadata §5),
-/// converted as [`convert`] converts a type's metadata, each once. A registration's package holds
-/// no such module, so the matcher excludes such an entry (`Unrendered::Module`); the wallet calls
-/// this when the request arrives and loads each module into the package `Match::run` and phase 2
-/// render with. An entry whose JWT does not parse or whose metadata does not convert gives no
-/// module: the profile's binding refuses it, or the core excludes it.
+/// converted as [`convert`] converts a type's metadata, each once: the matcher's, which reads each
+/// entry's `metadata` JWT as it reads a signed request, its payload parsed and unverified (section
+/// 4.14 of the design), and renders the entries over the modules beside its registration's
+/// package. `main`: the main module's entries the package holds. An entry whose JWT does not parse
+/// or whose metadata does not convert gives no module: the profile's binding refuses it.
 ///
 /// # Errors
 ///
-/// The [`ConvertError`] of the main module's resources: a resource names no locale or names one
-/// twice, or lacks a format a module calls.
+/// [`ConvertError::Defined`]: a main entry lacks a format a converted message calls.
 pub fn carried(
     request: &siros_openid4vp::request::Request<'_>,
-    main: &[&str],
+    main: &[MainLocale],
     priority: &[LocaleTag],
-) -> Result<Vec<Converted>, ConvertError> {
-    let mut modules: Vec<Converted> = Vec::new();
+) -> Result<Vec<DefinedForm>, ConvertError> {
+    let mut modules: Vec<DefinedForm> = Vec::new();
     for entry in request.entries() {
         let Some(jwt) = entry.members().get("metadata").and_then(Node::as_str) else {
             continue;
@@ -174,15 +152,11 @@ pub fn carried(
         };
         match convert(entry.kind().as_str(), metadata, main, priority) {
             Ok(converted) => {
-                if modules.iter().all(|known| known.module != converted.module) {
+                if modules.iter().all(|known| known.id() != converted.id()) {
                     modules.push(converted);
                 }
             }
-            Err(
-                main @ (ConvertError::Main(_)
-                | ConvertError::Format { .. }
-                | ConvertError::Locale(_)),
-            ) => return Err(main),
+            Err(defined @ ConvertError::Defined(_)) => return Err(defined),
             Err(
                 ConvertError::NotPaso(_)
                 | ConvertError::Metadata(_)
@@ -195,76 +169,32 @@ pub fn carried(
     Ok(modules)
 }
 
-/// One language of the main module: its tag, its direction when it states one, and its format
-/// sections.
-struct Language<'s> {
-    tag: LocaleTag,
-    dir: Option<&'s str>,
-    sections: Vec<(&'s str, &'s str)>,
-}
-
-impl<'s> Language<'s> {
-    /// A main module's resource: `@locale`, `@dir` before `---`, then its `[formats.<name>]`
-    /// sections, each to the next section. siros-paso builds without siros-i18n's loader, whose
-    /// parser checks the resource when the app loads the main module.
-    fn read(index: usize, source: &'s str) -> Result<Self, ConvertError> {
-        let (head, body) = source
-            .split_once("\n---\n")
-            .ok_or(ConvertError::Main(index))?;
-        let meta = |name: &str| {
-            head.lines()
-                .find_map(|line| line.strip_prefix(name).map(str::trim))
-        };
-        let tag = meta("@locale ")
-            .and_then(|tag| LocaleTag::parse(tag).ok())
-            .ok_or(ConvertError::Main(index))?;
-        let dir = meta("@dir ");
-        let mut sections = Vec::new();
-        for part in body.split("\n[formats.").skip(1) {
-            if let Some((name, options)) = part.split_once("]\n") {
-                let options = options.split("\n[").next().unwrap_or_default();
-                sections.push((name, options));
-            }
-        }
-        Ok(Self { tag, dir, sections })
-    }
-}
+/// A message's parameters: each argument's name and kind.
+type Params = Keyed<Cow<'static, str>, ParamKind>;
 
 /// An array to convert: what it labels, its entries, and its message's parameters.
 struct Converting<'a, 'm> {
     array: ArrayKey,
     entries: &'a DisplayArray<'m>,
-    params: Keyed<Cow<'static, str>, ParamKind>,
+    params: Params,
 }
 
-/// Converts a type's display rules into its defined module for the End-User's priority list,
-/// over the main module's resources, one per language, whose format options it copies.
+/// Converts a type's display rules into its defined module for the End-User's priority list, its
+/// typed arguments formatted as the main module's entries `main` format bare values.
 ///
 /// # Errors
 ///
-/// [`ConvertError`]: the type is no PaSO type, its metadata refuses, a main resource names no
-/// locale or lacks a format the module calls, or a template holds U+FDD0.
+/// [`ConvertError`]: the type is no PaSO type, its metadata refuses, a template holds U+FDD0, or
+/// a main entry lacks a format a message calls.
 pub fn convert(
     kind: &str,
     given: &Node<'_>,
-    main: &[&str],
+    main: &[MainLocale],
     priority: &[LocaleTag],
-) -> Result<Converted, ConvertError> {
+) -> Result<DefinedForm, ConvertError> {
     let family = Family::of(kind).ok_or_else(|| ConvertError::NotPaso(kind.to_owned()))?;
     let (metadata, _) = rulebook_metadata(kind, family, given)?;
     let arrays = arrays(&metadata);
-    let main = main
-        .iter()
-        .enumerate()
-        .map(|(index, source)| Language::read(index, source))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut wallet: Vec<LocaleTag> = Vec::new();
-    for language in &main {
-        if wallet.contains(&language.tag) {
-            return Err(ConvertError::Locale(language.tag.clone()));
-        }
-        wallet.push(language.tag.clone());
-    }
     let mut messages: Vec<Converting<'_, '_>> = Vec::new();
     for (array, entries) in &arrays {
         if entries
@@ -290,66 +220,53 @@ pub fn convert(
             params: Keyed::first_of(params),
         });
     }
-    let mut formats: Vec<&'static str> = Vec::new();
-    for message in &messages {
-        for param in message.params.entries() {
-            let format = match param.value().kind() {
-                ArgKind::Date | ArgKind::Time | ArgKind::DateTime => "date",
-                ArgKind::Amount | ArgKind::Currency => "currency",
-                _ => continue,
-            };
-            if !formats.contains(&format) {
-                formats.push(format);
-            }
-        }
-    }
-    let mut sources = Vec::new();
+    let typed = messages.iter().any(|message| {
+        message.params.entries().iter().any(|param| {
+            matches!(
+                param.value().kind(),
+                ArgKind::Date
+                    | ArgKind::Time
+                    | ArgKind::DateTime
+                    | ArgKind::Amount
+                    | ArgKind::Currency
+            )
+        })
+    });
+    let tags: Vec<LocaleTag> = main.iter().map(|entry| entry.locale().clone()).collect();
+    let declaration = Keyed::first_of(
+        messages
+            .iter()
+            .map(|message| Entry::new(key(message.array), message.params.clone())),
+    );
+    let mut builder =
+        DefinedForm::builder(module_of(given), LanguagePolicy::Understood, declaration);
     for tag in selectable(&arrays, priority) {
-        let language = lookup(&tag, &wallet)
-            .and_then(|found| main.iter().find(|language| language.tag == *found));
-        if language.is_none() && !formats.is_empty() {
+        let entry =
+            lookup(&tag, &tags).and_then(|found| main.iter().find(|entry| entry.locale() == found));
+        if entry.is_none() && typed {
             continue;
         }
-        let mut text = format!("@locale {}\n", tag.as_str());
-        if let Some(dir) = language.and_then(|language| language.dir) {
-            text.push_str(&format!("@dir {dir}\n"));
-        }
-        text.push_str("---\n");
-        for message in &messages {
-            let pattern = message_in(message, &tag, &metadata.claims)?;
-            text.push_str(&format!("{} = {pattern}\n", key(message.array).as_str()));
-        }
-        for format in &formats {
-            let (_, options) = language
-                .iter()
-                .flat_map(|language| language.sections.iter())
-                .find(|(name, _)| name == format)
-                .ok_or_else(|| ConvertError::Format {
-                    format,
-                    locale: tag.clone(),
-                })?;
-            text.push_str(&format!("\n[formats.{format}]\n{options}\n"));
-        }
-        sources.push(Entry::new(tag, text));
+        let bodies = messages
+            .iter()
+            .map(|message| {
+                Ok(Entry::new(
+                    key(message.array),
+                    message_in(message, &tag, &metadata.claims)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, ConvertError>>()?;
+        builder.locale(tag, entry, &Keyed::first_of(bodies))?;
     }
-    let declaration = messages
-        .into_iter()
-        .map(|message| Entry::new(key(message.array), message.params));
-    Ok(Converted {
-        module: module_of(given),
-        declaration: Keyed::first_of(declaration),
-        sources: Keyed::first_of(sources),
-        policy: LanguagePolicy::Understood,
-    })
+    Ok(builder.finish())
 }
 
 /// An array's message in a language: the pattern of the one entry the language takes, or a
-/// `.match` over the liveness of each template entry it takes before its last.
+/// selection over the liveness of each template entry it takes before its last.
 fn message_in(
     message: &Converting<'_, '_>,
     language: &LocaleTag,
     claims: &[ClaimMeta<'_>],
-) -> Result<String, ConvertError> {
+) -> Result<Body, ConvertError> {
     let taken = chain(message.entries, language);
     let patterns = taken
         .iter()
@@ -359,97 +276,69 @@ fn message_in(
         return Err(ConvertError::NoEntry(language.clone()));
     };
     if before.is_empty() {
-        return Ok(format!("{{{{{last}}}}}"));
+        return Ok(Body::Pattern(last.clone()));
     }
-    let mut out = String::new();
-    for (position, _) in taken.iter().take(before.len()) {
-        out.push_str(&format!(".input {{${} :string}} ", liveness(*position)));
-    }
-    out.push_str(".match");
-    for (position, _) in taken.iter().take(before.len()) {
-        out.push_str(&format!(" ${}", liveness(*position)));
-    }
-    for (k, pattern) in before.iter().enumerate() {
-        out.push(' ');
-        for column in 0..before.len() {
-            out.push_str(if column == k { LIVE } else { "*" });
-            out.push(' ');
-        }
-        out.push_str(&format!("{{{{{pattern}}}}}"));
-    }
-    out.push(' ');
-    for _ in 0..before.len() {
-        out.push_str("* ");
-    }
-    out.push_str(&format!("{{{{{last}}}}}"));
-    Ok(out)
+    let selectors = taken
+        .iter()
+        .take(before.len())
+        .map(|(position, _)| liveness(*position))
+        .collect();
+    let mut variants: Vec<Variant> = before
+        .iter()
+        .enumerate()
+        .map(|(k, pattern)| Variant {
+            keys: (0..before.len())
+                .map(|column| (column == k).then_some(LIVE))
+                .collect(),
+            pattern: pattern.clone(),
+        })
+        .collect();
+    variants.push(Variant {
+        keys: vec![None; before.len()],
+        pattern: last.clone(),
+    });
+    Ok(Body::Select {
+        selectors,
+        variants,
+    })
 }
 
-/// An entry's label as an MF2 pattern's text.
-fn pattern(entry: &Localized<'_>, claims: &[ClaimMeta<'_>]) -> Result<String, ConvertError> {
+/// An entry's label as a pattern.
+fn pattern(entry: &Localized<'_>, claims: &[ClaimMeta<'_>]) -> Result<Vec<Part>, ConvertError> {
     Ok(match entry.label {
-        LabelForm::Plain(text) => literal(text.as_str()),
+        LabelForm::Plain(text) => vec![Part::Text(text.as_str().to_owned())],
         LabelForm::Markdown(text) => markup(&spans(text.as_str())),
         LabelForm::Template(text) => template(text, claims)?.0,
         LabelForm::Own(_) => return Err(ConvertError::MixedOwn),
     })
 }
 
-/// Text as an MF2 quoted pattern's literal: MF2's escapes, and the resource's for a character a
-/// resource line does not hold.
-fn literal(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        match c {
-            '\\' | '{' | '}' => {
-                out.push('\\');
-                out.push(c);
-            }
-            ' ' | '\t' | '\u{21}'..='\u{7E}' | '\u{A0}'..='\u{2027}' | '\u{202A}'..='\u{FFFF}' => {
-                out.push(c);
-            }
-            c if u32::from(c) > 0xFFFF => out.push(c),
-            c => {
-                out.push_str(&format!("\\u{:04X}", u32::from(c)));
-            }
-        }
-    }
-    out
-}
-
-/// The styles of a span, outermost first, as MF2 markup names them.
-fn styles(style: Style) -> impl DoubleEndedIterator<Item = &'static str> {
+/// The styles of a span, outermost first.
+fn styles(style: Style) -> impl DoubleEndedIterator<Item = siros_i18n::Style> {
     [
-        (Style::STRONG, "strong"),
-        (Style::EM, "emphasis"),
-        (Style::UNDERLINE, "underline"),
+        (Style::STRONG, siros_i18n::Style::Strong),
+        (Style::EM, siros_i18n::Style::Emphasis),
+        (Style::UNDERLINE, siros_i18n::Style::Underline),
     ]
     .into_iter()
     .filter(move |(bit, _)| style.has(*bit))
-    .map(|(_, name)| name)
+    .map(|(_, style)| style)
 }
 
-/// Styled spans as MF2: each span's text inside markup that opens its styles and closes them.
-fn markup(spans: &[Span]) -> String {
-    let mut out = String::new();
+/// Styled spans as parts: each span's text inside markup that opens its styles and closes them.
+fn markup(spans: &[Span]) -> Vec<Part> {
+    let mut out = Vec::new();
     for span in spans {
-        for name in styles(span.style) {
-            out.push_str(&format!("{{#{name}}}"));
-        }
-        out.push_str(&literal(&span.text));
-        for name in styles(span.style).rev() {
-            out.push_str(&format!("{{/{name}}}"));
-        }
+        out.extend(styles(span.style).map(Part::Open));
+        out.push(Part::Text(span.text.clone()));
+        out.extend(styles(span.style).rev().map(Part::Close));
     }
     out
 }
 
 /// A `template:mini_markdown` label: its spans with each placeholder naming a claim as that
 /// claim's argument, other placeholders literal; and the arguments with their kinds.
-fn template(
-    text: &str,
-    claims: &[ClaimMeta<'_>],
-) -> Result<(String, Keyed<Cow<'static, str>, ParamKind>), ConvertError> {
+fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params), ConvertError> {
     if text.contains(SLOT) {
         return Err(ConvertError::Reserved);
     }
@@ -469,22 +358,20 @@ fn template(
     }
     marked.push_str(text.get(copied..).unwrap_or_default());
     let mut indices = named.iter().map(|(_, index)| *index);
-    let mut out = String::new();
+    let mut out = Vec::new();
     for span in spans(&marked) {
-        for name in styles(span.style) {
-            out.push_str(&format!("{{#{name}}}"));
-        }
+        out.extend(styles(span.style).map(Part::Open));
         for (k, part) in span.text.split(SLOT).enumerate() {
             if k > 0
                 && let Some(index) = indices.next()
             {
-                out.push_str(&format!("{{${}}}", argument(index)));
+                out.push(Part::Argument(argument(index)));
             }
-            out.push_str(&literal(part));
+            if !part.is_empty() {
+                out.push(Part::Text(part.to_owned()));
+            }
         }
-        for name in styles(span.style).rev() {
-            out.push_str(&format!("{{/{name}}}"));
-        }
+        out.extend(styles(span.style).rev().map(Part::Close));
     }
     let params = named.iter().map(|(_, index)| {
         let value_type = claims
