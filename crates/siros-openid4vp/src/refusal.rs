@@ -371,7 +371,7 @@ impl ReprList {
         )
     }
 
-    /// JSON values: strings, and others as Python writes the values `json` reads.
+    /// JSON values: strings as Python's `repr`, others as [`Node::python_text`] writes them.
     #[must_use]
     pub fn json(items: &[Node<'_>]) -> Self {
         Self(

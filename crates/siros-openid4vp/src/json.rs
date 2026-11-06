@@ -12,7 +12,7 @@ use siros_explain::Explain;
 
 mod python;
 
-use python::PythonDouble;
+use python::FiniteDouble;
 pub use python::{PythonJson, PythonRepr, quote};
 
 /// Why a text is no JSON with unique member names.
@@ -271,9 +271,7 @@ impl Number<'_> {
     /// The number Python's `repr` writes for a finite double; `None` for an infinite one or NaN.
     #[must_use]
     pub fn of_double(value: f64) -> Option<Number<'static>> {
-        value
-            .is_finite()
-            .then(|| Number(Cow::Owned(PythonDouble(value).to_string())))
+        FiniteDouble::of(value).map(|finite| Number(Cow::Owned(finite.to_string())))
     }
 
     /// Whether the number is an integer: written without a fraction or an exponent.

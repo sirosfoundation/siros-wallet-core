@@ -13,6 +13,8 @@ All notable changes to this workspace. The format follows
   type with `Display`.
 - `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
+- The JSON writer writes RFC 8259 text: a number goes out as received, so `1e400`
+  stays `1e400` in a response, a wallet metadata text and a metadata digest's input.
 - `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
   General Categories Cc, Cf, Zl, Zp, Co and Cn and text over `LABEL_MAX`,
   `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every

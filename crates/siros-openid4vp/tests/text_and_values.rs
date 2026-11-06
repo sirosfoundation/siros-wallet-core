@@ -67,7 +67,7 @@ fn hosts_without_an_a_label_form_are_unreachable() {
 /// A CPython 3.12 writer, applied to the value `json.loads` reads from a text.
 #[derive(Debug, Clone, Copy)]
 enum Writer {
-    /// `json.dumps(value, ensure_ascii=False)`.
+    /// `json.dumps(value, ensure_ascii=False)`, its numbers those Python writes back alike.
     Dumps,
     /// `json.dumps(value)`.
     Ascii,
@@ -140,33 +140,22 @@ fn a_named_value_keeps_its_numbers_as_written() {
 }
 
 #[test]
-fn json_values_are_written_as_pythons_json_dumps_writes_them() {
+fn json_strings_and_separators_are_written_as_python_writes_them() {
     use Writer::{Ascii, Compact, Dumps, Float, Repr};
     // An integer beyond the double range.
     let beyond = format!("1{}", "0".repeat(400));
-    let cases: [(Writer, &str, Option<&str>); 24] = [
+    let cases: [(Writer, &str, Option<&str>); 19] = [
         (
             Dumps,
-            r#"[1, 2.5, true, null, {"a": "é", "b": [1e20, 1E-5, 0.0001, 1e16, 1e15, -0.0, 100.0]}]"#,
-            Some(
-                r#"[1, 2.5, true, null, {"a": "é", "b": [1e+20, 1e-05, 0.0001, 1e+16, 1000000000000000.0, -0.0, 100.0]}]"#,
-            ),
+            r#"[1, 2.5, true, null, {"a": "é", "b": []}]"#,
+            Some(r#"[1, 2.5, true, null, {"a": "é", "b": []}]"#),
         ),
         (
             Dumps,
             r#""tab\tquote\"back\\slash\u0001""#,
             Some(r#""tab\tquote\"back\\slash\u0001""#),
         ),
-        (Dumps, "-0", Some("0")),
         (Dumps, r#""a b\u001f é""#, Some(r#""a b\u001f é""#)),
-        (Dumps, "1e400", Some("Infinity")),
-        (Dumps, "-1e400", Some("-Infinity")),
-        (
-            Dumps,
-            "123456789012345678901234567890",
-            Some("123456789012345678901234567890"),
-        ),
-        (Dumps, "1.5e300", Some("1.5e+300")),
         (Dumps, r#""\r\b\f""#, Some(r#""\r\b\f""#)),
         (
             Ascii,
@@ -175,8 +164,8 @@ fn json_values_are_written_as_pythons_json_dumps_writes_them() {
         ),
         (
             Compact,
-            r#"{"a": [1, 2.5, null, true, "é"], "b": {"c": 1e20}}"#,
-            Some(r#"{"a":[1,2.5,null,true,"é"],"b":{"c":1e+20}}"#),
+            r#"{"a": [1, 2.5, null, true, "é"], "b": {"c": 2}}"#,
+            Some(r#"{"a":[1,2.5,null,true,"é"],"b":{"c":2}}"#),
         ),
         (
             Repr,
@@ -231,6 +220,114 @@ fn json_values_are_written_as_pythons_json_dumps_writes_them() {
             .collect::<Vec<_>>(),
         ["b", "a"]
     );
+}
+
+/// RFC 8259 §6: `number = [ minus ] int [ frac ] [ exp ]`.
+fn is_rfc8259_number(token: &str) -> bool {
+    fn digits(text: &str) -> &str {
+        text.trim_start_matches(|c: char| c.is_ascii_digit())
+    }
+    fn digits1(text: &str) -> Option<&str> {
+        let rest = digits(text);
+        (rest.len() < text.len()).then_some(rest)
+    }
+    let unsigned = token.strip_prefix('-').unwrap_or(token);
+    let Some(rest) = unsigned.strip_prefix('0').or_else(|| {
+        unsigned
+            .starts_with(|c: char| ('1'..='9').contains(&c))
+            .then(|| digits(unsigned))
+    }) else {
+        return false;
+    };
+    let rest = match rest.strip_prefix('.') {
+        Some(fraction) => match digits1(fraction) {
+            Some(rest) => rest,
+            None => return false,
+        },
+        None => rest,
+    };
+    match rest.strip_prefix(['e', 'E']) {
+        Some(exponent) => {
+            let exponent = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+            digits1(exponent) == Some("")
+        }
+        None => rest.is_empty(),
+    }
+}
+
+/// What a JSON text holds outside its strings, between its structural characters and white space
+/// (RFC 8259 §2).
+fn bare_tokens(json: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut start = None;
+    for (at, c) in json.char_indices() {
+        if in_string {
+            match (escaped, c) {
+                (true, _) => escaped = false,
+                (false, '\\') => escaped = true,
+                (false, '"') => in_string = false,
+                _ => {}
+            }
+        } else if matches!(
+            c,
+            '[' | ']' | '{' | '}' | ':' | ',' | '"' | ' ' | '\t' | '\n' | '\r'
+        ) {
+            if let Some(from) = start.take() {
+                tokens.push(&json[from..at]);
+            }
+            in_string = c == '"';
+        } else if start.is_none() {
+            start = Some(at);
+        }
+    }
+    tokens.extend(start.map(|from| &json[from..]));
+    tokens
+}
+
+/// RFC 8259 §6's corners: every writer's output is JSON by the grammar, and each number is the
+/// token received. `Infinity`, `NaN`, `None` and `inf` are no JSON tokens.
+#[test]
+fn every_writer_writes_rfc_8259_json_with_each_number_as_received() {
+    use siros_openid4vp::json::Node;
+    use siros_openid4vp::plugins::JsonText;
+    for text in [
+        "1e400",
+        "-1e400",
+        "1E+400",
+        "1e-400",
+        "9007199254740993",
+        "-123456789012345678901234567890",
+        "0",
+        "-0",
+        "1.0",
+        "1.50",
+        "1e20",
+        "-0.0",
+        "[1e400, [-1E+400, 1e-400], {\"a\": [9007199254740993, 0, -0]}]",
+        "{\"n\": 1.50, \"é\\\"[1e400\": {\"m\": [1.0, -1e400], \"t\": [true, false, null]}}",
+    ] {
+        let node = Node::parse(text).expect("the corner is JSON");
+        let received = bare_tokens(text);
+        for (writer, written) in [
+            ("spaced", node.python_text().to_string()),
+            ("compact", node.python_compact().to_string()),
+            ("ascii", node.python_ascii().to_string()),
+            ("JsonText", JsonText::from(&node).as_str().to_owned()),
+        ] {
+            serde_json::from_str::<&serde_json::value::RawValue>(&written)
+                .unwrap_or_else(|e| panic!("{writer} {text} wrote {written}: {e}"));
+            let tokens = bare_tokens(&written);
+            assert_eq!(tokens, received, "{writer} {text} wrote {written}");
+            for token in tokens {
+                assert!(
+                    is_rfc8259_number(token) || matches!(token, "true" | "false" | "null"),
+                    "{writer} {text} wrote the token {token}"
+                );
+            }
+        }
+    }
 }
 
 /// The display text rule: the characters Unicode's General Category table places in Cc, Cf, Zl,
