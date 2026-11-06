@@ -256,7 +256,7 @@ impl FormatQuery for TestQuery<'_> {
             .iter()
             .map(|alg| {
                 alg.as_str()
-                    .map_or_else(|| alg.python_text().to_string(), |a| Quoted(a).to_string())
+                    .map_or_else(|| alg.json_spaced().to_string(), |a| Quoted(a).to_string())
             })
             .collect();
         Err(Exclude::new(Excluded::Algs {

@@ -6,8 +6,9 @@
 //! Object and the credential metadata JWT, whose text alone the wallet reads, carry an HMAC under
 //! the secret in place of a signature.
 //!
-//! Objects are given as JSON text and written as Python's `json.dumps(value,
-//! ensure_ascii=False)` writes them, so their bytes equal the reference model's.
+//! Objects are given as JSON text and written by [`Node::json_spaced`]: a text
+//! `json.dumps(value, ensure_ascii=False)` wrote keeps its bytes, which equal the reference
+//! model's.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -59,14 +60,14 @@ pub enum EncodeError {
     Sign(#[from] siros_openid4vp::plugins::Fault),
 }
 
-/// A JSON text written as Python's `json.dumps(value, ensure_ascii=False)` writes it.
-pub fn python_json(json: &str) -> Result<String, JsonError> {
-    Ok(Node::parse(json)?.python_text().to_string())
+/// A JSON text as [`Node::json_spaced`] writes it.
+pub fn spaced_json(json: &str) -> Result<String, JsonError> {
+    Ok(Node::parse(json)?.json_spaced().to_string())
 }
 
 /// base64url without padding over the UTF-8 JSON, as a Verifier writes an entry.
 pub fn encode(json: &str) -> Result<String, JsonError> {
-    Ok(URL_SAFE_NO_PAD.encode(python_json(json)?))
+    Ok(URL_SAFE_NO_PAD.encode(spaced_json(json)?))
 }
 
 /// The stand-in signature: base64url without padding of HMAC-SHA-256 under the secret.
@@ -114,7 +115,7 @@ pub fn adhoc_jwt(
     Ok(crate::jose::compact_jws(
         key,
         &header,
-        &python_json(payload)?,
+        &spaced_json(payload)?,
     )?)
 }
 
@@ -144,11 +145,11 @@ pub fn paso_document(
         .and_then(|keys| keys.get(kid))
         .and_then(Node::as_str)
         .unwrap_or("x5c-secret");
-    let mut metadata = format!("\"transaction_data_types\": {}", python_json(types)?);
+    let mut metadata = format!("\"transaction_data_types\": {}", spaced_json(types)?);
     if let Some(keys) = keys {
         metadata.push_str(&format!(
             ", \"risk_signals_encryption_keys\": {}",
-            python_json(keys)?
+            spaced_json(keys)?
         ));
     }
     let header = format!(
@@ -164,13 +165,13 @@ pub fn paso_document(
     );
     let jwt = jws(&header, &payload, secret)?;
     let published = match key_set {
-        None => python_json(issuer)?,
+        None => spaced_json(issuer)?,
         Some(keys) => {
             let mut jwks = Vec::new();
             for member in keys.members() {
                 let secret = member.value.as_str().ok_or(EncodeError::Issuer)?;
                 let jwk = crate::jose::key_jwk(&secret_key(secret))?;
-                jwks.push(format!("{}: {}", quote(&member.name), jwk.python_text()));
+                jwks.push(format!("{}: {}", quote(&member.name), jwk.json_spaced()));
             }
             let mut written = String::from("{");
             for member in issuer_node
@@ -186,7 +187,7 @@ pub fn paso_document(
                 if member.name == "keys" {
                     written.push_str(&format!("{{{}}}", jwks.join(", ")));
                 } else {
-                    written.push_str(&member.value.python_text().to_string());
+                    written.push_str(&member.value.json_spaced().to_string());
                 }
             }
             written.push('}');

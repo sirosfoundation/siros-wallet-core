@@ -192,7 +192,7 @@ pub(super) fn opened(value: MemberValue, mdoc: bool) -> Value {
             let item = decode(structure.as_bytes()).expect("a data item");
             let shape = model_value(&item).expect("the COSE_Encrypt stand-in");
             let sealed: Value =
-                serde_json::from_str(&shape.python_compact().to_string()).expect("JSON");
+                serde_json::from_str(&shape.json_compact().to_string()).expect("JSON");
             let hex = sealed["COSE_Encrypt"]["ciphertext"]["bstr"]
                 .as_str()
                 .expect("hex");

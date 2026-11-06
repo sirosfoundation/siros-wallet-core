@@ -155,7 +155,7 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env, host: &
         metadata.extend(
             document
                 .types()
-                .map(|(kind, meta)| (kind.to_string(), meta.python_compact().to_string())),
+                .map(|(kind, meta)| (kind.to_string(), meta.json_compact().to_string())),
         );
     }
     let modules = own_modules();

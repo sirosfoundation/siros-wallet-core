@@ -376,7 +376,7 @@ impl WalletMetadata {
         }
         let object = Node::object(members).map_err(fault)?;
         Ok(Self {
-            json: object.python_compact().to_string(),
+            json: object.json_compact().to_string(),
             parameters,
         })
     }

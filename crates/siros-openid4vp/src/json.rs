@@ -11,9 +11,11 @@ use serde_json::value::RawValue;
 use siros_explain::Explain;
 
 mod python;
+mod write;
 
 use python::FiniteDouble;
-pub use python::{PythonJson, PythonRepr, quote};
+pub use python::PythonRepr;
+pub use write::{WrittenJson, quote};
 
 /// Why a text is no JSON with unique member names.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]

@@ -82,7 +82,7 @@ fn member(json: &str, name: &str) -> String {
         .expect("JSON")
         .get(name)
         .expect("the member")
-        .python_text()
+        .json_spaced()
         .to_string()
 }
 
@@ -233,7 +233,7 @@ fn read_mdoc(presentation: &Value) -> Value {
     let text = presentation.to_string();
     let written = Node::parse(&text).expect("JSON");
     let read = model_shape(&written, None).expect("a DeviceResponse");
-    serde_json::from_str(&read.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&read.json_compact().to_string()).expect("JSON")
 }
 
 /// An SD-JWT presentation as a Verifier reads it: `{"sd_jwt", "kb_jwt"}`.
@@ -241,7 +241,7 @@ fn read_sd_jwt(presentation: &Value) -> Value {
     let text = presentation.as_str().expect("a string (OpenID4VP §8.1)");
     let read = sd_jwt_reading::read(text).expect("an SD-JWT a Verifier takes");
     let shape = read.shape().expect("the shape");
-    serde_json::from_str(&shape.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&shape.json_compact().to_string()).expect("JSON")
 }
 
 fn b64url(data: &[u8]) -> String {
@@ -338,7 +338,7 @@ fn english_text(text: &Text) -> String {
     let english = english();
     let app = paso_app(
         PAY,
-        &given.python_compact().to_string(),
+        &given.json_compact().to_string(),
         english.priority(),
         &english.priority()[0],
     );

@@ -22,7 +22,7 @@ pub(super) fn read_mdoc(presentation: &Value) -> Value {
     let text = presentation.to_string();
     let written = Node::parse(&text).expect("JSON");
     let read = model_shape(&written, None).expect("R-mdoc: a DeviceResponse");
-    serde_json::from_str(&read.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&read.json_compact().to_string()).expect("JSON")
 }
 
 /// An SD-JWT presentation as a Verifier reads it: `{"sd_jwt", "kb_jwt"}`.
@@ -30,7 +30,7 @@ pub(super) fn read_sd_jwt(presentation: &Value) -> Value {
     let text = presentation.as_str().expect("R-SD-JWT: a string");
     let read = siros_testkit::sd_jwt_reading::read(text).expect("R-SD-JWT: a Verifier takes it");
     let shape = read.shape().expect("the shape");
-    serde_json::from_str(&shape.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&shape.json_compact().to_string()).expect("JSON")
 }
 
 pub(super) fn mode(case: &Case<'_>) -> String {

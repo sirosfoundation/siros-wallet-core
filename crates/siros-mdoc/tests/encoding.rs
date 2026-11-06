@@ -466,8 +466,8 @@ fn the_reading_equals_the_frozen_models_presentations() {
         let ordered = Node::parse(line).unwrap();
         let model = covered(ordered.get("presentation").unwrap()).unwrap();
         assert_eq!(
-            read.python_compact().to_string(),
-            model.python_compact().to_string(),
+            read.json_compact().to_string(),
+            model.json_compact().to_string(),
             "{name}"
         );
         equal += 1;

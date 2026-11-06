@@ -52,7 +52,7 @@ fn given_text(entry: &Value, document: &str) -> Option<String> {
         None => node.get("metadata"),
         Some(kind) => node.get("transaction_data_types")?.get(kind),
     };
-    given.map(|given| given.python_compact().to_string())
+    given.map(|given| given.json_compact().to_string())
 }
 
 /// A label's text as written: a mini_markdown label's spans without their styles.

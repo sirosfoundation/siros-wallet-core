@@ -1,6 +1,6 @@
 //! The text rules against their standards' own data: RFC 4647 §3.3.1's basic filtering and the
 //! owner's rule over a priority list, the wallet's configuration, UTS #46's hosts without an
-//! A-label form, and the JSON texts CPython writes.
+//! A-label form, the JSON strings and `repr`s CPython writes, and RFC 8259 §6's numbers.
 
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, Shown};
@@ -84,8 +84,8 @@ impl Writer {
         use siros_openid4vp::json::{Node, Number};
         let node = Node::parse(text).expect("json");
         match self {
-            Self::Dumps => Some(node.python_text().to_string()),
-            Self::Ascii => Some(node.python_ascii().to_string()),
+            Self::Dumps => Some(node.json_spaced().to_string()),
+            Self::Ascii => Some(node.json_ascii().to_string()),
             Self::Compact => Some(
                 siros_openid4vp::plugins::JsonText::parse(text)
                     .expect("json")
@@ -311,9 +311,9 @@ fn every_writer_writes_rfc_8259_json_with_each_number_as_received() {
         let node = Node::parse(text).expect("the corner is JSON");
         let received = bare_tokens(text);
         for (writer, written) in [
-            ("spaced", node.python_text().to_string()),
-            ("compact", node.python_compact().to_string()),
-            ("ascii", node.python_ascii().to_string()),
+            ("spaced", node.json_spaced().to_string()),
+            ("compact", node.json_compact().to_string()),
+            ("ascii", node.json_ascii().to_string()),
             ("JsonText", JsonText::from(&node).as_str().to_owned()),
         ] {
             serde_json::from_str::<&serde_json::value::RawValue>(&written)

@@ -241,7 +241,7 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
     let typed = siros_testkit::jose::compact_jws(
         &secret_key("issuer-secret-1"),
         r#"{"alg": "ES256", "typ": "JWT", "kid": "issuer-key-1"}"#,
-        &siros_testkit::verifier::python_json(&claims).expect("claims"),
+        &siros_testkit::verifier::spaced_json(&claims).expect("claims"),
     )
     .expect("a JWT typed JWT");
     let keys = ISSUER.to_owned();

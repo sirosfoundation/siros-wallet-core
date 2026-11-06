@@ -90,7 +90,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
         .as_array()
         .expect("an array")
         .iter()
-        .map(|e| e.python_text().to_string())
+        .map(|e| e.json_spaced().to_string())
         .collect();
     let parameters = parameters(
         &dcql,
@@ -138,7 +138,7 @@ pub(super) fn core_a5_and_a7_bind_the_entries_their_text_states() {
         .as_array()
         .expect("an array")
         .iter()
-        .map(|e| e.python_text().to_string())
+        .map(|e| e.json_spaced().to_string())
         .collect();
     let kinds: Vec<String> = a7
         .as_array()
