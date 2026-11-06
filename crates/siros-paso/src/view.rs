@@ -29,6 +29,7 @@ use siros_i18n::{
 use siros_openid4vp::json::Node;
 
 use crate::adhoc::Carried;
+use crate::conform::ClaimIndex;
 use crate::locale::{ArrayKey, chain, lookup, selectable};
 use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
@@ -65,7 +66,7 @@ pub(crate) fn key(array: ArrayKey) -> DefinedKey {
 }
 
 /// The name of the argument a template's `{n}` gives claim n's value under.
-pub(crate) fn argument(claim: usize) -> Cow<'static, str> {
+pub(crate) fn argument(claim: ClaimIndex) -> Cow<'static, str> {
     Cow::Owned(format!("c{claim}"))
 }
 
@@ -357,11 +358,11 @@ fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params),
     if text.contains(SLOT) {
         return Err(ConvertError::Reserved);
     }
-    let named: Vec<(Placeholder, usize)> = placeholders(text)
+    let named: Vec<(Placeholder, ClaimIndex)> = placeholders(text)
         .into_iter()
         .filter_map(|placeholder| {
             let index = placeholder.index.filter(|index| *index < claims.len())?;
-            Some((placeholder, index))
+            Some((placeholder, ClaimIndex(index)))
         })
         .collect();
     let mut marked = String::with_capacity(text.len());
@@ -390,7 +391,7 @@ fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<(Vec<Part>, Params),
     }
     let params = named.iter().map(|(_, index)| {
         let value_type = claims
-            .get(*index)
+            .get(index.get())
             .and_then(|claim| claim.display.as_ref())
             .map_or(ValueType::Plain, |display| display.value);
         Entry::new(

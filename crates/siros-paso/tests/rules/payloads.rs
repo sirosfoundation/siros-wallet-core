@@ -129,7 +129,8 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "i": "x", "n": "a"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder: 1, .. })
+        Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder, .. })
+            if placeholder.get() == 1
     );
     decided!(
         render(
@@ -139,7 +140,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "n": "a", "k": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ReferenceNotString(2))
+        Outcome::NotCompatible(NotCompatible::ReferenceNotString(claim)) if claim.get() == 2
     );
     let items = r#"{"transaction_id": "t", "items": [{"name": "A", "qty": "1"}], "sum": "3"}"#;
     decided!(
@@ -151,7 +152,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             items
         ),
-        Outcome::NotCompatible(NotCompatible::MoreNulls(1))
+        Outcome::NotCompatible(NotCompatible::MoreNulls(claim)) if claim.get() == 1
     );
     // No entry survives in any locale: not compatible (View §3 template), not excluded.
     decided!(

@@ -8,6 +8,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::refusal::QuotedList;
 
 use crate::adhoc::AdhocFailure;
+use crate::conform::ClaimIndex;
 use crate::image::ImageFailure;
 use crate::labels::{Directional, LabelViolation};
 use crate::metadata::{ArrayAt, UiKey};
@@ -64,7 +65,7 @@ pub enum Unsupported {
     TooManyClaims(#[explain(name = "claims")] usize),
     /// A claim that is no object with a claims path pointer.
     #[error("claim {0}: no valid path")]
-    InvalidPath(#[explain(name = "claim")] usize),
+    InvalidPath(#[explain(name = "claim")] ClaimIndex),
     /// Two claims with one path.
     #[error("two claims with path {0}")]
     PathTwice(#[explain(name = "path")] String),
@@ -215,19 +216,19 @@ pub enum NotCompatible {
     /// A placeholder naming an `image`, `label_only` or template claim (View §3 template).
     #[error("placeholder {{{placeholder}}} references a {value_type} claim")]
     ForbiddenReference {
-        /// The claim index the placeholder names.
-        placeholder: usize,
+        /// The claim the placeholder names.
+        placeholder: ClaimIndex,
         /// The referenced claim's value type.
         value_type: String,
     },
     /// A placeholder naming a claim with more `null`s than the referencing claim (View §3
     /// template).
     #[error("placeholder {{{0}}} has more nulls than its referencing claim")]
-    MoreNulls(#[explain(name = "placeholder")] usize),
+    MoreNulls(#[explain(name = "placeholder")] ClaimIndex),
     /// A placeholder naming a claim without `value_type` whose value is no string (View §3
     /// template).
     #[error("placeholder {{{0}}}: a value without value_type is not a string")]
-    ReferenceNotString(#[explain(name = "placeholder")] usize),
+    ReferenceNotString(#[explain(name = "placeholder")] ClaimIndex),
     /// Every locale lost an entry to a template's absent claim (View §3 template).
     #[error("every locale lost an entry to a template's absent claim")]
     TemplatesExhausted,

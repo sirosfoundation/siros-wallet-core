@@ -17,7 +17,7 @@ use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
 
 use crate::PasoRequested;
 
-use crate::conform::{ClaimIndex, Instance, Placement, conform, instances, written};
+use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
 use crate::labels::{LabelSlot, LabelText};
@@ -103,20 +103,32 @@ pub struct Actions {
 /// `amount`, both with a text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaymentRows {
-    merchant: usize,
-    amount: usize,
+    merchant: RowPosition,
+    amount: RowPosition,
+}
+
+/// A row's position among a rendering's rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowPosition(usize);
+
+impl RowPosition {
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
 }
 
 impl PaymentRows {
     /// The merchant's row's position among the rows.
     #[must_use]
-    pub const fn merchant(self) -> usize {
+    pub const fn merchant(self) -> RowPosition {
         self.merchant
     }
 
     /// The amount's row's position among the rows.
     #[must_use]
-    pub const fn amount(self) -> usize {
+    pub const fn amount(self) -> RowPosition {
         self.amount
     }
 }
@@ -140,9 +152,9 @@ pub struct TransactionView {
 
 impl TransactionView {
     /// The text of the row at a position.
-    fn text(&self, position: usize) -> Option<&RequestText> {
+    fn text(&self, position: RowPosition) -> Option<&RequestText> {
         self.rows
-            .get(position)
+            .get(position.get())
             .and_then(|row| row.row.value.as_ref())
             .and_then(Value::text)
     }
@@ -221,8 +233,14 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                 slot: key.slot(),
                 at: RenderedAt::Ui(key),
             };
-            self.label(module, &metadata, &discarded, &[], placed)
-                .map(Some)
+            self.label(
+                module,
+                &metadata,
+                &discarded,
+                &NullIndices::default(),
+                placed,
+            )
+            .map(Some)
         };
         let header = |key: UiKey, own: Text| -> Result<Text, NotCompatible> {
             Ok(ui(key)?.map_or(own, RequestText::into_text))
@@ -357,7 +375,11 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         for label in &metadata.ui {
             for (position, entry) in label.entries.entries().iter().enumerate() {
                 if let LabelForm::Template(text) = entry.label
-                    && !Template(text).complete(&metadata.claims, payload, &[])?
+                    && !Template(text).complete(
+                        &metadata.claims,
+                        payload,
+                        &NullIndices::default(),
+                    )?
                 {
                     discarded.discard(ArrayKey::Ui(label.key), position);
                 }
@@ -374,7 +396,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
         module: DefinedModule,
         metadata: &Metadata<'_>,
         discarded: &Discarded,
-        nulls: &[usize],
+        nulls: &NullIndices,
         placed: Placed<'_, '_>,
     ) -> Result<RequestText, NotCompatible> {
         let claims = &metadata.claims;
@@ -584,5 +606,8 @@ fn payment_rows(rows: &[ViewRow]) -> Option<PaymentRows> {
     };
     let merchant = at_path(&["payee", "name"])?;
     let amount = at_path(&["amount"])?;
-    (texted(merchant) && texted(amount)).then_some(PaymentRows { merchant, amount })
+    (texted(merchant) && texted(amount)).then_some(PaymentRows {
+        merchant: RowPosition(merchant),
+        amount: RowPosition(amount),
+    })
 }

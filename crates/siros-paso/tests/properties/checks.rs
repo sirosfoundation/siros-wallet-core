@@ -282,7 +282,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
             let rest: Vec<Row<RequestText>> = rows
                 .iter()
                 .enumerate()
-                .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
+                .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
                 .map(|(_, row)| row.clone())
                 .collect();
             assert_eq!(rest.len() + 2, rows.len(), "P-proxy rows");
@@ -294,7 +294,10 @@ pub fn case(case: &Case, tally: &mut Tally) {
             );
             assert_eq!(
                 header.rows,
-                [rows[heads.merchant()].clone(), rows[heads.amount()].clone()],
+                [
+                    rows[heads.merchant().get()].clone(),
+                    rows[heads.amount().get()].clone()
+                ],
                 "P-payment header rows"
             );
             tally.add("payment boxes");

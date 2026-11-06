@@ -347,7 +347,7 @@ fn a_payment_header_shows_the_payee_and_the_amount_wherever_the_claims_put_them(
             .collect()
     };
     assert_eq!(
-        (path(heads.merchant()), path(heads.amount())),
+        (path(heads.merchant().get()), path(heads.amount().get())),
         (
             vec!["payee".to_owned(), "name".to_owned()],
             vec!["amount".to_owned()]

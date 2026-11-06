@@ -113,7 +113,7 @@ use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
-use crate::render::{ItemBound, TransactionView};
+use crate::render::{ItemBound, RowPosition, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
 use crate::rulebook::{Family, PASO};
 use crate::rules::BindExcluded;
@@ -524,7 +524,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
     }
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {
-            let at = |position: usize| rows.get(position).map(|row| row.row.clone());
+            let at = |position: RowPosition| rows.get(position.get()).map(|row| row.row.clone());
             let header_rows = [at(heads.merchant()), at(heads.amount())]
                 .into_iter()
                 .collect::<Option<Vec<_>>>()
@@ -533,7 +533,7 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
                 rows: rows
                     .into_iter()
                     .enumerate()
-                    .filter(|(k, _)| *k != heads.merchant() && *k != heads.amount())
+                    .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
                     .map(|(_, row)| row.row)
                     .collect(),
                 header: Some(TransactionHeader {

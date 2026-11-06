@@ -53,10 +53,10 @@ fn shown(name: &str) -> String {
 
 /// Asserts the rule.
 macro_rules! decided {
-    ($rendered:expr, $pattern:pat) => {{
+    ($rendered:expr, $pattern:pat $(if $guard:expr)?) => {{
         let rendered = $rendered;
         assert!(
-            matches!(&rendered, Err($pattern)),
+            matches!(&rendered, Err($pattern) $(if $guard)?),
             "expected {}, got {rendered:?}",
             stringify!($pattern)
         );
@@ -89,7 +89,7 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
     assert!(render(&claims(&[n(""), many[..98].join(", ")].join(", ")), payload).is_ok());
     decided!(
         render(&claims(r#"{"path": []}"#), payload),
-        Outcome::Unsupported(Unsupported::InvalidPath(1))
+        Outcome::Unsupported(Unsupported::InvalidPath(claim)) if claim.get() == 1
     );
     decided!(
         render(&claims(&format!("{}, {}", n(""), n(""))), payload),
