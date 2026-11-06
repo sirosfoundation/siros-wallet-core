@@ -47,8 +47,9 @@ pub enum PayloadRefusal {
         /// What TS12 lists.
         kind: &'static str,
     },
-    /// A string outside the length TS12's schema gives its member.
-    #[error("{path} holds no 1 to {max} characters")]
+    /// A string outside the lengths TS12's schema gives its member: at most `max` characters, and
+    /// at least one for `transaction_id`.
+    #[error("{path} is outside its length, at most {max} characters")]
     Length {
         /// The member.
         path: String,
@@ -427,15 +428,28 @@ impl<'n> Closed<'n> {
         self.text_of(name, self.required(name)?)
     }
 
+    /// The text within the schema's `maxLength`, counted in characters (JSON Schema §6.3.1).
     fn bounded(&self, name: &str, text: &str, max: usize) -> Result<String, PayloadRefusal> {
-        let characters = text.chars().count();
-        if characters == 0 || characters > max {
+        if text.chars().count() > max {
             return Err(PayloadRefusal::Length {
                 path: self.path(name),
                 max,
             });
         }
         Ok(text.to_owned())
+    }
+
+    /// `transaction_id`: one to [`TRANSACTION_ID_MAX`] characters (the schemas' `minLength` and
+    /// `maxLength`).
+    fn transaction_id(&self) -> Result<String, PayloadRefusal> {
+        let id = self.required_text("transaction_id")?;
+        if id.is_empty() {
+            return Err(PayloadRefusal::Length {
+                path: self.path("transaction_id"),
+                max: TRANSACTION_ID_MAX,
+            });
+        }
+        self.bounded("transaction_id", id, TRANSACTION_ID_MAX)
     }
 
     fn boolean(&self, name: &str) -> Result<Option<bool>, PayloadRefusal> {
@@ -554,10 +568,9 @@ impl LoginRisk {
             "",
             &["transaction_id", "date_time", "service", "action"],
         )?;
-        let id = at.required_text("transaction_id")?;
         let action = at.required_text("action")?;
         Ok(Self {
-            transaction_id: at.bounded("transaction_id", id, TRANSACTION_ID_MAX)?,
+            transaction_id: at.transaction_id()?,
             date_time: at.date_time("date_time")?,
             service: at
                 .text("service")?
@@ -596,7 +609,6 @@ impl Payment {
                 "recurrence",
             ],
         )?;
-        let id = at.required_text("transaction_id")?;
         let currency = currency(at.required_text("currency")?)?;
         let amount = at
             .amount("amount", &currency)?
@@ -612,7 +624,7 @@ impl Payment {
             (None, None) => Execution::Unstated,
         };
         Ok(Self {
-            transaction_id: at.bounded("transaction_id", id, TRANSACTION_ID_MAX)?,
+            transaction_id: at.transaction_id()?,
             date_time: at.date_time("date_time")?,
             payee: Payee::parse(at.required("payee")?)?,
             pisp: at.get("pisp").map(Pisp::parse).transpose()?,

@@ -74,12 +74,14 @@ where
     /// The profile knowing the failed logo as a failed fetch: phase 1 then excludes the
     /// credential.
     fn informed(&self, findings: &[&Ts12Finding]) -> Self {
-        findings.iter().fold(self.clone(), |informed, finding| {
-            informed.with_resource(
-                &finding.failed.url,
+        let mut informed = self.clone();
+        informed.resources.extend(findings.iter().map(|finding| {
+            (
+                finding.failed.url.clone(),
                 siros_paso::Fetch::Failed(finding.failed.failure.to_string()),
             )
-        })
+        }));
+        informed
     }
 
     /// `amr` always holds two categories.

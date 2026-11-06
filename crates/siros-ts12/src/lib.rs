@@ -75,7 +75,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Entry, EntryIndex, Request};
-use siros_openid4vp::rows::Env;
+use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::entry::Payload;
@@ -169,7 +169,7 @@ impl AttestationType {
 pub struct Ts12Profile {
     attestation_types: AllOf<AttestationType>,
     bound: ItemBound,
-    resources: Vec<(String, Fetch)>,
+    pub(crate) resources: Vec<(String, Fetch)>,
 }
 
 /// What phase 2 finds: a displayed https logo whose fetch or verification failed.
@@ -209,8 +209,8 @@ impl Ts12Profile {
 
     /// The profile knowing what the wallet fetched for an https logo.
     #[must_use]
-    pub fn with_resource(mut self, url: &str, fetch: Fetch) -> Self {
-        self.resources.push((url.to_owned(), fetch));
+    pub fn with_resource(mut self, url: &HttpsUrl, fetch: Fetch) -> Self {
+        self.resources.push((url.written().to_owned(), fetch));
         self
     }
 
