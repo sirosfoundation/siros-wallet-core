@@ -70,28 +70,29 @@ impl DeviceKey {
         }
     }
 
+    fn table_curve(&self) -> Curve {
+        match self.point {
+            DevicePoint::P256(_) => Curve::P256,
+            DevicePoint::Other(curve) => curve,
+        }
+    }
+
     /// The curve's name in Table 22.
     #[must_use]
     pub fn curve(&self) -> &'static str {
-        match self.point {
-            DevicePoint::P256(_) => Curve::P256.name(),
-            DevicePoint::Other(curve) => curve.name(),
-        }
+        self.table_curve().name()
     }
 
     /// `alg` (label 3), else the algorithm RFC 9053 Sections 2.1 and 2.2 and Table 22 give the
     /// curve; for a key-agreement curve ECDH-ES with HKDF-256 (RFC 9053, Section 6.3.1).
     #[must_use]
     pub fn algorithm(&self) -> CoseAlgorithm {
-        let of_curve = match self.point {
-            DevicePoint::P256(_) => -7,
-            DevicePoint::Other(curve) => match curve {
-                Curve::P256 | Curve::BrainpoolP256r1 => -7,
-                Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => -35,
-                Curve::P521 | Curve::BrainpoolP512r1 => -36,
-                Curve::Ed25519 | Curve::Ed448 => -8,
-                Curve::X25519 | Curve::X448 => -25,
-            },
+        let of_curve = match self.table_curve() {
+            Curve::P256 | Curve::BrainpoolP256r1 => -7,
+            Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => -35,
+            Curve::P521 | Curve::BrainpoolP512r1 => -36,
+            Curve::Ed25519 | Curve::Ed448 => -8,
+            Curve::X25519 | Curve::X448 => -25,
         };
         self.alg.unwrap_or(CoseAlgorithm::new(of_curve))
     }
