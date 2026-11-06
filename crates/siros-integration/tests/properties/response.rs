@@ -295,7 +295,12 @@ fn found(finding: &ProfileFinding) -> Found {
             lacks: paso.lacks(),
             refused: paso
                 .refused()
-                .map(|refused| (refused.jwt.as_str().to_owned(), refused.failure.id().as_str()))
+                .map(|refused| {
+                    (
+                        refused.jwt.as_str().to_owned(),
+                        refused.failure.id().as_str(),
+                    )
+                })
                 .into_iter()
                 .collect(),
             failed: paso
