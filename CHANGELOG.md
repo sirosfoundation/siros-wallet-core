@@ -3,6 +3,32 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.1.1] — 2026-11-06
+
+Re-cut of 0.1.0 (whose release run failed at the Android packaging job -
+the action's v4 line, fixed here) with the complete artifact set: the
+AAR, the XCFramework, the bindings, and the engine server's container
+image (ghcr.io/sirosfoundation/engine-server, this release's new
+publish).
+
+### Added (since 0.1.0)
+
+- The engine server's container image: built by the release workflow
+  on tags (ghcr, the version tag + latest) and verified on every push
+  by CI - a static musl binary on distroless, built with the pinned
+  toolchain (rust-toolchain.toml, the single source of truth).
+- The engine server's environment configuration
+  (`Config::from_env`): the `ENGINE_*` variables over the defaults -
+  the container platform's deployment shape (the compose file, the
+  chart), beside the `ENGINE_CONFIG`-named JSON file. Includes the AS
+  trust knobs the dev stacks need: `ENGINE_AS_JWKS_URL` (the Go
+  backend's own AS publishes under `/auth/.well-known/`),
+  `ENGINE_AS_ISSUER` (its configured issuer) and
+  `ENGINE_AS_AUDIENCES` (set-but-empty accepts every audience).
+- CI: the AAR/XCFramework recipes verified on every push (was:
+  release-time only), the engine image build with its health probe
+  asserted.
+
 ## [0.1.0] — 2026-11-05
 
 The first release: the wallet core (presentation side, imported
