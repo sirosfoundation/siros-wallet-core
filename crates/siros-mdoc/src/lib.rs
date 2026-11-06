@@ -45,6 +45,8 @@ pub mod issuer_signed;
 #[cfg(feature = "resolve")]
 mod presentation;
 #[cfg(feature = "resolve")]
+pub mod registration;
+#[cfg(feature = "resolve")]
 pub mod stored;
 #[cfg(feature = "resolve")]
 mod transcript;
@@ -100,6 +102,7 @@ fn phase_two() -> Vec<Message> {
         device_authentication::ValueError::messages(),
         presentation::DeviceAuthRefused::messages(),
         transcript::TranscriptError::messages(),
+        registration::RegistrationError::messages(),
     ]
     .concat()
 }

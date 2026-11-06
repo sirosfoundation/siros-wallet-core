@@ -2,8 +2,11 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_mdoc::registration::{Registered, Resolved};
 use siros_mdoc::stored::StoredMdoc;
 use siros_openid4vp::cbor::Value;
+use siros_openid4vp::host::Timestamp;
+use siros_openid4vp::json::Node;
 
 const DEVICE_RESPONSE: &str = include_str!("vectors/annex_d_device_response.hex");
 const NAME_SPACE: &str = "org.iso.18013.5.1";
@@ -33,4 +36,39 @@ fn annex_d_known_answers() {
         .find(|item| item.identifier() == "family_name")
         .unwrap();
     assert_eq!(family_name.value(), &Value::Text("Doe".to_owned()));
+    // D.4.1.2's validityInfo: 2020-10-01T13:30:02Z, valid until 2021-10-01T13:30:02Z.
+    let validity = mdoc.mso().validity();
+    assert_eq!(validity.valid_from(), Timestamp(1_601_559_002));
+    assert_eq!(validity.valid_until(), Timestamp(1_633_095_002));
+
+    // The registration's view: the Annex's type, values, signer, key and validity.
+    let registered = Registered::of(&data, &Resolved::default()).unwrap();
+    assert_eq!(registered.document(), mdoc.issuer_signed());
+    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let text = |name: &str| view.get(name).and_then(Node::as_str);
+    let number = |name: &str| view.get(name).map(|n| n.python_compact().to_string());
+    assert_eq!(text("type"), Some("org.iso.18013.5.1.mDL"));
+    let values = view.get("values").unwrap().get(NAME_SPACE).unwrap();
+    assert_eq!(
+        values.get("family_name").and_then(Node::as_str),
+        Some("Doe")
+    );
+    assert_eq!(number("issuer_alg").as_deref(), Some("-7"));
+    assert_eq!(number("device_alg").as_deref(), Some("-7"));
+    assert_eq!(text("device_curve"), Some("P-256"));
+    let validity = view.get("validity").unwrap();
+    assert_eq!(
+        validity
+            .get("not_before")
+            .map(|n| n.python_compact().to_string())
+            .as_deref(),
+        Some("1601559002")
+    );
+    assert_eq!(
+        validity
+            .get("not_after")
+            .map(|n| n.python_compact().to_string())
+            .as_deref(),
+        Some("1633095002")
+    );
 }

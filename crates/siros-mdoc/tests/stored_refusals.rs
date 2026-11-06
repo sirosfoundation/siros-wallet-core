@@ -238,7 +238,7 @@ fn each_rule_refuses_its_fixture() {
         ),
         (
             "device_key",
-            edited(|p| p.device_key[1].1 = int(2)),
+            edited(|p| p.device_key[1].1 = int(99)),
             MdocError::DeviceKey(DeviceKeyFault::Curve),
         ),
         (

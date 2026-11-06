@@ -9,7 +9,7 @@ use super::item::Read as _;
 use super::names::DocType;
 use siros_openid4vp::host::Timestamp;
 
-use super::device_key::P256Key;
+use super::device_key::DeviceKey;
 use super::error::{
     DeviceKeyFault, DocTypeFault, MdocError, NameFault, PayloadFault, ValidityFault, ValidityTime,
     ValueDigestsFault,
@@ -23,7 +23,7 @@ pub struct Mso {
     doc_type: DocType,
     digest_algorithm: DigestAlgorithm,
     value_digests: FxHashMap<NameSpace, FxHashMap<DigestId, ItemDigest>>,
-    device_key: P256Key,
+    device_key: DeviceKey,
     key_authorizations: KeyAuthorizations,
     validity: Validity,
 }
@@ -53,7 +53,7 @@ impl Mso {
             digest_algorithm,
             value_digests: read_value_digests(mso.get("valueDigests"), digest_algorithm)
                 .map_err(MdocError::ValueDigests)?,
-            device_key: P256Key::read(device_key_info.get("deviceKey"))
+            device_key: DeviceKey::read(device_key_info.get("deviceKey"))
                 .map_err(MdocError::DeviceKey)?,
             key_authorizations: KeyAuthorizations::read(device_key_info.get("keyAuthorizations"))
                 .map_err(MdocError::KeyAuthorizations)?,
@@ -83,7 +83,7 @@ impl Mso {
 
     /// `deviceKeyInfo.deviceKey`.
     #[must_use]
-    pub fn device_key(&self) -> &P256Key {
+    pub fn device_key(&self) -> &DeviceKey {
         &self.device_key
     }
 

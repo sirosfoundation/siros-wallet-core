@@ -60,6 +60,8 @@ pub enum FormError {
     Signature(#[source] SignatureLength),
     /// `digestAlgorithm` is this algorithm, where the form takes `SHA-256`.
     DigestAlgorithm(DigestAlgorithm),
+    /// The device key is not on P-256.
+    DeviceKey,
     /// The nym_auth namespace is missing.
     NameSpace,
     /// The namespace holds this element, other than `birth_date`, `ssc` and `psc`.
@@ -82,6 +84,7 @@ impl FormError {
             Self::Algorithm(_) => "issuer_algorithm",
             Self::Signature(_) => "issuer_signature_length",
             Self::DigestAlgorithm(_) => "nym_auth_digest_algorithm",
+            Self::DeviceKey => "device_key_curve",
             Self::NameSpace => "nym_auth_name_space",
             Self::Element(_) | Self::Psc(_) => "nym_auth_element",
             Self::BirthDate(_) => "birth_date",
@@ -256,7 +259,7 @@ pub fn read_mdoc(mdoc: &StoredMdoc) -> Result<Reading, FormError> {
         issuer_signed: mdoc.issuer_signed().to_vec(),
         sig_structure: auth.sig_structure().clone(),
         issuer_signature,
-        device_key: *mso.device_key(),
+        device_key: *mso.device_key().p256().ok_or(FormError::DeviceKey)?,
         valid_from: instant(mso.validity().valid_from())?,
         valid_until: instant(mso.validity().valid_until())?,
         birth_date: elements
