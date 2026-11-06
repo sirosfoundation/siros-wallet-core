@@ -100,6 +100,7 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
 use siros_openid4vp::routing::ChannelKind;
 use siros_openid4vp::rows::{Env, HttpsUrl, Selected};
+use siros_openid4vp::sri::Integrity;
 use siros_openid4vp::wallet::Credential;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::{
@@ -108,7 +109,7 @@ use siros_openid4vp::{
 };
 
 use crate::adhoc::{AdhocFailure, AdhocRefusal, Relied};
-use crate::document::{DOCUMENT, MetadataIntegrity, PasoDocument};
+use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
@@ -233,7 +234,7 @@ pub enum Source {
     /// The signed credential metadata the wallet stores, by its JWT's integrity value.
     Stored {
         /// The integrity value.
-        integrity: MetadataIntegrity,
+        integrity: Integrity,
     },
     /// The entry's ad-hoc metadata JWT (Proof Metadata §5).
     Adhoc,

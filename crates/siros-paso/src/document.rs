@@ -13,6 +13,7 @@ use base64::engine::general_purpose::STANDARD;
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption};
+use siros_openid4vp::sri::Integrity;
 
 /// The key of the PaSO document in a credential's registration.
 pub const DOCUMENT: &str = "paso";
@@ -56,35 +57,6 @@ impl ChainSubject {
     }
 }
 
-/// The [W3C.SRI] integrity value of the signed credential metadata JWT (Core §6.1
-/// `metadata_integrity`): hash expressions `<algorithm>-<base64>` separated by white space.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetadataIntegrity(String);
-
-impl MetadataIntegrity {
-    fn parse(text: &str) -> Option<Self> {
-        let hash = |expression: &str| {
-            expression
-                .split_once('-')
-                .is_some_and(|(algorithm, digest)| {
-                    ["sha256", "sha384", "sha512"].contains(&algorithm)
-                        && !digest.is_empty()
-                        && digest
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"+/=".contains(&b))
-                })
-        };
-        let mut expressions = text.split_ascii_whitespace().peekable();
-        (expressions.peek().is_some() && expressions.all(hash)).then(|| Self(text.to_owned()))
-    }
-
-    /// The value.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// The credential issuer's key material, which an ad-hoc metadata JWT verifies under (Proof
 /// Metadata §5.3 step 3) and binds to (§7 step 6).
 #[derive(Debug, Clone)]
@@ -120,8 +92,9 @@ impl<'d> Issuer<'d> {
 /// A credential's PaSO document, read.
 #[derive(Debug, Clone)]
 pub struct PasoDocument<'d> {
-    /// The integrity value of its signed credential metadata JWT.
-    pub integrity: MetadataIntegrity,
+    /// The [W3C.SRI] integrity value of its signed credential metadata JWT (Core §6.1
+    /// `metadata_integrity`).
+    pub integrity: Integrity,
     /// The credential's type: its `vct` or its doctype.
     pub credential_type: &'d str,
     /// Its issuer's key material.
@@ -175,8 +148,8 @@ impl<'d> PasoDocument<'d> {
             },
         };
         Ok(Self {
-            integrity: MetadataIntegrity::parse(text("integrity")?)
-                .ok_or(DocumentError::Member("integrity"))?,
+            integrity: Integrity::parse(text("integrity")?)
+                .map_err(|_| DocumentError::Member("integrity"))?,
             credential_type: text("type")?,
             issuer,
             types: node

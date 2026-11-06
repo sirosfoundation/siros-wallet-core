@@ -10,6 +10,7 @@ use common::{CUSTOM, Card, en, entry};
 use siros_openid4vp::ids::{CredentialId, FormatId};
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::wallet::{Credential, Facts, Holder};
+use siros_paso::document::{DocumentError, PasoDocument};
 use siros_paso::labels::LabelViolation;
 use siros_paso::outcome::{Outcome, Unsupported};
 use siros_paso::{PasoProfile, Rendered};
@@ -286,4 +287,39 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             .expect("no fault"),
         Outcome::Unsupported(Unsupported::NoPasoMetadata)
     );
+}
+
+/// Core §6.1's `metadata_integrity` is the document's value as W3C SRI §3.3 writes it: an option,
+/// an algorithm in any case and an unsupported algorithm's expression beside a supported one.
+#[test]
+fn a_documents_integrity_is_w3c_sri_metadata_kept_as_written() {
+    // Core §6.1's example value.
+    let digest = "K3L5x7nMqYdP2fR8vQwJ1bHgT9sUcA4eZpXo6yD0mEk=";
+    let document = |integrity: &str| {
+        format!(
+            r#"{{"integrity": "{integrity}", "type": "t", "issuer": {{"iss": "i", "keys": {{}}}}, "transaction_data_types": {{}}}}"#
+        )
+    };
+    for written in [
+        format!("sha256-{digest}"),
+        format!("sha256-{digest}?ct=a"),
+        format!("SHA256-{digest}"),
+        format!("sha256-{digest} md5-AA"),
+    ] {
+        let text = document(&written);
+        let node = PasoDocument::json(text.as_bytes()).expect("JSON");
+        let read = PasoDocument::read(&node).expect(&written);
+        assert_eq!(read.integrity.as_str(), written);
+    }
+    for refused in ["", "md5-AA", "sha256-A=A"] {
+        let text = document(refused);
+        let node = PasoDocument::json(text.as_bytes()).expect("JSON");
+        assert!(
+            matches!(
+                PasoDocument::read(&node),
+                Err(DocumentError::Member("integrity"))
+            ),
+            "{refused}"
+        );
+    }
 }
