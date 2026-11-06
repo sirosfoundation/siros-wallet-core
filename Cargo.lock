@@ -3585,13 +3585,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "der 0.8.3",
- "p256 0.14.0",
  "serde_json",
  "sha2 0.11.1",
  "siros-explain",
  "siros-openid4vp",
  "siros-testkit",
- "siros-x509",
  "spki 0.8.1",
  "thiserror 2.0.21",
  "x509-cert 0.3.0",

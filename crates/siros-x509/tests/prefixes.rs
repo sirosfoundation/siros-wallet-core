@@ -21,8 +21,8 @@ use siros_openid4vp::recourse::{Failure, Rejected};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
+use siros_testkit::x509::{Leaf, certificate, header, point, x5c, x509_hash};
 use siros_testkit::{TestFormat, TestHost, TestTrust};
-use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
 use siros_x509::{LeafHash, SanDnsName, X509Hash, X509Refusal, X509SanDns};
 
 const ORIGIN: &str = "https://verifier.example";

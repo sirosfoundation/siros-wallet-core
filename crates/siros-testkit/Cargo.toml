@@ -1,7 +1,7 @@
 [package]
 name = "siros-testkit"
 version = "0.1.0"
-description = "Test plug-ins, deterministic doubles of the core's host modules and the Verifier's encoders, for the tests of the SIROS wallet core crates"
+description = "Test plug-ins, deterministic doubles of the core's host modules, the Verifier's encoders and test certificates, for the tests of the SIROS wallet core crates"
 edition = "2024"
 license.workspace = true
 repository.workspace = true

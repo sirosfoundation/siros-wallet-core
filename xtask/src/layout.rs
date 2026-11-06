@@ -92,7 +92,7 @@ impl Scope {
             ["crates", name, "src", ..] => Self {
                 test_code: name.starts_with("siros-"),
                 message_includes: *name != "siros-testkit",
-                shipped: SHIPPED.contains(name) && parts.last() != Some(&"test_util.rs"),
+                shipped: SHIPPED.contains(name),
             },
             ["crates", "siros-testkit", ..] => return None,
             _ if parts.contains(&"src") => Self {

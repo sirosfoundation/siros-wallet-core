@@ -935,10 +935,6 @@ const CLEAN: &[(&str, &str)] = &[
             "pub use test_util::TestIds;\n",
         ),
     ),
-    (
-        "crates/siros-openid4vp/src/test_util.rs",
-        "fn f() -> Text {\n    Text::Raw(\"a\".to_owned())\n}\n",
-    ),
 ];
 
 /// Writes the base tree, whose files every row overwrites or adds to, under a fresh directory.

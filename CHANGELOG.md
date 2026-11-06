@@ -15,6 +15,8 @@ All notable changes to this workspace. The format follows
   of a type outside the gate and any item that makes a value of a type with
   private fields, and refuses the gate on anything but a whole item. The types
   the gate declares are the doubles'.
+- `siros-testkit`'s `x509` holds the test certificates and chains; `siros-x509`
+  has no `test-util` feature.
 - `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
 - `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
