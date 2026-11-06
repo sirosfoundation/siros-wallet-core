@@ -8,6 +8,7 @@ mod common;
 
 use common::{Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
 use siros_openid4vp::rows::{Amounts, Env, HttpsUrl, Image, ImageRef, Value};
+use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome, Unsupported};
 use siros_paso::{Fetch, PasoProfile};
 use siros_testkit::verifier::ISSUER;
@@ -94,8 +95,10 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
     let as_written = render(entry_json, &meta, &en(), &with_logo(url, logo.clone()));
     assert!(matches!(
         &as_written,
-        Err(Outcome::NotCompatible(NotCompatible::Image { failure, .. }))
-            if failure.to_string().contains("#integrity")
+        Err(Outcome::NotCompatible(NotCompatible::Image {
+            failure: ImageFailure::IntegrityMismatch,
+            ..
+        }))
     ));
     let repaired = entry_json.replace(written, &sri(&logo));
     let rendered = render(&repaired, &meta, &en(), &with_logo(url, logo.clone())).expect("renders");

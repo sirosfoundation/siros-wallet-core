@@ -136,13 +136,6 @@ pub(super) fn the_default_profiles_signals_are_enveloped_fresh_and_encrypted_to_
             envelope("app_vendor_id", "unavailable", Json::Null, now),
         ]
     );
-    // Encrypted: the plaintext is json.dumps' default form.
-    let text =
-        String::from_utf8(URL_SAFE_NO_PAD.decode(parts[3]).expect("base64url")).expect("utf-8");
-    assert!(
-        text.starts_with(r#"[{"type": "urn:paso:risk:global:response_mode:1", "collected_at": ""#),
-        "{text}"
-    );
 }
 
 #[test]

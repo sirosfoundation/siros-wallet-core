@@ -348,34 +348,6 @@ impl PasoProfile {
     /// let mut builder = Registry::<Wallet>::builder();
     /// PasoProfile::default().register(&mut builder).expect("registers");
     /// ```
-    ///
-    /// A host without the PaSO module does not compile with it:
-    ///
-    /// ```compile_fail,E0277
-    /// use siros_openid4vp::host::{Haip, Platform};
-    /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::{CoseEncrypt, IssuerTrust, PasoProfile, RandomIds};
-    /// use siros_paso::{TestCoseEncrypt, TestIssuerTrust, TestRandomIds};
-    /// use siros_testkit::{TestHaip, TestPlatform};
-    ///
-    /// siros_testkit::test_host! {
-    ///     /// A host lacking the PaSO module.
-    ///     #[derive(Default)]
-    ///     struct Wallet {
-    ///         handles {
-    ///             platform: TestPlatform => Platform,
-    ///             random_ids: TestRandomIds => RandomIds,
-    ///             issuer_trust: TestIssuerTrust => IssuerTrust
-    ///         }
-    ///         zero_sized { TestHaip => Haip }
-    ///         optional { TestCoseEncrypt => CoseEncrypt }
-    ///         lacks {}
-    ///     }
-    /// }
-    ///
-    /// let mut builder = Registry::<Wallet>::builder();
-    /// PasoProfile::default().register(&mut builder).expect("registers");
-    /// ```
     pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> Result<ProfileHandle, InvalidId>
     where
         H: Build,

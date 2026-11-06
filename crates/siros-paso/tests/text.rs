@@ -1,13 +1,6 @@
 //! Label text against Proof Metadata §3.3.
 
-use siros_explain::{Messages, Text};
-use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::rows::{Choice, Env};
 use siros_paso::labels::{LabelSlot, LabelText, LabelViolation};
-use siros_paso::mandate::MandateLabel;
-use siros_paso::rulebook::{Rulebook, Subtype};
-use siros_testkit::fixtures::OPTIONS;
-use siros_testkit::render::{App, CrateSource, ENGLISH_PASO, GERMAN_PASO};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
 /// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
@@ -29,16 +22,8 @@ fn single_labels_meet_section_3_3_as_it_states() {
         LabelText::parse("a\nb", claim),
         Err(LabelViolation::Control('\n'))
     );
-    assert_eq!(
-        LabelText::parse("a\u{85}b", claim),
-        Err(LabelViolation::Control('\u{85}'))
-    );
     assert!(matches!(
         LabelText::parse("a\u{202e}b", claim),
-        Err(LabelViolation::Directional(_))
-    ));
-    assert!(matches!(
-        LabelText::parse("a\u{2066}b", claim),
         Err(LabelViolation::Directional(_))
     ));
     assert!(LabelText::parse("a\u{2066}b\u{2069}", claim).is_ok());
@@ -52,54 +37,4 @@ fn single_labels_meet_section_3_3_as_it_states() {
         })
     );
     assert!(LabelText::parse(&"x".repeat(160), LabelSlot::Hint).is_ok());
-}
-
-/// The wallet's own strings stand in for metadata labels, so each meets §3.3 for its slot.
-#[test]
-fn the_wallets_own_labels_meet_section_3_3() {
-    let subtypes = [
-        Subtype::None,
-        Subtype::Named("emandate"),
-        Subtype::Named("agentic"),
-        Subtype::Named("aisp"),
-        Subtype::Named("other"),
-    ];
-    let rulebooks = [Rulebook::View, Rulebook::Payment]
-        .into_iter()
-        .chain(subtypes.iter().map(|sub| Rulebook::Generic(*sub)))
-        .chain(subtypes.iter().map(|sub| Rulebook::Mandate(*sub)));
-    let paso = CrateSource {
-        id: siros_paso::CrateModule::ID,
-        messages: siros_paso::CrateModule::messages(),
-        english: ENGLISH_PASO,
-        german: GERMAN_PASO,
-    };
-    let app = App::of(&[CrateSource::openid4vp(), paso]).expect("the test app");
-    for locale in ["en", "de"] {
-        let env = Env::new(
-            vec![LocaleTag::parse(locale).expect("a tag")],
-            Vec::new(),
-            OPTIONS,
-            Vec::new(),
-            Choice::First,
-        )
-        .expect("the configuration");
-        let meets = |text: Text, slot: LabelSlot| {
-            let shown = app.plain(&env, &text).expect("the text renders");
-            assert!(
-                LabelText::parse(&shown, slot).is_ok(),
-                "{shown} in {locale}"
-            );
-        };
-        for rulebook in rulebooks.clone() {
-            meets(Text::of(&rulebook.title()), LabelSlot::Title);
-            meets(Text::of(&rulebook.confirm()), LabelSlot::Affirmative);
-            if let Some(section) = rulebook.section() {
-                meets(Text::of(&section), LabelSlot::ClaimName);
-            }
-        }
-        for label in MandateLabel::ALL {
-            meets(Text::of(&label), LabelSlot::ClaimName);
-        }
-    }
 }

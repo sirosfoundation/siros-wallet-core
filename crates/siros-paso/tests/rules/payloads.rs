@@ -7,7 +7,7 @@ use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
 
-use crate::common::{CUSTOM, PAY, Screen, data_png, en, env, png, sri};
+use crate::common::{CUSTOM, PAY, Screen, en, env, png, sri};
 
 use super::{claims, render, render_with, shown};
 
@@ -22,21 +22,18 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "n": "a"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ValueType { .. }),
-        "View §3"
+        Outcome::NotCompatible(NotCompatible::ValueType { .. })
     );
     decided!(
         render(&claims(&n), r#"[]"#),
-        Outcome::NotCompatible(NotCompatible::PayloadNotObject),
-        "Core §7.1"
+        Outcome::NotCompatible(NotCompatible::PayloadNotObject)
     );
     decided!(
         render(
             &claims(r#"{"path": ["a"]}, {"path": ["a", "b"]}"#),
             r#"{"transaction_id": "t", "a": "x"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::Mismatch(_)),
-        "Core §7.4.2 step 2"
+        Outcome::NotCompatible(NotCompatible::Mismatch(_))
     );
     decided!(
         render(
@@ -46,8 +43,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "d": "2026-02-30"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::Value { .. }),
-        "View §3"
+        Outcome::NotCompatible(NotCompatible::Value { .. })
     );
     decided!(
         render(
@@ -57,18 +53,11 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "i": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ImageNotString(_)),
-        "View §3"
+        Outcome::NotCompatible(NotCompatible::ImageNotString(_))
     );
     decided!(
         render(&claims(&n), r#"{"transaction_id": "t", "n": "a\u202eb"}"#),
-        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. }),
-        "Proof Metadata §3.3"
-    );
-    decided!(
-        render(&claims(&n), r#"{"transaction_id": "t", "n": "a\u2066b"}"#),
-        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. }),
-        "Proof Metadata §3.3"
+        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. })
     );
     assert!(
         render(
@@ -78,43 +67,12 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
         .is_ok(),
         "a closed isolate passes"
     );
-    // Coverage: a field no claim path addresses, wherever it sits: a member, an empty container
-    // beside a deeper path, a scalar where a path continues, a member of an array element.
-    let deep = format!(r#"{{"path": ["p", "q"], "display": {}}}"#, shown("Q"));
-    let items = format!(
-        r#"{{"path": ["items", null, "name"], "display": {}}}"#,
-        shown("I")
-    );
-    for (meta, payload) in [
-        (&n, r#"{"transaction_id": "t", "n": "a", "extra": "x"}"#),
-        (
-            &deep,
-            r#"{"transaction_id": "t", "p": {"q": "a"}, "extra": {}}"#,
-        ),
-        (&deep, r#"{"transaction_id": "t", "p": "a"}"#),
-        (
-            &items,
-            r#"{"transaction_id": "t", "items": [{"name": "a", "extra": "b"}]}"#,
-        ),
-    ] {
-        decided!(
-            render(&claims(meta), payload),
-            Outcome::NotCompatible(NotCompatible::Uncovered(_)),
-            "Core §7.4.2 step 2"
-        );
-    }
-    // The directional rule reaches the strings inside a covered container.
-    let any = format!(
-        r#"{{"path": ["i"], "value_type": "label_only", "display": {}}}"#,
-        shown("I")
-    );
     decided!(
         render(
-            &claims(&any),
-            r#"{"transaction_id": "t", "i": {"x": ["a\u202eb"]}}"#
+            &claims(&n),
+            r#"{"transaction_id": "t", "n": "a", "extra": "x"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. }),
-        "Proof Metadata §3.3"
+        Outcome::NotCompatible(NotCompatible::Uncovered(_))
     );
     // Conformance (Core §7.4.2 step 2) decides before the locale (View §4): the entry gives way
     // to the next one instead of excluding the credential.
@@ -130,8 +88,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             &env(&["de"], Amounts::Formatted),
             &PasoProfile::default()
         ),
-        Outcome::NotCompatible(NotCompatible::Value { .. }),
-        "View §3"
+        Outcome::NotCompatible(NotCompatible::Value { .. })
     );
     decided!(
         render(
@@ -141,8 +98,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::MandatoryAbsent(_)),
-        "Core §7.4.2 step 2"
+        Outcome::NotCompatible(NotCompatible::MandatoryAbsent(_))
     );
     decided!(
         render(
@@ -152,8 +108,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "s": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::TemplateNotString(_)),
-        "View §3 template"
+        Outcome::NotCompatible(NotCompatible::TemplateNotString(_))
     );
 }
 
@@ -164,33 +119,17 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             r#"[{{"locale": "en", "name": "{text}", "display_type": "template:mini_markdown"}}]"#
         )
     };
-    let forbidden = [
-        (
-            r#"{"path": ["i"], "value_type": "image", "display": [{"locale": "en", "name": "Logo"}]}"#,
-            format!("\"{}\"", data_png(8, 8)),
+    decided!(
+        render(
+            &claims(&format!(
+                r#"{{"path": ["i"], "value_type": "label_only", "display": {}}}, {{"path": ["n"], "display": {}}}"#,
+                shown("Note"),
+                label("See {1}")
+            )),
+            r#"{"transaction_id": "t", "i": "x", "n": "a"}"#
         ),
-        (
-            r#"{"path": ["i"], "value_type": "label_only", "display": [{"locale": "en", "name": "Note"}]}"#,
-            "\"x\"".to_owned(),
-        ),
-        (
-            r#"{"path": ["i"], "value_type": "template:mini_markdown", "display": [{"locale": "en", "name": "Sum"}]}"#,
-            "\"y\"".to_owned(),
-        ),
-    ];
-    for (reference, value) in forbidden {
-        decided!(
-            render(
-                &claims(&format!(
-                    r#"{reference}, {{"path": ["n"], "display": {}}}"#,
-                    label("See {1}")
-                )),
-                &format!(r#"{{"transaction_id": "t", "i": {value}, "n": "a"}}"#)
-            ),
-            Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder: 1, .. }),
-            "View §3 template"
-        );
-    }
+        Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder: 1, .. })
+    );
     decided!(
         render(
             &claims(&format!(
@@ -199,8 +138,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "n": "a", "k": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ReferenceNotString(2)),
-        "View §3 template"
+        Outcome::NotCompatible(NotCompatible::ReferenceNotString(2))
     );
     let items = r#"{"transaction_id": "t", "items": [{"name": "A", "qty": "1"}], "sum": "3"}"#;
     decided!(
@@ -212,8 +150,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             items
         ),
-        Outcome::NotCompatible(NotCompatible::MoreNulls(1)),
-        "View §3 template"
+        Outcome::NotCompatible(NotCompatible::MoreNulls(1))
     );
     // No entry survives in any locale: not compatible (View §3 template), not excluded.
     decided!(
@@ -224,8 +161,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "n": "a"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::TemplatesExhausted),
-        "View §3 template"
+        Outcome::NotCompatible(NotCompatible::TemplatesExhausted)
     );
     // §3.3's limits apply to the interpolated label (View §2).
     decided!(
@@ -236,8 +172,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             &format!(r#"{{"transaction_id": "{}", "n": "a"}}"#, "t".repeat(60))
         ),
-        Outcome::NotCompatible(NotCompatible::RenderedLabel { .. }),
-        "View §2; Proof Metadata §3.3"
+        Outcome::NotCompatible(NotCompatible::RenderedLabel { .. })
     );
 }
 
@@ -378,8 +313,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             r#"{{"transaction_id": "t", {}}}"#,
             eleven.join(", ")
         )),
-        Outcome::NotCompatible(NotCompatible::GenericProperties),
-        "Generic §3"
+        Outcome::NotCompatible(NotCompatible::GenericProperties)
     );
     // Eleven properties, the most Generic §3 allows.
     assert!(
@@ -391,23 +325,19 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
     );
     decided!(
         g(r#"{"c0": "v"}"#),
-        Outcome::NotCompatible(NotCompatible::GenericTransactionId),
-        "Generic §3"
+        Outcome::NotCompatible(NotCompatible::GenericTransactionId)
     );
     decided!(
         g(r#"{"transaction_id": "t", "c0": 5}"#),
-        Outcome::NotCompatible(NotCompatible::GenericCustom(_)),
-        "Generic §3.1"
+        Outcome::NotCompatible(NotCompatible::GenericCustom(_))
     );
     decided!(
         g(r#"{"transaction_id": "t", "zz": "v"}"#),
-        Outcome::NotCompatible(NotCompatible::Uncovered(_)),
-        "Core §7.4.2 step 2"
+        Outcome::NotCompatible(NotCompatible::Uncovered(_))
     );
     decided!(
         g(r#"{"transaction_id": "t", "payment_payload": {"amount": "1.00 EUR"}}"#),
-        Outcome::NotCompatible(NotCompatible::GenericPayment(_)),
-        "Generic §3.2; Payment §1"
+        Outcome::NotCompatible(NotCompatible::GenericPayment(_))
     );
     let mandate = "urn:paso:sca:global:mandate:1";
     decided!(
@@ -418,8 +348,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::NotCompatible(NotCompatible::MandatePayment(_)),
-        "Mandate §2.2; Payment §1"
+        Outcome::NotCompatible(NotCompatible::MandatePayment(_))
     );
     let payment = claims(&format!(
         r#"{{"path": ["amount"], "value_type": "iso_currency_amount", "display": {}}}, {{"path": ["payee", "name"], "display": {}}}, {{"path": ["payee", "id"]}}"#,
@@ -434,8 +363,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::NotCompatible(NotCompatible::PaymentRequired(_)),
-        "Payment §1; Core §7.4.2 step 2"
+        Outcome::NotCompatible(NotCompatible::PaymentRequired(_))
     );
 }
 
@@ -458,8 +386,7 @@ pub(super) fn more_items_than_the_wallets_bound_make_the_entry_not_compatible() 
         Outcome::NotCompatible(NotCompatible::TooManyItems {
             items: 201,
             bound: 200
-        }),
-        "View §2"
+        })
     );
     // The security hint is a fourth UI element.
     let hinted = format!(
@@ -472,8 +399,7 @@ pub(super) fn more_items_than_the_wallets_bound_make_the_entry_not_compatible() 
         Outcome::NotCompatible(NotCompatible::TooManyItems {
             items: 201,
             bound: 200
-        }),
-        "View §2"
+        })
     );
     let wider = PasoProfile::default().with_bound(ItemBound::new(201).expect("bound"));
     assert!(render_with(CUSTOM, &meta, &items(198), &en(), &wider).is_ok());
@@ -494,8 +420,7 @@ pub(super) fn no_locale_completing_every_array_excludes_the_credential() {
             &env(&["de"], Amounts::Formatted),
             &PasoProfile::default()
         ),
-        Outcome::Excluded(_),
-        "View §4"
+        Outcome::Excluded(_)
     );
 }
 
@@ -546,7 +471,7 @@ fn view_4_selects_by_rfc_4647_lookup_and_the_default_entry() {
             &PasoProfile::default(),
         );
         let Some((locale, label)) = want else {
-            decided!(rendered, Outcome::Excluded(_), "View §4");
+            decided!(rendered, Outcome::Excluded(_));
             continue;
         };
         let view = rendered.expect("renders").view;

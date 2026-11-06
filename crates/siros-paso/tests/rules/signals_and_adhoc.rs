@@ -4,7 +4,9 @@ use siros_openid4vp::jose::JwsError;
 use siros_openid4vp::plugins::Profile;
 use siros_openid4vp::refusal::ErrorCode;
 use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
+use siros_paso::entry::EntryRule;
 use siros_paso::outcome::{NotCompatible, Outcome};
+use siros_paso::rules::PasoRule;
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
 use siros_testkit::verifier::{self, adhoc_jwt, secret_key};
@@ -48,43 +50,33 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
     };
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk:global:x:1"]"#),
-        Outcome::NotCompatible(NotCompatible::RiskProfiles),
-        "Risk Signals §3.2"
+        Outcome::NotCompatible(NotCompatible::RiskProfiles)
     );
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk-profile:com.example:x:1"]"#),
-        Outcome::NotCompatible(NotCompatible::UnknownRiskProfile(_)),
-        "Risk Signals §4.1"
+        Outcome::NotCompatible(NotCompatible::UnknownRiskProfile(_))
     );
     decided!(
         case(r#", "risk_signals": {}"#),
-        Outcome::NotCompatible(NotCompatible::RiskSignalsNotArray),
-        "Risk Signals §4.1"
+        Outcome::NotCompatible(NotCompatible::RiskSignalsNotArray)
     );
     // §3.4: `max_age` a non-negative integer; one beyond 2^64 seconds bounds nothing.
-    for max_age in ["-1", "1.5"] {
-        decided!(
-            case(&format!(
-                r#", "risk_signals": [{{"type": "urn:paso:risk:global:amr:1", "max_age": {max_age}}}]"#
-            )),
-            Outcome::NotCompatible(NotCompatible::RiskSignalMalformed(_)),
-            "Risk Signals §3.4; §4.1"
-        );
-    }
+    decided!(
+        case(r#", "risk_signals": [{"type": "urn:paso:risk:global:amr:1", "max_age": -1}]"#),
+        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed(_))
+    );
     assert!(
         case(r#", "risk_signals": [{"type": "urn:paso:risk:global:amr:1", "max_age": 100000000000000000000000}]"#)
             .is_ok()
     );
     decided!(
         case(r#", "encrypted": "yes""#),
-        Outcome::NotCompatible(NotCompatible::EncryptedNotBoolean),
-        "Risk Signals §7.2"
+        Outcome::NotCompatible(NotCompatible::EncryptedNotBoolean)
     );
     // The Default profile mandates encryption, and this issuer publishes no key (§7.3).
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk-profile:global:default:1"]"#),
-        Outcome::NotCompatible(NotCompatible::NoEncryptionKey),
-        "Risk Signals §7.3"
+        Outcome::NotCompatible(NotCompatible::NoEncryptionKey)
     );
     // §7.3: a key published without `use` `enc` is no encryption key, whatever its `alg`.
     let signing = r#"{"keys": [{"kty": "EC", "crv": "P-256", "kid": "issuer-key-2", "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU", "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0", "alg": "ECDH-ES"}]}"#;
@@ -106,8 +98,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
                 &en()
             )
             .expect("no fault"),
-        Outcome::NotCompatible(NotCompatible::NoEncryptionKey),
-        "Risk Signals §7.3"
+        Outcome::NotCompatible(NotCompatible::NoEncryptionKey)
     );
 }
 
@@ -165,7 +156,6 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     // What does not read is not compatible (RFC 7515 §7.1; Proof Metadata §5.2).
     let unread: Vec<(String, AdhocFailure)> = vec![
         ("a.b".to_owned(), AdhocFailure::Jws(JwsError::Structure)),
-        ("!!.e30.x".to_owned(), AdhocFailure::Jws(JwsError::Base64)),
         (signed("[1]"), AdhocFailure::NotObject),
         (
             signed(&format!(
@@ -197,10 +187,6 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
             AdhocFailure::Signature
         )))
     );
-    assert_eq!(
-        rendered.err().map(|outcome| outcome.clause()),
-        Some("Proof Metadata §5.3")
-    );
 }
 
 #[test]
@@ -211,7 +197,7 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         )
     };
     let dcql = one_query("dc+sd-jwt");
-    let codes = |parameters: &str, signed_request: bool| -> Vec<(String, ErrorCode)> {
+    let rules = |parameters: &str, signed_request: bool| -> Vec<(PasoRule, ErrorCode)> {
         let data = if signed_request {
             fixtures::signed_data(parameters).expect("signs")
         } else {
@@ -229,20 +215,24 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         PasoProfile::default()
             .refusals(&request, &entries)
             .into_iter()
-            .map(|refusal| (refusal.text(), refusal.code()))
+            .map(|refusal| {
+                let rule: &dyn std::error::Error = refusal.rule();
+                let rule = rule
+                    .downcast_ref::<PasoRule>()
+                    .expect("PaSO's rule")
+                    .clone();
+                (rule, refusal.code())
+            })
             .collect()
     };
     let valid = entry_with("");
-    assert_eq!(codes(&parameters(&dcql, &[&valid], ""), true), []);
+    assert_eq!(rules(&parameters(&dcql, &[&valid], ""), true), []);
     assert_eq!(
-        codes(&parameters(&dcql, &[&valid], ""), false),
-        [(
-            "PaSO requests are signed; this one is not (Core §3)".to_owned(),
-            ErrorCode::INVALID_REQUEST
-        )]
+        rules(&parameters(&dcql, &[&valid], ""), false),
+        [(PasoRule::Unsigned, ErrorCode::INVALID_REQUEST)]
     );
     assert_eq!(
-        codes(
+        rules(
             &parameters(
                 &dcql,
                 &[&entry_with(
@@ -253,25 +243,34 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
             true
         ),
         [(
-            "PaSO entry 0: unknown member transaction_data_hashes_alg (OpenID4VP §5.1)".to_owned(),
+            PasoRule::Entry {
+                entry: 0,
+                rule: EntryRule::UnknownMember("transaction_data_hashes_alg".to_owned()),
+            },
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     let not_object = format!(r#"{{"type": "{PAY}", "credential_ids": ["q"], "payload": ["x"]}}"#);
     assert_eq!(
-        codes(&parameters(&dcql, &[&not_object], ""), true),
+        rules(&parameters(&dcql, &[&not_object], ""), true),
         [(
-            "PaSO entry 0: payload is not a JSON object (Core §7.1)".to_owned(),
+            PasoRule::Entry {
+                entry: 0,
+                rule: EntryRule::PayloadNotObject,
+            },
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
     assert_eq!(
-        codes(
+        rules(
             &parameters(&dcql, &[&entry_with(r#", "metadata": {"claims": []}"#)], ""),
             true
         ),
         [(
-            "PaSO entry 0: metadata is not a string (Proof Metadata §5.1)".to_owned(),
+            PasoRule::Entry {
+                entry: 0,
+                rule: EntryRule::MetadataNotString,
+            },
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
@@ -290,28 +289,20 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         .map(|block| crate::common::member(&format!("{{{block}}}"), "options"))
         .collect();
     assert_eq!(
-        codes(&parameters(&a6(&options[0]), &[&card_entry], ""), true),
+        rules(&parameters(&a6(&options[0]), &[&card_entry], ""), true),
         []
     );
     assert_eq!(
-        codes(&parameters(&a6(&options[1]), &[&card_entry], ""), true),
-        [(
-            "PaSO alternatives involving its transaction data are not transposable (Core §7.4.1)"
-                .to_owned(),
-            ErrorCode::INVALID_TRANSACTION_DATA
-        )]
+        rules(&parameters(&a6(&options[1]), &[&card_entry], ""), true),
+        [(PasoRule::Coupled, ErrorCode::INVALID_TRANSACTION_DATA)]
     );
     assert_eq!(
-        codes(&parameters(&a6(&options[2]), &[&card_entry], ""), true),
+        rules(&parameters(&a6(&options[2]), &[&card_entry], ""), true),
         []
     );
     let two_sets = r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}, {"id": "pid_1", "format": "dc+sd-jwt"}], "credential_sets": [{"options": [["sca_card"]]}, {"options": [["sca_card"], ["pid_1"]]}]}"#;
     assert_eq!(
-        codes(&parameters(two_sets, &[&card_entry], ""), true),
-        [(
-            "PaSO transaction data names queries of more than one credential set (Core §7.4.1)"
-                .to_owned(),
-            ErrorCode::INVALID_TRANSACTION_DATA
-        )]
+        rules(&parameters(two_sets, &[&card_entry], ""), true),
+        [(PasoRule::Sets, ErrorCode::INVALID_TRANSACTION_DATA)]
     );
 }

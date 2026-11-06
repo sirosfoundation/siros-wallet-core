@@ -18,7 +18,6 @@ use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
-use siros_paso::outcome::Outcome;
 use siros_paso::render::{TransactionView, ViewRow};
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
@@ -468,16 +467,6 @@ impl Seen {
     /// A text of the rendering, formatted.
     pub fn formatted(&self, text: &Text) -> Formatted {
         self.screen.formatted(text)
-    }
-}
-
-/// The outcome's kind and clause, the model's way of naming the rule that decided it.
-pub fn outcome(rendered: &Result<Rendered, Outcome>) -> String {
-    match rendered {
-        Ok(_) => "Rendered".to_owned(),
-        Err(Outcome::Unsupported(rule)) => format!("Unsupported [{}]", rule.clause()),
-        Err(Outcome::NotCompatible(rule)) => format!("NotCompatible [{}]", rule.clause()),
-        Err(Outcome::Excluded(rule)) => format!("Excluded [{}]", rule.clause()),
     }
 }
 
