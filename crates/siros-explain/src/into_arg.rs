@@ -1,5 +1,7 @@
 //! The values a message can name: std's and the crate's.
 
+use std::num::NonZeroUsize;
+
 use crate::arg::{IntoArg, Kind};
 use crate::calendar::{Date, DateTime, OffsetTime, Time};
 use crate::iso4217::Currency;
@@ -31,6 +33,14 @@ impl IntoArg for usize {
 
     fn arg(&self) -> Count {
         Count::of(*self as u64)
+    }
+}
+
+impl IntoArg for NonZeroUsize {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        Count::of(self.get() as u64)
     }
 }
 

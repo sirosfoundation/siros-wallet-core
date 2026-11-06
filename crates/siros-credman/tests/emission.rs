@@ -85,12 +85,12 @@ fn modules(tags: &[(&str, &str)]) -> Vec<Module> {
     .expect("the main module");
     let mut out = vec![main];
     for source in [CrateSource::testkit(), CrateSource::openid4vp()] {
-        let english = retagged(source.english, tags);
-        let german = retagged(source.german, tags);
+        let english = retagged(source.english(), tags);
+        let german = retagged(source.german(), tags);
         out.push(
             Module::load(
-                source.id,
-                &siros_i18n::Declaration::new(source.messages.clone()).expect("a declaration"),
+                source.id(),
+                &siros_i18n::Declaration::new(source.messages().to_vec()).expect("a declaration"),
                 &[&english, &german],
                 siros_i18n::LanguagePolicy::Any,
                 &compilers().expect("compilers"),

@@ -47,7 +47,7 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - run: cargo fmt --all -- --check
       - name: Tests outside the source files, no message source in the crates
-        run: scripts/check_layout.sh
+        run: cargo xtask layout
 
   clippy:
     name: Clippy

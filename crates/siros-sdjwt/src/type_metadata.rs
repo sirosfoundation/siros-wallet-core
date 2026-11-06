@@ -6,6 +6,7 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Member, Node, Object};
+use siros_openid4vp::refusal::ReprItem;
 
 /// Type Metadata the extension rules refuse.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -20,7 +21,7 @@ pub enum ExtendError {
     )]
     Sd {
         /// The claim's path, as JSON.
-        path: String,
+        path: ReprItem,
         /// The extended type's `sd`.
         base: String,
     },
@@ -28,7 +29,7 @@ pub enum ExtendError {
     #[error("the extending type makes the mandatory claim {path} optional (§8.5.1)")]
     Mandatory {
         /// The claim's path, as JSON.
-        path: String,
+        path: ReprItem,
     },
     /// The effective metadata repeats a member name.
     #[error(transparent)]
@@ -105,7 +106,7 @@ fn combined<'a>(
     child: &Object<'a>,
     path: &Node<'a>,
 ) -> Result<Object<'a>, ExtendError> {
-    let shown = || path.python_text().to_string();
+    let shown = || ReprItem::json(path);
     if let (Some(Node::String(fixed)), Some(changed)) = (base.get("sd"), child.get("sd"))
         && matches!(fixed.as_ref(), "always" | "never")
         && changed.as_str() != Some(fixed)

@@ -3,13 +3,13 @@
 //! currencies as typed values, booleans and frequencies as the core module's messages, every
 //! other kind as written.
 
-use std::fmt;
+use std::borrow::Cow;
 
 use siros_explain::{
     Amount, Currency, Date, DateTime, Decimal, Explain, Fraction, Offset, RequestText, Second, Time,
 };
 use siros_openid4vp::json::Node;
-use siros_openid4vp::refusal::Quoted;
+use siros_openid4vp::refusal::ReprItem;
 use siros_openid4vp::rows::{BooleanText, HttpsUrl};
 
 use crate::frequency::Frequency;
@@ -135,12 +135,13 @@ pub enum Written<'a> {
     Other(&'a Node<'a>),
 }
 
-impl fmt::Display for Written<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Written<'_> {
+    /// The value as a refusal names it.
+    pub(crate) fn named(self) -> ReprItem {
         match self {
-            Self::Boolean(value) => f.write_str(if *value { "True" } else { "False" }),
-            Self::Text(text) => write!(f, "{}", Quoted(text)),
-            Self::Other(node) => write!(f, "{}", node.python_repr()),
+            Self::Boolean(value) => ReprItem::repr(&Node::Bool(value)),
+            Self::Text(text) => ReprItem::repr(&Node::String(Cow::Borrowed(text))),
+            Self::Other(node) => ReprItem::repr(node),
         }
     }
 }
@@ -152,8 +153,8 @@ impl fmt::Display for Written<'_> {
 pub struct BadValue {
     /// The kind.
     pub kind: &'static str,
-    /// The value as written, quoted.
-    pub written: String,
+    /// The value.
+    pub written: ReprItem,
     /// The rule it breaks.
     pub why: Breach,
 }
@@ -216,7 +217,7 @@ pub fn formatted(
 ) -> Result<(Parsed, RequestText), BadValue> {
     let bad = |why: Breach| BadValue {
         kind: kind.as_str(),
-        written: written.to_string(),
+        written: written.named(),
         why,
     };
     let text = match written {

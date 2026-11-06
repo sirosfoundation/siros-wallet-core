@@ -8,7 +8,7 @@ pub mod fixtures;
 
 use serde_json::Value as Json;
 use siros_explain::AllOf;
-use siros_explain::{Messages, Text};
+use siros_explain::Text;
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::{Fetch, MediaType, Resource};
@@ -478,12 +478,7 @@ pub fn wallet(held: &[Holding]) -> Wallet<'_> {
 
 /// The test app: the core's and the profile's modules in its English and German.
 fn app() -> App {
-    let qes = CrateSource {
-        id: siros_qes::CrateModule::ID,
-        messages: siros_qes::CrateModule::messages(),
-        english: ENGLISH_QES,
-        german: GERMAN_QES,
-    };
+    let qes = CrateSource::of::<siros_qes::CrateModule>(ENGLISH_QES, GERMAN_QES);
     App::of(&[CrateSource::openid4vp(), qes]).expect("the test app")
 }
 

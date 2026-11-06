@@ -17,8 +17,8 @@
 //! arguments stay in its own query.
 //!
 //! The crate imposes the trait alone: a type keeps its own shape, and `#[derive(Explain)]`
-//! (feature `derive`) writes the implementation beside `#[derive(thiserror::Error)]`, as miette's
-//! `Diagnostic` does.
+//! (feature `derive`) writes the implementation, for an error beside `#[derive(thiserror::Error)]`
+//! as miette's `Diagnostic` does, and for a text type alone.
 //!
 //! ```
 //! use siros_explain::{ArgValue, Count, Explain, Value};
@@ -55,18 +55,15 @@
     clippy::let_underscore_untyped,
     clippy::disallowed_types
 )]
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::panic,
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::indexing_slicing,
-        clippy::disallowed_methods
-    )
+#![deny(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::indexing_slicing,
+    clippy::disallowed_methods
 )]
 
 mod arg;

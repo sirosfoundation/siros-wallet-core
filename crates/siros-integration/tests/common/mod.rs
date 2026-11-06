@@ -6,7 +6,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256};
-use siros_explain::{Messages, ModuleId};
+use siros_explain::ModuleId;
 use siros_i18n::{DefinedForm, LocaleTag, Module, Selected};
 use siros_mdoc::{DeviceMac, Mdoc, TestDeviceMac};
 use siros_openid4vp::envelope::Channel;
@@ -112,18 +112,8 @@ fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<DefinedF
 /// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
 /// PaSO's and QES's.
 pub fn own_modules() -> Vec<Module> {
-    let paso = CrateSource {
-        id: siros_paso::CrateModule::ID,
-        messages: siros_paso::CrateModule::messages(),
-        english: ENGLISH_PASO,
-        german: GERMAN_PASO,
-    };
-    let qes = CrateSource {
-        id: siros_qes::CrateModule::ID,
-        messages: siros_qes::CrateModule::messages(),
-        english: ENGLISH_QES,
-        german: GERMAN_QES,
-    };
+    let paso = CrateSource::of::<siros_paso::CrateModule>(ENGLISH_PASO, GERMAN_PASO);
+    let qes = CrateSource::of::<siros_qes::CrateModule>(ENGLISH_QES, GERMAN_QES);
     vec![
         main_module().expect("the main module"),
         CrateSource::testkit()

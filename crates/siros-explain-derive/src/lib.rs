@@ -1,6 +1,7 @@
 //! `#[derive(Explain)]`: siros-explain's `Explain` and `Messages` for an error type, beside
-//! `#[derive(thiserror::Error)]`. It reads thiserror's `#[error("…")]` literal as the English
-//! template and `#[error(transparent)]` as a transparent variant.
+//! `#[derive(thiserror::Error)]`, and for a text type, alone: crates declare messages and ship no
+//! text, so a text type has no `Display`. It reads thiserror's `#[error("…")]` literal as the
+//! English template and `#[error(transparent)]` as a transparent variant.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -9,18 +10,15 @@
     clippy::let_underscore_untyped,
     clippy::disallowed_types
 )]
-#![cfg_attr(
-    not(test),
-    deny(
-        clippy::panic,
-        clippy::unwrap_used,
-        clippy::expect_used,
-        clippy::unreachable,
-        clippy::todo,
-        clippy::unimplemented,
-        clippy::indexing_slicing,
-        clippy::disallowed_methods
-    )
+#![deny(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::unreachable,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::indexing_slicing,
+    clippy::disallowed_methods
 )]
 
 use proc_macro::TokenStream;

@@ -1,7 +1,7 @@
 [package]
 name = "xtask"
 version = "0.0.0"
-description = "The workspace's build gates: what each build compiles, and each crate alone"
+description = "The workspace's gates: what each build compiles, each crate alone, and the layout"
 edition = "2024"
 license.workspace = true
 repository.workspace = true
@@ -10,8 +10,12 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+quote = { workspace = true }
+rustc-hash = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+syn = { workspace = true, features = ["visit"] }
 
 [lints]
 workspace = true

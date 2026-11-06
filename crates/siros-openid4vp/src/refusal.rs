@@ -343,14 +343,18 @@ impl<T: AsRef<str>> fmt::Display for QuotedList<'_, T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprList(Vec<ReprItem>);
 
-/// One value of a [`ReprList`].
+/// A received value a rule names: the rule's text writes it as Python writes the value `json`
+/// reads, and its message, which the End-User may read, as its sender wrote it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ReprItem {
-    /// A string, quoted in the list's `repr`.
-    Text(String),
-    /// Another JSON value, as Python writes the value `json` reads.
-    Value(String),
+pub struct ReprItem {
+    repr: String,
+    written: String,
 }
+
+/// A received value a rule names when the request may leave it out: the rule's text writes an
+/// absent one as Python's `None`, and its message's argument is absent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReprOption(Option<ReprItem>);
 
 impl ReprList {
     /// Strings.
@@ -359,7 +363,10 @@ impl ReprList {
         Self(
             items
                 .iter()
-                .map(|item| ReprItem::Text(item.as_ref().to_owned()))
+                .map(|item| ReprItem {
+                    repr: Quoted(item.as_ref()).to_string(),
+                    written: item.as_ref().to_owned(),
+                })
                 .collect(),
         )
     }
@@ -372,28 +379,76 @@ impl ReprList {
                 .iter()
                 .map(|item| {
                     item.as_str().map_or_else(
-                        || ReprItem::Value(item.python_text().to_string()),
-                        |text| ReprItem::Text(text.to_owned()),
+                        || ReprItem::json(item),
+                        |text| ReprItem::pair(Quoted(text), item),
                     )
                 })
+                .collect(),
+        )
+    }
+
+    /// JSON values as Python's `sorted` list of their `str`s, in that order.
+    #[must_use]
+    pub fn names(items: &[Node<'_>]) -> Self {
+        let mut named: Vec<(String, &Node<'_>)> = items
+            .iter()
+            .map(|item| {
+                let name = item
+                    .as_str()
+                    .map_or_else(|| item.python_text().to_string(), str::to_owned);
+                (name, item)
+            })
+            .collect();
+        named.sort_by(|a, b| a.0.cmp(&b.0));
+        Self(
+            named
+                .into_iter()
+                .map(|(name, item)| ReprItem::pair(Quoted(&name), item))
                 .collect(),
         )
     }
 }
 
 impl ReprItem {
-    fn text(&self) -> &str {
-        match self {
-            Self::Text(text) | Self::Value(text) => text,
+    /// A JSON value the rule's text writes as [`Node::python_repr`].
+    #[must_use]
+    pub fn repr(value: &Node<'_>) -> Self {
+        Self::pair(value.python_repr(), value)
+    }
+
+    /// A JSON value the rule's text writes as [`Node::python_text`].
+    #[must_use]
+    pub fn json(value: &Node<'_>) -> Self {
+        Self::pair(value.python_text(), value)
+    }
+
+    fn pair(repr: impl fmt::Display, value: &Node<'_>) -> Self {
+        Self {
+            repr: repr.to_string(),
+            written: value.written_text(),
         }
+    }
+}
+
+impl ReprOption {
+    /// A member's value, as [`ReprItem::repr`] writes it.
+    #[must_use]
+    pub fn of(value: Option<&Node<'_>>) -> Self {
+        Self(value.map(ReprItem::repr))
     }
 }
 
 impl fmt::Display for ReprItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Text(text) => write!(f, "{}", Quoted(text)),
-            Self::Value(value) => f.write_str(value),
+        f.write_str(&self.repr)
+    }
+}
+
+impl fmt::Display for ReprOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.0 {
+            Some(item) => item.fmt(f),
+            None => f.write_str("None"),
         }
     }
 }
@@ -415,7 +470,15 @@ impl IntoArg for ReprItem {
     type Kind = kind::Raw;
 
     fn arg(&self) -> &str {
-        self.text()
+        &self.written
+    }
+}
+
+impl IntoArg for ReprOption {
+    type Kind = kind::Optional<kind::Raw>;
+
+    fn arg(&self) -> Option<&str> {
+        self.0.as_ref().map(IntoArg::arg)
     }
 }
 

@@ -1,6 +1,6 @@
 //! Label text against Proof Metadata §3.3.
 
-use siros_explain::{Messages, Text};
+use siros_explain::Text;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env};
 use siros_paso::labels::{LabelSlot, LabelText, LabelViolation};
@@ -68,12 +68,7 @@ fn the_wallets_own_labels_meet_section_3_3() {
         .into_iter()
         .chain(subtypes.iter().map(|sub| Rulebook::Generic(*sub)))
         .chain(subtypes.iter().map(|sub| Rulebook::Mandate(*sub)));
-    let paso = CrateSource {
-        id: siros_paso::CrateModule::ID,
-        messages: siros_paso::CrateModule::messages(),
-        english: ENGLISH_PASO,
-        german: GERMAN_PASO,
-    };
+    let paso = CrateSource::of::<siros_paso::CrateModule>(ENGLISH_PASO, GERMAN_PASO);
     let app = App::of(&[CrateSource::openid4vp(), paso]).expect("the test app");
     for locale in ["en", "de"] {
         let env = Env::new(

@@ -203,12 +203,10 @@ impl<'q> ClaimsQuery<'q> {
                 .iter()
                 .any(|id| listed.iter().any(|value| value == id))
             {
-                let mut names: Vec<String> = constraint.matched.iter().map(text_of).collect();
-                names.sort();
                 return Err(Exclude::new(NoAlgorithm {
                     member: constraint.member,
                     listed: ReprList::json(listed),
-                    matched: ReprList::strings(&names),
+                    matched: ReprList::names(&constraint.matched),
                     appendix: format.appendix(),
                 }));
             }
@@ -252,9 +250,9 @@ impl<'q> ClaimsQuery<'q> {
             .collect())
     }
 
-    /// The credential's card: the display entry's name, else the wallet's "Credential"; the
-    /// `issuer` as subtitle; the logo resolved at issuance, else the wallet's default icon; the
-    /// rows of the items shown.
+    /// The credential's card: the display entry's name, else the crate module's
+    /// `WalletText::Credential` message; the `issuer` as subtitle; the logo resolved at issuance,
+    /// else the wallet's default icon; the rows of the items shown.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
@@ -386,12 +384,6 @@ pub fn vp_formats_refusal(
                 rule: KitRule::VpFormats,
             })
         })
-}
-
-/// A JSON value as Python's `str` of the value read by `json`.
-fn text_of(node: &Node<'_>) -> String {
-    node.as_str()
-        .map_or_else(|| node.python_text().to_string(), str::to_owned)
 }
 
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,

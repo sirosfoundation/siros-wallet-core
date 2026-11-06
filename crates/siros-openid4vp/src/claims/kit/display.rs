@@ -2,7 +2,7 @@
 //! the rows of its claims.
 
 use super::super::{ArrayIndex, ClaimPath, Concrete};
-use super::{ClaimsFormat, text_of};
+use super::ClaimsFormat;
 use crate::ids::LocaleTag;
 use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
@@ -72,8 +72,10 @@ fn label_of(
 /// An object is a heading row then its members; an array of values gives each element the
 /// array's label; an array holding objects or arrays is a heading row then its elements. A claim
 /// without a label in the metadata shows its last member name, or the wallet's word for a claim
-/// when its path names no member; a non-string value its JSON text. The issuer's labels and the
-/// credential's names and values show as written.
+/// when its path names no member. A scalar value shows by its type: a boolean as the wallet's yes
+/// or no, `null` as the wallet's text for no value, a number as a count or an exact decimal and
+/// beyond those as the JSON text the credential wrote. The issuer's labels and the credential's
+/// names and strings show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
@@ -100,28 +102,31 @@ pub(super) fn value_rows(
             .chain(std::iter::once(step.to_owned_step()))
             .collect()
     };
-    match value {
-        Node::Object(object) => label
-            .map(Row::full_text)
-            .into_iter()
-            .chain(object.members().iter().flat_map(|member| {
-                value_rows(
-                    format,
-                    &child(Concrete::Key(member.name.clone())),
-                    &member.value,
-                    described,
-                    locales,
-                    None,
-                )
-            }))
-            .collect(),
+    let text = match value {
+        Node::Object(object) => {
+            return label
+                .map(Row::full_text)
+                .into_iter()
+                .chain(object.members().iter().flat_map(|member| {
+                    value_rows(
+                        format,
+                        &child(Concrete::Key(member.name.clone())),
+                        &member.value,
+                        described,
+                        locales,
+                        None,
+                    )
+                }))
+                .collect();
+        }
         Node::Array(items) => {
             let nested = items
                 .iter()
                 .any(|item| matches!(item, Node::Object(_) | Node::Array(_)));
             let head = label.clone().filter(|_| nested).map(Row::full_text);
             let passed = (!nested).then(|| label.unwrap_or_else(|| fallback.clone()));
-            head.into_iter()
+            return head
+                .into_iter()
                 .chain(items.iter().enumerate().flat_map(|(at, item)| {
                     value_rows(
                         format,
@@ -132,27 +137,16 @@ pub(super) fn value_rows(
                         passed.as_ref(),
                     )
                 }))
-                .collect()
+                .collect();
         }
-        scalar => vec![Row::new(
-            label.unwrap_or(fallback),
-            Value::Text(scalar_text(scalar)),
-        )],
-    }
-}
-
-/// A claim's scalar value as its type shows it: a boolean as the wallet's yes or no, `null` as
-/// the wallet's text for no value, a number as a count or an exact decimal, a string as written.
-fn scalar_text(node: &Node<'_>) -> Text {
-    match node {
         Node::Bool(true) => Text::of(&BooleanText::Yes),
         Node::Bool(false) => Text::of(&BooleanText::No),
         Node::Null => Text::of(&WalletText::Null),
-        Node::Number(number) => {
-            number_value(number.text()).map_or_else(|| Text::Raw(text_of(node)), Text::Value)
-        }
-        _ => Text::Raw(text_of(node)),
-    }
+        Node::Number(number) => number_value(number.text())
+            .map_or_else(|| Text::Raw(number.text().to_owned()), Text::Value),
+        Node::String(written) => Text::Raw(written.to_string()),
+    };
+    vec![Row::new(label.unwrap_or(fallback), Value::Text(text))]
 }
 
 /// A JSON number (RFC 8259 §6) as an exact value: a natural number as a count, another as a
