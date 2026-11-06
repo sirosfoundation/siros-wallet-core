@@ -26,9 +26,6 @@ const KNOWN: [&str; 7] = [
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "qes.problem")]
 pub enum Problem {
-    /// The entry is no JSON object, which OpenID4VP §5.1 refuses first.
-    #[error("the entry is not a JSON object")]
-    NotAnObject,
     /// A member the type does not define.
     #[error("unknown member {0}")]
     UnknownMember(#[explain(name = "member")] String),
@@ -306,10 +303,7 @@ impl<'e> ApprovalRequest<'e> {
     /// The entry's request, or every rule it breaks in the rules' order: unknown members in
     /// member order, `numSignatures`, `signatureQualifier`, `hashAlgorithmOID`, `documentInfos`
     /// document by document, `locations`.
-    pub(crate) fn parse(entry: &'e Node<'_>) -> Result<Self, Vec<Problem>> {
-        let object = entry
-            .as_object()
-            .ok_or_else(|| vec![Problem::NotAnObject])?;
+    pub(crate) fn parse(object: &'e Object<'_>) -> Result<Self, Vec<Problem>> {
         let mut problems = Problems(
             object
                 .names()
