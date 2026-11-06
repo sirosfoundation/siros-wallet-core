@@ -4,10 +4,15 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 
+use crate::rows::SriMetadata;
+
 /// Integrity metadata for content with sha256, the algorithm the response claims use.
 #[must_use]
-pub fn integrity(content: &[u8]) -> String {
-    format!("sha256-{}", STANDARD.encode(Sha256::digest(content)))
+pub fn integrity(content: &[u8]) -> SriMetadata {
+    SriMetadata::written(format!(
+        "sha256-{}",
+        STANDARD.encode(Sha256::digest(content))
+    ))
 }
 
 /// An SRI hash algorithm, weakest first.
@@ -41,8 +46,9 @@ impl Algorithm {
 /// its digests may match. Metadata without a supported token matches nothing: every caller
 /// requires the check, so absent metadata cannot pass it.
 #[must_use]
-pub fn matches(content: &[u8], metadata: &str) -> bool {
+pub fn matches(content: &[u8], metadata: &SriMetadata) -> bool {
     let tokens: Vec<(Algorithm, &str)> = metadata
+        .as_str()
         .split_whitespace()
         .filter_map(|token| {
             let expression = token

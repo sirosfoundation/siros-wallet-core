@@ -45,8 +45,7 @@ impl siros_explain::Requested for BooleanText {
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImageMedia(Cow<'static, str>);
 
 /// A media type that names no image.

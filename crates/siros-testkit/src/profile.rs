@@ -181,12 +181,12 @@ impl Profile for TestProfile {
             .in_section(RequestText::raw("Section".to_owned())),
             Row::new(
                 RequestText::raw("Logo".to_owned()),
-                Value::Image(Image::Embedded(ImageRef {
-                    source: siros_openid4vp::rows::ImageSource::Data,
-                    media: siros_openid4vp::rows::ImageMedia::PNG,
-                    width: 1,
-                    height: 1,
-                })),
+                Value::Image(Image::Embedded(ImageRef::new(
+                    siros_openid4vp::rows::ImageSource::Data,
+                    siros_openid4vp::rows::ImageMedia::PNG,
+                    siros_openid4vp::rows::ImageWidth::new(1),
+                    siros_openid4vp::rows::ImageHeight::new(1),
+                ))),
             )
             .in_section(RequestText::raw("Section".to_owned())),
         ];

@@ -229,7 +229,11 @@ impl Answer<'_> {
         })?;
         out.push((
             sca::member(placement, Sca::RequestIntegrity),
-            MemberValue::Text(sri::integrity(request_object.as_bytes())),
+            MemberValue::Text(
+                sri::integrity(request_object.as_bytes())
+                    .as_str()
+                    .to_owned(),
+            ),
         ));
         out.push((
             sca::member(placement, Sca::WalletInstanceVersion),

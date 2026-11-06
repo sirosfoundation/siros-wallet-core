@@ -4785,7 +4785,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `TransactionHeader` | `consent` | A transaction's counterparty, amount and rows (PSD2 RTS Art. 5(1)(a)) | Holds: public fields of `Text` and `Row` |
 | `ConsentEntry` | `consent` | A consent entry: the card and the transaction's overlay | Holds: private fields; only the core's display step makes one |
 | `Icon` | `consent` | An icon of at least one byte with its image media type; the core's `rows` | Holds: public fields of checked types: `ImageMedia`, `NonZeroU32` |
-| `ImageMedia` | `consent` | The essence of a media type of top-level type `image` (RFC 6838 §4.2.3); the core's `rows` | Holds: private text; only `of` and `parse` make one, and the consts `PNG`, `JPEG` |
+| `ImageMedia` | `consent` | The essence of a media type of top-level type `image` (RFC 6838 §4.2.3); the core's `rows` | Holds: private text; only `of` and `parse` make one, and the consts `PNG`, `JPEG`, `SVG` |
 | `ImageMediaApi` | `consent` | Reads the image media type of a media type or a text | Holds: the inherent methods of `ImageMedia` |
 | `NotImageMedia` | `consent` | A text that is no media type, or names no image | Holds: a refusal enum, one variant per rule |
 | `StaticEntry` | `consent` | An entry the wallet adds first to every set; the core's `matching` | Holds: public fields: an id and a core-made `Card` |

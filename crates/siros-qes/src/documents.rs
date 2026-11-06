@@ -1,6 +1,7 @@
 //! The linked documents' integrity (CSC §6.3): what a fetch of a document returned, its check
 //! against the document's checksum, and what phase 2 finds when a check fails.
 
+use siros_openid4vp::rows::SriMetadata;
 use siros_openid4vp::sri;
 
 /// What fetching a linked document returned.
@@ -16,7 +17,9 @@ impl Fetched {
     /// Whether the content matches the checksum (W3C SRI metadata); a failed fetch matches none.
     pub(crate) fn verifies(&self, checksum: &str) -> bool {
         match self {
-            Self::Content(content) => sri::matches(content, checksum),
+            Self::Content(content) => {
+                sri::matches(content, &SriMetadata::written(checksum.to_owned()))
+            }
             Self::Failed => false,
         }
     }

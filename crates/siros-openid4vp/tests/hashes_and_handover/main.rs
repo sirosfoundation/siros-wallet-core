@@ -19,7 +19,7 @@ use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer}
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Delivery, Prepared};
-use siros_openid4vp::rows::{Choice, Env};
+use siros_openid4vp::rows::{Choice, Env, SriMetadata};
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::{Binds, Published, TestHost};
@@ -147,18 +147,23 @@ fn subresource_integrity_follows_the_w3c_example() {
         (body.to_vec(), format!("{s384} sha512-AAAA"), false),
         ([&body[..], b" "].concat(), s384.to_owned(), false),
         (body.to_vec(), "md5-AAAA".to_owned(), false),
-        (body.to_vec(), sri::integrity(body), true),
         (
             body.to_vec(),
-            format!("{} {s384}", sri::integrity(body)),
+            sri::integrity(body).as_str().to_owned(),
+            true,
+        ),
+        (
+            body.to_vec(),
+            format!("{} {s384}", sri::integrity(body).as_str()),
             true,
         ),
     ];
     for (content, metadata, want) in cases {
-        assert_eq!(sri::matches(&content, &metadata), want, "{metadata}");
+        let written = SriMetadata::written(metadata);
+        assert_eq!(sri::matches(&content, &written), want, "{written:?}");
     }
     assert_eq!(
-        sri::integrity(body),
+        sri::integrity(body).as_str(),
         format!(
             "sha256-{}",
             base64::engine::general_purpose::STANDARD.encode(Sha256::digest(body))

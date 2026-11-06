@@ -188,7 +188,7 @@ pub fn paso_document(
     };
     Ok(format!(
         "{{\"integrity\": {}, \"type\": {}, \"issuer\": {published}, {metadata}}}",
-        quote(&integrity(jwt.as_bytes())),
+        quote(integrity(jwt.as_bytes()).as_str()),
         quote(credential_type),
     ))
 }
