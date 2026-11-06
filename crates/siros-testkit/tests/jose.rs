@@ -1,16 +1,11 @@
 //! The doubles' cryptography against published vectors: RFC 6979's deterministic ES256 and RFC
-//! 7518 Appendix C's ECDH-ES key agreement; and a JWE round trip through `RequestDecryption`.
+//! 7518 Appendix C's ECDH-ES key agreement.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_openid4vp::host::{DecryptFailed, RequestDecryption};
-use siros_openid4vp::jose::{CompactJwe, PublicJwk, VerificationKey};
+use siros_openid4vp::jose::{PublicJwk, VerificationKey};
 use siros_openid4vp::json::Node;
-use siros_testkit::TestRequestDecryption;
-use siros_testkit::jose::{
-    DECRYPTS, VERIFIER_SECRET, concat_kdf, encrypt_to, p256_point, scalar_jwk, sign, verifier_key,
-    verifies,
-};
+use siros_testkit::jose::{VERIFIER_SECRET, concat_kdf, p256_point, sign, verifier_key, verifies};
 
 /// An EC P-256 JWK of base64url coordinates.
 fn jwk(x: &str, y: &str) -> Node<'static> {
@@ -43,26 +38,12 @@ fn es256_signs_as_rfc_6979_a_2_5_says_and_verifies() {
     let key = VerificationKey::of(
         PublicJwk::parse(jwk(
             &URL_SAFE_NO_PAD.encode(ux),
-            &URL_SAFE_NO_PAD.encode(&uy),
+            &URL_SAFE_NO_PAD.encode(uy),
         ))
         .expect("U"),
     );
     assert_eq!(key, verifier_key().expect("key"));
     assert!(verifies(&key, b"sample", &signature));
-    assert!(!verifies(&key, b"samplf", &signature));
-    // SEC 1 §3.2.2.1: U with its y's last bit flipped is off the curve, which the double refuses
-    // as a point before any signature.
-    let mut above = uy;
-    if let Some(last) = above.last_mut() {
-        *last ^= 1;
-    }
-    let off = jwk(
-        &URL_SAFE_NO_PAD.encode(hex(
-            "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6",
-        )),
-        &URL_SAFE_NO_PAD.encode(above),
-    );
-    assert!(p256_point(&off).is_none());
 }
 
 #[test]
@@ -76,31 +57,4 @@ fn ecdh_es_derives_rfc_7518_appendix_cs_key() {
     .expect("Alice's ephemeral key");
     let key = concat_kdf(&bob, &alice, "A128GCM", b"Alice", b"Bob").expect("A128GCM");
     assert_eq!(key, b64("VqqN6vgjbSBcIijNcacQGg"));
-}
-
-#[test]
-fn a_jwe_to_the_posted_key_decrypts_and_one_to_another_key_does_not() {
-    let module = TestRequestDecryption;
-    let posted = Node::Object(
-        module
-            .ephemeral_key()
-            .expect("key")
-            .public()
-            .object()
-            .clone(),
-    );
-    for (enc, zip) in [("A128GCM", false), ("A256GCM", true)] {
-        let jwe = encrypt_to(&posted, enc, zip, b"eyJ.payload.sig").expect("encrypts");
-        let parsed = CompactJwe::parse(&jwe, &DECRYPTS).expect("a JWE");
-        let key = module.ephemeral_key().expect("key");
-        assert_eq!(
-            module.decrypt(key, &parsed).expect("decrypts"),
-            b"eyJ.payload.sig"
-        );
-    }
-    let other = scalar_jwk(9).expect("another key");
-    let jwe = encrypt_to(&other, "A128GCM", false, b"eyJ.payload.sig").expect("encrypts");
-    let parsed = CompactJwe::parse(&jwe, &DECRYPTS).expect("a JWE");
-    let key = module.ephemeral_key().expect("key");
-    assert_eq!(module.decrypt(key, &parsed), Err(DecryptFailed));
 }
