@@ -313,7 +313,10 @@ pub fn case(case: &Case, tally: &mut Tally) {
     }
     assert_eq!(bound.attested.pairs(), attested.as_slice(), "P-attested");
     let meta = given(&entry, &types).expect("the metadata that rendered");
+    let app = crate::common::request_app(&request, &[&card], &env);
+    let rendering = app.rendering().expect("the rendering");
     let answered = Answer {
+        rendering: &rendering,
         request: &request,
         request_object: request.request_object().expect("signed"),
         card: &card,
@@ -321,5 +324,5 @@ pub fn case(case: &Case, tally: &mut Tally) {
         entry: &entry,
     };
     phase2(case, &answered, &meta, &env, tally);
-    members(case, &answered, &meta, tally);
+    members(case, &answered, &meta, &env, tally);
 }

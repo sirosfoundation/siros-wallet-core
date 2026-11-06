@@ -5,9 +5,10 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use siros_openid4vp::cbor::decode;
+use siros_openid4vp::effects::{Fetch, Resource};
 use siros_openid4vp::host::{ProfileHost, Timestamp};
-use siros_openid4vp::ids::FormatId;
-use siros_openid4vp::plugins::{Answered, Member, MemberValue};
+use siros_openid4vp::plugins::{Member, MemberValue};
+use siros_openid4vp::rows::Env;
 use siros_paso::risk::SignalType;
 use siros_paso::{Measured, PasoProfile, Reading, Signal};
 use siros_testkit::pin_and_device;
@@ -15,7 +16,7 @@ use siros_testkit::reading::model_value;
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{section, sri, tables};
+use crate::common::{read_card_record, section, sri, tables};
 use crate::generate::{Case, DEFAULT, NOW};
 
 use super::Tally;
@@ -23,9 +24,13 @@ use super::phase2::{Answer, readings, refused_step};
 
 /// Core §6.1 on the bound entry's response members: the locale shown, SHA-256 over the entry as
 /// received, the integrity values, the wallet's version, a fresh `jti`, the risk signals.
-pub(super) fn members(case: &Case, answer: &Answer<'_>, meta: &Value, tally: &mut Tally) {
-    let credential = answer.card.credential();
-    let format = FormatId::parse(case.format).expect("format");
+pub(super) fn members(
+    case: &Case,
+    answer: &Answer<'_>,
+    meta: &Value,
+    env: &Env,
+    tally: &mut Tally,
+) {
     let mut host = PasoHost::at(Timestamp(NOW));
     host.paso.signals = readings()
         .into_iter()
@@ -39,15 +44,15 @@ pub(super) fn members(case: &Case, answer: &Answer<'_>, meta: &Value, tally: &mu
         })
         .collect();
     let authentication = pin_and_device(Timestamp(NOW));
-    let record = Answered::new(
+    let responded = read_card_record(
         answer.request,
-        &credential,
-        &answer.bound.entries,
-        &answer.bound.attested,
-        crate::common::placement(&format),
-        siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
+        answer.card,
+        env,
+        answer.rendering,
+        |_: &Resource| Fetch::Unfetched,
+        &host,
+        move |record, host| PasoProfile::default().respond(record.record(), host, &authentication),
     );
-    let responded = PasoProfile::default().respond(record, &host, &authentication);
     // A record whose ad-hoc metadata JWT fails a step of §5.3 gets no members: phase 2 falls
     // back before it responds.
     if let Some(jwt) = answer.adhoc()

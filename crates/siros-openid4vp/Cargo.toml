@@ -40,8 +40,6 @@ k12 = ["transaction-data", "dep:k12"]
 sri = []
 # The claims kit: DCQL claims queries over a credential's JSON view, for the formats that use it.
 claims = []
-# A plug-in's tests: a record made from given parts, and its revalidation as phase 2 runs it.
-test-util = ["resolve"]
 
 [dependencies]
 serde = { workspace = true }

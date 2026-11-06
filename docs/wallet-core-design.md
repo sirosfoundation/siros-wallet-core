@@ -1199,8 +1199,8 @@ errors alone (`ErrorsAnswered`), a key the request's `VerifierKeys` do not hold 
 (`Foreign`), a key whose curve and `alg` or an `enc` the sealing statement does not admit
 (`Unstated`), and an `enc` the Verifier does not list (`Unlisted`; `VerifierMetadata::lists`:
 A128GCM when it lists none, §5.1). `Foreign` compares the key by identity (`ptr::addr_eq`) with
-the request's key at its place: `VerifierMetadata::new` under `test-util`, which Cargo's feature
-unification can turn on in any build, makes keys of other metadata. The route then binds the key
+the request's key at its place: a mode can hold the key of a second request it read through the
+core's public flow, as `TestChoice::Foreign` does. The route then binds the key
 as its `RouteKey`, the session holds it, and the core seals the response JSON to it through
 `Haip::encrypt_jwe`: the mode receives the `SealedJwe` alone, so no plaintext of a sealed route
 reaches it and no other key can receive the answer. A refusal of the choice (C7, or C6 for the
@@ -3201,7 +3201,6 @@ siros-zkp-catalogues `cbor`, `dc-api` and `uri` (its policy names `DcApiJwt` and
 | `sha3`, `blake2`, `k12` | `Sha3`, `Blake2`, `K12` | sha3 and keccak; blake2; k12 | the app's build, for the algorithms it registers |
 | `sri` | W3C SRI (`sri.rs`) | | siros-paso, siros-qes |
 | `claims` | the claims kit (`claims/kit`) | | siros-sdjwt, siros-mdoc |
-| `test-util` | `Answered::new`, `QueryContext::new`, `AnsweredContext::new`, `Session::new`, `RouteKey::new`, `VerifierMetadata::new` | | dev-dependencies alone |
 
 A feature adds types, trait implementations, methods and modules, and changes no signature: a
 crate that does not turn it on compiles the same when another crate of the build does (the Cargo
@@ -3262,7 +3261,14 @@ whether or not another crate turns `sealed-signals` on.
   unicode-normalization (NFC at load) and unicode-general-category (a currency symbol's edge).
   siros-explain names thiserror, and its derive syn.
 - A module's test double ships with the crate that defines the module, behind `test-util`, the
-  pattern of tokio's `test-util`: the core's doubles in siros-testkit (`TestPlatform`, which
+  pattern of tokio's `test-util`, written with the crate's public API alone, so anyone could write
+  it and it opens nothing: Cargo's feature unification can turn the feature on in any build, and
+  a constructor behind it would open what its type seals. A test reaches a sealed value the way a
+  plug-in does: siros-testkit's `probe` holds a format and a profile registered with the core
+  alongside the doubles, which hand a test's closure the `QueryContext`, `AnsweredContext` and
+  `Session` or `FetchedRecord` the core's flow gives them and stop the flow there, and a session
+  from a request and a `TestMode` route. The core defines its doubles' extension points and holds
+  no `test-util`: the core's doubles sit in siros-testkit (`TestPlatform`, which
   counts the End-User's authentications, `TestHaip`, `TestRequestDecryption`, a zero-sized double
   with a fixed scalar, `JweHaip`, whose `encrypt_jwe` seals for real (ECDH-ES with a fixed
   ephemeral key and the Concat KDF, A128GCM or A256GCM, the key's `kid` in the header; its other
@@ -4375,8 +4381,8 @@ The fixes that close a guarantee hole:
   encrypt to a key of its own. A mode chooses among the request's `VerifierKeys`, the core checks
   the choice against the sealing module's statement and the Verifier's list, seals the answer
   itself and hands the mode the JWE alone, and sends the body to the bound endpoint.
-- **A key of other metadata.** `VerifierMetadata::new` under `test-util`, which Cargo's feature
-  unification can turn on in any build, makes keys outside the request's. The route compares a
+- **A key of other metadata.** A mode can hold the key of a second request it read through the
+  core's public flow. The route compares a
   JWE mode's key by identity with the request's key at its place (`RouteBreach::Foreign`).
 - **Names read twice.** A response parameters part's `names()` can answer one set when the
   registry builds and another in phase 2. The registry keeps the names it checked
@@ -5349,7 +5355,7 @@ By module:
 | siros-mdoc, siros-sdjwt | Their tests' sessions; `wallet_formats`; `placement`. siros-mdoc: B.2.6's handover, `Thumbprint` and `SessionTranscript` from the session's binding facts, with the core's `cbor`; the `DeviceMac` double behind `test-util`. siros-sdjwt: the registration view's `types` through `ViewAdditions`, `meta_matches` over them. |
 | siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits`, public `bound`, `BiometricClass`, the `RandomIds` module with uuid, the `IssuerTrust` module with siros-x509, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
 | siros-zkp-req | What the core's API forces: its `Prover` module and `ProofRequest` (decision 13), `QueryContext`, `AllOf` refusals, an empty `wallet_formats`, `placement` `None`. |
-| siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
+| siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), the probes `read_query`, `read_phase_two`, `read_record`, `read_session` and `read_redirect_session` with `ProbeFormat`, `ProfileProbe` and `NamedPrefix`, `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
 | siros-integration | The generator signs DC API requests over their parameters; `end_to_end.rs` gains every flow of section 5; the properties generate URI requests, by GET and by POST; the HAIP and WE BUILD builds, over hosts of the crates' `test-util` doubles. |
 | Elsewhere | siros-matcher (siros-dc-matcher-config) calls `Request::parse`; it moves to `Received::dc_api` with the registration's `DcApiProtocols`, `Envelope::parse` over its registry with the core's DC API modes, and siros-credman for Credential Manager's entries. It lives outside this workspace; its call sites are uncounted. |
 
@@ -5869,7 +5875,7 @@ proving/              the colleague's: the proof backends and the browser presen
 
 | Crate | From | Features | SIROS crates it names |
 | :-- | :-- | :-- | :-- |
-| siros-openid4vp | wallet-rs | `match`, `resolve`, `dc-api`, `uri`, `signed`, `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`, `sri`, `claims`, `test-util` | siros-explain; siros-i18n with `render`, `number`, `list` |
+| siros-openid4vp | wallet-rs | `match`, `resolve`, `dc-api`, `uri`, `signed`, `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`, `sri`, `claims` | siros-explain; siros-i18n with `render`, `number`, `list` |
 | siros-x509 | wallet-rs | `test-util` | the core (`signed`); siros-explain |
 | siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain |
 | siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain |
@@ -5884,7 +5890,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-explain | wallet-rs | `derive` | none |
 | siros-explain-derive | wallet-rs | a proc-macro crate | none |
 | siros-cldr | wallet-rs, `publish = false` | | siros-explain |
-| siros-testkit | wallet-rs | | the core (`resolve`, `test-util`); siros-explain |
+| siros-testkit | wallet-rs | | the core (`resolve`); siros-explain |
 | siros-integration | wallet-rs, `publish = false` | | every crate, as dev-dependencies |
 | xtask | new, `publish = false` (section 10.7) | | none |
 

@@ -344,16 +344,6 @@ impl KeyChoice {
     }
 }
 
-#[cfg(feature = "test-util")]
-impl<'k> VerifierMetadata<'k> {
-    /// The metadata a plug-in's tests read the Verifier's keys from, as the core reads the
-    /// request's `client_metadata`.
-    #[must_use]
-    pub fn new(metadata: &'k ClientMetadata<'k>) -> Self {
-        Self::of(metadata)
-    }
-}
-
 /// The keys of the Verifier's `client_metadata.jwks` that [`AgreeableKey`] reads, in the
 /// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's:
 ///
@@ -811,20 +801,6 @@ impl<'q> QueryContext<'q> {
     }
 }
 
-#[cfg(feature = "test-util")]
-impl<'q> QueryContext<'q> {
-    /// The context a plug-in's tests read a query with, as `Accepted::new` makes it.
-    #[must_use]
-    pub const fn new(
-        request: &'q Request<'q>,
-        mode: Option<ModeName>,
-        named: bool,
-        supported: Option<Node<'q>>,
-    ) -> Self {
-        Self::of(request, mode, named, supported)
-    }
-}
-
 /// What a format's phase 2 reads of a query: its phase-1 context, under the mode rule C5
 /// accepted. Only `Prepared::prepare` makes one, from a request whose mode C5 accepts, so no
 /// phase-2 reading under a refused mode exists:
@@ -860,24 +836,6 @@ impl<'q> AnsweredContext<'q> {
     #[must_use]
     pub const fn context(&self) -> &QueryContext<'q> {
         &self.context
-    }
-}
-
-#[cfg(feature = "test-util")]
-impl<'q> AnsweredContext<'q> {
-    /// The context a plug-in's tests read a query with, as phase 2 makes it from a request whose
-    /// mode the rules accept.
-    #[must_use]
-    pub const fn new(
-        request: &'q Request<'q>,
-        mode: ModeName,
-        named: bool,
-        supported: Option<Node<'q>>,
-    ) -> Self {
-        Self::of(
-            QueryContext::of(request, Some(mode), named, supported),
-            mode,
-        )
     }
 }
 

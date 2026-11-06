@@ -430,7 +430,6 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
 
 #[test]
 fn a_key_binding_jwt_carries_claims_alone() {
-    let format = SdJwtVc::new().expect("format");
     let carried = |binding: bool, holder: Holder, members: &[Member]| {
         let dcql = format!(
             r#"{{"credentials": [{{"id": "q", "format": "dc+sd-jwt", "meta": {{"vct_values": ["t"]}}, "require_cryptographic_holder_binding": {binding}}}]}}"#
@@ -438,18 +437,20 @@ fn a_key_binding_jwt_carries_claims_alone() {
         let text = parameters(&dcql, "");
         let received = unsigned(&text).expect("received");
         let request = request_of(&received).expect("request");
-        let query = format
-            .query(
-                &request.queries()[0],
-                siros_testkit::fixtures::query_context(&request, false, None),
-            )
-            .map_err(|r| format!("{r:?}"))
-            .expect("query");
-        let mut held = sd_jwt("c", "t", "{}");
-        held.holder = holder;
-        query
-            .carries(&held.credential().expect("credential"), members)
-            .expect("carries")
+        let members = members.to_vec();
+        siros_testkit::probe::read_parsed(
+            &request,
+            &request.queries()[0],
+            SdJwtVc::new().expect("format"),
+            move |query| {
+                let mut held = sd_jwt("c", "t", "{}");
+                held.holder = holder;
+                query
+                    .carries(&held.credential().expect("credential"), &members)
+                    .expect("carries")
+            },
+        )
+        .expect("the query")
     };
     let claim = [Member::claim("transaction_data_hashes")];
     assert!(carried(true, Holder::Bound, &claim));

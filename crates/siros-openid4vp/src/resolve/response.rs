@@ -53,16 +53,6 @@ impl<'k> RouteKey<'k> {
     }
 }
 
-#[cfg(feature = "test-util")]
-impl<'k> RouteKey<'k> {
-    /// The key and `enc` a plug-in's tests seal to, as phase 2 binds them once it has checked
-    /// them.
-    #[must_use]
-    pub const fn new(key: VerifierKey<'k>, enc: ContentEncryption<'static>) -> Self {
-        Self::of(key, enc)
-    }
-}
-
 /// `vp_token`: per Credential Query presented, its presentations in selection order; the queries
 /// in the order of their first record.
 #[derive(Debug, Clone, Default)]

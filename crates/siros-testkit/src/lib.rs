@@ -11,7 +11,8 @@
 //! [`TestScope`]), the resources
 //! a test publishes for phase 2's fetches ([`Published`]), the issuer stand-in ([`issuer`]), the
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
-//! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), and the reference
+//! ([`reading`]), the fixtures the format plug-ins' tests share ([`fixtures`]), the probes that
+//! hand a test what the core's flow gives a plug-in ([`probe`]), and the reference
 //! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
 //! crate modules in its English and German, and a renderer over them ([`render`]).
 
@@ -46,6 +47,7 @@ pub mod jose;
 pub mod oracle;
 mod post;
 pub mod prefix;
+pub mod probe;
 mod profile;
 mod published;
 pub mod reading;
@@ -93,7 +95,7 @@ pub use format::{DoubleText, TestFormat};
 pub use host::{JweHaip, TestHaip, TestHost, TestPlatform, digest_prefix, pin_and_device};
 pub use jose::TestRequestDecryption;
 pub use post::{TestAnswerReader, TestPostContribution};
-pub use prefix::{Registration, TestPrefix, TestTrust};
+pub use prefix::{NamedPrefix, Registration, TestPrefix, TestTrust};
 pub use profile::{Binds, Stale, TestProfile};
 pub use published::{Published, PublishedResource};
 

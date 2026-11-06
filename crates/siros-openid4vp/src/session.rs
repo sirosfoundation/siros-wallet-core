@@ -98,17 +98,3 @@ impl<'s> Session<'s> {
         }
     }
 }
-
-#[cfg(feature = "test-util")]
-impl<'s> Session<'s> {
-    /// The session a plug-in's tests present under, as an answering route makes it.
-    #[must_use]
-    pub const fn new(
-        binding: SessionBinding<'s>,
-        nonce: &'s Nonce<'s>,
-        encrypted_to: Option<RouteKey<'s>>,
-        keys: &'s VerifierKeys<'s>,
-    ) -> Self {
-        Self::of(binding, nonce, encrypted_to, keys)
-    }
-}

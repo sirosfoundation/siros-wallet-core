@@ -5,28 +5,30 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::Value as Json;
 use siros_explain::AllOf;
+use siros_openid4vp::authenticate::PrefixName;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredOption, AnsweredQuery, FormatHost, PresentError, Presentation, Usable,
 };
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption};
-use siros_openid4vp::ids::{ClientId, FormatId, Nonce};
+use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Fault, FindingData, Format, FormatQuery, Member, Members, NoCandidate, OptionIndex,
     OptionItems, Registry, Shown,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{AgreeableKey, ClientMetadata, Query};
+use siros_openid4vp::request::{AgreeableKey, Query};
 use siros_openid4vp::resolve::Delivery;
-use siros_openid4vp::routing::VerifierMetadata;
 use siros_openid4vp::rows::Env;
 use siros_openid4vp::session::{Session, SessionBinding};
-use siros_openid4vp::uri::ResponseUri;
 use siros_openid4vp::wallet::{Credential, Wallet};
 use siros_testkit::FAULT;
-use siros_testkit::{Binds, JweHaip, TestFormat, TestHost, TestPlatform, TestRequestDecryption};
+use siros_testkit::probe::{Redirect, read_redirect_session};
+use siros_testkit::{
+    Binds, JweHaip, TestChoice, TestFormat, TestHost, TestPlatform, TestRequestDecryption,
+};
 
 use crate::common::{Held, env, parameters, registry, request_of, test_queries, unsigned};
 
@@ -212,22 +214,19 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
         "Annex A: the audience is the Origin prefixed with origin:"
     );
     // §5.9: a redirect-based request's audience is its Client Identifier, prefix included.
-    let client_id = ClientId::parse("x509_san_dns:client.example.org").expect("client_id");
-    let response_uri =
-        ResponseUri::parse("https://client.example.org/post".to_owned()).expect("response_uri");
-    let nonce = Nonce::parse("n-0S6_WzA2Mj").expect("nonce");
-    let none = ClientMetadata::parse(None).expect("metadata");
-    let none = VerifierMetadata::new(&none);
-    let redirect = Session::new(
-        SessionBinding::Redirect {
-            client_id: &client_id,
-            response_uri: &response_uri,
+    let audience = read_redirect_session(
+        Redirect {
+            client_id: "x509_san_dns:client.example.org",
+            response_uri: "https://client.example.org/post",
+            nonce: "n-0S6_WzA2Mj",
+            client_metadata: "{}",
         },
-        &nonce,
-        None,
-        none.keys(),
-    );
-    assert_eq!(redirect.audience(), "x509_san_dns:client.example.org");
+        siros_explain::checked!(PrefixName, "x509_san_dns"),
+        TestChoice::Plain,
+        |redirect| redirect.audience(),
+    )
+    .expect("the route of a redirect-based request");
+    assert_eq!(audience, "x509_san_dns:client.example.org");
     // dc_api: the session is sealed to no key.
     let plain = parameters(&test_queries(&["q"]), "");
     let received = unsigned(&plain).expect("received");

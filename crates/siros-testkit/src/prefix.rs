@@ -59,6 +59,32 @@ impl<H> PrefixHost<H> for TestPrefix {
     }
 }
 
+/// The test prefix under another name: a Client Identifier of a registered prefix's name, its key
+/// and endpoint the test prefix's.
+#[derive(Debug, Clone)]
+pub struct NamedPrefix {
+    /// The name.
+    pub name: PrefixName,
+    /// What it binds and vouches for.
+    pub prefix: TestPrefix,
+}
+
+impl ClientPrefix for NamedPrefix {
+    fn name(&self) -> PrefixName {
+        self.name
+    }
+}
+
+impl<H> PrefixHost<H> for NamedPrefix {
+    fn claim<'c>(
+        &'c self,
+        claim: ClientClaim<'c>,
+        host: &H,
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
+        self.prefix.claim(claim, host)
+    }
+}
+
 /// A claim the test prefix read.
 struct TestClaim<'c> {
     prefix: &'c TestPrefix,

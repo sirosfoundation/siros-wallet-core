@@ -39,7 +39,7 @@ All notable changes to this workspace. The format follows
 - `siros-openid4vp`'s features put each mechanism behind the feature its users
   turn on: `match`, `resolve`, `dc-api`, `uri`, `signed`,
   `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`,
-  `sri`, `claims` and `test-util`. A build compiles what it registers: an
+  `sri` and `claims`. A build compiles what it registers: an
   SD-JWT DC API build links no CBOR, COSE, form encoding, curve arithmetic or
   hash beyond SHA-2. `siros-paso`'s `sealed-signals` holds its `COSE_Encrypt`
   sealing, `siros-qes`'s `sha3` its SHA-3 approval hashes. A feature changes
@@ -47,6 +47,10 @@ All notable changes to this workspace. The format follows
   registry's host fixes what it takes of each plug-in (`Build`): `NoHost` takes
   phase 1's `Format`, `Profile` and `Mode` in every build, and under `resolve`
   a host holding a `Platform` takes plug-ins with their phase 2 over it.
+- A crate's `test-util` feature holds doubles of the extension points the crate
+  defines, written with its public API alone. `siros-testkit`'s `probe` hands a
+  test what the core's flow gives a plug-in: a `QueryContext`, an
+  `AnsweredContext`, a `Session` and a `FetchedRecord`.
 - `cargo xtask builds` checks that each build of the design's section 4.11
   compiles none of the crates its row excludes, siros-i18n with the features
   its row names alone, its matcher (the core and the plug-ins without

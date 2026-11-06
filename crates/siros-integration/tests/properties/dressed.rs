@@ -2,6 +2,8 @@
 //! request rules with the real registry, each profile's binding rule against what the core bound
 //! or excluded, the box the core composes for each entry, then the display and the responses.
 
+use std::rc::Rc;
+
 use crate::common::HaipHost;
 use serde_json::Value;
 use siros_credman::{CredmanEntry, EntryIcon, StandardEntry};
@@ -9,9 +11,11 @@ use siros_explain::Text;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
-use siros_openid4vp::plugins::{FormatQuery, NoCandidate, Profile, Registry, Shown};
+use siros_openid4vp::plugins::{
+    Fault, FormatQuery, Member, NoCandidate, OptionIndex, Profile, Registry, Shown,
+};
 use siros_openid4vp::request::{
-    ClientMetadata, EntryIndex, HolderBinding, Query, QueryIndex, Request,
+    ClientMetadata, EntryIndex, HolderBinding, Item, Query, QueryIndex, Request,
 };
 use siros_openid4vp::rows::{Env, Row};
 use siros_openid4vp::wallet::{Credential, Holder, Wallet};
@@ -19,6 +23,7 @@ use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Rendered};
 use siros_qes::QesProfile;
 use siros_testkit::fixtures::{self, Held};
+use siros_testkit::probe::read_query;
 
 use crate::common::registry;
 use crate::generate::Dressed;
@@ -27,7 +32,7 @@ use crate::tally::Tally;
 use crate::{display, outcome};
 
 /// A dressed case as the checks read it: the request, the real registry, the wallet, its
-/// configuration and static entries, the Verifier's metadata, each query as its format parsed it.
+/// configuration and static entries, each query as its format parsed it.
 pub struct Case<'c> {
     /// The request.
     pub request: &'c Request<'c>,
@@ -45,20 +50,102 @@ pub struct Case<'c> {
     pub held: &'c [Held],
     /// The credentials the host says can no longer be presented.
     pub unusable: &'c [String],
-    /// The Verifier's client metadata.
-    pub client: ClientMetadata<'c>,
     /// Each query as its format parsed it; `None` for a format without a plug-in.
-    pub parsed: Vec<Option<Box<dyn FormatQuery + 'c>>>,
+    pub parsed: Vec<Option<Parsed<'c>>>,
     /// The specifications' tables.
     pub spec: &'c Spec,
     /// Each PaSO entry rendered for each credential.
     pub renders: &'c [Rendering],
 }
 
-impl Case<'_> {
+/// A query as its format parses it in the context the core gives the format. Each reading runs
+/// the core's flow to that context, and a registered credential by its id.
+pub struct Parsed<'c> {
+    request: &'c Request<'c>,
+    query: &'c Query<'c>,
+    registry: Rc<Registry<HaipHost>>,
+    held: &'c [Held],
+    env: Env,
+}
+
+impl Parsed<'_> {
+    /// The closure's result over the parse and a credential of the wallet.
+    fn read<R: 'static>(
+        &self,
+        credential: &Credential<'_>,
+        read: impl FnOnce(&dyn FormatQuery, &Credential<'_>, &Env, ClientMetadata<'_>) -> R + 'static,
+    ) -> R {
+        let held = self
+            .held
+            .iter()
+            .find(|held| held.id == credential.id.as_str())
+            .expect("a credential of the wallet")
+            .clone();
+        let registry = Rc::clone(&self.registry);
+        let env = self.env.clone();
+        read_query(self.request, self.query, move |query, context| {
+            let client = ClientMetadata::parse(context.request().client_metadata())
+                .expect("accepted metadata");
+            let format = registry.format(&query.format).expect("a format");
+            let parsed = format
+                .query(query, context)
+                .map_err(|refusals| format!("{refusals:?}"))
+                .expect("an accepted query parses");
+            let credential = held.credential().expect("a credential");
+            read(&*parsed, &credential, &env, client)
+        })
+        .expect("the core reads the query")
+    }
+
+    /// [`FormatQuery::admits`] under the request's keys.
+    fn admits(&self, credential: &Credential<'_>) -> Result<(), NoCandidate> {
+        self.read(credential, |parsed, credential, _, client| {
+            parsed.admits(credential, &client.agreeable_keys())
+        })
+    }
+
+    /// [`FormatQuery::carries`].
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
+        let members = members.to_vec();
+        self.read(credential, move |parsed, credential, _, _| {
+            parsed.carries(credential, &members)
+        })
+    }
+
+    /// [`FormatQuery::answerable`] in the case's configuration.
+    fn answerable(
+        &self,
+        credential: &Credential<'_>,
+        provided: &[Member],
+    ) -> Result<Vec<OptionIndex>, Fault> {
+        let provided = provided.to_vec();
+        self.read(credential, move |parsed, credential, env, _| {
+            parsed.answerable(credential, env, &provided)
+        })
+    }
+
+    /// [`FormatQuery::draw`] in the case's configuration.
+    fn draw(
+        &self,
+        credential: &Credential<'_>,
+        everyone: &[Item],
+        chosen: &[Item],
+    ) -> Result<Card, Fault> {
+        let (everyone, chosen) = (everyone.to_vec(), chosen.to_vec());
+        self.read(credential, move |parsed, credential, env, _| {
+            let shown = Shown {
+                everyone: &everyone,
+                chosen: &chosen,
+            };
+            parsed.draw(credential, shown, env)
+        })
+    }
+}
+
+impl<'c> Case<'c> {
     /// A query's parse by its format.
-    pub fn parsed(&self, query: QueryIndex) -> Option<&dyn FormatQuery> {
-        self.parsed.get(query.get()).and_then(Option::as_deref)
+    pub fn parsed(&self, query: QueryIndex) -> Option<&Parsed<'c>> {
+        self.parsed.get(query.get()).and_then(Option::as_ref)
     }
 
     /// The query at a position.
@@ -157,7 +244,7 @@ enum Want {
 pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
     let received = dressed.received();
     let request = fixtures::request_of(&received).expect("a dressed request parses");
-    let registry = registry().expect("the real registry");
+    let registry = Rc::new(registry().expect("the real registry"));
     let credentials = dressed
         .credentials
         .iter()
@@ -195,7 +282,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             );
         }
     }
-    let accepted = match Accepted::new(&request, &registry) {
+    let accepted = match Accepted::new(&request, &*registry) {
         Ok(accepted) => accepted,
         Err(refused) => {
             for text in refused.texts() {
@@ -207,23 +294,15 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
             return;
         }
     };
-    let client = ClientMetadata::parse(request.client_metadata()).expect("accepted metadata");
     let parsed = request
         .indexed_queries()
-        .map(|(index, query)| {
-            registry.format(&query.format).map(|format| {
-                let named = !request.entries_naming(index).is_empty();
-                format
-                    .query(
-                        query,
-                        siros_testkit::fixtures::query_context(
-                            &request,
-                            named,
-                            client.vp_formats(&query.format).cloned(),
-                        ),
-                    )
-                    .map_err(|refusals| format!("{refusals:?}"))
-                    .expect("an accepted query parses")
+        .map(|(_, query)| {
+            registry.format(&query.format).map(|_| Parsed {
+                request: &request,
+                query,
+                registry: Rc::clone(&registry),
+                held: &dressed.credentials,
+                env: env.clone(),
             })
         })
         .collect();
@@ -238,7 +317,6 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
         statics: &dressed.statics,
         held: &dressed.credentials,
         unusable: &dressed.unusable,
-        client,
         parsed,
         spec,
         renders: &renders,
@@ -255,7 +333,6 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
 /// first match (Core §7.4.2); QES's one entry, its qualifier, its members carried (CSC §6.3,
 /// §7.2.1).
 fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
-    let keys = case.client.agreeable_keys();
     let paso = PasoProfile::default();
     for (index, query) in case.request.indexed_queries() {
         let candidates = matched.candidates(index);
@@ -285,7 +362,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                 }
                 continue;
             }
-            match parsed.admits(credential, &keys) {
+            match parsed.admits(credential) {
                 Ok(()) => {}
                 Err(NoCandidate::Excluded(_)) => {
                     assert!(
@@ -329,7 +406,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
             }
             let answers = |provided| {
                 !parsed
-                    .answerable(credential, case.env, provided)
+                    .answerable(credential, provided)
                     .expect("no fault")
                     .is_empty()
             };
@@ -424,7 +501,7 @@ fn qes_binding(
     query: QueryIndex,
     entry: EntryIndex,
     credential: &Credential<'_>,
-    parsed: &dyn FormatQuery,
+    parsed: &Parsed<'_>,
     tally: &mut Tally,
 ) {
     let (got, excluded) = given(matched, query, credential);
@@ -441,7 +518,7 @@ fn qes_binding(
     if approves && carried {
         let provided = members.expect("QES's members for the format");
         let answers = !parsed
-            .answerable(credential, case.env, provided)
+            .answerable(credential, provided)
             .expect("no fault")
             .is_empty();
         assert_eq!(got.is_some(), answers, "P-QES matched {}", credential.id);
@@ -485,14 +562,7 @@ fn boxes(
         );
         // The format's card shows the items in every answerable option, then the option's own.
         let card: Card = parsed
-            .draw(
-                candidate.credential,
-                Shown {
-                    everyone: &everyone,
-                    chosen: &chosen,
-                },
-                case.env,
-            )
+            .draw(candidate.credential, &everyone, &chosen)
             .expect("no fault");
         let Some(bound) = candidate.bound.as_ref().map(|binding| &binding.bound) else {
             assert!(view.record.entries.is_empty(), "P-record without entries");

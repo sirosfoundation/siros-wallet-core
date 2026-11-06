@@ -62,6 +62,8 @@ engine core. Keep changes small and protocol-specific.
 - **Tests live outside the source files**, in each crate's `tests/` directory,
   and check the crate through its public API: no `#[test]` or `#[cfg(test)]`
   under `src/`, and no visibility widened for a test.
+- **A crate's `test-util` feature holds doubles of the extension points the
+  crate defines, written with its public API alone.**
 - **Every test enforces a source of truth outside the code it tests**: a
   specification, published vectors, an independent implementation, or a
   property that must hold. Delete a test whose expected value comes from the

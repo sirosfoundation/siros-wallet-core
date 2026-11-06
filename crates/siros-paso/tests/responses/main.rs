@@ -14,16 +14,14 @@ use common::{Card, PAY, annex, en, member, parameters, request_app, section, tab
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_explain::AllOf;
+use siros_openid4vp::effects::{Fetch, Resource};
 use siros_openid4vp::host::{
     AnsweredContext, AnsweredQuery, CoreHost, FormatHost, ProfileHost, Timestamp,
 };
 use siros_openid4vp::ids::{FormatId, TransactionType};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
-use siros_openid4vp::plugins::{
-    Answered, Attested, BoundEntries, Format, FormatQuery, HostedProfile, Member, MemberValue,
-    Registry,
-};
+use siros_openid4vp::plugins::{Format, FormatQuery, HostedProfile, Member, MemberValue, Registry};
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Query, Request};
 use siros_openid4vp::resolve::{Outcome as Phase2, Prepared};
@@ -248,28 +246,21 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
         None,
         ISSUER,
     );
-    let credential = card.credential();
-    let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
-    let entries = BoundEntries::select(&offered, offered.clone()).expect("entries");
-    let attested = Attested::new(vec![
-        ("display_locale".to_owned(), "de".to_owned()),
-        ("metadata_integrity".to_owned(), card.integrity()),
-    ])
-    .expect("attested");
-    let format = FormatId::parse("mso_mdoc").expect("format");
-    let record = Answered::new(
-        &request,
-        &credential,
-        &entries,
-        &attested,
-        crate::common::placement(&format),
-        siros_testkit::fixtures::mode_of(&request).expect("a mode"),
-    );
     let host = PasoHost::at(Timestamp(NOW));
     let authentication = pin_and_device(Timestamp(NOW));
-    let members = PasoProfile::default()
-        .respond(record, &host, &authentication)
-        .expect("members");
+    let env = en();
+    let app = request_app(&request, &[&card], &env);
+    let rendering = app.rendering().expect("the rendering");
+    let members = common::read_card_record(
+        &request,
+        &card,
+        &env,
+        &rendering,
+        |_: &Resource| Fetch::Unfetched,
+        &host,
+        move |record, host| PasoProfile::default().respond(record.record(), host, &authentication),
+    )
+    .expect("members");
     let mut names: Vec<String> = members
         .names()
         .map(|member| match member {

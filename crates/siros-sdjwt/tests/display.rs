@@ -3,10 +3,11 @@
 //! the effective metadata of §8.5.2 (`data/figure-21-*`, Figure 21).
 
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Format, Shown};
+use siros_openid4vp::plugins::Shown;
 use siros_openid4vp::request::Item;
 use siros_sdjwt::SdJwtVc;
 use siros_testkit::fixtures::{Held, env, icon, parameters, request_of, unsigned};
+use siros_testkit::probe::read_parsed;
 use siros_testkit::render::written;
 
 const FIGURE_28: &str = include_str!("data/figure-28-sd-jwt-vc-payload.json");
@@ -34,48 +35,49 @@ fn card(
     let text = parameters(&dcql, "");
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
-    let format = SdJwtVc::new().expect("format");
-    let query = format
-        .query(
-            &request.queries()[0],
-            siros_testkit::fixtures::query_context(&request, false, None),
-        )
-        .map_err(|refusals| format!("{refusals:?}"))
-        .expect("query");
-    let held = Held::new("edu", "dc+sd-jwt", view);
-    let icons = [icon(LOGO, 1000), icon(LOGO_DE, 1000)]
-        .into_iter()
-        .map(|icon| icon.expect("icon"))
-        .collect();
-    let env = env(locales, icons).expect("env");
-    let items: Vec<Item> = (0..paths.len())
-        .map(|k| Item::new(k).expect("item"))
-        .collect();
-    let card = query
-        .draw(
-            &held.credential().expect("credential"),
-            Shown {
-                everyone: &items,
-                chosen: &[],
-            },
-            &env,
-        )
-        .expect("card");
-    let rows = card
-        .rows
-        .iter()
-        .map(|row| {
+    let view = view.to_owned();
+    let locales = locales.to_vec();
+    let paths = paths.len();
+    read_parsed(
+        &request,
+        &request.queries()[0],
+        SdJwtVc::new().expect("format"),
+        move |query| {
+            let held = Held::new("edu", "dc+sd-jwt", view);
+            let icons = [icon(LOGO, 1000), icon(LOGO_DE, 1000)]
+                .into_iter()
+                .map(|icon| icon.expect("icon"))
+                .collect();
+            let env = env(&locales, icons).expect("env");
+            let items: Vec<Item> = (0..paths).map(|k| Item::new(k).expect("item")).collect();
+            let card = query
+                .draw(
+                    &held.credential().expect("credential"),
+                    Shown {
+                        everyone: &items,
+                        chosen: &[],
+                    },
+                    &env,
+                )
+                .expect("card");
+            let rows = card
+                .rows
+                .iter()
+                .map(|row| {
+                    (
+                        as_written(&row.label),
+                        row.value.as_ref().and_then(|v| v.text()).map(as_written),
+                    )
+                })
+                .collect();
             (
-                as_written(&row.label),
-                row.value.as_ref().and_then(|v| v.text()).map(as_written),
+                as_written(&card.title),
+                card.icon.reference.to_string(),
+                rows,
             )
-        })
-        .collect();
-    (
-        as_written(&card.title),
-        card.icon.reference.to_string(),
-        rows,
+        },
     )
+    .expect("the query")
 }
 
 /// A text the issuer or the credential wrote, as written; another text as the value it holds.

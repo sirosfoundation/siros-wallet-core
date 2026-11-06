@@ -74,7 +74,7 @@ siros-credman its `render`, and siros-credman's `register` its `load`; the app
 turns on `load`.
 
 ```text
-siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims | test-util
+siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
 ├── siros-x509        x509_hash, x509_san_dns                     signed
 ├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading   claims; resolve: resolve, cbor
 ├── siros-sdjwt       dc+sd-jwt                                   claims; resolve: resolve
@@ -85,7 +85,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-trust       issuer trust at registration                match, resolve
 ├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
-├── siros-testkit     the core's test doubles                     test-util, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
+├── siros-testkit     the core's test doubles                     resolve, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
 siros-i18n            the i18n engine                             load | render | number | currency | offset | date | list
 siros-cldr            CLDR format options for siros-i18n modules

@@ -5,8 +5,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_openid4vp::effects::MediaType;
 use siros_openid4vp::host::{ProfileHost, Timestamp};
-use siros_openid4vp::ids::FormatId;
-use siros_openid4vp::plugins::{Answered, Binding, Bound, Carriage, NoCandidate, Profile};
+use siros_openid4vp::plugins::{Binding, Bound, Carriage, NoCandidate, Profile};
+use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
@@ -16,7 +16,7 @@ use siros_testkit::{Published, PublishedResource};
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{CARD_TYPE, Card, png, sri};
+use crate::common::{CARD_TYPE, Card, png, read_card_record, sri};
 use crate::generate::{Case, NOW, REMOTE};
 
 use super::{Tally, at, mandate_claims, select};
@@ -69,6 +69,7 @@ pub(super) struct Answer<'a> {
     pub(super) card: &'a Card,
     pub(super) bound: &'a Bound,
     pub(super) entry: &'a Value,
+    pub(super) rendering: &'a Rendering<'a>,
 }
 
 impl Answer<'_> {
@@ -189,19 +190,18 @@ pub(super) fn expected_finding(
 /// record's entries.
 pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, tally: &mut Tally) {
     let credential = answer.card.credential();
-    let format = FormatId::parse(case.format).expect("format");
     let host = PasoHost::at(Timestamp(NOW));
     let published = Published::new(resources());
     let profile = PasoProfile::default();
-    let finding = Answered::new(
+    let finding = read_card_record(
         answer.request,
-        &credential,
-        &answer.bound.entries,
-        &answer.bound.attested,
-        crate::common::placement(&format),
-        siros_testkit::fixtures::mode_of(answer.request).expect("a mode"),
+        answer.card,
+        env,
+        answer.rendering,
+        |resource| published.answer(resource),
+        &host,
+        move |record, host| profile.revalidate(record, host),
     )
-    .revalidate(&profile, |resource| published.answer(resource), &host)
     .expect("no fault");
     let (refused, failed) = expected_finding(case, answer, meta);
     let Some(finding) = finding else {

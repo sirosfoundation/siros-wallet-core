@@ -486,6 +486,56 @@ pub fn value(row: &Row) -> Option<&Value> {
     row.value.as_ref()
 }
 
+/// The closure's result over the record phase 2 revalidates for the card's first selection: a
+/// [`ProfileProbe`] of PaSO's profile in a registry over `host`, a probe format of the card's
+/// identifier standing in for its plug-in, the resources fetched by `fetch`.
+pub fn read_card_record<H, R>(
+    request: &siros_openid4vp::request::Request<'_>,
+    card: &Card,
+    env: &Env,
+    rendering: &siros_openid4vp::rendering::Rendering<'_>,
+    fetch: impl FnMut(&siros_openid4vp::effects::Resource) -> siros_openid4vp::effects::Fetch,
+    host: &H,
+    read: impl for<'a> FnOnce(siros_openid4vp::plugins::FetchedRecord<'a>, &'a H) -> R + 'static,
+) -> R
+where
+    H: siros_openid4vp::host::CoreHost
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::Haip>
+        + siros_openid4vp::host::Has<dyn siros_openid4vp::host::RequestDecryption>
+        + 'static,
+    siros_paso::PasoProfile: siros_openid4vp::host::ProfileHost<H>,
+    R: 'static,
+{
+    use siros_testkit::probe::{ProbeFormat, ProfileProbe, Selection, read_record};
+
+    let credential = card.credential();
+    let mut builder = siros_openid4vp::plugins::Registry::<H>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.client_prefix(siros_testkit::TestPrefix::Request);
+    builder
+        .format(ProbeFormat::new(card.format, placement(&credential.format)).expect("the format"));
+    let handle = builder.profile(ProfileProbe(siros_paso::PasoProfile::default()));
+    builder.prefix(
+        siros_openid4vp::ids::TypePrefix::parse(siros_paso::rulebook::PASO).expect("the prefix"),
+        handle,
+    );
+    let registry = builder.build().expect("the registry");
+    let wallet = siros_openid4vp::wallet::Wallet::new(vec![credential]).expect("the wallet");
+    read_record(
+        Selection {
+            request,
+            wallet: &wallet,
+            registry: &registry,
+            env,
+            rendering,
+        },
+        fetch,
+        host,
+        read,
+    )
+    .expect("the flow reaches the record's revalidation")
+}
+
 /// What the registration view gains for a card: a [`Card`]'s view is the test format's, which
 /// states no type.
 pub fn additions<'c>(

@@ -18,21 +18,18 @@ use siros_openid4vp::host::{
     CoreHost, FormatHost, Haip, Has, Held, MayHave, Platform, SealedJwe, SignFailed, Signature,
     Usable,
 };
-use siros_openid4vp::ids::{CredentialId, Nonce, Origin};
+use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, Format, Members, OptionIndex};
-use siros_openid4vp::request::{AgreeableKey, ClientMetadata, ContentEncryption};
-use siros_openid4vp::resolve::RouteKey;
-use siros_openid4vp::routing::VerifierMetadata;
-use siros_openid4vp::session::{Session, SessionBinding};
+use siros_openid4vp::plugins::{Fault, Members, OptionIndex};
+use siros_openid4vp::request::{AgreeableKey, ContentEncryption};
 use siros_testkit::fixtures::{
-    B26_THUMBPRINT, Held as Registered, NONCE, ORIGIN, b26_metadata, dc_api_context, parameters,
-    present_option, request_of, unsigned,
+    B26_THUMBPRINT, Held as Registered, NONCE, ORIGIN, parameters, present_option, unsigned,
 };
 use siros_testkit::issuer::issue;
 use siros_testkit::oracle::member;
+use siros_testkit::probe::{dc_api, read_phase_two, sealed_to_b26};
 use siros_testkit::reading::{ModelHandover, ReadError, Rebuild, covered, model_shape, transcript};
-use siros_testkit::{TestHaip, TestPlatform};
+use siros_testkit::{TestChoice, TestHaip, TestPlatform};
 use std::cell::RefCell;
 
 /// The data the keystore signed and the device MAC module MACed, recorded; each delegates to its
@@ -142,51 +139,42 @@ fn present<H>(
 where
     H: CoreHost + Has<dyn Haip> + MayHave<dyn DeviceMac> + 'static,
 {
+    let (client_metadata, choice) = if sealed {
+        sealed_to_b26(client_metadata).expect("B.2.6's key")
+    } else {
+        (client_metadata.to_owned(), TestChoice::Plain)
+    };
     let text = parameters(
         &format!(r#"{{"credentials": [{query}]}}"#),
         &format!(r#""client_metadata":{client_metadata}"#),
     );
     let received = unsigned(&text).expect("received");
-    let request = request_of(&received).expect("request");
-    let metadata = ClientMetadata::parse(request.client_metadata()).expect("metadata");
-    let format = Mdoc::new().expect("format");
-    let parsed = FormatHost::<H>::answer(
-        &format,
-        &request.queries()[0],
-        dc_api_context(&request, metadata.vp_formats(&format.id()).cloned()),
-    )
-    .expect("query");
-    let verifier = VerifierMetadata::new(&metadata);
-    let b26 = b26_metadata().expect("B.2.6's key");
-    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
-    let b26 = VerifierMetadata::new(&b26);
-    let origin = Origin::parse(ORIGIN).expect("origin");
-    let nonce = Nonce::parse(NONCE).expect("nonce");
-    let encrypted_to = b26
-        .keys()
-        .iter()
-        .next()
-        .filter(|_| sealed)
-        .map(|key| RouteKey::new(key, ContentEncryption::A128GCM));
-    let session = Session::new(
-        SessionBinding::DcApi { origin: &origin },
-        &nonce,
-        encrypted_to,
-        verifier.keys(),
-    );
-    let credential = held.credential().expect("credential");
-    let presentation = present_option(
-        parsed.as_ref(),
-        Usable::checked(&credential),
-        OptionIndex(0),
-        &members,
-        &session,
+    let held = held.clone();
+    read_phase_two(
+        &received,
+        "mso_mdoc",
+        dc_api(choice),
         host,
+        move |phase_two| {
+            let format = Mdoc::new().expect("format");
+            let parsed = FormatHost::<H>::answer(&format, phase_two.query, phase_two.context)
+                .expect("query");
+            let credential = held.credential().expect("credential");
+            let presentation = present_option(
+                parsed.as_ref(),
+                Usable::checked(&credential),
+                OptionIndex(0),
+                &members,
+                phase_two.session,
+                phase_two.host,
+            )
+            .expect("presentation");
+            Node::parse(presentation.as_str())
+                .expect("JSON")
+                .into_owned()
+        },
     )
-    .expect("presentation");
-    Node::parse(presentation.as_str())
-        .expect("JSON")
-        .into_owned()
+    .expect("the flow reaches the format")
 }
 
 /// A map member by its text key.

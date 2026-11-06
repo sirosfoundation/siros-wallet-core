@@ -7,10 +7,12 @@
     clippy::indexing_slicing
 )]
 
+use ciborium::Value as CborValue;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use siros_mdoc::stored::{device_signing_input, DeviceNameSpaces, DocType};
-use siros_mdoc::{Handover, SessionTranscript, Thumbprint};
-use siros_openid4vp::ids::{ClientId, Nonce, Origin};
+use siros_mdoc::SessionTranscript;
+use siros_openid4vp::ids::ClientId;
 use siros_zkp_catalogues::age::{AgeRange, Bound, Bounds};
 use siros_zkp_catalogues::catalogue::Config;
 use siros_zkp_catalogues::date::Date;
@@ -198,6 +200,25 @@ fn pseudonym_vectors() {
     }
 }
 
+/// B.2.6's `SessionTranscript = [null, null, [name, bstr SHA-256(CBOR(info))]]`, the CDDL written
+/// with ciborium: the vectors state a thumbprint of no key, which only a key makes in the core.
+fn session_transcript(name: &str, info: Vec<CborValue>) -> Vec<u8> {
+    let cbor = |value: &CborValue| {
+        let mut out = Vec::new();
+        ciborium::into_writer(value, &mut out).unwrap();
+        out
+    };
+    let hash = Sha256::digest(cbor(&CborValue::Array(info))).to_vec();
+    cbor(&CborValue::Array(vec![
+        CborValue::Null,
+        CborValue::Null,
+        CborValue::Array(vec![
+            CborValue::Text(name.to_owned()),
+            CborValue::Bytes(hash),
+        ]),
+    ]))
+}
+
 /// The SessionTranscript of both channels and e2, against the challenge vectors the provers
 /// share (OpenID4VP 1.0, B.2.6; system rulebooks, Section 5).
 #[test]
@@ -205,21 +226,15 @@ fn session_vectors() {
     let v = vectors("session.json");
     for e in v["redirect"].as_array().unwrap() {
         let s = |k: &str| e[k].as_str().unwrap();
-        let thumbprint = Thumbprint::stated(hex(s("jwk_thumbprint_hex")).try_into().unwrap());
-        let (client_id, nonce) = (
-            ClientId::parse(s("client_id")).unwrap(),
-            Nonce::parse(s("nonce")).unwrap(),
+        let transcript = session_transcript(
+            "OpenID4VPHandover",
+            vec![
+                CborValue::Text(s("client_id").to_owned()),
+                CborValue::Text(s("nonce").to_owned()),
+                CborValue::Bytes(hex(s("jwk_thumbprint_hex"))),
+                CborValue::Text(s("response_uri").to_owned()),
+            ],
         );
-        let handover = Handover::Redirect {
-            client_id: &client_id,
-            nonce: &nonce,
-            thumbprint: Some(thumbprint),
-            response_uri: s("response_uri"),
-        };
-        let transcript = SessionTranscript::of(&handover)
-            .unwrap()
-            .as_bytes()
-            .to_vec();
         assert_eq!(
             transcript,
             hex(s("session_transcript_hex")),
@@ -243,20 +258,14 @@ fn session_vectors() {
             s("name")
         );
         if let Some(thumbprint) = e["jwk_thumbprint_hex"].as_str() {
-            let thumbprint = Thumbprint::stated(hex(thumbprint).try_into().unwrap());
-            let (origin, nonce) = (
-                Origin::parse(s("origin")).unwrap(),
-                Nonce::parse(s("nonce")).unwrap(),
+            let core = session_transcript(
+                "OpenID4VPDCAPIHandover",
+                vec![
+                    CborValue::Text(s("origin").to_owned()),
+                    CborValue::Text(s("nonce").to_owned()),
+                    CborValue::Bytes(hex(thumbprint)),
+                ],
             );
-            let handover = Handover::DcApi {
-                origin: &origin,
-                nonce: &nonce,
-                thumbprint: Some(thumbprint),
-            };
-            let core = SessionTranscript::of(&handover)
-                .unwrap()
-                .as_bytes()
-                .to_vec();
             assert_eq!(core, transcript, "{}", s("name"));
         }
     }

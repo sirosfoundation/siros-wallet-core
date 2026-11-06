@@ -46,15 +46,6 @@ impl Thumbprint {
     }
 }
 
-#[cfg(feature = "test-util")]
-impl Thumbprint {
-    /// A thumbprint a test vector states without the key it was taken of.
-    #[must_use]
-    pub const fn stated(digest: [u8; 32]) -> Self {
-        Self(digest)
-    }
-}
-
 /// The handover (B.2.6) of a session, built from its binding facts by [`Handover::of`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handover<'s> {

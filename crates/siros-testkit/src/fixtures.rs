@@ -25,7 +25,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
-use siros_openid4vp::routing::{Carries, Mode, ModeName, RoutedMode, VpToken};
+use siros_openid4vp::routing::{Carries, ModeName, RoutedMode, VpToken};
 use siros_openid4vp::rows::{
     Amounts, Bidi, Choice, Env, EnvError, Icon, ImageMedia, OnRenderError, RenderOptions,
 };
@@ -50,8 +50,7 @@ pub const B26_KEY: &str = r#"{"kty": "EC", "crv": "P-256", "x": "DxiH5Q4Yx3UrukE
 /// The RFC 7638 thumbprint of [`B26_KEY`] as B.2.6.1 and B.2.6.2 print it (KA1).
 pub const B26_THUMBPRINT: &str = "4283ec927ae0f208daaa2d026a814f2b22dca52cf85ffa8f3f8626c6bd669047";
 
-/// `client_metadata` holding [`B26_KEY`] alone: the Verifier keys a test takes the key a
-/// session is sealed to from.
+/// `client_metadata` holding [`B26_KEY`] alone.
 ///
 /// # Errors
 ///
@@ -631,16 +630,6 @@ pub fn present_option<H>(
     answered.present(members, session, host)
 }
 
-/// The context phase 2 reads a query of the request with under `dc_api`, no entry naming it,
-/// and the Verifier's `vp_formats_supported` value for its format.
-#[must_use]
-pub fn dc_api_context<'q>(
-    request: &'q Request<'q>,
-    supported: Option<siros_openid4vp::json::Node<'q>>,
-) -> siros_openid4vp::host::AnsweredContext<'q> {
-    siros_openid4vp::host::AnsweredContext::new(request, DcApi.name(), false, supported)
-}
-
 /// `let $name = $parameters;` as a signed DC API request over the parameters, the test Verifier's
 /// JWS holding them and its `client_id`: its data, its arrival and its request, each kept in the
 /// caller's scope.
@@ -651,17 +640,6 @@ macro_rules! signed_request {
         let received = $crate::fixtures::signed(&data).expect("the signed request arrives");
         let $name = $crate::fixtures::request_of(&received).expect("the signed request parses");
     };
-}
-
-/// The context phase 1 reads a query of the request with under `dc_api`: whether an entry names
-/// it, and the Verifier's `vp_formats_supported` value for its format.
-#[must_use]
-pub fn query_context<'q>(
-    request: &'q Request<'q>,
-    named: bool,
-    supported: Option<siros_openid4vp::json::Node<'q>>,
-) -> siros_openid4vp::routing::QueryContext<'q> {
-    siros_openid4vp::routing::QueryContext::new(request, Some(DcApi.name()), named, supported)
 }
 
 /// The name of the response mode a request's routing answers in; `None` when C5 refuses its

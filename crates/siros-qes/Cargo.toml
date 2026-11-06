@@ -30,7 +30,7 @@ siros-qes = { path = ".", features = ["resolve", "sha3"] }
 base64 = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }
-siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-testkit = { workspace = true }
 # The placements the tests' credentials take from their formats' plug-ins.
 siros-mdoc = { workspace = true }

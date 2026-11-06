@@ -3,16 +3,19 @@
 
 use std::num::NonZeroUsize;
 
-use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
+use siros_openid4vp::arrival::Received;
+use siros_openid4vp::authenticate::Authenticated;
 use siros_openid4vp::detail;
+use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::hash::{HashAlgorithm, HashName};
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::request::{Agreements, ClientMetadata, ContentEncryption, Request};
+use siros_openid4vp::request::{Agreements, ContentEncryption, Request};
 use siros_openid4vp::resolve::{
-    AnswerContent, Body, DcApiData, ErrorContent, ModeRoute, PostBody, ResponseMember,
+    AnswerContent, AnswerRoute, Body, DcApiData, ErrorContent, ModeRoute, PostBody, ResponseMember,
+    Route,
 };
 use siros_openid4vp::routing::{
     ChannelKind, Encrypting, ErrorModeHost, Mode, ModeHost, ModeName, ResponseParameters,
@@ -22,9 +25,9 @@ use siros_openid4vp::session::Session;
 use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
 
-use crate::FAULT;
-
+use crate::fixtures::{FixtureError, authenticate, parameters, routing, unsigned};
 use crate::rules::TestRule;
+use crate::{FAULT, TestHost};
 
 /// A response type of the name given (RFC 6749 §3.1.1).
 #[derive(Debug, Clone, Copy)]
@@ -87,22 +90,40 @@ pub enum TestChoice {
     },
 }
 
-/// The one key of metadata the double reads apart from every request's.
+/// The `client_metadata` of the one request the double reads apart from every other.
 const FOREIGN: &str = r#"{"jwks":{"keys":[{"kty":"EC","crv":"P-256","kid":"foreign","x":"DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0","y":"XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc","use":"enc","alg":"ECDH-ES"}]}}"#;
 
-/// The key of [`FOREIGN`]; the metadata it lives in is leaked, so it outlives every request.
+/// The key of a second parsed request whose metadata is [`FOREIGN`], from its route's session; the
+/// request and its route are leaked, so the key outlives every request.
 fn foreign() -> Result<VerifierKey<'static>, Fault> {
-    let raw: &'static RawValue = serde_json::from_str(FOREIGN)
-        .map_err(|e| Fault::caused(FAULT, detail!("the foreign metadata's JSON"), e))?;
-    let metadata: &'static ClientMetadata<'static> =
-        Box::leak(Box::new(ClientMetadata::parse(Some(raw)).map_err(|e| {
-            Fault::caused(FAULT, detail!("the foreign metadata"), e)
+    let refused = |e: FixtureError| Fault::caused(FAULT, detail!("the foreign request"), e);
+    let text: &'static str = Box::leak(
+        parameters(
+            r#"{"credentials":[{"id":"q","format":"test"}]}"#,
+            &format!(r#""client_metadata":{FOREIGN}"#),
+        )
+        .into_boxed_str(),
+    );
+    let registry = routing().map_err(|e| refused(e.into()))?;
+    let received: &'static Received<'static> =
+        Box::leak(Box::new(unsigned(text).map_err(refused)?));
+    let envelope: &'static Envelope<'static> = Box::leak(Box::new(
+        Envelope::parse(received, registry).map_err(|e| refused(e.into()))?,
+    ));
+    let host = TestHost::default();
+    let authenticated: &'static Authenticated<'static> = Box::leak(Box::new(
+        authenticate(envelope, registry, &host).map_err(refused)?,
+    ));
+    let route: &'static Route<'static, TestHost> = Box::leak(Box::new(
+        Route::new(authenticated, registry, &host)
+            .map_err(|e| Fault::caused(FAULT, detail!("the foreign route"), e))?,
+    ));
+    let answering: &'static AnswerRoute<'static, TestHost> =
+        Box::leak(Box::new(route.answering().ok_or_else(|| {
+            Fault::new(FAULT, detail!("the foreign route answers nothing"))
         })?));
-    let metadata: &'static VerifierMetadata<'static> =
-        Box::leak(Box::new(VerifierMetadata::new(metadata)));
-    metadata
-        .keys()
-        .iter()
+    let keys = answering.session().keys();
+    keys.iter()
         .next()
         .ok_or_else(|| Fault::new(FAULT, detail!("the foreign metadata's key")))
 }

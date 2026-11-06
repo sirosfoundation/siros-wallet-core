@@ -8,12 +8,13 @@
 use sha2::{Digest, Sha256};
 use siros_mdoc::Mdoc;
 use siros_openid4vp::matching::{Accepted, Match};
-use siros_openid4vp::plugins::{Format, Member, Registry, Shown};
+use siros_openid4vp::plugins::{Member, Registry, Shown};
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::{Item, Request};
 use siros_openid4vp::rows::BooleanText;
 use siros_openid4vp::wallet::Wallet;
-use siros_testkit::fixtures::{Held, env, icon, parameters, query_context};
+use siros_testkit::fixtures::{Held, env, icon, parameters};
+use siros_testkit::probe::read_parsed;
 use siros_testkit::render::written;
 
 /// An mdoc of a docType and values; IssuerAuth ES256 on P-256, the device key `device_alg` on
@@ -157,68 +158,71 @@ fn the_openid4vci_example_draws_its_card() {
         "",
     );
     siros_testkit::unsigned_request!(let request = &text);
-    let format = Mdoc::new().expect("format");
-    let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
-        .map_err(|r| format!("{r:?}"))
-        .expect("query");
-    let logo = "https://state.example.org/public/mdl.png";
-    let items: Vec<Item> = (0..4).map(|k| Item::new(k).expect("item")).collect();
-    let card = |locales: &[&'static str]| {
-        let env = env(locales, vec![icon(logo, 800).expect("icon")]).expect("env");
-        let card = query
-            .draw(
-                &held.credential().expect("credential"),
-                Shown {
-                    everyone: &items,
-                    chosen: &[],
-                },
-                &env,
-            )
-            .expect("card");
-        let rows: Vec<(String, String)> = card
-            .rows
-            .iter()
-            .map(|row| {
-                let value = row.value.as_ref().and_then(|v| v.text()).expect("value");
-                (as_written(&row.label), as_written(value))
-            })
-            .collect();
-        (
-            as_written(&card.title),
-            card.icon.reference.to_string(),
-            rows,
-        )
-    };
-    let yes = as_written(&siros_explain::Text::of(&BooleanText::Yes));
-    let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
-        labels
-            .iter()
-            .zip(["Erika", "Mustermann", "1971-09-01", yes.as_str()])
-            .map(|(label, value)| ((*label).to_owned(), value.to_owned()))
-            .collect()
-    };
-    // en-US: the card's name and logo; a claim's `name`; a claim without display shows its data
-    // element identifier; a boolean the wallet's yes.
-    assert_eq!(
-        card(&["en-US"]),
-        (
-            "Mobile Driving License".to_owned(),
-            logo.to_owned(),
-            rows(["Given Name", "Surname", "birth_date", "organ_donor"])
-        )
-    );
-    // de, then ja-JP (the wallet's own strings take the first locale, which its table serves):
-    // basic filtering selects no entry for de, the card's and given_name's for ja-JP;
-    // family_name has neither, so its first entry.
-    let (title, _, ja) = card(&["de", "ja-JP"]);
-    assert_eq!(
-        (title.as_str(), ja),
-        (
-            "モバイル運転免許証",
-            rows(["名前", "Surname", "birth_date", "organ_donor"])
-        )
-    );
+    read_parsed(
+        &request,
+        &request.queries()[0],
+        Mdoc::new().expect("format"),
+        move |query| {
+            let logo = "https://state.example.org/public/mdl.png";
+            let items: Vec<Item> = (0..4).map(|k| Item::new(k).expect("item")).collect();
+            let card = |locales: &[&'static str]| {
+                let env = env(locales, vec![icon(logo, 800).expect("icon")]).expect("env");
+                let card = query
+                    .draw(
+                        &held.credential().expect("credential"),
+                        Shown {
+                            everyone: &items,
+                            chosen: &[],
+                        },
+                        &env,
+                    )
+                    .expect("card");
+                let rows: Vec<(String, String)> = card
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        let value = row.value.as_ref().and_then(|v| v.text()).expect("value");
+                        (as_written(&row.label), as_written(value))
+                    })
+                    .collect();
+                (
+                    as_written(&card.title),
+                    card.icon.reference.to_string(),
+                    rows,
+                )
+            };
+            let yes = as_written(&siros_explain::Text::of(&BooleanText::Yes));
+            let rows = |labels: [&str; 4]| -> Vec<(String, String)> {
+                labels
+                    .iter()
+                    .zip(["Erika", "Mustermann", "1971-09-01", yes.as_str()])
+                    .map(|(label, value)| ((*label).to_owned(), value.to_owned()))
+                    .collect()
+            };
+            // en-US: the card's name and logo; a claim's `name`; a claim without display shows its data
+            // element identifier; a boolean the wallet's yes.
+            assert_eq!(
+                card(&["en-US"]),
+                (
+                    "Mobile Driving License".to_owned(),
+                    logo.to_owned(),
+                    rows(["Given Name", "Surname", "birth_date", "organ_donor"])
+                )
+            );
+            // de, then ja-JP (the wallet's own strings take the first locale, which its table serves):
+            // basic filtering selects no entry for de, the card's and given_name's for ja-JP;
+            // family_name has neither, so its first entry.
+            let (title, _, ja) = card(&["de", "ja-JP"]);
+            assert_eq!(
+                (title.as_str(), ja),
+                (
+                    "モバイル運転免許証",
+                    rows(["名前", "Surname", "birth_date", "organ_donor"])
+                )
+            );
+        },
+    )
+    .expect("the query");
 }
 
 /// The rules the request breaks, as (text, code).
@@ -487,56 +491,58 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
 
 #[test]
 fn key_authorizations_admit_the_response_members() {
-    let format = Mdoc::new().expect("format");
     let text = parameters(
         r#"{"credentials": [{"id": "q", "format": "mso_mdoc", "meta": {"doctype_value": "t"}}]}"#,
         "",
     );
     siros_testkit::unsigned_request!(let request = &text);
-    let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
-        .map_err(|r| format!("{r:?}"))
-        .expect("query");
-    let carried = |authorizations: &str, members: &[Member]| {
-        let held = mdoc("c", "t", "{}", (-7, "P-256"), authorizations);
-        query
-            .carries(&held.credential().expect("credential"), members)
-            .expect("carries")
-    };
-    let paso = [
-        Member::element("urn:paso:sca:1", "jti"),
-        Member::element("urn:paso:sca:1", "transaction_data_hash"),
-    ];
-    let qes = [Member::element(
-        "org.cloudsignatureconsortium.dm.1",
-        "qesApproval",
-    )];
-    // ISO/IEC 18013-5 §9.1.2.4: a name space authorizes every element of it; an element list
-    // authorizes its elements alone.
-    assert!(carried(r#"{"namespaces": ["urn:paso:sca:1"]}"#, &paso));
-    assert!(carried(
-        r#"{"elements": {"org.cloudsignatureconsortium.dm.1": ["qesApproval"]}}"#,
-        &qes
-    ));
-    assert!(!carried(
-        r#"{"elements": {"org.cloudsignatureconsortium.dm.1": ["other"]}}"#,
-        &qes
-    ));
-    assert!(!carried(r#"{"namespaces": ["org.iso.18013.5.1"]}"#, &paso));
-    assert!(!carried("{}", &paso), "none authorized");
-    assert!(carried("{}", &[]), "no member");
-    // A claim is no data element.
-    assert!(!carried(
-        r#"{"namespaces": ["urn:paso:sca:1"]}"#,
-        &[Member::claim("jti")]
-    ));
+    read_parsed(
+        &request,
+        &request.queries()[0],
+        Mdoc::new().expect("format"),
+        |query| {
+            let carried = |authorizations: &str, members: &[Member]| {
+                let held = mdoc("c", "t", "{}", (-7, "P-256"), authorizations);
+                query
+                    .carries(&held.credential().expect("credential"), members)
+                    .expect("carries")
+            };
+            let paso = [
+                Member::element("urn:paso:sca:1", "jti"),
+                Member::element("urn:paso:sca:1", "transaction_data_hash"),
+            ];
+            let qes = [Member::element(
+                "org.cloudsignatureconsortium.dm.1",
+                "qesApproval",
+            )];
+            // ISO/IEC 18013-5 §9.1.2.4: a name space authorizes every element of it; an element list
+            // authorizes its elements alone.
+            assert!(carried(r#"{"namespaces": ["urn:paso:sca:1"]}"#, &paso));
+            assert!(carried(
+                r#"{"elements": {"org.cloudsignatureconsortium.dm.1": ["qesApproval"]}}"#,
+                &qes
+            ));
+            assert!(!carried(
+                r#"{"elements": {"org.cloudsignatureconsortium.dm.1": ["other"]}}"#,
+                &qes
+            ));
+            assert!(!carried(r#"{"namespaces": ["org.iso.18013.5.1"]}"#, &paso));
+            assert!(!carried("{}", &paso), "none authorized");
+            assert!(carried("{}", &[]), "no member");
+            // A claim is no data element.
+            assert!(!carried(
+                r#"{"namespaces": ["urn:paso:sca:1"]}"#,
+                &[Member::claim("jti")]
+            ));
+        },
+    )
+    .expect("the query");
 }
 
 #[test]
 fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
     // A DeviceSigned element the transaction writes answers a claim naming it, unless the claim
     // asks for values: the element's value is made at presentation.
-    let format = Mdoc::new().expect("format");
     let answerable = |claim: &str, provided: &[Member]| {
         let text = parameters(
             &format!(
@@ -545,19 +551,24 @@ fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
             "",
         );
         siros_testkit::unsigned_request!(let request = &text);
-        let query = format
-            .query(&request.queries()[0], query_context(&request, false, None))
-            .map_err(|r| format!("{r:?}"))
-            .expect("query");
-        let held = mdoc("c", "t", "{}", (-7, "P-256"), "{}");
-        let options = query
-            .answerable(
-                &held.credential().expect("credential"),
-                &env(&["en"], Vec::new()).expect("env"),
-                provided,
-            )
-            .expect("answerable");
-        !options.is_empty()
+        let provided = provided.to_vec();
+        read_parsed(
+            &request,
+            &request.queries()[0],
+            Mdoc::new().expect("format"),
+            move |query| {
+                let held = mdoc("c", "t", "{}", (-7, "P-256"), "{}");
+                let options = query
+                    .answerable(
+                        &held.credential().expect("credential"),
+                        &env(&["en"], Vec::new()).expect("env"),
+                        &provided,
+                    )
+                    .expect("answerable");
+                !options.is_empty()
+            },
+        )
+        .expect("the query")
     };
     let written = [Member::element("urn:paso:sca:1", "jti")];
     let named = r#"{"path": ["urn:paso:sca:1", "jti"]}"#;
@@ -584,27 +595,31 @@ fn an_element_the_transaction_writes_answers_the_claim_naming_it() {
         "",
     );
     siros_testkit::unsigned_request!(let request = &text);
-    let query = format
-        .query(&request.queries()[0], query_context(&request, false, None))
-        .map_err(|r| format!("{r:?}"))
-        .expect("query");
-    let env = env(&["en"], Vec::new()).expect("env");
-    let items = [Item::new(0).expect("item")];
-    let drawn = |values: &str| {
-        let held = mdoc("c", "t", values, (-7, "P-256"), "{}");
-        let credential = held.credential().expect("credential");
-        let answered = query
-            .answerable(&credential, &env, &written)
-            .expect("answerable");
-        let shown = Shown {
-            everyone: &items,
-            chosen: &[],
-        };
-        (
-            !answered.is_empty(),
-            query.draw(&credential, shown, &env).is_ok(),
-        )
-    };
-    assert_eq!(drawn("{}"), (true, true));
-    assert_eq!(drawn(r#"{"urn:paso:sca:1": "x"}"#), (true, false));
+    read_parsed(
+        &request,
+        &request.queries()[0],
+        Mdoc::new().expect("format"),
+        move |query| {
+            let env = env(&["en"], Vec::new()).expect("env");
+            let items = [Item::new(0).expect("item")];
+            let drawn = |values: &str| {
+                let held = mdoc("c", "t", values, (-7, "P-256"), "{}");
+                let credential = held.credential().expect("credential");
+                let answered = query
+                    .answerable(&credential, &env, &written)
+                    .expect("answerable");
+                let shown = Shown {
+                    everyone: &items,
+                    chosen: &[],
+                };
+                (
+                    !answered.is_empty(),
+                    query.draw(&credential, shown, &env).is_ok(),
+                )
+            };
+            assert_eq!(drawn("{}"), (true, true));
+            assert_eq!(drawn(r#"{"urn:paso:sca:1": "x"}"#), (true, false));
+        },
+    )
+    .expect("the query");
 }

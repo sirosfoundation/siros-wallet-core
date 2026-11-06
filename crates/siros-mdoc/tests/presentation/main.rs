@@ -13,25 +13,27 @@ use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
 use siros_mdoc::issuer_signed::IssuedError;
 use siros_mdoc::{Handover, Mdoc, SessionTranscript, Thumbprint, TranscriptError};
+use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received};
+use siros_openid4vp::authenticate::PrefixName;
 use siros_openid4vp::cbor::{CborError, Item, Value, decode, encode};
 use siros_openid4vp::host::Usable;
-use siros_openid4vp::host::{FormatHost, PresentError};
-use siros_openid4vp::ids::{ClientId, Nonce, Origin};
+use siros_openid4vp::host::{CoreHost, FormatHost, Haip, Has, PresentError};
+use siros_openid4vp::ids::Origin;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{
-    Fault, Format, JsonText, Member, MemberValue, Members, OptionIndex,
-};
-use siros_openid4vp::request::{AgreeableKey, ClientMetadata, ContentEncryption, KeyAgreement};
-use siros_openid4vp::resolve::RouteKey;
-use siros_openid4vp::routing::VerifierMetadata;
-use siros_openid4vp::session::{Session, SessionBinding};
-use siros_openid4vp::uri::ResponseUri;
+use siros_openid4vp::plugins::{Fault, JsonText, Member, MemberValue, Members, OptionIndex};
+use siros_openid4vp::request::{AgreeableKey, ContentEncryption, KeyAgreement};
+use siros_openid4vp::session::Session;
+use siros_testkit::TestChoice;
 use siros_testkit::cose::cose_encrypt;
 use siros_testkit::fixtures::{
-    B26_KEY, B26_THUMBPRINT, Held, NONCE, ORIGIN, b26_metadata, dc_api_context, parameters,
-    present_option, request_of, unsigned,
+    B26_KEY, B26_THUMBPRINT, Held, NONCE, ORIGIN, b26_metadata, parameters, present_option,
+    unsigned,
 };
 use siros_testkit::issuer::issue;
+use siros_testkit::probe::{
+    Redirect, dc_api as probe_dc_api, read_phase_two, read_redirect_session, read_session,
+    sealed_to_b26,
+};
 use siros_testkit::reading::{
     ModelHandover, ReadError, Rebuild, model_shape, model_value, transcript,
 };
@@ -91,52 +93,44 @@ fn present_over<H>(
     sealed: bool,
 ) -> Result<Node<'static>, PresentError>
 where
+    H: CoreHost + Has<dyn Haip> + 'static,
     Mdoc: FormatHost<H>,
 {
+    let (client_metadata, choice) = if sealed {
+        sealed_to_b26(client_metadata).expect("B.2.6's key")
+    } else {
+        (client_metadata.to_owned(), TestChoice::Plain)
+    };
     let text = parameters(
         &format!(r#"{{"credentials": [{query}]}}"#),
         &format!(r#""client_metadata":{client_metadata}"#),
     );
     let received = unsigned(&text).expect("received");
-    let request = request_of(&received).expect("request");
-    let metadata = ClientMetadata::parse(request.client_metadata()).expect("metadata");
-    let format = Mdoc::new().expect("format");
-    let parsed = FormatHost::<H>::answer(
-        &format,
-        &request.queries()[0],
-        dc_api_context(&request, metadata.vp_formats(&format.id()).cloned()),
-    )
-    .expect("query");
-    let verifier = VerifierMetadata::new(&metadata);
-    let b26 = b26_metadata().expect("B.2.6's key");
-    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
-    let b26 = VerifierMetadata::new(&b26);
-    let origin = Origin::parse(ORIGIN).expect("origin");
-    let nonce = Nonce::parse(NONCE).expect("nonce");
-    let encrypted_to = b26
-        .keys()
-        .iter()
-        .next()
-        .filter(|_| sealed)
-        .map(|key| RouteKey::new(key, ContentEncryption::A128GCM));
-    let session = Session::new(
-        SessionBinding::DcApi { origin: &origin },
-        &nonce,
-        encrypted_to,
-        verifier.keys(),
-    );
-    let credential = held.credential().expect("credential");
-    let presentation = present_option(
-        parsed.as_ref(),
-        Usable::checked(&credential),
-        OptionIndex(0),
-        &Members::new(members).expect("members"),
-        &session,
+    let held = held.clone();
+    read_phase_two(
+        &received,
+        "mso_mdoc",
+        probe_dc_api(choice),
         host,
-    )?;
-    Ok(Node::parse(presentation.as_str())
-        .expect("JSON")
-        .into_owned())
+        move |phase_two| {
+            let format = Mdoc::new().expect("format");
+            let parsed = FormatHost::<H>::answer(&format, phase_two.query, phase_two.context)
+                .expect("query");
+            let credential = held.credential().expect("credential");
+            let presentation = present_option(
+                parsed.as_ref(),
+                Usable::checked(&credential),
+                OptionIndex(0),
+                &Members::new(members).expect("members"),
+                phase_two.session,
+                phase_two.host,
+            )?;
+            Ok(Node::parse(presentation.as_str())
+                .expect("JSON")
+                .into_owned())
+        },
+    )
+    .expect("the flow reaches the format")
 }
 
 /// The registration of a view with its issued IssuerSigned.
@@ -226,19 +220,9 @@ ed494cefdd9d95240d254b046b11b68013722aad38ac";
 const KA5: &str = "83f6f682764f70656e4944345650444341504948616e646f7665725820fbece366f4
 212f9762c74cfdbf83b8c69e371d5d68cea09cb4c48ca6daab761a";
 
-/// The session B.2.6's examples bind: sealed to B.2.6's key, over `binding`.
-fn b26_transcript(binding: SessionBinding<'_>, nonce: &Nonce<'_>) -> SessionTranscript {
-    let b26 = b26_metadata().expect("B.2.6's key");
-    let b26 = ClientMetadata::parse(Some(&b26)).expect("metadata");
-    let b26 = VerifierMetadata::new(&b26);
-    let key = b26.keys().iter().next().expect("B.2.6's key");
-    let session = Session::new(
-        binding,
-        nonce,
-        Some(RouteKey::new(key, ContentEncryption::A128GCM)),
-        b26.keys(),
-    );
-    SessionTranscript::of(&Handover::of(&session).expect("handover")).expect("transcript")
+/// The transcript of a session B.2.6's examples bind.
+fn b26_transcript(session: &Session<'_>) -> SessionTranscript {
+    SessionTranscript::of(&Handover::of(session).expect("handover")).expect("transcript")
 }
 
 #[test]
@@ -254,16 +238,23 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
         "KA1"
     );
     assert_eq!(KA1, B26_THUMBPRINT);
-    let client_id = ClientId::parse("x509_san_dns:example.com").unwrap();
-    let response_uri = ResponseUri::parse("https://example.com/response".to_owned()).unwrap();
-    let nonce = Nonce::parse(KA_NONCE).unwrap();
-    let redirect = b26_transcript(
-        SessionBinding::Redirect {
-            client_id: &client_id,
-            response_uri: &response_uri,
+    let metadata = b26_metadata().expect("B.2.6's key");
+    let choice = TestChoice::Key {
+        place: 0,
+        enc: ContentEncryption::A128GCM,
+    };
+    let redirect = read_redirect_session(
+        Redirect {
+            client_id: "x509_san_dns:example.com",
+            response_uri: "https://example.com/response",
+            nonce: KA_NONCE,
+            client_metadata: metadata.get(),
         },
-        &nonce,
-    );
+        siros_explain::checked!(PrefixName, "x509_san_dns"),
+        choice,
+        b26_transcript,
+    )
+    .expect("the route of B.2.6.1's request");
     let Value::Array(items) = decode(redirect.as_bytes()).unwrap() else {
         panic!("an array")
     };
@@ -278,8 +269,19 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
         "KA2"
     );
     assert_eq!(redirect.as_bytes(), unhex(KA4), "KA4");
-    let origin = Origin::parse("https://example.com").unwrap();
-    let dc_api = b26_transcript(SessionBinding::DcApi { origin: &origin }, &nonce);
+    let parameters = format!(
+        r#"{{"response_type":"vp_token","response_mode":"dc_api","nonce":"{KA_NONCE}","client_metadata":{},"dcql_query":{{"credentials":[{{"id":"q","format":"mso_mdoc"}}]}}}}"#,
+        metadata.get()
+    );
+    let received = Received::dc_api(
+        DcApiProtocol::Unsigned.as_str(),
+        &parameters,
+        Origin::parse("https://example.com").unwrap(),
+        &DcApiProtocols::ALL,
+    )
+    .unwrap();
+    let dc_api = read_session(&received, probe_dc_api(choice), b26_transcript)
+        .expect("the route of B.2.6.2's request");
     assert_eq!(dc_api.as_bytes(), unhex(KA5), "KA5");
     // The reading writes the transcript apart and reaches B.2.6.2's bytes too.
     let model = ModelHandover {

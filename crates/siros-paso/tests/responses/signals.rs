@@ -430,9 +430,8 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
  {
     use siros_openid4vp::effects::{Fetch, Resource};
     use siros_openid4vp::host::{ProfileHost, Timestamp};
-    use siros_openid4vp::ids::FormatId;
     use siros_openid4vp::matching::{Accepted, Match};
-    use siros_openid4vp::plugins::{Answered, Attested, BoundEntries, Member, MemberValue};
+    use siros_openid4vp::plugins::{Member, MemberValue};
     use siros_openid4vp::resolve::{Finding, Outcome as Phase2};
     use siros_openid4vp::wallet::Wallet;
     use siros_paso::outcome::{NotCompatible, Outcome};
@@ -485,36 +484,28 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         assert_eq!(without.platform.authentications(), 0, "{format}");
         // With the module, the record revalidates and its risk signals are sealed. The test
         // format's proof carries no mdoc members, so the control stops at the profile.
-        let credential = card.credential();
-        let offered: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
-        let entries = BoundEntries::select(&offered, offered.clone()).expect("entries");
-        let attested = Attested::new(vec![
-            ("display_locale".to_owned(), "en".to_owned()),
-            ("metadata_integrity".to_owned(), card.integrity()),
-        ])
-        .expect("attested");
-        let format_id = FormatId::parse(format).expect("format");
-        let record = || {
-            Answered::new(
-                &request,
-                &credential,
-                &entries,
-                &attested,
-                crate::common::placement(&format_id),
-                siros_testkit::fixtures::mode_of(&request).expect("a mode"),
-            )
-        };
         let held = PasoHost::at(at);
-        let profile = PasoProfile::default();
-        assert_eq!(
-            record()
-                .revalidate(&profile, |_: &Resource| Fetch::Unfetched, &held)
-                .expect("no fault"),
-            None
+        let env = en();
+        let app = request_app(&request, &[&card], &env);
+        let rendering = app.rendering().expect("the rendering");
+        let (revalidated, members) = crate::common::read_card_record(
+            &request,
+            &card,
+            &env,
+            &rendering,
+            |_: &Resource| Fetch::Unfetched,
+            &held,
+            move |record, host| {
+                let profile = PasoProfile::default();
+                (
+                    profile.revalidate(record, host).expect("no fault"),
+                    profile
+                        .respond(record.record(), host, &pin_and_device(at))
+                        .expect("members"),
+                )
+            },
         );
-        let members = profile
-            .respond(record(), &held, &pin_and_device(at))
-            .expect("members");
+        assert_eq!(revalidated, None);
         assert!(members.iter().any(|(member, value)| {
             *member == Member::element(NAMESPACE, "risk_signals")
                 && matches!(value, MemberValue::Cbor(_))
@@ -528,8 +519,6 @@ pub(super) fn a_build_without_cose_encrypt_falls_back_before_authentication_on_a
         let wallet = Wallet::new(vec![card.credential()]).expect("wallet");
         let informed = registry.informed(&[finding]).expect("informed");
         let accepted = Accepted::new(&request, &informed).expect("accepted");
-        let app = request_app(&request, &[&card], &en());
-        let rendering = app.rendering().expect("the rendering");
         let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
         let query = request.indexed_queries().next().expect("query").0;
         assert_eq!(again.candidates(query).len(), 0);

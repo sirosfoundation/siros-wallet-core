@@ -92,11 +92,13 @@ mod test_util {
         CoseEncryptBuilder, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
     };
     use siros_openid4vp::detail;
-    use siros_openid4vp::plugins::Fault;
+    use siros_openid4vp::plugins::{Fault, FaultDomain};
     use siros_openid4vp::request::{AgreeableKey, KeyAgreement};
 
-    use crate::FAULT;
     use crate::modules::{CoseEnc, CoseEncrypt};
+
+    /// The double's domain.
+    const FAULT: FaultDomain = checked!(FaultDomain, "paso.test_cose_encrypt.fault");
 
     /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
     const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [

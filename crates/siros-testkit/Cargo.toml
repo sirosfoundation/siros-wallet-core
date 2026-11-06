@@ -12,7 +12,7 @@ publish = false
 [dependencies]
 # The doubles of every mechanism the core holds.
 siros-openid4vp = { workspace = true, features = [
-    "test-util",
+    "resolve",
     "dc-api",
     "request-decryption",
     "cbor",

@@ -42,7 +42,7 @@ siros-x509 = { workspace = true, optional = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
-siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-testkit = { workspace = true }
 # Certificates for the ad-hoc metadata JWTs' chains.
 siros-x509 = { workspace = true, features = ["test-util"] }

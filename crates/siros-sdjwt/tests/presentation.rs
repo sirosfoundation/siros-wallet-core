@@ -12,20 +12,53 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
-use siros_openid4vp::host::{AuthenticationNeed, FormatHost, ProfileHost, Timestamp, Usable};
-use siros_openid4vp::ids::{Nonce, Origin, TransactionType};
+use siros_openid4vp::host::{
+    AuthenticationNeed, FormatHost, PresentError, Presentation, ProfileHost, Timestamp, Usable,
+};
+use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, OptionIndex, Registry};
-use siros_openid4vp::request::ClientMetadata;
-use siros_openid4vp::routing::VerifierMetadata;
-use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::wallet::{Holder, Wallet};
 use siros_sdjwt::SdJwtVc;
 use siros_testkit::fixtures::{
-    Held, NONCE, ORIGIN, answer_first, dc_api_context, env, parameters, present_option, request_of,
-    unsigned,
+    Held, NONCE, ORIGIN, answer_first, env, parameters, present_option, request_of, unsigned,
 };
-use siros_testkit::{Binds, TestHost, TestProfile, verifier};
+use siros_testkit::probe::{dc_api, read_phase_two};
+use siros_testkit::{Binds, TestChoice, TestHost, TestProfile, verifier};
+
+/// The presentation of a registration for the first query of the request parameters, its first
+/// option, over the context and the session phase 2 gives the format under `dc_api` in the clear.
+fn presented_over(
+    text: &str,
+    held: &Held,
+    members: Members,
+    host: &TestHost,
+) -> Result<Presentation, PresentError> {
+    let received = unsigned(text).expect("received");
+    let held = held.clone();
+    read_phase_two(
+        &received,
+        "dc+sd-jwt",
+        dc_api(TestChoice::Plain),
+        host,
+        move |phase_two| {
+            let format = SdJwtVc::new().expect("format");
+            let query = FormatHost::<TestHost>::answer(&format, phase_two.query, phase_two.context)
+                .map_err(|r| format!("{r:?}"))
+                .expect("query");
+            let credential = held.credential().expect("credential");
+            present_option(
+                query.as_ref(),
+                Usable::checked(&credential),
+                OptionIndex(0),
+                &members,
+                phase_two.session,
+                phase_two.host,
+            )
+        },
+    )
+    .expect("the flow reaches the format")
+}
 
 const VIEW: &str = r#""metadata": {}, "jwt": "eyJhbGciOiJFUzI1NiJ9.c.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256""#;
 
@@ -189,7 +222,6 @@ fn value(rng: &mut ChaCha8Rng, depth: u8) -> String {
 #[test]
 fn every_presentation_binds_what_it_shows() {
     let mut rng = ChaCha8Rng::seed_from_u64(1);
-    let format = SdJwtVc::new().expect("format");
     let names = ["a", "b", "c", "d"];
     for case in 0..200 {
         let mut held_values: Vec<(&str, String)> = Vec::new();
@@ -227,15 +259,6 @@ fn every_presentation_binds_what_it_shows() {
             quoted.join(", ")
         );
         let text = parameters(&dcql, "");
-        let received = unsigned(&text).expect("received");
-        let request = request_of(&received).expect("request");
-        let query = FormatHost::<TestHost>::answer(
-            &format,
-            &request.queries()[0],
-            dc_api_context(&request, None),
-        )
-        .map_err(|r| format!("{r:?}"))
-        .expect("query");
         let id = format!("c{case}");
         let mut held = Held::new(
             &id,
@@ -265,24 +288,13 @@ fn every_presentation_binds_what_it_shows() {
         } else {
             Vec::new()
         };
-        let origin = Origin::parse(ORIGIN).expect("origin");
-        let nonce = Nonce::parse(format!("n{case}")).expect("nonce");
-        let none = ClientMetadata::parse(None).expect("metadata");
-        let none = VerifierMetadata::new(&none);
-        let session = Session::new(
-            SessionBinding::DcApi { origin: &origin },
-            &nonce,
-            None,
-            none.keys(),
-        );
-        let credential = held.credential().expect("credential");
+        let nonce = format!("n{case}");
+        let text = text.replace(NONCE, &nonce);
         let now = Timestamp(1_785_000_000 + case);
-        let presentation = present_option(
-            query.as_ref(),
-            Usable::checked(&credential),
-            OptionIndex(0),
-            &Members::new(members.clone()).expect("members"),
-            &session,
+        let presentation = presented_over(
+            &text,
+            &held,
+            Members::new(members.clone()).expect("members"),
             &TestHost::at(now),
         )
         .expect("presentation");
@@ -382,29 +394,9 @@ fn every_presentation_binds_what_it_shows() {
 
 #[test]
 fn what_cannot_be_presented_is_a_fault() {
-    let format = SdJwtVc::new().expect("format");
     let text = parameters(
         r#"{"credentials": [{"id": "q", "format": "dc+sd-jwt", "meta": {"vct_values": ["t"]}, "claims": [{"path": ["a"]}]}]}"#,
         "",
-    );
-    let received = unsigned(&text).expect("received");
-    let request = request_of(&received).expect("request");
-    let query = FormatHost::<TestHost>::answer(
-        &format,
-        &request.queries()[0],
-        dc_api_context(&request, None),
-    )
-    .map_err(|r| format!("{r:?}"))
-    .expect("query");
-    let origin = Origin::parse(ORIGIN).expect("origin");
-    let nonce = Nonce::parse(NONCE).expect("nonce");
-    let none = ClientMetadata::parse(None).expect("metadata");
-    let none = VerifierMetadata::new(&none);
-    let session = Session::new(
-        SessionBinding::DcApi { origin: &origin },
-        &nonce,
-        None,
-        none.keys(),
     );
     let good = format!(r#"{{"type": "t", "values": {{"a": 1}}, {VIEW}}}"#);
     let jwt = |jwt: &str| good.replace("eyJhbGciOiJFUzI1NiJ9.c.sig", jwt);
@@ -473,13 +465,10 @@ fn what_cannot_be_presented_is_a_fault() {
     for (view, holder, members, why) in cases {
         let mut held = Held::new("c", "dc+sd-jwt", view);
         held.holder = holder;
-        let credential = held.credential().expect("credential");
-        let result = present_option(
-            query.as_ref(),
-            Usable::checked(&credential),
-            OptionIndex(0),
-            &Members::new(members).expect("members"),
-            &session,
+        let result = presented_over(
+            &text,
+            &held,
+            Members::new(members).expect("members"),
             &TestHost::default(),
         );
         assert_eq!(result.is_ok(), why == "presented", "{why}");
