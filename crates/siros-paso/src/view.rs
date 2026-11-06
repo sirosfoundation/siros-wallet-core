@@ -4,10 +4,10 @@
 //!
 //! Each display array is one message of the module, under the key of what it labels: a claim's
 //! `claim_<k>`, a UI label's name. The module supports each tag of the End-User's priority list
-//! View §4 can select ([`crate::locale::selectable`]); in each, an array's message is the text of
-//! the entries View §4 tries for that tag ([`crate::locale::chain`]): one entry's, or for a
-//! template that an absent claim discards, a selection over each such entry's argument `e<j>`
-//! (`live` or `dead`, by its position) whose fallback is the last entry tried. A plain label is
+//! View §4 can select; in each, an array's message is the text of the entries View §4 tries for
+//! that tag: one entry's, or for a template that an absent claim discards, a selection over each
+//! such entry's argument `e<j>` (`live` or `dead`, by its position) whose fallback is the last
+//! entry tried. A plain label is
 //! literal text, a `mini_markdown` label its emphasis, strong and underline spans as styles, a
 //! template label its spans with each `{n}` naming a claim as the argument `c<n>` of claim n's
 //! value kind, absent when the claim is. The conversion writes the module in its render form with
