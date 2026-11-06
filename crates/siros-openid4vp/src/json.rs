@@ -370,21 +370,9 @@ pub struct FieldNames<const N: usize>([&'static str; N]);
 impl<const N: usize> FieldNames<N> {
     /// These names; `None` when one repeats.
     #[must_use]
-    #[allow(
-        clippy::indexing_slicing,
-        reason = "each index stays below N, and const fn has no iterators"
-    )]
     pub const fn new(names: [&'static str; N]) -> Option<Self> {
-        let mut first = 0;
-        while first < N {
-            let mut second = first + 1;
-            while second < N {
-                if same_text(names[first], names[second]) {
-                    return None;
-                }
-                second += 1;
-            }
-            first += 1;
+        if any_repeats(&names) {
+            return None;
         }
         Some(Self(names))
     }
@@ -408,23 +396,26 @@ impl<const N: usize> FieldNames<N> {
     }
 }
 
-#[allow(
-    clippy::indexing_slicing,
-    reason = "each index stays below the equal lengths, and const fn has no iterators"
-)]
-const fn same_text(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
+const fn any_repeats(names: &[&str]) -> bool {
+    match names {
+        [] => false,
+        [first, rest @ ..] => holds(rest, first.as_bytes()) || any_repeats(rest),
     }
-    let mut at = 0;
-    while at < a.len() {
-        if a[at] != b[at] {
-            return false;
-        }
-        at += 1;
+}
+
+const fn holds(names: &[&str], name: &[u8]) -> bool {
+    match names {
+        [] => false,
+        [first, rest @ ..] => same_bytes(first.as_bytes(), name) || holds(rest, name),
     }
-    true
+}
+
+const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    match (a, b) {
+        ([], []) => true,
+        ([x, a @ ..], [y, b @ ..]) => *x == *y && same_bytes(a, b),
+        _ => false,
+    }
 }
 
 /// The [`FieldNames`](crate::json::FieldNames) of these literals: a repeated name fails the build.
