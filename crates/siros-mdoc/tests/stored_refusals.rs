@@ -5,6 +5,7 @@ use base64::DecodeError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
+use siros_mdoc::registration::{Registered, RegistrationError, Resolved};
 use siros_mdoc::stored::{
     AlgorithmFault, CborError, DeviceKeyFault, DigestId, DocTypeFault, EnvelopeFault,
     IssuerAuthFault, ItemFault, ItemMember, KeyAuthorizationsFault, MdocError, MemberFault,
@@ -12,6 +13,7 @@ use siros_mdoc::stored::{
     ValueDigestsFault,
 };
 use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::json::Node;
 
 const DOC_TYPE: &str = "org.example.doc.1";
 const NAME_SPACE: &str = "org.example.1";
@@ -242,6 +244,16 @@ fn each_rule_refuses_its_fixture() {
             MdocError::DeviceKey(DeviceKeyFault::Curve),
         ),
         (
+            "device_key_type",
+            edited(|p| p.device_key[0].1 = int(1)),
+            MdocError::DeviceKey(DeviceKeyFault::KeyType),
+        ),
+        (
+            "device_key_coordinate",
+            edited(|p| p.device_key[3].1 = Value::Bytes(vec![0x02; 31])),
+            MdocError::DeviceKey(DeviceKeyFault::Coordinate),
+        ),
+        (
             "key_authorizations",
             edited(|p| {
                 p.key_authorizations = map(vec![
@@ -300,4 +312,62 @@ fn each_rule_refuses_its_fixture() {
         .map(|(name, got, want)| format!("{name}: got {got:?}, want {want:?}"))
         .collect();
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// ISO/IEC 18013-5 Table 22's curves, by their COSE labels and key types (RFC 9053 §7.1), with the
+/// algorithm the table gives each; a stated `alg` (label 3) comes first.
+#[test]
+fn each_table_22_curve_reads_with_its_algorithm() {
+    // (crv, kty, name, alg).
+    let rows = [
+        (1, 2, "P-256", -7),
+        (2, 2, "P-384", -35),
+        (3, 2, "P-521", -36),
+        (4, 1, "X25519", -25),
+        (5, 1, "X448", -25),
+        (6, 1, "Ed25519", -8),
+        (7, 1, "Ed448", -8),
+        (256, 2, "brainpoolP256r1", -7),
+        (257, 2, "brainpoolP320r1", -35),
+        (258, 2, "brainpoolP384r1", -35),
+        (259, 2, "brainpoolP512r1", -36),
+    ];
+    for (crv, kty, name, alg) in rows {
+        let mut parts = honest();
+        parts.device_key[0].1 = int(kty);
+        parts.device_key[1].1 = int(crv);
+        let mdoc = StoredMdoc::parse(&assemble(&parts)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let key = mdoc.mso().device_key();
+        assert_eq!((key.curve(), key.algorithm().value()), (name, alg));
+    }
+    let mut parts = honest();
+    parts.device_key.push((int(3), int(-9)));
+    let mdoc = StoredMdoc::parse(&assemble(&parts)).unwrap();
+    assert_eq!(mdoc.mso().device_key().algorithm().value(), -9);
+}
+
+/// What makes no view: a text of no stored mdoc, metadata of no object, an element whose value has
+/// no JSON form (RFC 8949 §6.1).
+#[test]
+fn registration_refusals() {
+    let none = Resolved::default();
+    assert!(matches!(
+        Registered::of("not base64url!", &none),
+        Err(RegistrationError::Stored(MdocError::Encoding(_)))
+    ));
+    let metadata = Resolved {
+        metadata: Some(Node::parse("[]").unwrap()),
+        ..Resolved::default()
+    };
+    assert!(matches!(
+        Registered::of(&assemble(&honest()), &metadata),
+        Err(RegistrationError::Metadata)
+    ));
+    let mut parts = honest();
+    parts.items[0] = item(0, "given_name", Value::Map(vec![(int(1), int(2))]));
+    parts.digests[0].1 = digest(&parts.items[0]);
+    assert!(matches!(
+        Registered::of(&assemble(&parts), &none),
+        Err(RegistrationError::Value(cbor::CborError::Key(_)))
+    ));
 }
