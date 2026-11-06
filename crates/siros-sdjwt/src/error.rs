@@ -244,6 +244,12 @@ pub enum RegistrationError {
     /// The text is no issued SD-JWT.
     #[error(transparent)]
     Parse(#[from] ParseError),
+    /// The Issuer-signed JWT's `typ` is not `dc+sd-jwt` (SD-JWT VC §3.2.1).
+    #[error("the Issuer-signed JWT's typ is not dc+sd-jwt (SD-JWT VC §3.2.1)")]
+    Typ,
+    /// A disclosure reveals this registered claim or one of its sub-claims (SD-JWT VC §3.2.2).
+    #[error("a disclosure reveals the registered claim {0} (SD-JWT VC §3.2.2)")]
+    SelectivelyDisclosed(#[explain(name = "claim")] &'static str),
     /// `vct` is absent or no string (SD-JWT VC §3.2.2.1).
     #[error("vct is absent or no string (SD-JWT VC §3.2.2.1)")]
     Vct,

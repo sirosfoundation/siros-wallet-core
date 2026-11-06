@@ -6,7 +6,7 @@ use siros_openid4vp::json::Node;
 use siros_sdjwt::{Registered, RegistrationError, Resolved, SdJwtVc};
 use siros_testkit::sd_jwt_issuer;
 
-use crate::common::{compact, decoy, disclosure, issued, json_fixture};
+use crate::common::{compact, compact_under, decoy, disclosure, issued, json_fixture};
 
 /// RFC 9901 A.3's SD-JWT VC: its `vct`, its issuer, its holder key and its validity.
 #[test]
@@ -115,6 +115,47 @@ fn refusals() {
             Registered::of(&compact(payload, &[]), &Resolved::default()),
             Err(cause),
             "{case}"
+        );
+    }
+}
+
+/// SD-JWT VC §3.2.2: a disclosure of a registered claim or of a sub-claim of one refuses the
+/// credential; §3.2.1: its `typ` is `dc+sd-jwt`.
+#[test]
+fn sd_jwt_vc_refusals() {
+    for claim in [
+        "iss",
+        "nbf",
+        "exp",
+        "cnf",
+        "vct",
+        "vct#integrity",
+        "aka_vcts",
+        "status",
+    ] {
+        let (revealing, digest) = disclosure(&format!(r#"["2GLC42sKQveCfGfryNRN9w","{claim}",1]"#));
+        let vct = if claim == "vct" { "" } else { r#""vct":"t","# };
+        let payload = format!(r#"{{{vct}"_sd":["{digest}"]}}"#);
+        assert_eq!(
+            Registered::of(&compact(&payload, &[&revealing]), &Resolved::default()).map(|_| ()),
+            Err(RegistrationError::SelectivelyDisclosed(claim)),
+            "{claim}"
+        );
+    }
+    let (key, digest) = disclosure(r#"["2GLC42sKQveCfGfryNRN9w","jwk",{"crv":"P-256"}]"#);
+    let payload = format!(r#"{{"vct":"t","cnf":{{"_sd":["{digest}"]}}}}"#);
+    assert_eq!(
+        Registered::of(&compact(&payload, &[&key]), &Resolved::default()),
+        Err(RegistrationError::SelectivelyDisclosed("cnf")),
+    );
+    for header in [r#"{"alg":"ES256"}"#, r#"{"alg":"ES256","typ":"JWT"}"#] {
+        assert_eq!(
+            Registered::of(
+                &compact_under(header, r#"{"vct":"t"}"#, &[]),
+                &Resolved::default()
+            ),
+            Err(RegistrationError::Typ),
+            "{header}"
         );
     }
 }

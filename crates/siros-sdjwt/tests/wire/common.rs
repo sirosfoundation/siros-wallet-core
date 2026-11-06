@@ -64,9 +64,14 @@ pub fn decoy(seed: &str) -> String {
 /// The compact SD-JWT of the payload text `payload` and of `disclosures`. Its signature is a
 /// placeholder.
 pub fn compact(payload: &str, disclosures: &[&str]) -> String {
+    compact_under(r#"{"alg":"ES256","typ":"dc+sd-jwt"}"#, payload, disclosures)
+}
+
+/// [`compact`] under the header text `header`.
+pub fn compact_under(header: &str, payload: &str, disclosures: &[&str]) -> String {
     let mut out = format!(
         "{}.{}.{}~",
-        URL_SAFE_NO_PAD.encode(br#"{"alg":"ES256","typ":"dc+sd-jwt"}"#),
+        URL_SAFE_NO_PAD.encode(header),
         URL_SAFE_NO_PAD.encode(payload.as_bytes()),
         URL_SAFE_NO_PAD.encode([7; 64]),
     );

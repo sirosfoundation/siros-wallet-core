@@ -8,11 +8,24 @@ use siros_openid4vp::json::Node;
 
 use crate::error::RegistrationError;
 use crate::sd_jwt::SdJwt;
-use crate::tree::{ClaimValue, IssuedClaim, Object};
+use crate::tree::{ClaimValue, Element, IssuedClaim, Object};
 use crate::type_metadata;
 
-/// The key of the document a registration holds.
+/// The key of the document a registration holds, and the Issuer-signed JWT's `typ` (SD-JWT VC
+/// §3.2.1).
 pub const DOCUMENT: &str = "dc+sd-jwt";
+
+/// The registered claims no disclosure holds, sub-claims included (SD-JWT VC §3.2.2).
+const PERMANENT: [&str; 8] = [
+    "iss",
+    "nbf",
+    "exp",
+    "cnf",
+    "vct",
+    "vct#integrity",
+    "aka_vcts",
+    "status",
+];
 
 /// What the wallet resolved beside the issued SD-JWT.
 #[derive(Debug, Clone, Default)]
@@ -43,9 +56,19 @@ impl Registered {
     ///
     /// # Errors
     ///
-    /// [`RegistrationError`]: the text is no issued SD-JWT (S1), or its claims make no view.
+    /// [`RegistrationError`]: the text is no issued SD-JWT (S1), it breaks SD-JWT VC's rules, or its
+    /// claims make no view.
     pub fn of(issued: &str, resolved: &Resolved<'_>) -> Result<Self, RegistrationError> {
         let sd_jwt = SdJwt::parse(issued)?;
+        if sd_jwt.typ() != Some(DOCUMENT) {
+            return Err(RegistrationError::Typ);
+        }
+        if let Some(claim) = PERMANENT
+            .into_iter()
+            .find(|claim| sd_jwt.claims().get(claim).is_some_and(disclosed))
+        {
+            return Err(RegistrationError::SelectivelyDisclosed(claim));
+        }
         let view = view(&sd_jwt, resolved)?;
         Ok(Self {
             view: view.written_compact().into_bytes(),
@@ -65,6 +88,19 @@ impl Registered {
     pub fn document(&self) -> &[u8] {
         &self.document
     }
+}
+
+/// Whether a disclosure reveals `claim` or one of its sub-claims.
+fn disclosed(claim: &IssuedClaim) -> bool {
+    claim.disclosure().is_some()
+        || match claim.value() {
+            ClaimValue::Object(object) => object.members().any(|(_, member)| disclosed(member)),
+            ClaimValue::Array(elements) => elements.iter().any(|element| match element {
+                Element::Present(member) => disclosed(member),
+                Element::Withheld(_) => false,
+            }),
+            _ => false,
+        }
 }
 
 fn text(value: &str) -> Node<'static> {
