@@ -2,7 +2,6 @@
 //! rules PaSO sets on a request carrying its entries (Core §3, §7.1, §7.4.1).
 
 use siros_explain::Explain;
-use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::Refusal;
 
@@ -10,6 +9,7 @@ use siros_openid4vp::jose::JwsError;
 
 use crate::adhoc::AdhocFailure;
 use crate::outcome::NotCompatible;
+use crate::rulebook::PasoType;
 use crate::rules::{EntryPosition, PasoRule};
 use siros_openid4vp::request::{Entry, EntryIndex, QuerySet, Request, factor, project};
 
@@ -63,12 +63,12 @@ pub enum EntryRule {
 }
 
 /// A PaSO entry: its type, its payload, and the ad-hoc metadata JWT it may carry.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct PasoEntry<'e> {
     /// The entry as received.
     pub(crate) entry: &'e Entry<'e>,
     /// The type identifier.
-    pub(crate) kind: &'e TransactionType<'static>,
+    pub(crate) kind: PasoType<'e>,
     /// The payload.
     pub(crate) payload: Payload<'e>,
     /// The ad-hoc metadata JWT (Proof Metadata §5.1), as received.
@@ -80,7 +80,7 @@ impl<'e> PasoEntry<'e> {
     /// metadata, when present, a string (Proof Metadata §5.1); a member it does not read takes
     /// no part. A payload that is no object makes the entry not compatible; ad-hoc metadata that
     /// is no string is no compact JWS (§5.3).
-    pub(crate) fn read(entry: &'e Entry<'e>) -> Result<Self, NotCompatible> {
+    pub(crate) fn read(entry: &'e Entry<'e>, kind: PasoType<'e>) -> Result<Self, NotCompatible> {
         let members = entry.members();
         let payload = members
             .get("payload")
@@ -93,7 +93,7 @@ impl<'e> PasoEntry<'e> {
         };
         Ok(Self {
             entry,
-            kind: entry.kind(),
+            kind,
             payload,
             metadata,
         })

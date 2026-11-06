@@ -35,7 +35,7 @@ use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
 use crate::outcome::Outcome;
 use crate::render::{arrays, rulebook_metadata};
-use crate::rulebook::Family;
+use crate::rulebook::PasoType;
 use crate::template::{Placeholder, placeholders};
 use crate::value::{FormattedKind, ValueKind};
 
@@ -106,9 +106,6 @@ pub(crate) const fn argument_kind(value_type: ValueType) -> ArgKind {
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "paso.convert")]
 pub enum ConvertError {
-    /// The type is no PaSO type.
-    #[error("{0} is no urn:paso:sca: type")]
-    NotPaso(#[explain(name = "type")] String),
     /// The metadata breaks Proof Metadata §3, or a value type is unsupported.
     #[error(transparent)]
     Metadata(#[from] Outcome),
@@ -160,7 +157,7 @@ pub fn verified(
 
 /// Each JWT's metadata converted, each module once.
 fn converted<'a, 'r: 'a>(
-    jwts: impl Iterator<Item = (&'r str, &'a crate::adhoc::Read<'r>)>,
+    jwts: impl Iterator<Item = (&'a PasoType<'r>, &'a crate::adhoc::Read<'r>)>,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<Vec<DefinedForm>, ConvertError> {
@@ -174,8 +171,7 @@ fn converted<'a, 'r: 'a>(
             }
             Err(defined @ ConvertError::Defined(_)) => return Err(defined),
             Err(
-                ConvertError::NotPaso(_)
-                | ConvertError::Metadata(_)
+                ConvertError::Metadata(_)
                 | ConvertError::Reserved
                 | ConvertError::NoEntry(_)
                 | ConvertError::MixedOwn,
@@ -200,16 +196,15 @@ struct Converting<'a, 'm> {
 ///
 /// # Errors
 ///
-/// [`ConvertError`]: the type is no PaSO type, its metadata refuses, a template holds U+FDD0, or
-/// a main entry lacks a format a message calls.
+/// [`ConvertError`]: its metadata refuses, a template holds U+FDD0, or a main entry lacks a format
+/// a message calls.
 pub fn convert(
-    kind: &str,
+    kind: &PasoType<'_>,
     given: &Node<'_>,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<DefinedForm, ConvertError> {
-    let family = Family::of(kind).ok_or_else(|| ConvertError::NotPaso(kind.to_owned()))?;
-    let (metadata, _) = rulebook_metadata(kind, family, given)?;
+    let (metadata, _) = rulebook_metadata(kind, given)?;
     let arrays = arrays(&metadata);
     let mut messages: Vec<Converting<'_, '_>> = Vec::new();
     for (array, entries) in &arrays {

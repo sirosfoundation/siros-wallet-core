@@ -12,7 +12,7 @@ use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
 use siros_paso::outcome::Outcome;
-use siros_paso::rulebook::Family;
+use siros_paso::rulebook::{Family, PasoType};
 use siros_paso::{Fetch, PasoProfile};
 
 mod binding;
@@ -300,23 +300,15 @@ fn claims_order_rules_the_view_and_payload_order_the_generic_rulebook() {
 
 #[test]
 fn a_type_takes_its_exact_rulebook_else_its_longest_prefix() {
-    assert_eq!(
-        Family::of("urn:paso:sca:global:payment:1"),
-        Some(Family::Payment)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:payment:2"),
-        Some(Family::View)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:generic:x:1"),
-        Some(Family::Generic)
-    );
-    assert_eq!(
-        Family::of("urn:paso:sca:global:mandate:1"),
-        Some(Family::Mandate)
-    );
-    assert_eq!(Family::of("urn:other:1"), None);
+    for (kind, family) in [
+        ("urn:paso:sca:global:payment:1", Family::Payment),
+        ("urn:paso:sca:global:payment:2", Family::View),
+        ("urn:paso:sca:global:generic:x:1", Family::Generic),
+        ("urn:paso:sca:global:mandate:1", Family::Mandate),
+    ] {
+        assert_eq!(PasoType::parse(kind).map(|kind| kind.family()), Ok(family));
+    }
+    assert!(PasoType::parse("urn:other:1").is_err());
 }
 
 #[test]

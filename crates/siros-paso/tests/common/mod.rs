@@ -19,6 +19,7 @@ use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
 use siros_paso::render::{TransactionView, ViewRow};
+use siros_paso::rulebook::PasoType;
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
 use siros_testkit::render::{
@@ -287,7 +288,8 @@ pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> DefinedForm {
 pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let given = Node::parse(meta).expect("the metadata");
     let main = main_locales().expect("the main module");
-    siros_paso::view::convert(kind, &given, &main, priority).ok()
+    let kind = PasoType::parse(kind).ok()?;
+    siros_paso::view::convert(&kind, &given, &main, priority).ok()
 }
 
 /// The test app as the matcher renders a request for an `Env`, and the wallet in phase 2: the
@@ -321,7 +323,7 @@ fn app_with(cards: &[&Card], further: Vec<DefinedForm>, env: &Env) -> App {
         let document = siros_paso::document::PasoDocument::read(&node).expect("the document");
         for (kind, meta) in document.types() {
             let meta = meta.python_compact().to_string();
-            if let Some(module) = self::converted(kind, &meta, env.priority())
+            if let Some(module) = self::converted(kind.as_str(), &meta, env.priority())
                 && defined.iter().all(|known| known.id() != module.id())
             {
                 defined.push(module);

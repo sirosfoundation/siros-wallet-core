@@ -15,6 +15,7 @@ use crate::metadata::{ArrayAt, UiKey};
 use crate::path::Mismatch;
 use crate::phase2::OptionalModule;
 use crate::render::ItemBound;
+use crate::rulebook::PasoType;
 
 /// Why an entry does not render for a credential.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -53,10 +54,10 @@ pub enum Unsupported {
     NoPasoMetadata,
     /// The signed credential metadata lists no entry for the type.
     #[error("the credential's metadata does not list {0}")]
-    NotListed(#[explain(name = "kind")] String),
+    NotListed(#[explain(name = "kind")] PasoType<'static>),
     /// The type's entry is `null`.
     #[error("no transaction_data_types entry for {0}")]
-    NoEntry(#[explain(name = "kind")] String),
+    NoEntry(#[explain(name = "kind")] PasoType<'static>),
     /// The entry is no object with a `claims` array.
     #[error("no claims array")]
     NoClaims,
@@ -124,10 +125,10 @@ pub enum Unsupported {
     ),
     /// A type under the Generic prefix that is no Generic type identifier.
     #[error("{0} is not a Generic type identifier")]
-    NotGeneric(#[explain(name = "kind")] String),
+    NotGeneric(#[explain(name = "kind")] PasoType<'static>),
     /// A type under the Mandate prefix that is no Mandate type identifier.
     #[error("{0} is not a Mandate type identifier")]
-    NotMandate(#[explain(name = "kind")] String),
+    NotMandate(#[explain(name = "kind")] PasoType<'static>),
 }
 
 impl Unsupported {

@@ -2,7 +2,10 @@
 //! for every other `urn:paso:sca:` type. Each decides the metadata a type renders with, its
 //! payload rules, its claim order and sections, and the wallet's own strings it falls back on.
 
-use siros_explain::Explain;
+use std::borrow::Cow;
+use std::fmt;
+
+use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::json::{Node, Object};
 
@@ -36,8 +39,7 @@ pub enum Family {
 
 impl Family {
     /// The rulebook of a type identifier; `None` outside `urn:paso:sca:`.
-    #[must_use]
-    pub fn of(kind: &str) -> Option<Self> {
+    fn of(kind: &str) -> Option<Self> {
         if kind == PAYMENT {
             return Some(Self::Payment);
         }
@@ -53,6 +55,70 @@ impl Family {
             (_, _, true) => Some(Self::View),
             _ => None,
         }
+    }
+}
+
+/// A type identifier under `urn:paso:sca:`, with the rulebook that renders it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasoType<'t> {
+    text: Cow<'t, str>,
+    family: Family,
+}
+
+/// A type identifier outside `urn:paso:sca:`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "paso.type")]
+#[error("{0} is no urn:paso:sca: type")]
+pub struct NotPasoType(#[explain(name = "type")] String);
+
+impl<'t> PasoType<'t> {
+    /// The type a text identifies.
+    ///
+    /// # Errors
+    ///
+    /// The text is outside `urn:paso:sca:`.
+    pub fn parse(text: &'t str) -> Result<Self, NotPasoType> {
+        Family::of(text)
+            .map(|family| Self {
+                text: Cow::Borrowed(text),
+                family,
+            })
+            .ok_or_else(|| NotPasoType(text.to_owned()))
+    }
+
+    /// The type identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+
+    /// The rulebook that renders it.
+    #[must_use]
+    pub const fn family(&self) -> Family {
+        self.family
+    }
+
+    /// The type, owning its text.
+    #[must_use]
+    pub fn to_owned_type(&self) -> PasoType<'static> {
+        PasoType {
+            text: Cow::Owned(self.text.clone().into_owned()),
+            family: self.family,
+        }
+    }
+}
+
+impl fmt::Display for PasoType<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl IntoArg for PasoType<'_> {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.text
     }
 }
 
@@ -99,13 +165,15 @@ impl<'t> Subtype<'t> {
     }
 
     /// A Generic type identifier's subtype (Generic §1).
-    pub(crate) fn generic(kind: &'t str) -> Result<Self, Unsupported> {
-        Self::parse(kind, GENERIC).ok_or_else(|| Unsupported::NotGeneric(kind.to_owned()))
+    pub(crate) fn generic(kind: &'t PasoType<'_>) -> Result<Self, Unsupported> {
+        Self::parse(kind.as_str(), GENERIC)
+            .ok_or_else(|| Unsupported::NotGeneric(kind.to_owned_type()))
     }
 
     /// A Mandate type identifier's subtype (Mandate §1).
-    pub(crate) fn mandate(kind: &'t str) -> Result<Self, Unsupported> {
-        Self::parse(kind, MANDATE).ok_or_else(|| Unsupported::NotMandate(kind.to_owned()))
+    pub(crate) fn mandate(kind: &'t PasoType<'_>) -> Result<Self, Unsupported> {
+        Self::parse(kind.as_str(), MANDATE)
+            .ok_or_else(|| Unsupported::NotMandate(kind.to_owned_type()))
     }
 
     /// Whether it is the named subtype.

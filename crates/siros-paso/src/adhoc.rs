@@ -12,6 +12,8 @@ use siros_openid4vp::jose::{CompactJws, JwsError};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::request::Request;
 
+use crate::rulebook::PasoType;
+
 /// The `typ` of an ad-hoc metadata JWT (§5.2).
 pub const TYP: &str = "adhoc-transaction-metadata+jwt";
 
@@ -150,7 +152,7 @@ impl<'j> Read<'j> {
 }
 
 /// The ad-hoc metadata JWT of each entry of a request that carries one, with the entry's type.
-type Jwts<'r> = Vec<(&'r str, Read<'r>)>;
+type Jwts<'r> = Vec<(PasoType<'r>, Read<'r>)>;
 
 /// Each entry's JWT read as a signed request is read.
 fn jwts<'r>(request: &'r Request<'r>) -> Jwts<'r> {
@@ -159,9 +161,8 @@ fn jwts<'r>(request: &'r Request<'r>) -> Jwts<'r> {
         .iter()
         .filter_map(|entry| {
             let jwt = entry.members().get("metadata").and_then(Node::as_str)?;
-            Read::parse(jwt)
-                .ok()
-                .map(|read| (entry.kind().as_str(), read))
+            let kind = PasoType::parse(entry.kind().as_str()).ok()?;
+            Read::parse(jwt).ok().map(|read| (kind, read))
         })
         .collect()
 }
@@ -191,8 +192,8 @@ impl<'r> Carried<'r> {
     }
 
     /// Each JWT read, with its entry's type.
-    pub fn jwts(&self) -> impl Iterator<Item = (&'r str, &Read<'r>)> {
-        self.read.iter().map(|(kind, read)| (*kind, read))
+    pub fn jwts(&self) -> impl Iterator<Item = (&PasoType<'r>, &Read<'r>)> {
+        self.read.iter().map(|(kind, read)| (kind, read))
     }
 }
 
@@ -227,6 +228,7 @@ mod verify {
     use crate::FAULT;
     use crate::document::{DOCUMENT, Issuer, PasoDocument};
     use crate::modules::IssuerTrust;
+    use crate::rulebook::PasoType;
 
     /// The wallet's modules a JWT verifies through: HAIP's signature verification, the trust
     /// store of credential issuers, and the clock.
@@ -257,7 +259,7 @@ mod verify {
     pub(crate) struct Binding<'b> {
         pub(crate) document: &'b PasoDocument<'b>,
         pub(crate) format: &'b FormatId<'b>,
-        pub(crate) kind: &'b str,
+        pub(crate) kind: &'b PasoType<'b>,
     }
 
     impl Read<'_> {
@@ -329,7 +331,7 @@ mod verify {
             if chain == Some(true) {
                 return Err(AdhocFailure::ForeignChain);
             }
-            if text("transaction_data_type") != Some(binding.kind) {
+            if text("transaction_data_type") != Some(binding.kind.as_str()) {
                 return Err(AdhocFailure::TransactionType);
             }
             Ok(())
@@ -383,7 +385,7 @@ mod verify {
                     let binding = Binding {
                         document: &document,
                         format: &credential.format,
-                        kind,
+                        kind: &kind,
                     };
                     match jwt.verify(&binding, modules) {
                         Ok(()) => {
@@ -412,8 +414,8 @@ mod verify {
         }
 
         /// Each JWT some credential verifies, with its entry's type.
-        pub fn jwts(&self) -> impl Iterator<Item = (&'r str, &Read<'r>)> {
-            self.read.iter().map(|(kind, read)| (*kind, read))
+        pub fn jwts(&self) -> impl Iterator<Item = (&PasoType<'r>, &Read<'r>)> {
+            self.read.iter().map(|(kind, read)| (kind, read))
         }
 
         /// Each JWT for each credential it fails for, with the step.

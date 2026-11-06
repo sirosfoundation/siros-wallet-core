@@ -15,6 +15,8 @@ use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption};
 use siros_openid4vp::sri::Integrity;
 
+use crate::rulebook::PasoType;
+
 /// The key of the PaSO document in a credential's registration.
 pub const DOCUMENT: &str = "paso";
 
@@ -162,17 +164,17 @@ impl<'d> PasoDocument<'d> {
 
     /// The metadata the signed credential metadata lists for a type.
     #[must_use]
-    pub fn metadata(&self, kind: &str) -> Option<&'d Node<'d>> {
-        self.types.get(kind)
+    pub fn metadata(&self, kind: &PasoType<'_>) -> Option<&'d Node<'d>> {
+        self.types.get(kind.as_str())
     }
 
-    /// Each type the signed credential metadata lists, with its metadata, which the wallet
+    /// Each PaSO type the signed credential metadata lists, with its metadata, which the wallet
     /// converts into a defined module when it registers the credential ([`crate::view::convert`]).
-    pub fn types(&self) -> impl Iterator<Item = (&'d str, &'d Node<'d>)> {
-        self.types
-            .members()
-            .iter()
-            .map(|member| (member.name.as_ref(), &member.value))
+    pub fn types(&self) -> impl Iterator<Item = (PasoType<'d>, &'d Node<'d>)> {
+        self.types.members().iter().filter_map(|member| {
+            let kind = PasoType::parse(member.name.as_ref()).ok()?;
+            Some((kind, &member.value))
+        })
     }
 
     /// Risk Signals §7.3: the first published key, `use` `enc` with a `kid` and an `alg`, that

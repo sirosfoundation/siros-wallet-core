@@ -115,7 +115,7 @@ use crate::image::Resolution;
 use crate::outcome::{NotCompatible, Outcome, Unsupported};
 use crate::render::{ItemBound, RowPosition, TransactionView};
 use crate::risk::{Catalogue, Effective, Sealing};
-use crate::rulebook::{Family, PASO};
+use crate::rulebook::{PASO, PasoType};
 use crate::rules::BindExcluded;
 use siros_openid4vp::wallet_metadata;
 
@@ -181,6 +181,7 @@ impl Messages for CrateMessages {
             path::Mismatch::messages,
             render::BoundTooLow::messages,
             document::DocumentError::messages,
+            rulebook::NotPasoType::messages,
             labels::Directional::messages,
             labels::LabelViolation::messages,
             value::BadValue::messages,
@@ -392,13 +393,7 @@ impl PasoProfile {
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Result<Rendered, Outcome>, Fault> {
-        let kind = entry.kind().as_str();
-        let family = Family::of(kind).ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
-            )
-        })?;
+        let kind = paso_type(entry)?;
         let Some(bytes) = credential.document(DOCUMENT) else {
             return Ok(Err(Unsupported::NoPasoMetadata.into()));
         };
@@ -406,7 +401,7 @@ impl PasoProfile {
             .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
         let document = PasoDocument::read(&node)
             .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-        let paso = match PasoEntry::read(entry) {
+        let paso = match PasoEntry::read(entry, kind) {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
         };
@@ -418,7 +413,7 @@ impl PasoProfile {
             Ok(adhoc) => adhoc,
             Err(refused) => return Ok(Err(refused)),
         };
-        Ok(self.rendered(&paso, adhoc.as_ref(), family, &document, placement, env))
+        Ok(self.rendered(&paso, adhoc.as_ref(), &document, placement, env))
     }
 
     /// The ad-hoc metadata JWT the profile relies on for the credential: refused when the profile
@@ -453,18 +448,17 @@ impl PasoProfile {
         &self,
         paso: &PasoEntry<'_>,
         adhoc: Option<&adhoc::Read<'_>>,
-        family: Family,
         document: &PasoDocument<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Rendered, Outcome> {
-        let kind = paso.kind.as_str();
+        let kind = &paso.kind;
         let (given, source) = match adhoc {
             Some(read) => (read.metadata(), Source::Adhoc),
             None => (
                 document
                     .metadata(kind)
-                    .ok_or_else(|| Unsupported::NotListed(kind.to_owned()))?,
+                    .ok_or_else(|| Unsupported::NotListed(kind.to_owned_type()))?,
                 Source::Stored {
                     integrity: document.integrity.clone(),
                 },
@@ -472,7 +466,6 @@ impl PasoProfile {
         };
         let view = render::Request {
             kind,
-            family,
             payload: paso.payload,
             given,
             env,
@@ -495,6 +488,17 @@ impl PasoProfile {
         }
         Ok(Rendered { view, source })
     }
+}
+
+/// An entry's type identifier, which the profile's registration keeps under `urn:paso:sca:`.
+pub(crate) fn paso_type<'e>(entry: &'e Entry<'e>) -> Result<PasoType<'e>, Fault> {
+    let kind = entry.kind().as_str();
+    PasoType::parse(kind).map_err(|_| {
+        Fault::new(
+            FAULT,
+            detail!("{kind} is no PaSO type identifier", kind = kind.to_owned()),
+        )
+    })
 }
 
 /// What a rendering gives the core: the entry it authorizes, the header, what the response

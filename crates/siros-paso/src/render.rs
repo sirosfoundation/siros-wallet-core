@@ -26,7 +26,7 @@ use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
 use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
-use crate::rulebook::{Family, Rulebook, Subtype};
+use crate::rulebook::{Family, PasoType, Rulebook, Subtype};
 use crate::template::Template;
 use crate::value::{self as values, FormattedKind, ValueKind};
 use crate::view;
@@ -170,8 +170,7 @@ impl TransactionView {
 /// What a rendering reads: the type, the payload, the metadata given for the type, the wallet's
 /// configuration and item bound, and what it knows of https images.
 pub(crate) struct Request<'r, R> {
-    pub(crate) kind: &'r str,
-    pub(crate) family: Family,
+    pub(crate) kind: &'r PasoType<'r>,
     pub(crate) payload: Payload<'r>,
     pub(crate) given: &'r Node<'r>,
     pub(crate) env: &'r Env,
@@ -200,7 +199,7 @@ struct Shown<'p> {
 impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
     /// The rendering of the entry.
     pub(crate) fn render(&self) -> Result<TransactionView, Outcome> {
-        let (metadata, rulebook) = rulebook_metadata(self.kind, self.family, self.given)?;
+        let (metadata, rulebook) = rulebook_metadata(self.kind, self.given)?;
         rulebook.check_payload(self.payload)?;
         conform(self.payload, &metadata, &rulebook)?;
         let shown = self.images(&metadata, &rulebook)?;
@@ -523,14 +522,13 @@ fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>
 /// the given metadata's `security_hint`, else the given metadata; the Generic subtype read once
 /// the metadata parsed (Generic §1).
 pub(crate) fn rulebook_metadata<'m>(
-    kind: &'m str,
-    family: Family,
+    kind: &'m PasoType<'_>,
     given: &'m Node<'m>,
 ) -> Result<(Metadata<'m>, Rulebook<'m>), Outcome> {
     if *given == Node::Null {
-        return Err(Unsupported::NoEntry(kind.to_owned()).into());
+        return Err(Unsupported::NoEntry(kind.to_owned_type()).into());
     }
-    Ok(match family {
+    Ok(match kind.family() {
         Family::Mandate => {
             let subtype = Subtype::mandate(kind)?;
             (mandate::metadata(given)?, Rulebook::Mandate(subtype))
