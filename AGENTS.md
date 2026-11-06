@@ -118,6 +118,8 @@ Run all checks before committing:
 cargo fmt --all -- --check
 cargo xtask layout
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo clippy --locked --workspace --lib --no-default-features -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --all-features
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 cargo xtask builds

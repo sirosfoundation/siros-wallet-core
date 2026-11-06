@@ -116,6 +116,8 @@ use). The gates CI holds:
 cargo fmt --all -- --check
 cargo xtask layout   # no test code under src/, no message source outside the test app and tests/, no display literal
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo clippy --locked --workspace --lib --no-default-features -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --all-features
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 cargo xtask builds   # each build of xtask/builds.json against the crates it excludes and its count

@@ -387,6 +387,9 @@ All notable changes to this workspace. The format follows
   precomputed and each module's request messages compiled. `Renderer::holds` tells a held text and `Package::spans`
   places each entry. `siros-testkit`'s `App` renders as the core's renderer
   of an entry, the selection given per call.
+- CI builds the documentation with warnings denied, runs clippy over the
+  libraries without default features, and denies warnings when it checks each
+  crate alone.
 
 ### Removed
 

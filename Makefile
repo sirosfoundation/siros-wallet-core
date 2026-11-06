@@ -7,17 +7,21 @@ SHELL := /bin/bash
 #   make audit   — cargo audit + cargo deny (needs cargo-audit / cargo-deny)
 #   make clean   — remove build artifacts
 
-.PHONY: all check fmt clippy test panic-sites audit clean
+.PHONY: all check fmt clippy doc test panic-sites audit clean
 
 all: check
 
-check: fmt clippy test panic-sites
+check: fmt clippy doc test panic-sites
 
 fmt:
 	cargo fmt --all -- --check
 
 clippy:
 	cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+	cargo clippy --locked --workspace --lib --no-default-features -- -D warnings
+
+doc:
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --all-features
 
 test:
 	cargo test --locked --workspace --all-features
