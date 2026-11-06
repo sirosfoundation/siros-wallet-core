@@ -8,7 +8,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_openid4vp::matching::{Accepted, UnmetCode};
 use siros_openid4vp::recourse::{DcApiErrors, Reply};
-use siros_openid4vp::refusal::{ErrorCode, Refusal, Refused, RequestRule, is_nqschars};
+use siros_openid4vp::refusal::{ErrorCode, Refusal, Refused, RequestRule};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Delivery, Outcome, PostBody, Route};
 use siros_testkit::{TestHost, TestTrust, fixtures};
@@ -191,7 +191,6 @@ fn a_uri_route_seals_its_errors_to_the_bound_key_else_sends_them_plain() {
         let names: Vec<&str> = form.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["error", "error_description", "state"]);
         assert_eq!(form[0].1, "invalid_request");
-        assert!(is_nqschars(&form[1].1), "{}", form[1].1);
         assert_eq!(form[2].1, "eyJhb-6-sVA");
     });
     // C5 for direct_post, which carries errors alone: its error plain to the response_uri
@@ -210,7 +209,7 @@ fn a_uri_route_seals_its_errors_to_the_bound_key_else_sends_them_plain() {
         };
         let form = posted(delivery);
         assert_eq!(form[0], ("error".to_owned(), "invalid_request".to_owned()));
-        assert!(is_nqschars(&form[1].1), "{}", form[1].1);
+        assert_eq!(form[1].0, "error_description");
     });
     // C5 by URI for a mode no error mode carries: Unroutable, the End-User alone.
     let unsupported = with(

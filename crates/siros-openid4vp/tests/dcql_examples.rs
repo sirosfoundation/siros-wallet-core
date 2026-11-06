@@ -4,7 +4,7 @@
 
 mod common;
 
-use siros_explain::Explain;
+use siros_explain::{ArgValue, Explain};
 use siros_openid4vp::claims::kit::ClaimsQuery;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
@@ -287,7 +287,14 @@ fn a_json_boolean_is_no_integer() {
         Vec::<OptionIndex>::new()
     );
     assert_eq!(answers(r#"{"age_over_18": 1}"#), vec![OptionIndex(0)]);
-    // A query without its format's meta is refused by the format.
+}
+
+#[test]
+fn a_claims_format_refuses_a_query_without_its_meta() {
+    let format = ClaimsTest {
+        member: "vct_values",
+        label: "label",
+    };
     let bare = parameters(
         r#"{"credentials": [{"id": "q", "format": "x", "claims": []}]}"#,
         "",
@@ -295,10 +302,16 @@ fn a_json_boolean_is_no_integer() {
     let received = unsigned(&bare).expect("received");
     let bare = request_of(&received).expect("request");
     let refusals = ClaimsQuery::parse(&format, &bare.queries()[0], None).expect_err("refused");
-    assert_eq!(
-        refusals.items()[0].id().as_str(),
-        "openid4vp.claims_query.rule"
-    );
+    let refusal = &refusals.items()[0];
+    let rule = refusal
+        .args()
+        .as_slice()
+        .iter()
+        .find_map(|named| match named.arg().value() {
+            ArgValue::Message(rule) => Some(rule.id().as_str()),
+            _ => None,
+        });
+    assert_eq!(rule, Some("openid4vp.claims_kit.meta"));
 }
 
 #[test]

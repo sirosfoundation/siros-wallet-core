@@ -113,20 +113,23 @@ fn every_named_hash_matches_its_standards_examples() {
     for (name, want) in abc {
         assert_eq!(digest(name, b"abc"), want, "{name}");
     }
-    // RFC 9861 §5: KT128 and KT256 of the empty message, k12-256 and k12-512 with an empty
-    // customization string.
+    // RFC 9861 §5: KT128 and KT256 of ptn(n), k12-256 and k12-512 with an empty customization
+    // string; KT256 over 8192 bytes builds a tree of two chunks.
+    let ptn = |n: usize| (0..n).map(|i| (i % 251) as u8).collect::<Vec<_>>();
     let kangaroo = [
         (
             "k12-256",
-            "1AC2D450FC3B4205D19DA7BFCA1B37513C0803577AC7167F06FE2CE1F0EF39E5",
+            1,
+            "2BDA92450E8B147F8A7CB629E784A058EFCA7CF7D8218E02D345DFAA65244A1F",
         ),
         (
             "k12-512",
-            "B23D2E9CEA9F4904E02BEC06817FC10CE38CE8E93EF4C89E6537076AF8646404E3E8B68107B8833A5D30490AA33482353FD4ADC7148ECB782855003AAEBDE4A9",
+            8192,
+            "C6EE8E2AD3200C018AC87AAA031CDAC22121B412D07DC6E0DCCBB53423747E9A1C18834D99DF596CF0CF4B8DFAFB7BF02D139D0C9035725ADC1A01B7230A41FA",
         ),
     ];
-    for (name, want) in kangaroo {
-        assert_eq!(digest(name, b""), want, "{name}");
+    for (name, n, want) in kangaroo {
+        assert_eq!(digest(name, &ptn(n)), want, "{name} of ptn({n})");
     }
 }
 
