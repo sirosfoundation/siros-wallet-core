@@ -210,14 +210,14 @@ fn the_openid4vci_example_draws_its_card() {
                 )
             );
             // de, then ja-JP (the wallet's own strings take the first locale, which its table serves):
-            // basic filtering selects no entry for de, the card's and given_name's for ja-JP;
-            // family_name has neither, so its first entry.
+            // no entry for de, the card's and given_name's for ja-JP; family_name has neither and
+            // shows its data element identifier.
             let (title, _, ja) = card(&["de", "ja-JP"]);
             assert_eq!(
                 (title.as_str(), ja),
                 (
                     "モバイル運転免許証",
-                    rows(["名前", "Surname", "birth_date", "organ_donor"])
+                    rows(["名前", "family_name", "birth_date", "organ_donor"])
                 )
             );
         },

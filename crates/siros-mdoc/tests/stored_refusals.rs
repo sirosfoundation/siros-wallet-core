@@ -13,6 +13,7 @@ use siros_mdoc::stored::{
     ValueDigestsFault,
 };
 use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::claims::kit::{IssuedMetadata, MergeError};
 use siros_openid4vp::json::Node;
 
 const DOC_TYPE: &str = "org.example.doc.1";
@@ -356,12 +357,17 @@ fn registration_refusals() {
         Err(RegistrationError::Stored(MdocError::Encoding(_)))
     ));
     let metadata = Resolved {
-        metadata: Some(Node::parse("[]").unwrap()),
+        issued: IssuedMetadata {
+            configuration: Some(Node::parse("[]").unwrap()),
+            ..IssuedMetadata::default()
+        },
         ..Resolved::default()
     };
     assert!(matches!(
         Registered::of(&assemble(&honest()), &metadata),
-        Err(RegistrationError::Metadata)
+        Err(RegistrationError::Metadata {
+            cause: MergeError::ConfigurationNotObject
+        })
     ));
     let mut parts = honest();
     parts.items[0] = item(0, "given_name", Value::Map(vec![(int(1), int(2))]));

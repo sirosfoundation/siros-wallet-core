@@ -30,6 +30,17 @@ pub enum WalletText {
     Null,
 }
 
+/// A claim's value the wallet words.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Explain)]
+#[explain(domain = "openid4vp.wallet")]
+pub enum ClaimText {
+    /// A byte string, shown by its `length` in bytes.
+    Bytes {
+        /// The bytes it holds.
+        length: siros_explain::Count,
+    },
+}
+
 /// A boolean's text, which a transaction's overlay shows: the module's request messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
 #[explain(domain = "openid4vp.wallet")]

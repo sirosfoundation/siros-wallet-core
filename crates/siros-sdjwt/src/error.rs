@@ -1,6 +1,7 @@
 //! Why an issued SD-JWT, or a view of one, is refused.
 
 use siros_explain::Explain;
+use siros_openid4vp::claims::kit::MergeError;
 use siros_openid4vp::json::JsonError;
 
 use crate::alg::Digest;
@@ -300,9 +301,13 @@ pub enum RegistrationError {
         /// The curve the wallet resolved.
         curve: String,
     },
-    /// The metadata is no object.
-    #[error("the type metadata is no object")]
-    Metadata,
+    /// The display metadata breaks a rule of the merge.
+    #[error("the display metadata: {cause}")]
+    Metadata {
+        /// The rule.
+        #[from]
+        cause: MergeError,
+    },
     /// The view repeats a member name.
     #[error(transparent)]
     Json(#[from] JsonError),

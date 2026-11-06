@@ -7,13 +7,12 @@ use crate::ids::LocaleTag;
 use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 
-use crate::rows::{BooleanText, Row, Value, WalletText};
+use crate::rows::{BooleanText, ClaimText, Row, Value, WalletText};
 use crate::text::{DisplayText, TextError, lookup};
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
-/// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority
-/// list, the entry equal to a tag else the first extending it, then the entry without a locale,
-/// then the first entry.
+/// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 Lookup (§3.4) over the priority
+/// list, then basic filtering (§3.3.1) over it, then the entry without a locale.
 #[must_use]
 pub fn format_entry<'n, 'e>(
     entries: &'n [Node<'e>],
@@ -28,17 +27,64 @@ pub fn format_entry<'n, 'e>(
                 .map(|tag| (tag, entry))
         })
         .collect();
-    let tags: Vec<&str> = tagged.iter().map(|(tag, _)| *tag).collect();
-    let matched = locales.iter().find_map(|locale| {
-        lookup(locale, &tags).and_then(|tag| {
-            tagged
+    let parsed: Vec<(LocaleTag, &Node<'e>)> = tagged
+        .iter()
+        .filter_map(|(tag, entry)| LocaleTag::parse(tag).ok().map(|tag| (tag, *entry)))
+        .collect();
+    let looked_up = locales
+        .iter()
+        .flat_map(LocaleTag::truncations)
+        .find_map(|range| {
+            parsed
                 .iter()
-                .find(|(t, _)| t == tag)
+                .find(|(tag, _)| *tag == range)
                 .map(|(_, entry)| *entry)
+        });
+    let tags: Vec<&str> = tagged.iter().map(|(tag, _)| *tag).collect();
+    let filtered = || {
+        locales.iter().find_map(|locale| {
+            lookup(locale, &tags).and_then(|tag| {
+                tagged
+                    .iter()
+                    .find(|(t, _)| t == tag)
+                    .map(|(_, entry)| *entry)
+            })
         })
-    });
+    };
     let untagged = || entries.iter().find(|entry| entry.get("locale").is_none());
-    matched.or_else(untagged).or_else(|| entries.first())
+    looked_up.or_else(filtered).or_else(untagged)
+}
+
+/// The view's `byte_strings`: where its `values` hold a byte string RFC 8949 §6.1 wrote as text,
+/// with its length in bytes. [`ClaimsView`](super::ClaimsView) reads their shape.
+pub(super) fn byte_strings<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
+    view.get("byte_strings")
+        .and_then(Node::as_array)
+        .unwrap_or(&[])
+}
+
+/// The length of the byte string at `path`; `None` for another value.
+fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
+    let same = |written: &[Node<'_>]| {
+        written.len() == path.len()
+            && written.iter().zip(path).all(|(step, at)| match (step, at) {
+                (Node::String(name), Concrete::Key(key)) => name == key,
+                (Node::Number(index), Concrete::Index(at)) => {
+                    index.as_u64() == u64::try_from(at.position()).ok()
+                }
+                _ => false,
+            })
+    };
+    let found = strings.iter().find(|string| {
+        string
+            .get("path")
+            .and_then(Node::as_array)
+            .is_some_and(same)
+    })?;
+    match found.get("length")? {
+        Node::Number(length) => Count::parse(length.text()),
+        _ => None,
+    }
 }
 
 pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>] {
@@ -128,8 +174,8 @@ fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
 /// without a label in the metadata shows its last member name, or the wallet's word for a claim
 /// when its path names no member. A scalar value shows by its type: a boolean as the wallet's yes
 /// or no, `null` as the wallet's text for no value, a number as a count or an exact decimal and
-/// beyond those as the JSON text the credential wrote. The labels and names read through
-/// [`DisplayText`]; the credential's strings show as written.
+/// beyond those as the JSON text the credential wrote, a byte string by its length. The labels and
+/// names read through [`DisplayText`]; the credential's strings show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
@@ -197,7 +243,10 @@ pub(super) fn value_rows(
         Node::Null => Text::of(&WalletText::Null),
         Node::Number(number) => number_value(number.text())
             .map_or_else(|| Text::Raw(number.text().to_owned()), Text::Value),
-        Node::String(written) => Text::Raw(written.to_string()),
+        Node::String(written) => byte_length(display.byte_strings, path).map_or_else(
+            || Text::Raw(written.to_string()),
+            |length| Text::of(&ClaimText::Bytes { length }),
+        ),
     };
     Ok(vec![Row::new(
         label.map_or_else(|| fallback_label(path), Ok)?,

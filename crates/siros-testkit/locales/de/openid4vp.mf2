@@ -1,4 +1,4 @@
-# The test app's German source of the openid4vp module.
+# The test app's German source of the openid4vp module. The number format's options are siros-cldr's.
 @locale de
 @dir ltr
 ---
@@ -13,3 +13,16 @@ yes = Ja
 no = Nein
 claim = Angabe
 null = Kein Wert
+bytes = {$length :integer} Byte
+
+[formats.number]
+zero = 0
+decimal = ,
+group = .
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+pattern = #,##0.###

@@ -8,6 +8,7 @@ mod common;
 mod csc;
 mod flows;
 mod matcher;
+mod metadata;
 
 use crate::common::HaipHost;
 use base64::Engine;
