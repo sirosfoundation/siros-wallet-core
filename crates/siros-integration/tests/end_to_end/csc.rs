@@ -76,7 +76,6 @@ fn csc_7_3_through_an_mdoc_answers_with_its_device_signed_qes_approval() {
     // SHA-256 digest of the decoded entry as a 32-byte bstr (§7.2.1.1, Note 20).
     let decoded = URL_SAFE_NO_PAD.decode(&entry).expect("base64url");
     let digest = Sha256::digest(&decoded);
-    assert_eq!(digest.len(), 32);
     assert_eq!(
         (&response["version"], &response["status"]),
         (&json!("1.0"), &json!(0))
