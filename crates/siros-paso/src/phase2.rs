@@ -142,6 +142,8 @@ use siros_openid4vp::json::Node;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 #[cfg(feature = "resolve")]
+use siros_openid4vp::request::Entry;
+#[cfg(feature = "resolve")]
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 
 #[cfg(feature = "resolve")]
@@ -169,9 +171,10 @@ use crate::risk::RiskSignal;
 use crate::{FAULT, PasoProfile};
 
 #[cfg(feature = "resolve")]
-/// What a record's entry reads: the entry, the credential's document, and the metadata that
-/// rendered it: the stored metadata, or the ad-hoc metadata JWT's once verified.
+/// What a record's entry reads: the entry as received and as read, the credential's document, and
+/// the metadata that rendered it: the stored metadata, or the ad-hoc metadata JWT's once verified.
 struct Read<'r> {
+    received: &'r Entry<'r>,
     entry: PasoEntry<'r>,
     document: &'r PasoDocument<'r>,
     given: &'r Node<'r>,
@@ -202,11 +205,11 @@ fn read<T>(
             detail!("a PaSO record authorizes one entry"),
         ));
     };
-    let entry = record
+    let received = record
         .request()
         .entry(*index)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's entry the request lacks")))?;
-    let entry = PasoEntry::read(entry, crate::paso_type(entry)?)
+    let entry = PasoEntry::read(received, crate::paso_type(received)?)
         .map_err(|refused| Fault::caused(FAULT, detail!("a bound PaSO entry"), refused))?;
     let bytes = record.credential().document(DOCUMENT).ok_or_else(|| {
         Fault::new(
@@ -244,6 +247,7 @@ fn read<T>(
     }
     .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
     then(Read {
+        received,
         entry,
         document: &document,
         given,
@@ -443,6 +447,7 @@ pub(crate) fn respond(
             .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
         Answer {
             request: record.request(),
+            received: read.received,
             entry: read.entry,
             document: read.document,
             signals,
