@@ -5,14 +5,18 @@
 use std::fmt;
 
 #[cfg(feature = "render")]
-use siros_explain::{IntoArg, ModuleId, kind};
+use siros_explain::{IntoArg, MessageId, ModuleId, kind};
 
 #[cfg(feature = "render")]
 use crate::form::BareKind;
+#[cfg(feature = "load")]
+use crate::format::FormatId;
 #[cfg(feature = "render")]
 use crate::locale::LocaleTag;
 #[cfg(feature = "render")]
-use crate::package::module_name;
+use crate::package::{CredentialName, TransactionKind, module_name};
+#[cfg(feature = "render")]
+use crate::render::RendererVersion;
 
 /// Why a module was refused when it loaded.
 #[cfg(feature = "load")]
@@ -31,28 +35,20 @@ pub enum ModuleError {
     },
     /// A locale's source is given twice.
     #[error("the module's source for {0} is given twice")]
-    Locale(#[explain(name = "locale")] String),
+    Locale(#[explain(name = "locale")] LocaleTag),
     /// The declaration holds a message outside the module's domain.
     #[error("the declared message {0} lies outside the module's domain")]
     Outside(#[explain(name = "message")] String),
     /// The declaration holds two different messages under one identifier.
     #[error("the declaration of {0} holds two messages")]
     Declaration(#[explain(name = "message")] String),
-    /// A converter's declaration names a parameter outside the tokens.
-    #[error("the declaration of {key} names the parameter {name}, which is no token")]
-    ParameterName {
-        /// The message.
-        key: String,
-        /// The parameter's name.
-        name: String,
-    },
     /// A source gives a key twice.
     #[error("{key} is given twice in {locale}")]
     Repeated {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
     },
     /// A key lacks a message in a locale the module supports.
     #[error("{key} has no message in {locale}")]
@@ -60,7 +56,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
     },
     /// A source gives a message for a key the declaration lacks.
     #[error("{key} in {locale} is no key of the declaration")]
@@ -68,7 +64,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
     },
     /// A message is no MF2 message.
     #[error("{key} in {locale} is no MessageFormat 2 message: byte {at}")]
@@ -76,7 +72,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The offset, in bytes, where the grammar fails.
         at: usize,
     },
@@ -86,7 +82,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The rule.
         rule: Validity,
     },
@@ -96,7 +92,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The argument.
         argument: String,
     },
@@ -106,7 +102,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The function.
         function: String,
     },
@@ -116,7 +112,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The call: its operand as written, when it has one, and its function, the implicit one
         /// included: `$name :number`, `|literal| :string`, `:number`.
         call: String,
@@ -129,7 +125,7 @@ pub enum ModuleError {
         /// The value's kind.
         kind: BareKind,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The function its kind calls.
         function: &'static str,
         /// What the function refuses.
@@ -141,7 +137,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The markup's name.
         markup: String,
     },
@@ -151,7 +147,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The markup's name.
         markup: String,
     },
@@ -162,7 +158,7 @@ pub enum ModuleError {
         /// The key.
         key: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
         /// The markup's name.
         markup: String,
     },
@@ -172,7 +168,7 @@ pub enum ModuleError {
         /// The format.
         format: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
     },
     /// A source defines an option its format does not take.
     #[error("{locale} defines {option} of {format}, which the format does not take")]
@@ -182,35 +178,35 @@ pub enum ModuleError {
         /// The option.
         option: String,
         /// The locale.
-        locale: String,
+        locale: LocaleTag,
     },
     /// The module lacks an option of a format it uses, for a language it supports.
-    #[error("the module defines no {option} of {format} for {locale}")]
+    #[error("the module defines no {option} of {format:?} for {locale}")]
     Option {
         /// The format.
-        format: &'static str,
+        format: FormatId,
         /// The option.
         option: &'static str,
         /// The language.
-        locale: String,
+        locale: LocaleTag,
     },
     /// A format module refuses an option's text.
-    #[error("{option} of {format} for {locale} is no valid value: {text}")]
+    #[error("{option} of {format:?} for {locale} is no valid value: {text}")]
     OptionText {
         /// The format.
-        format: &'static str,
+        format: FormatId,
         /// The option.
         option: &'static str,
         /// The language.
-        locale: String,
+        locale: LocaleTag,
         /// The text as written.
         text: String,
     },
     /// A format module reads an option its `options` do not name.
-    #[error("{format} reads {option}, which its options do not name")]
+    #[error("{format:?} reads {option}, which its options do not name")]
     UndeclaredOption {
         /// The format.
-        format: &'static str,
+        format: FormatId,
         /// The option.
         option: &'static str,
     },
@@ -218,10 +214,10 @@ pub enum ModuleError {
     #[error("two registered format modules provide {0}")]
     Compiler(#[explain(name = "name")] &'static str),
     /// A registered format module lists an option twice.
-    #[error("the format module {format} lists its option {option} twice")]
+    #[error("the format module {format:?} lists its option {option} twice")]
     Listed {
         /// The format.
-        format: &'static str,
+        format: FormatId,
         /// The option.
         option: &'static str,
     },
@@ -377,6 +373,41 @@ impl RefusedOption {
     }
 }
 
+/// An MF2 formatting error a format module reports (MessageFormat 2, errors.md "Message Function
+/// Errors").
+#[cfg(feature = "render")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormatFailure {
+    /// `bad-operand`: the value is no operand of the function.
+    BadOperand,
+    /// `bad-selector`: the function's value selects no variant.
+    BadSelector,
+    /// `bad-variant-key`: a variant key is no key of the function.
+    BadVariantKey,
+}
+
+#[cfg(feature = "render")]
+impl FormatFailure {
+    /// The error's name in MF2's errors.md.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::BadOperand => "bad-operand",
+            Self::BadSelector => "bad-selector",
+            Self::BadVariantKey => "bad-variant-key",
+        }
+    }
+}
+
+#[cfg(feature = "render")]
+impl IntoArg for FormatFailure {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
+}
+
 /// Why a text did not render. No fallback text reaches the End-User: the screen or the matcher's
 /// entries that needed the text are not shown.
 #[cfg(feature = "render")]
@@ -397,8 +428,8 @@ pub enum RenderError {
     #[error("the build registers no format module {0}")]
     Format(#[explain(name = "format")] String),
     /// A format module reported an MF2 formatting error.
-    #[error("the message does not format: {0}")]
-    Message(#[explain(name = "kind")] &'static str),
+    #[error("the message does not format: {0:?}")]
+    Message(#[explain(name = "kind")] FormatFailure),
     /// A query's arguments differ from its message's declaration: a name the message does not
     /// declare, a declared name left out, or a value of another kind.
     #[error("the query's arguments are not its message's")]
@@ -419,11 +450,11 @@ pub enum RenderError {
         kind: BareKind,
     },
     /// Two registered render halves share an identity.
-    #[error("the build registers the format module {0} twice")]
-    Registered(#[explain(name = "format")] &'static str),
+    #[error("the build registers the format module {0:?} twice")]
+    Registered(#[explain(name = "format")] FormatId),
     /// A compiled placeholder's bytes do not read as its format module writes them.
-    #[error("a compiled placeholder of the format module {0} is malformed")]
-    Compiled(#[explain(name = "format")] &'static str),
+    #[error("a compiled placeholder of the format module {0:?} is malformed")]
+    Compiled(#[explain(name = "format")] FormatId),
     /// The package refused an entry the text needs.
     #[error(transparent)]
     Package(#[from] PackageError),
@@ -460,10 +491,10 @@ pub enum PackageError {
     },
     /// Another version of the renderer built the package, so its precomputed texts are another
     /// renderer's.
-    #[error("the package was built by renderer {built}")]
+    #[error("the package was built by renderer {built:?}")]
     Renderer {
         /// The version that built it.
-        built: u16,
+        built: RendererVersion,
     },
     /// The package holds no module of this identity.
     #[error("the package holds no module {0}")]
@@ -475,20 +506,20 @@ pub enum PackageError {
     #[error("the module {0} is given twice")]
     RepeatedModule(#[explain(name = "module")] ModuleName),
     /// A package builder given a module's key twice.
-    #[error("the key {key} of the module {module} is given twice")]
+    #[error("the key {key:?} of the module {module} is given twice")]
     RepeatedKey {
         /// The module.
         module: ModuleName,
         /// The key.
-        key: String,
+        key: MessageId,
     },
     /// A key the module does not hold.
-    #[error("the module {module} holds no key {key}")]
+    #[error("the module {module} holds no key {key:?}")]
     Key {
         /// The module.
         module: ModuleName,
         /// The key.
-        key: String,
+        key: MessageId,
     },
     /// The bytes run past the package's last entry or end before it.
     #[error("the package's bytes do not end where its last entry ends")]
@@ -497,11 +528,11 @@ pub enum PackageError {
     #[error("the package names no locale")]
     NoLocale,
     /// A registration's builder given a credential twice.
-    #[error("the credential {0} is given twice")]
-    RepeatedCredential(#[explain(name = "credential")] String),
+    #[error("the credential {0:?} is given twice")]
+    RepeatedCredential(#[explain(name = "credential")] CredentialName),
     /// A registration's builder given a transaction type twice.
-    #[error("the transaction type {0} is given twice")]
-    RepeatedTransaction(#[explain(name = "transaction")] String),
+    #[error("the transaction type {0:?} is given twice")]
+    RepeatedTransaction(#[explain(name = "transaction")] TransactionKind),
 }
 
 /// Why a presentation has no language.

@@ -17,14 +17,13 @@
 //! and a screen showing the module in it refuses it. Its language policy is `Understood`: View §4
 //! excludes a credential when no tag matches every array.
 
-use std::borrow::Cow;
-
 use sha2::{Digest, Sha256};
 use siros_explain::{
-    ArgKind, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, ParamKind, Presence, checked,
+    ArgKind, ArgName, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, MetadataDigest,
+    ParamKind, ParamName, Presence, checked,
 };
 use siros_i18n::{
-    Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part, Variant,
+    AsciiKey, Body, DefinedError, DefinedForm, LanguagePolicy, LocaleTag, MainLocale, Part, Variant,
 };
 use siros_openid4vp::json::Node;
 
@@ -49,7 +48,7 @@ const SLOT: char = '\u{FDD0}';
 #[must_use]
 pub fn module_of(given: &Node<'_>) -> DefinedModule {
     let digest = Sha256::digest(given.python_compact().to_string().as_bytes());
-    DefinedModule::new(PLUGIN, digest.into())
+    DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
 }
 
 /// The stem of a claim's labels' keys.
@@ -65,18 +64,18 @@ pub(crate) fn key(array: ArrayKey) -> DefinedKey {
 }
 
 /// The name of the argument a template's `{n}` gives claim n's value under.
-pub(crate) fn argument(claim: usize) -> Cow<'static, str> {
-    Cow::Owned(format!("c{claim}"))
+pub(crate) fn argument(claim: usize) -> ParamName {
+    ParamName::numbered(checked!(ArgName, "c"), claim)
 }
 
 /// The name of the argument that tells whether the template entry at `position` of an array is
 /// discarded.
-pub(crate) fn liveness(position: usize) -> Cow<'static, str> {
-    Cow::Owned(format!("e{position}"))
+pub(crate) fn liveness(position: usize) -> ParamName {
+    ParamName::numbered(checked!(ArgName, "e"), position)
 }
 
 /// The value of a liveness argument for an entry no absent claim discards.
-pub(crate) const LIVE: &str = "live";
+pub(crate) const LIVE: AsciiKey = checked!(AsciiKey, "live");
 /// The value of a liveness argument for an entry an absent claim discards.
 pub(crate) const DEAD: &str = "dead";
 
@@ -185,7 +184,7 @@ fn converted<'a, 'r: 'a>(
 }
 
 /// A message's parameters: each argument's name and kind.
-type Params = Keyed<Cow<'static, str>, ParamKind>;
+type Params = Keyed<ParamName, ParamKind>;
 
 /// An array to convert: what it labels, its entries, and its message's parameters.
 struct Converting<'a, 'm> {

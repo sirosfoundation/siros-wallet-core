@@ -1,14 +1,14 @@
 //! The byte form of a package's compiled messages, compiled calls and formatted texts: written when
 //! the wallet builds a package, read when an entry is read.
 
-use siros_explain::{ArgKind, DefinedKey, Presence};
+use siros_explain::{ArgKind, ParamName, Presence};
 
 use crate::bytes::Reader;
 use crate::bytes::Writer;
 use crate::error::PackageError;
 use crate::form::{
     BareCalls, BareKind, BodyForm, CompiledCall, Dir, Expression, KeyRef, MessageForm, ParamForm,
-    ParamName, PartForm, Root, SelectorForm, VariantForm,
+    PartForm, Root, SelectorForm, VariantForm,
 };
 use crate::format::Direction;
 use crate::locale::LocaleTag;
@@ -287,11 +287,11 @@ fn write_pattern(writer: &mut Writer, parts: &[PartForm]) {
 
 /// A parameter.
 fn param(reader: &mut EntryReader<'_>) -> Result<ParamForm, PackageError> {
-    let name = DefinedKey::parse(text(reader)?).ok_or(reader.malformed())?;
+    let name = ParamName::parse(text(reader)?).ok_or(reader.malformed())?;
     let kind = by_byte(reader, &KINDS, kind_byte)?;
     let presence = by_byte(reader, &PRESENCES, presence_byte)?;
     Ok(ParamForm {
-        name: ParamName::Defined(name),
+        name,
         kind,
         presence,
     })

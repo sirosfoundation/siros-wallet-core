@@ -2,10 +2,11 @@
 //! refused when its entry is read (a module altered after its digest was taken is refused when it
 //! loads); each refusal rule refuses its fixture.
 
-use siros_explain::{Count, Domain, Message, ModuleId, Text, Value, checked};
+use siros_explain::{Count, Domain, Message, MessageId, ModuleId, Text, Value, checked};
 use siros_i18n::{
-    Bidi, BuiltPackage, Compilers, Declaration, FORMAT, Formats, Formatted, LanguagePolicy, Module,
-    Package, PackageBuilder, PackageError, RegistrationBuilder, RenderError, Screen,
+    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, FORMAT, FormatId, Formats,
+    Formatted, LanguagePolicy, Module, Package, PackageBuilder, PackageError, PackageRoot,
+    RegistrationBuilder, RenderError, Screen, TransactionKind,
 };
 
 use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
@@ -59,7 +60,7 @@ fn texts() -> Vec<Text> {
 fn build(
     modules: &[&Module],
     locales: &[&str],
-    keys: Option<&[&str]>,
+    keys: Option<&[MessageId]>,
     held: &[Text],
     bidi: Bidi,
 ) -> BuiltPackage {
@@ -104,12 +105,12 @@ fn packages_write_read_back_and_render_the_same() {
     let texts = texts();
     let ids = [ModuleId::Main, FIXTURE];
     let keys = [
-        "fixture.host.hello",
-        "fixture.host.asks",
-        "fixture.host.counted",
-        "fixture.host.nested",
-        "fixture.host.maybe",
-        "fixture.inner.code",
+        checked!(MessageId, "fixture.host.hello"),
+        checked!(MessageId, "fixture.host.asks"),
+        checked!(MessageId, "fixture.host.counted"),
+        checked!(MessageId, "fixture.host.nested"),
+        checked!(MessageId, "fixture.host.maybe"),
+        checked!(MessageId, "fixture.inner.code"),
     ];
     let mut compared = 0;
     for bidi in [Bidi::Default, Bidi::None] {
@@ -224,19 +225,21 @@ fn each_package_rule_refuses_its_fixture() {
         PackageError::NoLocale
     );
     let mut builder = PackageBuilder::new(vec![tag("en")]).expect("a builder");
+    let absent = checked!(MessageId, "fixture.host.absent");
+    let hello = checked!(MessageId, "fixture.host.hello");
     let refused = builder
-        .module(&module, Some(&["fixture.host.absent"]))
+        .module(&module, Some(&[absent]))
         .expect_err("no such key");
     assert!(matches!(
         &refused,
-        PackageError::Key { module, key } if module.id() == FIXTURE && key == "fixture.host.absent"
+        PackageError::Key { module, key } if module.id() == FIXTURE && *key == absent
     ));
     let refused = builder
-        .module(&module, Some(&["fixture.host.hello", "fixture.host.hello"]))
+        .module(&module, Some(&[hello, hello]))
         .expect_err("a key twice");
     assert!(matches!(
         &refused,
-        PackageError::RepeatedKey { module, key } if module.id() == FIXTURE && key == "fixture.host.hello"
+        PackageError::RepeatedKey { module, key } if module.id() == FIXTURE && *key == hello
     ));
     builder.module(&module, None).expect("a module");
     assert!(matches!(
@@ -263,7 +266,7 @@ fn each_package_rule_refuses_its_fixture() {
     );
     assert_eq!(
         Formats::new(&[&PROBE, &PROBE]).err(),
-        Some(RenderError::Registered("number"))
+        Some(RenderError::Registered(checked!(FormatId, "number")))
     );
     let mut other = built.bytes().to_vec();
     other[8..10].copy_from_slice(&(FORMAT + 1).to_be_bytes());
@@ -271,10 +274,10 @@ fn each_package_rule_refuses_its_fixture() {
         Package::read(&other, built.root()).expect_err("another version"),
         PackageError::Version
     );
-    let mut root = built.root();
+    let mut root = *built.root().bytes();
     root[0] ^= 1;
     assert_eq!(
-        Package::read(built.bytes(), root).expect_err("another root"),
+        Package::read(built.bytes(), PackageRoot::new(root)).expect_err("another root"),
         PackageError::Root
     );
     let mut registering =
@@ -286,27 +289,27 @@ fn each_package_rule_refuses_its_fixture() {
         PackageError::NoLocale
     );
     assert!(matches!(
-        registering.credential("c", &[FIXTURE]).expect_err("not added"),
+        registering.credential(CredentialName::new("c".to_owned()), &[FIXTURE]).expect_err("not added"),
         PackageError::Module(module) if module.id() == FIXTURE
     ));
     registering.module(&module, None).expect("a module");
     registering
-        .credential("c", &[FIXTURE])
+        .credential(CredentialName::new("c".to_owned()), &[FIXTURE])
         .expect("a credential");
     assert_eq!(
         registering
-            .credential("c", &[FIXTURE])
+            .credential(CredentialName::new("c".to_owned()), &[FIXTURE])
             .expect_err("a credential twice"),
-        PackageError::RepeatedCredential("c".to_owned())
+        PackageError::RepeatedCredential(CredentialName::new("c".to_owned()))
     );
     registering
-        .transaction("t", FIXTURE)
+        .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
         .expect("a transaction type");
     assert_eq!(
         registering
-            .transaction("t", FIXTURE)
+            .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
             .expect_err("a transaction type twice"),
-        PackageError::RepeatedTransaction("t".to_owned())
+        PackageError::RepeatedTransaction(TransactionKind::new("t".to_owned()))
     );
 }
 
@@ -325,13 +328,16 @@ fn a_registration_records_its_inputs_and_each_credentials_candidates() {
     builder.module(&fixture, None).expect("a module");
     builder.module(&main, None).expect("a module");
     builder
-        .credential("both", &[FIXTURE, ModuleId::Main])
+        .credential(
+            CredentialName::new("both".to_owned()),
+            &[FIXTURE, ModuleId::Main],
+        )
         .expect("a credential");
     builder
-        .credential("main", &[ModuleId::Main])
+        .credential(CredentialName::new("main".to_owned()), &[ModuleId::Main])
         .expect("a credential");
     builder
-        .transaction("t", FIXTURE)
+        .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
         .expect("a transaction type");
     let built = builder.finish();
     let package = Package::read(built.bytes(), built.root()).expect("a package");
@@ -343,14 +349,22 @@ fn a_registration_records_its_inputs_and_each_credentials_candidates() {
     assert_eq!(registration.fallback(), fallback.as_slice());
     assert_eq!(registration.options(), options(Bidi::Default));
     assert!(registration.transacts(FIXTURE) && !registration.transacts(ModuleId::Main));
-    let both = registration.credential("both").expect("registered");
+    let both = registration
+        .credential(&CredentialName::new("both".to_owned()))
+        .expect("registered");
     assert!(both.draws_from(&[ModuleId::Main, FIXTURE]) && !both.draws_from(&[FIXTURE]));
     assert_eq!(both.candidates().understood(), &[tag("en"), tag("de")]);
     assert_eq!(both.candidates().fallback(), &[tag("de")]);
-    let main = registration.credential("main").expect("registered");
+    let main = registration
+        .credential(&CredentialName::new("main".to_owned()))
+        .expect("registered");
     assert_eq!(main.candidates().understood(), &[tag("en"), tag("de")]);
     assert_eq!(main.candidates().fallback(), &[tag("en-GB"), tag("de")]);
-    assert!(registration.credential("absent").is_none());
+    assert!(
+        registration
+            .credential(&CredentialName::new("absent".to_owned()))
+            .is_none()
+    );
     let live = PackageBuilder::new(vec![tag("en")])
         .expect("a builder")
         .finish();

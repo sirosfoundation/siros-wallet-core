@@ -7,7 +7,7 @@ use siros_explain::Currency;
 use crate::bytes::Reader;
 #[cfg(feature = "load")]
 use crate::bytes::Writer;
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::format::Input;
 use crate::numeric::decimal::Fixed;
 use crate::numeric::pattern::{Affix, Pattern};
@@ -260,7 +260,7 @@ impl Part {
                     .find(|(c, _)| *c == category)
                     .or_else(|| self.units.iter().find(|(c, _)| *c == Category::Other))
                     .map(|(_, unit)| unit.as_str())
-                    .ok_or(RenderError::Compiled("currency"))?;
+                    .ok_or(RenderError::Compiled(crate::currency::ID))?;
                 out = unit.replace("{0}", &number).replace("{1}", &name);
             }
             Display::Symbol | Display::Narrow | Display::Code => {
@@ -287,14 +287,14 @@ pub(crate) fn render(form: &Form<'_>, input: &Input<'_>) -> Result<String, Rende
     if let Input::Value(siros_explain::Value::Currency(currency)) = input {
         return Ok(match part.display {
             Display::Name => part.name(*currency, NameKind::Display),
-            Display::Never => return Err(RenderError::Message("bad-operand")),
+            Display::Never => return Err(RenderError::Message(FormatFailure::BadOperand)),
             Display::Symbol | Display::Narrow | Display::Code => part.symbol(*currency).0,
         });
     }
     let NumericInput { number, currency } = NumericInput::of(input)?;
     let currency = currency
         .or(part.fixed)
-        .ok_or(RenderError::Message("bad-operand"))?;
+        .ok_or(RenderError::Message(FormatFailure::BadOperand))?;
     let fractions = part.fractions(currency);
     let fixed = form.rounded(&form.value(number), (fractions.digits, fractions.increment));
     part.amount(form, &fixed, currency)

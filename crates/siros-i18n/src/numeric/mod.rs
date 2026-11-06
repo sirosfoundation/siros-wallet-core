@@ -16,7 +16,7 @@ pub(crate) mod plural;
 use crate::bytes::Reader;
 #[cfg(feature = "load")]
 use crate::bytes::Writer;
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::format::{Direction, FormatId, Input, VariantKey, VariantKeys};
 use crate::sink::Sink;
 use decimal::{Fixed, Given, Num, RoundingMode};
@@ -152,7 +152,7 @@ impl NumericInput {
     /// The number `input` holds.
     pub(crate) fn of(input: &Input<'_>) -> Result<Self, RenderError> {
         use siros_explain::Value;
-        let bad = RenderError::Message("bad-operand");
+        let bad = RenderError::Message(FormatFailure::BadOperand);
         let number = match input {
             Input::Literal(text) | Input::Text(text) => Given::literal(text).ok_or(bad)?,
             Input::Value(Value::Count(count)) => Given::count(count),
@@ -347,7 +347,7 @@ impl<'a> Form<'a> {
     ) -> Result<Vec<VariantKey<'k>>, RenderError> {
         let serial = self.serial(fixed);
         let category = match self.selection {
-            Selection::None => return Err(RenderError::Message("bad-selector")),
+            Selection::None => return Err(RenderError::Message(FormatFailure::BadSelector)),
             Selection::Exact => None,
             Selection::Plural => Some(self.cardinal(fixed)?),
             Selection::Ordinal => Some(plural::category(
@@ -367,7 +367,7 @@ impl<'a> Form<'a> {
                     keyword.push(key);
                 }
             } else {
-                return Err(RenderError::Message("bad-variant-key"));
+                return Err(RenderError::Message(FormatFailure::BadVariantKey));
             }
         }
         exact.append(&mut keyword);

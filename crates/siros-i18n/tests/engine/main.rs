@@ -12,10 +12,11 @@ mod render;
 
 use siros_explain::{ArgKind, Domain, Explain, Messages, ModuleId, Value, checked};
 use siros_i18n::{
-    Amounts, Bidi, BuiltPackage, Call, Compilers, Declaration, Direction, FormatCompiler, FormatId,
-    FormatRenderer, Formats, Input, LanguageFormats, LanguagePolicy, LocaleTag, Module,
-    ModuleError, OnRenderError, Operand, Package, PackageBuilder, ParsedFormats, Refusal,
-    RefusedOption, RenderError, RenderOptions, Renderer, Screen, Sink, VariantKey, VariantKeys,
+    Amounts, Bidi, BuiltPackage, Call, Compilers, Declaration, Direction, FormatCompiler,
+    FormatFailure, FormatId, FormatRenderer, Formats, Input, LanguageFormats, LanguagePolicy,
+    LocaleTag, Module, ModuleError, OnRenderError, Operand, Package, PackageBuilder, ParsedFormats,
+    Refusal, RefusedOption, RenderError, RenderOptions, Renderer, Screen, Sink, VariantKey,
+    VariantKeys,
 };
 
 /// The fixture crate's host messages.
@@ -209,7 +210,7 @@ impl FormatRenderer for Probe {
                 sink.text(&count.digits());
                 Ok(())
             }
-            _ => Err(RenderError::Message("bad-operand")),
+            _ => Err(RenderError::Message(FormatFailure::BadOperand)),
         }
     }
 

@@ -2,22 +2,21 @@
 //! checked, and compiled into its render form.
 
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 
-use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind};
+use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, ParamName};
 
 use crate::compile::{self, Site};
 use crate::defined::MainLocale;
 use crate::error::{ModuleError, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
-    ParamName,
 };
 use crate::format::{
     Call, Compilers, FormatCompiler, FormatId, LanguageFormats, Operand, ParsedFormats, Uses,
 };
 use crate::locale::LocaleTag;
 use crate::mf2::{parse, valid};
+use crate::render::ModuleDigest;
 use crate::resource::{self, Resource};
 
 /// A module's declaration: its keys, and each key's arguments with their kinds. A crate module's
@@ -54,39 +53,25 @@ impl Declaration {
     }
 
     /// The declaration a converter writes for a defined module: each key with its parameters,
-    /// each under its name, in order.
-    ///
-    /// # Errors
-    ///
-    /// [`ModuleError::ParameterName`] for a parameter name that is no tokens, the grammar of an
-    /// [`ArgName`](siros_explain::ArgName) and of a [`DefinedKey`].
-    pub fn defined(
-        messages: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
-    ) -> Result<Self, ModuleError> {
-        let mut declared = Vec::with_capacity(messages.entries().len());
-        for entry in messages.entries() {
-            let mut params = Vec::with_capacity(entry.value().entries().len());
-            for param in entry.value().entries() {
-                let name =
-                    DefinedKey::parse(param.key().clone().into_owned()).ok_or_else(|| {
-                        ModuleError::ParameterName {
-                            key: entry.key().as_str().to_owned(),
-                            name: param.key().clone().into_owned(),
-                        }
-                    })?;
-                params.push(ParamForm {
-                    name: ParamName::Defined(name),
-                    kind: param.value().kind(),
-                    presence: param.value().presence(),
-                });
-            }
-            declared.push(Declared {
+    /// each under its name, in order. Its keys are distinct.
+    #[must_use]
+    pub fn defined(messages: Keyed<DefinedKey, Keyed<ParamName, ParamKind>>) -> Self {
+        let mut held: Vec<Declared> = messages
+            .entries()
+            .iter()
+            .map(|entry| Declared {
                 id: entry.key().as_str().to_owned(),
                 text: None,
-                params,
-            });
-        }
-        Self::of(declared.into_iter())
+                params: entry
+                    .value()
+                    .entries()
+                    .iter()
+                    .map(ParamForm::of_param)
+                    .collect(),
+            })
+            .collect();
+        held.sort_by(|a, b| a.id.cmp(&b.id));
+        Self { messages: held }
     }
 
     fn of(messages: impl Iterator<Item = Declared>) -> Result<Self, ModuleError> {
@@ -230,7 +215,7 @@ impl Module {
                 .iter()
                 .any(|earlier| earlier.locale == resource.locale)
             {
-                return Err(ModuleError::Locale(resource.locale.to_string()));
+                return Err(ModuleError::Locale(resource.locale.clone()));
             }
             digest.update((text.len() as u64).to_be_bytes());
             digest.update(text.as_bytes());
@@ -274,7 +259,7 @@ impl Module {
         Ok(Self {
             form: CompiledModule {
                 id,
-                digest: digest.finalize().into(),
+                digest: ModuleDigest::new(digest.finalize().into()),
                 policy,
                 locales,
             },
@@ -290,7 +275,7 @@ impl Module {
     /// The SHA-256 of its loaded sources, format options included, each source its length as a
     /// big-endian `u64` and its bytes, in the order given.
     #[must_use]
-    pub const fn digest(&self) -> [u8; 32] {
+    pub const fn digest(&self) -> ModuleDigest {
         self.form.digest
     }
 
@@ -329,8 +314,8 @@ fn resolve<'a>(
     keyed: &[Entry<&'a str, &'a Declared>],
     compilers: &Compilers,
 ) -> Result<Vec<compile::Resolved<'a>>, ModuleError> {
-    let locale = resource.locale.as_str();
-    let at = |key: &str| (key.to_owned(), locale.to_owned());
+    let locale = &resource.locale;
+    let at = |key: &str| (key.to_owned(), locale.clone());
     for (index, entry) in resource.messages.iter().enumerate() {
         if resource
             .messages
@@ -380,7 +365,7 @@ fn parse_formats<'u>(
     resource: &Resource,
     used: &'u [Used],
 ) -> Result<LocaleFormats<'u>, ModuleError> {
-    let locale = resource.locale.to_string();
+    let locale = resource.locale.clone();
     for section in &resource.formats {
         let compiler = used
             .iter()
@@ -425,7 +410,7 @@ fn parse_formats<'u>(
                 .and_then(|section| section.options.iter().find(|entry| entry.key == option));
             let Some(text) = text else {
                 return Err(ModuleError::Option {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option,
                     locale,
                 });
@@ -433,7 +418,7 @@ fn parse_formats<'u>(
             options.push(Entry::new(option, text.value.as_str()));
         }
         let options = Keyed::new(options).map_err(|repeated| ModuleError::Listed {
-            format: compiler.id().as_str(),
+            format: compiler.id(),
             option: repeated.0,
         })?;
         let language = LanguageFormats::new(&resource.locale, resource.direction, &options);
@@ -441,13 +426,13 @@ fn parse_formats<'u>(
             .parse(&language)
             .map_err(|refused| match refused.cause() {
                 OptionRefusal::Text(text) => ModuleError::OptionText {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option: refused.option(),
                     locale: locale.clone(),
                     text: text.clone(),
                 },
                 OptionRefusal::Undeclared => ModuleError::UndeclaredOption {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option: refused.option(),
                 },
             })?;
@@ -478,7 +463,7 @@ fn bare_call(
         .compile(&call)
         .map_err(|refusal| ModuleError::Bare {
             kind: implicit.kind,
-            locale: resource.locale.to_string(),
+            locale: resource.locale.clone(),
             function: implicit.function,
             refusal,
         })?;

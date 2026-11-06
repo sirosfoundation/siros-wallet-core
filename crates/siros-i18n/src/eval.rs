@@ -5,10 +5,10 @@
 use std::borrow::Cow;
 
 use siros_explain::{
-    AllOf, Amount, ArgKind, Entry, Key, ListKind, ModuleId, Presence, Query, Text, Value,
+    AllOf, Amount, ArgKind, Entry, Key, ListKind, ModuleId, ParamName, Presence, Query, Text, Value,
 };
 
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::form::{
     BareKind, BodyForm, CompiledCall, Dir, KeyRef, MessageForm, ParamForm, PartForm, Root,
     SelectorForm, VariantForm,
@@ -281,7 +281,7 @@ impl Renderer<'_> {
         for param in &message.params {
             let arg = args
                 .iter()
-                .find(|arg: &&Entry<Cow<'static, str>, Text>| arg.key() == param.name.as_str());
+                .find(|arg: &&Entry<ParamName, Text>| *arg.key() == param.name);
             match arg {
                 Some(arg) if admits(param, arg.value()) => bound.push(Bound {
                     param,
@@ -465,6 +465,6 @@ impl Renderer<'_> {
             };
         }
         best.map(|variant| variant.pattern.as_slice())
-            .ok_or(RenderError::Message("bad-selector"))
+            .ok_or(RenderError::Message(FormatFailure::BadSelector))
     }
 }

@@ -8,9 +8,10 @@
 //! each credential with its candidate languages, each transaction type with its module. The
 //! registration's bytes are siros-dc-matcher's.
 
-use siros_explain::{DeclaredModule, Explain, Messages, ModuleId};
+use siros_explain::{DeclaredModule, Explain, MessageId, Messages, ModuleId};
 use siros_i18n::{
-    BuiltPackage, DefinedForm, Formats, Module, PackageError, RegistrationBuilder, RenderError,
+    BuiltPackage, CredentialName, DefinedForm, Formats, Module, PackageError, RegistrationBuilder,
+    RenderError, TransactionKind,
 };
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::rows::Env;
@@ -68,10 +69,10 @@ impl<'r> Registered<'r> {
 
     /// The identifiers of its request messages.
     #[must_use]
-    pub fn keys(&self) -> Vec<&'static str> {
+    pub fn keys(&self) -> Vec<MessageId> {
         (self.keys)()
             .into_iter()
-            .map(|message| message.id().as_str())
+            .map(|message| message.id())
             .collect()
     }
 }
@@ -117,7 +118,7 @@ pub fn package(
     credentials.sort_unstable();
     credentials.dedup();
     for credential in credentials {
-        builder.credential(credential, registration.own)?;
+        builder.credential(CredentialName::new(credential.to_owned()), registration.own)?;
     }
     let mut defined: Vec<&DefinedForm> = Vec::new();
     for (_, form) in registration.transactions {
@@ -127,7 +128,10 @@ pub fn package(
         }
     }
     for (kind, form) in registration.transactions {
-        builder.transaction(kind, ModuleId::Defined(form.id()))?;
+        builder.transaction(
+            TransactionKind::new((*kind).to_owned()),
+            ModuleId::Defined(form.id()),
+        )?;
     }
     let mut texts = builder.texts(formats);
     let cards = registration

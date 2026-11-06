@@ -12,6 +12,7 @@ use crate::error::PackageError;
 use crate::form::{BareCalls, LanguagePolicy};
 use crate::format::Direction;
 use crate::locale::LocaleTag;
+use crate::render::{ModuleDigest, RendererVersion};
 
 /// What a module's identity is, as a package stores it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,7 +46,7 @@ impl StoredId {
             ModuleId::Crate(domain) => StoredKind::Crate(domain.as_str().to_owned()),
             ModuleId::Defined(defined) => StoredKind::Defined {
                 plugin: defined.plugin().as_str().to_owned(),
-                digest: defined.digest(),
+                digest: defined.digest().bytes(),
             },
         })
     }
@@ -131,7 +132,7 @@ pub(crate) struct LocaleRef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ModuleRecord {
     pub(crate) id: StoredId,
-    pub(crate) digest: [u8; 32],
+    pub(crate) digest: ModuleDigest,
     pub(crate) policy: LanguagePolicy,
     pub(crate) locales: Vec<LocaleRef>,
 }
@@ -148,7 +149,7 @@ pub(crate) struct HeldRef {
 /// entry lies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Manifest {
-    pub(crate) renderer: u16,
+    pub(crate) renderer: RendererVersion,
     pub(crate) locales: Vec<LocaleTag>,
     pub(crate) modules: Vec<ModuleRecord>,
     pub(crate) held: Vec<HeldRef>,
@@ -170,7 +171,8 @@ impl Manifest {
     pub(super) fn decode(bytes: &[u8], entries: usize) -> Result<Self, PackageError> {
         let mut reader = reader(bytes, 0);
         let reader = &mut reader;
-        let renderer = u16::try_from(reader.number()?).map_err(|_| reader.malformed())?;
+        let renderer =
+            RendererVersion::read(u16::try_from(reader.number()?).map_err(|_| reader.malformed())?);
         let locales = list(reader, tag)?;
         let entry = |reader: &mut EntryReader<'_>| {
             let entry = reader.count()?;
@@ -182,7 +184,7 @@ impl Manifest {
         };
         let modules = list(reader, |reader| {
             let id = StoredId::decode(reader)?;
-            let digest = digest(reader)?;
+            let digest = ModuleDigest::new(digest(reader)?);
             let byte = reader.byte()?;
             let policy = [LanguagePolicy::Understood, LanguagePolicy::Any]
                 .into_iter()
@@ -278,13 +280,13 @@ impl Manifest {
     #[cfg(feature = "load")]
     pub(super) fn encode(&self) -> Vec<u8> {
         let mut writer = Writer::default();
-        writer.number(u64::from(self.renderer));
+        writer.number(u64::from(self.renderer.number()));
         write_list(&mut writer, &self.locales, |writer, tag| {
             writer.text(tag.as_str());
         });
         write_list(&mut writer, &self.modules, |writer, module| {
             writer.raw(module.id.encoded());
-            writer.raw(&module.digest);
+            writer.raw(module.digest.bytes());
             writer.byte(policy_byte(module.policy));
             write_list(writer, &module.locales, |writer, locale| {
                 writer.text(locale.tag.as_str());

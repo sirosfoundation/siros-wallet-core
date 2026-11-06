@@ -2,7 +2,7 @@
 //! package's compiled messages through the build's format modules, written into a sink when
 //! they are sent to the display.
 
-use siros_explain::{Keyed, ModuleId, Text};
+use siros_explain::{Count, IntoArg, Keyed, ModuleId, Text, kind};
 
 use crate::error::{PackageError, RenderError};
 use crate::eval::Trail;
@@ -11,8 +11,50 @@ use crate::package::{Manifest, Package, TextKey, replay};
 use crate::screen::{ChosenForm, Language, Selected, Shown};
 use crate::sink::{Formatted, FormattedSink, Sink};
 
-/// The renderer's version: its compiled form's and its formatting's. A record commits to it.
-pub const RENDERER: u16 = 1;
+/// A renderer's version: its compiled form's and its formatting's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RendererVersion(u16);
+
+impl RendererVersion {
+    /// The version's number, as a package and a record write it.
+    #[must_use]
+    pub const fn number(self) -> u16 {
+        self.0
+    }
+
+    /// The version a package's manifest names.
+    pub(crate) const fn read(number: u16) -> Self {
+        Self(number)
+    }
+}
+
+impl IntoArg for RendererVersion {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        Count::of(u64::from(self.0))
+    }
+}
+
+/// This renderer's version. A record commits to it.
+pub const RENDERER: RendererVersion = RendererVersion(1);
+
+/// A module's digest: the SHA-256 of its locales' encoding, which a record commits to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModuleDigest([u8; 32]);
+
+impl ModuleDigest {
+    /// The digest's bytes.
+    #[must_use]
+    pub const fn bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// The digest a compiled module or a package's manifest holds.
+    pub(crate) const fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
 
 /// How an amount shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,10 +102,10 @@ pub struct RenderOptions {
 pub struct RenderingInputs {
     selected: Option<Selected>,
     language: Language,
-    modules: Keyed<ModuleId, [u8; 32]>,
+    modules: Keyed<ModuleId, ModuleDigest>,
     amounts: Amounts,
     bidi: Bidi,
-    renderer: u16,
+    renderer: RendererVersion,
 }
 
 impl RenderingInputs {
@@ -81,7 +123,7 @@ impl RenderingInputs {
 
     /// Each module's digest, under its identity.
     #[must_use]
-    pub const fn modules(&self) -> &Keyed<ModuleId, [u8; 32]> {
+    pub const fn modules(&self) -> &Keyed<ModuleId, ModuleDigest> {
         &self.modules
     }
 
@@ -99,7 +141,7 @@ impl RenderingInputs {
 
     /// The renderer's version.
     #[must_use]
-    pub const fn renderer(&self) -> u16 {
+    pub const fn renderer(&self) -> RendererVersion {
         self.renderer
     }
 }

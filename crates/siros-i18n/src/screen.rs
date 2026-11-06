@@ -9,7 +9,7 @@ use crate::form::{BareCalls, LanguagePolicy};
 use crate::format::{Direction, Formats};
 use crate::locale::LocaleTag;
 use crate::package::{LocaleIndex, Manifest, ModuleRecord, Package};
-use crate::render::{RENDERER, RenderOptions, Renderer};
+use crate::render::{ModuleDigest, RENDERER, RenderOptions, Renderer};
 
 /// The modules a screen draws its texts from, each once: a package's, and defined modules carried
 /// beside it. Only [`Screen::new`] and [`Screen::carrying`] make one.
@@ -32,7 +32,7 @@ enum Source<'m> {
 
 impl<'m> Source<'m> {
     /// Its digest.
-    const fn digest(&self) -> [u8; 32] {
+    const fn digest(&self) -> ModuleDigest {
         match self {
             Self::Package(record) => record.digest,
             Self::Carried(form) => form.digest,
@@ -124,7 +124,7 @@ impl Language {
 /// A module's digest, and the locale entry a language chose.
 #[derive(Debug, Clone)]
 struct Chosen<'m> {
-    digest: [u8; 32],
+    digest: ModuleDigest,
     place: Place<'m>,
     tag: LocaleTag,
 }
@@ -450,14 +450,14 @@ pub(crate) enum ChosenForm<'m> {
     /// A package's locale entry.
     Package {
         /// The module's digest.
-        digest: [u8; 32],
+        digest: ModuleDigest,
         /// The entry.
         index: Box<LocaleIndex>,
     },
     /// A carried module's locale.
     Carried {
         /// The module's digest.
-        digest: [u8; 32],
+        digest: ModuleDigest,
         /// The locale.
         locale: &'m DefinedLocale,
     },
@@ -465,7 +465,7 @@ pub(crate) enum ChosenForm<'m> {
 
 impl ChosenForm<'_> {
     /// The module's digest.
-    pub(crate) const fn digest(&self) -> [u8; 32] {
+    pub(crate) const fn digest(&self) -> ModuleDigest {
         match self {
             Self::Package { digest, .. } | Self::Carried { digest, .. } => *digest,
         }

@@ -142,11 +142,13 @@ pub use currency::{CURRENCY, CurrencyFormat};
 #[cfg(feature = "date")]
 pub use date::{DATE, DateFormat};
 #[cfg(feature = "render")]
-pub use defined::{Body, DefinedBuilder, DefinedError, DefinedForm, MainLocale, Part, Variant};
+pub use defined::{
+    AsciiKey, Body, DefinedBuilder, DefinedError, DefinedForm, MainLocale, Part, Variant,
+};
+#[cfg(feature = "render")]
+pub use error::{FormatFailure, ModuleName, NoLanguage, PackageError, RenderError};
 #[cfg(feature = "load")]
 pub use error::{ModuleError, OptionRefusal, Refusal, RefusedOption, ResourceRule, Validity};
-#[cfg(feature = "render")]
-pub use error::{ModuleName, NoLanguage, PackageError, RenderError};
 #[cfg(feature = "render")]
 pub use form::{BareKind, LanguagePolicy};
 #[cfg(feature = "load")]
@@ -168,10 +170,14 @@ pub use offset::{OFFSET, OffsetFormat};
 #[cfg(feature = "load")]
 pub use package::{BuiltPackage, PackageBuilder, PackageTexts, RegistrationBuilder};
 #[cfg(feature = "render")]
-pub use package::{Candidates, CredentialRecord, FORMAT, Package, Registration};
+pub use package::{
+    Candidates, CredentialName, CredentialRecord, FORMAT, Package, PackageRoot, Registration,
+    TransactionKind,
+};
 #[cfg(feature = "render")]
 pub use render::{
-    Amounts, Bidi, OnRenderError, RENDERER, RenderOptions, Renderer, RenderingInputs,
+    Amounts, Bidi, ModuleDigest, OnRenderError, RENDERER, RenderOptions, Renderer, RendererVersion,
+    RenderingInputs,
 };
 #[cfg(feature = "render")]
 pub use screen::{Language, Located, Screen, Selected};

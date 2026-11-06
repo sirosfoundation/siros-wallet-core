@@ -3,8 +3,9 @@
 
 use siros_explain::{ArgKind, Value, checked};
 use siros_i18n::{
-    Call, Direction, FormatCompiler, FormatId, FormatRenderer, Input, LanguageFormats, Operand,
-    ParsedFormats, Refusal, RefusedOption, RenderError, Sink, VariantKey, VariantKeys,
+    Call, Direction, FormatCompiler, FormatFailure, FormatId, FormatRenderer, Input,
+    LanguageFormats, Operand, ParsedFormats, Refusal, RefusedOption, RenderError, Sink, VariantKey,
+    VariantKeys,
 };
 
 /// The module.
@@ -121,16 +122,16 @@ fn number(input: &Input<'_>) -> Result<f64, RenderError> {
     match input {
         Input::Literal(literal) => literal
             .parse()
-            .map_err(|_| RenderError::Message("bad-operand")),
+            .map_err(|_| RenderError::Message(FormatFailure::BadOperand)),
         Input::Value(Value::Count(count)) => count
             .digits()
             .parse()
-            .map_err(|_| RenderError::Message("bad-operand")),
+            .map_err(|_| RenderError::Message(FormatFailure::BadOperand)),
         Input::Value(Value::Decimal(decimal)) => {
             let scale = i32::from(decimal.scale());
             Ok(decimal.units() as f64 / 10f64.powi(scale))
         }
-        _ => Err(RenderError::Message("bad-operand")),
+        _ => Err(RenderError::Message(FormatFailure::BadOperand)),
     }
 }
 

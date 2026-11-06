@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{DefinedModule, Entry, Explain, Keyed, RequestText, Text};
+use siros_explain::{DefinedModule, Entry, Explain, Keyed, ParamName, RequestText, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
@@ -380,13 +380,13 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
             }
             LabelForm::Plain(_) | LabelForm::Markdown(_) => {}
         }
-        let mut args: Vec<Entry<Cow<'static, str>, RequestText>> = Vec::new();
+        let mut args: Vec<Entry<ParamName, RequestText>> = Vec::new();
         for (position, entry) in entries.iter().enumerate() {
             if let LabelForm::Template(template) = entry.label {
                 let live = if discarded.holds(placed.array, position) {
                     view::DEAD
                 } else {
-                    view::LIVE
+                    view::LIVE.as_str()
                 };
                 args.push(Entry::new(
                     view::liveness(position),

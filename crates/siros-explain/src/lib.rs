@@ -91,5 +91,5 @@ pub use message::{Domain, Explain, Explained, Message, MessageId, Messages, Para
 pub use requested::{DeclaredModule, RequestText, Requested};
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;
-pub use text::{DefinedKey, DefinedModule, Key, ModuleId, Query, Text};
+pub use text::{DefinedKey, DefinedModule, Key, MetadataDigest, ModuleId, ParamName, Query, Text};
 pub use value::{Amount, Count, Decimal, Value};

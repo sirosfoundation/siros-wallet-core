@@ -4,7 +4,7 @@
 
 use siros_explain::checked;
 
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::format::{Direction, FormatId, FormatRenderer, Input, VariantKey, VariantKeys};
 use crate::numeric::{self, Form};
 use crate::sink::Sink;
@@ -16,7 +16,7 @@ pub struct CurrencyFormat;
 /// The currency module a build registers.
 pub static CURRENCY: CurrencyFormat = CurrencyFormat;
 
-const ID: FormatId = checked!(FormatId, "currency");
+pub(crate) const ID: FormatId = checked!(FormatId, "currency");
 
 /// The first byte of a compiled `:percent` placeholder.
 const PERCENT: u8 = 0;
@@ -25,9 +25,7 @@ const AMOUNT: u8 = 1;
 
 /// A compiled placeholder's function, and its numeric form.
 fn read(compiled: &[u8]) -> Result<(u8, Form<'_>), RenderError> {
-    let (&kind, rest) = compiled
-        .split_first()
-        .ok_or(RenderError::Compiled(ID.as_str()))?;
+    let (&kind, rest) = compiled.split_first().ok_or(RenderError::Compiled(ID))?;
     Ok((kind, Form::read(rest, ID)?))
 }
 
@@ -52,7 +50,7 @@ impl FormatRenderer for CurrencyFormat {
                 sink.text(&numeric::currency::render(&form, input)?);
                 Ok(())
             }
-            _ => Err(RenderError::Compiled(ID.as_str())),
+            _ => Err(RenderError::Compiled(ID)),
         }
     }
 
@@ -64,7 +62,7 @@ impl FormatRenderer for CurrencyFormat {
     ) -> Result<Vec<VariantKey<'k>>, RenderError> {
         match read(compiled)? {
             (PERCENT, _) => numeric::select(ID, compiled.get(1..).unwrap_or_default(), input, keys),
-            _ => Err(RenderError::Message("bad-selector")),
+            _ => Err(RenderError::Message(FormatFailure::BadSelector)),
         }
     }
 }
