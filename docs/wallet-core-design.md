@@ -768,13 +768,13 @@ impl<'r> Routing<'r> {
 /// What a format's request rules read. Only `Accepted::new` makes one, from the request's
 /// routing.
 pub struct QueryContext<'q> { request: &'q Request<'q>, mode: Option<ModeName>,
-                              named: bool, supported: Option<Node<'q>> }
+                              naming: EntryNaming, supported: Option<Node<'q>> }
 impl<'q> QueryContext<'q> {
     pub fn request(&self) -> &'q Request<'q>;
     /// The mode's name; `None` when rule C5 refuses the request's mode.
     pub fn mode(&self) -> Option<ModeName>;
     /// Whether a `transaction_data` entry names the query.
-    pub fn named(&self) -> bool;
+    pub fn naming(&self) -> EntryNaming;
     /// The Verifier's `vp_formats_supported` value for the format.
     pub fn supported(&self) -> Option<&Node<'q>>;
 }
