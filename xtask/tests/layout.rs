@@ -322,6 +322,43 @@ const ROWS: &[Row] = &[
         "fn f() -> Label {\n    Label::mini_markdown(\"a\")\n}\n",
         2,
     ),
+    // I27.
+    row(
+        "an error without Explain",
+        SHIPPED,
+        "#[derive(Debug)]\n#[derive(thiserror::Error)]\nenum E {}\n",
+        3,
+    ),
+    row(
+        "an error by its import",
+        SHIPPED,
+        "use thiserror::Error;\n#[derive(Debug, Error)]\nstruct E;\n",
+        3,
+    ),
+    row(
+        "an error by a renamed import",
+        SHIPPED,
+        "use thiserror::{Error as Failure};\n#[derive(Failure)]\nstruct E;\n",
+        3,
+    ),
+    row(
+        "an error behind cfg_attr",
+        SHIPPED,
+        "#[cfg_attr(unix, derive(thiserror::Error))]\nstruct E;\n",
+        2,
+    ),
+    row(
+        "an error at depth",
+        SHIPPED,
+        "fn f() {\n    #[derive(thiserror::Error)]\n    struct E;\n}\n",
+        3,
+    ),
+    row(
+        "a text type with Display",
+        SHIPPED,
+        "#[derive(Explain)]\nenum T {}\nimpl fmt::Display for T {}\n",
+        2,
+    ),
     // What it cannot judge.
     row("does not parse", LIB, "fn a() {}\nfn {\n", 2),
     Row {
@@ -380,7 +417,30 @@ const CLEAN: &[(&str, &str)] = &[
             "    let _ = Other::text(\"a\");\n",
             "    matches!(n, Text::Raw(_))\n",
             "}\n",
+            "#[derive(Debug, thiserror::Error, siros_explain::Explain)]\n",
+            "enum Derived {}\n",
+            "#[derive(thiserror::Error)]\n",
+            "struct ByHand;\n",
+            "impl siros_explain::Explain for ByHand {}\n",
+            "#[derive(Explain)]\n",
+            "enum Worded {}\n",
+            "#[derive(Explain)]\n",
+            "struct HandError;\n",
+            "impl fmt::Display for HandError {}\n",
+            "impl std::error::Error for HandError {}\n",
         ),
+    ),
+    (
+        "crates/siros-x509/src/a.rs",
+        "#[derive(thiserror::Error)]\nstruct InAnotherFile;\n",
+    ),
+    (
+        "crates/siros-x509/src/b.rs",
+        "impl Explain for InAnotherFile {}\n",
+    ),
+    (
+        "crates/siros-testkit/src/c.rs",
+        "#[derive(thiserror::Error)]\nstruct Unshipped;\n",
     ),
     (
         "crates/siros-openid4vp/src/test_util.rs",

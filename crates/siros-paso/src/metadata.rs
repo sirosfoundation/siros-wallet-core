@@ -95,22 +95,15 @@ impl fmt::Display for UiKey {
 }
 
 /// A display array: a claim's `display` or a UI label's entries.
-#[derive(Debug, Clone, PartialEq, Eq, Explain)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso.array_at")]
 pub enum ArrayAt {
     /// The `display` of the claim at a path, as Python writes the list.
+    #[error("claim {0} display")]
     Claim(#[explain(name = "path")] String),
     /// A UI label's entries.
+    #[error("ui_labels.{0}")]
     Ui(#[explain(name = "key")] UiKey),
-}
-
-impl fmt::Display for ArrayAt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Claim(path) => write!(f, "claim {path} display"),
-            Self::Ui(key) => write!(f, "ui_labels.{key}"),
-        }
-    }
 }
 
 impl ArrayAt {

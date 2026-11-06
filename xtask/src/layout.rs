@@ -9,6 +9,8 @@
 //!   `include_bytes!` of one from a `src/` tree outside `crates/siros-testkit/`.
 //! - I28, in the shipped crates' sources: a `Text::Raw` or `RequestText::raw` built from a literal
 //!   or a `format!`, a `Label::text` or `Label::mini_markdown` of a literal.
+//! - I27, in the same sources: a type deriving `thiserror::Error` that neither derives nor
+//!   implements `Explain`; a type deriving `Explain` alone that implements `Display`.
 //!
 //! Macro bodies are token trees to `syn`: the same rules read their tokens.
 
@@ -100,6 +102,7 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
     }
     let mut hits = Vec::new();
     let mut files = Vec::new();
+    let mut declared = Declared::default();
     for top in ["crates", "xtask", "locales"] {
         if root.join(top).exists() {
             walk(root, top, &mut files, &mut hits);
@@ -114,9 +117,10 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
             });
         }
         if let Some(scope) = Scope::of(file) {
-            scan(root, file, scope, &mut hits);
+            scan(root, file, scope, &mut hits, &mut declared);
         }
     }
+    declared.judge(&mut hits);
     for hit in &hits {
         println!("{}:{}: {}", hit.file, hit.line, hit.rule);
     }
@@ -168,7 +172,7 @@ fn message_source_exempt(file: &str) -> bool {
 }
 
 /// Reads and parses one source and walks its tree.
-fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>) {
+fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, declared: &mut Declared) {
     let text = match fs::read_to_string(root.join(file)) {
         Ok(text) => text,
         Err(cause) => {
@@ -185,9 +189,19 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>) {
                 file,
                 scope,
                 inline: Vec::new(),
+                thiserror: Vec::new(),
+                types: Vec::new(),
+                impls: Vec::new(),
                 hits,
             };
             scanner.visit_file(&tree);
+            let Scanner {
+                thiserror,
+                types,
+                impls,
+                ..
+            } = scanner;
+            declared.add(file, &thiserror, types, impls);
         }
         Err(cause) => hits.push(Hit {
             file: file.to_owned(),
@@ -197,12 +211,109 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>) {
     }
 }
 
+/// A type with its derives' paths, as one source writes it.
+struct Written {
+    name: String,
+    line: usize,
+    derives: Vec<Vec<String>>,
+}
+
+/// What I27 reads across a crate's sources.
+#[derive(Default)]
+struct Declared {
+    types: Vec<Judged>,
+    /// The crate, the type and the trait of each `impl`.
+    impls: Vec<(String, String, String)>,
+}
+
+/// A type I27 judges.
+struct Judged {
+    krate: String,
+    name: String,
+    file: String,
+    line: usize,
+    thiserror: bool,
+    explain: bool,
+}
+
+/// A source's crate.
+fn crate_of(file: &str) -> String {
+    file.split('/').nth(1).unwrap_or_default().to_owned()
+}
+
+impl Declared {
+    /// One source's types and `impl`s; `thiserror` holds the names its `use` items give
+    /// `thiserror::Error`.
+    fn add(
+        &mut self,
+        file: &str,
+        thiserror: &[String],
+        types: Vec<Written>,
+        impls: Vec<(String, String)>,
+    ) {
+        let krate = crate_of(file);
+        self.types.extend(types.into_iter().map(|written| {
+            Judged {
+                krate: krate.clone(),
+                file: file.to_owned(),
+                line: written.line,
+                thiserror: written.derives.iter().any(|path| match path.as_slice() {
+                    [first, last] => first == "thiserror" && last == "Error",
+                    [name] => thiserror.contains(name),
+                    _ => false,
+                }),
+                explain: written
+                    .derives
+                    .iter()
+                    .any(|path| path.last().is_some_and(|last| last == "Explain")),
+                name: written.name,
+            }
+        }));
+        self.impls.extend(
+            impls
+                .into_iter()
+                .map(|(name, implemented)| (krate.clone(), name, implemented)),
+        );
+    }
+
+    fn implements(&self, ty: &Judged, implemented: &str) -> bool {
+        self.impls
+            .iter()
+            .any(|(krate, name, it)| *krate == ty.krate && *name == ty.name && it == implemented)
+    }
+
+    /// The hits of I27.
+    fn judge(&self, hits: &mut Vec<Hit>) {
+        for ty in &self.types {
+            let rule = if ty.thiserror && !ty.explain && !self.implements(ty, "Explain") {
+                format!("I27: the error `{}` does not implement `Explain`", ty.name)
+            } else if ty.explain
+                && !ty.thiserror
+                && !self.implements(ty, "Error")
+                && self.implements(ty, "Display")
+            {
+                format!("I27: the text type `{}` implements `Display`", ty.name)
+            } else {
+                continue;
+            };
+            hits.push(Hit {
+                file: ty.file.clone(),
+                line: ty.line,
+                rule,
+            });
+        }
+    }
+}
+
 /// The walk of one source: `inline` holds the directories its enclosing inline modules add to a
-/// `#[path]`.
+/// `#[path]`; `thiserror`, `types` and `impls` what I27 reads.
 struct Scanner<'a> {
     file: &'a str,
     scope: Scope,
     inline: Vec<String>,
+    thiserror: Vec<String>,
+    types: Vec<Written>,
+    impls: Vec<(String, String)>,
     hits: &'a mut Vec<Hit>,
 }
 
@@ -331,6 +442,22 @@ impl Scanner<'_> {
         }
     }
 
+    /// A shipped source's struct or enum, for I27.
+    fn declare(&mut self, attributes: &[syn::Attribute], ident: &syn::Ident) {
+        if !self.scope.shipped {
+            return;
+        }
+        let mut derives = Vec::new();
+        for attribute in attributes {
+            derived_paths(attribute.meta.to_token_stream(), &mut derives);
+        }
+        self.types.push(Written {
+            name: ident.to_string(),
+            line: ident.span().start().line,
+            derives,
+        });
+    }
+
     /// I28: a call that builds a display text from a string literal.
     fn display_call(&mut self, ty: &str, function: &str, arguments: TokenStream, line: usize) {
         if self.scope.shipped
@@ -369,6 +496,41 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
             }
         }
         visit::visit_expr_call(self, call);
+    }
+
+    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
+        self.declare(&item.attrs, &item.ident);
+        visit::visit_item_struct(self, item);
+    }
+
+    fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
+        self.declare(&item.attrs, &item.ident);
+        visit::visit_item_enum(self, item);
+    }
+
+    fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+        let implemented = item
+            .trait_
+            .as_ref()
+            .and_then(|(path, _)| path.segments.last());
+        let ty = match item.self_ty.as_ref() {
+            syn::Type::Path(ty) => ty.path.segments.last(),
+            _ => None,
+        };
+        if let (Some(implemented), Some(ty)) = (implemented, ty) {
+            self.impls
+                .push((ty.ident.to_string(), implemented.ident.to_string()));
+        }
+        visit::visit_item_impl(self, item);
+    }
+
+    fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+        if let syn::UseTree::Path(path) = &item.tree
+            && path.ident == "thiserror"
+        {
+            imported_error(&path.tree, &mut self.thiserror);
+        }
+        visit::visit_item_use(self, item);
     }
 
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
@@ -498,6 +660,47 @@ fn path_head(trees: &[TokenTree]) -> Option<(String, &[TokenTree])> {
             }
             _ => return last.map(|name| (name, rest)),
         }
+    }
+}
+
+/// The paths an attribute derives, through `cfg_attr`.
+fn derived_paths(meta: TokenStream, paths: &mut Vec<Vec<String>>) {
+    let trees: Vec<TokenTree> = meta.into_iter().collect();
+    let Some((name, [TokenTree::Group(group)])) = path_head(&trees) else {
+        return;
+    };
+    match name.as_str() {
+        "derive" => paths.extend(split_commas(group.stream()).iter().map(|part| {
+            part.iter()
+                .filter_map(|tree| match tree {
+                    TokenTree::Ident(segment) => Some(segment.to_string()),
+                    _ => None,
+                })
+                .collect()
+        })),
+        "cfg_attr" => {
+            for added in split_commas(group.stream()).iter().skip(1) {
+                derived_paths(added.iter().cloned().collect(), paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The names a `use thiserror::...` tree gives `thiserror::Error`.
+fn imported_error(tree: &syn::UseTree, names: &mut Vec<String>) {
+    match tree {
+        syn::UseTree::Name(name) if name.ident == "Error" => names.push("Error".to_owned()),
+        syn::UseTree::Rename(rename) if rename.ident == "Error" => {
+            names.push(rename.rename.to_string());
+        }
+        syn::UseTree::Glob(_) => names.push("Error".to_owned()),
+        syn::UseTree::Group(group) => {
+            for item in &group.items {
+                imported_error(item, names);
+            }
+        }
+        _ => {}
     }
 }
 

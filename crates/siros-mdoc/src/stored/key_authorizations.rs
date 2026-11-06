@@ -65,7 +65,7 @@ fn read_data_elements(
         let name_space = NameSpace::new(
             name_space
                 .as_text()
-                .ok_or(KeyAuthorizationsFault::NameSpace)?,
+                .ok_or(KeyAuthorizationsFault::NameNotText)?,
         );
         if name_spaces.contains(&name_space) {
             return Err(KeyAuthorizationsFault::Overlap(name_space));

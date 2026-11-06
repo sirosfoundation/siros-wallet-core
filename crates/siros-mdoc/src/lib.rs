@@ -97,6 +97,23 @@ fn phase_two() -> Vec<Message> {
         device_authentication::ValueError::messages(),
         presentation::DeviceAuthRefused::messages(),
         transcript::TranscriptError::messages(),
+        stored::PointError::messages(),
+        stored::MdocError::messages(),
+        stored::EnvelopeFault::messages(),
+        stored::IssuerAuthFault::messages(),
+        stored::AlgorithmFault::messages(),
+        stored::PayloadFault::messages(),
+        stored::DocTypeFault::messages(),
+        stored::NameFault::messages(),
+        stored::ValueDigestsFault::messages(),
+        stored::DeviceKeyFault::messages(),
+        stored::NamesFault::messages(),
+        stored::KeyAuthorizationsFault::messages(),
+        stored::ValidityFault::messages(),
+        stored::NameSpacesFault::messages(),
+        stored::ItemFault::messages(),
+        stored::MemberFault::messages(),
+        stored::CborError::messages(),
     ]
     .concat()
 }

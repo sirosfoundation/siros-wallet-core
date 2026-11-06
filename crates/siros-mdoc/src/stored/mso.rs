@@ -181,7 +181,8 @@ fn read_value_digests(
     let name_spaces = non_empty_map(item).map_err(ValueDigestsFault::Member)?;
     let mut value_digests = FxHashMap::default();
     for (name_space, digests) in name_spaces {
-        let name_space = NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameSpace)?);
+        let name_space =
+            NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameNotText)?);
         let digests = read_digests(&name_space, digests, algorithm)?;
         if value_digests.insert(name_space.clone(), digests).is_some() {
             return Err(ValueDigestsFault::RepeatedNameSpace(name_space));
