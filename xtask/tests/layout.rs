@@ -8,12 +8,13 @@ const LIB: &str = "crates/siros-a/src/lib.rs";
 const MAIN: &str = "xtask/src/main.rs";
 const SHIPPED: &str = "crates/siros-openid4vp/src/lib.rs";
 
-/// A tree beside the base one, and the one hit it gives.
+/// A tree beside the base one, and the one hit it gives, at its `file`.
 struct Row {
     name: &'static str,
     file: &'static str,
     content: &'static [u8],
     line: usize,
+    beside: &'static [(&'static str, &'static str)],
 }
 
 const fn row(name: &'static str, file: &'static str, source: &'static str, line: usize) -> Row {
@@ -22,6 +23,7 @@ const fn row(name: &'static str, file: &'static str, source: &'static str, line:
         file,
         content: source.as_bytes(),
         line,
+        beside: &[],
     }
 }
 
@@ -57,6 +59,7 @@ const ROWS: &[Row] = &[
         "#[wasm_bindgen_test::wasm_bindgen_test]\nfn a() {}\n",
         1,
     ),
+    row("test as a raw identifier", LIB, "#[r#test]\nfn a() {}\n", 1),
     // Every kind of place an attribute goes, at depth.
     row(
         "on a nested item",
@@ -172,6 +175,8 @@ const ROWS: &[Row] = &[
         "#[cfg_attr(feature = \"x\", cfg(test))]\nfn a() {}\n",
         1,
     ),
+    row("cfg(r#test)", LIB, "#[cfg(r#test)]\nmod a {}\n", 1),
+    row("r#cfg(test)", LIB, "#[r#cfg(test)]\nmod a {}\n", 1),
     // Macro calls.
     row("proptest!", LIB, "proptest! {\n    fn a() {}\n}\n", 1),
     row("proptest! by a path", LIB, "proptest::proptest! {}\n", 1),
@@ -242,6 +247,42 @@ const ROWS: &[Row] = &[
         "const A: &str = include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/tests/a.txt\"));\n",
         1,
     ),
+    row(
+        "include_str! with an escape in the path",
+        LIB,
+        "const A: &str = include_str!(\"t\\x65sts/a.txt\");\n",
+        1,
+    ),
+    row(
+        "path with an escape",
+        LIB,
+        "#[path = \"t\\x65sts/a.rs\"]\nmod a;\n",
+        1,
+    ),
+    row(
+        "doc = include_str! under tests",
+        LIB,
+        "#[doc = include_str!(\"../tests/a.md\")]\nfn a() {}\n",
+        1,
+    ),
+    row(
+        "inner doc = include_str! under tests",
+        LIB,
+        "#![doc = include_str!(\"../tests/a.md\")]\n",
+        1,
+    ),
+    row(
+        "cfg_attr doc = include_str! under tests",
+        LIB,
+        "#[cfg_attr(unix, doc = include_str!(\"../tests/a.md\"))]\nfn a() {}\n",
+        1,
+    ),
+    row(
+        "deprecated note = include_str! under tests",
+        LIB,
+        "#[deprecated(note = include_str!(\"../tests/a.md\"))]\nfn a() {}\n",
+        1,
+    ),
     // Message sources.
     row(
         ".mf2 in a crate",
@@ -277,6 +318,38 @@ const ROWS: &[Row] = &[
         "include_bytes! of a message source",
         "crates/engine-a/src/lib.rs",
         "const A: &[u8] = include_bytes!(\"en.ftl\");\n",
+        1,
+    ),
+    row("named .mf2 alone", "crates/siros-a/.mf2", "a = b\n", 1),
+    row("named .FTL alone", "locales/.FTL", "a = b\n", 1),
+    row(
+        "include_str! of a file named .mf2 alone",
+        LIB,
+        "const A: &str = include_str!(\"../.mf2\");\n",
+        1,
+    ),
+    row(
+        "doc = include_str! of a message source",
+        LIB,
+        "#[doc = include_str!(\"../locales/en.mf2\")]\nfn a() {}\n",
+        1,
+    ),
+    row(
+        "doc = include_str! of a message source in an engine crate",
+        "crates/engine-a/src/lib.rs",
+        "#[doc = include_str!(\"en.mf2\")]\nfn a() {}\n",
+        1,
+    ),
+    row(
+        "include_str! of a message source from a nested src tree",
+        "crates/engine-a/sub/src/lib.rs",
+        "const A: &str = include_str!(\"en.mf2\");\n",
+        1,
+    ),
+    row(
+        "include_str! of a message source from proving",
+        "proving/x/src/lib.rs",
+        "const A: &str = include_str!(\"en.mf2\");\n",
         1,
     ),
     // I28.
@@ -359,6 +432,37 @@ const ROWS: &[Row] = &[
         "#[derive(Explain)]\nenum T {}\nimpl fmt::Display for T {}\n",
         2,
     ),
+    row(
+        "an error by a grouped import",
+        SHIPPED,
+        "use {std::fmt, thiserror::Error};\n#[derive(Error)]\nstruct E;\n",
+        3,
+    ),
+    row(
+        "an error by a renamed crate",
+        SHIPPED,
+        "use thiserror as te;\n#[derive(te::Error)]\nstruct E;\n",
+        3,
+    ),
+    row(
+        "an error beside a same-named type that implements Explain",
+        SHIPPED,
+        "mod a {\n    #[derive(thiserror::Error)]\n    struct E;\n}\nmod b {\n    struct E;\n    impl Explain for E {}\n}\n",
+        3,
+    ),
+    Row {
+        name: "an error by an import another file re-exports",
+        file: "crates/siros-openid4vp/src/a.rs",
+        content: b"use crate::Error;\n#[derive(Error)]\nstruct E;\n",
+        line: 3,
+        beside: &[(SHIPPED, "pub(crate) use thiserror::Error;\n")],
+    },
+    row(
+        "an error in macro_rules",
+        SHIPPED,
+        "macro_rules! m {\n    () => {\n        #[derive(thiserror::Error)]\n        pub(crate) struct E;\n    };\n}\n",
+        4,
+    ),
     // What it cannot judge.
     row("does not parse", LIB, "fn a() {}\nfn {\n", 2),
     Row {
@@ -366,6 +470,7 @@ const ROWS: &[Row] = &[
         file: LIB,
         content: b"\xff\xfe",
         line: 1,
+        beside: &[],
     },
 ];
 
@@ -397,6 +502,15 @@ const CLEAN: &[(&str, &str)] = &[
         ),
     ),
     ("crates/siros-a/tests/en.mf2", "a = b\n"),
+    ("proving/en.mf2", "a = b\n"),
+    (
+        "proving/target/debug/src/a.rs",
+        "const A: &str = include_str!(\"en.mf2\");\n",
+    ),
+    (
+        "proving/x/tests/a.rs",
+        "const A: &str = include_str!(\"en.mf2\");\n",
+    ),
     ("crates/siros-a/tests/deep/en.ftl", "a = b\n"),
     ("crates/siros-a/tests/a.rs", "#[test]\nfn a() {}\n"),
     ("crates/siros-testkit/locales/en.mf2", "a = b\n"),
@@ -428,6 +542,19 @@ const CLEAN: &[(&str, &str)] = &[
             "struct HandError;\n",
             "impl fmt::Display for HandError {}\n",
             "impl std::error::Error for HandError {}\n",
+            "mod glob {\n",
+            "    use super::*;\n",
+            "    #[derive(thiserror::Error)]\n",
+            "    struct ThroughGlob;\n",
+            "    impl Explain for self::ThroughGlob {}\n",
+            "}\n",
+            "macro_rules! typed {\n",
+            "    ($name:ident) => {\n",
+            "        #[derive(thiserror::Error)]\n",
+            "        struct $name;\n",
+            "        impl Explain for $name {}\n",
+            "    };\n",
+            "}\n",
         ),
     ),
     (
@@ -436,7 +563,7 @@ const CLEAN: &[(&str, &str)] = &[
     ),
     (
         "crates/siros-x509/src/b.rs",
-        "impl Explain for InAnotherFile {}\n",
+        "use crate::a::InAnotherFile;\nimpl Explain for InAnotherFile {}\n",
     ),
     (
         "crates/siros-testkit/src/c.rs",
@@ -488,7 +615,14 @@ fn layout(root: &Path) -> (Option<i32>, Vec<String>) {
 fn each_form_is_a_hit_at_its_file_and_line() {
     let mut wrong = Vec::new();
     for row in ROWS {
-        let root = tree(row.name, &[(row.file, row.content)]);
+        let beside = row
+            .beside
+            .iter()
+            .map(|(file, source)| (*file, source.as_bytes()));
+        let files: Vec<(&str, &[u8])> = std::iter::once((row.file, row.content))
+            .chain(beside)
+            .collect();
+        let root = tree(row.name, &files);
         let got = layout(&root);
         let want = (Some(1), vec![format!("{}:{}", row.file, row.line)]);
         if got != want {

@@ -6,21 +6,26 @@
 //!   `src/` or enters a `tests` directory, an `include!` family call of a path under `tests`.
 //! - Message sources: `.mf2` and `.ftl` files under `crates`, `xtask` and `locales`, outside
 //!   `crates/<crate>/tests/` and `crates/siros-testkit/`, and an `include_str!` or
-//!   `include_bytes!` of one from a `src/` tree outside `crates/siros-testkit/`.
+//!   `include_bytes!` of one from a `src/` tree under `crates`, `xtask` or `proving`, outside
+//!   `crates/siros-testkit/`.
 //! - I28, in the shipped crates' sources: a `Text::Raw` or `RequestText::raw` built from a literal
 //!   or a `format!`, a `Label::text` or `Label::mini_markdown` of a literal.
 //! - I27, in the same sources: a type deriving `thiserror::Error` that neither derives nor
 //!   implements `Explain`; a type deriving `Explain` alone that implements `Display`.
 //!
-//! Macro bodies are token trees to `syn`: the same rules read their tokens.
+//! Macro bodies and attribute values are token trees to `syn`: the same rules read their tokens.
+
+mod names;
 
 use std::fs;
 use std::path::Path;
 
-use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Ident, Literal, TokenStream, TokenTree};
 use quote::ToTokens;
+use syn::ext::IdentExt;
 use syn::visit::{self, Visit};
 
+use self::names::{Names, module_of};
 use crate::Failure;
 
 /// The presentation core's crates whose texts reach the End-User (design section 4.11).
@@ -86,6 +91,12 @@ impl Scope {
                 message_includes: *name != "siros-testkit",
                 shipped: SHIPPED.contains(name) && parts.last() != Some(&"test_util.rs"),
             },
+            ["crates", "siros-testkit", ..] => return None,
+            _ if parts.contains(&"src") => Self {
+                test_code: false,
+                message_includes: true,
+                shipped: false,
+            },
             _ => return None,
         };
         (Path::new(file).extension().is_some_and(|e| e == "rs")).then_some(scope)
@@ -102,8 +113,8 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
     }
     let mut hits = Vec::new();
     let mut files = Vec::new();
-    let mut declared = Declared::default();
-    for top in ["crates", "xtask", "locales"] {
+    let mut names = Names::default();
+    for top in ["crates", "xtask", "locales", "proving"] {
         if root.join(top).exists() {
             walk(root, top, &mut files, &mut hits);
         }
@@ -117,10 +128,10 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
             });
         }
         if let Some(scope) = Scope::of(file) {
-            scan(root, file, scope, &mut hits, &mut declared);
+            scan(root, file, scope, &mut hits, &mut names);
         }
     }
-    declared.judge(&mut hits);
+    names.judge(&mut hits);
     for hit in &hits {
         println!("{}:{}: {}", hit.file, hit.line, hit.rule);
     }
@@ -128,8 +139,9 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
     Ok(hits.is_empty())
 }
 
-/// Lists the files under `dir` (a path from the root), sorted. A directory it cannot read and a
-/// symbolic link, which it does not follow, are hits.
+/// Lists the files under `dir` (a path from the root), sorted, past a `target` directory outside
+/// a `src/` tree. A directory it cannot read and a symbolic link, which it does not follow, are
+/// hits.
 fn walk(root: &Path, dir: &str, files: &mut Vec<String>, hits: &mut Vec<Hit>) {
     let unread = |file: String, cause: String| Hit {
         file,
@@ -145,6 +157,7 @@ fn walk(root: &Path, dir: &str, files: &mut Vec<String>, hits: &mut Vec<Hit>) {
     for entry in entries {
         let path = format!("{dir}/{}", entry.file_name().to_string_lossy());
         match entry.file_type() {
+            Ok(kind) if kind.is_dir() && is_build_output(&path) => {}
             Ok(kind) if kind.is_dir() => walk(root, &path, files, hits),
             Ok(kind) if kind.is_file() => files.push(path),
             Ok(_) => hits.push(unread(path, "a symbolic link".to_owned())),
@@ -153,26 +166,27 @@ fn walk(root: &Path, dir: &str, files: &mut Vec<String>, hits: &mut Vec<Hit>) {
     }
 }
 
-fn is_message_source(file: &str) -> bool {
-    Path::new(file)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(names_message_source)
+fn is_build_output(directory: &str) -> bool {
+    let parts: Vec<&str> = directory.split('/').collect();
+    parts.last() == Some(&"target") && !parts.contains(&"src")
 }
 
-fn names_message_source(extension: &str) -> bool {
-    extension.eq_ignore_ascii_case("mf2") || extension.eq_ignore_ascii_case("ftl")
+/// Whether a path's last component ends in `.mf2` or `.ftl`, in any case; `.mf2` alone included.
+fn is_message_source(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or_default();
+    let name = name.to_ascii_lowercase();
+    name.ends_with(".mf2") || name.ends_with(".ftl")
 }
 
 fn message_source_exempt(file: &str) -> bool {
     matches!(
         file.split('/').collect::<Vec<_>>().as_slice(),
-        ["crates", _, "tests", ..] | ["crates", "siros-testkit", ..]
+        ["crates", _, "tests", ..] | ["crates", "siros-testkit", ..] | ["proving", ..]
     )
 }
 
 /// Reads and parses one source and walks its tree.
-fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, declared: &mut Declared) {
+fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, names: &mut Names) {
     let text = match fs::read_to_string(root.join(file)) {
         Ok(text) => text,
         Err(cause) => {
@@ -185,23 +199,19 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, declared: &m
     };
     match syn::parse_file(&text) {
         Ok(tree) => {
+            let module = module_of(file);
+            if scope.shipped {
+                names.enter(&module);
+            }
             let mut scanner = Scanner {
                 file,
                 scope,
                 inline: Vec::new(),
-                thiserror: Vec::new(),
-                types: Vec::new(),
-                impls: Vec::new(),
+                module,
+                names,
                 hits,
             };
             scanner.visit_file(&tree);
-            let Scanner {
-                thiserror,
-                types,
-                impls,
-                ..
-            } = scanner;
-            declared.add(file, &thiserror, types, impls);
         }
         Err(cause) => hits.push(Hit {
             file: file.to_owned(),
@@ -211,109 +221,14 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, declared: &m
     }
 }
 
-/// A type with its derives' paths, as one source writes it.
-struct Written {
-    name: String,
-    line: usize,
-    derives: Vec<Vec<String>>,
-}
-
-/// What I27 reads across a crate's sources.
-#[derive(Default)]
-struct Declared {
-    types: Vec<Judged>,
-    /// The crate, the type and the trait of each `impl`.
-    impls: Vec<(String, String, String)>,
-}
-
-/// A type I27 judges.
-struct Judged {
-    krate: String,
-    name: String,
-    file: String,
-    line: usize,
-    thiserror: bool,
-    explain: bool,
-}
-
-/// A source's crate.
-fn crate_of(file: &str) -> String {
-    file.split('/').nth(1).unwrap_or_default().to_owned()
-}
-
-impl Declared {
-    /// One source's types and `impl`s; `thiserror` holds the names its `use` items give
-    /// `thiserror::Error`.
-    fn add(
-        &mut self,
-        file: &str,
-        thiserror: &[String],
-        types: Vec<Written>,
-        impls: Vec<(String, String)>,
-    ) {
-        let krate = crate_of(file);
-        self.types.extend(types.into_iter().map(|written| {
-            Judged {
-                krate: krate.clone(),
-                file: file.to_owned(),
-                line: written.line,
-                thiserror: written.derives.iter().any(|path| match path.as_slice() {
-                    [first, last] => first == "thiserror" && last == "Error",
-                    [name] => thiserror.contains(name),
-                    _ => false,
-                }),
-                explain: written
-                    .derives
-                    .iter()
-                    .any(|path| path.last().is_some_and(|last| last == "Explain")),
-                name: written.name,
-            }
-        }));
-        self.impls.extend(
-            impls
-                .into_iter()
-                .map(|(name, implemented)| (krate.clone(), name, implemented)),
-        );
-    }
-
-    fn implements(&self, ty: &Judged, implemented: &str) -> bool {
-        self.impls
-            .iter()
-            .any(|(krate, name, it)| *krate == ty.krate && *name == ty.name && it == implemented)
-    }
-
-    /// The hits of I27.
-    fn judge(&self, hits: &mut Vec<Hit>) {
-        for ty in &self.types {
-            let rule = if ty.thiserror && !ty.explain && !self.implements(ty, "Explain") {
-                format!("I27: the error `{}` does not implement `Explain`", ty.name)
-            } else if ty.explain
-                && !ty.thiserror
-                && !self.implements(ty, "Error")
-                && self.implements(ty, "Display")
-            {
-                format!("I27: the text type `{}` implements `Display`", ty.name)
-            } else {
-                continue;
-            };
-            hits.push(Hit {
-                file: ty.file.clone(),
-                line: ty.line,
-                rule,
-            });
-        }
-    }
-}
-
 /// The walk of one source: `inline` holds the directories its enclosing inline modules add to a
-/// `#[path]`; `thiserror`, `types` and `impls` what I27 reads.
+/// `#[path]`, `module` the module it stands in.
 struct Scanner<'a> {
     file: &'a str,
     scope: Scope,
     inline: Vec<String>,
-    thiserror: Vec<String>,
-    types: Vec<Written>,
-    impls: Vec<(String, String)>,
+    module: Vec<String>,
+    names: &'a mut Names,
     hits: &'a mut Vec<Hit>,
 }
 
@@ -328,13 +243,17 @@ impl Scanner<'_> {
 
     /// An attribute's meta, its path then its arguments: the rules over test code.
     fn attribute(&mut self, meta: TokenStream, line: usize) {
-        if !self.scope.test_code {
-            return;
-        }
         let trees: Vec<TokenTree> = meta.into_iter().collect();
         let Some((name, rest)) = path_head(&trees) else {
             return;
         };
+        if let ("cfg_attr", [TokenTree::Group(group)]) = (name.as_str(), rest) {
+            return self.conditional(group.stream(), line);
+        }
+        self.tokens(rest.iter().cloned().collect());
+        if !self.scope.test_code {
+            return;
+        }
         if TEST_ATTRIBUTES.contains(&name.as_str()) {
             self.hit(line, format!("test attribute `{name}` under src/"));
             return;
@@ -343,11 +262,12 @@ impl Scanner<'_> {
             ("cfg", [TokenTree::Group(group)]) if names_test(group.stream()) => {
                 self.hit(line, "a `cfg` naming test or doctest under src/");
             }
-            ("cfg_attr", [TokenTree::Group(group)]) => self.conditional(group.stream(), line),
             ("path", [TokenTree::Punct(equals), TokenTree::Literal(written)])
                 if equals.as_char() == '=' =>
             {
-                self.path_attribute(&string_value(&written.to_string()), line);
+                if let Some(written) = string_value(written) {
+                    self.path_attribute(&written, line);
+                }
             }
             _ => {}
         }
@@ -359,7 +279,7 @@ impl Scanner<'_> {
         let Some((predicate, added)) = parts.split_first() else {
             return;
         };
-        if names_test(predicate.iter().cloned().collect()) {
+        if self.scope.test_code && names_test(predicate.iter().cloned().collect()) {
             self.hit(line, "a `cfg_attr` naming test or doctest under src/");
             return;
         }
@@ -406,12 +326,7 @@ impl Scanner<'_> {
                         format!("`{name}!` of a path under tests/: {included}"),
                     );
                 }
-                if self.scope.message_includes
-                    && name != "include"
-                    && Path::new(&included)
-                        .extension()
-                        .and_then(|extension| extension.to_str())
-                        .is_some_and(names_message_source)
+                if self.scope.message_includes && name != "include" && is_message_source(&included)
                 {
                     self.hit(line, format!("`{name}!` of a message source: {included}"));
                 }
@@ -425,8 +340,13 @@ impl Scanner<'_> {
     fn tokens(&mut self, stream: TokenStream) {
         let trees: Vec<TokenTree> = stream.into_iter().collect();
         for (at, tree) in trees.iter().enumerate() {
-            let TokenTree::Group(group) = tree else {
-                continue;
+            let group = match tree {
+                TokenTree::Group(group) => group,
+                TokenTree::Ident(word) => {
+                    self.token_item(word, &trees, at);
+                    continue;
+                }
+                TokenTree::Punct(_) | TokenTree::Literal(_) => continue,
             };
             let before = trees.get(..at).unwrap_or_default();
             let line = group.span().start().line;
@@ -442,20 +362,64 @@ impl Scanner<'_> {
         }
     }
 
+    /// A `struct`, `enum`, `impl` or `use` written in tokens, for I27.
+    fn token_item(&mut self, word: &Ident, trees: &[TokenTree], at: usize) {
+        let after = trees.get(at + 1..).unwrap_or_default();
+        match word.to_string().as_str() {
+            "struct" | "enum" => {
+                let name = after.iter().find_map(|tree| match tree {
+                    TokenTree::Ident(name) => Some(name),
+                    _ => None,
+                });
+                if let Some(name) = name {
+                    self.declare(metas_before(trees, at), name);
+                }
+            }
+            "impl" => {
+                if let Some((implemented, ty)) = implemented_paths(after) {
+                    self.add_impl(ty, implemented);
+                }
+            }
+            "use" => {
+                let written: TokenStream = std::iter::once(TokenTree::Ident(word.clone()))
+                    .chain(after.iter().cloned())
+                    .take_while(|tree| !is_punct(tree, ';'))
+                    .chain(std::iter::once(TokenTree::Punct(proc_macro2::Punct::new(
+                        ';',
+                        proc_macro2::Spacing::Alone,
+                    ))))
+                    .collect();
+                if let Ok(item) = syn::parse2::<syn::ItemUse>(written) {
+                    self.add_use(&item.tree);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A shipped source's struct or enum, for I27.
-    fn declare(&mut self, attributes: &[syn::Attribute], ident: &syn::Ident) {
+    fn declare(&mut self, metas: Vec<TokenStream>, ident: &Ident) {
         if !self.scope.shipped {
             return;
         }
         let mut derives = Vec::new();
-        for attribute in attributes {
-            derived_paths(attribute.meta.to_token_stream(), &mut derives);
+        for meta in metas {
+            derived_paths(meta, &mut derives);
         }
-        self.types.push(Written {
-            name: ident.to_string(),
-            line: ident.span().start().line,
-            derives,
-        });
+        let at = (self.file, ident.span().start().line);
+        self.names.add_type(&self.module, plain(ident), at, derives);
+    }
+
+    fn add_impl(&mut self, ty: Vec<String>, implemented: Vec<String>) {
+        if self.scope.shipped {
+            self.names.add_impl(&self.module, ty, implemented);
+        }
+    }
+
+    fn add_use(&mut self, tree: &syn::UseTree) {
+        if self.scope.shipped {
+            self.names.add_use(&self.module, tree, &mut Vec::new());
+        }
     }
 
     /// I28: a call that builds a display text from a string literal.
@@ -477,7 +441,7 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
 
     fn visit_macro(&mut self, call: &'ast syn::Macro) {
         if let Some(last) = call.path.segments.last() {
-            let name = last.ident.to_string();
+            let name = plain(&last.ident);
             let line = last.ident.span().start().line;
             self.macro_call(&name, call.tokens.clone(), line);
         }
@@ -488,8 +452,8 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
             let mut segments = function.path.segments.iter().rev();
             if let (Some(last), Some(ty)) = (segments.next(), segments.next()) {
                 self.display_call(
-                    &ty.ident.to_string(),
-                    &last.ident.to_string(),
+                    &plain(&ty.ident),
+                    &plain(&last.ident),
                     call.args.to_token_stream(),
                     last.ident.span().start().line,
                 );
@@ -499,38 +463,38 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        self.declare(&item.attrs, &item.ident);
+        self.declare(metas_of(&item.attrs), &item.ident);
         visit::visit_item_struct(self, item);
     }
 
     fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        self.declare(&item.attrs, &item.ident);
+        self.declare(metas_of(&item.attrs), &item.ident);
         visit::visit_item_enum(self, item);
     }
 
     fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
-        let implemented = item
-            .trait_
-            .as_ref()
-            .and_then(|(path, _)| path.segments.last());
-        let ty = match item.self_ty.as_ref() {
-            syn::Type::Path(ty) => ty.path.segments.last(),
-            _ => None,
-        };
-        if let (Some(implemented), Some(ty)) = (implemented, ty) {
-            self.impls
-                .push((ty.ident.to_string(), implemented.ident.to_string()));
+        if let (Some((implemented, _)), syn::Type::Path(ty)) = (&item.trait_, item.self_ty.as_ref())
+        {
+            self.add_impl(segments_of(&ty.path), segments_of(implemented));
         }
         visit::visit_item_impl(self, item);
     }
 
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-        if let syn::UseTree::Path(path) = &item.tree
-            && path.ident == "thiserror"
-        {
-            imported_error(&path.tree, &mut self.thiserror);
-        }
+        self.add_use(&item.tree);
         visit::visit_item_use(self, item);
+    }
+
+    fn visit_item_extern_crate(&mut self, item: &'ast syn::ItemExternCrate) {
+        if self.scope.shipped {
+            let name = plain(&item.ident);
+            let given = item
+                .rename
+                .as_ref()
+                .map_or_else(|| name.clone(), |(_, given)| plain(given));
+            self.names.add_extern(&self.module, given, name);
+        }
+        visit::visit_item_extern_crate(self, item);
     }
 
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
@@ -542,9 +506,14 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
         };
         let depth = self.inline.len();
         self.inline.extend(inline_directories(module));
+        self.module.push(plain(&module.ident));
+        if self.scope.shipped {
+            self.names.enter(&self.module);
+        }
         for item in items {
             self.visit_item(item);
         }
+        drop(self.module.pop());
         self.inline.truncate(depth);
     }
 
@@ -625,7 +594,7 @@ fn classify(before: &[TokenTree], group: &Group) -> Tokens {
             Tokens::Attribute
         }
         [.., TokenTree::Ident(name), TokenTree::Punct(bang)] if bang.as_char() == '!' => {
-            Tokens::Macro(name.to_string())
+            Tokens::Macro(plain(name))
         }
         [
             ..,
@@ -637,10 +606,99 @@ fn classify(before: &[TokenTree], group: &Group) -> Tokens {
             && second.as_char() == ':'
             && group.delimiter() == Delimiter::Parenthesis =>
         {
-            Tokens::Call(ty.to_string(), function.to_string())
+            Tokens::Call(plain(ty), plain(function))
         }
         _ => Tokens::Other,
     }
+}
+
+/// An identifier without its raw mark: `r#test` names `test`.
+fn plain(ident: &Ident) -> String {
+    ident.unraw().to_string()
+}
+
+fn is_punct(tree: &TokenTree, punct: char) -> bool {
+    matches!(tree, TokenTree::Punct(found) if found.as_char() == punct)
+}
+
+/// A path's segments.
+fn segments_of(path: &syn::Path) -> Vec<String> {
+    path.segments
+        .iter()
+        .map(|segment| plain(&segment.ident))
+        .collect()
+}
+
+fn metas_of(attributes: &[syn::Attribute]) -> Vec<TokenStream> {
+    attributes
+        .iter()
+        .map(|attribute| attribute.meta.to_token_stream())
+        .collect()
+}
+
+/// The attributes written before the item keyword at `at`, past its visibility.
+fn metas_before(trees: &[TokenTree], at: usize) -> Vec<TokenStream> {
+    let mut before = trees.get(..at).unwrap_or_default();
+    if let [head @ .., TokenTree::Ident(public), TokenTree::Group(_)] = before
+        && public == "pub"
+    {
+        before = head;
+    } else if let [head @ .., TokenTree::Ident(public)] = before
+        && public == "pub"
+    {
+        before = head;
+    }
+    let mut metas = Vec::new();
+    while let [head @ .., TokenTree::Punct(pound), TokenTree::Group(group)] = before
+        && pound.as_char() == '#'
+    {
+        metas.push(group.stream());
+        before = head;
+    }
+    metas
+}
+
+/// The paths of `Trait for Type` in the tokens after `impl`, before its body.
+fn implemented_paths(after: &[TokenTree]) -> Option<(Vec<String>, Vec<String>)> {
+    let head: Vec<&TokenTree> = after
+        .iter()
+        .take_while(|tree| !matches!(tree, TokenTree::Group(group) if group.delimiter() == Delimiter::Brace))
+        .collect();
+    let split = head
+        .iter()
+        .position(|tree| matches!(tree, TokenTree::Ident(word) if word == "for"))?;
+    let implemented = head.get(..split)?;
+    let ty = head.get(split + 1..)?;
+    let implemented = last_path(implemented);
+    let ty = first_path(ty);
+    (!implemented.is_empty() && !ty.is_empty()).then_some((implemented, ty))
+}
+
+/// The path that ends a token run.
+fn last_path(trees: &[&TokenTree]) -> Vec<String> {
+    let mut path = Vec::new();
+    for tree in trees.iter().rev() {
+        match tree {
+            TokenTree::Ident(segment) => path.push(plain(segment)),
+            TokenTree::Punct(punct) if matches!(punct.as_char(), ':' | '$') => {}
+            _ => break,
+        }
+    }
+    path.reverse();
+    path
+}
+
+/// The path that starts a token run.
+fn first_path(trees: &[&TokenTree]) -> Vec<String> {
+    let mut path = Vec::new();
+    for tree in trees {
+        match tree {
+            TokenTree::Ident(segment) => path.push(plain(segment)),
+            TokenTree::Punct(punct) if matches!(punct.as_char(), ':' | '$') => {}
+            _ => break,
+        }
+    }
+    path
 }
 
 /// A path's last segment, and the tokens after the path.
@@ -655,7 +713,7 @@ fn path_head(trees: &[TokenTree]) -> Option<(String, &[TokenTree])> {
                 rest = tail;
             }
             [TokenTree::Ident(segment), tail @ ..] => {
-                last = Some(segment.to_string());
+                last = Some(plain(segment));
                 rest = tail;
             }
             _ => return last.map(|name| (name, rest)),
@@ -673,7 +731,7 @@ fn derived_paths(meta: TokenStream, paths: &mut Vec<Vec<String>>) {
         "derive" => paths.extend(split_commas(group.stream()).iter().map(|part| {
             part.iter()
                 .filter_map(|tree| match tree {
-                    TokenTree::Ident(segment) => Some(segment.to_string()),
+                    TokenTree::Ident(segment) => Some(plain(segment)),
                     _ => None,
                 })
                 .collect()
@@ -681,23 +739,6 @@ fn derived_paths(meta: TokenStream, paths: &mut Vec<Vec<String>>) {
         "cfg_attr" => {
             for added in split_commas(group.stream()).iter().skip(1) {
                 derived_paths(added.iter().cloned().collect(), paths);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// The names a `use thiserror::...` tree gives `thiserror::Error`.
-fn imported_error(tree: &syn::UseTree, names: &mut Vec<String>) {
-    match tree {
-        syn::UseTree::Name(name) if name.ident == "Error" => names.push("Error".to_owned()),
-        syn::UseTree::Rename(rename) if rename.ident == "Error" => {
-            names.push(rename.rename.to_string());
-        }
-        syn::UseTree::Glob(_) => names.push("Error".to_owned()),
-        syn::UseTree::Group(group) => {
-            for item in &group.items {
-                imported_error(item, names);
             }
         }
         _ => {}
@@ -722,9 +763,9 @@ fn names_test(predicate: TokenStream) -> bool {
     split_commas(predicate)
         .iter()
         .any(|part| match part.as_slice() {
-            [TokenTree::Ident(name)] => name == "test" || name == "doctest",
+            [TokenTree::Ident(name)] => matches!(plain(name).as_str(), "test" | "doctest"),
             [TokenTree::Ident(name), TokenTree::Group(inner)] => {
-                (name == "all" || name == "any" || name == "not") && names_test(inner.stream())
+                matches!(plain(name).as_str(), "all" | "any" | "not") && names_test(inner.stream())
             }
             _ => false,
         })
@@ -738,10 +779,7 @@ fn joined_strings(stream: TokenStream) -> String {
         match tree {
             TokenTree::Group(group) => joined.push_str(&joined_strings(group.stream())),
             TokenTree::Literal(literal) => {
-                let text = literal.to_string();
-                if is_string_literal(&text) {
-                    joined.push_str(&string_value(&text));
-                }
+                joined.push_str(&string_value(&literal).unwrap_or_default());
             }
             TokenTree::Ident(_) | TokenTree::Punct(_) => {}
         }
@@ -752,22 +790,17 @@ fn joined_strings(stream: TokenStream) -> String {
 fn holds_string_literal(stream: TokenStream) -> bool {
     stream.into_iter().any(|tree| match tree {
         TokenTree::Group(group) => holds_string_literal(group.stream()),
-        TokenTree::Literal(literal) => is_string_literal(&literal.to_string()),
+        TokenTree::Literal(literal) => string_value(&literal).is_some(),
         TokenTree::Ident(_) | TokenTree::Punct(_) => false,
     })
 }
 
-fn is_string_literal(text: &str) -> bool {
-    text.starts_with('"') || text.starts_with("r\"") || text.starts_with("r#")
-}
-
-/// A string literal's value, its quotes and raw marks removed. A path holds no escape the rules
-/// read.
-fn string_value(text: &str) -> String {
-    text.trim_start_matches('r')
-        .trim_matches('#')
-        .trim_matches('"')
-        .to_owned()
+/// A string literal's value, its escapes read.
+fn string_value(literal: &Literal) -> Option<String> {
+    match syn::Lit::new(literal.clone()) {
+        syn::Lit::Str(text) => Some(text.value()),
+        _ => None,
+    }
 }
 
 fn under_tests(path: &str) -> bool {
@@ -811,7 +844,7 @@ fn inline_directories(module: &syn::ItemMod) -> Vec<String> {
             _ => None,
         });
     written.map_or_else(
-        || vec![module.ident.to_string()],
+        || vec![plain(&module.ident)],
         |path| path.split('/').map(str::to_owned).collect(),
     )
 }

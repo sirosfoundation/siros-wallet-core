@@ -4705,6 +4705,7 @@ version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "rustc-hash",
  "serde",
  "serde_json",
  "syn 3.0.9",
