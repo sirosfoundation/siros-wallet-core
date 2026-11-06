@@ -50,7 +50,7 @@ fn config() -> TrustConfig {
 fn leaf(dns: &[&str]) -> Vec<u8> {
     certificate(&Leaf {
         subject: "rp.example.com",
-        point: point(&VERIFIER_SECRET),
+        point: point(VERIFIER_SECRET.octets()),
         dns,
     })
 }
@@ -162,7 +162,7 @@ fn each_x509_rule_refuses_its_claim() {
             X509Refusal::Certificate { item: 0, .. }
         ));
     }
-    let mut compressed = point(&VERIFIER_SECRET);
+    let mut compressed = point(VERIFIER_SECRET.octets());
     compressed.truncate(33);
     compressed[0] = 0x02;
     let weak = certificate(&Leaf {

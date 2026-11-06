@@ -6,7 +6,7 @@
 
 use siros_explain::{Explain, Text};
 use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::matching::{Choice, Display, SelectionError};
+use siros_openid4vp::matching::Choice;
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 
@@ -48,18 +48,14 @@ pub enum HostDisplay {
     Skipped,
 }
 
-/// What A9 judges a set by, apart from Credential Manager's display level.
+/// What A9 judges a set by, apart from Credential Manager's display level. Only [`SetFacts::of`]
+/// makes one, from the set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SetFacts {
-    /// Every entry's credential is presentable without the wallet's UI.
-    pub presentable: bool,
-    /// The request carries no `transaction_data`.
-    pub no_transaction_data: bool,
-    /// Every slot holds one choice: the End-User chooses nothing, neither an addition nor a
-    /// subset of a `multiple` query's candidates.
-    pub settled: bool,
-    /// Every row of every entry shows as a field, whole.
-    pub whole: bool,
+    presentable: bool,
+    transactions: TransactionData,
+    settled: bool,
+    whole: bool,
 }
 
 /// Whether a set needs the wallet's display (A9).
@@ -92,20 +88,11 @@ pub enum Fulfilment {
     Background(HostDisplay),
 }
 
-/// Why a background fulfilment is refused.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "credman.fulfilment")]
-pub enum WalletDisplayNeeded {
-    /// The set needs the wallet's display (A9).
-    #[error("set {set} needs the wallet's display")]
-    Needed {
-        /// The set.
-        set: usize,
-    },
-    /// The display holds no such set.
-    #[error(transparent)]
-    Selection(#[from] SelectionError),
-}
+/// A background fulfilment refused: the set needs the wallet's display (A9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "credman.fulfilment", id = "needed")]
+#[error("the set needs the wallet's display")]
+pub struct WalletDisplayNeeded;
 
 impl WalletDisplayNeeded {
     /// The error the wallet answers with: `access_denied` (RFC 6749 §4.1.2.1), as for a declined
@@ -142,10 +129,35 @@ impl SetFacts {
         }
         Ok(Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential)),
-            no_transaction_data: transactions == TransactionData::Absent,
+            transactions,
             settled: set.iter().all(|slot| slot.len() == 1),
             whole,
         })
+    }
+
+    /// Every entry's credential is presentable without the wallet's UI.
+    #[must_use]
+    pub const fn presentable(&self) -> bool {
+        self.presentable
+    }
+
+    /// Whether the request carries `transaction_data`.
+    #[must_use]
+    pub const fn transactions(&self) -> TransactionData {
+        self.transactions
+    }
+
+    /// Every slot holds one choice: the End-User chooses nothing, neither an addition nor a
+    /// subset of a `multiple` query's candidates.
+    #[must_use]
+    pub const fn settled(&self) -> bool {
+        self.settled
+    }
+
+    /// Every row of every entry shows as a field, whole.
+    #[must_use]
+    pub const fn whole(&self) -> bool {
+        self.whole
     }
 }
 
@@ -157,12 +169,12 @@ impl WalletDisplay {
     pub const fn of(facts: SetFacts, host: HostDisplay) -> Self {
         let SetFacts {
             presentable,
-            no_transaction_data,
+            transactions,
             settled,
             whole,
         } = facts;
         if presentable
-            && no_transaction_data
+            && matches!(transactions, TransactionData::Absent)
             && settled
             && whole
             && matches!(host, HostDisplay::Full)
@@ -186,18 +198,17 @@ impl Delegation {
 }
 
 impl Fulfilment {
-    /// A9 in the wallet: a background fulfilment of a set of the display of a request carrying
-    /// `transactions` that needs the wallet's display is refused; on the wallet's display every
-    /// set stands. `text_of` renders each row's texts as Credential Manager drew them.
+    /// A9 in the wallet: a background fulfilment of `slots`, a set of the display of a request
+    /// carrying `transactions`, that needs the wallet's display is refused; on the wallet's
+    /// display every set stands. `text_of` renders each row's texts as Credential Manager drew
+    /// them.
     ///
     /// # Errors
     ///
-    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside: the set needs the wallet's
-    /// display, or the display holds no such set.
+    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside.
     pub fn check<E>(
         self,
-        display: &Display<'_>,
-        set: usize,
+        slots: &[Vec<Choice<'_>>],
         presentable: Presentable<'_>,
         transactions: TransactionData,
         text_of: &mut impl FnMut(&Text) -> Result<String, E>,
@@ -205,18 +216,10 @@ impl Fulfilment {
         let Self::Background(host) = self else {
             return Ok(Ok(()));
         };
-        let sets = display.sets();
-        let Some(slots) = sets.get(set) else {
-            return Ok(Err(SelectionError::NoSet {
-                set,
-                sets: sets.len(),
-            }
-            .into()));
-        };
         let facts = SetFacts::of(slots, presentable, transactions, text_of)?;
         Ok(match WalletDisplay::of(facts, host) {
             WalletDisplay::NotNeeded => Ok(()),
-            WalletDisplay::Needed => Err(WalletDisplayNeeded::Needed { set }),
+            WalletDisplay::Needed => Err(WalletDisplayNeeded),
         })
     }
 }

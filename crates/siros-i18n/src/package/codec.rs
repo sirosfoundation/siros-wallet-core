@@ -1,7 +1,7 @@
 //! The byte form of a package's compiled messages, compiled calls and formatted texts: written when
 //! the wallet builds a package, read when an entry is read.
 
-use siros_explain::{ArgKind, Presence};
+use siros_explain::{ArgKind, ParamName, Presence};
 
 use crate::bytes::Reader;
 use crate::bytes::Writer;
@@ -219,7 +219,7 @@ pub(super) fn bare(reader: &mut EntryReader<'_>) -> Result<BareCalls, PackageErr
 pub(crate) fn write_message(writer: &mut Writer, message: &MessageForm) {
     writer.text(&message.id);
     write_list(writer, &message.params, |writer, param| {
-        writer.text(&param.name);
+        writer.text(param.name.as_str());
         writer.byte(kind_byte(param.kind));
         writer.byte(presence_byte(param.presence));
     });
@@ -287,7 +287,7 @@ fn write_pattern(writer: &mut Writer, parts: &[PartForm]) {
 
 /// A parameter.
 fn param(reader: &mut EntryReader<'_>) -> Result<ParamForm, PackageError> {
-    let name = text(reader)?;
+    let name = ParamName::parse(text(reader)?).ok_or(reader.malformed())?;
     let kind = by_byte(reader, &KINDS, kind_byte)?;
     let presence = by_byte(reader, &PRESENCES, presence_byte)?;
     Ok(ParamForm {

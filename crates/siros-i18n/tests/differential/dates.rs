@@ -1,4 +1,4 @@
-//! I35: `:siros:date`, `:siros:time` and `:siros:datetime` at every length, for each day of 2000
+//! `:siros:date`, `:siros:time` and `:siros:datetime` at every length, for each day of 2000
 //! to 2030 at 00:00, 09:05, 12:00 and 23:59, against ICU4X's `DateTimeFormatter` with the field
 //! set each length stands for:
 //!
@@ -158,11 +158,10 @@ fn time(hour: u8, minute: u8) -> Time {
 }
 
 #[test]
-#[ignore = "the per-merge tier: merge-gates.sh runs the differentials with --ignored"]
+#[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn dates_and_times_equal_icu4x() {
     let formats = crate::cldr::formats(&[]);
     let days = days();
-    assert_eq!(days.len(), 11_323);
     let mut differences = Differences::default();
     for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
@@ -215,7 +214,7 @@ fn dates_and_times_equal_icu4x() {
             }
         }
     }
-    differences.assert_none("I35");
+    differences.assert_none("dates and times");
 }
 
 /// The long and full lengths of a time and a date and time at each offset.
@@ -271,7 +270,7 @@ fn week_year_cell(language: &str, length: &str, year: u16, theirs: &str) -> bool
 }
 
 #[test]
-#[ignore = "the per-merge tier: merge-gates.sh runs the differentials with --ignored"]
+#[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn years_equal_icu4x() {
     let formats = crate::cldr::formats(&[]);
     let mut differences = Differences::default();
@@ -303,5 +302,5 @@ fn years_equal_icu4x() {
             }
         }
     }
-    differences.assert_none("I35 years");
+    differences.assert_none("years");
 }

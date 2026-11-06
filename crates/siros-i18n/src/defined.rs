@@ -5,10 +5,8 @@
 //! renders through it beside its package ([`Screen::carrying`](crate::Screen::carrying)); the
 //! wallet adds one to the packages it builds.
 
-use std::borrow::Cow;
-
 use sha2::{Digest as _, Sha256};
-use siros_explain::{ArgKind, DefinedKey, DefinedModule, Explain, Keyed, ParamKind};
+use siros_explain::{ArgKind, DefinedKey, DefinedModule, Explain, Keyed, ParamKind, ParamName};
 
 use crate::bytes::Writer;
 use crate::form::{
@@ -18,6 +16,7 @@ use crate::form::{
 use crate::format::Direction;
 use crate::locale::LocaleTag;
 use crate::package::{write_direction, write_message};
+use crate::render::ModuleDigest;
 use crate::sink::Style;
 
 /// The main module's entry of a locale: its tag, its direction, and its formats of bare values,
@@ -55,14 +54,36 @@ pub enum Part {
     Close(Style),
     /// An argument of the message's declaration, formatted by its kind: a text as given, a typed
     /// value as the main module formats a bare value of its kind in the locale.
-    Argument(Cow<'static, str>),
+    Argument(ParamName),
+}
+
+/// A variant's key: an ASCII text fixed when the crate builds, which NFC leaves as it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AsciiKey(&'static str);
+
+impl AsciiKey {
+    /// The key; `None` for a text that is not ASCII.
+    #[must_use]
+    pub const fn new(key: &'static str) -> Option<Self> {
+        if key.is_ascii() {
+            Some(Self(key))
+        } else {
+            None
+        }
+    }
+
+    /// Its text.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
 }
 
 /// A variant of a selection: one key per selector, `None` the catch-all, and its pattern.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variant {
-    /// The keys, one per selector; each an ASCII text, which NFC leaves as it is.
-    pub keys: Vec<Option<&'static str>>,
+    /// The keys, one per selector.
+    pub keys: Vec<Option<AsciiKey>>,
     /// The pattern.
     pub pattern: Vec<Part>,
 }
@@ -76,7 +97,7 @@ pub enum Body {
     /// their texts (MF2's pattern selection), the variant of catch-alls alone the fallback.
     Select {
         /// The arguments selected on, each of a text kind.
-        selectors: Vec<Cow<'static, str>>,
+        selectors: Vec<ParamName>,
         /// The variants, the last of catch-alls alone.
         variants: Vec<Variant>,
     },
@@ -93,7 +114,7 @@ pub enum DefinedError {
     #[error("{key} has no message in {locale}")]
     Missing {
         /// The key.
-        key: String,
+        key: DefinedKey,
         /// The locale.
         locale: LocaleTag,
     },
@@ -101,7 +122,7 @@ pub enum DefinedError {
     #[error("{key} in {locale} is no key of the declaration")]
     Undeclared {
         /// The key.
-        key: String,
+        key: DefinedKey,
         /// The locale.
         locale: LocaleTag,
     },
@@ -109,37 +130,37 @@ pub enum DefinedError {
     #[error("{key} names {argument}, which its key does not declare")]
     Argument {
         /// The key.
-        key: String,
+        key: DefinedKey,
         /// The argument.
-        argument: String,
+        argument: ParamName,
     },
     /// A typed argument whose kind the locale's main entry formats no bare value of.
     #[error("{key} in {locale} formats {argument}, whose kind no main format of the locale takes")]
     Format {
         /// The key.
-        key: String,
+        key: DefinedKey,
         /// The locale.
         locale: LocaleTag,
         /// The argument.
-        argument: String,
+        argument: ParamName,
     },
     /// A selector over an argument of a kind `:string` does not select on.
     #[error("{key} selects on {argument}, which is no text")]
     Selector {
         /// The key.
-        key: String,
+        key: DefinedKey,
         /// The argument.
-        argument: String,
+        argument: ParamName,
     },
     /// A selection whose variants break MF2's data model: a key count other than the
-    /// selectors', a key that is no ASCII text, two variants of the same keys, or no variant of
+    /// selectors', two variants of the same keys, or no variant of
     /// catch-alls alone (`message.abnf`; Variant Key Mismatch, Duplicate Variant, Missing
     /// Fallback Variant).
     #[error("{0}'s variants break MF2's data model")]
-    Variants(#[explain(name = "key")] String),
+    Variants(#[explain(name = "key")] DefinedKey),
     /// Markup closing a style that is not the innermost open one, or a style left open.
     #[error("{0} leaves its markup unbalanced")]
-    Markup(#[explain(name = "key")] String),
+    Markup(#[explain(name = "key")] DefinedKey),
 }
 
 /// A defined module's messages in one locale, sorted by key, and its direction.
@@ -178,7 +199,7 @@ impl DefinedLocale {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefinedForm {
     pub(crate) id: DefinedModule,
-    pub(crate) digest: [u8; 32],
+    pub(crate) digest: ModuleDigest,
     pub(crate) policy: LanguagePolicy,
     pub(crate) locales: Vec<DefinedLocale>,
 }
@@ -189,7 +210,7 @@ impl DefinedForm {
     pub const fn builder(
         id: DefinedModule,
         policy: LanguagePolicy,
-        declaration: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
+        declaration: Keyed<DefinedKey, Keyed<ParamName, ParamKind>>,
     ) -> DefinedBuilder {
         DefinedBuilder {
             id,
@@ -207,7 +228,7 @@ impl DefinedForm {
 
     /// The SHA-256 of its locales' encoding, which a record commits to.
     #[must_use]
-    pub const fn digest(&self) -> [u8; 32] {
+    pub const fn digest(&self) -> ModuleDigest {
         self.digest
     }
 
@@ -228,7 +249,7 @@ impl DefinedForm {
 pub struct DefinedBuilder {
     id: DefinedModule,
     policy: LanguagePolicy,
-    declaration: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
+    declaration: Keyed<DefinedKey, Keyed<ParamName, ParamKind>>,
     locales: Vec<DefinedLocale>,
 }
 
@@ -258,7 +279,7 @@ const fn bare_kind(kind: ArgKind) -> Option<BareKind> {
 /// One message being compiled: its key, its parameters, the locale and the main entry its typed
 /// arguments take their formats from, and its expressions so far.
 struct Compiling<'c> {
-    key: &'c str,
+    key: &'c DefinedKey,
     params: &'c [ParamForm],
     locale: &'c LocaleTag,
     main: Option<&'c MainLocale>,
@@ -267,26 +288,26 @@ struct Compiling<'c> {
 
 impl Compiling<'_> {
     /// The index of the parameter `name`.
-    fn argument(&self, name: &str) -> Result<usize, DefinedError> {
+    fn argument(&self, name: &ParamName) -> Result<usize, DefinedError> {
         self.params
             .iter()
-            .position(|param| param.name == name)
+            .position(|param| param.name == *name)
             .ok_or_else(|| DefinedError::Argument {
-                key: self.key.to_owned(),
-                argument: name.to_owned(),
+                key: self.key.clone(),
+                argument: name.clone(),
             })
     }
 
     /// An expression formatting the parameter `name` by its kind.
-    fn placeholder(&mut self, name: &str) -> Result<usize, DefinedError> {
+    fn placeholder(&mut self, name: &ParamName) -> Result<usize, DefinedError> {
         let index = self.argument(name)?;
         let kind = self
             .params
             .get(index)
             .map(|param| param.kind)
             .ok_or_else(|| DefinedError::Argument {
-                key: self.key.to_owned(),
-                argument: name.to_owned(),
+                key: self.key.clone(),
+                argument: name.clone(),
             })?;
         let call = match bare_kind(kind) {
             None => string_call(),
@@ -295,9 +316,9 @@ impl Compiling<'_> {
                 .and_then(|main| main.bare.get(bare))
                 .cloned()
                 .ok_or_else(|| DefinedError::Format {
-                    key: self.key.to_owned(),
+                    key: self.key.clone(),
                     locale: self.locale.clone(),
-                    argument: name.to_owned(),
+                    argument: name.clone(),
                 })?,
         };
         self.expressions.push(Expression {
@@ -309,7 +330,7 @@ impl Compiling<'_> {
     }
 
     /// An expression selecting on the text parameter `name` by `:string`.
-    fn selector(&mut self, name: &str) -> Result<usize, DefinedError> {
+    fn selector(&mut self, name: &ParamName) -> Result<usize, DefinedError> {
         let index = self.argument(name)?;
         let text = self.params.get(index).is_some_and(|param| {
             matches!(
@@ -319,8 +340,8 @@ impl Compiling<'_> {
         });
         if !text {
             return Err(DefinedError::Selector {
-                key: self.key.to_owned(),
-                argument: name.to_owned(),
+                key: self.key.clone(),
+                argument: name.clone(),
             });
         }
         self.expressions.push(Expression {
@@ -344,7 +365,7 @@ impl Compiling<'_> {
                 }
                 Part::Close(style) => {
                     if open.pop() != Some(*style) {
-                        return Err(DefinedError::Markup(self.key.to_owned()));
+                        return Err(DefinedError::Markup(self.key.clone()));
                     }
                     PartForm::Close(*style)
                 }
@@ -354,17 +375,17 @@ impl Compiling<'_> {
         if open.is_empty() {
             Ok(out)
         } else {
-            Err(DefinedError::Markup(self.key.to_owned()))
+            Err(DefinedError::Markup(self.key.clone()))
         }
     }
 
     /// A selection's selectors and variants.
     fn select(
         &mut self,
-        selectors: &[Cow<'static, str>],
+        selectors: &[ParamName],
         variants: &[Variant],
     ) -> Result<BodyForm, DefinedError> {
-        let broken = || DefinedError::Variants(self.key.to_owned());
+        let broken = || DefinedError::Variants(self.key.clone());
         let mut forms: Vec<SelectorForm> = Vec::with_capacity(selectors.len());
         for name in selectors {
             forms.push(SelectorForm {
@@ -375,7 +396,6 @@ impl Compiling<'_> {
         let mut compiled = Vec::with_capacity(variants.len());
         for (index, variant) in variants.iter().enumerate() {
             if variant.keys.len() != forms.len()
-                || variant.keys.iter().flatten().any(|key| !key.is_ascii())
                 || variants
                     .iter()
                     .take(index)
@@ -388,10 +408,11 @@ impl Compiling<'_> {
                 keys.push(match key {
                     None => KeyRef::CatchAll,
                     Some(key) => {
-                        let at = match selector.keys.iter().position(|known| known == key) {
+                        let at = match selector.keys.iter().position(|known| known == key.as_str())
+                        {
                             Some(at) => at,
                             None => {
-                                selector.keys.push((*key).to_owned());
+                                selector.keys.push(key.as_str().to_owned());
                                 selector.keys.len() - 1
                             }
                         };
@@ -444,28 +465,22 @@ impl DefinedBuilder {
             .find(|entry| self.declaration.get(entry.key()).is_none())
         {
             return Err(DefinedError::Undeclared {
-                key: undeclared.key().as_str().to_owned(),
+                key: undeclared.key().clone(),
                 locale,
             });
         }
         let mut messages = Vec::with_capacity(self.declaration.entries().len());
         for declared in self.declaration.entries() {
-            let key = declared.key().as_str();
-            let body = bodies
-                .get(declared.key())
-                .ok_or_else(|| DefinedError::Missing {
-                    key: key.to_owned(),
-                    locale: locale.clone(),
-                })?;
+            let key = declared.key();
+            let body = bodies.get(key).ok_or_else(|| DefinedError::Missing {
+                key: key.clone(),
+                locale: locale.clone(),
+            })?;
             let params: Vec<ParamForm> = declared
                 .value()
                 .entries()
                 .iter()
-                .map(|param| ParamForm {
-                    name: param.key().clone().into_owned(),
-                    kind: param.value().kind(),
-                    presence: param.value().presence(),
-                })
+                .map(ParamForm::of_param)
                 .collect();
             let mut compiling = Compiling {
                 key,
@@ -483,7 +498,7 @@ impl DefinedBuilder {
             };
             let expressions = compiling.expressions;
             messages.push(MessageForm {
-                id: key.to_owned(),
+                id: key.as_str().to_owned(),
                 params,
                 expressions,
                 body,
@@ -514,7 +529,7 @@ impl DefinedBuilder {
         }
         DefinedForm {
             id: self.id,
-            digest: Sha256::digest(writer.finish()).into(),
+            digest: ModuleDigest::new(Sha256::digest(writer.finish()).into()),
             policy: self.policy,
             locales: self.locales,
         }

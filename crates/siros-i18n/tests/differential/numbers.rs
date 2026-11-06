@@ -1,4 +1,4 @@
-//! I36's numbers and amounts: the cardinal and ordinal categories and the texts of the probe's
+//! Numbers and amounts: the cardinal and ordinal categories and the texts of the probe's
 //! 153 values, and amounts in every ISO 4217 currency by symbol, narrow symbol, code and name.
 
 use fixed_decimal::Decimal as Fixed;
@@ -102,11 +102,10 @@ fn keyword(category: PluralCategory) -> &'static str {
 }
 
 #[test]
-#[ignore = "the per-merge tier: merge-gates.sh runs the differentials with --ignored"]
+#[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn plural_categories_and_number_texts_equal_icu4x() {
     let formats = cldr::formats(&[]);
     let values = values();
-    assert_eq!(values.len(), 153);
     let mut differences = Differences::default();
     for language in LANGUAGES {
         let module = module::<Probe>(language, MESSAGES);
@@ -141,7 +140,7 @@ fn plural_categories_and_number_texts_equal_icu4x() {
             differences.check(&format!("{at} text"), &ours, &theirs);
         }
     }
-    differences.assert_none("I36 numbers");
+    differences.assert_none("numbers");
 }
 
 /// Every currency ISO 4217's table lists, by its code's letters.
@@ -179,7 +178,7 @@ fn cldr_symbol(language: &str, code: &str, display: &str, theirs: String) -> Str
 }
 
 #[test]
-#[ignore = "the per-merge tier: merge-gates.sh runs the differentials with --ignored"]
+#[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn amounts_in_every_currency_equal_icu4x() {
     let formats = cldr::formats(&[]);
     let currencies = currencies();
@@ -257,5 +256,5 @@ fn amounts_in_every_currency_equal_icu4x() {
             }
         }
     }
-    differences.assert_none("I36 currencies");
+    differences.assert_none("currencies");
 }

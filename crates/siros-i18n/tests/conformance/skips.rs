@@ -7,15 +7,16 @@ pub struct Skip {
     pub reason: &'static str,
 }
 
-/// Section 4.14's markup rule.
-const MARKUP: &str = "section 4.14 and I30: markup names a style the renderer applies, `strong`, `emphasis` or `underline`";
-/// Part 1's option rule.
-const LITERAL: &str = "section 4.14: an option's value is a literal, so the loader compiles each placeholder; the test's value is a variable";
-/// Section 4.13's argument names.
-const TOKENS: &str =
-    "section 4.13: an argument's name is siros-explain tokens, and the param's is not";
-/// Section 4.14's argument rule.
-const UNDECLARED: &str = "section 4.14 and I30: a message names declared arguments only, and the test gives no value to declare";
+/// The markup rule.
+const MARKUP: &str =
+    "markup names a style the renderer applies, `strong`, `emphasis` or `underline`";
+/// The option rule.
+const LITERAL: &str = "an option's value is a literal, so the loader compiles each placeholder; the test's value is a variable";
+/// The argument names.
+const TOKENS: &str = "an argument's name is siros-explain tokens, and the param's is not";
+/// The argument rule.
+const UNDECLARED: &str =
+    "a message names declared arguments only, and the test gives no value to declare";
 
 pub const SKIPS: &[Skip] = &[
     Skip {

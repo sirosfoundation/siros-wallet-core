@@ -1,14 +1,22 @@
-//! I38: a package serializes, reads back and renders the same whatever it holds; an altered byte
-//! is refused when its entry is read (I31's digest clause: a module altered after its digest was
-//! taken is refused when it loads); each refusal rule refuses its fixture.
+//! A package serializes, reads back and renders the same whatever it holds; an altered byte is
+//! refused when its entry is read (a module altered after its digest was taken is refused when it
+//! loads); each refusal rule refuses its fixture.
 
-use siros_explain::{Count, Domain, Message, ModuleId, Text, Value, checked};
+use sha2::{Digest, Sha256};
+use siros_explain::{
+    Count, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId, MetadataDigest,
+    ModuleId, Text, Value, checked,
+};
 use siros_i18n::{
-    Bidi, BuiltPackage, Compilers, Declaration, FORMAT, Formats, Formatted, LanguagePolicy, Module,
-    Package, PackageBuilder, PackageError, RegistrationBuilder, RenderError, Screen,
+    Bidi, BuiltPackage, CURRENCY, Call, Compilers, CredentialName, Declaration, DeclaredId, FORMAT,
+    FormatCompiler, FormatId, Formats, Formatted, LanguageFormats, LanguagePolicy, Module, Package,
+    PackageBuilder, PackageError, PackageRoot, ParsedFormats, RENDERER, Refusal, RefusedOption,
+    RegistrationBuilder, RenderError, Screen, TransactionKind,
 };
 
-use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
+use crate::{
+    BODY, FIXTURE, Host, Inner, PROBE, declaration, formats, load, options, renderer, source, tag,
+};
 
 /// The main module: the probe's options, for bare counts.
 fn main_module(locales: &[&str]) -> Module {
@@ -59,7 +67,7 @@ fn texts() -> Vec<Text> {
 fn build(
     modules: &[&Module],
     locales: &[&str],
-    keys: Option<&[&str]>,
+    keys: Option<&[DeclaredId]>,
     held: &[Text],
     bidi: Bidi,
 ) -> BuiltPackage {
@@ -103,13 +111,13 @@ fn packages_write_read_back_and_render_the_same() {
     let (main, module) = (main_module(&["en", "de"]), fixture());
     let texts = texts();
     let ids = [ModuleId::Main, FIXTURE];
-    let keys = [
-        "fixture.host.hello",
-        "fixture.host.asks",
-        "fixture.host.counted",
-        "fixture.host.nested",
-        "fixture.host.maybe",
-        "fixture.inner.code",
+    let keys: [DeclaredId; 6] = [
+        checked!(MessageId, "fixture.host.hello").into(),
+        checked!(MessageId, "fixture.host.asks").into(),
+        checked!(MessageId, "fixture.host.counted").into(),
+        checked!(MessageId, "fixture.host.nested").into(),
+        checked!(MessageId, "fixture.host.maybe").into(),
+        checked!(MessageId, "fixture.inner.code").into(),
     ];
     let mut compared = 0;
     for bidi in [Bidi::Default, Bidi::None] {
@@ -144,7 +152,7 @@ fn packages_write_read_back_and_render_the_same() {
             compared += held.len();
         }
     }
-    println!("I38: {compared} texts byte-equal through precomputed, compiled and live packages");
+    println!("{compared} texts byte-equal through precomputed, compiled and live packages");
 }
 
 /// What one read of an altered package gave.
@@ -224,19 +232,21 @@ fn each_package_rule_refuses_its_fixture() {
         PackageError::NoLocale
     );
     let mut builder = PackageBuilder::new(vec![tag("en")]).expect("a builder");
+    let absent = DeclaredId::from(checked!(MessageId, "fixture.host.absent"));
+    let hello = DeclaredId::from(checked!(MessageId, "fixture.host.hello"));
     let refused = builder
-        .module(&module, Some(&["fixture.host.absent"]))
+        .module(&module, Some(std::slice::from_ref(&absent)))
         .expect_err("no such key");
     assert!(matches!(
         &refused,
-        PackageError::Key { module, key } if module.id() == FIXTURE && key == "fixture.host.absent"
+        PackageError::Key { module, key } if module.id() == FIXTURE && *key == absent
     ));
     let refused = builder
-        .module(&module, Some(&["fixture.host.hello", "fixture.host.hello"]))
+        .module(&module, Some(&[hello.clone(), hello.clone()]))
         .expect_err("a key twice");
     assert!(matches!(
         &refused,
-        PackageError::RepeatedKey { module, key } if module.id() == FIXTURE && key == "fixture.host.hello"
+        PackageError::RepeatedKey { module, key } if module.id() == FIXTURE && *key == hello
     ));
     builder.module(&module, None).expect("a module");
     assert!(matches!(
@@ -261,20 +271,16 @@ fn each_package_rule_refuses_its_fixture() {
         Screen::new(&package, vec![FIXTURE]).expect_err("a byte past the last entry"),
         PackageError::Length
     );
-    assert_eq!(
-        Formats::new(&[&PROBE, &PROBE]).err(),
-        Some(RenderError::Registered("number"))
-    );
     let mut other = built.bytes().to_vec();
     other[8..10].copy_from_slice(&(FORMAT + 1).to_be_bytes());
     assert_eq!(
         Package::read(&other, built.root()).expect_err("another version"),
         PackageError::Version
     );
-    let mut root = built.root();
+    let mut root = *built.root().bytes();
     root[0] ^= 1;
     assert_eq!(
-        Package::read(built.bytes(), root).expect_err("another root"),
+        Package::read(built.bytes(), PackageRoot::new(root)).expect_err("another root"),
         PackageError::Root
     );
     let mut registering =
@@ -286,27 +292,27 @@ fn each_package_rule_refuses_its_fixture() {
         PackageError::NoLocale
     );
     assert!(matches!(
-        registering.credential("c", &[FIXTURE]).expect_err("not added"),
+        registering.credential(CredentialName::new("c".to_owned()), &[FIXTURE]).expect_err("not added"),
         PackageError::Module(module) if module.id() == FIXTURE
     ));
     registering.module(&module, None).expect("a module");
     registering
-        .credential("c", &[FIXTURE])
+        .credential(CredentialName::new("c".to_owned()), &[FIXTURE])
         .expect("a credential");
     assert_eq!(
         registering
-            .credential("c", &[FIXTURE])
+            .credential(CredentialName::new("c".to_owned()), &[FIXTURE])
             .expect_err("a credential twice"),
-        PackageError::RepeatedCredential("c".to_owned())
+        PackageError::RepeatedCredential(CredentialName::new("c".to_owned()))
     );
     registering
-        .transaction("t", FIXTURE)
+        .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
         .expect("a transaction type");
     assert_eq!(
         registering
-            .transaction("t", FIXTURE)
+            .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
             .expect_err("a transaction type twice"),
-        PackageError::RepeatedTransaction("t".to_owned())
+        PackageError::RepeatedTransaction(TransactionKind::new("t".to_owned()))
     );
 }
 
@@ -325,13 +331,16 @@ fn a_registration_records_its_inputs_and_each_credentials_candidates() {
     builder.module(&fixture, None).expect("a module");
     builder.module(&main, None).expect("a module");
     builder
-        .credential("both", &[FIXTURE, ModuleId::Main])
+        .credential(
+            CredentialName::new("both".to_owned()),
+            &[FIXTURE, ModuleId::Main],
+        )
         .expect("a credential");
     builder
-        .credential("main", &[ModuleId::Main])
+        .credential(CredentialName::new("main".to_owned()), &[ModuleId::Main])
         .expect("a credential");
     builder
-        .transaction("t", FIXTURE)
+        .transaction(TransactionKind::new("t".to_owned()), FIXTURE)
         .expect("a transaction type");
     let built = builder.finish();
     let package = Package::read(built.bytes(), built.root()).expect("a package");
@@ -343,14 +352,22 @@ fn a_registration_records_its_inputs_and_each_credentials_candidates() {
     assert_eq!(registration.fallback(), fallback.as_slice());
     assert_eq!(registration.options(), options(Bidi::Default));
     assert!(registration.transacts(FIXTURE) && !registration.transacts(ModuleId::Main));
-    let both = registration.credential("both").expect("registered");
+    let both = registration
+        .credential(&CredentialName::new("both".to_owned()))
+        .expect("registered");
     assert!(both.draws_from(&[ModuleId::Main, FIXTURE]) && !both.draws_from(&[FIXTURE]));
     assert_eq!(both.candidates().understood(), &[tag("en"), tag("de")]);
     assert_eq!(both.candidates().fallback(), &[tag("de")]);
-    let main = registration.credential("main").expect("registered");
+    let main = registration
+        .credential(&CredentialName::new("main".to_owned()))
+        .expect("registered");
     assert_eq!(main.candidates().understood(), &[tag("en"), tag("de")]);
     assert_eq!(main.candidates().fallback(), &[tag("en-GB"), tag("de")]);
-    assert!(registration.credential("absent").is_none());
+    assert!(
+        registration
+            .credential(&CredentialName::new("absent".to_owned()))
+            .is_none()
+    );
     let live = PackageBuilder::new(vec![tag("en")])
         .expect("a builder")
         .finish();
@@ -375,5 +392,129 @@ fn a_text_no_package_locale_serves_is_refused() {
         RenderError::Outside {
             module: "main".to_owned()
         }
+    );
+}
+
+/// The package of one entry, `manifest`, as the format's layout writes it: under RFC 9162 §2.1.1's
+/// hash of one leaf, `SHA-256(0x00 || manifest)`, which is also the tree's one node.
+fn one_entry(manifest: &[u8]) -> (Vec<u8>, PackageRoot) {
+    let leaf: [u8; 32] = Sha256::new()
+        .chain_update([0])
+        .chain_update(manifest)
+        .finalize()
+        .into();
+    let mut bytes = b"SIROSPKG".to_vec();
+    bytes.extend(FORMAT.to_be_bytes());
+    bytes.extend(leaf);
+    bytes.extend(1_u64.to_be_bytes());
+    bytes.extend((manifest.len() as u64).to_be_bytes());
+    bytes.extend(leaf);
+    bytes.extend(manifest);
+    (bytes, PackageRoot::new(leaf))
+}
+
+/// The refusal of a screen over the package of one entry, `manifest`.
+fn screen_of(manifest: &[u8]) -> PackageError {
+    let (bytes, root) = one_entry(manifest);
+    let package = Package::read(&bytes, root).expect("the root's node matches");
+    Screen::new(&package, Vec::new()).expect_err("refused")
+}
+
+#[test]
+fn a_manifest_under_its_root_is_read_before_it_is_trusted() {
+    // A count whose continuation bit runs past the entry's end.
+    assert_eq!(screen_of(&[0x80]), PackageError::Malformed { entry: 0 });
+    // The manifest starts with the renderer's version, as a varint.
+    let built = PackageBuilder::new(vec![tag("en")])
+        .expect("a builder")
+        .finish();
+    let manifest_at = built.bytes().len()
+        - usize::try_from(u64::from_be_bytes(
+            built.bytes()[50..58].try_into().expect("eight bytes"),
+        ))
+        .expect("a length");
+    let mut manifest = built.bytes()[manifest_at..].to_vec();
+    manifest[0] ^= 1;
+    assert!(matches!(
+        screen_of(&manifest),
+        PackageError::Renderer { built } if built != RENDERER
+    ));
+}
+
+/// A module holding a key of one token, which only a converter's declaration gives.
+#[test]
+fn a_package_selects_a_defined_modules_key() {
+    let label = DefinedKey::parse("label".to_owned()).expect("a key");
+    let defined = DefinedModule::new(checked!(Domain, "fixture"), MetadataDigest::new([7; 32]));
+    let declared =
+        Declaration::defined(Keyed::first_of([Entry::new(label.clone(), Keyed::empty())]));
+    let module = Module::load(
+        ModuleId::Defined(defined),
+        &declared,
+        &[&source("en", "label = Pay\n")],
+        LanguagePolicy::Any,
+        &Compilers::new(&[]).expect("compilers"),
+    )
+    .expect("a module");
+    let mut builder = PackageBuilder::new(vec![tag("en")]).expect("a builder");
+    builder
+        .module(&module, Some(&[label.into()]))
+        .expect("the key the module holds");
+}
+
+/// A load half that writes nothing for its render half to read.
+struct Empty;
+
+/// The load half a build registers beside [`CURRENCY`]'s render half.
+static EMPTY: Empty = Empty;
+
+impl FormatCompiler for Empty {
+    fn id(&self) -> FormatId {
+        checked!(FormatId, "currency")
+    }
+
+    fn functions(&self) -> &'static [&'static str] {
+        &["currency"]
+    }
+
+    fn options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn parse(
+        &self,
+        _language: &LanguageFormats<'_>,
+    ) -> Result<Box<dyn ParsedFormats>, RefusedOption> {
+        Ok(Box::new(Empty))
+    }
+}
+
+impl ParsedFormats for Empty {
+    fn compile(&self, _call: &Call<'_>) -> Result<Vec<u8>, Refusal> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn a_compiled_placeholder_its_render_half_cannot_read_is_refused() {
+    let body = BODY
+        .replace(":number", ":currency")
+        .replace("[formats.number]\ndigits = 3\n", "");
+    let module = Module::load(
+        FIXTURE,
+        &declaration(),
+        &[&source("en", &body)],
+        LanguagePolicy::Any,
+        &Compilers::new(&[&EMPTY]).expect("compilers"),
+    )
+    .expect("a module");
+    let built = crate::package(&[&module]);
+    let formats = Formats::new(&[&CURRENCY]).expect("formats");
+    let renderer = renderer(&built, &[&module], &["en"], &formats, Bidi::None);
+    assert_eq!(
+        renderer
+            .plain(&Text::of(&Host::Counted { count: 1 }))
+            .expect_err("refused"),
+        RenderError::Compiled(checked!(FormatId, "currency"))
     );
 }

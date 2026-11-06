@@ -16,7 +16,7 @@ default = ["load", "number", "currency", "offset", "date", "list"]
 # build without `currency` compiles it unused, as Cargo enables no dependency for two features
 # together.
 load = ["render", "dep:unicode-normalization", "dep:unicode-general-category"]
-# The matcher's half: the package reader, the renderer, and the sinks.
+# The matcher's half: the package reader, defined modules' render form, the renderer, and the sinks.
 render = ["dep:sha2", "dep:ct-merkle"]
 # The format modules, each with its load half under `load` and its render half under `render`.
 # `:number` and `:integer`.
@@ -44,7 +44,7 @@ siros-i18n = { path = ".", features = ["load"] }
 serde_json = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
-# The oracles of I35 and I36: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
+# The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
 icu_plurals = { workspace = true }
 icu_decimal = { workspace = true }
 icu_list = { workspace = true }

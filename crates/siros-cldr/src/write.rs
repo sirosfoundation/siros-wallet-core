@@ -4,7 +4,7 @@
 use siros_explain::Currency;
 
 use crate::cldr::{Cldr, CldrError, File};
-use crate::special::special;
+use crate::special::{Conjunction, special};
 
 /// The text being written.
 struct Out {
@@ -371,9 +371,9 @@ fn date(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> 
 fn list(cldr: &Cldr, out: &mut Out) -> Result<(), CldrError> {
     let language = cldr.language.as_str();
     let file = cldr.main("cldr-misc-full", "listPatterns.json")?;
-    for (kind, key, and) in [
-        ("and", "listPattern-type-standard", true),
-        ("or", "listPattern-type-or", false),
+    for (kind, key, conjunction) in [
+        ("and", "listPattern-type-standard", Conjunction::And),
+        ("or", "listPattern-type-or", Conjunction::Or),
     ] {
         let at =
             |part: &'static str| -> [&str; 5] { ["main", language, "listPatterns", key, part] };
@@ -386,7 +386,7 @@ fn list(cldr: &Cldr, out: &mut Out) -> Result<(), CldrError> {
             out.option(&format!("{kind}-{name}"), file.text(&at(part))?)?;
         }
         let end = file.text(&at("end"))?;
-        match special(language, and, end) {
+        match special(language, conjunction, end) {
             Some(case) => out.lines(
                 &format!("{kind}-special"),
                 &[case.condition, case.pattern.to_owned()],

@@ -7,7 +7,7 @@ mod condition;
 use siros_explain::{ListKind, checked};
 
 use crate::bytes::Reader;
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 use crate::format::{Direction, FormatId, FormatRenderer, Input, VariantKey, VariantKeys};
 use crate::sink::Sink;
 use condition::Condition;
@@ -116,7 +116,7 @@ impl FormatRenderer for ListFormat {
         sink: &mut dyn Sink,
     ) -> Result<(), RenderError> {
         let Input::List { kind, items } = input else {
-            return Err(RenderError::Message("bad-operand"));
+            return Err(RenderError::Message(FormatFailure::BadOperand));
         };
         let mut reader = Reader::new(compiled, ID);
         let and = Patterns::read(&mut reader)?;
@@ -135,7 +135,7 @@ impl FormatRenderer for ListFormat {
         _input: &Input<'_>,
         _keys: VariantKeys<'k>,
     ) -> Result<Vec<VariantKey<'k>>, RenderError> {
-        Err(RenderError::Message("bad-selector"))
+        Err(RenderError::Message(FormatFailure::BadSelector))
     }
 }
 

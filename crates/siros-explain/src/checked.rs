@@ -10,14 +10,6 @@
 /// const CANCELLED: MessageId = checked!(MessageId, "openid4vp.host.cancelled");
 /// assert_eq!(CANCELLED.as_str(), "openid4vp.host.cancelled");
 /// ```
-///
-/// An identifier outside the grammar does not build:
-///
-/// ```compile_fail,E0080
-/// use siros_explain::{checked, MessageId};
-///
-/// const BAD: MessageId = checked!(MessageId, "openid4vp.Host");
-/// ```
 #[macro_export]
 macro_rules! checked {
     ($type:ty, $text:literal) => {

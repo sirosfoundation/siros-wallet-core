@@ -5,12 +5,11 @@
 //! typed kind in the template as its typed text (step 3); an inner kind that parses its text
 //! reads the interpolation as written, as its value type takes precedence over theirs.
 
-use std::borrow::Cow;
 use std::ops::Range;
 
 use crate::markdown::spans;
 use crate::value::{BadValue, Breach, FormattedKind, ValueKind, Written, formatted};
-use siros_explain::{AllOf, Entry, RequestText, Text};
+use siros_explain::{AllOf, Entry, ParamName, RequestText, Text};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
 
@@ -268,8 +267,8 @@ impl Template<'_> {
         claims: &[ClaimMeta<'_>],
         payload: &Node<'_>,
         nulls: &[usize],
-    ) -> Result<Vec<Entry<Cow<'static, str>, RequestText>>, NotCompatible> {
-        let mut args: Vec<Entry<Cow<'static, str>, RequestText>> = Vec::new();
+    ) -> Result<Vec<Entry<ParamName, RequestText>>, NotCompatible> {
+        let mut args: Vec<Entry<ParamName, RequestText>> = Vec::new();
         for placeholder in placeholders(self.0) {
             let Some(reference) = Reference::of(&placeholder, claims) else {
                 continue;

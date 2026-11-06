@@ -192,6 +192,7 @@ impl<'i> Written<'i> {
         self.inputs.modules().entries().iter().map(|entry| {
             let digest = entry
                 .value()
+                .bytes()
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
@@ -212,7 +213,7 @@ impl<'i> Written<'i> {
             modules.join(","),
             quote(self.amounts),
             quote(self.bidi),
-            self.inputs.renderer(),
+            self.inputs.renderer().number(),
         )
     }
 
@@ -255,7 +256,7 @@ impl<'i> Written<'i> {
             Node::Number(number) => number.as_u64(),
             _ => None,
         });
-        if renderer != Some(u64::from(self.inputs.renderer())) {
+        if renderer != Some(u64::from(self.inputs.renderer().number())) {
             return Some(RenderingInput::Renderer);
         }
         None

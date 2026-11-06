@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use siros_explain::{ArgKind, IntoArg, Presence, Value, kind};
+use siros_explain::{ArgKind, Entry, IntoArg, ParamKind, ParamName, Presence, Value, kind};
 #[cfg(feature = "load")]
 use siros_explain::{Message, ModuleId, Param};
 
@@ -31,7 +31,7 @@ pub enum LanguagePolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CompiledModule {
     pub(crate) id: ModuleId,
-    pub(crate) digest: [u8; 32],
+    pub(crate) digest: crate::render::ModuleDigest,
     pub(crate) policy: LanguagePolicy,
     pub(crate) locales: Vec<LocaleForm>,
 }
@@ -228,7 +228,7 @@ pub(crate) struct MessageForm {
 /// absent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParamForm {
-    pub(crate) name: String,
+    pub(crate) name: ParamName,
     pub(crate) kind: ArgKind,
     pub(crate) presence: Presence,
 }
@@ -238,11 +238,22 @@ impl ParamForm {
     /// The form of each parameter `message` declares, in order.
     pub(crate) fn of_message(message: &Message) -> Vec<Self> {
         let form = |param: &Param| Self {
-            name: param.name().as_str().to_owned(),
+            name: ParamName::from(param.name()),
             kind: param.kind().kind(),
             presence: param.kind().presence(),
         };
         message.params().iter().map(form).collect()
+    }
+}
+
+impl ParamForm {
+    /// The form of a parameter a converter declares.
+    pub(crate) fn of_param(param: &Entry<ParamName, ParamKind>) -> Self {
+        Self {
+            name: param.key().clone(),
+            kind: param.value().kind(),
+            presence: param.value().presence(),
+        }
     }
 }
 

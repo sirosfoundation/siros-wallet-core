@@ -110,7 +110,7 @@ impl<'a> Reader<'a> {
         feature = "list"
     ))]
     pub(crate) const fn new(bytes: &'a [u8], format: FormatId) -> Self {
-        Self::of(bytes, RenderError::Compiled(format.as_str()))
+        Self::of(bytes, RenderError::Compiled(format))
     }
 }
 

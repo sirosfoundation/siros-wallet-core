@@ -1,14 +1,13 @@
-//! I31: a rendering is a function of its text and its inputs, which the renderer reports; and the
-//! argument rules of section 4.14.
-
-use std::borrow::Cow;
+//! A rendering is a function of its text and its inputs, which the renderer reports; a text's
+//! arguments are those its message declares, each of its declared kind; an absent argument,
+//! an absent text and a module outside the screen are refused.
 
 use siros_explain::{
-    Amount, Count, Currency, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed, ModuleId,
-    Query, Text, Value, checked,
+    Amount, Count, Currency, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed,
+    MetadataDigest, ModuleId, ParamName, Query, Text, Value, checked,
 };
 use siros_i18n::{
-    Amounts, BareKind, Bidi, Compilers, LanguagePolicy, Module, Package, RENDERER, RenderError,
+    Amounts, BareKind, Bidi, Compilers, FormatId, LanguagePolicy, Module, Package, RenderError,
     RenderOptions, Screen, Style,
 };
 
@@ -32,7 +31,12 @@ fn the_digest_is_the_sha256_of_the_sources() {
     let compilers = Compilers::new(&[]).expect("compilers");
     let module =
         Module::load(id, &declaration, &[text], LanguagePolicy::Any, &compilers).expect("a module");
-    let hex: String = module.digest().iter().map(|b| format!("{b:02x}")).collect();
+    let hex: String = module
+        .digest()
+        .bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     assert_eq!(hex, expected);
 }
 
@@ -50,7 +54,6 @@ fn equal_inputs_render_equal_bytes_and_each_input_counts() {
         renderer(&built_second, &[&second], &["en"], &formats, Bidi::Default),
     );
     assert_eq!(a.inputs(), b.inputs());
-    assert_eq!(a.inputs().renderer(), RENDERER);
     assert_eq!(
         a.inputs().modules().get(&crate::FIXTURE),
         Some(&first.digest())
@@ -141,7 +144,7 @@ fn formatted_text_has_one_form() {
 #[test]
 fn arguments_follow_their_declaration() {
     let english = source("en", BODY);
-    let defined = DefinedModule::new(checked!(Domain, "fixture"), [7; 32]);
+    let defined = DefinedModule::new(checked!(Domain, "fixture"), MetadataDigest::new([7; 32]));
     let compilers = Compilers::new(&[&PROBE]).expect("compilers");
     let module = Module::load(
         ModuleId::Defined(defined),
@@ -159,7 +162,10 @@ fn arguments_follow_their_declaration() {
     let query = |args: Vec<(&'static str, Text)>| {
         let args = args
             .into_iter()
-            .map(|(name, text)| Entry::new(Cow::Borrowed(name), text))
+            .map(|(name, text)| {
+                let name = ParamName::parse(name.to_owned()).expect("a name");
+                Entry::new(name, text)
+            })
             .collect();
         let key = DefinedKey::parse("fixture.host.asks".to_owned()).expect("a key");
         Text::Query(Query::defined(
@@ -201,7 +207,7 @@ fn arguments_follow_their_declaration() {
     assert_eq!(
         crate_renderer.plain(&absent).expect_err("refused"),
         RenderError::AbsentArgument {
-            argument: "note".to_owned()
+            argument: ParamName::parse("note".to_owned()).expect("a name")
         }
     );
     let given = Text::of(&Host::Maybe {
@@ -283,7 +289,7 @@ fn bare_values_take_the_main_module_and_amounts_their_mode() {
 fn a_build_registers_each_format_once_and_every_compiled_one() {
     assert_eq!(
         siros_i18n::Formats::new(&[&PROBE, &PROBE]).err(),
-        Some(RenderError::Registered("number"))
+        Some(RenderError::Registered(checked!(FormatId, "number")))
     );
     let module = load(&[&source("en", BODY)]).expect("a module");
     let built = package(&[&module]);

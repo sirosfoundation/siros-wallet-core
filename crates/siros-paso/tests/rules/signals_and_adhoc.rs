@@ -143,7 +143,7 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     let iss = "https://issuer.bank.example";
     let good = adhoc_payload(CARD_TYPE, "dc+sd-jwt", PAY, iss);
     let card = Card::sd_jwt("{}");
-    let jwt = |payload: &str, key: &[u8; 32]| {
+    let jwt = |payload: &str, key: &siros_testkit::jose::P256Scalar| {
         adhoc_jwt(payload, key, Some("issuer-key-1"), None).expect("jwt")
     };
     // The matcher reads the JWT as it reads a signed request: a signature under a key the issuer

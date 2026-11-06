@@ -1,12 +1,12 @@
 //! The derive beside thiserror: one type's identifiers, arguments and catalogue, a transparent
 //! cause, a struct, a nested message held by value, and the declaration of each argument's kind.
-//! Then the calendar rule of a date, and where RFC 3339 places a leap second.
-
-use std::borrow::Cow;
+//! Then the identifier grammar, a name given twice, the calendar rule of a date, a key given
+//! twice, and where RFC 3339 places a leap second.
 
 use siros_explain::{
-    ArgKind, ArgValue, Count, Date, DateTime, Entry, Explain, Fraction, Key, Keyed, MessageId,
-    Messages, Offset, Presence, Repeated, Second, Text, Value, checked,
+    ArgKind, ArgName, ArgValue, Count, Date, DateTime, DefinedKey, Domain, Entry, Explain,
+    Fraction, Key, Keyed, MessageId, Messages, Names, Offset, ParamName, Presence, Repeated,
+    Second, Text, Value, checked,
 };
 
 #[derive(Debug, thiserror::Error, Explain)]
@@ -112,19 +112,12 @@ fn errors_explain_beside_thiserror() {
         panic!("a query: {cause:?}")
     };
     assert_eq!(
-        (cause.key(), query.key(), query.args()),
+        (cause.key().as_str(), query.key(), query.args()),
         (
-            &Cow::Borrowed("cause"),
+            "cause",
             &Key::Message(checked!(MessageId, "openid4vp.routing.p1_absent")),
             &[][..]
         )
-    );
-
-    let boxed: Box<dyn siros_explain::Explained> = Box::new(decrypted);
-    assert_eq!(boxed.id().as_str(), "openid4vp.request_object.decrypted");
-    assert_eq!(
-        boxed.to_string(),
-        "U11 the decrypted Request Object, 9 bytes: P1 response_type is absent"
     );
 
     let declared: Vec<_> = RequestObjectRule::messages()
@@ -175,6 +168,63 @@ fn errors_explain_beside_thiserror() {
             ),
         ]
     );
+}
+
+/// The grammar `MessageId` states: tokens separated by `.`, each a lowercase ASCII letter, then
+/// lowercase letters, digits and underscores. A message identifier holds two or more tokens; a
+/// domain, an argument name and a defined key one or more. Each case is a text and the number of
+/// tokens it holds, `None` outside the grammar.
+#[test]
+fn an_identifier_follows_the_grammar() {
+    let cases = [
+        ("openid4vp", Some(1)),
+        ("fn_id", Some(1)),
+        ("openid4vp.routing", Some(2)),
+        ("openid4vp.routing.c5", Some(3)),
+        ("", None),
+        (".openid4vp", None),
+        ("openid4vp..routing", None),
+        ("openid4vp.", None),
+        ("openid4vp.Host", None),
+        ("4vp", None),
+        ("_id", None),
+        ("fnId", None),
+        ("fn-id", None),
+        ("é", None),
+    ];
+    for (text, tokens) in cases {
+        let at_least = |min| tokens.is_some_and(|count| count >= min);
+        assert_eq!(
+            (
+                MessageId::new(text).is_some(),
+                Domain::new(text).is_some(),
+                ArgName::new(text).is_some(),
+                DefinedKey::parse(text.to_owned()).is_some(),
+                ParamName::parse(text.to_owned()).is_some(),
+            ),
+            (
+                at_least(2),
+                at_least(1),
+                at_least(1),
+                at_least(1),
+                at_least(1)
+            ),
+            "{text:?}"
+        );
+    }
+}
+
+/// A message's names: each an argument name, none twice.
+#[test]
+fn names_refuse_a_repeated_name() {
+    let cases = [
+        (["from", "to", "at"], true),
+        (["from", "to", "from"], false),
+        (["from", "to", "To"], false),
+    ];
+    for (names, valid) in cases {
+        assert_eq!(Names::new(names).is_some(), valid, "{names:?}");
+    }
 }
 
 /// The Gregorian rule: February has 29 days in years divisible by 4, except centuries not

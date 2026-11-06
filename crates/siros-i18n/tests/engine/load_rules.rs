@@ -1,16 +1,13 @@
-//! I30: one fixture per load rule, each refused for its rule and no other.
+//! One fixture per load rule, each refused for its rule and no other.
 
-use std::borrow::Cow;
-
-use siros_explain::{
-    ArgKind, DefinedKey, Domain, Entry, Keyed, Message, MessageId, ModuleId, ParamKind, Presence,
-    checked, names,
-};
+use siros_explain::{Domain, Message, MessageId, ModuleId, checked, names};
 use siros_i18n::{
-    Compilers, Declaration, LanguagePolicy, Module, ModuleError, Refusal, ResourceRule, Validity,
+    BareKind, Call, Compilers, Declaration, DeclaredId, FormatCompiler, FormatId, LanguageFormats,
+    LanguagePolicy, Module, ModuleError, ModuleKey, ParsedFormats, Refusal, RefusedOption,
+    ResourceRule, Validity,
 };
 
-use crate::{BODY, PROBE, declaration, load, source};
+use crate::{BODY, PROBE, declaration, load, source, tag};
 
 /// The fixture module from the English source with `from` replaced by `to`.
 fn altered(from: &str, to: &str) -> Result<Module, ModuleError> {
@@ -24,20 +21,6 @@ fn resource(text: &str) -> ResourceRule {
         Err(ModuleError::Resource { rule, .. }) => rule,
         other => panic!("{text:?} gave {other:?}"),
     }
-}
-
-#[test]
-fn the_fixture_loads() {
-    let english = source("en", BODY);
-    let german = source("de", &BODY.replace("Hello", "Hallo"));
-    let module = load(&[&english, &german]).expect("the fixture loads");
-    assert_eq!(
-        module
-            .locales()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        ["en", "de"]
-    );
 }
 
 #[test]
@@ -85,8 +68,8 @@ fn each_resource_rule_refuses_its_fixture() {
 
 #[test]
 fn each_module_rule_refuses_its_fixture() {
-    let en = || "en".to_owned();
-    let key = |key: &str| key.to_owned();
+    let en = || tag("en");
+    let key = |key: &str| ModuleKey::parse(key.to_owned()).expect("a key");
     let english = source("en", BODY);
     let other = ModuleId::Crate(checked!(Domain, "other"));
     let compilers = Compilers::new(&[&PROBE]).expect("compilers");
@@ -100,12 +83,15 @@ fn each_module_rule_refuses_its_fixture() {
                 LanguagePolicy::Any,
                 &compilers,
             ),
-            ModuleError::Outside("fixture.host.asks".to_owned()),
+            ModuleError::Outside(DeclaredId::Message(checked!(
+                MessageId,
+                "fixture.host.asks"
+            ))),
         ),
         (
             altered("hello = Hello", "hello = Hello\nhello = Hi"),
             ModuleError::Repeated {
-                key: key("host.hello"),
+                key: "host.hello".to_owned(),
                 locale: en(),
             },
         ),
@@ -119,7 +105,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("hello = Hello", "hello = Hello\nbye = Bye"),
             ModuleError::Undeclared {
-                key: key("host.bye"),
+                key: "host.bye".to_owned(),
                 locale: en(),
             },
         ),
@@ -222,7 +208,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("digits = 3\n", ""),
             ModuleError::Option {
-                format: "number",
+                format: checked!(FormatId, "number"),
                 option: "digits",
                 locale: en(),
             },
@@ -230,7 +216,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("digits = 3", "digits = three"),
             ModuleError::OptionText {
-                format: "number",
+                format: checked!(FormatId, "number"),
                 option: "digits",
                 locale: en(),
                 text: "three".to_owned(),
@@ -251,7 +237,7 @@ fn declarations_and_registrations_refuse_their_fixtures() {
     ];
     assert_eq!(
         Declaration::new(twice).expect_err("refused"),
-        ModuleError::Declaration("fixture.host.hello".to_owned())
+        ModuleError::Declaration(id)
     );
     let same = vec![
         Message::new(id, Some("a"), names!(), []),
@@ -261,28 +247,105 @@ fn declarations_and_registrations_refuse_their_fixtures() {
         Declaration::new(same).expect("counted once").ids().count(),
         1
     );
-    // A converter's argument name is one or more tokens, as a type's `Names` are.
-    let key = DefinedKey::parse("label".to_owned()).expect("a key");
-    let param = |name: &'static str| {
-        let kind = ParamKind::new(ArgKind::Raw, Presence::Required);
-        Keyed::new(vec![Entry::new(Cow::Borrowed(name), kind)]).expect("one name")
-    };
-    assert_eq!(
-        Declaration::defined(
-            Keyed::new(vec![Entry::new(key.clone(), param("1x"))]).expect("one key")
-        )
-        .expect_err("refused"),
-        ModuleError::ParameterName {
-            key: "label".to_owned(),
-            name: "1x".to_owned(),
-        }
-    );
-    assert!(
-        Declaration::defined(Keyed::new(vec![Entry::new(key, param("c1"))]).expect("one key"))
-            .is_ok()
-    );
     assert!(matches!(
         Compilers::new(&[&PROBE, &PROBE]),
         Err(ModuleError::Compiler("number"))
     ));
+}
+
+/// A format module that breaks one rule of [`FormatCompiler`]'s contract. It provides `:number`,
+/// so the main module formats bare counts and decimals through it.
+struct Broken {
+    options: &'static [&'static str],
+    reads: &'static str,
+}
+
+/// It lists its option twice.
+static LISTS_TWICE: Broken = Broken {
+    options: &["digits", "digits"],
+    reads: "digits",
+};
+
+/// It reads an option its `options` do not name.
+static READS_ANOTHER: Broken = Broken {
+    options: &["digits"],
+    reads: "group",
+};
+
+/// It parses its options and compiles no call.
+static COMPILES_NOTHING: Broken = Broken {
+    options: &["digits"],
+    reads: "digits",
+};
+
+impl FormatCompiler for Broken {
+    fn id(&self) -> FormatId {
+        checked!(FormatId, "number")
+    }
+
+    fn functions(&self) -> &'static [&'static str] {
+        &["number"]
+    }
+
+    fn options(&self) -> &'static [&'static str] {
+        self.options
+    }
+
+    fn parse(
+        &self,
+        language: &LanguageFormats<'_>,
+    ) -> Result<Box<dyn ParsedFormats>, RefusedOption> {
+        language.require(self.reads)?;
+        Ok(Box::new(Refuses))
+    }
+}
+
+/// What [`Broken`] parses to.
+struct Refuses;
+
+impl ParsedFormats for Refuses {
+    fn compile(&self, _call: &Call<'_>) -> Result<Vec<u8>, Refusal> {
+        Err(Refusal::Operand)
+    }
+}
+
+#[test]
+fn each_format_module_rule_refuses_its_fixture() {
+    let format = checked!(FormatId, "number");
+    let cases: [(&'static Broken, ModuleError); 3] = [
+        (
+            &LISTS_TWICE,
+            ModuleError::Listed {
+                format,
+                option: "digits",
+            },
+        ),
+        (
+            &READS_ANOTHER,
+            ModuleError::UndeclaredOption {
+                format,
+                option: "group",
+            },
+        ),
+        (
+            &COMPILES_NOTHING,
+            ModuleError::Bare {
+                kind: BareKind::Count,
+                locale: tag("en"),
+                function: "number",
+                refusal: Refusal::Operand,
+            },
+        ),
+    ];
+    let declared = Declaration::new(Vec::new()).expect("empty");
+    for (broken, expected) in cases {
+        let loaded = Module::load(
+            ModuleId::Main,
+            &declared,
+            &[&source("en", "[formats.number]\ndigits = 3\n")],
+            LanguagePolicy::Any,
+            &Compilers::new(&[broken]).expect("compilers"),
+        );
+        assert_eq!(loaded.expect_err("refused"), expected);
+    }
 }

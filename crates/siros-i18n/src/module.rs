@@ -2,13 +2,12 @@
 //! checked, and compiled into its render form.
 
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 
-use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, tokens};
+use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, ParamName};
 
 use crate::compile::{self, Site};
 use crate::defined::MainLocale;
-use crate::error::{ModuleError, OptionRefusal};
+use crate::error::{DeclaredId, ModuleError, ModuleKey, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
 };
@@ -17,6 +16,7 @@ use crate::format::{
 };
 use crate::locale::LocaleTag;
 use crate::mf2::{parse, valid};
+use crate::render::ModuleDigest;
 use crate::resource::{self, Resource};
 
 /// A module's declaration: its keys, and each key's arguments with their kinds. A crate module's
@@ -31,7 +31,7 @@ pub struct Declaration {
 /// parameters in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Declared {
-    pub(crate) id: String,
+    pub(crate) id: DeclaredId,
     text: Option<&'static str>,
     pub(crate) params: Vec<ParamForm>,
 }
@@ -45,64 +45,51 @@ impl Declaration {
     ///
     /// [`ModuleError::Declaration`] for two different messages under one identifier.
     pub fn new(messages: Vec<Message>) -> Result<Self, ModuleError> {
-        Self::of(messages.iter().map(|message| Declared {
-            id: message.id().as_str().to_owned(),
-            text: message.text(),
-            params: ParamForm::of_message(message),
-        }))
+        let mut held: Vec<Declared> = Vec::with_capacity(messages.len());
+        for message in &messages {
+            let declared = Declared {
+                id: message.id().into(),
+                text: message.text(),
+                params: ParamForm::of_message(message),
+            };
+            match held.iter().find(|earlier| earlier.id == declared.id) {
+                Some(earlier) if *earlier == declared => {}
+                Some(_) => return Err(ModuleError::Declaration(message.id())),
+                None => held.push(declared),
+            }
+        }
+        Ok(Self::sorted(held))
     }
 
     /// The declaration a converter writes for a defined module: each key with its parameters,
-    /// each under its name, in order.
-    ///
-    /// # Errors
-    ///
-    /// [`ModuleError::ParameterName`] for a parameter name outside the tokens
-    /// (`siros_explain::tokens`).
-    pub fn defined(
-        messages: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
-    ) -> Result<Self, ModuleError> {
-        let mut declared = Vec::with_capacity(messages.entries().len());
-        for entry in messages.entries() {
-            let mut params = Vec::with_capacity(entry.value().entries().len());
-            for param in entry.value().entries() {
-                if !tokens(param.key(), 1) {
-                    return Err(ModuleError::ParameterName {
-                        key: entry.key().as_str().to_owned(),
-                        name: param.key().clone().into_owned(),
-                    });
-                }
-                params.push(ParamForm {
-                    name: param.key().clone().into_owned(),
-                    kind: param.value().kind(),
-                    presence: param.value().presence(),
-                });
-            }
-            declared.push(Declared {
-                id: entry.key().as_str().to_owned(),
+    /// each under its name, in order. Its keys are distinct.
+    #[must_use]
+    pub fn defined(messages: Keyed<DefinedKey, Keyed<ParamName, ParamKind>>) -> Self {
+        let held = messages
+            .entries()
+            .iter()
+            .map(|entry| Declared {
+                id: entry.key().clone().into(),
                 text: None,
-                params,
-            });
-        }
-        Self::of(declared.into_iter())
+                params: entry
+                    .value()
+                    .entries()
+                    .iter()
+                    .map(ParamForm::of_param)
+                    .collect(),
+            })
+            .collect();
+        Self::sorted(held)
     }
 
-    fn of(messages: impl Iterator<Item = Declared>) -> Result<Self, ModuleError> {
-        let mut held: Vec<Declared> = Vec::new();
-        for message in messages {
-            match held.iter().find(|earlier| earlier.id == message.id) {
-                Some(earlier) if *earlier == message => {}
-                Some(_) => return Err(ModuleError::Declaration(message.id)),
-                None => held.push(message),
-            }
-        }
-        held.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(Self { messages: held })
+    fn sorted(mut messages: Vec<Declared>) -> Self {
+        messages.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        Self { messages }
     }
 
     /// The declared identifiers, sorted.
-    pub fn ids(&self) -> impl Iterator<Item = &str> {
-        self.messages.iter().map(|message| message.id.as_str())
+    pub fn ids(&self) -> impl Iterator<Item = &DeclaredId> {
+        self.messages.iter().map(|message| &message.id)
     }
 }
 
@@ -214,10 +201,11 @@ impl Module {
             ModuleId::Crate(domain) => format!("{}.", domain.as_str()),
             ModuleId::Main | ModuleId::Defined(_) => String::new(),
         };
-        let mut keyed: Vec<Entry<&str, &Declared>> = Vec::with_capacity(declared.messages.len());
+        let mut keyed: Vec<Entry<ModuleKey, &Declared>> =
+            Vec::with_capacity(declared.messages.len());
         for message in &declared.messages {
-            let key = message.id.strip_prefix(prefix.as_str());
-            let key = key.ok_or_else(|| ModuleError::Outside(message.id.clone()))?;
+            let key = ModuleKey::of(&message.id, &prefix)
+                .ok_or_else(|| ModuleError::Outside(message.id.clone()))?;
             keyed.push(Entry::new(key, message));
         }
         let mut resources: Vec<Resource> = Vec::with_capacity(sources.len());
@@ -228,7 +216,7 @@ impl Module {
                 .iter()
                 .any(|earlier| earlier.locale == resource.locale)
             {
-                return Err(ModuleError::Locale(resource.locale.to_string()));
+                return Err(ModuleError::Locale(resource.locale.clone()));
             }
             digest.update((text.len() as u64).to_be_bytes());
             digest.update(text.as_bytes());
@@ -272,7 +260,7 @@ impl Module {
         Ok(Self {
             form: CompiledModule {
                 id,
-                digest: digest.finalize().into(),
+                digest: ModuleDigest::new(digest.finalize().into()),
                 policy,
                 locales,
             },
@@ -288,7 +276,7 @@ impl Module {
     /// The SHA-256 of its loaded sources, format options included, each source its length as a
     /// big-endian `u64` and its bytes, in the order given.
     #[must_use]
-    pub const fn digest(&self) -> [u8; 32] {
+    pub const fn digest(&self) -> ModuleDigest {
         self.form.digest
     }
 
@@ -324,11 +312,10 @@ impl Module {
 /// One locale's messages, each parsed, checked and resolved.
 fn resolve<'a>(
     resource: &'a Resource,
-    keyed: &[Entry<&'a str, &'a Declared>],
+    keyed: &'a [Entry<ModuleKey, &'a Declared>],
     compilers: &Compilers,
 ) -> Result<Vec<compile::Resolved<'a>>, ModuleError> {
-    let locale = resource.locale.as_str();
-    let at = |key: &str| (key.to_owned(), locale.to_owned());
+    let locale = &resource.locale;
     for (index, entry) in resource.messages.iter().enumerate() {
         if resource
             .messages
@@ -336,32 +323,43 @@ fn resolve<'a>(
             .take(index)
             .any(|earlier| earlier.key == entry.key)
         {
-            let (key, locale) = at(&entry.key);
-            return Err(ModuleError::Repeated { key, locale });
+            return Err(ModuleError::Repeated {
+                key: entry.key.clone(),
+                locale: locale.clone(),
+            });
         }
-        if keyed.iter().all(|declared| *declared.key() != entry.key) {
-            let (key, locale) = at(&entry.key);
-            return Err(ModuleError::Undeclared { key, locale });
+        if keyed
+            .iter()
+            .all(|declared| declared.key().as_str() != entry.key)
+        {
+            return Err(ModuleError::Undeclared {
+                key: entry.key.clone(),
+                locale: locale.clone(),
+            });
         }
     }
     let mut resolved = Vec::with_capacity(keyed.len());
     for declared in keyed {
-        let key = *declared.key();
-        let Some(entry) = resource.messages.iter().find(|entry| entry.key == key) else {
-            let (key, locale) = at(key);
-            return Err(ModuleError::Missing { key, locale });
+        let key = declared.key();
+        let Some(entry) = resource
+            .messages
+            .iter()
+            .find(|entry| entry.key == key.as_str())
+        else {
+            return Err(ModuleError::Missing {
+                key: key.clone(),
+                locale: locale.clone(),
+            });
         };
-        let message = parse::parse(&entry.value).map_err(|error| {
-            let (key, locale) = at(key);
-            ModuleError::Syntax {
-                key,
-                locale,
-                at: error.0,
-            }
+        let message = parse::parse(&entry.value).map_err(|error| ModuleError::Syntax {
+            key: key.clone(),
+            locale: locale.clone(),
+            at: error.0,
         })?;
-        valid::check(&message).map_err(|rule| {
-            let (key, locale) = at(key);
-            ModuleError::Invalid { key, locale, rule }
+        valid::check(&message).map_err(|rule| ModuleError::Invalid {
+            key: key.clone(),
+            locale: locale.clone(),
+            rule,
         })?;
         let site = Site {
             key,
@@ -378,7 +376,7 @@ fn parse_formats<'u>(
     resource: &Resource,
     used: &'u [Used],
 ) -> Result<LocaleFormats<'u>, ModuleError> {
-    let locale = resource.locale.to_string();
+    let locale = resource.locale.clone();
     for section in &resource.formats {
         let compiler = used
             .iter()
@@ -423,7 +421,7 @@ fn parse_formats<'u>(
                 .and_then(|section| section.options.iter().find(|entry| entry.key == option));
             let Some(text) = text else {
                 return Err(ModuleError::Option {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option,
                     locale,
                 });
@@ -431,7 +429,7 @@ fn parse_formats<'u>(
             options.push(Entry::new(option, text.value.as_str()));
         }
         let options = Keyed::new(options).map_err(|repeated| ModuleError::Listed {
-            format: compiler.id().as_str(),
+            format: compiler.id(),
             option: repeated.0,
         })?;
         let language = LanguageFormats::new(&resource.locale, resource.direction, &options);
@@ -439,13 +437,13 @@ fn parse_formats<'u>(
             .parse(&language)
             .map_err(|refused| match refused.cause() {
                 OptionRefusal::Text(text) => ModuleError::OptionText {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option: refused.option(),
                     locale: locale.clone(),
                     text: text.clone(),
                 },
                 OptionRefusal::Undeclared => ModuleError::UndeclaredOption {
-                    format: compiler.id().as_str(),
+                    format: compiler.id(),
                     option: refused.option(),
                 },
             })?;
@@ -476,7 +474,7 @@ fn bare_call(
         .compile(&call)
         .map_err(|refusal| ModuleError::Bare {
             kind: implicit.kind,
-            locale: resource.locale.to_string(),
+            locale: resource.locale.clone(),
             function: implicit.function,
             refusal,
         })?;

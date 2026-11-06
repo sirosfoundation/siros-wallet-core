@@ -4,7 +4,7 @@ use crate::arg::{IntoArg, Kind};
 use crate::calendar::{Date, DateTime, OffsetTime, Time};
 use crate::iso4217::Currency;
 use crate::kind;
-use crate::message::Explain;
+use crate::message::{Explain, MessageId};
 use crate::text::Text;
 use crate::value::{Amount, Count, Decimal};
 
@@ -143,5 +143,13 @@ impl<T: Explain> IntoArg for T {
 
     fn arg(&self) -> &dyn Explain {
         self
+    }
+}
+
+impl IntoArg for MessageId {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.as_str()
     }
 }

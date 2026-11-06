@@ -336,7 +336,12 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .entries()
         .iter()
         .map(|entry| {
-            let hex: String = entry.value().iter().map(|b| format!("{b:02x}")).collect();
+            let hex: String = entry
+                .value()
+                .bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
             (
                 siros_openid4vp::rows::ModuleName::of(*entry.key()).to_string(),
                 serde_json::json!(hex),
@@ -345,7 +350,7 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .collect();
     assert_eq!(modules.len(), 3, "main, testkit and openid4vp");
     let rendering = serde_json::json!({"selected": null, "language": "de", "fallback": false, "modules": modules,
-        "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER});
+        "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER.number()});
     assert_eq!(
         read,
         serde_json::json!(["q", "c \"1\" \\ \u{1} é", 2, [1, 2], {"display_locale": "de\n", "x": "é"}, request.digest().as_str(), rendering])

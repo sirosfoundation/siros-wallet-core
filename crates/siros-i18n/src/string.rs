@@ -14,7 +14,7 @@ use unicode_normalization::UnicodeNormalization;
 use siros_explain::ArgKind;
 
 #[cfg(feature = "render")]
-use crate::error::RenderError;
+use crate::error::{FormatFailure, RenderError};
 #[cfg(feature = "load")]
 use crate::error::{Refusal, RefusedOption};
 use crate::format::FormatId;
@@ -97,7 +97,7 @@ fn text<'a>(input: &Input<'a>) -> Result<&'a str, RenderError> {
     match *input {
         Input::Literal(text) | Input::Text(text) => Ok(text),
         Input::None | Input::Value(_) | Input::List { .. } => {
-            Err(RenderError::Message("bad-operand"))
+            Err(RenderError::Message(FormatFailure::BadOperand))
         }
     }
 }
@@ -132,7 +132,7 @@ impl FormatRenderer for StringFormat {
         let compared = if compiled.is_empty() {
             given
         } else {
-            std::str::from_utf8(compiled).map_err(|_| RenderError::Compiled(ID.as_str()))?
+            std::str::from_utf8(compiled).map_err(|_| RenderError::Compiled(ID))?
         };
         Ok(keys
             .iter()

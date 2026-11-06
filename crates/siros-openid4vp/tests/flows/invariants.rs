@@ -27,7 +27,7 @@ use siros_openid4vp::routing::{ChannelKind, ModeName, VpToken};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{B26_KEY, CLIENT_ID, REQUEST_OBJECT_HEADER, first_selection};
-use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
+use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, compact_jws};
 use siros_testkit::{
     Published, TestBody, TestChoice, TestFormat, TestHost, TestMode, TestPrefix, TestTrust,
 };
@@ -290,7 +290,7 @@ impl Case {
     /// another's.
     fn object(&self, parameters: &str) -> String {
         let key = if self.forged {
-            [7u8; 32]
+            P256Scalar::new([7; 32]).expect("a scalar")
         } else {
             VERIFIER_SECRET
         };

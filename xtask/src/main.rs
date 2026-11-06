@@ -58,7 +58,7 @@ struct Table {
 struct Build {
     name: String,
     crates: Vec<Dependency>,
-    forbid: Vec<String>,
+    forbid: Vec<Forbidden>,
     exact: Vec<Dependency>,
     fewer_than: Option<usize>,
     differs_from: Option<String>,
@@ -72,14 +72,69 @@ struct Build {
 #[serde(deny_unknown_fields)]
 struct Matcher {
     crates: Vec<Dependency>,
-    forbid: Vec<String>,
+    forbid: Vec<Forbidden>,
     exact: Vec<Dependency>,
+}
+
+/// What a build must not compile, as the table writes it: `crate` or `crate/feature`.
+#[derive(Clone, Deserialize)]
+#[serde(try_from = "String")]
+enum Forbidden {
+    Crate(String),
+    Feature { name: String, feature: String },
+}
+
+/// Whether a text is a package name or a feature: non-empty, and of ASCII alphanumerics, `-`, `_`,
+/// `+` and `.` (The Cargo Book, "Features").
+fn named(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'+' | b'.'))
+}
+
+impl TryFrom<String> for Forbidden {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        match text.split_once('/') {
+            Some((name, feature)) if named(name) && named(feature) => Ok(Self::Feature {
+                name: name.to_owned(),
+                feature: feature.to_owned(),
+            }),
+            None if named(&text) => Ok(Self::Crate(text)),
+            _ => Err(format!("{text:?} is neither `crate` nor `crate/feature`")),
+        }
+    }
+}
+
+impl std::fmt::Display for Forbidden {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Crate(name) => f.write_str(name),
+            Self::Feature { name, feature } => write!(f, "{name}/{feature}"),
+        }
+    }
+}
+
+/// A crate a tree compiles.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Compiled {
+    name: String,
+    version: String,
+}
+
+/// A feature a tree enables.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct Enabled {
+    name: String,
+    feature: String,
 }
 
 /// What one probe compiles: its crates, each once, and each crate's features.
 struct Tree {
-    crates: Vec<(String, String)>,
-    features: Vec<(String, String)>,
+    crates: Vec<Compiled>,
+    features: Vec<Enabled>,
 }
 
 impl Tree {
@@ -105,17 +160,17 @@ impl Tree {
     }
 
     /// The excluded crates and `crate/feature` pairs it compiles.
-    fn forbidden<'b>(&self, forbid: &'b [String]) -> Vec<&'b str> {
+    fn forbidden(&self, forbid: &[Forbidden]) -> Vec<String> {
         forbid
             .iter()
-            .filter(|forbidden| match forbidden.split_once('/') {
-                Some(pair) => self
+            .filter(|forbidden| match forbidden {
+                Forbidden::Feature { name, feature } => self
                     .features
                     .iter()
-                    .any(|(name, feature)| (name.as_str(), feature.as_str()) == pair),
-                None => self.crates.iter().any(|(name, _)| name == *forbidden),
+                    .any(|enabled| enabled.name == *name && enabled.feature == *feature),
+                Forbidden::Crate(name) => self.crates.iter().any(|compiled| compiled.name == *name),
             })
-            .map(String::as_str)
+            .map(ToString::to_string)
             .collect()
     }
 
@@ -127,8 +182,8 @@ impl Tree {
                 let mut compiled: Vec<&str> = self
                     .features
                     .iter()
-                    .filter(|(name, _)| *name == exact.name)
-                    .map(|(_, feature)| feature.as_str())
+                    .filter(|enabled| enabled.name == exact.name)
+                    .map(|enabled| enabled.feature.as_str())
                     .collect();
                 compiled.sort_unstable();
                 let mut want: Vec<&str> = exact.features.iter().map(String::as_str).collect();
@@ -190,10 +245,16 @@ impl fmt::Display for Failure {
     }
 }
 
-/// The workspace: its root and its members, each with its directory.
+/// A workspace member.
+struct Member {
+    name: String,
+    directory: PathBuf,
+}
+
+/// The workspace: its root and its members.
 struct Workspace {
     root: PathBuf,
-    members: Vec<(String, PathBuf)>,
+    members: Vec<Member>,
 }
 
 fn main() -> ExitCode {
@@ -255,7 +316,10 @@ impl Workspace {
                     .map(Path::new)
                     .and_then(Path::parent);
                 match (name, manifest) {
-                    (Some(name), Some(directory)) => Ok((name.to_owned(), directory.to_path_buf())),
+                    (Some(name), Some(directory)) => Ok(Member {
+                        name: name.to_owned(),
+                        directory: directory.to_path_buf(),
+                    }),
                     _ => Err(Failure::Read(
                         "a package without its name or manifest".to_owned(),
                     )),
@@ -279,8 +343,8 @@ impl Workspace {
     fn directory(&self, name: &str) -> Result<&Path, Failure> {
         self.members
             .iter()
-            .find(|(member, _)| member == name)
-            .map(|(_, directory)| directory.as_path())
+            .find(|member| member.name == name)
+            .map(|member| member.directory.as_path())
             .ok_or_else(|| Failure::Read(format!("{name} is no workspace member")))
     }
 }
@@ -294,7 +358,7 @@ const PROBE: &str = "xtask-build-probe";
 /// alone; true when every build holds.
 fn builds(workspace: &Workspace) -> Result<bool, Failure> {
     let table = workspace.table()?;
-    let mut compiled_sets: Vec<(&str, Vec<(String, String)>)> = Vec::new();
+    let mut compiled_sets: Vec<(&str, Vec<Compiled>)> = Vec::new();
     let mut holds = true;
     for (place, build) in table.builds.iter().enumerate() {
         let tree = Tree::of(&probe(workspace, &format!("build-{place}"), &build.crates)?)?;
@@ -340,7 +404,7 @@ fn builds(workspace: &Workspace) -> Result<bool, Failure> {
                 &format!("matcher-{place}"),
                 &matcher.crates,
             )?)?;
-            let forbid: Vec<String> = build
+            let forbid: Vec<Forbidden> = build
                 .forbid
                 .iter()
                 .chain(&matcher.forbid)
@@ -403,14 +467,17 @@ fn probe(
 
 /// The crates a `cargo tree --prefix none` lists, by name and version, each once, the probe left
 /// out.
-fn compiled(tree: &str) -> Vec<(String, String)> {
-    let mut crates: Vec<(String, String)> = tree
+fn compiled(tree: &str) -> Vec<Compiled> {
+    let mut crates: Vec<Compiled> = tree
         .lines()
         .filter_map(|line| {
             let mut words = line.split_whitespace();
-            Some((words.next()?.to_owned(), words.next()?.to_owned()))
+            Some(Compiled {
+                name: words.next()?.to_owned(),
+                version: words.next()?.to_owned(),
+            })
         })
-        .filter(|(name, _)| name != PROBE)
+        .filter(|compiled| compiled.name != PROBE)
         .collect();
     crates.sort();
     crates.dedup();
@@ -419,13 +486,16 @@ fn compiled(tree: &str) -> Vec<(String, String)> {
 
 /// The features a `cargo tree -e features --prefix none` lists as `name feature "feature"`, each
 /// once.
-fn enabled(tree: &str) -> Vec<(String, String)> {
-    let mut features: Vec<(String, String)> = tree
+fn enabled(tree: &str) -> Vec<Enabled> {
+    let mut features: Vec<Enabled> = tree
         .lines()
         .filter_map(|line| {
             let (name, rest) = line.split_once(" feature \"")?;
             let feature = rest.split_once('"')?.0;
-            Some((name.to_owned(), feature.to_owned()))
+            Some(Enabled {
+                name: name.to_owned(),
+                feature: feature.to_owned(),
+            })
         })
         .collect();
     features.sort();
@@ -451,9 +521,9 @@ fn alone(workspace: &Workspace) -> Result<bool, Failure> {
         ])?;
         let mut named: Vec<String> = compiled(&tree)
             .into_iter()
-            .map(|(name, _)| name)
+            .map(|compiled| compiled.name)
             .filter(|name| {
-                *name != row.name && workspace.members.iter().any(|(member, _)| member == name)
+                *name != row.name && workspace.members.iter().any(|member| member.name == *name)
             })
             .collect();
         named.dedup();

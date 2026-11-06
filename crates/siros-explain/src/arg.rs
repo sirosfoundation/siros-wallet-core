@@ -5,8 +5,8 @@ use crate::message::{Explain, tokens};
 use crate::text::Text;
 use crate::value::Value;
 
-/// An argument's name in a message: one or more [`tokens`] (`at`, `fn_id`). [`Names`] holds a
-/// message's names, each once.
+/// An argument's name in a message: one or more of [`MessageId`](crate::MessageId)'s tokens
+/// (`at`, `fn_id`). [`Names`] holds a message's names, each once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArgName(&'static str);
 
@@ -55,8 +55,8 @@ const fn among(name: &str, mut names: &[&str]) -> bool {
 }
 
 /// A message's argument names, made when the crate builds: [`Names::new`] over the literals, a
-/// repeated name or a name outside [`tokens`] failing the build (E0080). `#[derive(Explain)]`
-/// writes it, and a hand-written [`Explain`] calls it.
+/// repeated name or a name outside [`ArgName`]'s grammar failing the build (E0080).
+/// `#[derive(Explain)]` writes it, and a hand-written [`Explain`] calls it.
 ///
 /// ```
 /// use siros_explain::names;
@@ -81,7 +81,7 @@ macro_rules! names {
     };
 }
 
-/// A message's `N` argument names: each one or more [`tokens`], none twice. [`names!`] makes one
+/// A message's `N` argument names: each an [`ArgName`], none twice. [`names!`] makes one
 /// when the crate builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Names<const N: usize>([ArgName; N]);

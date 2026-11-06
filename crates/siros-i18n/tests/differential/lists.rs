@@ -1,4 +1,4 @@
-//! I36's lists: and-lists and or-lists of one to five items, among them the initials of the
+//! And-lists and or-lists of one to five items, among them the initials of the
 //! special cases, in the test app's languages and in Spanish and Hebrew, whose special cases the
 //! list module's conditions decide.
 
@@ -28,7 +28,7 @@ const ITEMS: [&str; 16] = [
 ];
 
 #[test]
-#[ignore = "the per-merge tier: merge-gates.sh runs the differentials with --ignored"]
+#[ignore = "the per-merge tier: CI's per-merge job runs it with --ignored"]
 fn and_and_or_lists_equal_icu4x() {
     let formats = crate::cldr::formats(&[]);
     let mut differences = Differences::default();
@@ -79,5 +79,5 @@ fn and_and_or_lists_equal_icu4x() {
             }
         }
     }
-    differences.assert_none("I36 lists");
+    differences.assert_none("lists");
 }

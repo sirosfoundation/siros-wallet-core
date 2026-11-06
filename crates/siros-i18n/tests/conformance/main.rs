@@ -1,4 +1,4 @@
-//! I29: the message-format-wg test suite at `16372a6a02f41728be472a5921ba7c91774edeac`
+//! The message-format-wg test suite at `16372a6a02f41728be472a5921ba7c91774edeac`
 //! (github.com/unicode-org/message-format-wg, `test/tests`), its syntax, data model, pattern
 //! selection, fallback, bidi and `u:` options suites and its function suites of the stable
 //! functions (`:string`, `:number`, `:integer`, `:offset`, `:currency`, `:percent`), copied into
@@ -11,7 +11,7 @@
 //! passes when the rendered text equals `exp`, or renders when it has none. A test skips only
 //! under an entry of [`skips::SKIPS`], which names its reason.
 //!
-//! I38: each message that loads renders through three packages, one holding its text
+//! Each message that loads renders through three packages, one holding its text
 //! precomputed, one holding its key compiled and one compiled from the live module, with 0
 //! differences; each package built twice, and read back and written again, gives the same
 //! bytes.
@@ -83,7 +83,7 @@ fn the_suite_passes() {
             tests.len()
         );
     }
-    println!("I38: {packaged} passing texts rendered through three packages each, 0 differences");
+    println!("{packaged} passing texts rendered through three packages each, 0 differences");
     let stale: Vec<_> = skips::SKIPS
         .iter()
         .zip(&used)

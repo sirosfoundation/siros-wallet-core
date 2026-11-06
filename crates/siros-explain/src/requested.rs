@@ -1,16 +1,13 @@
-//! The texts that depend on a request, and the messages they draw from (section 4.14 of the
-//! design, "Texts that depend on the request"). A registration's package holds a module's
-//! compiled messages for such texts alone: each module declares them as one type
+//! The texts that depend on a request, and the messages they draw from. A registration's package
+//! holds a module's compiled messages for such texts alone: each module declares them as one type
 //! ([`DeclaredModule::Requested`]), and a [`RequestText`] is built only from a message of that type,
 //! from a value, a name, a received text, or a defined module's message, which the package holds
 //! whole. A request text built from another message does not compile.
 
-use std::borrow::Cow;
-
 use crate::keyed::{Entry, Keyed};
 use crate::list::{AllOf, ListKind};
 use crate::message::{Explain, Messages};
-use crate::text::{DefinedKey, DefinedModule, ModuleId, Query, Text};
+use crate::text::{DefinedKey, DefinedModule, ModuleId, ParamName, Query, Text};
 use crate::value::Value;
 
 /// A module the wallet registers, with the messages texts that depend on a request draw from.
@@ -82,11 +79,7 @@ impl RequestText {
 
     /// A defined module's message, its arguments request texts.
     #[must_use]
-    pub fn defined(
-        module: DefinedModule,
-        key: DefinedKey,
-        args: Keyed<Cow<'static, str>, Self>,
-    ) -> Self {
+    pub fn defined(module: DefinedModule, key: DefinedKey, args: Keyed<ParamName, Self>) -> Self {
         let args = args
             .into_entries()
             .into_iter()

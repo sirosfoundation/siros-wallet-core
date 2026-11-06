@@ -2,15 +2,14 @@
 //! compilation of the same messages, carried beside a package or held in one; each refusal rule
 //! refuses its fixture.
 
-use std::borrow::Cow;
-
 use siros_explain::{
-    ArgKind, Count, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, Messages, ModuleId,
-    ParamKind, Presence, Query, Text, Value, checked,
+    ArgKind, Count, DefinedKey, DefinedModule, Domain, Entry, Explain, Keyed, Messages,
+    MetadataDigest, ModuleId, ParamKind, ParamName, Presence, Query, Text, Value, checked,
 };
 use siros_i18n::{
-    Bidi, Body, Compilers, Declaration, DefinedError, DefinedForm, Formats, LanguagePolicy,
-    LocaleTag, MainLocale, Module, Package, PackageBuilder, Part, Renderer, Screen, Style, Variant,
+    AsciiKey, Bidi, Body, Compilers, Declaration, DefinedError, DefinedForm, Formats,
+    LanguagePolicy, LocaleTag, MainLocale, Module, Package, PackageBuilder, Part, Renderer, Screen,
+    Style, Variant,
 };
 
 use crate::{PROBE, formats, options, tag};
@@ -58,23 +57,27 @@ fn main_module(locales: &[&str]) -> Module {
     .expect("a main module")
 }
 
-const DEFINED: DefinedModule = DefinedModule::new(checked!(Domain, "probe"), [7; 32]);
+const DEFINED: DefinedModule =
+    DefinedModule::new(checked!(Domain, "probe"), MetadataDigest::new([7; 32]));
 
 fn key(text: &str) -> DefinedKey {
     DefinedKey::parse(text.to_owned()).expect("a key")
 }
 
-fn params(entries: &[(&'static str, ArgKind)]) -> Keyed<Cow<'static, str>, ParamKind> {
-    Keyed::first_of(entries.iter().map(|(name, kind)| {
-        Entry::new(
-            Cow::Borrowed(*name),
-            ParamKind::new(*kind, Presence::Required),
-        )
-    }))
+fn name(text: &str) -> ParamName {
+    ParamName::parse(text.to_owned()).expect("a name")
+}
+
+fn params(entries: &[(&str, ArgKind)]) -> Keyed<ParamName, ParamKind> {
+    Keyed::first_of(
+        entries
+            .iter()
+            .map(|(text, kind)| Entry::new(name(text), ParamKind::new(*kind, Presence::Required))),
+    )
 }
 
 /// The defined module's declaration: the oracle's keys and arguments.
-fn declaration() -> Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>> {
+fn declaration() -> Keyed<DefinedKey, Keyed<ParamName, ParamKind>> {
     Keyed::first_of([
         Entry::new(key("label"), params(&[("name", ArgKind::Raw)])),
         Entry::new(key("counted"), params(&[("count", ArgKind::Count)])),
@@ -88,7 +91,7 @@ fn declaration() -> Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>> {
 /// The defined module's bodies in a locale: the oracle's messages as parts.
 fn bodies(pay: &str, items: &str) -> Keyed<DefinedKey, Body> {
     let text = |t: &str| Part::Text(t.to_owned());
-    let argument = |name: &'static str| Part::Argument(Cow::Borrowed(name));
+    let argument = |text: &str| Part::Argument(name(text));
     Keyed::first_of([
         Entry::new(
             key("label"),
@@ -106,10 +109,10 @@ fn bodies(pay: &str, items: &str) -> Keyed<DefinedKey, Body> {
         Entry::new(
             key("choice"),
             Body::Select {
-                selectors: vec![Cow::Borrowed("e0")],
+                selectors: vec![name("e0")],
                 variants: vec![
                     Variant {
-                        keys: vec![Some("live")],
+                        keys: vec![Some(checked!(AsciiKey, "live"))],
                         pattern: vec![text("first "), argument("c1")],
                     },
                     Variant {
@@ -137,11 +140,11 @@ fn defined(main: &[MainLocale]) -> DefinedForm {
 
 /// Each oracle text with the defined module's text of the same message and arguments.
 fn pairs() -> Vec<(Text, Text)> {
-    let query = |name: &str, args: Vec<(&'static str, Text)>| {
+    let query = |message: &str, args: Vec<(&str, Text)>| {
         let args = args
             .into_iter()
-            .map(|(name, text)| Entry::new(Cow::Borrowed(name), text));
-        Text::Query(Query::defined(DEFINED, key(name), Keyed::first_of(args)))
+            .map(|(text, value)| Entry::new(name(text), value));
+        Text::Query(Query::defined(DEFINED, key(message), Keyed::first_of(args)))
     };
     let raw = |text: &str| Text::Raw(text.to_owned());
     vec![
@@ -268,8 +271,8 @@ fn each_refusal_rule_refuses_its_fixture() {
             Keyed::first_of([Entry::new(key(name), params(&[("a", kind)]))]),
         )
     };
-    let select = |keys: Vec<Vec<Option<&'static str>>>| Body::Select {
-        selectors: vec![Cow::Borrowed("a")],
+    let select = |keys: Vec<Vec<Option<AsciiKey>>>| Body::Select {
+        selectors: vec![name("a")],
         variants: keys
             .into_iter()
             .map(|keys| Variant {
@@ -293,7 +296,7 @@ fn each_refusal_rule_refuses_its_fixture() {
             "a key missing",
             only("k", ArgKind::Raw).locale(tag("en"), en, &Keyed::empty()),
             DefinedError::Missing {
-                key: "k".to_owned(),
+                key: key("k"),
                 locale: tag("en"),
             },
         ),
@@ -308,7 +311,7 @@ fn each_refusal_rule_refuses_its_fixture() {
                 ]),
             ),
             DefinedError::Undeclared {
-                key: "other".to_owned(),
+                key: key("other"),
                 locale: tag("en"),
             },
         ),
@@ -317,11 +320,11 @@ fn each_refusal_rule_refuses_its_fixture() {
             only("k", ArgKind::Raw).locale(
                 tag("en"),
                 en,
-                &one("k", Body::Pattern(vec![Part::Argument(Cow::Borrowed("b"))])),
+                &one("k", Body::Pattern(vec![Part::Argument(name("b"))])),
             ),
             DefinedError::Argument {
-                key: "k".to_owned(),
-                argument: "b".to_owned(),
+                key: key("k"),
+                argument: name("b"),
             },
         ),
         (
@@ -329,20 +332,20 @@ fn each_refusal_rule_refuses_its_fixture() {
             only("k", ArgKind::Count).locale(
                 tag("fr"),
                 None,
-                &one("k", Body::Pattern(vec![Part::Argument(Cow::Borrowed("a"))])),
+                &one("k", Body::Pattern(vec![Part::Argument(name("a"))])),
             ),
             DefinedError::Format {
-                key: "k".to_owned(),
+                key: key("k"),
                 locale: tag("fr"),
-                argument: "a".to_owned(),
+                argument: name("a"),
             },
         ),
         (
             "a selector over a count",
             only("k", ArgKind::Count).locale(tag("en"), en, &one("k", select(vec![vec![None]]))),
             DefinedError::Selector {
-                key: "k".to_owned(),
-                argument: "a".to_owned(),
+                key: key("k"),
+                argument: name("a"),
             },
         ),
         (
@@ -350,9 +353,9 @@ fn each_refusal_rule_refuses_its_fixture() {
             only("k", ArgKind::Name).locale(
                 tag("en"),
                 en,
-                &one("k", select(vec![vec![Some("live")]])),
+                &one("k", select(vec![vec![Some(checked!(AsciiKey, "live"))]])),
             ),
-            DefinedError::Variants("k".to_owned()),
+            DefinedError::Variants(key("k")),
         ),
         (
             "markup closed unopened",
@@ -361,7 +364,7 @@ fn each_refusal_rule_refuses_its_fixture() {
                 en,
                 &one("k", Body::Pattern(vec![Part::Close(Style::Strong)])),
             ),
-            DefinedError::Markup("k".to_owned()),
+            DefinedError::Markup(key("k")),
         ),
     ];
     for (case, result, expected) in cases {

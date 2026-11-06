@@ -1,7 +1,7 @@
-//! The engine's guarantees: each load rule refuses its fixture (I30), rendering is a function of
-//! its inputs (I31), `Raw` is shown as written and classed (I32), one language serves a
-//! presentation (I33), a package serializes, reads back and renders the same whatever it holds
-//! (I38), and a defined module written with no loader renders as the loader compiles it.
+//! The engine's guarantees: each load rule refuses its fixture, rendering is a function of its
+//! inputs, `Raw` is shown as written, one language serves a presentation, a package serializes,
+//! reads back and renders the same whatever it holds, and a defined module written with no loader
+//! renders as the loader compiles it.
 
 mod defined;
 mod language;
@@ -12,10 +12,11 @@ mod render;
 
 use siros_explain::{ArgKind, Domain, Explain, Messages, ModuleId, Value, checked};
 use siros_i18n::{
-    Amounts, Bidi, BuiltPackage, Call, Compilers, Declaration, Direction, FormatCompiler, FormatId,
-    FormatRenderer, Formats, Input, LanguageFormats, LanguagePolicy, LocaleTag, Module,
-    ModuleError, OnRenderError, Operand, Package, PackageBuilder, ParsedFormats, Refusal,
-    RefusedOption, RenderError, RenderOptions, Renderer, Screen, Sink, VariantKey, VariantKeys,
+    Amounts, Bidi, BuiltPackage, Call, Compilers, Declaration, Direction, FormatCompiler,
+    FormatFailure, FormatId, FormatRenderer, Formats, Input, LanguageFormats, LanguagePolicy,
+    LocaleTag, Module, ModuleError, OnRenderError, Operand, Package, PackageBuilder, ParsedFormats,
+    Refusal, RefusedOption, RenderError, RenderOptions, Renderer, Screen, Sink, VariantKey,
+    VariantKeys,
 };
 
 /// The fixture crate's host messages.
@@ -209,7 +210,7 @@ impl FormatRenderer for Probe {
                 sink.text(&count.digits());
                 Ok(())
             }
-            _ => Err(RenderError::Message("bad-operand")),
+            _ => Err(RenderError::Message(FormatFailure::BadOperand)),
         }
     }
 

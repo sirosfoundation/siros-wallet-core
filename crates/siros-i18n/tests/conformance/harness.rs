@@ -1,22 +1,23 @@
 //! One suite test: its message loaded as a module of one key in the test's locale, its params
 //! declared and given as the key's arguments, and its text rendered.
 
-use std::borrow::Cow;
-
 use serde_json::Value as Json;
 use siros_explain::{
-    Count, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId, ModuleId,
-    Names, ParamKind, Query, Text, Value, checked,
+    Count, Decimal, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId,
+    MetadataDigest, ModuleId, Names, ParamKind, ParamName, Query, Text, Value, checked,
 };
 use siros_i18n::{
-    Amounts, Bidi, BuiltPackage, Declaration, Formats, Formatted, LocaleTag, Module, ModuleError,
-    OnRenderError, Package, PackageBuilder, Refusal, RenderError, RenderOptions, Screen, Validity,
+    Amounts, Bidi, BuiltPackage, Declaration, DeclaredId, Formats, Formatted, LocaleTag, Module,
+    ModuleError, OnRenderError, Package, PackageBuilder, Refusal, RenderError, RenderOptions,
+    Screen, Validity,
 };
 
 use crate::cldr;
 use crate::test_function::TEST;
 
-/// A test's result: a pass says whether its text rendered through the three packages of I38.
+/// A test's result: a pass says whether its text rendered through the three packages, one
+/// holding its text precomputed, one holding its key compiled and one compiled from the live
+/// module.
 pub enum Outcome {
     Pass { packaged: bool },
     Fail(String),
@@ -150,7 +151,7 @@ fn module_error(error: &ModuleError) -> Option<&'static str> {
 /// The MF2 error type a render refusal stands for.
 fn render_error(error: &RenderError) -> Option<&'static str> {
     match error {
-        RenderError::Message(kind) => Some(kind),
+        RenderError::Message(kind) => Some(kind.name()),
         RenderError::AbsentArgument { .. } => Some("unresolved-variable"),
         _ => None,
     }
@@ -160,7 +161,7 @@ fn render_error(error: &RenderError) -> Option<&'static str> {
 fn package(
     module: &Module,
     tag: &LocaleTag,
-    keys: Option<&[&str]>,
+    keys: Option<&[DeclaredId]>,
     held: Option<&Held<'_>>,
 ) -> Result<BuiltPackage, String> {
     let mut builder = PackageBuilder::new(vec![tag.clone()]).map_err(|e| e.to_string())?;
@@ -171,7 +172,7 @@ fn package(
     let mut texts = builder.texts(held.formats);
     match texts.precompute(held.text, held.options) {
         Ok(()) | Err(RenderError::Message(_) | RenderError::AbsentArgument { .. }) => {}
-        Err(error) => return Err(format!("I38: precompute refused for no MF2 error: {error}")),
+        Err(error) => return Err(format!("precompute refused for no MF2 error: {error}")),
     }
     Ok(texts.finish())
 }
@@ -202,7 +203,7 @@ fn through(
     Ok(renderer.formatted(held.text))
 }
 
-/// I38 over one text: packages built twice give the same bytes, read back and written again the
+/// Over one text: packages built twice give the same bytes, read back and written again the
 /// same bytes, and the text renders byte-equal through a package that holds it precomputed, one
 /// that holds its key compiled, and one compiled from the live module.
 fn packaged(
@@ -211,24 +212,24 @@ fn packaged(
     tag: &LocaleTag,
     held: &Held<'_>,
 ) -> Result<Result<Formatted, RenderError>, String> {
-    let keys: &[&str] = &[KEY];
+    let keys = &[DeclaredId::from(checked!(MessageId, "conformance.message"))][..];
     let compiled = package(module, tag, Some(keys), None)?;
     if package(module, tag, Some(keys), None)? != compiled {
-        return Err("I38: a package built twice differs".to_owned());
+        return Err("a package built twice differs".to_owned());
     }
     let package_read =
         Package::read(compiled.bytes(), compiled.root()).map_err(|e| e.to_string())?;
     if package_read.rewrite().map_err(|e| e.to_string())? != compiled {
-        return Err("I38: a package read back and written again differs".to_owned());
+        return Err("a package read back and written again differs".to_owned());
     }
     let precomputed = package(module, tag, None, Some(held))?;
     if package(module, tag, None, Some(held))? != precomputed {
-        return Err("I38: a package with a precomputed text built twice differs".to_owned());
+        return Err("a package with a precomputed text built twice differs".to_owned());
     }
     let package_read =
         Package::read(precomputed.bytes(), precomputed.root()).map_err(|e| e.to_string())?;
     if package_read.rewrite().map_err(|e| e.to_string())? != precomputed {
-        return Err("I38: a package with a precomputed text written again differs".to_owned());
+        return Err("a package with a precomputed text written again differs".to_owned());
     }
     let live = package(module, tag, None, None)?;
     let renders = [
@@ -238,7 +239,7 @@ fn packaged(
     ];
     match &renders {
         [first, rest @ ..] if rest.iter().all(|other| other == first) => Ok(first.clone()),
-        _ => Err(format!("I38: the packages render differently: {renders:?}")),
+        _ => Err(format!("the packages render differently: {renders:?}")),
     }
 }
 
@@ -246,7 +247,7 @@ fn packaged(
 fn render(locale: &str, bidi: Bidi, src: &str, params: &[Param]) -> Result<Rendered, String> {
     let declaration = declaration(params)?;
     let plugin = checked!(Domain, "conformance");
-    let defined = DefinedModule::new(plugin, [0; 32]);
+    let defined = DefinedModule::new(plugin, MetadataDigest::new([0; 32]));
     let compilers = cldr::compilers(&[&TEST]);
     let source = resource(src);
     let module = match cldr::load(
@@ -275,8 +276,12 @@ fn render(locale: &str, bidi: Bidi, src: &str, params: &[Param]) -> Result<Rende
     };
     let args = params
         .iter()
-        .map(|p| Entry::new(Cow::Borrowed(p.name), p.value.clone()));
-    let args = Keyed::new(args.collect()).map_err(|e| e.to_string())?;
+        .map(|p| {
+            let name = ParamName::parse(p.name.to_owned()).ok_or("a param name")?;
+            Ok(Entry::new(name, p.value.clone()))
+        })
+        .collect::<Result<Vec<_>, &str>>()?;
+    let args = Keyed::new(args).map_err(|e| e.to_string())?;
     let key = DefinedKey::parse(KEY.to_owned()).ok_or("the key")?;
     let text = Text::Query(Query::defined(defined, key, args));
     let held = Held {

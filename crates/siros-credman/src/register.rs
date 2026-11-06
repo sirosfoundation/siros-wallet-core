@@ -8,11 +8,13 @@
 //! each credential with its candidate languages, each transaction type with its module. The
 //! registration's bytes are siros-dc-matcher's.
 
-use siros_explain::{DeclaredModule, Explain, Messages, ModuleId};
+use siros_explain::{DeclaredModule, Explain, MessageId, Messages, ModuleId};
 use siros_i18n::{
-    BuiltPackage, DefinedForm, Formats, Module, PackageError, RegistrationBuilder, RenderError,
+    BuiltPackage, CredentialName, DeclaredId, DefinedForm, Formats, Module, PackageError,
+    RegistrationBuilder, RenderError, TransactionKind,
 };
 use siros_openid4vp::consent::Card;
+use siros_openid4vp::ids::{CredentialId, TransactionType};
 use siros_openid4vp::rows::Env;
 
 use crate::emit::held;
@@ -68,12 +70,30 @@ impl<'r> Registered<'r> {
 
     /// The identifiers of its request messages.
     #[must_use]
-    pub fn keys(&self) -> Vec<&'static str> {
+    pub fn keys(&self) -> Vec<MessageId> {
         (self.keys)()
             .into_iter()
-            .map(|message| message.id().as_str())
+            .map(|message| message.id())
             .collect()
     }
+}
+
+/// A card a credential shows.
+#[derive(Debug, Clone, Copy)]
+pub struct RegisteredCard<'r> {
+    /// The credential.
+    pub credential: &'r CredentialId<'r>,
+    /// The card.
+    pub card: &'r Card,
+}
+
+/// A transaction type a registration serves.
+#[derive(Debug, Clone, Copy)]
+pub struct RegisteredTransaction<'r> {
+    /// The type.
+    pub kind: &'r TransactionType<'r>,
+    /// The defined module its metadata converts to.
+    pub form: &'r DefinedForm,
 }
 
 /// What a registration serves.
@@ -84,12 +104,12 @@ pub struct Registration<'r> {
     /// The modules every card draws from: the app's main module and its crate modules, as the
     /// matcher's `Rendering` names them.
     pub own: &'r [ModuleId],
-    /// Each card a credential shows, by the credential's id; a credential may show several.
-    pub credentials: &'r [(&'r str, &'r Card)],
+    /// Each card a credential shows; a credential may show several.
+    pub credentials: &'r [RegisteredCard<'r>],
     /// The static entries' cards.
     pub statics: &'r [&'r Card],
-    /// Each transaction type, with the defined module its metadata converts to.
-    pub transactions: &'r [(&'r str, &'r DefinedForm)],
+    /// Each transaction type.
+    pub transactions: &'r [RegisteredTransaction<'r>],
 }
 
 /// The package of a registration under `env`'s lists and options: each app module's request
@@ -111,29 +131,38 @@ pub fn package(
         env.options(),
     )?;
     for registered in registration.modules {
-        builder.module(registered.module, Some(&registered.keys()))?;
+        let keys: Vec<DeclaredId> = registered.keys().into_iter().map(Into::into).collect();
+        builder.module(registered.module, Some(&keys))?;
     }
-    let mut credentials: Vec<&str> = registration.credentials.iter().map(|(id, _)| *id).collect();
+    let mut credentials: Vec<&str> = registration
+        .credentials
+        .iter()
+        .map(|registered| registered.credential.as_str())
+        .collect();
     credentials.sort_unstable();
     credentials.dedup();
     for credential in credentials {
-        builder.credential(credential, registration.own)?;
+        builder.credential(CredentialName::new(credential.to_owned()), registration.own)?;
     }
     let mut defined: Vec<&DefinedForm> = Vec::new();
-    for (_, form) in registration.transactions {
+    for transaction in registration.transactions {
+        let form = transaction.form;
         if defined.iter().all(|known| known.id() != form.id()) {
             builder.defined(form)?;
             defined.push(form);
         }
     }
-    for (kind, form) in registration.transactions {
-        builder.transaction(kind, ModuleId::Defined(form.id()))?;
+    for transaction in registration.transactions {
+        builder.transaction(
+            TransactionKind::new(transaction.kind.as_str().to_owned()),
+            ModuleId::Defined(transaction.form.id()),
+        )?;
     }
     let mut texts = builder.texts(formats);
     let cards = registration
         .credentials
         .iter()
-        .map(|(_, card)| *card)
+        .map(|registered| registered.card)
         .chain(registration.statics.iter().copied());
     for card in cards {
         for text in held(card) {

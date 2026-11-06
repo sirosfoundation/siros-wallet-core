@@ -2,8 +2,9 @@
 
 use std::borrow::Cow;
 
-use crate::arg::ArgValue;
+use crate::arg::{ArgName, ArgValue, IntoArg};
 use crate::keyed::{Entry, Keyed};
+use crate::kind;
 use crate::list::{AllOf, ListKind};
 use crate::message::{Domain, Explain, MessageId, tokens};
 use crate::value::Value;
@@ -40,7 +41,53 @@ pub enum Text {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Query {
     key: Key,
-    args: Keyed<Cow<'static, str>, Text>,
+    args: Keyed<ParamName, Text>,
+}
+
+/// A query parameter's name: one or more of [`MessageId`]'s tokens. A type's message gives an
+/// [`ArgName`]; a defined module's converter parses its own or numbers a stem.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParamName(Cow<'static, str>);
+
+impl ParamName {
+    /// The name; `None` for a text that is no tokens.
+    #[must_use]
+    pub fn parse(name: String) -> Option<Self> {
+        tokens(&name, 1).then_some(Self(Cow::Owned(name)))
+    }
+
+    /// `stem`, one or more tokens fixed when the crate builds, with `number` appended to its last
+    /// token: `numbered(c, 3)` is `c3`.
+    #[must_use]
+    pub fn numbered(stem: ArgName, number: usize) -> Self {
+        Self(Cow::Owned(format!("{}{number}", stem.as_str())))
+    }
+
+    /// Its text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<ArgName> for ParamName {
+    fn from(name: ArgName) -> Self {
+        Self(Cow::Borrowed(name.as_str()))
+    }
+}
+
+impl std::fmt::Display for ParamName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl IntoArg for ParamName {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Which message a query names.
@@ -57,7 +104,7 @@ pub enum Key {
     },
 }
 
-/// A defined module's key, as its converter gives it: one or more [`tokens`].
+/// A defined module's key, as its converter gives it: one or more of [`MessageId`]'s tokens.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefinedKey(String);
 
@@ -87,6 +134,20 @@ impl DefinedKey {
     }
 }
 
+impl std::fmt::Display for DefinedKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl IntoArg for DefinedKey {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A module's identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ModuleId {
@@ -98,18 +159,36 @@ pub enum ModuleId {
     Defined(DefinedModule),
 }
 
+/// The SHA-256 of the metadata a defined module converts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MetadataDigest([u8; 32]);
+
+impl MetadataDigest {
+    /// The digest a plug-in computed.
+    #[must_use]
+    pub const fn new(digest: [u8; 32]) -> Self {
+        Self(digest)
+    }
+
+    /// Its bytes.
+    #[must_use]
+    pub const fn bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
 /// A defined module's identity: the plug-in that converted the metadata's display rules, by its
 /// domain, and the metadata's SHA-256.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DefinedModule {
     plugin: Domain,
-    digest: [u8; 32],
+    digest: MetadataDigest,
 }
 
 impl DefinedModule {
-    /// The module `plugin` converted from the metadata of SHA-256 `digest`.
+    /// The module `plugin` converted from the metadata of `digest`.
     #[must_use]
-    pub const fn new(plugin: Domain, digest: [u8; 32]) -> Self {
+    pub const fn new(plugin: Domain, digest: MetadataDigest) -> Self {
         Self { plugin, digest }
     }
 
@@ -119,9 +198,9 @@ impl DefinedModule {
         self.plugin
     }
 
-    /// The metadata's SHA-256.
+    /// The metadata's digest.
     #[must_use]
-    pub const fn digest(self) -> [u8; 32] {
+    pub const fn digest(self) -> MetadataDigest {
         self.digest
     }
 }
@@ -154,7 +233,7 @@ impl Query {
         let args = message.args().into_vec().into_iter();
         let args = args.map(|named| {
             Entry::new(
-                Cow::Borrowed(named.name.as_str()),
+                ParamName::from(named.name),
                 Text::held(named.arg.into_value()),
             )
         });
@@ -166,11 +245,7 @@ impl Query {
 
     /// The query of a defined module's message, as its converter writes it.
     #[must_use]
-    pub fn defined(
-        module: DefinedModule,
-        key: DefinedKey,
-        args: Keyed<Cow<'static, str>, Text>,
-    ) -> Self {
+    pub fn defined(module: DefinedModule, key: DefinedKey, args: Keyed<ParamName, Text>) -> Self {
         Self {
             key: Key::Defined { module, key },
             args,
@@ -185,7 +260,7 @@ impl Query {
 
     /// The arguments, by name, in their order.
     #[must_use]
-    pub fn args(&self) -> &[Entry<Cow<'static, str>, Text>] {
+    pub fn args(&self) -> &[Entry<ParamName, Text>] {
         self.args.entries()
     }
 }
