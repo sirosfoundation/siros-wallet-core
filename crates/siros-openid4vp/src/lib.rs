@@ -175,6 +175,8 @@ impl siros_explain::Messages for CrateMessages {
             #[cfg(feature = "match")]
             matching::CoreRule::messages,
             #[cfg(feature = "match")]
+            matching::ReservedCredential::messages,
+            #[cfg(feature = "match")]
             matching::RecordError::messages,
             #[cfg(feature = "match")]
             matching::SelectionError::messages,

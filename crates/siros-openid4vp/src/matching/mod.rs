@@ -20,8 +20,15 @@ pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
 pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};
 pub use rules::{Accepted, CoreRule, Transaction};
 
-use crate::plugins::registry::ErasedProfile;
-use crate::plugins::{Binding, Bound, Carriage, Exclude, Fault, Member, NoCandidate, OptionIndex};
+use std::borrow::Cow;
+
+use siros_explain::Explain;
+
+use crate::plugins::registry::{Catalog, ErasedProfile};
+use crate::plugins::{
+    Binding, Bound, Carriage, Exclude, Exclusion, Fault, Member, NoCandidate, OptionIndex,
+    ProfileHandle,
+};
 use crate::refusal::ErrorCode;
 use crate::rendering::Rendering;
 use crate::request::{AgreeableKey, HolderBinding, Query, QueryIndex, Request};
@@ -92,13 +99,27 @@ pub struct Excluded<'m> {
     pub exclude: Exclude,
 }
 
+/// A profile keeps the credential for its own transactions, and no entry of that profile names the
+/// query ([`crate::plugins::Profile::reserves`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.matching", id = "reserved")]
+#[error("a profile reserves the credential for a query its own entries name")]
+pub struct ReservedCredential;
+
+impl Exclusion for ReservedCredential {
+    fn clause(&self) -> Cow<'static, str> {
+        Cow::Borrowed("the profile's reservation")
+    }
+}
+
 /// The plug-in that excluded a credential.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExcludedBy {
     /// The query's format: the Verifier's `vp_formats_supported` admits no algorithm the
     /// credential's presentation can use (`FormatQuery::admits`).
     Format,
-    /// The profile of the transaction naming the query binds none of its entries.
+    /// The profile of the transaction naming the query binds none of its entries, or another
+    /// profile reserves the credential.
     Profile,
     /// The entry's texts cannot render: no language serves its modules, or the package holds
     /// no module whose locale its profile selected (section 4.14 of the design).
@@ -269,6 +290,7 @@ struct QueryMatcher<'m, 'k> {
     formatted: &'m Formatted<'m>,
     transaction: Option<(&'m Transaction, &'m dyn ErasedProfile)>,
     members: Option<&'m [Member]>,
+    catalog: &'m dyn Catalog,
     keys: &'k [AgreeableKey<'k>],
     env: &'k Env,
     rendering: &'k Rendering<'k>,
@@ -320,6 +342,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             formatted,
             transaction,
             members,
+            catalog: accepted.registry(),
             keys,
             env,
             rendering,
@@ -395,6 +418,12 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         if options.is_empty() {
             return Ok(Considered::Unanswered);
         }
+        if self.reserved_elsewhere(credential)? {
+            return Ok(Considered::Excluded(
+                ExcludedBy::Profile,
+                Exclude::new(ReservedCredential),
+            ));
+        }
         match self
             .formatted
             .query
@@ -411,6 +440,17 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             }
             Err(NoCandidate::Fault(fault)) => Err(fault),
         }
+    }
+
+    /// Whether a profile reserves the credential whose entries name no part of this query.
+    fn reserved_elsewhere(&self, credential: &'m Credential<'m>) -> Result<bool, Fault> {
+        let additions = self.formatted.format.additions(credential)?;
+        let own: Option<ProfileHandle> = self.transaction.map(|(t, _)| t.profile);
+        Ok(self
+            .catalog
+            .reserving(credential, &*additions)?
+            .into_iter()
+            .any(|profile| Some(profile) != own))
     }
 
     /// The entries the profile binds to the credential with the transaction, for a query
