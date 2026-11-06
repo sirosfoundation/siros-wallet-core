@@ -49,6 +49,16 @@ impl ChainCertificate {
         &self.certificate
     }
 
+    /// The DER of its subject's Name (RFC 5280 §4.1.2.6): the bytes the parse read, DER being
+    /// one encoding per value (X.690 §10).
+    ///
+    /// # Errors
+    ///
+    /// der refuses to encode the parsed Name.
+    pub fn subject(&self) -> Result<Vec<u8>, der::Error> {
+        der::Encode::to_der(self.certificate.tbs_certificate().subject())
+    }
+
     /// The SHA-256 of the DER as received.
     #[must_use]
     pub fn hash(&self) -> LeafHash {

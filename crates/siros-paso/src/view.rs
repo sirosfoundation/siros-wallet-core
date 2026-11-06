@@ -28,6 +28,7 @@ use siros_i18n::{
 };
 use siros_openid4vp::json::Node;
 
+use crate::adhoc::Carried;
 use crate::locale::{ArrayKey, chain, lookup, selectable};
 use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
@@ -125,32 +126,22 @@ pub enum ConvertError {
 }
 
 /// The defined modules of the ad-hoc metadata a request's entries carry (Proof Metadata §5),
-/// converted as [`convert`] converts a type's metadata, each once: the matcher's, which reads each
-/// entry's `metadata` JWT as it reads a signed request, its payload parsed and unverified (section
-/// 4.14 of the design), and renders the entries over the modules beside its registration's
-/// package. `main`: the main module's entries the package holds. An entry whose JWT does not parse
-/// or whose metadata does not convert gives no module: the profile's binding refuses it.
+/// converted as [`convert`] converts a type's metadata, each once: the JWTs the matcher read,
+/// unverified ([`Carried::read`]), over the main module's entries its registration's package
+/// holds; or those the wallet verified in the URI flow ([`Carried::verified`]). Metadata that does
+/// not convert gives no module: the profile's binding refuses its entry.
 ///
 /// # Errors
 ///
 /// [`ConvertError::Defined`]: a main entry lacks a format a converted message calls.
 pub fn carried(
-    request: &siros_openid4vp::request::Request<'_>,
+    carried: &Carried<'_>,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<Vec<DefinedForm>, ConvertError> {
     let mut modules: Vec<DefinedForm> = Vec::new();
-    for entry in request.entries() {
-        let Some(jwt) = entry.members().get("metadata").and_then(Node::as_str) else {
-            continue;
-        };
-        let Ok(jws) = crate::adhoc::Jws::parse(jwt) else {
-            continue;
-        };
-        let Some(metadata) = jws.metadata() else {
-            continue;
-        };
-        match convert(entry.kind().as_str(), metadata, main, priority) {
+    for (kind, read) in carried.jwts() {
+        match convert(kind, read.metadata(), main, priority) {
             Ok(converted) => {
                 if modules.iter().all(|known| known.id() != converted.id()) {
                     modules.push(converted);

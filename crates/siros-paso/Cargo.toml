@@ -12,13 +12,13 @@ publish = false
 [features]
 default = ["resolve"]
 # Phase 2: revalidation of what the matcher assumed, its findings, and the SCA response members.
-resolve = ["siros-openid4vp/resolve", "dep:uuid", "dep:serde_json"]
+resolve = ["siros-openid4vp/resolve", "dep:uuid", "dep:serde_json", "dep:siros-x509"]
 # The `COSE_Encrypt` sealing of an mdoc's risk signals (Risk Signals §7.6) with the host's
 # `CoseEncrypt` module, whose slot a host states in every build. Without it, an mdoc entry whose
 # signals need encryption is refused (`NotCompatible::Lacks`).
 sealed-signals = ["siros-openid4vp/cbor"]
-# The `Paso`, `RandomIds` and, with `sealed-signals`, `CoseEncrypt` doubles for the tests of crates
-# that register siros-paso.
+# The `Paso`, `RandomIds`, `IssuerTrust` and, with `sealed-signals`, `CoseEncrypt` doubles for the
+# tests of crates that register siros-paso.
 test-util = ["resolve"]
 
 [dependencies]
@@ -36,12 +36,16 @@ unicode-segmentation = { workspace = true }
 unicode-general-category = { workspace = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
+# The `x5c` chain of an ad-hoc metadata JWT: its certificates, its leaf's key and subject.
+siros-x509 = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
 siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
 siros-openid4vp = { workspace = true, features = ["resolve", "test-util"] }
 siros-testkit = { workspace = true }
+# Certificates for the ad-hoc metadata JWTs' chains.
+siros-x509 = { workspace = true, features = ["test-util"] }
 # The test app's loader, which loads the modules metadata converts to.
 siros-i18n = { workspace = true, features = ["load"] }
 # The placements the tests' credentials take from their formats' plug-ins.

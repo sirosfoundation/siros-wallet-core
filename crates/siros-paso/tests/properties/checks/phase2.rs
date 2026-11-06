@@ -9,12 +9,14 @@ use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::plugins::{Answered, Binding, Bound, Carriage, NoCandidate, Profile};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Env, HttpsUrl};
+use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
 use siros_paso::{PasoProfile, Reading};
+use siros_testkit::verifier;
 use siros_testkit::{Published, PublishedResource};
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{Card, png, sri};
+use crate::common::{CARD_TYPE, Card, png, sri};
 use crate::generate::{Case, NOW, REMOTE};
 
 use super::{Tally, at, mandate_claims, select};
@@ -92,24 +94,47 @@ pub(super) fn resources() -> Vec<PublishedResource> {
         .collect()
 }
 
-/// What phase 2 must find, as check_props.py states it: the ad-hoc metadata JWT when it expired
-/// by `NOW`, and each displayed https image whose fetch fails or whose content misses its
-/// `#integrity`, in claim order.
+/// The first step of Proof Metadata §5.3 the generator's JWT fails for the card: an unpublished
+/// `kid` (step 3), a signature other than the issuer key's deterministic ES256 one (step 2, RFC
+/// 6979), an `exp` at or before `NOW` (step 5), a `sub` or `format` other than the card's (step
+/// 6). The generator writes no other defect.
+pub(super) fn refused_step(jwt: &str, format: &str) -> Option<AdhocFailure> {
+    let parts: Vec<&str> = jwt.split('.').collect();
+    let json = |part: &str| -> Value {
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(part).expect("base64url")).expect("JSON")
+    };
+    let (header, claims) = (json(parts[0]), json(parts[1]));
+    let input = format!("{}.{}", parts[0], parts[1]);
+    let issuers = siros_testkit::jose::sign(&verifier::ISSUER_KEY, &input).expect("signs");
+    if header["kid"] != json!("issuer-key-1") {
+        Some(AdhocFailure::UnknownKey)
+    } else if parts[2] != issuers {
+        Some(AdhocFailure::Signature)
+    } else if claims["exp"].as_u64().expect("exp") <= NOW {
+        Some(AdhocFailure::Expired)
+    } else if claims["sub"] != json!(CARD_TYPE) || claims["format"] != json!(format) {
+        Some(AdhocFailure::Binding)
+    } else {
+        None
+    }
+}
+
+/// What phase 2 must find: the ad-hoc metadata JWT with the §5.3 step it fails
+/// ([`refused_step`]), and each displayed https image whose fetch fails or whose content misses
+/// its `#integrity`, in claim order.
 pub(super) fn expected_finding(
-    kind: &str,
+    case: &Case,
     answer: &Answer<'_>,
     meta: &Value,
-) -> (Option<String>, Vec<String>) {
-    let expired = answer
-        .adhoc()
-        .filter(|jwt| {
-            let payload = jwt.split('.').nth(1).expect("a JWS payload");
-            let claims: Value =
-                serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).expect("base64url"))
-                    .expect("the JWT's claims");
-            claims["exp"].as_u64().expect("exp") <= NOW
+) -> (Option<AdhocRefusal>, Vec<String>) {
+    let kind = case.kind;
+    let refused = answer.adhoc().and_then(|jwt| {
+        refused_step(jwt, case.format).map(|failure| AdhocRefusal {
+            jwt: jwt.to_owned(),
+            credential: answer.card.credential().id.as_str().to_owned(),
+            failure,
         })
-        .map(str::to_owned);
+    });
     let images: Vec<Vec<Value>> = if kind.contains(":mandate:") {
         mandate_claims()
             .into_iter()
@@ -152,10 +177,10 @@ pub(super) fn expected_finding(
             }
         }
     }
-    (expired, failed)
+    (refused, failed)
 }
 
-/// Phase 2's revalidation (Proof Metadata §5.3 step 5; View §3, Core §7.4.2 step 3) against
+/// Phase 2's revalidation (Proof Metadata §5.3; View §3, Core §7.4.2 step 3) against
 /// `expected_finding`; with a finding, the consent re-run informed of it no longer binds the
 /// record's entries.
 pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, tally: &mut Tally) {
@@ -174,11 +199,11 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
     )
     .revalidate(&profile, |resource| published.answer(resource), &host)
     .expect("no fault");
-    let (expired, failed) = expected_finding(case.kind, answer, meta);
+    let (refused, failed) = expected_finding(case, answer, meta);
     let Some(finding) = finding else {
         assert!(
-            expired.is_none() && failed.is_empty(),
-            "R-findings: none for {failed:?}"
+            refused.is_none() && failed.is_empty(),
+            "R-findings: none for {refused:?} {failed:?}"
         );
         return;
     };
@@ -189,8 +214,8 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         .map(|image| image.url.clone())
         .collect();
     assert_eq!(
-        (finding.lacks(), finding.expired(), &urls),
-        (None, expired.as_deref(), &failed),
+        (finding.lacks(), finding.refused(), &urls),
+        (None, refused.as_ref(), &failed),
         "R-findings"
     );
     let informed =

@@ -8,12 +8,14 @@ use crate::common::HaipHost;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
+use siros_explain::Explain;
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::matching::{Accepted, EntryView, Match, Views};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::request::{EntryIndex, Multiplicity};
 use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared};
 use siros_openid4vp::wallet::{Credential, Wallet};
+use siros_paso::adhoc::AdhocFailure;
 use siros_paso::{OptionalModule, PasoFinding};
 use siros_qes::FailedDocuments;
 use siros_testkit::oracle;
@@ -33,14 +35,14 @@ use members::members;
 use session::{members_of, mode, opened_jwe, read_mdoc, response_key, session};
 use tampered::{renewed, tampered};
 
-/// What phase 2 must find for a record: its credential refused, PaSO's expired JWT and failed
-/// images, QES's failed documents.
+/// What phase 2 must find for a record: its credential refused, PaSO's refused JWT (with the
+/// identifier of the §5.3 step it fails) and failed images, QES's failed documents.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Found {
     Unusable,
     Paso {
         lacks: Option<OptionalModule>,
-        expired: Vec<String>,
+        refused: Vec<(String, &'static str)>,
         failed: Vec<String>,
     },
     Qes(Vec<String>),
@@ -261,8 +263,8 @@ pub fn check(
             for (_, finding) in &got {
                 tally.add(match finding {
                     Found::Unusable => "findings: a credential the runtime refuses",
-                    Found::Paso { expired, .. } if !expired.is_empty() => {
-                        "findings: PaSO's ad-hoc metadata expired"
+                    Found::Paso { refused, .. } if !refused.is_empty() => {
+                        "findings: PaSO's ad-hoc metadata refused"
                     }
                     Found::Paso { .. } => "findings: PaSO's images failing",
                     Found::Qes(_) => "findings: QES's documents failing",
@@ -290,7 +292,11 @@ fn found(finding: &ProfileFinding) -> Found {
     if let Some(paso) = finding.data::<PasoFinding>() {
         return Found::Paso {
             lacks: paso.lacks(),
-            expired: paso.expired().map(str::to_owned).into_iter().collect(),
+            refused: paso
+                .refused()
+                .map(|refused| (refused.jwt.clone(), refused.failure.id().as_str()))
+                .into_iter()
+                .collect(),
             failed: paso
                 .failed()
                 .iter()
@@ -309,11 +315,38 @@ fn found(finding: &ProfileFinding) -> Found {
     )
 }
 
+/// The first step of Proof Metadata §5.3 the generator's ad-hoc metadata JWT fails for a
+/// credential of this PaSO document and format: an unpublished `kid` (step 3), a signature other
+/// than the issuer key's deterministic ES256 one (step 2, RFC 6979), an `exp` at or before `NOW`
+/// (step 5), a `sub` or `format` other than the credential's (step 6). The generator writes no
+/// other defect.
+fn refused_step(jwt: &str, document: &Value, format: &str) -> Option<AdhocFailure> {
+    let parts: Vec<&str> = jwt.split('.').collect();
+    let header: Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0]).expect("base64url"))
+            .expect("the JWT's header");
+    let claims = jwt_claims(jwt);
+    let input = format!("{}.{}", parts[0], parts[1]);
+    let issuers =
+        siros_testkit::jose::sign(&siros_testkit::verifier::ISSUER_KEY, &input).expect("signs");
+    if header["kid"] != json!("issuer-key-1") {
+        Some(AdhocFailure::UnknownKey)
+    } else if parts[2] != issuers {
+        Some(AdhocFailure::Signature)
+    } else if claims["exp"].as_u64().expect("exp") <= NOW {
+        Some(AdhocFailure::Expired)
+    } else if claims["sub"] != document["type"] || claims["format"] != json!(format) {
+        Some(AdhocFailure::Binding)
+    } else {
+        None
+    }
+}
+
 /// What phase 2 must find, stated here: a credential the host says can no longer be
-/// presented; for PaSO, an ad-hoc metadata JWT expired at phase 2's time and an https image
-/// whose fetch fails or whose content does not match its #integrity (Proof Metadata §5.3 step 5,
-/// View §3); for QES, a document with href and checksum whose fetch fails or does not match (CSC
-/// §6.3).
+/// presented; for PaSO, an ad-hoc metadata JWT failing a step of Proof Metadata §5.3
+/// ([`refused_step`]) and an https image whose fetch fails or whose content does not match its
+/// #integrity (View §3); for QES, a document with href and checksum whose fetch fails or does not
+/// match (CSC §6.3).
 fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize, Found)> {
     let fetched = resources();
     let fetch = |url: &str| {
@@ -340,11 +373,14 @@ fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize,
         if kind.starts_with("urn:paso:sca:") {
             let held = credential(case, view.record.credential.as_str());
             let document = document(held, "paso").expect("a PaSO document");
-            let expired: Vec<String> = entry
+            let held_credential = credential(case, view.record.credential.as_str());
+            let refused: Vec<(String, &'static str)> = entry
                 .get("metadata")
                 .and_then(Value::as_str)
-                .filter(|jwt| jwt_claims(jwt)["exp"].as_u64().expect("exp") <= NOW)
-                .map(str::to_owned)
+                .and_then(|jwt| {
+                    refused_step(jwt, &document, held_credential.format.as_str())
+                        .map(|failure| (jwt.to_owned(), failure.id().as_str()))
+                })
                 .into_iter()
                 .collect();
             let images: Vec<Vec<Value>> = if kind.contains(":mandate:") {
@@ -384,12 +420,12 @@ fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize,
                     }
                 }
             }
-            if !expired.is_empty() || !failed.is_empty() {
+            if !refused.is_empty() || !failed.is_empty() {
                 out.push((
                     k,
                     Found::Paso {
                         lacks: None,
-                        expired,
+                        refused,
                         failed,
                     },
                 ));

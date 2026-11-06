@@ -1,10 +1,12 @@
 //! Phase 2 of a record PaSO bound: what the matcher could not check, checked now (the ad-hoc
-//! metadata JWT's `exp`, Proof Metadata §5.3 step 5; the https images it had not fetched, which
-//! the caller fetches, View §3 and Core §7.4.2 step 3), and the SCA response claims (Core §6).
+//! metadata JWT, verified as Proof Metadata §5.3 states; the https images it had not fetched,
+//! which the caller fetches, View §3 and Core §7.4.2 step 3), and the SCA response claims (Core
+//! §6).
 
 use siros_explain::{IntoArg, kind};
 use siros_openid4vp::request::Agreements;
 
+use crate::adhoc::AdhocRefusal;
 use crate::image::ImageFailure;
 use crate::risk::{Effective, Sealing};
 use siros_openid4vp::wallet_metadata::Placement;
@@ -70,12 +72,13 @@ pub struct FailedImage {
 
 /// What phase 2 found no longer holds for a record, at least one of: the build lacks a module
 /// its response needs, the module that seals its risk signals as a JWE states no key the issuer
-/// publishes, its ad-hoc metadata JWT expired, an https image's fetch or verification failed.
+/// publishes, its ad-hoc metadata JWT fails a step of Proof Metadata §5.3, an https image's fetch
+/// or verification failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasoFinding {
     lacks: Option<OptionalModule>,
     unsealable: Option<Agreements>,
-    expired: Option<String>,
+    refused: Option<AdhocRefusal>,
     failed: Vec<FailedImage>,
 }
 
@@ -85,14 +88,14 @@ impl PasoFinding {
     pub fn of(
         lacks: Option<OptionalModule>,
         unsealable: Option<Agreements>,
-        expired: Option<String>,
+        refused: Option<AdhocRefusal>,
         failed: Vec<FailedImage>,
     ) -> Option<Self> {
-        (lacks.is_some() || unsealable.is_some() || expired.is_some() || !failed.is_empty())
+        (lacks.is_some() || unsealable.is_some() || refused.is_some() || !failed.is_empty())
             .then_some(Self {
                 lacks,
                 unsealable,
-                expired,
+                refused,
                 failed,
             })
     }
@@ -110,10 +113,11 @@ impl PasoFinding {
         self.unsealable
     }
 
-    /// The ad-hoc metadata JWT, expired.
+    /// The ad-hoc metadata JWT, refused for the record's credential with the §5.3 step it
+    /// fails.
     #[must_use]
-    pub fn expired(&self) -> Option<&str> {
-        self.expired.as_deref()
+    pub const fn refused(&self) -> Option<&AdhocRefusal> {
+        self.refused.as_ref()
     }
 
     /// The images that failed, in the metadata's claim order.
@@ -132,7 +136,7 @@ use siros_openid4vp::detail;
 #[cfg(feature = "resolve")]
 use siros_openid4vp::effects::Fetch;
 #[cfg(feature = "resolve")]
-use siros_openid4vp::host::{Authentication, AuthenticationNeed, Platform, Timestamp};
+use siros_openid4vp::host::{Authentication, AuthenticationNeed};
 #[cfg(feature = "resolve")]
 use siros_openid4vp::json::Node;
 #[cfg(feature = "resolve")]
@@ -141,7 +145,7 @@ use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 
 #[cfg(feature = "resolve")]
-use crate::adhoc::Jws;
+use crate::adhoc::{self, Read as AdhocRead};
 #[cfg(feature = "resolve")]
 use crate::document::{DOCUMENT, PasoDocument};
 #[cfg(feature = "resolve")]
@@ -172,7 +176,7 @@ struct Read<'r> {
     entry: PasoEntry<'r>,
     document: &'r PasoDocument<'r>,
     given: &'r Node<'r>,
-    adhoc: Option<&'r Jws<'r>>,
+    adhoc: Option<&'r AdhocRead<'r>>,
 }
 
 #[cfg(feature = "resolve")]
@@ -203,13 +207,13 @@ fn read<T>(
         .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
     let document = PasoDocument::read(&node)
         .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-    let jws = entry
+    let read = entry
         .metadata
-        .map(Jws::parse)
+        .map(AdhocRead::parse)
         .transpose()
         .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's ad-hoc metadata"), e))?;
-    let given = match &jws {
-        Some(jws) => jws.metadata(),
+    let given = match &read {
+        Some(read) => Some(read.metadata()),
         None => document.metadata(entry.kind.as_str()),
     }
     .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
@@ -217,23 +221,8 @@ fn read<T>(
         entry,
         document: &document,
         given,
-        adhoc: jws.as_ref(),
+        adhoc: read.as_ref(),
     })
-}
-
-#[cfg(feature = "resolve")]
-/// Whether an `exp` has passed: an integer at or before the instant.
-fn passed(exp: Option<&Node<'_>>, now: Timestamp) -> Result<bool, Fault> {
-    match exp {
-        Some(Node::Number(exp)) if exp.is_integer() => Ok(match exp.as_u64() {
-            Some(seconds) => now.0 >= seconds,
-            None => exp.text().starts_with('-'),
-        }),
-        _ => Err(Fault::new(
-            FAULT,
-            detail!("a verified ad-hoc metadata JWT without an integer exp"),
-        )),
-    }
 }
 
 #[cfg(feature = "resolve")]
@@ -322,13 +311,14 @@ pub(crate) fn wanted(profile: &PasoProfile, record: &Answered<'_>) -> Result<Vec
 #[cfg(feature = "resolve")]
 /// Revalidates a record: whether the build holds the modules its response needs, whether
 /// `sealer`, the statement of the module that seals an SD-JWT's risk signals as a JWE, admits
-/// a key the issuer publishes, its ad-hoc metadata JWT's `exp`, then each https image of the
-/// payload its metadata displays and the matcher did not have, with what the caller fetched.
-/// `cose_held`: the build holds the `COSE_Encrypt` module, stating §7.6's A256GCM.
+/// a key the issuer publishes, its ad-hoc metadata JWT verified through `modules` (Proof Metadata
+/// §5.3), then each https image of the payload its metadata displays and the matcher did not
+/// have, with what the caller fetched. `cose_held`: the build holds the `COSE_Encrypt` module,
+/// stating §7.6's A256GCM.
 pub(crate) fn revalidate(
     profile: &PasoProfile,
     fetched: &FetchedRecord<'_>,
-    platform: &dyn Platform,
+    modules: adhoc::Modules<'_>,
     sealer: Agreements,
     cose_held: bool,
 ) -> Result<Option<PasoFinding>, Fault> {
@@ -345,10 +335,21 @@ pub(crate) fn revalidate(
             && record.placement() == Some(Placement::Claims)
             && read.document.encryption_key(Some(&sealer)).is_none())
         .then_some(sealer);
-        let expired = match read.adhoc {
-            Some(jws) if passed(jws.exp(), platform.now())? => Some(jws.text.to_owned()),
-            _ => None,
-        };
+        let credential = record.credential();
+        let refused = read.adhoc.and_then(|jwt| {
+            let binding = adhoc::Binding {
+                document: read.document,
+                format: &credential.format,
+                kind: read.entry.kind.as_str(),
+            };
+            jwt.verify(&binding, modules)
+                .err()
+                .map(|failure| AdhocRefusal {
+                    jwt: jwt.text().to_owned(),
+                    credential: credential.id.as_str().to_owned(),
+                    failure,
+                })
+        });
         let mut failed = Vec::new();
         for image in pending(profile, &read)? {
             let fetch = image
@@ -377,7 +378,7 @@ pub(crate) fn revalidate(
                 Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
             }
         }
-        Ok(PasoFinding::of(lacks, unsealable, expired, failed))
+        Ok(PasoFinding::of(lacks, unsealable, refused, failed))
     })
 }
 

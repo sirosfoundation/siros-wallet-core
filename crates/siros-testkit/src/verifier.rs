@@ -1,7 +1,8 @@
 //! The Verifier's and the issuer's side: `transaction_data` entries encoded as OpenID4VP §5.1
 //! sends them, a signed Request Object, a PaSO credential's document as the wallet registers it
-//! from the issuer's signed credential metadata JWT, and ad-hoc metadata JWTs, each JWT signed
-//! with an HMAC under the key's secret in place of a signature.
+//! from the issuer's signed credential metadata JWT, and ad-hoc metadata JWTs signed with ES256
+//! under the issuer's P-256 key. The Request Object and the credential metadata JWT, whose text
+//! alone the wallet reads, carry an HMAC under a secret in place of a signature.
 //!
 //! Objects are given as JSON text and written as Python's `json.dumps(value,
 //! ensure_ascii=False)` writes them, so their bytes equal the reference model's.
@@ -20,12 +21,18 @@ pub const ORIGINS: [&str; 1] = ["https://verifier.example"];
 /// The `typ` of an ad-hoc metadata JWT (PaSO Proof Metadata §5).
 pub const ADHOC_TYP: &str = "adhoc-transaction-metadata+jwt";
 
-/// The issuer of the PaSO credentials: its identifier and its key set, `kid` to secret.
-pub const ISSUER: &str =
-    r#"{"iss": "https://issuer.bank.example", "keys": {"issuer-key-1": "issuer-secret-1"}}"#;
+/// The P-256 scalar of the PaSO credentials' issuer key, `issuer-key-1`.
+pub const ISSUER_KEY: [u8; 32] = [1; 32];
+
+/// A P-256 scalar whose key the issuer does not publish.
+pub const OTHER_KEY: [u8; 32] = [2; 32];
+
+/// The issuer of the PaSO credentials: its identifier and its key set, `kid` to public JWK: the
+/// key of [`ISSUER_KEY`], its point computed by P-256's scalar multiplication (SEC 2 §2.4.2).
+pub const ISSUER: &str = r#"{"iss": "https://issuer.bank.example", "keys": {"issuer-key-1": {"kty": "EC", "crv": "P-256", "x": "b_A7lJJBzh2t1DUZ5pYOCoW0GmmgXDKBA6orzhWUyhY", "y": "PE91OlW_AdxT9sCwx-7ni0DG_30lqW4igrmJzvccFEo"}}}"#;
 
 /// Why an encoder could not write its output.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "testkit.encode")]
 pub enum EncodeError {
     /// An input is no JSON with unique member names.
@@ -37,6 +44,9 @@ pub enum EncodeError {
     /// The issuer names no `iss`.
     #[error("the issuer names no iss")]
     Issuer,
+    /// The key is no P-256 scalar.
+    #[error(transparent)]
+    Sign(#[from] siros_openid4vp::plugins::Fault),
 }
 
 /// A JSON text written as Python's `json.dumps(value, ensure_ascii=False)` writes it.
@@ -73,23 +83,29 @@ pub fn signed_request() -> Result<String, EncodeError> {
     )
 }
 
-/// An ad-hoc metadata JWT signed under the key's secret, its header naming the key by `kid` or
-/// carrying the chain stand-in `{"root", "subject", "key"}` (JSON text).
+/// An ad-hoc metadata JWT (PaSO Proof Metadata §5.2) signed with ES256 under a P-256 scalar, its
+/// header naming the key by `kid` or carrying the `x5c` chain, each item base64 DER.
 pub fn adhoc_jwt(
     payload: &str,
-    secret: &str,
+    key: &[u8; 32],
     kid: Option<&str>,
-    x5c: Option<&str>,
+    x5c: Option<&[String]>,
 ) -> Result<String, EncodeError> {
-    let mut header = format!("{{\"typ\": {}", siros_openid4vp::json::quote(ADHOC_TYP));
+    let quote = siros_openid4vp::json::quote;
+    let mut header = format!("{{\"alg\": \"ES256\", \"typ\": {}", quote(ADHOC_TYP));
     if let Some(kid) = kid {
-        header.push_str(&format!(", \"kid\": {}", siros_openid4vp::json::quote(kid)));
+        header.push_str(&format!(", \"kid\": {}", quote(kid)));
     }
-    if let Some(x5c) = x5c {
-        header.push_str(&format!(", \"x5c\": {}", python_json(x5c)?));
+    if let Some(items) = x5c {
+        let items: Vec<String> = items.iter().map(|item| quote(item)).collect();
+        header.push_str(&format!(", \"x5c\": [{}]", items.join(", ")));
     }
     header.push('}');
-    jws(&header, payload, secret)
+    Ok(crate::jose::compact_jws(
+        key,
+        &header,
+        &python_json(payload)?,
+    )?)
 }
 
 /// The issuer's signed credential metadata JWT (PaSO Proof Metadata §4) as the wallet registers
@@ -113,10 +129,6 @@ pub fn paso_document(
     let kid = key_set
         .and_then(|keys| keys.names().next())
         .unwrap_or("x5c");
-    let secret = key_set
-        .and_then(|keys| keys.get(kid))
-        .and_then(Node::as_str)
-        .unwrap_or("x5c-secret");
     let mut metadata = format!("\"transaction_data_types\": {}", python_json(types)?);
     if let Some(keys) = keys {
         metadata.push_str(&format!(
@@ -135,7 +147,7 @@ pub fn paso_document(
         quote(credential_format),
         quote(&format!("{iss}/metadata")),
     );
-    let jwt = jws(&header, &payload, secret)?;
+    let jwt = jws(&header, &payload, "issuer-metadata-secret")?;
     Ok(format!(
         "{{\"integrity\": {}, \"type\": {}, \"issuer\": {}, {metadata}}}",
         quote(&integrity(jwt.as_bytes())),

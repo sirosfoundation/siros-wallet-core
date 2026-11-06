@@ -17,7 +17,8 @@ use siros_openid4vp::rows::Env;
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::document::PasoDocument;
 use siros_paso::{
-    CoseEncrypt, Paso, PasoProfile, RandomIds, TestCoseEncrypt, TestPaso, TestRandomIds,
+    CoseEncrypt, IssuerTrust, Paso, PasoProfile, RandomIds, RootCertificate, TestCoseEncrypt,
+    TestIssuerTrust, TestPaso, TestRandomIds,
 };
 use siros_qes::QesProfile;
 use siros_sdjwt::SdJwtVc;
@@ -31,7 +32,8 @@ siros_testkit::test_host! {
         handles {
             platform: TestPlatform => Platform,
             paso: TestPaso => Paso,
-            random_ids: TestRandomIds => RandomIds
+            random_ids: TestRandomIds => RandomIds,
+            issuer_trust: TestIssuerTrust => IssuerTrust
         }
         zero_sized {
             TestHaip => Haip,
@@ -43,12 +45,16 @@ siros_testkit::test_host! {
 }
 
 impl HaipHost {
-    /// The host whose platform and PaSO module both read the clock at `now`.
+    /// The host whose platform and PaSO module both read the clock at `now`, its trust store
+    /// siros-x509's test root.
     pub fn at(now: Timestamp) -> Self {
         Self {
             platform: TestPlatform::at(now),
             paso: TestPaso::at(now),
             random_ids: TestRandomIds::default(),
+            issuer_trust: TestIssuerTrust {
+                roots: vec![RootCertificate::new(siros_x509::test_util::root())],
+            },
         }
     }
 }
@@ -97,7 +103,7 @@ fn converted(kind: &str, given: &str, priority: &[LocaleTag]) -> Option<DefinedF
 
 /// The wallet's modules beside the defined ones: the main module, the test app's, the core's,
 /// PaSO's and QES's.
-fn own_modules() -> Vec<Module> {
+pub fn own_modules() -> Vec<Module> {
     let paso = CrateSource {
         id: siros_paso::CrateModule::ID,
         messages: siros_paso::CrateModule::messages(),
@@ -134,8 +140,8 @@ pub fn paso_app(kind: &str, given: &str, priority: &[LocaleTag], locale: &Locale
 
 /// The test app as the wallet registers its credentials for `env`'s priority list: the wallet's
 /// own modules, the module each type of each credential's PaSO document converts to, and the
-/// module of the ad-hoc metadata each entry of the request carries, which the wallet converts
-/// when the request arrives.
+/// module of the ad-hoc metadata each entry of the request carries, read unverified as the
+/// matcher reads it; phase 2 verifies it.
 pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App {
     let mut metadata: Vec<(String, String)> = Vec::new();
     for credential in wallet.credentials() {
@@ -160,8 +166,9 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env) -> App 
         }
     }
     let main = main_locales().expect("the main module");
-    let carried = siros_paso::view::carried(request, &main, env.priority())
-        .expect("the main module's formats");
+    let read = siros_paso::adhoc::Carried::read(request);
+    let carried =
+        siros_paso::view::carried(&read, &main, env.priority()).expect("the main module's formats");
     for module in carried {
         if defined.iter().all(|known| known.id() != module.id()) {
             defined.push(module);

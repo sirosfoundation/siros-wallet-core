@@ -289,17 +289,19 @@ pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<Defin
     siros_paso::view::convert(kind, &given, &main, priority).ok()
 }
 
-/// The test app as a wallet renders a request for an `Env`: the main module, the core's and the
-/// profile's modules, the module each type of each card's PaSO document converts to, and the
-/// modules of the ad-hoc metadata each entry of the request carries (`siros_paso::view::carried`).
+/// The test app as the matcher renders a request for an `Env`, and the wallet in phase 2: the
+/// main module, the core's and the profile's modules, the module each type of each card's PaSO
+/// document converts to, and the modules of the ad-hoc metadata each entry of the request
+/// carries, read unverified (`siros_paso::view::carried`).
 pub fn request_app(
     request: &siros_openid4vp::request::Request<'_>,
     cards: &[&Card],
     env: &Env,
 ) -> App {
     let main = main_locales().expect("the main module");
-    let carried = siros_paso::view::carried(request, &main, env.priority())
-        .expect("the main module's formats");
+    let read = siros_paso::adhoc::Carried::read(request);
+    let carried =
+        siros_paso::view::carried(&read, &main, env.priority()).expect("the main module's formats");
     app_with(cards, carried, env)
 }
 

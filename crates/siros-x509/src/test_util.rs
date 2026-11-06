@@ -47,7 +47,9 @@ fn sequence(parts: &[&[u8]]) -> Vec<u8> {
     tlv(0x30, &parts.concat())
 }
 
-fn name(common: &str) -> Vec<u8> {
+/// The DER of a Name of one commonName (RFC 5280 §4.1.2.4).
+#[must_use]
+pub fn name(common: &str) -> Vec<u8> {
     let attribute = sequence(&[COMMON_NAME, &tlv(0x0c, common.as_bytes())]);
     sequence(&[&tlv(0x31, &attribute)])
 }

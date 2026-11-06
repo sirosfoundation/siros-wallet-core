@@ -1,5 +1,7 @@
 //! Ad-hoc metadata, the images phase 2 revalidates, what phase 2 answers, and `collected_at`.
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value as Json, json};
 use siros_openid4vp::effects::MediaType;
 use siros_openid4vp::host::Timestamp;
@@ -9,10 +11,11 @@ use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Finding, Outcome as Phase2, Prepared};
 use siros_openid4vp::rows::{HttpsUrl, Shown};
 use siros_openid4vp::wallet::Wallet;
-use siros_paso::adhoc::TrustAnchor;
+use siros_paso::adhoc::{AdhocFailure, AdhocRefusal, Carried};
 use siros_paso::{PasoFinding, PasoProfile};
-use siros_testkit::verifier::{ISSUER, adhoc_jwt};
+use siros_testkit::verifier::{ISSUER, ISSUER_KEY, OTHER_KEY, adhoc_jwt};
 use siros_testkit::{Published, PublishedResource};
+use siros_x509::test_util as x509;
 
 use crate::paso_host::PasoHost;
 
@@ -74,7 +77,10 @@ pub(super) fn adhoc_case(
             let accepted = Accepted::new(&request, &informed).expect("accepted");
             let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
             let query = request.indexed_queries().next().expect("query").0;
-            Err(AdhocOutcome::Fallback(data, again.candidates(query).len()))
+            Err(AdhocOutcome::Fallback(
+                Box::new(data),
+                again.candidates(query).len(),
+            ))
         }
         Err(other) => panic!("{other}"),
     }
@@ -83,7 +89,7 @@ pub(super) fn adhoc_case(
 #[derive(Debug, PartialEq)]
 pub(super) enum AdhocOutcome {
     Excluded(String),
-    Fallback(PasoFinding, usize),
+    Fallback(Box<PasoFinding>, usize),
 }
 
 pub(super) fn adhoc_claims(iss: &str, exp: u64) -> String {
@@ -94,9 +100,32 @@ pub(super) fn adhoc_claims(iss: &str, exp: u64) -> String {
     )
 }
 
-#[test]
-pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_expires() {
-    let claims = adhoc_claims("https://issuer.bank.example", NOW + 600);
+/// The scalar of the ad-hoc metadata's x5c leaf.
+const LEAF: [u8; 32] = [5; 32];
+
+/// An x5c chain of a leaf of this subject under siros-x509's test root, the root in the host's
+/// trust store.
+fn chain(subject: &str) -> Vec<String> {
+    x509::x5c(&x509::certificate(&x509::Leaf {
+        subject,
+        point: x509::point(&LEAF),
+        dns: &[],
+    }))
+}
+
+/// An issuer whose keys an x5c chain certifies: the credential's own chain's root and leaf
+/// subject.
+fn chained_issuer(root: &[u8], subject: &str) -> String {
+    format!(
+        r#"{{"iss": "https://issuer.bank.example", "x5c": {{"root": "{}", "subject": "{}"}}}}"#,
+        STANDARD.encode(root),
+        STANDARD.encode(x509::name(subject))
+    )
+}
+
+/// The SCA claims PaSO Core A.2 shows, without those the wallet leaves out for ad-hoc metadata
+/// (`metadata_integrity`, Core §6.1) or the test does not compare.
+fn sca_claims() -> Vec<String> {
     let a2: Json = serde_json::from_str(&annex("paso-core.md", "A.2")[0]).expect("A.2");
     let mut sca: Vec<String> = a2
         .as_object()
@@ -116,54 +145,166 @@ pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks_until_it_
         .cloned()
         .collect();
     sca.sort();
-    let keyed = adhoc_jwt(&claims, "issuer-secret-1", Some("issuer-key-1"), None).expect("jwt");
-    // A valid JWT renders a type the stored metadata lacks; metadata_integrity stays out (Core
-    // §6.1).
+    sca
+}
+
+#[test]
+pub(super) fn ad_hoc_metadata_renders_a_type_the_stored_metadata_lacks() {
+    let claims = adhoc_claims("https://issuer.bank.example", NOW + 600);
+    let keyed = adhoc_jwt(&claims, &ISSUER_KEY, Some("issuer-key-1"), None).expect("a keyed JWT");
     assert_eq!(
         adhoc_case(&keyed, &card("{}", None, ISSUER), PasoProfile::default()),
-        Ok(sca.clone())
+        Ok(sca_claims())
     );
-    let x5c_issuer = r#"{"iss": "https://issuer.bank.example", "x5c": {"root": "CN=Bank Root", "subject": "CN=Bank Issuer"}}"#;
-    let chained = adhoc_jwt(
+    let chained =
+        adhoc_jwt(&claims, &LEAF, None, Some(&chain("Bank Issuer"))).expect("a chained JWT");
+    let issuer = chained_issuer(&x509::root(), "Bank Issuer");
+    assert_eq!(
+        adhoc_case(&chained, &card("{}", None, &issuer), PasoProfile::default()),
+        Ok(sca_claims())
+    );
+}
+
+#[test]
+pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_and_before_conversion()
+ {
+    let iss = "https://issuer.bank.example";
+    let claims = adhoc_claims(iss, NOW + 600);
+    let keyed = |claims: &str, key: &[u8; 32], kid: &str| {
+        adhoc_jwt(claims, key, Some(kid), None).expect("a keyed JWT")
+    };
+    let typed = siros_testkit::jose::compact_jws(
+        &ISSUER_KEY,
+        r#"{"alg": "ES256", "typ": "JWT", "kid": "issuer-key-1"}"#,
+        &siros_testkit::verifier::python_json(&claims).expect("claims"),
+    )
+    .expect("a JWT typed JWT");
+    let keys = ISSUER.to_owned();
+    let own_chain = chained_issuer(&x509::root(), "Bank Issuer");
+    let other_root = x509::certificate(&x509::Leaf {
+        subject: "Other Root",
+        point: x509::point(&[3; 32]),
+        dns: &[],
+    });
+    let elsewhere = adhoc_jwt(
         &claims,
-        "leaf-secret",
+        &LEAF,
         None,
-        Some(r#"{"root": "CN=Bank Root", "subject": "CN=Bank Issuer", "key": "leaf-secret"}"#),
+        Some(&[
+            chain("Bank Issuer")[0].clone(),
+            STANDARD.encode(&other_root),
+        ]),
     )
-    .expect("jwt");
-    assert_eq!(
-        adhoc_case(
-            &chained,
-            &card("{}", None, x5c_issuer),
-            PasoProfile::default().with_trust(TrustAnchor("CN=Bank Root".to_owned()))
+    .expect("a JWT chained elsewhere");
+    let chained = adhoc_jwt(&claims, &LEAF, None, Some(&chain("Bank Issuer"))).expect("chained");
+    let cases: Vec<(&str, String, String, AdhocFailure)> = vec![
+        (
+            "step 1",
+            typed,
+            keys.clone(),
+            AdhocFailure::Typ(Some("JWT".to_owned())),
         ),
-        Ok(sca)
-    );
-    // Failing a check of §5.3 leaves no compatible entry, the stored metadata never standing in.
-    let failed = adhoc_jwt(&claims, "wrong", Some("issuer-key-1"), None).expect("jwt");
-    let listing = card(&format!(r#"{{"{PAY}": {}}}"#, payment_meta()), None, ISSUER);
-    assert_eq!(
-        adhoc_case(&failed, &listing, PasoProfile::default()),
-        Err(AdhocOutcome::Excluded(
-            "no PaSO entry is compatible with the credential".to_owned()
-        ))
-    );
-    // Expired by the time phase 2 answers (§5.3 step 5; the matcher reads no clock): the matcher
-    // offered it, phase 2 falls back; informed, the matcher no longer binds it.
-    let late = adhoc_jwt(
-        &adhoc_claims("https://issuer.bank.example", NOW),
-        "issuer-secret-1",
-        Some("issuer-key-1"),
-        None,
-    )
-    .expect("jwt");
-    assert_eq!(
-        adhoc_case(&late, &card("{}", None, ISSUER), PasoProfile::default()),
-        Err(AdhocOutcome::Fallback(
-            PasoFinding::of(None, None, Some(late.clone()), Vec::new()).expect("a finding"),
-            0
-        ))
-    );
+        (
+            "step 2",
+            keyed(&claims, &OTHER_KEY, "issuer-key-1"),
+            keys.clone(),
+            AdhocFailure::Signature,
+        ),
+        (
+            "step 3, key set",
+            keyed(&claims, &ISSUER_KEY, "unknown-key"),
+            keys.clone(),
+            AdhocFailure::UnknownKey,
+        ),
+        (
+            "step 3, x5c",
+            elsewhere,
+            own_chain.clone(),
+            AdhocFailure::Untrusted,
+        ),
+        (
+            "step 4",
+            keyed(
+                &adhoc_claims("https://other.example", NOW + 600),
+                &ISSUER_KEY,
+                "issuer-key-1",
+            ),
+            keys.clone(),
+            AdhocFailure::Issuer,
+        ),
+        (
+            "step 5",
+            keyed(&adhoc_claims(iss, NOW), &ISSUER_KEY, "issuer-key-1"),
+            keys.clone(),
+            AdhocFailure::Expired,
+        ),
+        (
+            "step 6, sub and format",
+            keyed(
+                &claims.replace(CARD_TYPE, "org.example.other"),
+                &ISSUER_KEY,
+                "issuer-key-1",
+            ),
+            keys.clone(),
+            AdhocFailure::Binding,
+        ),
+        (
+            "step 6, the chain's root",
+            chained.clone(),
+            chained_issuer(&other_root, "Bank Issuer"),
+            AdhocFailure::ForeignChain,
+        ),
+        (
+            "step 6, the leaf's subject",
+            chained,
+            chained_issuer(&x509::root(), "Bank Card Issuer"),
+            AdhocFailure::ForeignChain,
+        ),
+        (
+            "step 7",
+            keyed(
+                &claims.replace(PAY, "urn:paso:sca:com.example:fixture:1"),
+                &ISSUER_KEY,
+                "issuer-key-1",
+            ),
+            keys,
+            AdhocFailure::TransactionType,
+        ),
+    ];
+    let host = PasoHost::at(Timestamp(NOW));
+    for (step, jwt, issuer, failure) in cases {
+        let card = card("{}", None, &issuer);
+        let refusal = AdhocRefusal {
+            jwt: jwt.clone(),
+            credential: card.credential().id.as_str().to_owned(),
+            failure,
+        };
+        // The matcher offered the entry; phase 2 refuses the JWT, and the match it informs
+        // binds no entry: the stored metadata never stands in (§5.3).
+        assert_eq!(
+            adhoc_case(&jwt, &card, PasoProfile::default()),
+            Err(AdhocOutcome::Fallback(
+                Box::new(
+                    PasoFinding::of(None, None, Some(refusal.clone()), Vec::new())
+                        .expect("a finding")
+                ),
+                0
+            )),
+            "{step}"
+        );
+        // In the URI flow the wallet refuses it before it converts.
+        let entry_json = payment(&format!(r#", "metadata": "{jwt}""#));
+        let parameters = parameters(
+            r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,
+            &[&entry_json],
+            "",
+        );
+        siros_testkit::signed_request!(let request = &parameters);
+        let credential = card.credential();
+        let verified = Carried::verified(&request, &[&credential], &host).expect("verified");
+        assert_eq!(verified.refusals(), [refusal], "{step}");
+        assert_eq!(verified.jwts().count(), 0, "{step}: nothing converts");
+    }
 }
 
 #[test]

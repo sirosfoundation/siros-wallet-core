@@ -1,12 +1,16 @@
 //! The host modules siros-paso calls beside the core's: [`RandomIds`] for a response's `jti`
-//! (Core §6.1), with the identifiers it returns; and [`CoseEncrypt`], which seals an mdoc's risk
-//! signals under the feature `sealed-signals`.
+//! (Core §6.1), with the identifiers it returns; [`IssuerTrust`], the wallet's trust store of
+//! credential issuers, which an ad-hoc metadata JWT's chain is anchored in (Proof Metadata §5.3
+//! step 3); and [`CoseEncrypt`], which seals an mdoc's risk signals under the feature
+//! `sealed-signals`.
 
 use std::fmt;
 
 use siros_explain::Explain;
+use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::AgreeableKey;
+use siros_x509::X5c;
 use uuid::{Builder, Uuid, Variant, Version};
 
 /// A content encryption a `COSE_Encrypt` carries (IANA "COSE Algorithms", RFC 9053 §4.1): its
@@ -59,6 +63,39 @@ pub trait CoseEncrypt {
         enc: CoseEnc,
         plaintext: &[u8],
     ) -> Result<Vec<u8>, Fault>;
+}
+
+/// A root certificate of the wallet's trust store, as DER.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RootCertificate(Vec<u8>);
+
+impl RootCertificate {
+    /// The certificate of this DER.
+    #[must_use]
+    pub const fn new(der: Vec<u8>) -> Self {
+        Self(der)
+    }
+
+    /// The DER.
+    #[must_use]
+    pub fn der(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// The wallet's trust store of credential issuers: the roots an issuer's certificate chain is
+/// anchored in (Proof Metadata §5.3 step 3, §7 step 3). Required by siros-paso.
+///
+/// # Implementing
+///
+/// `anchor` validates the chain, leaf first as `x5c` lists it, at the instant as RFC 5280 §6.1
+/// validates a certification path ending at one of the store's roots, and returns that root; a
+/// chain with no such path has no anchor. siros-paso then compares the root and the leaf's subject
+/// with the credential's own chain (§7 step 6). The app implements it, siros-trust's
+/// `TrustStore::anchor` over the wallet's store; `TestIssuerTrust` is the double.
+pub trait IssuerTrust {
+    /// The root of the store the chain has a path to at `at`; `None` when it has none.
+    fn anchor(&self, chain: &X5c, at: Timestamp) -> Option<RootCertificate>;
 }
 
 /// Fresh identifiers: a response's `jti`. Required by siros-paso.
@@ -181,3 +218,32 @@ mod test_util {
 
 #[cfg(feature = "test-util")]
 pub use test_util::TestRandomIds;
+
+#[cfg(feature = "test-util")]
+mod trust_double {
+    use siros_openid4vp::host::Timestamp;
+    use siros_x509::X5c;
+
+    use super::{IssuerTrust, RootCertificate};
+
+    /// The trust store double: its roots. A chain is anchored in a root when its last certificate
+    /// is that root, byte for byte; the double checks no signature or validity.
+    #[derive(Debug, Clone, Default)]
+    pub struct TestIssuerTrust {
+        /// The roots.
+        pub roots: Vec<RootCertificate>,
+    }
+
+    impl IssuerTrust for TestIssuerTrust {
+        fn anchor(&self, chain: &X5c, _at: Timestamp) -> Option<RootCertificate> {
+            let last = chain.certificates().last()?;
+            self.roots
+                .iter()
+                .find(|root| root.der() == last.der())
+                .cloned()
+        }
+    }
+}
+
+#[cfg(feature = "test-util")]
+pub use trust_double::TestIssuerTrust;

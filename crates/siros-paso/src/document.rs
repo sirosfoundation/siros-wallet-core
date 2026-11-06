@@ -2,11 +2,14 @@
 //! credential metadata (Proof Metadata §4) as the wallet verified it at issuance, with the JWT's
 //! integrity value, the credential's type and its issuer's key material.
 //!
-//! `{"integrity": SRI, "type": the credential type, "issuer": {"iss", "keys": {kid: secret}} or
+//! `{"integrity": SRI, "type": the credential type, "issuer": {"iss", "keys": {kid: JWK}} or
 //! {"iss", "x5c": {"root", "subject"}}, "transaction_data_types": {type: metadata},
-//! "risk_signals_encryption_keys"?: {"keys": [JWK]}}`; a secret is the model's stand-in for
-//! the issuer key a signature verifies under.
+//! "risk_signals_encryption_keys"?: {"keys": [JWK]}}`: the issuer's published key set, or the
+//! credential's own `x5c` chain as the wallet verified it at issuance, its root certificate and
+//! its leaf's Subject each a base64 DER (Proof Metadata §7 step 6).
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption};
@@ -30,24 +33,24 @@ pub enum DocumentError {
 }
 
 /// The credential issuer's key material, which an ad-hoc metadata JWT verifies under (Proof
-/// Metadata §5.3 step 3).
-#[derive(Debug, Clone, Copy)]
+/// Metadata §5.3 step 3) and binds to (§7 step 6).
+#[derive(Debug, Clone)]
 pub enum Issuer<'d> {
-    /// Keys published in a key set, each by its `kid`.
+    /// Keys published in a key set, each a public JWK under its `kid`.
     KeySet {
         /// The Credential Issuer Identifier.
         iss: &'d str,
         /// The keys by `kid`.
         keys: &'d Object<'d>,
     },
-    /// Keys certified by an x5c chain.
+    /// Keys certified by an x5c chain: the credential's own.
     Chain {
         /// The Credential Issuer Identifier.
         iss: &'d str,
-        /// The chain's root certificate.
-        root: &'d str,
-        /// The leaf certificate's subject.
-        subject: &'d str,
+        /// The DER of the chain's root certificate.
+        root: Vec<u8>,
+        /// The DER of the leaf certificate's Subject.
+        subject: Vec<u8>,
     },
 }
 
@@ -94,17 +97,18 @@ impl<'d> PasoDocument<'d> {
             .get("iss")
             .and_then(Node::as_str)
             .ok_or(DocumentError::Member("issuer.iss"))?;
+        let der = |chain: &Node<'_>, name: &'static str, member: &'static str| {
+            chain
+                .get(name)
+                .and_then(Node::as_str)
+                .and_then(|text| STANDARD.decode(text).ok())
+                .ok_or(DocumentError::Member(member))
+        };
         let issuer = match (issuer.get("x5c"), issuer.get("keys")) {
             (Some(chain), _) => Issuer::Chain {
                 iss,
-                root: chain
-                    .get("root")
-                    .and_then(Node::as_str)
-                    .ok_or(DocumentError::Member("issuer.x5c.root"))?,
-                subject: chain
-                    .get("subject")
-                    .and_then(Node::as_str)
-                    .ok_or(DocumentError::Member("issuer.x5c.subject"))?,
+                root: der(chain, "root", "issuer.x5c.root")?,
+                subject: der(chain, "subject", "issuer.x5c.subject")?,
             },
             (None, Some(Node::Object(keys))) => Issuer::KeySet { iss, keys },
             (None, _) => return Err(DocumentError::Member("issuer.keys")),

@@ -6,6 +6,8 @@ use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::Refusal;
 
+use siros_openid4vp::jose::JwsError;
+
 use crate::adhoc::AdhocFailure;
 use crate::outcome::NotCompatible;
 use crate::rules::PasoRule;
@@ -87,7 +89,7 @@ impl<'e> PasoEntry<'e> {
         let metadata = match members.get("metadata") {
             None => None,
             Some(Node::String(jwt)) => Some(jwt.as_ref()),
-            Some(_) => return Err(AdhocFailure::NotJws.into()),
+            Some(_) => return Err(AdhocFailure::Jws(JwsError::Structure).into()),
         };
         Ok(Self {
             entry,

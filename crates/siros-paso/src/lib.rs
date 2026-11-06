@@ -68,10 +68,12 @@ pub use cose::{NotSealedCose, SealedCose};
 pub use measure::{Measured, Signal, TestPaso};
 #[cfg(feature = "resolve")]
 pub use measure::{Measurement, Paso, Reading};
-#[cfg(feature = "test-util")]
-pub use modules::TestRandomIds;
 #[cfg(feature = "resolve")]
-pub use modules::{CoseEnc, CoseEncrypt, NotRandomId, RandomId, RandomIds};
+pub use modules::{
+    CoseEnc, CoseEncrypt, IssuerTrust, NotRandomId, RandomId, RandomIds, RootCertificate,
+};
+#[cfg(feature = "test-util")]
+pub use modules::{TestIssuerTrust, TestRandomIds};
 pub mod risk;
 pub mod rulebook;
 pub mod rules;
@@ -87,7 +89,7 @@ use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 #[cfg(all(feature = "resolve", feature = "sealed-signals"))]
 use siros_openid4vp::host::Slot;
-use siros_openid4vp::ids::{FormatId, InvalidId, TypePrefix};
+use siros_openid4vp::ids::{InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
     HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
@@ -102,7 +104,7 @@ use siros_openid4vp::{
     plugins::{Answered, FetchedRecord, Members},
 };
 
-use crate::adhoc::TrustAnchor;
+use crate::adhoc::AdhocRefusal;
 use crate::document::{DOCUMENT, PasoDocument};
 use crate::entry::PasoEntry;
 use crate::image::Resolution;
@@ -217,32 +219,30 @@ pub struct Rendered {
 }
 
 /// The PaSO profile, with the wallet data its registration carries: the https resources the
-/// wallet fetched, its View §2 item bound, the risk signal profiles it transcribed, its trust
-/// store's roots, the ad-hoc metadata JWTs phase 2 found expired, the modules phase 2 found
-/// the build lacks, and the statement of the module that seals a JWE when phase 2 found it admits
-/// none of an issuer's keys.
+/// wallet fetched, its View §2 item bound, the risk signal profiles it transcribed, the ad-hoc
+/// metadata JWTs the wallet does not rely on for a credential (Proof Metadata §5.3), the modules
+/// phase 2 found the build lacks, and the statement of the module that seals a JWE when phase 2
+/// found it admits none of an issuer's keys.
 #[derive(Debug, Clone)]
 pub struct PasoProfile {
     resources: Vec<(String, Fetch)>,
     bound: ItemBound,
     catalogue: Catalogue,
-    trust: Vec<TrustAnchor>,
-    expired: Vec<String>,
+    refusals: Vec<AdhocRefusal>,
     lacking: Vec<OptionalModule>,
     sealer: Option<Agreements>,
 }
 
 impl Default for PasoProfile {
-    /// No resource fetched, the bound 200, PaSO's Default profile, an empty trust store, every
-    /// optional module held but those the build compiles without (`COSE_Encrypt` without the
-    /// feature `sealed-signals`).
+    /// No resource fetched, the bound 200, PaSO's Default profile, no ad-hoc metadata JWT
+    /// refused, every optional module held but those the build compiles without (`COSE_Encrypt`
+    /// without the feature `sealed-signals`).
     fn default() -> Self {
         Self {
             resources: Vec::new(),
             bound: ItemBound::LEAST,
             catalogue: Catalogue::paso(),
-            trust: Vec::new(),
-            expired: Vec::new(),
+            refusals: Vec::new(),
             lacking: OptionalModule::UNCOMPILED.to_vec(),
             sealer: None,
         }
@@ -271,18 +271,12 @@ impl PasoProfile {
         self
     }
 
-    /// The profile with a root of the trust store.
+    /// The profile knowing the ad-hoc metadata JWTs the wallet does not rely on, each for a
+    /// credential (Proof Metadata §5.3): the refusals of [`adhoc::Carried::verified`] in the URI
+    /// flow, or of phase 2. First match moves past their entries for those credentials.
     #[must_use]
-    pub fn with_trust(mut self, anchor: TrustAnchor) -> Self {
-        self.trust.push(anchor);
-        self
-    }
-
-    /// The profile knowing an ad-hoc metadata JWT expired (Proof Metadata §5.3 step 5), as
-    /// phase 2 found it.
-    #[must_use]
-    pub fn with_expired(mut self, jwt: String) -> Self {
-        self.expired.push(jwt);
+    pub fn with_refusals(mut self, refusals: &[AdhocRefusal]) -> Self {
+        self.refusals.extend_from_slice(refusals);
         self
     }
 
@@ -292,8 +286,8 @@ impl PasoProfile {
     /// ```
     /// use siros_openid4vp::host::{Haip, Platform};
     /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::{CoseEncrypt, Paso, PasoProfile, RandomIds};
-    /// use siros_paso::{TestCoseEncrypt, TestPaso, TestRandomIds};
+    /// use siros_paso::{CoseEncrypt, IssuerTrust, Paso, PasoProfile, RandomIds};
+    /// use siros_paso::{TestCoseEncrypt, TestIssuerTrust, TestPaso, TestRandomIds};
     /// use siros_testkit::{TestHaip, TestPlatform};
     ///
     /// siros_testkit::test_host! {
@@ -303,7 +297,8 @@ impl PasoProfile {
     ///         handles {
     ///             platform: TestPlatform => Platform,
     ///             paso: TestPaso => Paso,
-    ///             random_ids: TestRandomIds => RandomIds
+    ///             random_ids: TestRandomIds => RandomIds,
+    ///             issuer_trust: TestIssuerTrust => IssuerTrust
     ///         }
     ///         zero_sized { TestHaip => Haip }
     ///         optional { TestCoseEncrypt => CoseEncrypt }
@@ -320,15 +315,19 @@ impl PasoProfile {
     /// ```compile_fail,E0277
     /// use siros_openid4vp::host::{Haip, Platform};
     /// use siros_openid4vp::plugins::Registry;
-    /// use siros_paso::{CoseEncrypt, PasoProfile, RandomIds};
-    /// use siros_paso::{TestCoseEncrypt, TestRandomIds};
+    /// use siros_paso::{CoseEncrypt, IssuerTrust, PasoProfile, RandomIds};
+    /// use siros_paso::{TestCoseEncrypt, TestIssuerTrust, TestRandomIds};
     /// use siros_testkit::{TestHaip, TestPlatform};
     ///
     /// siros_testkit::test_host! {
     ///     /// A host lacking the PaSO module.
     ///     #[derive(Default)]
     ///     struct Wallet {
-    ///         handles { platform: TestPlatform => Platform, random_ids: TestRandomIds => RandomIds }
+    ///         handles {
+    ///             platform: TestPlatform => Platform,
+    ///             random_ids: TestRandomIds => RandomIds,
+    ///             issuer_trust: TestIssuerTrust => IssuerTrust
+    ///         }
     ///         zero_sized { TestHaip => Haip }
     ///         optional { TestCoseEncrypt => CoseEncrypt }
     ///         lacks {}
@@ -359,8 +358,9 @@ impl PasoProfile {
     }
 
     /// One entry rendered for one credential whose proof places members by `placement`: its
-    /// metadata (the verified ad-hoc metadata JWT, else the credential's stored metadata for the
-    /// type), View's rendering, then whether the wallet can send its risk signals (Risk Signals
+    /// metadata (the ad-hoc metadata JWT, read as a signed request is read unless the profile
+    /// knows the wallet refused it for the credential, else the credential's stored metadata for
+    /// the type), View's rendering, then whether the wallet can send its risk signals (Risk Signals
     /// §7.3, and §7.6 in a build phase 2 found without a module they need). The outer error is
     /// the wallet's own failure: a document or an entry it cannot read.
     pub fn render(
@@ -388,7 +388,7 @@ impl PasoProfile {
             Ok(paso) => paso,
             Err(refused) => return Ok(Err(refused.into())),
         };
-        Ok(self.rendered(&paso, family, &document, &credential.format, placement, env))
+        Ok(self.rendered(&paso, family, &document, credential, placement, env))
     }
 
     fn rendered(
@@ -396,27 +396,21 @@ impl PasoProfile {
         paso: &PasoEntry<'_>,
         family: Family,
         document: &PasoDocument<'_>,
-        format: &FormatId<'_>,
+        credential: &Credential<'_>,
         placement: Option<wallet_metadata::Placement>,
         env: &Env,
     ) -> Result<Rendered, Outcome> {
         let kind = paso.kind.as_str();
-        let verified;
+        let read;
         let (given, source) = match paso.metadata {
             Some(jwt) => {
-                verified = adhoc::Binding {
-                    document,
-                    format,
-                    kind,
-                    trust: &self.trust,
-                    expired: &self.expired,
+                if let Some(refused) = self.refusals.iter().find(|refused| {
+                    refused.jwt == jwt && refused.credential == credential.id.as_str()
+                }) {
+                    return Err(NotCompatible::Adhoc(refused.failure.clone()).into());
                 }
-                .verify(jwt)
-                .map_err(NotCompatible::from)?;
-                let metadata = verified
-                    .metadata()
-                    .ok_or(NotCompatible::Adhoc(adhoc::AdhocFailure::Payload))?;
-                (metadata, Source::Adhoc)
+                read = adhoc::Read::parse(jwt).map_err(NotCompatible::from)?;
+                (read.metadata(), Source::Adhoc)
             }
             None => (
                 document
@@ -557,14 +551,16 @@ impl Profile for PasoProfile {
 }
 
 #[cfg(feature = "resolve")]
-/// Requires the PaSO module, the platform and HAIP's JWE; seals an mdoc's risk signals with
-/// the `COSE_Encrypt` module when the build holds it.
+/// Requires the PaSO module, the platform, HAIP's signature verification and JWE, and the trust
+/// store of credential issuers; seals an mdoc's risk signals with the `COSE_Encrypt` module when
+/// the build holds it.
 impl<H> ProfileHost<H> for PasoProfile
 where
     H: Has<dyn Platform>
         + Has<dyn Haip>
         + Has<dyn Paso>
         + Has<dyn RandomIds>
+        + Has<dyn IssuerTrust>
         + MayHave<dyn CoseEncrypt>,
 {
     /// View §3: the https images the payload displays that the matcher had not fetched and a
@@ -573,9 +569,9 @@ where
         phase2::wanted(self, &record)
     }
 
-    /// The profile knowing the failed images as failed fetches, the expired JWTs as expired
-    /// and the modules the build lacks as lacking: first match then moves past the entries
-    /// they rendered.
+    /// The profile knowing the failed images as failed fetches, the refused ad-hoc metadata JWTs
+    /// as refused and the modules the build lacks as lacking: first match then moves past the
+    /// entries they rendered.
     fn informed(&self, findings: &[&PasoFinding]) -> Self {
         let mut informed = self.clone();
         for finding in findings {
@@ -587,9 +583,7 @@ where
                         Fetch::Failed(failed.failure.to_string()),
                     )
                 }));
-            informed
-                .expired
-                .extend(finding.expired().map(str::to_owned));
+            informed.refusals.extend(finding.refused().cloned());
             informed.lacking.extend(finding.lacks());
             if let Some(sealer) = finding.unsealable() {
                 informed.sealer = Some(sealer);
@@ -604,9 +598,9 @@ where
         phase2::authentication(self, &record)
     }
 
-    /// Risk Signals §7.6, Proof Metadata §5.3 step 5 and View §3: the `COSE_Encrypt` module
-    /// an mdoc's sealed risk signals need, read from the host's type; the ad-hoc metadata
-    /// JWT's `exp`; the https images the matcher had not fetched, as the caller fetched them.
+    /// Risk Signals §7.6, Proof Metadata §5.3 and View §3: the `COSE_Encrypt` module an mdoc's
+    /// sealed risk signals need, read from the host's type; the ad-hoc metadata JWT, verified;
+    /// the https images the matcher had not fetched, as the caller fetched them.
     fn revalidate(
         &self,
         record: FetchedRecord<'_>,
@@ -618,11 +612,16 @@ where
             .is_some_and(|cose| cose.encryptions().contains(&CoseEnc::A256GCM));
         #[cfg(not(feature = "sealed-signals"))]
         let cose_held = false;
+        let haip = Has::<dyn Haip>::module(host);
         phase2::revalidate(
             self,
             &record,
-            Has::<dyn Platform>::module(host),
-            Has::<dyn Haip>::module(host).agreements(),
+            adhoc::Modules {
+                haip,
+                trust: Has::<dyn IssuerTrust>::module(host),
+                now: Has::<dyn Platform>::module(host).now(),
+            },
+            haip.agreements(),
             cose_held,
         )
     }

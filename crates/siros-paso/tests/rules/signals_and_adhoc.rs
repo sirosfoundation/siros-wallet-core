@@ -1,14 +1,15 @@
 //! Risk Signals §3-7, ad-hoc metadata's steps, and the request rules PaSO adds.
 
+use siros_openid4vp::jose::JwsError;
 use siros_openid4vp::plugins::Profile;
 use siros_openid4vp::refusal::ErrorCode;
-use siros_paso::adhoc::{AdhocFailure, TrustAnchor};
+use siros_paso::adhoc::{AdhocFailure, AdhocRefusal};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
-use siros_testkit::verifier::{self, adhoc_jwt};
+use siros_testkit::verifier::{self, ISSUER_KEY, OTHER_KEY, adhoc_jwt};
 
-use crate::common::{CARD_TYPE, CUSTOM, Card, PAY, en, entry, one_query, parameters};
+use crate::common::{CARD_TYPE, Card, PAY, en, entry, one_query, parameters};
 
 use super::{render_with, shown};
 
@@ -136,202 +137,65 @@ pub(super) fn render_adhoc(
 }
 
 #[test]
-pub(super) fn each_failed_step_of_ad_hoc_metadata_makes_the_entry_not_compatible() {
+pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatible() {
     let iss = "https://issuer.bank.example";
     let good = adhoc_payload(CARD_TYPE, "dc+sd-jwt", PAY, iss);
     let card = Card::sd_jwt("{}");
-    let x5c_issuer = r#"{"iss": "https://issuer.bank.example", "x5c": {"root": "CN=Bank Root", "subject": "CN=Bank Issuer"}}"#;
-    let chained = Card::new("dc+sd-jwt", "{}", None, x5c_issuer);
-    let trusting = PasoProfile::default().with_trust(TrustAnchor("CN=Bank Root".to_owned()));
-    let jwt = |payload: &str, secret: &str, kid: Option<&str>, x5c: Option<&str>| {
-        adhoc_jwt(payload, secret, kid, x5c).expect("jwt")
+    let jwt = |payload: &str, key: &[u8; 32]| {
+        adhoc_jwt(payload, key, Some("issuer-key-1"), None).expect("jwt")
     };
-    let chain = |root: &str, subject: &str| {
-        format!(r#"{{"root": "{root}", "subject": "{subject}", "key": "s"}}"#)
-    };
-    assert!(
-        render_adhoc(
-            &jwt(&good, "issuer-secret-1", Some("issuer-key-1"), None),
-            &card,
-            &PasoProfile::default()
+    // The matcher reads the JWT as it reads a signed request: a signature under a key the issuer
+    // does not publish still renders (section 4.14 of the design); phase 2 verifies it.
+    for key in [&ISSUER_KEY, &OTHER_KEY] {
+        assert!(render_adhoc(&jwt(&good, key), &card, &PasoProfile::default()).is_ok());
+    }
+    let signed = |payload: &str| {
+        siros_testkit::jose::compact_jws(
+            &ISSUER_KEY,
+            &format!(r#"{{"alg": "ES256", "typ": "{}"}}"#, verifier::ADHOC_TYP),
+            payload,
         )
-        .is_ok()
-    );
-    assert!(
-        render_adhoc(
-            &jwt(
-                &good,
-                "s",
-                None,
-                Some(&chain("CN=Bank Root", "CN=Bank Issuer"))
-            ),
-            &chained,
-            &trusting
-        )
-        .is_ok()
-    );
-    let header = |typ: &str| format!(r#"{{"typ": "{typ}", "kid": "issuer-key-1"}}"#);
-    let signed_with = |header: &str, payload: &str| {
-        verifier::jws(header, payload, "issuer-secret-1").expect("jws")
+        .expect("jws")
     };
-    let cases: Vec<(String, &Card, PasoProfile, AdhocFailure)> = vec![
+    // What does not read is not compatible (RFC 7515 §7.1; Proof Metadata §5.2).
+    let unread: Vec<(String, AdhocFailure)> = vec![
+        ("a.b".to_owned(), AdhocFailure::Jws(JwsError::Structure)),
+        ("!!.e30.x".to_owned(), AdhocFailure::Jws(JwsError::Base64)),
+        (signed("[1]"), AdhocFailure::NotObject),
         (
-            jwt(&good, "issuer-secret-1", Some("issuer-key-1"), None),
-            &card,
-            PasoProfile::default().with_expired(jwt(
-                &good,
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
+            signed(&format!(
+                r#"{{"iss": "{iss}", "sub": "{CARD_TYPE}", "format": "dc+sd-jwt", "exp": 1785000600, "transaction_data_type": "{PAY}", "metadata": "none"}}"#
             )),
-            AdhocFailure::Expired,
-        ),
-        (
-            "a.b".to_owned(),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::NotJws,
-        ),
-        (
-            "!!.e30.x".to_owned(),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Encoding(String::new()),
-        ),
-        (
-            signed_with(&header(verifier::ADHOC_TYP), "[1]"),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::NotObject,
-        ),
-        (
-            signed_with(&header("JWT"), &good),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Typ(String::new()),
-        ),
-        (
-            jwt(
-                &good,
-                "s",
-                None,
-                Some(&chain("CN=Other Root", "CN=Bank Issuer")),
-            ),
-            &chained,
-            trusting.clone(),
-            AdhocFailure::Untrusted,
-        ),
-        (
-            jwt(
-                &good,
-                "s",
-                None,
-                Some(&chain("CN=Bank Root", "CN=Bank Issuer")),
-            ),
-            &chained,
-            PasoProfile::default(),
-            AdhocFailure::Untrusted,
-        ),
-        (
-            jwt(&good, "s", None, Some(&chain("CN=Bank Root", "CN=Mallory"))),
-            &chained,
-            trusting.clone(),
-            AdhocFailure::ForeignChain,
-        ),
-        (
-            jwt(&good, "issuer-secret-1", Some("other"), None),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::UnknownKey,
-        ),
-        (
-            jwt(&good, "wrong", Some("issuer-key-1"), None),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Signature,
-        ),
-        (
-            jwt(
-                &adhoc_payload(CARD_TYPE, "dc+sd-jwt", PAY, "https://other.example"),
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            ),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Issuer,
-        ),
-        (
-            jwt(
-                &adhoc_payload("org.example.other", "dc+sd-jwt", PAY, iss),
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            ),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Binding,
-        ),
-        (
-            jwt(
-                &adhoc_payload(CARD_TYPE, "mso_mdoc", PAY, iss),
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            ),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Binding,
-        ),
-        (
-            jwt(
-                &adhoc_payload(CARD_TYPE, "dc+sd-jwt", CUSTOM, iss),
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            ),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::TransactionType,
-        ),
-        (
-            jwt(
-                &good.replace("\"exp\": 1785000600", "\"exp\": 1785000600.5"),
-                "issuer-secret-1",
-                Some("issuer-key-1"),
-                None,
-            ),
-            &card,
-            PasoProfile::default(),
-            AdhocFailure::Payload,
+            AdhocFailure::Metadata,
         ),
     ];
-    for (k, (jwt, card, profile, failure)) in cases.into_iter().enumerate() {
-        let rendered = render_adhoc(&jwt, card, &profile);
-        match &rendered {
-            Err(outcome @ Outcome::NotCompatible(NotCompatible::Adhoc(got))) => {
-                assert_eq!(
-                    std::mem::discriminant(got),
-                    std::mem::discriminant(&failure),
-                    "case {k}: {got}"
-                );
-                assert_eq!(outcome.clause(), "Proof Metadata §5.3");
-            }
-            other => panic!("case {k}: {other:?}"),
-        }
+    for (jwt, failure) in unread {
+        assert_eq!(
+            render_adhoc(&jwt, &card, &PasoProfile::default()).map(|_| ()),
+            Err(Outcome::NotCompatible(NotCompatible::Adhoc(failure))),
+            "{jwt}"
+        );
     }
-    // The stored metadata never stands in for a failed JWT: the card lists the type.
+    // A JWT the wallet refused for the credential (§5.3) is not compatible for it, and the
+    // stored metadata never stands in: the card lists the type.
     let listing = Card::sd_jwt(&format!(r#"{{"{PAY}": {}}}"#, risky("")));
-    assert!(matches!(
-        render_adhoc(
-            &jwt(&good, "wrong", Some("issuer-key-1"), None),
-            &listing,
-            &PasoProfile::default()
-        ),
-        Err(Outcome::NotCompatible(NotCompatible::Adhoc(
+    let refused = jwt(&good, &OTHER_KEY);
+    let knowing = PasoProfile::default().with_refusals(&[AdhocRefusal {
+        jwt: refused.clone(),
+        credential: listing.credential().id.as_str().to_owned(),
+        failure: AdhocFailure::Signature,
+    }]);
+    let rendered = render_adhoc(&refused, &listing, &knowing);
+    assert_eq!(
+        rendered.as_ref().map(|_| ()),
+        Err(&Outcome::NotCompatible(NotCompatible::Adhoc(
             AdhocFailure::Signature
         )))
-    ));
+    );
+    assert_eq!(
+        rendered.err().map(|outcome| outcome.clause()),
+        Some("Proof Metadata §5.3")
+    );
 }
 
 #[test]

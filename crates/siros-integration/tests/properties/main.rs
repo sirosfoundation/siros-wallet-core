@@ -19,13 +19,12 @@ use spec::Spec;
 use tally::Tally;
 
 /// Every branch of the checks, by its tally name.
-const BRANCHES: [&str; 71] = [
+const BRANCHES: [&str; 70] = [
     "dressed wallets",
     "outcome TransactionView",
     "outcome Excluded [View §4]",
     "outcome NotCompatible [Core §7.4.2 step 2]",
     "outcome NotCompatible [Proof Metadata §3.3]",
-    "outcome NotCompatible [Proof Metadata §5.3]",
     "outcome NotCompatible [Risk Signals §4.1]",
     "outcome NotCompatible [Risk Signals §7.3]",
     "outcome Unsupported [Proof Metadata §3.3]",
@@ -65,7 +64,7 @@ const BRANCHES: [&str; 71] = [
     "responses encrypted",
     "responses falling back",
     "findings: a credential the runtime refuses",
-    "findings: PaSO's ad-hoc metadata expired",
+    "findings: PaSO's ad-hoc metadata refused",
     "findings: PaSO's images failing",
     "findings: QES's documents failing",
     "fallbacks re-run",

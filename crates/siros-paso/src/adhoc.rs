@@ -1,228 +1,339 @@
-//! Proof Metadata §5: the ad-hoc metadata JWT a PaSO entry may carry. The matcher verifies
-//! steps 1-4, 6 and 7 before relying on it (§5.3); step 5, its `exp`, reads the clock, which
-//! phase 2 checks. A JWT that fails a step makes the entry incompatible, the stored metadata
-//! never standing in.
-//!
-//! The model's issuer signature is an HMAC-SHA-256 under the issuer key's secret, base64url
-//! without padding.
+//! Proof Metadata §5: the ad-hoc metadata JWT a PaSO entry may carry. The matcher reads it as it
+//! reads a signed request, its payload parsed and unverified ([`Read`]; section 4.14 of the
+//! design). The wallet verifies it as §5.3 states before it relies on it: in phase 2, and in the
+//! URI flow before it converts it ([`Carried::verified`]). A JWT that fails a step makes the entry
+//! incompatible for the credential, the stored metadata never standing in; the profile knows each
+//! failure ([`AdhocRefusal`]).
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use hmac::{Hmac, KeyInit, Mac};
-use sha2::Sha256;
 use siros_explain::Explain;
-use siros_openid4vp::ids::FormatId;
+use siros_openid4vp::jose::{CompactJws, JwsError};
 use siros_openid4vp::json::Node;
-
-use crate::document::{Issuer, PasoDocument};
-use crate::metadata::python_repr;
+use siros_openid4vp::request::Request;
 
 /// The `typ` of an ad-hoc metadata JWT (§5.2).
 pub const TYP: &str = "adhoc-transaction-metadata+jwt";
 
-/// base64url as Python's `urlsafe_b64decode` reads a JWS part padded to its length: padding
-/// optional, bits past the last byte ignored.
-const BASE64URL: GeneralPurpose = GeneralPurpose::new(
-    &base64::alphabet::URL_SAFE,
-    GeneralPurposeConfig::new()
-        .with_decode_padding_mode(DecodePaddingMode::Indifferent)
-        .with_decode_allow_trailing_bits(true),
-);
-
-/// A §5.3 step the JWT fails.
+/// Why an entry's ad-hoc metadata JWT is not relied on: it does not read (§5.2), or it fails a
+/// §5.3 step.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "paso.adhoc")]
 pub enum AdhocFailure {
-    /// Phase 2 found it expired (step 5).
-    #[error("expired, as phase 2 found (step 5)")]
-    Expired,
-    /// No compact JWS of three parts.
-    #[error("not a compact JWS")]
-    NotJws,
-    /// A header or payload part that is no base64url-encoded UTF-8 JSON with unique member
-    /// names.
-    #[error("a part is not base64url-encoded UTF-8 JSON: {0}")]
-    Encoding(#[explain(skip)] String),
-    /// A header or payload that is no JSON object.
-    #[error("a part is not a JSON object")]
+    /// No compact JWS (RFC 7515 §7.1).
+    #[error(transparent)]
+    Jws(#[from] JwsError),
+    /// The payload is no JSON object with unique member names.
+    #[error("the payload is not a JSON object")]
     NotObject,
+    /// §5.2: the payload's `metadata` is no object.
+    #[error("the payload holds no metadata object")]
+    Metadata,
     /// Step 1: the `typ`.
-    #[error("typ {0}")]
-    Typ(#[explain(name = "typ")] String),
-    /// Step 3, x5c-based keys: no chain to a root of the wallet's trust store, or a `kid`.
-    #[error("no x5c chain to the wallet's trust store")]
-    Untrusted,
-    /// Step 6, x5c-based keys: the chain's root or leaf subject is not the credential's.
-    #[error("the chain's root or leaf subject is not the credential's")]
-    ForeignChain,
-    /// Step 3, key-set keys: no key of the issuer's key set, or a chain.
-    #[error("signed by no key of the credential issuer's key set")]
-    UnknownKey,
-    /// Step 2: the signature.
+    #[error("typ {0:?}")]
+    Typ(#[explain(name = "typ")] Option<String>),
+    /// Step 2: the signature, or an `alg` the verifying module does not verify.
     #[error("the signature does not verify")]
     Signature,
+    /// Step 3, x5c-based keys: no `x5c` chain, a `kid`, or a chain without a path to the
+    /// wallet's trust store.
+    #[error("no x5c chain to the wallet's trust store")]
+    Untrusted,
+    /// Step 3, key-set keys: no `kid` of the credential issuer's key set, or a chain.
+    #[error("signed by no key of the credential issuer's key set")]
+    UnknownKey,
     /// Step 4: `iss`.
     #[error("iss is not the credential's issuer")]
     Issuer,
+    /// Step 5: `exp` passed, or no integer `exp` (§5.2).
+    #[error("expired, or no integer exp")]
+    Expired,
     /// Step 6: `sub` and `format`.
     #[error("sub and format are not the credential's type and format")]
     Binding,
+    /// Step 6, x5c-based keys: the chain's root or its leaf's subject is not the credential's.
+    #[error("the chain's root or leaf subject is not the credential's")]
+    ForeignChain,
     /// Step 7: `transaction_data_type`.
     #[error("transaction_data_type is not the entry's type")]
     TransactionType,
-    /// §5.2: `metadata` an object and `exp` an integer.
-    #[error("no metadata object or no integer exp")]
-    Payload,
 }
 
-/// A root certificate of the wallet's trust store, by its name in the model's chain stand-in.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TrustAnchor(pub String);
-
-/// An ad-hoc metadata JWT's decoded header and payload and its three parts as received.
-#[derive(Debug, Clone)]
-pub struct Jws<'j> {
+/// An entry's ad-hoc metadata JWT the profile does not rely on for a credential, with the step it
+/// fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdhocRefusal {
     /// The JWT as received.
-    pub text: &'j str,
-    header: Node<'static>,
-    payload: Node<'static>,
-    signing_input: &'j str,
-    signature: &'j str,
+    pub jwt: String,
+    /// The credential's id.
+    pub credential: String,
+    /// The step it fails.
+    pub failure: AdhocFailure,
 }
 
-impl<'j> Jws<'j> {
-    /// The parts of a compact JWS, the header and payload decoded.
+/// An ad-hoc metadata JWT read as the matcher reads a signed request: a compact JWS (RFC 7515
+/// §7.1) whose payload is a JSON object holding a `metadata` object, unverified.
+#[derive(Debug, Clone)]
+pub struct Read<'j> {
+    jws: CompactJws<'j>,
+    /// The payload, whose claims phase 2 verifies.
+    #[cfg(feature = "resolve")]
+    payload: Node<'static>,
+    metadata: Node<'static>,
+}
+
+impl<'j> Read<'j> {
+    /// The JWT read.
+    ///
+    /// # Errors
+    ///
+    /// [`AdhocFailure::Jws`], [`AdhocFailure::NotObject`] or [`AdhocFailure::Metadata`].
     pub fn parse(text: &'j str) -> Result<Self, AdhocFailure> {
-        let mut parts = text.split('.');
-        let (Some(header), Some(payload), Some(signature), None) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        else {
-            return Err(AdhocFailure::NotJws);
-        };
-        let decoded = |part: &str| -> Result<Node<'static>, AdhocFailure> {
-            let bytes = BASE64URL
-                .decode(part)
-                .map_err(|e| AdhocFailure::Encoding(e.to_string()))?;
-            let json =
-                String::from_utf8(bytes).map_err(|e| AdhocFailure::Encoding(e.to_string()))?;
-            let node = Node::parse(&json)
-                .map_err(|e| AdhocFailure::Encoding(e.to_string()))?
-                .into_owned();
-            Ok(node)
-        };
-        let (header_node, payload_node) = (decoded(header)?, decoded(payload)?);
-        if header_node.as_object().is_none() || payload_node.as_object().is_none() {
+        let jws = CompactJws::parse(text)?;
+        let payload = Node::parse(jws.payload())
+            .map_err(|_| AdhocFailure::NotObject)?
+            .into_owned();
+        if payload.as_object().is_none() {
             return Err(AdhocFailure::NotObject);
         }
+        let metadata = payload
+            .get("metadata")
+            .filter(|metadata| metadata.as_object().is_some())
+            .cloned()
+            .ok_or(AdhocFailure::Metadata)?;
         Ok(Self {
-            text,
-            header: header_node,
-            payload: payload_node,
-            signing_input: text
-                .get(..header.len() + 1 + payload.len())
-                .unwrap_or_default(),
-            signature,
+            jws,
+            #[cfg(feature = "resolve")]
+            payload,
+            metadata,
         })
     }
 
-    /// The payload's `metadata`.
+    /// The JWT as received.
     #[must_use]
-    pub fn metadata(&self) -> Option<&Node<'static>> {
-        self.payload.get("metadata")
+    pub fn text(&self) -> &str {
+        self.jws.text()
     }
 
-    /// The payload's `exp`.
+    /// The payload's `metadata`, an object.
     #[must_use]
-    pub fn exp(&self) -> Option<&Node<'static>> {
-        self.payload.get("exp")
+    pub const fn metadata(&self) -> &Node<'static> {
+        &self.metadata
     }
 
-    /// Whether the stand-in signature verifies under a secret.
-    fn signed_by(&self, secret: &str) -> bool {
-        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
-            return false;
-        };
-        mac.update(self.signing_input.as_bytes());
-        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()) == self.signature
+    /// A payload member.
+    #[cfg(feature = "resolve")]
+    fn member(&self, name: &str) -> Option<&Node<'static>> {
+        self.payload.get(name)
     }
 }
 
-/// What a JWT binds to: the credential's document and format, the entry's type, the wallet's
-/// trust store, and the JWTs phase 2 found expired.
-pub(crate) struct Binding<'b> {
-    pub(crate) document: &'b PasoDocument<'b>,
-    pub(crate) format: &'b FormatId<'b>,
-    pub(crate) kind: &'b str,
-    pub(crate) trust: &'b [TrustAnchor],
-    pub(crate) expired: &'b [String],
+/// The ad-hoc metadata JWT of each entry of a request that carries one, read, with the entry's
+/// type; and the refusals of a wallet that verified them.
+#[derive(Debug, Clone)]
+pub struct Carried<'r> {
+    read: Vec<(&'r str, Read<'r>)>,
+    refusals: Vec<AdhocRefusal>,
 }
 
-impl Binding<'_> {
-    /// §5.3 steps 1-4, 6 and 7, after the expiry phase 2 found: the verified JWT.
-    pub(crate) fn verify<'j>(&self, text: &'j str) -> Result<Jws<'j>, AdhocFailure> {
-        if self.expired.iter().any(|jwt| jwt == text) {
-            return Err(AdhocFailure::Expired);
+impl<'r> Carried<'r> {
+    /// The matcher's: each entry's JWT read as a signed request is read, unverified (section 4.14
+    /// of the design); a JWT that does not read is left out, and the profile's binding refuses
+    /// its entry.
+    #[must_use]
+    pub fn read(request: &'r Request<'r>) -> Self {
+        let read = request.entries().iter().filter_map(|entry| {
+            let jwt = entry.members().get("metadata").and_then(Node::as_str)?;
+            Read::parse(jwt)
+                .ok()
+                .map(|read| (entry.kind().as_str(), read))
+        });
+        Self {
+            read: read.collect(),
+            refusals: Vec::new(),
         }
-        let jws = Jws::parse(text)?;
-        let header = &jws.header;
-        match header.get("typ") {
-            Some(Node::String(typ)) if typ == TYP => {}
-            other => {
-                return Err(AdhocFailure::Typ(
-                    other.map_or_else(|| "None".to_owned(), python_repr),
-                ));
+    }
+
+    /// Each JWT read, with its entry's type.
+    pub fn jwts(&self) -> impl Iterator<Item = (&'r str, &Read<'r>)> {
+        self.read.iter().map(|(kind, read)| (*kind, read))
+    }
+
+    /// The refusals the verification found: each JWT for each credential it fails for.
+    #[must_use]
+    pub fn refusals(&self) -> &[AdhocRefusal] {
+        &self.refusals
+    }
+}
+
+#[cfg(feature = "resolve")]
+mod verify {
+    use siros_openid4vp::detail;
+    use siros_openid4vp::host::{Haip, Platform, Timestamp};
+    use siros_openid4vp::ids::FormatId;
+    use siros_openid4vp::jose::{PublicJwk, VerificationKey};
+    use siros_openid4vp::json::Node;
+    use siros_openid4vp::plugins::Fault;
+    use siros_openid4vp::request::Request;
+    use siros_openid4vp::wallet::Credential;
+    use siros_x509::X5c;
+
+    use super::{AdhocFailure, AdhocRefusal, Carried, Read, TYP};
+    use crate::FAULT;
+    use crate::document::{DOCUMENT, Issuer, PasoDocument};
+    use crate::modules::IssuerTrust;
+
+    /// The wallet's modules a JWT verifies through: HAIP's signature verification, the trust
+    /// store of credential issuers, and the clock.
+    #[derive(Clone, Copy)]
+    pub(crate) struct Modules<'m> {
+        pub(crate) haip: &'m dyn Haip,
+        pub(crate) trust: &'m dyn IssuerTrust,
+        pub(crate) now: Timestamp,
+    }
+
+    /// What a JWT binds to: the credential's document and format, and the entry's type.
+    pub(crate) struct Binding<'b> {
+        pub(crate) document: &'b PasoDocument<'b>,
+        pub(crate) format: &'b FormatId<'b>,
+        pub(crate) kind: &'b str,
+    }
+
+    impl Read<'_> {
+        /// §5.3's steps, in order; step 3 finds the key step 2 verifies under, so a key that
+        /// fails step 3 is refused before the signature is checked.
+        pub(crate) fn verify(
+            &self,
+            binding: &Binding<'_>,
+            modules: Modules<'_>,
+        ) -> Result<(), AdhocFailure> {
+            let header = self.jws.header();
+            if header.typ() != Some(TYP) {
+                return Err(AdhocFailure::Typ(header.typ().map(str::to_owned)));
             }
-        }
-        let secret = match self.document.issuer {
-            Issuer::Chain { root, subject, .. } => {
-                let chain = header.get("x5c").and_then(Node::as_object);
-                let chain_root = chain
-                    .and_then(|chain| chain.get("root"))
-                    .and_then(Node::as_str);
-                let trusted = chain_root
-                    .is_some_and(|named| self.trust.iter().any(|anchor| anchor.0 == named));
-                let Some(chain) = chain.filter(|_| header.get("kid").is_none() && trusted) else {
-                    return Err(AdhocFailure::Untrusted);
-                };
-                let leaf = chain.get("subject").and_then(Node::as_str);
-                if chain_root != Some(root) || leaf != Some(subject) {
-                    return Err(AdhocFailure::ForeignChain);
+            let x5c = header.member("x5c").is_some();
+            let kid = header.kid();
+            let (key, chain) = match &binding.document.issuer {
+                Issuer::Chain { root, subject, .. } => {
+                    if kid.is_some() || !x5c {
+                        return Err(AdhocFailure::Untrusted);
+                    }
+                    let chain = X5c::of(header).map_err(|_| AdhocFailure::Untrusted)?;
+                    let anchor = modules
+                        .trust
+                        .anchor(&chain, modules.now)
+                        .ok_or(AdhocFailure::Untrusted)?;
+                    let key = chain.leaf().key().map_err(|_| AdhocFailure::Untrusted)?;
+                    let leaf = chain
+                        .leaf()
+                        .subject()
+                        .map_err(|_| AdhocFailure::Untrusted)?;
+                    let foreign = anchor.der() != root.as_slice() || leaf != subject.as_slice();
+                    (key, Some(foreign))
                 }
-                chain.get("key")
+                Issuer::KeySet { keys, .. } => {
+                    let jwk = kid
+                        .filter(|_| !x5c)
+                        .and_then(|kid| keys.get(kid))
+                        .ok_or(AdhocFailure::UnknownKey)?;
+                    let jwk =
+                        PublicJwk::parse(jwk.clone()).map_err(|_| AdhocFailure::UnknownKey)?;
+                    (VerificationKey::of(jwk), None)
+                }
+            };
+            let signed = self.jws.signed();
+            if !modules.haip.verifies().accepts(header.alg())
+                || modules.haip.verify(&key, &signed).is_err()
+            {
+                return Err(AdhocFailure::Signature);
             }
-            Issuer::KeySet { keys, .. } => {
-                let key = header
-                    .get("kid")
-                    .and_then(Node::as_str)
-                    .filter(|_| header.get("x5c").is_none())
-                    .and_then(|kid| keys.get(kid));
-                key.ok_or(AdhocFailure::UnknownKey).map(Some)?
+            let text = |name: &str| self.member(name).and_then(Node::as_str);
+            if text("iss") != Some(binding.document.issuer.iss()) {
+                return Err(AdhocFailure::Issuer);
             }
-        };
-        if !secret
-            .and_then(Node::as_str)
-            .is_some_and(|secret| jws.signed_by(secret))
+            let live = match self.member("exp") {
+                Some(Node::Number(exp)) if exp.is_integer() => {
+                    exp.as_u64().is_some_and(|exp| modules.now.0 < exp)
+                }
+                _ => false,
+            };
+            if !live {
+                return Err(AdhocFailure::Expired);
+            }
+            if text("sub") != Some(binding.document.credential_type)
+                || text("format") != Some(binding.format.as_str())
+            {
+                return Err(AdhocFailure::Binding);
+            }
+            if chain == Some(true) {
+                return Err(AdhocFailure::ForeignChain);
+            }
+            if text("transaction_data_type") != Some(binding.kind) {
+                return Err(AdhocFailure::TransactionType);
+            }
+            Ok(())
+        }
+    }
+
+    impl<'r> Carried<'r> {
+        /// The wallet's in the URI flow: each JWT verified for each credential holding a PaSO
+        /// document (§5.3) before it converts, each refusal kept for the profile; a JWT no
+        /// credential verifies is left out, so it converts to nothing.
+        ///
+        /// # Errors
+        ///
+        /// A [`Fault`]: a credential's PaSO document does not read.
+        pub fn verified<H>(
+            request: &'r Request<'r>,
+            credentials: &[&Credential<'_>],
+            host: &H,
+        ) -> Result<Self, Fault>
+        where
+            H: siros_openid4vp::host::Has<dyn Platform>
+                + siros_openid4vp::host::Has<dyn Haip>
+                + siros_openid4vp::host::Has<dyn IssuerTrust>,
         {
-            return Err(AdhocFailure::Signature);
+            let modules = Modules {
+                haip: siros_openid4vp::host::Has::<dyn Haip>::module(host),
+                trust: siros_openid4vp::host::Has::<dyn IssuerTrust>::module(host),
+                now: siros_openid4vp::host::Has::<dyn Platform>::module(host).now(),
+            };
+            let read = Self::read(request);
+            let mut kept = Vec::new();
+            let mut refusals = Vec::new();
+            for (kind, jwt) in read.read {
+                let mut verified = false;
+                for credential in credentials {
+                    let Some(bytes) = credential.document(DOCUMENT) else {
+                        continue;
+                    };
+                    let node = PasoDocument::json(bytes)
+                        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+                    let document = PasoDocument::read(&node)
+                        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+                    let binding = Binding {
+                        document: &document,
+                        format: &credential.format,
+                        kind,
+                    };
+                    match jwt.verify(&binding, modules) {
+                        Ok(()) => verified = true,
+                        Err(failure) => refusals.push(AdhocRefusal {
+                            jwt: jwt.text().to_owned(),
+                            credential: credential.id.as_str().to_owned(),
+                            failure,
+                        }),
+                    }
+                }
+                if verified {
+                    kept.push((kind, jwt));
+                }
+            }
+            Ok(Self {
+                read: kept,
+                refusals,
+            })
         }
-        let payload = &jws.payload;
-        let text_of = |name: &str| payload.get(name).and_then(Node::as_str);
-        if text_of("iss") != Some(self.document.issuer.iss()) {
-            return Err(AdhocFailure::Issuer);
-        }
-        if text_of("sub") != Some(self.document.credential_type)
-            || text_of("format") != Some(self.format.as_str())
-        {
-            return Err(AdhocFailure::Binding);
-        }
-        if text_of("transaction_data_type") != Some(self.kind) {
-            return Err(AdhocFailure::TransactionType);
-        }
-        let integer_exp = matches!(jws.exp(), Some(Node::Number(exp)) if exp.is_integer());
-        if jws.metadata().and_then(Node::as_object).is_none() || !integer_exp {
-            return Err(AdhocFailure::Payload);
-        }
-        Ok(jws)
     }
 }
+
+#[cfg(feature = "resolve")]
+pub(crate) use verify::{Binding, Modules};

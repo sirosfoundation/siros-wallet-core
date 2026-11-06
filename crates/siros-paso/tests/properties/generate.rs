@@ -346,20 +346,20 @@ pub fn adhoc(rng: &mut ChaCha8Rng, kind: &str) -> String {
     };
     let card = "https://bank.example/sca/card";
     let defect: f64 = rng.random();
-    let (body, secret, kid) = if defect < 0.1 {
-        (payload(card), "issuer-secret-1", "unknown-key")
+    let (body, key, kid) = if defect < 0.1 {
+        (payload(card), &verifier::ISSUER_KEY, "unknown-key")
     } else if defect < 0.2 {
         (
             payload("org.example.card"),
-            "issuer-secret-1",
+            &verifier::ISSUER_KEY,
             "issuer-key-1",
         )
     } else if defect < 0.3 {
-        (payload(card), "another-secret", "issuer-key-1")
+        (payload(card), &verifier::OTHER_KEY, "issuer-key-1")
     } else {
-        (payload(card), "issuer-secret-1", "issuer-key-1")
+        (payload(card), &verifier::ISSUER_KEY, "issuer-key-1")
     };
-    verifier::adhoc_jwt(&body, secret, Some(kid), None).expect("jwt")
+    verifier::adhoc_jwt(&body, key, Some(kid), None).expect("jwt")
 }
 
 impl Case {

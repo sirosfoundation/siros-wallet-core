@@ -3,18 +3,22 @@
 #![allow(dead_code)]
 
 use siros_openid4vp::host::{Haip, Platform, RequestDecryption, Timestamp};
-use siros_paso::{CoseEncrypt, Paso, RandomIds, TestCoseEncrypt, TestPaso, TestRandomIds};
+use siros_paso::{
+    CoseEncrypt, IssuerTrust, Paso, RandomIds, RootCertificate, TestCoseEncrypt, TestIssuerTrust,
+    TestPaso, TestRandomIds,
+};
 use siros_testkit::{TestHaip, TestPlatform, TestRequestDecryption};
 
 siros_testkit::test_host! {
-    /// The platform, PaSO and identifier doubles, HAIP's and the `COSE_Encrypt` module's
-    /// stand-ins.
+    /// The platform, PaSO, identifier and trust store doubles, HAIP's and the `COSE_Encrypt`
+    /// module's stand-ins.
     #[derive(Debug, Clone, Default)]
     pub struct PasoHost {
         handles {
             platform: TestPlatform => Platform,
             paso: TestPaso => Paso,
-            random_ids: TestRandomIds => RandomIds
+            random_ids: TestRandomIds => RandomIds,
+            issuer_trust: TestIssuerTrust => IssuerTrust
         }
         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
         optional { TestCoseEncrypt => CoseEncrypt }
@@ -29,7 +33,8 @@ siros_testkit::test_host! {
         handles {
             platform: TestPlatform => Platform,
             paso: TestPaso => Paso,
-            random_ids: TestRandomIds => RandomIds
+            random_ids: TestRandomIds => RandomIds,
+            issuer_trust: TestIssuerTrust => IssuerTrust
         }
         zero_sized { TestHaip => Haip, TestRequestDecryption => RequestDecryption }
         optional {}
@@ -38,12 +43,16 @@ siros_testkit::test_host! {
 }
 
 impl PasoHost {
-    /// The host whose platform and PaSO module both read the clock at `now`.
+    /// The host whose platform and PaSO module both read the clock at `now`, its trust store
+    /// siros-x509's test root.
     pub fn at(now: Timestamp) -> Self {
         Self {
             platform: TestPlatform::at(now),
             paso: TestPaso::at(now),
             random_ids: TestRandomIds::default(),
+            issuer_trust: TestIssuerTrust {
+                roots: vec![RootCertificate::new(siros_x509::test_util::root())],
+            },
         }
     }
 }

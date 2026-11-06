@@ -316,14 +316,14 @@ pub(super) fn adhoc(rng: &mut ChaCha8Rng, kind: &str) -> String {
         .to_string()
     };
     let defect: f64 = rng.random();
-    let (body, secret, kid) = if defect < 0.1 {
-        (payload(SD_JWT_TYPE), "issuer-secret-1", "unknown-key")
+    let (body, key, kid) = if defect < 0.1 {
+        (payload(SD_JWT_TYPE), &verifier::ISSUER_KEY, "unknown-key")
     } else if defect < 0.2 {
-        (payload(MDOC_TYPE), "issuer-secret-1", "issuer-key-1")
+        (payload(MDOC_TYPE), &verifier::ISSUER_KEY, "issuer-key-1")
     } else if defect < 0.3 {
-        (payload(SD_JWT_TYPE), "another-secret", "issuer-key-1")
+        (payload(SD_JWT_TYPE), &verifier::OTHER_KEY, "issuer-key-1")
     } else {
-        (payload(SD_JWT_TYPE), "issuer-secret-1", "issuer-key-1")
+        (payload(SD_JWT_TYPE), &verifier::ISSUER_KEY, "issuer-key-1")
     };
-    verifier::adhoc_jwt(&body, secret, Some(kid), None).expect("an ad-hoc metadata JWT")
+    verifier::adhoc_jwt(&body, key, Some(kid), None).expect("an ad-hoc metadata JWT")
 }
