@@ -7,7 +7,7 @@
 //! JS futures are single-threaded — `JsFuture` holds an `Rc` — while
 //! the port traits demand `Send` futures (the native SDK runs them on
 //! a multithreaded executor). Every JS await goes through
-//! [`via_spawn_local`]: the non-Send work runs on the JS event loop
+//! [`spawn_js`]: the non-Send work runs on the JS event loop
 //! via `spawn_local`, and a thread-safe oneshot channel hands the
 //! answer back to the engine's executor.
 
