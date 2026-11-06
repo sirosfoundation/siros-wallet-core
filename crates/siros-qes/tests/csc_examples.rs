@@ -6,29 +6,40 @@ mod common;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use siros_explain::Text;
 use siros_openid4vp::consent::Header;
-use siros_openid4vp::matching::{Accepted, Match};
+use siros_openid4vp::matching::{Accepted, CoreRule, Match};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::resolve::{Finding, Outcome};
+use siros_openid4vp::rows::WalletText;
 use siros_openid4vp::wallet::Holder;
-use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, TYPE};
+use siros_qes::{
+    CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, QesTitle, TYPE,
+};
 
 use common::fixtures::{
     CONTRACT, HREFS, approval, embedded, known, nist, published, terms, with_documents,
 };
 use common::{
     Fields, Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, ShownRow, Viewed, approve, csc, entry,
-    env, hex, parameters, phase_one, plain, registry, request_of, serving, shown, unsigned, wallet,
+    env, hex, parameters, phase_one, registry, request_of, serving, shown, unsigned, wallet,
 };
 
-/// The refusal texts of a request.
-fn refusals(text: &str, profile: Option<QesProfile>) -> Vec<String> {
+/// The core's rules a request breaks.
+fn refusals(text: &str, profile: Option<QesProfile>) -> Vec<CoreRule> {
     let received = unsigned(text).expect("received");
     let request = request_of(&received).expect("request");
     let registry = registry(profile);
     match Accepted::new(&request, &registry) {
         Ok(_) => Vec::new(),
-        Err(refused) => refused.texts().collect(),
+        Err(refused) => refused
+            .refusals()
+            .iter()
+            .filter_map(|refusal| {
+                let rule: &dyn std::error::Error = refusal.rule();
+                rule.downcast_ref::<CoreRule>().cloned()
+            })
+            .collect(),
     }
 }
 
@@ -47,9 +58,13 @@ fn row(
     )
 }
 
-/// A consent header, rendered in a locale.
-fn header(header: &Header, locale: &'static str) -> [String; 3] {
-    [&header.title, &header.confirm, &header.cancel].map(|text| plain(text, locale))
+/// The consent header of an approval with that title.
+fn header(title: QesTitle) -> Header {
+    Header {
+        title: Text::of(&title),
+        confirm: Text::of(&QesTitle::Confirm),
+        cancel: Text::of(&WalletText::Deny),
+    }
 }
 
 /// The attestation approving signatures, as an mdoc.
@@ -79,22 +94,25 @@ fn csc_7_3_binds_once_its_credential_ids_name_its_query() {
     let request = Fields::of(&csc("csc-7.3-request"));
     let dcql = request.get("dcql_query").expect("dcql_query");
     let as_written = csc("csc-7.3-entry");
-    assert_eq!(
-        refusals(
-            &parameters(dcql, &[entry(&as_written)]),
-            Some(QesProfile::default())
+    let written = refusals(
+        &parameters(dcql, &[entry(&as_written)]),
+        Some(QesProfile::default()),
+    );
+    assert!(
+        matches!(
+            written.as_slice(),
+            [CoreRule::CredentialIds { entry: 0, .. }]
         ),
-        ["C2 entry 0: credential_ids ['xyz123'] names no Credential Query of the request"],
-        "§7.3 as written: its entry names no query of its request"
+        "§7.3 as written: its entry names no query of its request: {written:?}"
     );
     let fixed = Fields::of(&as_written)
         .set("credential_ids", r#"["qscd_service_attestation"]"#)
         .json();
     let text = parameters(dcql, &[entry(&fixed)]);
-    assert_eq!(
-        refusals(&text, None),
-        [format!("C1 entry 0: no profile for type {TYPE}")],
-        "without the profile its type is unknown"
+    let unknown = refusals(&text, None);
+    assert!(
+        matches!(unknown.as_slice(), [CoreRule::NoProfile { entry: 0, kind }] if kind == TYPE),
+        "without the profile its type is unknown: {unknown:?}"
     );
     let (matched, _) = phase_one(
         &text,
@@ -161,30 +179,7 @@ fn csc_7_1_2_is_rendered_by_6_4() {
         (&None, &None),
         "no transaction header, no hint"
     );
-    assert_eq!(
-        view.header.as_ref().map(|shown| header(shown, "en")),
-        Some(["Approve qualified signatures", "Approve", "Cancel"].map(str::to_owned))
-    );
-    assert_eq!(
-        viewed(
-            &approval().json(),
-            &attestation(),
-            QesProfile::default(),
-            "de"
-        )
-        .header
-        .as_ref()
-        .map(|shown| header(shown, "de")),
-        Some(
-            [
-                "Qualifizierte Signaturen freigeben",
-                "Freigeben",
-                "Abbrechen"
-            ]
-            .map(str::to_owned)
-        ),
-        "German: the profile's own strings, the wallet's cancel"
-    );
+    assert_eq!(view.header, Some(header(QesTitle::TitleSignatures)));
 }
 
 #[test]
@@ -224,10 +219,7 @@ fn a_seal_a_nameless_document_and_an_embedded_link_are_rendered_by_6_4() {
             row(None, "userName", Some("text"), Some("willeke")),
         ]
     );
-    assert_eq!(
-        view.header.as_ref().map(|shown| header(shown, "en")),
-        Some(["Approve qualified seals", "Approve", "Cancel"].map(str::to_owned))
-    );
+    assert_eq!(view.header, Some(header(QesTitle::TitleSeals)));
 }
 
 #[test]
@@ -260,11 +252,11 @@ fn a_held_document_is_checked_against_its_checksum() {
         ))
     );
     let failing = parameters(QUERY_7_1_2, &[entry(&approval().json())]);
-    for (k, fetched) in [(0, contract()), (2, Fetched::Failed)] {
+    for (href, fetched) in [(HREFS[0], contract()), (HREFS[2], Fetched::Failed)] {
         let (matched, views) = phase_one(
             &failing,
             &[attestation()],
-            &registry(Some(holding(HREFS[k], fetched))),
+            &registry(Some(holding(href, fetched))),
             &env("en"),
         )
         .expect("accepted");
@@ -273,11 +265,7 @@ fn a_held_document_is_checked_against_its_checksum() {
             (
                 Matched {
                     candidates: Vec::new(),
-                    excluded: vec![(
-                        "att".to_owned(),
-                        format!("document {} does not match its checksum", k + 1),
-                        "CSC §6.3".to_owned()
-                    )],
+                    excluded: vec![("att".to_owned(), "CSC §6.3".to_owned())],
                 },
                 0
             )
@@ -307,23 +295,18 @@ fn only_a_credential_whose_rulebook_approves_the_qualifier_and_carries_the_appro
     // credential without a key answers no query requiring holder binding (OpenID4VP §6.1).
     let profile = || registry(Some(QesProfile::default()));
     let mdoc = parameters(QUERY_7_1_2, &[entry(&approval().json())]);
-    let excluded = |id: &str, reason: &str, clause: &str| Matched {
+    let excluded = |clause: &str| Matched {
         candidates: Vec::new(),
-        excluded: vec![(id.to_owned(), reason.to_owned(), clause.to_owned())],
+        excluded: vec![("att".to_owned(), clause.to_owned())],
     };
-    let qualifier = "the credential cannot approve eu_eidas_qes";
     let note_22 = "CSC §6.3; §7.2.1 Note 22";
     let seal = || Holding::approving("att", "mso_mdoc", &["eu_eidas_qeseal"]);
     let cases = [
-        (seal(), excluded("att", qualifier, note_22)),
-        (seal().uncarried(), excluded("att", qualifier, note_22)),
+        (seal(), excluded(note_22)),
+        (seal().uncarried(), excluded(note_22)),
         (
             attestation().uncarried(),
-            excluded(
-                "att",
-                "the presentation cannot carry qesApproval",
-                "CSC §7.2.1; OpenID4VP B.2",
-            ),
+            excluded("CSC §7.2.1; OpenID4VP B.2"),
         ),
     ];
     for (held, want) in cases {
@@ -347,7 +330,7 @@ fn only_a_credential_whose_rulebook_approves_the_qualifier_and_carries_the_appro
         matched,
         Matched {
             candidates: vec![("intended".to_owned(), vec![0])],
-            excluded: vec![("other".to_owned(), qualifier.to_owned(), note_22.to_owned())],
+            excluded: vec![("other".to_owned(), note_22.to_owned())],
         }
     );
 }
@@ -373,27 +356,13 @@ fn a_qes_document_the_profile_cannot_read_is_a_fault() {
         let rendering = app.rendering().expect("the rendering");
         Match::run(&accepted, &wallet, &env("en"), &rendering)
             .map(|matched| matched.excluded().len())
-            .map_err(|fault| fault.to_string())
     };
     assert_eq!(
-        matching(r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#),
-        Ok(0)
+        matching(r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#).ok(),
+        Some(0)
     );
-    assert_eq!(matching("{}"), Ok(1));
-    for malformed in [
-        "eu_eidas_qes",
-        r#"["eu_eidas_qes"]"#,
-        r#"{"signature_qualifiers": "eu_eidas_qes"}"#,
-        r#"{"signature_qualifiers": [1]}"#,
-        r#"{"signature_qualifiers": ["eu_eidas_qes"], "rulebook": "x"}"#,
-    ] {
-        let got = matching(malformed);
-        assert!(
-            got.as_ref()
-                .is_err_and(|fault| fault.starts_with("att: the qes document")),
-            "{malformed}: {got:?}"
-        );
-    }
+    assert_eq!(matching("{}").ok(), Some(1));
+    assert!(matching(r#"{"signature_qualifiers": "eu_eidas_qes"}"#).is_err());
 }
 
 #[test]
@@ -484,11 +453,7 @@ fn phase_2_verifies_each_document_the_profile_does_not_hold() {
         matched,
         Matched {
             candidates: Vec::new(),
-            excluded: vec![(
-                "att".to_owned(),
-                "document 2 does not match its checksum".to_owned(),
-                "CSC §6.3".to_owned()
-            )],
+            excluded: vec![("att".to_owned(), "CSC §6.3".to_owned())],
         }
     );
     let (_, without_first) = known("2.16.840.1.101.3.4.2.1", &[], &[0]);

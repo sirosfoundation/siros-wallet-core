@@ -1,17 +1,18 @@
-//! The type's rules (OpenID4VP §5.1 `invalid_transaction_data`): one fixture per rule, and per
-//! way of breaking it, each a change to §7.1.2's entry with the refusal qes.py writes for it.
+//! The type's rules (OpenID4VP §5.1 `invalid_transaction_data`): one fixture per rule, each a
+//! change to §7.1.2's entry.
 
 mod common;
 
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::refusal::ErrorCode;
-use siros_qes::QesProfile;
+use siros_qes::{QesProfile, QesRule};
 
 use common::fixtures::{accepted, naming_twice, rule_table};
 use common::{QUERY_7_1_2, entry, parameters, registry, request_of, unsigned};
 
-/// The refusals of a request of entries for §7.1.2's query: each one's text and code.
-fn refusals(entries: &[String]) -> Vec<(String, ErrorCode)> {
+/// The refusals of a request of entries for §7.1.2's query: each one's rule when it is the
+/// profile's, and its code.
+fn refusals(entries: &[String]) -> Vec<(Option<QesRule>, ErrorCode)> {
     let encoded: Vec<String> = entries.iter().map(|json| entry(json)).collect();
     let text = parameters(QUERY_7_1_2, &encoded);
     let received = unsigned(&text).expect("received");
@@ -22,39 +23,46 @@ fn refusals(entries: &[String]) -> Vec<(String, ErrorCode)> {
         Err(refused) => refused
             .refusals()
             .iter()
-            .map(|refusal| (refusal.text(), refusal.code()))
+            .map(|refusal| {
+                let rule: &dyn std::error::Error = refusal.rule();
+                (rule.downcast_ref::<QesRule>().cloned(), refusal.code())
+            })
             .collect(),
     }
 }
 
 #[test]
 fn each_rule_of_the_type_refuses_its_entry() {
-    // Catches a rule of qes.py's `problems` the port leaves out, words otherwise or codes
-    // otherwise, and the order the rules run in.
-    for (json, problems) in rule_table() {
-        let want: Vec<(String, ErrorCode)> = problems
-            .iter()
-            .map(|problem| {
-                (
-                    format!("QES entry 0: {problem}"),
-                    ErrorCode::INVALID_TRANSACTION_DATA,
-                )
-            })
-            .collect();
-        assert_eq!(refusals(std::slice::from_ref(&json)), want, "{json}");
+    for (json, broken) in rule_table() {
+        let got = refusals(std::slice::from_ref(&json));
+        let [(Some(QesRule::Entry { entry, problem }), code)] = got.as_slice() else {
+            panic!("{json}: {got:?}")
+        };
+        assert_eq!(entry.get(), 0, "{json}");
+        assert_eq!(*code, ErrorCode::INVALID_TRANSACTION_DATA, "{json}");
+        assert!(broken(problem), "{json}: {problem:?}");
     }
 }
 
 #[test]
 fn one_presentation_approves_one_request() {
     // Catches two entries of the type naming one query passing, or a refusal per pair.
+    let named: Vec<(Vec<usize>, String, ErrorCode)> = refusals(&naming_twice())
+        .into_iter()
+        .filter_map(|(rule, code)| match rule {
+            Some(QesRule::OneRequest { entries, query }) => Some((
+                entries.entries().iter().map(|at| at.get()).collect(),
+                query,
+                code,
+            )),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        refusals(&naming_twice())
-            .into_iter()
-            .filter(|(text, _)| text.starts_with("QES"))
-            .collect::<Vec<_>>(),
+        named,
         [(
-            "QES entries [0, 1, 2] name xyz123: one presentation approves one request".to_owned(),
+            vec![0, 1, 2],
+            "xyz123".to_owned(),
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );
