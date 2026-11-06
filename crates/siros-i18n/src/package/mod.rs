@@ -148,8 +148,7 @@ impl<'p> Package<'p> {
     }
 
     /// The identifiers of the compiled messages its main and crate modules hold, each once,
-    /// sorted: what an auditor of a registration's package reads. A defined module's keys are its
-    /// converter's.
+    /// sorted. A defined module's keys are its converter's.
     ///
     /// # Errors
     ///
