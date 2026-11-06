@@ -651,6 +651,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
+name = "coset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eb98d5e9155e2cf7cd942c8b3033097d4563b6fb0a00b9caecb74669555c058"
+dependencies = [
+ "ciborium",
+ "ciborium-io",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1092,6 +1102,9 @@ name = "engine-adapter-wasm"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
+ "ciborium",
+ "coset",
  "engine-conformance",
  "engine-core",
  "engine-ports",
@@ -1104,10 +1117,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "siros-codec",
- "siros-dcql",
- "siros-mdoc",
- "siros-sdjwt",
+ "sha2 0.11.1",
  "thiserror 2.0.21",
  "tokio",
  "wasm-bindgen",

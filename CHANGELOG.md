@@ -96,6 +96,18 @@ legacy WebSocket protocol (the plan and its record:
   `siros-zkp-catalogues` (every rulebook as modules and features). nym_auth is
   the first rulebook in the catalogue crate; further rulebooks, credential
   forms and systems land in it rather than in new crates.
+- `engine-adapter-wasm`'s mini host builds its presentations itself and
+  depends on none of `siros-codec`, `siros-dcql`, `siros-sdjwt` and
+  `siros-mdoc`. The PID's holds the disclosures of the claims paths the
+  match named (OpenID4VP §7, resolved as §7.2 processes them) and the KB-JWT
+  over `iat`, `aud`, `nonce` and `sd_hash` (RFC 9901 §4.3), with `base64` for
+  the segments. The mDL's is the DeviceResponse of the selected items with
+  the device signature over the OpenID4VPHandover's session transcript
+  (OpenID4VP B.2.6.1); `ciborium` writes its CBOR in the core deterministic
+  encoding (RFC 8949 §4.2.1). A PID signing key without an x5c chain leaves
+  the host without an mDL. `MiniHost::new` fails when the mDL's issuance
+  fails, an x5c that is no array of standard-base64 strings included, and
+  when a public key does not serialize.
 
 ### Not ported
 
