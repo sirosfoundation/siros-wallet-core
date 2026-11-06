@@ -2,7 +2,9 @@
 //! rules (OpenID4VP §5.1: unknown members, wrong types, invalid values, missing required
 //! members).
 
-use siros_explain::{Count, Explain};
+use std::fmt;
+
+use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::json::{Node, Object};
 
 use crate::binding::ApprovalHash;
@@ -22,7 +24,7 @@ const KNOWN: [&str; 7] = [
 /// A rule of the type an entry breaks.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "qes.problem")]
-pub(crate) enum Problem {
+pub enum Problem {
     /// The entry is no JSON object, which OpenID4VP §5.1 refuses first.
     #[error("the entry is not a JSON object")]
     NotAnObject,
@@ -47,13 +49,39 @@ pub(crate) enum Problem {
     /// A document is no object of the document members with their types, holding `hash` and
     /// `hashType`.
     #[error("documentInfos[{0}] is not a document with hash and hashType")]
-    NotADocument(#[explain(name = "document")] usize),
+    NotADocument(#[explain(name = "document")] DocumentAt),
     /// A document's access is of type `OTP` without its `oneTimePassword`.
     #[error("documentInfos[{0}]: an OTP access without its oneTimePassword")]
-    OtpWithoutPassword(#[explain(name = "document")] usize),
+    OtpWithoutPassword(#[explain(name = "document")] DocumentAt),
     /// `locations` is no array of strings.
     #[error("locations is not an array of strings")]
     Locations,
+}
+
+/// A document's position in `documentInfos`, from 0 as the rules name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentAt(usize);
+
+impl DocumentAt {
+    /// The position.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for DocumentAt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for DocumentAt {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
 }
 
 /// `numSignatures`: a positive integer.
@@ -93,7 +121,7 @@ pub(crate) enum Framework {
 
 /// A CSC API `signatureQualifier` the wallet renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SignatureQualifier {
+pub enum SignatureQualifier {
     /// `eu_eidas_qes`.
     EuEidasQes,
     /// `eu_eidas_qeseal`.
@@ -110,7 +138,8 @@ impl SignatureQualifier {
     }
 
     /// The value as the CSC API writes it.
-    pub(crate) const fn as_str(self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::EuEidasQes => "eu_eidas_qes",
             Self::EuEidasQeseal => "eu_eidas_qeseal",
@@ -130,6 +159,21 @@ impl SignatureQualifier {
         match self {
             Self::EuEidasQes | Self::EuEidasQeseal => Framework::Eidas,
         }
+    }
+}
+
+impl fmt::Display for SignatureQualifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A qualifier is named by the CSC API's value in a message.
+impl IntoArg for SignatureQualifier {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.as_str()
     }
 }
 
@@ -184,7 +228,7 @@ const DOCUMENT: [(&str, Kind); 6] = [
 impl<'e> DocumentInfo<'e> {
     /// The document at `at`: an object of the document members, each of its type, holding `hash`
     /// and `hashType`; an access of type `OTP` holds its `oneTimePassword` as a string.
-    fn parse(value: &'e Node<'_>, at: usize) -> Result<Self, Problem> {
+    fn parse(value: &'e Node<'_>, at: DocumentAt) -> Result<Self, Problem> {
         let not_a_document = || Problem::NotADocument(at);
         let object = value.as_object().ok_or_else(not_a_document)?;
         let well_typed = object.members().iter().all(|member| {
@@ -312,7 +356,7 @@ fn documents<'e>(object: &'e Object<'_>) -> Result<Vec<DocumentInfo<'e>>, Vec<Pr
     let mut documents = Vec::new();
     let mut problems = Vec::new();
     for (at, item) in items.iter().enumerate() {
-        match DocumentInfo::parse(item, at) {
+        match DocumentInfo::parse(item, DocumentAt(at)) {
             Ok(document) => documents.push(document),
             Err(problem) => problems.push(problem),
         }

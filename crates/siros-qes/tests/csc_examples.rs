@@ -11,7 +11,7 @@ use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::resolve::{Finding, Outcome};
 use siros_openid4vp::wallet::Holder;
-use siros_qes::{CLAIM, FailedDocument, FailedDocuments, Fetched, NAMESPACE, QesProfile, TYPE};
+use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, TYPE};
 
 use common::fixtures::{
     CONTRACT, HREFS, approval, embedded, known, nist, published, terms, with_documents,
@@ -235,7 +235,8 @@ fn a_held_document_is_checked_against_its_checksum() {
     // Catches §6.3 and §6.4 on the documents the wallet holds: a match shows the integrity
     // checked; a mismatch or a failed fetch aborts, the credential excluded; a document without
     // a label says so.
-    let holding = |href: &str, fetched: Fetched| QesProfile::new([(href.to_owned(), fetched)]);
+    let holding =
+        |href: &str, fetched: Fetched| QesProfile::new([(DocumentHref::new(href), fetched)]);
     let contract = || Fetched::Content(CONTRACT.to_vec());
     let rows = shown(
         viewed(
@@ -456,28 +457,25 @@ fn phase_2_verifies_each_document_the_profile_does_not_hold() {
             other => panic!("the record's revalidation: {other:?}"),
         })
         .collect();
-    let failed: Vec<Vec<FailedDocument>> = profile_findings
+    let failed: Vec<(&str, &Fetched)> = profile_findings
         .iter()
-        .map(|finding| {
+        .flat_map(|finding| {
             finding
                 .data::<FailedDocuments>()
                 .expect("QES's finding")
                 .documents()
-                .to_vec()
         })
+        .map(|document| (document.href().as_str(), document.fetched()))
         .collect();
     assert_eq!(
         failed,
-        [vec![
-            FailedDocument {
-                href: HREFS[1].to_owned(),
-                fetched: Fetched::Content([published(1), b"!".to_vec()].concat()),
-            },
-            FailedDocument {
-                href: HREFS[2].to_owned(),
-                fetched: Fetched::Failed,
-            },
-        ]]
+        [
+            (
+                HREFS[1],
+                &Fetched::Content([published(1), b"!".to_vec()].concat())
+            ),
+            (HREFS[2], &Fetched::Failed),
+        ]
     );
     let informed = registry.informed(&profile_findings).expect("informed");
     let (matched, _) =
@@ -495,7 +493,7 @@ fn phase_2_verifies_each_document_the_profile_does_not_hold() {
     );
     let (_, without_first) = known("2.16.840.1.101.3.4.2.1", &[], &[0]);
     let holding_first = common::registry(Some(QesProfile::new([(
-        HREFS[0].to_owned(),
+        DocumentHref::new(HREFS[0]),
         Fetched::Content(published(0)),
     )])));
     let site = serving(without_first);

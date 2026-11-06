@@ -311,7 +311,7 @@ fn found(finding: &ProfileFinding) -> Found {
     Found::Qes(
         qes.documents()
             .iter()
-            .map(|document| document.href.clone())
+            .map(|document| document.href().as_str().to_owned())
             .collect(),
     )
 }

@@ -16,7 +16,7 @@ use crate::FAULT;
 use crate::approval::{
     ApprovalRequest, Creation, DocumentInfo, Framework, Link, SignatureQualifier,
 };
-use crate::documents::Fetched;
+use crate::documents::{DocumentHref, Fetched};
 use crate::rules::Excluded;
 
 /// The consent header's texts of the profile's own: messages of the crate's module.
@@ -112,7 +112,7 @@ fn own(text: QesText) -> RequestText {
 /// fails its checksum (§6.3, abort): the first such document in array order.
 pub(crate) fn render(
     approval: &ApprovalRequest<'_>,
-    held: &FxHashMap<String, Fetched>,
+    held: &FxHashMap<DocumentHref, Fetched>,
 ) -> Result<Rendered, NoCandidate> {
     let qualifier = approval.qualifier;
     let mut rows = vec![
@@ -144,7 +144,7 @@ pub(crate) fn render(
 fn document_rows(
     document: &DocumentInfo<'_>,
     n: usize,
-    held: &FxHashMap<String, Fetched>,
+    held: &FxHashMap<DocumentHref, Fetched>,
 ) -> Result<Vec<Row<RequestText>>, NoCandidate> {
     let mut rows = vec![match document.label {
         Some(label) => Row::new(own(QesText::Name), written(label)),

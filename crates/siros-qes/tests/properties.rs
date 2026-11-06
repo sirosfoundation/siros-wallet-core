@@ -25,7 +25,7 @@ use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::{ProfileFinding, Registry};
 use siros_openid4vp::resolve::{Finding, Outcome};
-use siros_qes::{CLAIM, FailedDocuments, Fetched, NAMESPACE, QesProfile};
+use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile};
 use siros_testkit::Published;
 use siros_testkit::TestHost;
 
@@ -152,7 +152,7 @@ impl Case {
         QesProfile::new(
             self.held
                 .iter()
-                .map(|(k, fetched)| (DOCS[*k].to_owned(), fetched.clone())),
+                .map(|(k, fetched)| (DocumentHref::new(DOCS[*k]), fetched.clone())),
         )
     }
 
@@ -284,11 +284,11 @@ fn the_profile_keeps_the_properties_the_model_states() {
                     .filter_map(|finding| finding.data::<FailedDocuments>())
                     .flat_map(|failed| failed.documents())
                     .map(|document| {
-                        let content = match &document.fetched {
+                        let content = match document.fetched() {
                             Fetched::Content(content) => Some(content.clone()),
                             Fetched::Failed => None,
                         };
-                        (document.href.clone(), content)
+                        (document.href().as_str().to_owned(), content)
                     })
                     .collect();
                 let want: Vec<(String, Option<Vec<u8>>)> = failing
@@ -370,7 +370,7 @@ fn fails_on(
             | Finding::Format { .. } => None,
         })
         .flat_map(FailedDocuments::documents)
-        .any(|document| document.href == href && document.fetched == Fetched::Failed)
+        .any(|document| document.href().as_str() == href && *document.fetched() == Fetched::Failed)
 }
 
 /// What is published at the documents' hrefs.
