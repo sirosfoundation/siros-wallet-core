@@ -6,8 +6,8 @@
 //! differ from its record's, a card text the package does not hold, and a package registered
 //! under other lists.
 
-use siros_credman::register::{Registered, Registration, package};
-use siros_credman::{EmitError, Emitted, NotEmitted, Shown, emit, held};
+use siros_credman::register::{Registered, RegisteredCard, Registration, package};
+use siros_credman::{EmitError, Emitted, NotEmitted, RefusedEntry, Shown, emit, held};
 use siros_explain::{DeclaredModule, ModuleId, RequestText, Text};
 use siros_i18n::{BuiltPackage, Formats, Module, Package};
 use siros_openid4vp::consent::{Card, ConsentEntry, Header};
@@ -152,7 +152,7 @@ fn declared(module: &Module) -> Registered<'_> {
 /// under `env`.
 fn registered(
     modules: &[Module],
-    credentials: &[(&str, &Card)],
+    credentials: &[RegisteredCard<'_>],
     statics: &[&Card],
     env: &Env,
 ) -> BuiltPackage {
@@ -173,10 +173,13 @@ fn registered(
 }
 
 /// Each view's credential and card.
-fn cards<'v>(views: &'v Views<'_>) -> Vec<(&'v str, &'v Card)> {
+fn cards<'v>(views: &'v Views<'_>) -> Vec<RegisteredCard<'v>> {
     views
         .iter()
-        .map(|view| (view.record.credential.as_str(), view.entry.card()))
+        .map(|view| RegisteredCard {
+            credential: view.record.credential,
+            card: view.entry.card(),
+        })
         .collect()
 }
 
@@ -286,7 +289,7 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                             for (choice, emitted) in slot.iter().zip(choices) {
                                 match emitted {
                                     Emitted::Entry { id, shown } => {
-                                        assert_eq!(id, choice.id());
+                                        assert_eq!(id.as_str(), choice.id());
                                         let title = match shown {
                                             Shown::Standard(entry) => &entry.title,
                                             Shown::Payment(entry) => &entry.method_name,
@@ -347,7 +350,10 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
             emit(shown, &rendering, &env).expect("no fault")
         });
         assert!(
-            matches!(emission.refused(), [(id, NotEmitted::Field(_))] if id == "notice"),
+            matches!(
+                emission.refused(),
+                [RefusedEntry { id, reason: NotEmitted::Field(_) }] if id.as_str() == "notice"
+            ),
             "{:?}",
             emission.refused()
         );
@@ -357,9 +363,9 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
             OnRenderError::Rendered => {
                 assert!(emitted.iter().any(|e| matches!(e, Emitted::Entry { .. })));
                 assert!(
-                    emitted
-                        .iter()
-                        .all(|e| !matches!(e, Emitted::Entry { id, .. } if id == "notice"))
+                    emitted.iter().all(
+                        |e| !matches!(e, Emitted::Entry { id, .. } if id.as_str() == "notice")
+                    )
                 );
             }
         }
@@ -415,15 +421,18 @@ fn the_emission_refuses_other_inputs_unheld_cards_and_other_lists() {
         (emit(shown, &rendering, &env), id)
     });
     assert!(
-        matches!(&inputs, (Err(EmitError::Inputs(entry)), id) if entry == id.as_str()),
+        matches!(&inputs, (Err(EmitError::Inputs(entry)), id) if entry.as_str() == id.as_str()),
         "{:?}",
         inputs.0
     );
     // The credential registered with another card.
     let unheld = case.shown(&live_rendering, &env, &[], |views, _| {
-        let credentials: Vec<(&str, &Card)> = cards(views)
+        let credentials: Vec<RegisteredCard<'_>> = cards(views)
             .into_iter()
-            .map(|(id, _)| (id, &other))
+            .map(|registered| RegisteredCard {
+                card: &other,
+                ..registered
+            })
             .collect();
         registered(&modules, &credentials, &[], &env)
     });
