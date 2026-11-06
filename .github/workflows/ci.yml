@@ -46,6 +46,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - run: cargo fmt --all -- --check
+      - name: Tests outside the source files, no message source in the crates
+        run: scripts/check_layout.sh
 
   clippy:
     name: Clippy

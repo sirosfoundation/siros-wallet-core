@@ -114,6 +114,7 @@ use). The gates CI holds:
 
 ```sh
 cargo fmt --all -- --check
+scripts/check_layout.sh   # no test code under src/, no message source outside the test app and tests/
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
