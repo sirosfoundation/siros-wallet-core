@@ -399,3 +399,51 @@ fn the_format_display_comes_before_openid4vci_per_language() {
     let claiming = r#"{"vct": "t", "issuer_display": [{"name": "Spoof", "locale": "de"}]}"#;
     assert_eq!(drawn(&view(claiming), &paths, &["de"]).subtitle, None);
 }
+
+/// A translation that covers some claims, under a loaded module: the module's first tag shows what
+/// the kit's rule gives over the wallet's list, here `de` where it answers and `en` where it does
+/// not.
+#[test]
+fn a_partial_translation_shows_the_next_language_of_the_list() {
+    let document = r#"{"display": [{"name": "Card", "locale": "en"}],
+        "claims": [
+          {"path": ["a"], "display": [{"label": "First", "locale": "en"},
+                                      {"label": "Vorname", "locale": "de"}]},
+          {"path": ["b"], "display": [{"label": "Bee", "locale": "en"}]}]}"#;
+    let parsed = Node::parse(document).expect("metadata");
+    let digest = type_metadata::module_of(&parsed);
+    let hex: String = digest
+        .digest()
+        .bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let view = format!(
+        r#"{{"type": "t", "metadata": {document}, "values": {{"a": "x", "b": "y"}}, "display_module": "{hex}"}}"#
+    );
+    let locales = ["de", "en"];
+    let priority: Vec<LocaleTag> = locales
+        .iter()
+        .map(|tag| LocaleTag::parse(tag).expect("tag"))
+        .collect();
+    let main = main_locales().expect("the main module's locales");
+    let form =
+        type_metadata::convert(&parsed, &main, &priority, LanguagePolicy::Any).expect("the module");
+    let crates = CrateSource::openid4vp().load().expect("the crate module");
+    let main_module = main_module().expect("the main module");
+    let app = App::new(&[&main_module, &crates], &[&form]).expect("the package");
+    let rendering = app.rendering().expect("the rendering");
+    let card = drawn(&view, &[r#"["a"]"#, r#"["b"]"#], &locales);
+    let env = env(&locales, Vec::new()).expect("env");
+    let renderer = rendering
+        .renderer(None, Some(digest), None, &env)
+        .expect("no fault")
+        .expect("a language");
+    assert_eq!(renderer.plain(&card.title).expect("title"), "Card");
+    let labels: Vec<String> = card
+        .rows
+        .iter()
+        .map(|row| renderer.plain(&row.label).expect("label"))
+        .collect();
+    assert_eq!(labels, ["Vorname", "Bee"]);
+}
