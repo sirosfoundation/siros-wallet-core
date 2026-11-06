@@ -7,7 +7,7 @@ use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, Para
 
 use crate::compile::{self, Site};
 use crate::defined::MainLocale;
-use crate::error::{ModuleError, OptionRefusal};
+use crate::error::{DeclaredId, ModuleError, ModuleKey, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
 };
@@ -31,7 +31,7 @@ pub struct Declaration {
 /// parameters in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Declared {
-    pub(crate) id: String,
+    pub(crate) id: DeclaredId,
     text: Option<&'static str>,
     pub(crate) params: Vec<ParamForm>,
 }
@@ -45,22 +45,31 @@ impl Declaration {
     ///
     /// [`ModuleError::Declaration`] for two different messages under one identifier.
     pub fn new(messages: Vec<Message>) -> Result<Self, ModuleError> {
-        Self::of(messages.iter().map(|message| Declared {
-            id: message.id().as_str().to_owned(),
-            text: message.text(),
-            params: ParamForm::of_message(message),
-        }))
+        let mut held: Vec<Declared> = Vec::with_capacity(messages.len());
+        for message in &messages {
+            let declared = Declared {
+                id: message.id().into(),
+                text: message.text(),
+                params: ParamForm::of_message(message),
+            };
+            match held.iter().find(|earlier| earlier.id == declared.id) {
+                Some(earlier) if *earlier == declared => {}
+                Some(_) => return Err(ModuleError::Declaration(message.id())),
+                None => held.push(declared),
+            }
+        }
+        Ok(Self::sorted(held))
     }
 
     /// The declaration a converter writes for a defined module: each key with its parameters,
     /// each under its name, in order. Its keys are distinct.
     #[must_use]
     pub fn defined(messages: Keyed<DefinedKey, Keyed<ParamName, ParamKind>>) -> Self {
-        let mut held: Vec<Declared> = messages
+        let held = messages
             .entries()
             .iter()
             .map(|entry| Declared {
-                id: entry.key().as_str().to_owned(),
+                id: entry.key().clone().into(),
                 text: None,
                 params: entry
                     .value()
@@ -70,26 +79,17 @@ impl Declaration {
                     .collect(),
             })
             .collect();
-        held.sort_by(|a, b| a.id.cmp(&b.id));
-        Self { messages: held }
+        Self::sorted(held)
     }
 
-    fn of(messages: impl Iterator<Item = Declared>) -> Result<Self, ModuleError> {
-        let mut held: Vec<Declared> = Vec::new();
-        for message in messages {
-            match held.iter().find(|earlier| earlier.id == message.id) {
-                Some(earlier) if *earlier == message => {}
-                Some(_) => return Err(ModuleError::Declaration(message.id)),
-                None => held.push(message),
-            }
-        }
-        held.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(Self { messages: held })
+    fn sorted(mut messages: Vec<Declared>) -> Self {
+        messages.sort_by(|a, b| a.id.as_str().cmp(b.id.as_str()));
+        Self { messages }
     }
 
     /// The declared identifiers, sorted.
-    pub fn ids(&self) -> impl Iterator<Item = &str> {
-        self.messages.iter().map(|message| message.id.as_str())
+    pub fn ids(&self) -> impl Iterator<Item = &DeclaredId> {
+        self.messages.iter().map(|message| &message.id)
     }
 }
 
@@ -201,10 +201,11 @@ impl Module {
             ModuleId::Crate(domain) => format!("{}.", domain.as_str()),
             ModuleId::Main | ModuleId::Defined(_) => String::new(),
         };
-        let mut keyed: Vec<Entry<&str, &Declared>> = Vec::with_capacity(declared.messages.len());
+        let mut keyed: Vec<Entry<ModuleKey, &Declared>> =
+            Vec::with_capacity(declared.messages.len());
         for message in &declared.messages {
-            let key = message.id.strip_prefix(prefix.as_str());
-            let key = key.ok_or_else(|| ModuleError::Outside(message.id.clone()))?;
+            let key = ModuleKey::of(&message.id, &prefix)
+                .ok_or_else(|| ModuleError::Outside(message.id.clone()))?;
             keyed.push(Entry::new(key, message));
         }
         let mut resources: Vec<Resource> = Vec::with_capacity(sources.len());
@@ -311,11 +312,10 @@ impl Module {
 /// One locale's messages, each parsed, checked and resolved.
 fn resolve<'a>(
     resource: &'a Resource,
-    keyed: &[Entry<&'a str, &'a Declared>],
+    keyed: &'a [Entry<ModuleKey, &'a Declared>],
     compilers: &Compilers,
 ) -> Result<Vec<compile::Resolved<'a>>, ModuleError> {
     let locale = &resource.locale;
-    let at = |key: &str| (key.to_owned(), locale.clone());
     for (index, entry) in resource.messages.iter().enumerate() {
         if resource
             .messages
@@ -323,32 +323,43 @@ fn resolve<'a>(
             .take(index)
             .any(|earlier| earlier.key == entry.key)
         {
-            let (key, locale) = at(&entry.key);
-            return Err(ModuleError::Repeated { key, locale });
+            return Err(ModuleError::Repeated {
+                key: entry.key.clone(),
+                locale: locale.clone(),
+            });
         }
-        if keyed.iter().all(|declared| *declared.key() != entry.key) {
-            let (key, locale) = at(&entry.key);
-            return Err(ModuleError::Undeclared { key, locale });
+        if keyed
+            .iter()
+            .all(|declared| declared.key().as_str() != entry.key)
+        {
+            return Err(ModuleError::Undeclared {
+                key: entry.key.clone(),
+                locale: locale.clone(),
+            });
         }
     }
     let mut resolved = Vec::with_capacity(keyed.len());
     for declared in keyed {
-        let key = *declared.key();
-        let Some(entry) = resource.messages.iter().find(|entry| entry.key == key) else {
-            let (key, locale) = at(key);
-            return Err(ModuleError::Missing { key, locale });
+        let key = declared.key();
+        let Some(entry) = resource
+            .messages
+            .iter()
+            .find(|entry| entry.key == key.as_str())
+        else {
+            return Err(ModuleError::Missing {
+                key: key.clone(),
+                locale: locale.clone(),
+            });
         };
-        let message = parse::parse(&entry.value).map_err(|error| {
-            let (key, locale) = at(key);
-            ModuleError::Syntax {
-                key,
-                locale,
-                at: error.0,
-            }
+        let message = parse::parse(&entry.value).map_err(|error| ModuleError::Syntax {
+            key: key.clone(),
+            locale: locale.clone(),
+            at: error.0,
         })?;
-        valid::check(&message).map_err(|rule| {
-            let (key, locale) = at(key);
-            ModuleError::Invalid { key, locale, rule }
+        valid::check(&message).map_err(|rule| ModuleError::Invalid {
+            key: key.clone(),
+            locale: locale.clone(),
+            rule,
         })?;
         let site = Site {
             key,

@@ -146,9 +146,11 @@ pub use defined::{
     AsciiKey, Body, DefinedBuilder, DefinedError, DefinedForm, MainLocale, Part, Variant,
 };
 #[cfg(feature = "render")]
-pub use error::{FormatFailure, ModuleName, NoLanguage, PackageError, RenderError};
+pub use error::{DeclaredId, FormatFailure, ModuleName, NoLanguage, PackageError, RenderError};
 #[cfg(feature = "load")]
-pub use error::{ModuleError, OptionRefusal, Refusal, RefusedOption, ResourceRule, Validity};
+pub use error::{
+    ModuleError, ModuleKey, OptionRefusal, Refusal, RefusedOption, ResourceRule, Validity,
+};
 #[cfg(feature = "render")]
 pub use form::{BareKind, LanguagePolicy};
 #[cfg(feature = "load")]

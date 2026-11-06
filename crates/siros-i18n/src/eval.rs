@@ -336,7 +336,7 @@ impl Renderer<'_> {
         Ok(match text {
             Text::Absent => {
                 return Err(RenderError::AbsentArgument {
-                    argument: param.name.as_str().to_owned(),
+                    argument: param.name.clone(),
                 });
             }
             Text::Value(value) => Held::Value(value),

@@ -5,7 +5,7 @@
 use std::fmt;
 
 #[cfg(feature = "render")]
-use siros_explain::{IntoArg, MessageId, ModuleId, kind};
+use siros_explain::{DefinedKey, IntoArg, MessageId, ModuleId, ParamName, kind};
 
 #[cfg(feature = "render")]
 use crate::form::BareKind;
@@ -38,10 +38,10 @@ pub enum ModuleError {
     Locale(#[explain(name = "locale")] LocaleTag),
     /// The declaration holds a message outside the module's domain.
     #[error("the declared message {0} lies outside the module's domain")]
-    Outside(#[explain(name = "message")] String),
+    Outside(#[explain(name = "message")] DeclaredId),
     /// The declaration holds two different messages under one identifier.
     #[error("the declaration of {0} holds two messages")]
-    Declaration(#[explain(name = "message")] String),
+    Declaration(#[explain(name = "message")] MessageId),
     /// A source gives a key twice.
     #[error("{key} is given twice in {locale}")]
     Repeated {
@@ -54,7 +54,7 @@ pub enum ModuleError {
     #[error("{key} has no message in {locale}")]
     Missing {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
     },
@@ -70,7 +70,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} is no MessageFormat 2 message: byte {at}")]
     Syntax {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The offset, in bytes, where the grammar fails.
@@ -80,7 +80,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} is no valid MessageFormat 2 message: {rule}")]
     Invalid {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The rule.
@@ -90,7 +90,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} names {argument}, which its key does not declare")]
     Argument {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The argument.
@@ -100,7 +100,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} calls :{function}, which no registered format module provides")]
     Function {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The function.
@@ -110,7 +110,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} calls {{{call}}}: {refusal}")]
     Kind {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The call: its operand as written, when it has one, and its function, the implicit one
@@ -135,7 +135,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} names the markup {markup}")]
     Markup {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The markup's name.
@@ -145,7 +145,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} gives the markup {markup} options")]
     MarkupOption {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The markup's name.
@@ -156,7 +156,7 @@ pub enum ModuleError {
     #[error("{key} in {locale} leaves the markup {markup} unbalanced")]
     Nesting {
         /// The key.
-        key: String,
+        key: ModuleKey,
         /// The locale.
         locale: LocaleTag,
         /// The markup's name.
@@ -445,7 +445,7 @@ pub enum RenderError {
     #[error("the message shows {argument}, which the query leaves out")]
     AbsentArgument {
         /// The argument.
-        argument: String,
+        argument: ParamName,
     },
     /// The text is an optional value the input left out.
     #[error("the text is a value the input left out")]
@@ -518,7 +518,7 @@ pub enum PackageError {
         /// The module.
         module: ModuleName,
         /// The key.
-        key: MessageId,
+        key: DeclaredId,
     },
     /// A key the module does not hold.
     #[error("the module {module} holds no key {key}")]
@@ -526,7 +526,7 @@ pub enum PackageError {
         /// The module.
         module: ModuleName,
         /// The key.
-        key: MessageId,
+        key: DeclaredId,
     },
     /// The bytes run past the package's last entry or end before it.
     #[error("the package's bytes do not end where its last entry ends")]
@@ -574,6 +574,102 @@ impl NoLanguage {
             module: ModuleName::of(selected.module()),
             locale: selected.locale().clone(),
         }
+    }
+}
+
+/// A declared message's identifier: a type's [`MessageId`], or a converter's [`DefinedKey`].
+#[cfg(feature = "render")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DeclaredId {
+    /// A message a type declares.
+    Message(MessageId),
+    /// A defined module's key.
+    Defined(DefinedKey),
+}
+
+#[cfg(feature = "render")]
+impl DeclaredId {
+    /// Its text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Message(id) => id.as_str(),
+            Self::Defined(key) => key.as_str(),
+        }
+    }
+}
+
+#[cfg(feature = "render")]
+impl From<MessageId> for DeclaredId {
+    fn from(id: MessageId) -> Self {
+        Self::Message(id)
+    }
+}
+
+#[cfg(feature = "render")]
+impl From<DefinedKey> for DeclaredId {
+    fn from(key: DefinedKey) -> Self {
+        Self::Defined(key)
+    }
+}
+
+#[cfg(feature = "render")]
+impl fmt::Display for DeclaredId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "render")]
+impl IntoArg for DeclaredId {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.as_str()
+    }
+}
+
+/// A message's key in its module, one or more of [`MessageId`]'s tokens: a crate module's message
+/// after the domain, another module's whole identifier.
+#[cfg(feature = "load")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ModuleKey(DefinedKey);
+
+#[cfg(feature = "load")]
+impl ModuleKey {
+    /// The key; `None` for a text that is no tokens.
+    #[must_use]
+    pub fn parse(key: String) -> Option<Self> {
+        DefinedKey::parse(key).map(Self)
+    }
+
+    /// The key of `id` in a module whose identifiers start with `prefix`; `None` for an identifier
+    /// outside it.
+    pub(crate) fn of(id: &DeclaredId, prefix: &str) -> Option<Self> {
+        let key = id.as_str().strip_prefix(prefix)?;
+        Self::parse(key.to_owned())
+    }
+
+    /// Its text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+#[cfg(feature = "load")]
+impl fmt::Display for ModuleKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[cfg(feature = "load")]
+impl IntoArg for ModuleKey {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.as_str()
     }
 }
 

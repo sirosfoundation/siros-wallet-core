@@ -7,8 +7,9 @@ use siros_explain::{
     MetadataDigest, ModuleId, Names, ParamKind, ParamName, Query, Text, Value, checked,
 };
 use siros_i18n::{
-    Amounts, Bidi, BuiltPackage, Declaration, Formats, Formatted, LocaleTag, Module, ModuleError,
-    OnRenderError, Package, PackageBuilder, Refusal, RenderError, RenderOptions, Screen, Validity,
+    Amounts, Bidi, BuiltPackage, Declaration, DeclaredId, Formats, Formatted, LocaleTag, Module,
+    ModuleError, OnRenderError, Package, PackageBuilder, Refusal, RenderError, RenderOptions,
+    Screen, Validity,
 };
 
 use crate::cldr;
@@ -160,7 +161,7 @@ fn render_error(error: &RenderError) -> Option<&'static str> {
 fn package(
     module: &Module,
     tag: &LocaleTag,
-    keys: Option<&[MessageId]>,
+    keys: Option<&[DeclaredId]>,
     held: Option<&Held<'_>>,
 ) -> Result<BuiltPackage, String> {
     let mut builder = PackageBuilder::new(vec![tag.clone()]).map_err(|e| e.to_string())?;
@@ -211,7 +212,7 @@ fn packaged(
     tag: &LocaleTag,
     held: &Held<'_>,
 ) -> Result<Result<Formatted, RenderError>, String> {
-    let keys = &[checked!(MessageId, "conformance.message")][..];
+    let keys = &[DeclaredId::from(checked!(MessageId, "conformance.message"))][..];
     let compiled = package(module, tag, Some(keys), None)?;
     if package(module, tag, Some(keys), None)? != compiled {
         return Err("a package built twice differs".to_owned());

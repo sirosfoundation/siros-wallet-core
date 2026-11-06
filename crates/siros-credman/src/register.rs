@@ -10,8 +10,8 @@
 
 use siros_explain::{DeclaredModule, Explain, MessageId, Messages, ModuleId};
 use siros_i18n::{
-    BuiltPackage, CredentialName, DefinedForm, Formats, Module, PackageError, RegistrationBuilder,
-    RenderError, TransactionKind,
+    BuiltPackage, CredentialName, DeclaredId, DefinedForm, Formats, Module, PackageError,
+    RegistrationBuilder, RenderError, TransactionKind,
 };
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::{CredentialId, TransactionType};
@@ -131,7 +131,8 @@ pub fn package(
         env.options(),
     )?;
     for registered in registration.modules {
-        builder.module(registered.module, Some(&registered.keys()))?;
+        let keys: Vec<DeclaredId> = registered.keys().into_iter().map(Into::into).collect();
+        builder.module(registered.module, Some(&keys))?;
     }
     let mut credentials: Vec<&str> = registration
         .credentials

@@ -2,11 +2,14 @@
 //! refused when its entry is read (a module altered after its digest was taken is refused when it
 //! loads); each refusal rule refuses its fixture.
 
-use siros_explain::{Count, Domain, Message, MessageId, ModuleId, Text, Value, checked};
+use siros_explain::{
+    Count, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId, MetadataDigest,
+    ModuleId, Text, Value, checked,
+};
 use siros_i18n::{
-    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, FORMAT, Formatted, LanguagePolicy,
-    Module, Package, PackageBuilder, PackageError, PackageRoot, RegistrationBuilder, RenderError,
-    Screen, TransactionKind,
+    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, DeclaredId, FORMAT, Formatted,
+    LanguagePolicy, Module, Package, PackageBuilder, PackageError, PackageRoot,
+    RegistrationBuilder, RenderError, Screen, TransactionKind,
 };
 
 use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
@@ -60,7 +63,7 @@ fn texts() -> Vec<Text> {
 fn build(
     modules: &[&Module],
     locales: &[&str],
-    keys: Option<&[MessageId]>,
+    keys: Option<&[DeclaredId]>,
     held: &[Text],
     bidi: Bidi,
 ) -> BuiltPackage {
@@ -104,13 +107,13 @@ fn packages_write_read_back_and_render_the_same() {
     let (main, module) = (main_module(&["en", "de"]), fixture());
     let texts = texts();
     let ids = [ModuleId::Main, FIXTURE];
-    let keys = [
-        checked!(MessageId, "fixture.host.hello"),
-        checked!(MessageId, "fixture.host.asks"),
-        checked!(MessageId, "fixture.host.counted"),
-        checked!(MessageId, "fixture.host.nested"),
-        checked!(MessageId, "fixture.host.maybe"),
-        checked!(MessageId, "fixture.inner.code"),
+    let keys: [DeclaredId; 6] = [
+        checked!(MessageId, "fixture.host.hello").into(),
+        checked!(MessageId, "fixture.host.asks").into(),
+        checked!(MessageId, "fixture.host.counted").into(),
+        checked!(MessageId, "fixture.host.nested").into(),
+        checked!(MessageId, "fixture.host.maybe").into(),
+        checked!(MessageId, "fixture.inner.code").into(),
     ];
     let mut compared = 0;
     for bidi in [Bidi::Default, Bidi::None] {
@@ -225,17 +228,17 @@ fn each_package_rule_refuses_its_fixture() {
         PackageError::NoLocale
     );
     let mut builder = PackageBuilder::new(vec![tag("en")]).expect("a builder");
-    let absent = checked!(MessageId, "fixture.host.absent");
-    let hello = checked!(MessageId, "fixture.host.hello");
+    let absent = DeclaredId::from(checked!(MessageId, "fixture.host.absent"));
+    let hello = DeclaredId::from(checked!(MessageId, "fixture.host.hello"));
     let refused = builder
-        .module(&module, Some(&[absent]))
+        .module(&module, Some(std::slice::from_ref(&absent)))
         .expect_err("no such key");
     assert!(matches!(
         &refused,
         PackageError::Key { module, key } if module.id() == FIXTURE && *key == absent
     ));
     let refused = builder
-        .module(&module, Some(&[hello, hello]))
+        .module(&module, Some(&[hello.clone(), hello.clone()]))
         .expect_err("a key twice");
     assert!(matches!(
         &refused,
@@ -386,4 +389,25 @@ fn a_text_no_package_locale_serves_is_refused() {
             module: "main".to_owned()
         }
     );
+}
+
+/// A module holding a key of one token, which only a converter's declaration gives.
+#[test]
+fn a_package_selects_a_defined_modules_key() {
+    let label = DefinedKey::parse("label".to_owned()).expect("a key");
+    let defined = DefinedModule::new(checked!(Domain, "fixture"), MetadataDigest::new([7; 32]));
+    let declared =
+        Declaration::defined(Keyed::first_of([Entry::new(label.clone(), Keyed::empty())]));
+    let module = Module::load(
+        ModuleId::Defined(defined),
+        &declared,
+        &[&source("en", "label = Pay\n")],
+        LanguagePolicy::Any,
+        &Compilers::new(&[]).expect("compilers"),
+    )
+    .expect("a module");
+    let mut builder = PackageBuilder::new(vec![tag("en")]).expect("a builder");
+    builder
+        .module(&module, Some(&[label.into()]))
+        .expect("the key the module holds");
 }

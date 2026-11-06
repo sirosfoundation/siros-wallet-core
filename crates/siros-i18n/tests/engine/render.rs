@@ -207,7 +207,7 @@ fn arguments_follow_their_declaration() {
     assert_eq!(
         crate_renderer.plain(&absent).expect_err("refused"),
         RenderError::AbsentArgument {
-            argument: "note".to_owned()
+            argument: ParamName::parse("note".to_owned()).expect("a name")
         }
     );
     let given = Text::of(&Host::Maybe {

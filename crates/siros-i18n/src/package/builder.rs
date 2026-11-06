@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use siros_explain::{MessageId, ModuleId, Text};
+use siros_explain::{ModuleId, Text};
 
 use super::codec::write_message;
 use super::held::{Held, TextKey};
@@ -17,7 +17,7 @@ use super::registration::{
 use super::{FORMAT, HEADER, Location, MAGIC, Package, PackageRoot, merkle};
 use crate::bytes::Writer;
 use crate::defined::DefinedForm;
-use crate::error::{ModuleName, PackageError, RenderError};
+use crate::error::{DeclaredId, ModuleName, PackageError, RenderError};
 use crate::form::{BareCalls, CompiledModule, LocaleForm, MessageForm};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
@@ -177,7 +177,7 @@ impl PackageBuilder {
     pub fn module(
         &mut self,
         module: &Module,
-        keys: Option<&[MessageId]>,
+        keys: Option<&[DeclaredId]>,
     ) -> Result<(), PackageError> {
         self.add(module.form(), keys)
     }
@@ -211,7 +211,7 @@ impl PackageBuilder {
     fn add(
         &mut self,
         form: &CompiledModule,
-        keys: Option<&[MessageId]>,
+        keys: Option<&[DeclaredId]>,
     ) -> Result<(), PackageError> {
         if self.modules.iter().any(|added| added.whole.id == form.id) {
             return Err(PackageError::RepeatedModule(ModuleName::of(form.id)));
@@ -345,7 +345,7 @@ impl RegistrationBuilder {
     pub fn module(
         &mut self,
         module: &Module,
-        keys: Option<&[MessageId]>,
+        keys: Option<&[DeclaredId]>,
     ) -> Result<(), PackageError> {
         self.builder.module(module, keys)
     }
@@ -472,7 +472,7 @@ impl RegistrationBuilder {
 }
 
 /// `keys`, each once and each a key that every locale of `form` holds.
-fn kept_keys(form: &CompiledModule, keys: &[MessageId]) -> Result<Vec<String>, PackageError> {
+fn kept_keys(form: &CompiledModule, keys: &[DeclaredId]) -> Result<Vec<String>, PackageError> {
     keys.iter()
         .enumerate()
         .map(|(index, key)| {
@@ -480,7 +480,7 @@ fn kept_keys(form: &CompiledModule, keys: &[MessageId]) -> Result<Vec<String>, P
             if keys.iter().take(index).any(|earlier| earlier == key) {
                 return Err(PackageError::RepeatedKey {
                     module: module(),
-                    key: *key,
+                    key: key.clone(),
                 });
             }
             let held = !form.locales.is_empty()
@@ -493,7 +493,7 @@ fn kept_keys(form: &CompiledModule, keys: &[MessageId]) -> Result<Vec<String>, P
             } else {
                 Err(PackageError::Key {
                     module: module(),
-                    key: *key,
+                    key: key.clone(),
                 })
             }
         })

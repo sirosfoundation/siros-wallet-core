@@ -2,8 +2,8 @@
 
 use siros_explain::{Domain, Message, MessageId, ModuleId, checked, names};
 use siros_i18n::{
-    Compilers, Declaration, FormatId, LanguagePolicy, Module, ModuleError, Refusal, ResourceRule,
-    Validity,
+    Compilers, Declaration, DeclaredId, FormatId, LanguagePolicy, Module, ModuleError, ModuleKey,
+    Refusal, ResourceRule, Validity,
 };
 
 use crate::{BODY, PROBE, declaration, load, source, tag};
@@ -68,7 +68,7 @@ fn each_resource_rule_refuses_its_fixture() {
 #[test]
 fn each_module_rule_refuses_its_fixture() {
     let en = || tag("en");
-    let key = |key: &str| key.to_owned();
+    let key = |key: &str| ModuleKey::parse(key.to_owned()).expect("a key");
     let english = source("en", BODY);
     let other = ModuleId::Crate(checked!(Domain, "other"));
     let compilers = Compilers::new(&[&PROBE]).expect("compilers");
@@ -82,12 +82,15 @@ fn each_module_rule_refuses_its_fixture() {
                 LanguagePolicy::Any,
                 &compilers,
             ),
-            ModuleError::Outside("fixture.host.asks".to_owned()),
+            ModuleError::Outside(DeclaredId::Message(checked!(
+                MessageId,
+                "fixture.host.asks"
+            ))),
         ),
         (
             altered("hello = Hello", "hello = Hello\nhello = Hi"),
             ModuleError::Repeated {
-                key: key("host.hello"),
+                key: "host.hello".to_owned(),
                 locale: en(),
             },
         ),
@@ -101,7 +104,7 @@ fn each_module_rule_refuses_its_fixture() {
         (
             altered("hello = Hello", "hello = Hello\nbye = Bye"),
             ModuleError::Undeclared {
-                key: key("host.bye"),
+                key: "host.bye".to_owned(),
                 locale: en(),
             },
         ),
@@ -233,7 +236,7 @@ fn declarations_and_registrations_refuse_their_fixtures() {
     ];
     assert_eq!(
         Declaration::new(twice).expect_err("refused"),
-        ModuleError::Declaration("fixture.host.hello".to_owned())
+        ModuleError::Declaration(id)
     );
     let same = vec![
         Message::new(id, Some("a"), names!(), []),
