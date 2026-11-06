@@ -147,8 +147,9 @@ impl<'p> Package<'p> {
         Ok(spans)
     }
 
-    /// The identifiers of the compiled messages the package holds, each once, sorted: what an
-    /// auditor of a registration's package reads.
+    /// The identifiers of the compiled messages its main and crate modules hold, each once,
+    /// sorted: what an auditor of a registration's package reads. A defined module's keys are its
+    /// converter's.
     ///
     /// # Errors
     ///
@@ -156,7 +157,11 @@ impl<'p> Package<'p> {
     pub fn keys(&self) -> Result<Vec<String>, PackageError> {
         let manifest = self.manifest()?;
         let mut keys = Vec::new();
-        for locale in manifest.modules.iter().flat_map(|module| &module.locales) {
+        let named = manifest
+            .modules
+            .iter()
+            .filter(|module| !matches!(module.id.kind(), StoredKind::Defined { .. }));
+        for locale in named.flat_map(|module| &module.locales) {
             let index = self.locale_index(&manifest, locale.entry)?;
             keys.extend(index.messages.into_iter().map(|message| message.key));
         }
