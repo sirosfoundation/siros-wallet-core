@@ -126,7 +126,7 @@ pub fn verified_request(query: &Value, nonce: &str) -> VerifiedRequest {
         .as_str()
         .replace('-', "+")
         .replace('_', "/");
-    while x5c.len() % 4 != 0 {
+    while !x5c.len().is_multiple_of(4) {
         x5c.push('=');
     }
     let header = json!({"alg": "ES256", "typ": "oauth-authz-req+jwt", "x5c": [x5c]});

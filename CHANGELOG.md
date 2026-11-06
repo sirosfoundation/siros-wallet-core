@@ -3,6 +3,17 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
+  1.89, then each crate with and without its default features. The workspace
+  resolves with resolver 3. The test image builds on Rust 1.99.1, the pinned
+  toolchain.
+- `engine-adapter-sdk` links UniFFI and tokio in every build; the
+  `tokio-runtime` feature and the default features leave.
+
 ## [0.1.2] — 2026-11-06
 
 The first release whose run completed: the 0.1.0 and 0.1.1 tags' runs

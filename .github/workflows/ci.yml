@@ -37,7 +37,7 @@ jobs:
         run: git clone --depth 1 https://github.com/sirosfoundation/wmp.git "$(dirname "$GITHUB_WORKSPACE")/wmp"
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo test --workspace --all-features
+      - run: cargo test --locked --workspace --all-features
 
   fmt:
     name: Format
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
@@ -119,41 +119,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # Both mechanisms are needed, and they do different jobs. `rustup
-      # toolchain install` here *installs* 1.82. RUSTUP_TOOLCHAIN (exported
-      # below) is what makes cargo use it: rust-toolchain.toml pins the exact
-      # CI toolchain and overrides the installed default, so without the env
-      # var this job would install 1.82 and then quietly build on the pinned
-      # one — passing while checking nothing.
+      # `rustup toolchain install` installs 1.89; RUSTUP_TOOLCHAIN makes cargo
+      # use it over the pin in rust-toolchain.toml.
       - name: Install the MSRV toolchain
         run: |
-          rustup toolchain install 1.82 --profile minimal
-          echo "RUSTUP_TOOLCHAIN=1.82" >> "$GITHUB_ENV"
+          rustup toolchain install 1.89 --profile minimal
+          echo "RUSTUP_TOOLCHAIN=1.89" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      # The floor covers the library crates with their default features and
-      # the `wallet`/`chain` feature pairs, as the architecture contract
-      # requires. Dev-only feature combinations that need a newer toolchain
-      # are excluded here on purpose.
-      #
-      # The engine crates are excluded on purpose too: their pinned crypto
-      # stack (kryptering 0.7 → bp256 → elliptic-curve 0.14 → base16ct
-      # 1.0.0) and the UniFFi toolchain (textwrap → smawk 0.3.3) resolve
-      # dependencies whose manifests cargo 1.82 cannot parse, so the
-      # floor never covered them — it covers the library crates
-      # (`rust-version` in Cargo.toml), which this checks.
-      - name: The library crates on the floor
-        run: >
-          cargo check --workspace --locked
-          --exclude engine-core
-          --exclude engine-adapter-sdk
-          --exclude engine-adapter-server
-          --exclude engine-adapter-wasm
-          --exclude engine-conformance
-      # TODO(msrv): confirm the exact feature matrix against the ported crates
-      # and tighten this job; non-blocking on import.
-      - name: Feature matrix on the MSRV
-        run: cargo check --locked -p siros-transaction-data -p siros-trust --features wallet,chain
-        continue-on-error: true
+      - run: cargo check --locked --workspace
+      - name: Each crate, with and without its default features
+        run: |
+          set -euo pipefail
+          crates=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[].name')
+          for crate in $crates; do
+            cargo check --locked -p "$crate"
+            cargo check --locked -p "$crate" --no-default-features
+          done
 
   kotlin-smoke:
     name: UniFFI async smoke (JVM)

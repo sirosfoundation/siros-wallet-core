@@ -7,8 +7,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-# Without `crypto`: what the credential picker links, checked on 1.82 in CI. `crypto` builds
-# with the toolchain of rust-toolchain.toml.
 rust-version.workspace = true
 
 [features]
