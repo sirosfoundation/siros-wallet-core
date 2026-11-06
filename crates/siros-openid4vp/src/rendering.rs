@@ -7,15 +7,13 @@
 //! lists and options are the registration's, and a credential's language is decided over its
 //! candidate languages.
 
-use std::borrow::Cow;
-
 use siros_explain::{DefinedModule, Explain, ModuleId};
 use siros_i18n::{
     CredentialName, DefinedForm, Formats, ModuleName, NoLanguage, Package, PackageError,
     Registration, Renderer, Screen,
 };
 
-use crate::plugins::{Exclusion, Fault};
+use crate::plugins::{Clause, Exclusion, Fault};
 use crate::rows::{Env, Selected};
 use crate::{FAULT, detail};
 
@@ -196,7 +194,7 @@ pub enum Unrendered {
 }
 
 impl Exclusion for Unrendered {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed("one language per presentation")
+    fn clause(&self) -> Clause {
+        Clause::cited("one language per presentation")
     }
 }

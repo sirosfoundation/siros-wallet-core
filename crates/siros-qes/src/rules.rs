@@ -1,15 +1,13 @@
 //! The rules the QES profile adds to a request's, and the exclusions it gives.
 
-use std::borrow::Cow;
 use std::fmt;
-use std::num::NonZeroUsize;
 
 use siros_explain::{AllOf, Count, Explain, IntoArg, Listed, kind};
-use siros_openid4vp::plugins::Exclusion;
+use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 use siros_openid4vp::request::EntryIndex;
 
-use crate::approval::{Problem, SignatureQualifier};
+use crate::approval::{DocumentNumber, Problem, SignatureQualifier};
 
 /// A rule a QES entry breaks: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -123,14 +121,14 @@ pub enum Excluded {
     /// A linked document fails its checksum.
     #[error("document {document} does not match its checksum")]
     Checksum {
-        /// The document's position in the approval's `documentInfos`, from 1.
-        document: NonZeroUsize,
+        /// The document.
+        document: DocumentNumber,
     },
 }
 
 impl Exclusion for Excluded {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed(match self {
+    fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::Qualifier { .. } => "CSC §6.3; §7.2.1 Note 22",
             Self::Carriage => "CSC §7.2.1; OpenID4VP B.2",
             Self::Checksum { .. } => "CSC §6.3",

@@ -399,7 +399,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                             break;
                         }
                         Err(Outcome::Excluded(excluded)) => {
-                            want = Want::Excluded(excluded.clause());
+                            want = Want::Excluded(excluded.clause().as_str());
                             break;
                         }
                         Err(Outcome::Unsupported(_) | Outcome::NotCompatible(_)) => {}

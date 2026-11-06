@@ -107,7 +107,7 @@ pub(super) fn members(
         sri(answer.request_object.as_bytes()),
         "R-request_integrity"
     );
-    assert_eq!(text("wallet_instance_version"), host.paso.version);
+    assert_eq!(text("wallet_instance_version"), host.paso.version.as_str());
     let jti = text("jti");
     let shaped = jti.len() == 36
         && jti.chars().enumerate().all(|(k, c)| match k {

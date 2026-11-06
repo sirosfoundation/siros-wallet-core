@@ -68,7 +68,7 @@ use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+    Carriage, Clause, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
@@ -213,8 +213,8 @@ impl ClaimsFormat for Mdoc {
         "name"
     }
 
-    fn appendix(&self) -> &'static str {
-        "B.2"
+    fn vp_formats_clause(&self) -> Clause {
+        Clause::cited("OpenID4VP B.2 vp_formats_supported")
     }
 
     /// B.2.4: a COSE algorithm identifier is an integer.

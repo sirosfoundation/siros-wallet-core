@@ -12,7 +12,7 @@ use siros_openid4vp::ids::{
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
-use siros_openid4vp::plugins::{Fault, Member};
+use siros_openid4vp::plugins::{Clause, Fault, Member};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::{Credential, Document, Facts, HeldAuthority, Holder};
 use siros_testkit::TestHost;
@@ -175,8 +175,8 @@ impl ClaimsFormat for ClaimsTest {
     fn label_key(&self) -> &'static str {
         self.label
     }
-    fn appendix(&self) -> &'static str {
-        "B.3"
+    fn vp_formats_clause(&self) -> Clause {
+        Clause::cited("OpenID4VP B.3 vp_formats_supported")
     }
     fn is_algorithm(&self, value: &Node<'_>) -> bool {
         value.as_str().is_some()

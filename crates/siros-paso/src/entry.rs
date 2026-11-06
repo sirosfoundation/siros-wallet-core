@@ -104,12 +104,10 @@ impl<'e> PasoEntry<'e> {
 /// payload's rule, then the metadata's.
 fn broken(entry: &Entry<'_>) -> Vec<EntryRule> {
     let members = entry.members();
-    let unknown = members.as_object().into_iter().flat_map(|object| {
-        object
-            .names()
-            .filter(|name| !MEMBERS.contains(name))
-            .map(|name| EntryRule::UnknownMember(name.to_owned()))
-    });
+    let unknown = members
+        .names()
+        .filter(|name| !MEMBERS.contains(name))
+        .map(|name| EntryRule::UnknownMember(name.to_owned()));
     let payload = members
         .get("payload")
         .and_then(Payload::of)
