@@ -1,4 +1,4 @@
-//! `cargo xtask layout [<root>]`: the layout AGENTS.md's rules give, over the sources' syntax trees.
+//! `cargo xtask layout [<root>]`: the layout AGENTS.md's rules give, over the syntax trees.
 //! Each hit prints as `file:line: rule`, a file it cannot read or parse included.
 //!
 //! - Test code under `crates/siros-*/src` and `xtask/src`: a test attribute, a `cfg` or `cfg_attr`
@@ -658,12 +658,13 @@ fn metas_before(trees: &[TokenTree], at: usize) -> Vec<TokenStream> {
     metas
 }
 
+fn is_brace(tree: &TokenTree) -> bool {
+    matches!(tree, TokenTree::Group(group) if group.delimiter() == Delimiter::Brace)
+}
+
 /// The paths of `Trait for Type` in the tokens after `impl`, before its body.
 fn implemented_paths(after: &[TokenTree]) -> Option<(Vec<String>, Vec<String>)> {
-    let head: Vec<&TokenTree> = after
-        .iter()
-        .take_while(|tree| !matches!(tree, TokenTree::Group(group) if group.delimiter() == Delimiter::Brace))
-        .collect();
+    let head: Vec<&TokenTree> = after.iter().take_while(|tree| !is_brace(tree)).collect();
     let split = head
         .iter()
         .position(|tree| matches!(tree, TokenTree::Ident(word) if word == "for"))?;
