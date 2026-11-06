@@ -10,7 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
-use siros_explain::{Messages, ModuleId, Text};
+use siros_explain::{ModuleId, Text};
 use siros_i18n::{DefinedForm, Formatted, Selected};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
@@ -269,12 +269,7 @@ pub fn shown(label: &str, value: Option<(&'static str, &str)>) -> Shown {
 
 /// The profile's module as the test app loads it.
 pub fn paso_module() -> CrateSource {
-    CrateSource {
-        id: siros_paso::CrateModule::ID,
-        messages: siros_paso::CrateModule::messages(),
-        english: ENGLISH_PASO,
-        german: GERMAN_PASO,
-    }
+    CrateSource::of::<siros_paso::CrateModule>(ENGLISH_PASO, GERMAN_PASO)
 }
 
 /// The module a type's metadata converts to for a priority list, over the test app's main

@@ -14,9 +14,9 @@ use siros_openid4vp::rendering::{Rendering, Unrendered};
 use siros_openid4vp::rows::Env;
 
 /// The test app's English source of the `openid4vp` module.
-pub const ENGLISH_OPENID4VP: &str = include_str!("../locales/en/openid4vp.mf2");
+const ENGLISH_OPENID4VP: &str = include_str!("../locales/en/openid4vp.mf2");
 /// The test app's German source of the `openid4vp` module.
-pub const GERMAN_OPENID4VP: &str = include_str!("../locales/de/openid4vp.mf2");
+const GERMAN_OPENID4VP: &str = include_str!("../locales/de/openid4vp.mf2");
 /// The test app's English source of the `paso` module.
 pub const ENGLISH_PASO: &str = include_str!("../locales/en/paso.mf2");
 /// The test app's German source of the `paso` module.
@@ -30,10 +30,10 @@ const ENGLISH_TESTKIT: &str = include_str!("../locales/en/testkit.mf2");
 /// The test app's own module's German source.
 const GERMAN_TESTKIT: &str = include_str!("../locales/de/testkit.mf2");
 
-/// siros-cldr's en options, siros-i18n's test fixture.
-const CLDR_EN: &str = include_str!("../../siros-i18n/tests/cldr/en.mf2");
-/// siros-cldr's de options, siros-i18n's test fixture.
-const CLDR_DE: &str = include_str!("../../siros-i18n/tests/cldr/de.mf2");
+/// siros-cldr's en options.
+const CLDR_EN: &str = include_str!("../locales/cldr/en.mf2");
+/// siros-cldr's de options.
+const CLDR_DE: &str = include_str!("../locales/cldr/de.mf2");
 
 /// The format modules the test app registers: the main module's and the crate modules'.
 const COMPILERS: [&dyn FormatCompiler; 4] = [&NUMBER, &CURRENCY, &DATE, &LIST];
@@ -80,40 +80,73 @@ impl DeclaredModule for TestkitModule {
     type Requested = ();
 }
 
+impl Messages for TestkitModule {
+    fn messages() -> Vec<Message> {
+        crate::DoubleText::messages()
+    }
+}
+
 /// A crate's module as the test app loads it: its identity, its declaration, and the test app's
 /// English and German sources.
 pub struct CrateSource {
-    /// The module's identity.
-    pub id: ModuleId,
-    /// Its declaration.
-    pub messages: Vec<Message>,
-    /// The test app's English source.
-    pub english: &'static str,
-    /// The test app's German source.
-    pub german: &'static str,
+    id: ModuleId,
+    messages: Vec<Message>,
+    english: &'static str,
+    german: &'static str,
 }
 
 impl CrateSource {
+    /// The module `M` declares, in the test app's English and German sources.
+    #[must_use]
+    pub fn of<M: DeclaredModule + Messages>(english: &'static str, german: &'static str) -> Self {
+        Self {
+            id: M::ID,
+            messages: M::messages(),
+            english,
+            german,
+        }
+    }
+
     /// The `openid4vp` module.
     #[must_use]
     pub fn openid4vp() -> Self {
-        Self {
-            id: siros_openid4vp::CrateModule::ID,
-            messages: siros_openid4vp::CrateModule::messages(),
-            english: ENGLISH_OPENID4VP,
-            german: GERMAN_OPENID4VP,
-        }
+        Self::of::<siros_openid4vp::CrateModule>(ENGLISH_OPENID4VP, GERMAN_OPENID4VP)
     }
 
     /// The test app's own module, `testkit`: the test doubles' texts.
     #[must_use]
     pub fn testkit() -> Self {
-        Self {
-            id: TestkitModule::ID,
-            messages: crate::DoubleText::messages(),
-            english: ENGLISH_TESTKIT,
-            german: GERMAN_TESTKIT,
-        }
+        Self::of::<TestkitModule>(ENGLISH_TESTKIT, GERMAN_TESTKIT)
+    }
+
+    /// The module with another German source.
+    #[must_use]
+    pub fn with_german(self, german: &'static str) -> Self {
+        Self { german, ..self }
+    }
+
+    /// The module's identity.
+    #[must_use]
+    pub const fn id(&self) -> ModuleId {
+        self.id
+    }
+
+    /// Its declaration.
+    #[must_use]
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// The test app's English source.
+    #[must_use]
+    pub const fn english(&self) -> &'static str {
+        self.english
+    }
+
+    /// The test app's German source.
+    #[must_use]
+    pub const fn german(&self) -> &'static str {
+        self.german
     }
 
     /// The module, loaded whole in English and German.

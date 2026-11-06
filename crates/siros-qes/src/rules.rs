@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use siros_explain::{AllOf, Explain, IntoArg, Listed, kind};
 use siros_openid4vp::plugins::Exclusion;
@@ -87,8 +88,8 @@ pub enum Excluded {
     /// A linked document fails its checksum.
     #[error("document {document} does not match its checksum")]
     Checksum {
-        /// The document's position.
-        document: usize,
+        /// The document's position in the approval's `documentInfos`, from 1.
+        document: NonZeroUsize,
     },
 }
 

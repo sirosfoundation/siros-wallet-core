@@ -4,6 +4,8 @@
 //! Then the number of signatures, and per document, in a section of its own: its full label or
 //! that it has none, its one-time password, its link, and whether its integrity was checked.
 
+use std::num::NonZeroUsize;
+
 use rustc_hash::FxHashMap;
 use siros_explain::Explain;
 use siros_explain::{RequestText, Text, Value as Typed};
@@ -71,7 +73,7 @@ pub enum QesText {
     /// The heading of the rows of a document of the approval.
     Section {
         /// The document's position in the approval's `documentInfos`, from 1.
-        document: usize,
+        document: NonZeroUsize,
     },
 }
 
@@ -122,8 +124,8 @@ pub(crate) fn render(
             Value::Text(RequestText::value(Typed::Count(approval.count.count()))),
         ),
     ];
-    for (k, document) in approval.documents.iter().enumerate() {
-        let n = k + 1;
+    let positions = std::iter::successors(Some(NonZeroUsize::MIN), |n| n.checked_add(1));
+    for (n, document) in positions.zip(&approval.documents) {
         let section = own(QesText::Section { document: n });
         for row in document_rows(document, n, held)? {
             rows.push(row.in_section(section.clone()));
@@ -143,7 +145,7 @@ pub(crate) fn render(
 /// password, its link, and with a checksum whether its integrity was checked.
 fn document_rows(
     document: &DocumentInfo<'_>,
-    n: usize,
+    n: NonZeroUsize,
     held: &FxHashMap<String, Fetched>,
 ) -> Result<Vec<Row<RequestText>>, NoCandidate> {
     let mut rows = vec![match document.label {
