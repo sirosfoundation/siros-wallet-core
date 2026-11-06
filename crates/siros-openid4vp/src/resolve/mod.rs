@@ -131,6 +131,13 @@ pub enum ParameterBreach {
     Twice,
 }
 
+/// A profile wrote a presentation member outside those it declares for the placement, the cause of
+/// phase 2's fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp", id = "undeclared_member")]
+#[error("a profile wrote a presentation member it does not declare")]
+pub struct UndeclaredMember;
+
 /// Why phase 2 rejects a selection: its ids are no records, or no selection the request allows.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.rejection")]

@@ -24,7 +24,7 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, EntryIndex, Request};
-use siros_openid4vp::resolve::{Delivery, Finding, Outcome, ParameterBreach, Prepared, Rejection};
+use siros_openid4vp::resolve::{Delivery, Finding, Outcome, Prepared, Rejection, UndeclaredMember};
 use siros_openid4vp::rows::{Choice, Env, HttpsUrl};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::FAULT;
@@ -487,8 +487,8 @@ fn phase_2_faults_on_a_member_the_profile_does_not_declare() {
     {
         Err(Outcome::Fault(fault)) => assert_eq!(
             std::error::Error::source(&fault)
-                .and_then(|source| source.downcast_ref::<ParameterBreach>()),
-            Some(&ParameterBreach::Undeclared),
+                .and_then(|source| source.downcast_ref::<UndeclaredMember>()),
+            Some(&UndeclaredMember),
             "{fault}"
         ),
         other => panic!("{other:?}"),

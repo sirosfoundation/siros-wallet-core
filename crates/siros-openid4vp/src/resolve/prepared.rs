@@ -9,7 +9,7 @@ use super::route::Route;
 use super::selection::{check, derived};
 use super::{
     AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, RecordIndex, Rejection,
-    ResponseMember, VpToken,
+    ResponseMember, UndeclaredMember, VpToken,
 };
 use crate::authenticate::Authenticated;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
@@ -571,7 +571,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
                     "a profile wrote {extra}, which it does not declare",
                     extra = extra.clone()
                 ),
-                ParameterBreach::Undeclared,
+                UndeclaredMember,
             )
             .into());
         }

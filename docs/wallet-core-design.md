@@ -1097,6 +1097,10 @@ pub enum RouteBreach { ErrorsAnswered, KeyInTheClear, NoKey, Foreign, Unstated, 
 /// outside the names the registry kept for the part; `Twice`: a name an earlier member holds.
 pub enum ParameterBreach { Undeclared, Twice }
 
+/// A profile wrote a presentation member outside those it declares for the placement: the cause
+/// of phase 2's `Fault` (`resolve`, id `openid4vp.undeclared_member`).
+pub struct UndeclaredMember;
+
 /// A URI request whose mode names no registered error mode (C5): the wallet tells the End-User.
 /// Domain `openid4vp.route`: "the request names no response mode the wallet can carry an error
 /// in". `Outcome::Unroutable` carries it.
@@ -4694,6 +4698,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `RouteApi` | `response` | An authenticated request's route and its errors in the mode's form | Fixed (relational rule outside a step): `new` takes the `Authenticated` and its registry, checks each handle's name, and calls the mode's `encryption` once; a broken choice is a `Fault` caused by `RouteBreach`; a key is checked by identity against the request's `VerifierKeys` |
 | `RouteBreach` | `response` | How a mode's route or body breaks its registration, the cause of phase 2's `Fault` | Holds: an enum, one variant per breach; a fixture compares the cause by type |
 | `ParameterBreach` | `response` | How a response parameters part breaks its registration: an undeclared name, a name twice | Holds: an enum, one variant per breach; a fixture compares the cause by type |
+| `UndeclaredMember` | `resolve` | A profile wrote a presentation member outside those it declares for the placement | Holds: a fixture compares the cause by type |
 | `AuthorizationResponse` | `response` | The VP Token, the request's `state` and the registered response parameters' members (§8.1) | Holds: private fields; only `Prepared::respond` makes one; `json` writes §8.1's object |
 | `ErrorDescription` | `response` | One or more characters of %x20-21, %x23-5B, %x5D-7E (RFC 6749 Appendix A.8); the core's `refusal`, every build | Holds: private `String`; `sanitized` and `parse -> Option` through `is_nqschars`; `Serialize` alone |
 | `ErrorDescriptionApi` | `response` | Sanitizes or parses a description | Holds: the inherent methods of `ErrorDescription` |
