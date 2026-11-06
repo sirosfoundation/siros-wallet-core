@@ -20,14 +20,20 @@ All notable changes to this workspace. The format follows
 - `siros-sdjwt`'s `Registered` reads an issued SD-JWT (RFC 9901 §7.1) into
   the `dc+sd-jwt` document and its view: the processed payload at its issued
   array positions, the issuer's and holder key's algorithms and curves, and
-  `validity`. Phase 2 presents from the document: the option's disclosures
-  with their parents and descendants, and a compact Key Binding JWT whose
-  `sd_hash` covers the SD-JWT as sent. RFC 9901 A.1 to A.4 and §5 are its known
-  answers.
+  `validity`, each number as the issuer wrote it. It holds SD-JWT VC's rules:
+  `typ` is `dc+sd-jwt`, no disclosure reveals a registered claim, `cnf` is a
+  `jwk` of its curve. `Registered::holder` gives `Facts::holder`. Phase 2
+  presents from the document: the option's disclosures with their parents and
+  descendants, and a compact Key Binding JWT whose `sd_hash` covers the SD-JWT
+  as sent; `PresentFault` is a presentation fault's source. RFC 9901 A.1 to A.4
+  and §5 are its known answers.
 - `siros-sdjwt::type_metadata` converts a type metadata document's `display`
   into a defined module, named by a view's `display_module`. The core's
   `FormatQuery::card_module` and `EntryView::card_module` carry it to
   `Rendering::renderer`, which takes it beside the selected module.
+  `ClaimsQuery::card` takes the module as its last argument.
+- `ClaimsFormat::withheld` names an array element that holds no value, which a
+  claims path walks past at its issued position.
 - `siros-mdoc::registration` builds the view from a stored mdoc, with
   `validityInfo`. ISO/IEC 18013-5 Annex D is its known answer.
 - `siros-credman` lays out the core's consent entries as Android Credential

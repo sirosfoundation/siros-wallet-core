@@ -9,8 +9,8 @@
 //! registration names, nearest first (§6.4); `validity`, `not_before` and `not_after` from `nbf`
 //! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5). [`Registered`]
 //! builds the view from the issued SD-JWT, held as the [`DOCUMENT`] document phase 2 presents
-//! from; `values` is its processed payload at the issued array positions, `{"...": digest}` where
-//! it holds no value.
+//! from, and gives its `Facts::holder`; `values` is its processed payload at the issued array
+//! positions, `{"...": digest}` where it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
 //! wallet registers the view's `metadata` from, and converts a document's `display` into a defined

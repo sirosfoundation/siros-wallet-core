@@ -5958,6 +5958,21 @@ the signature's bytes held as text. Milestone 6 carries over the issued SD-JWT's
 | `SdJwt::x5c` | The issuer chain siros-trust reads at registration. |
 | RFC 9901's examples A.1 to A.4 and §5 (`tests/sd_jwt/rfc9901`) | Carried over as known answers. |
 
+`Registered::of` holds SD-JWT VC's rules over S1: `typ` is `dc+sd-jwt`; no disclosure reveals a
+registered claim or its sub-claims; `cnf` is an object whose `jwk` has its curve's `kty`, coordinate
+sizes and an `alg` the curve signs under; `nbf` and `exp` are finite. The view writes each number as
+the issuer did. `Registered::holder` gives `Facts::holder`, and `PresentFault::Holder` refuses a
+credential whose fact and document disagree. `SigningAlg` holds the `alg` of the Issuer-signed JWT
+and of the Key Binding JWT: `none` and the MAC algorithms make no value.
+
+The view's `display_module` names a type metadata document the wallet loaded
+(`Resolved::display_loaded`). `ClaimsFormat::display_module`, `FormatQuery::card_module` and
+`EntryView::card_module` carry it to `Rendering::renderer`. `ClaimsFormat::withheld` names an array
+element that holds no value, `{"...": digest}` here, which a claims path walks past at its position.
+
+siros-testkit's `sd_jwt_issuer` writes a view as a compact SD-JWT. Its `sd_jwt_reading` reads a
+presentation as a Verifier does (RFC 9901 §7.1, §7.2).
+
 **siros-mdoc** (1,672 lines). siros-zkp-catalogues reads stored mdocs through this crate's
 reader, so milestone 2 carries the reader over.
 
@@ -5974,6 +5989,11 @@ reader, so milestone 2 carries the reader over.
 | `es256::es256_verifies` (feature `crypto`) | The registration's issuer signature check, made with the app's crypto (section 4.3's credential registration row; HAIP §6.1.1); siros-zkp-catalogues' own check (section 10.5). |
 | `names`: `DigestId`, `ElementIdentifier`, `NameSpace` | siros-mdoc's `issuer_signed`. |
 | ISO/IEC 18013-5:2021 Annex D, D.4.1.2: the example DeviceResponse (`tests/vectors/annex_d_device_response.hex`) | Carried over as a known answer. It closes section 4.9.4's open Annex D item. |
+
+`DeviceKey` holds a curve of Table 22 and its algorithm: label 3, else the one Table 22 gives the
+curve. `DeviceKey::p256` gives the point of a P-256 key; the view reads only the curve and the
+algorithm of another. `registration::Registered` builds the view from a stored mdoc, with
+`validityInfo`.
 
 **siros-oid4vp** (5,926 lines)
 
@@ -6405,6 +6425,9 @@ The harness tallies these classes apart from its comparison, as I9 allows, each 
 | A directed presentation sealed to B.2.6's key | The core seals to the key the key rule chose; the model records a thumbprint of its stand-in key | The rest of the presentation |
 | The reader key: a coordinate that is no base64url (25, 24 and 23 cases over seeds 1 to 3) | The model's MAC names a reader key whose coordinates are no base64url, which `AgreeableKey` refuses; 0 directed deviceMac comparisons remain in the class | Nothing further |
 | The QES members for the test format, which places claims | siros-testkit's `TestFormat` places claims, and the model writes no QES members for it | The port's answer against the model's `dc+sd-jwt` answer (CSC §7.2.1.2) |
+| `registered views equal to the issued (milestone 6)` | A view the testkit's issuers issue goes through the format's registration, which the model has no counterpart of | The registration's view against the issuer's statement; a difference fails the run |
+| `type metadata converted and loaded (milestone 6)` | The model reads a metadata document's `display` raw; the port's conversion to a defined module has no model counterpart | The converted module loads under siros-i18n; a refusal fails the run |
+| `holder keys off their curve, issued on Ed25519 (milestone 6)` | The model states `EdDSA` on P-256, which RFC 8037 §3.1 rules out and registration refuses. The credential is issued on Ed25519, with the model's members written back into the view | The presentation, as for every other case |
 
 The harness's PaSO and QES `bind` replays pass empty `ViewTypes`, the input of siros-sdjwt's
 `meta_matches` alone. siros-paso accepts a white-space label, as PaSO Proof
