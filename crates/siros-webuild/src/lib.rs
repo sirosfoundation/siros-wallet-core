@@ -61,22 +61,44 @@ impl Messages for CrateMessages {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Cs02Claims;
 
-/// A claim CS-02 §8.2 requires that the Request Object lacks. Only [`Cs02Claims`] makes one:
-///
-/// ```compile_fail,E0423
-/// use siros_webuild::ClaimAbsent;
-///
-/// const FORGED: ClaimAbsent = ClaimAbsent("nbf");
-/// ```
+/// A claim CS-02 §8.2 requires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequiredClaim {
+    /// `exp`.
+    Exp,
+    /// `aud`.
+    Aud,
+}
+
+impl RequiredClaim {
+    /// Its member name in the Request Object.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Exp => "exp",
+            Self::Aud => "aud",
+        }
+    }
+}
+
+impl IntoArg for RequiredClaim {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
+}
+
+/// A claim CS-02 §8.2 requires that the Request Object lacks. Only [`Cs02Claims`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "webuild")]
-#[error("the Request Object holds no {0}, which CS-02 §8.2 requires")]
-pub struct ClaimAbsent(#[explain(name = "claim")] &'static str);
+#[error("the Request Object holds no {}, which CS-02 §8.2 requires", .0.name())]
+pub struct ClaimAbsent(#[explain(name = "claim")] RequiredClaim);
 
 impl ClaimAbsent {
     /// The claim.
     #[must_use]
-    pub const fn claim(self) -> &'static str {
+    pub const fn claim(self) -> RequiredClaim {
         self.0
     }
 }
@@ -91,9 +113,9 @@ impl RequestRule for ClaimAbsent {
 impl ObjectRule for Cs02Claims {
     /// `exp`, then `aud`: the first absent one.
     fn check(&self, claims: &Object<'_>) -> Option<Refusal> {
-        ["exp", "aud"]
+        [RequiredClaim::Exp, RequiredClaim::Aud]
             .into_iter()
-            .find(|claim| claims.get(claim).is_none())
+            .find(|claim| claims.get(claim.name()).is_none())
             .map(|claim| Refusal::new(ClaimAbsent(claim)))
     }
 }
