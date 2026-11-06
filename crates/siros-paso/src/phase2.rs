@@ -371,10 +371,7 @@ pub(crate) fn revalidate(
                 })
                 .transpose()?;
             let resolution = |_: &str| match fetch {
-                Some(Fetch::Fetched { content, media }) => Resolution::Fetched {
-                    content,
-                    media: media.essence(),
-                },
+                Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },
                 Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
             };
             match image::resolve(image.text, image.integrity, resolution) {

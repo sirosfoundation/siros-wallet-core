@@ -244,7 +244,7 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
             "a media type no image has",
             payload(url, Some(&sri(&logo))),
             fetched(logo.clone(), "image/gif"),
-            ImageFailure::MediaType("image/gif".to_owned()),
+            ImageFailure::MediaType(MediaType::parse("image/gif").expect("a media type")),
         ),
         (
             "content no image of its type",

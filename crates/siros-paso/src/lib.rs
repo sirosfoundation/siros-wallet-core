@@ -369,10 +369,7 @@ impl PasoProfile {
     fn resolution(&self, url: &str) -> Resolution<'_> {
         match self.resources.iter().find(|(known, _)| known == url) {
             None => Resolution::Unknown,
-            Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched {
-                content,
-                media: media.essence(),
-            },
+            Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched { content, media },
             Some((_, Fetch::Failed(reason))) => Resolution::Failed(reason),
         }
     }
