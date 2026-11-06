@@ -20,10 +20,11 @@ use siros_openid4vp::host::{
 use siros_openid4vp::ids::Origin;
 use siros_openid4vp::jose::Skew;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::matching::{Accepted, ExcludedBy, Match, UnmetCode};
 use siros_openid4vp::plugins::{Registry, RegistryBuilder};
 use siros_openid4vp::recourse::{DcApiErrors, ErrorTarget, Reply};
 use siros_openid4vp::request::Request;
-use siros_openid4vp::resolve::{Delivery, Outcome, Prepared, Route};
+use siros_openid4vp::resolve::{Built, Delivery, Outcome, Prepared, Route};
 use siros_openid4vp::routing::{ChannelKind, ModeName};
 use siros_openid4vp::uri::{Fetch, FetchAnswer, RequestObjectFetch, ResponseUriAnswer};
 use siros_openid4vp::wallet::Wallet;
@@ -153,6 +154,21 @@ fn responded(
     published: &Published,
     host: &HaipHost,
 ) -> Result<Delivery, Outcome> {
+    built(authenticated, held, registry, published, host, |built| {
+        built.delivery().clone()
+    })
+}
+
+/// What `read` takes from phase 2's outcome of phase 1's first selection, phase 2's fetches
+/// answered from `published`.
+fn built<T>(
+    authenticated: &Authenticated<'_>,
+    held: &[Held],
+    registry: &Registry<HaipHost>,
+    published: &Published,
+    host: &HaipHost,
+    read: impl FnOnce(&Built<'_>) -> T,
+) -> Result<T, Outcome> {
     let env = english();
     let wallet = Wallet::new(
         held.iter()
@@ -175,7 +191,7 @@ fn responded(
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
-    .map(|built| built.delivery().clone())
+    .map(|built| read(&built))
 }
 
 /// A DC API arrival from the Origin.
@@ -286,6 +302,85 @@ fn f1_f2_an_unsigned_dc_api_request_answers_in_its_mode() {
         );
         assert_dc_api_binding(&response["vp_token"]);
     }
+}
+
+/// A credential of `kind` whose view holds `metadata`, under the PID's key.
+fn held_as(id: &str, kind: &str, metadata: &str) -> Held {
+    Held::new(
+        id,
+        "dc+sd-jwt",
+        format!(
+            r#"{{"type": "{kind}", "metadata": {metadata}, "values": {{"given_name": "Erika"}}, "jwt": "eyJhbGciOiJFUzI1NiJ9.{id}.sig", "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}}"#
+        ),
+    )
+}
+
+/// The ids of the credentials the first selection of a DC API request over `dcql` uses.
+fn used(dcql: &str, held: &[Held]) -> Vec<String> {
+    let registry = registry().expect("the real registry");
+    let host = HaipHost::at(Timestamp(NOW));
+    let data = parameters("dc_api", "").replace(PID_QUERY, dcql);
+    let received = dc_api("openid4vp-v1-unsigned", &data);
+    let envelope = Envelope::parse(&received, &registry).expect("an envelope");
+    let authenticated = authentic(&envelope, &registry, &TestTrust::default(), &host);
+    built(
+        &authenticated,
+        held,
+        &registry,
+        &Published::default(),
+        &host,
+        |built| built.used().iter().map(ToString::to_string).collect(),
+    )
+    .unwrap_or_else(|outcome| panic!("phase 2: {outcome}"))
+}
+
+/// A credential whose metadata holds a text display text refuses is out of both phases: its peer
+/// answers, and alone it leaves the request unmet with `access_denied` (§8.5, §15.4.1).
+#[test]
+fn a_credential_with_a_refused_metadata_text_is_excluded_and_its_peer_answers() {
+    let refused = || {
+        held_as(
+            "refused",
+            "urn:eudi:pid:1",
+            r#"{"display": [{"locale": "de", "name": "Aus\u200dweis"}]}"#,
+        )
+    };
+    assert_eq!(used(PID_QUERY, &[refused(), pid()]), ["pid"]);
+
+    let registry = registry().expect("the real registry");
+    let host = HaipHost::at(Timestamp(NOW));
+    let data = parameters("dc_api", "");
+    let received = dc_api("openid4vp-v1-unsigned", &data);
+    let envelope = Envelope::parse(&received, &registry).expect("an envelope");
+    let authenticated = authentic(&envelope, &registry, &TestTrust::default(), &host);
+    let request = Request::parse(authenticated.envelope()).expect("the request");
+    let held = refused();
+    let wallet = Wallet::new(vec![held.credential().expect("a credential")]).expect("a wallet");
+    let accepted = Accepted::new(&request, &registry).expect("the request keeps every rule");
+    let env = english();
+    let app = crate::common::wallet_app(&wallet, &request, &env, &host);
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("no fault");
+    assert_eq!(matched.excluded()[0].by, ExcludedBy::Display);
+    assert_eq!(matched.unmet(), UnmetCode::AccessDenied);
+}
+
+/// `Built::used`: each credential once, in the order the response presents them.
+#[test]
+fn a_credential_answering_two_queries_is_used_once_in_the_responses_order() {
+    let other = held_as("other", "urn:eudi:other:1", "{}");
+    let query = |id: &str, kind: &str| {
+        format!(
+            r#"{{"id":"{id}","format":"dc+sd-jwt","meta":{{"vct_values":["{kind}"]}},"claims":[{{"path":["given_name"]}}]}}"#
+        )
+    };
+    let dcql = format!(
+        r#"{{"credentials":[{},{},{}]}}"#,
+        query("a", "urn:eudi:other:1"),
+        query("b", "urn:eudi:pid:1"),
+        query("c", "urn:eudi:pid:1"),
+    );
+    assert_eq!(used(&dcql, &[pid(), other]), ["other", "pid"]);
 }
 
 /// F3, F4: a signed and a multisigned DC API request under siros-x509's prefixes, its

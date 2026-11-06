@@ -5,13 +5,13 @@ use siros_explain::{AllOf, DefinedModule};
 #[cfg(feature = "resolve")]
 use super::super::ConcretePath;
 use super::super::PathError;
-use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
+use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, RefusedText};
 use crate::consent::Card;
 use crate::ids::CredentialType;
 use crate::json::Node;
 use crate::plugins::{
-    Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown, ViewAdditions,
-    ViewTypes,
+    Carriage, Exclude, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown,
+    ViewAdditions, ViewTypes,
 };
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, Query};
@@ -231,6 +231,21 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         self.plugin.carries(self.query, &view, members)
     }
 
+    fn displayable(
+        &self,
+        credential: &Credential<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), NoCandidate> {
+        let view = ClaimsView::read(credential)?;
+        self.claims
+            .displayable(self.plugin, view.json(), options, env)
+            .map_err(|error| match error {
+                CardError::Text(cause) => Exclude::new(RefusedText { cause }).into(),
+                CardError::Path(path) => Self::path_fault(credential, path).into(),
+            })
+    }
+
     fn draw(
         &self,
         credential: &Credential<'_>,
@@ -241,7 +256,13 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         let module = self.plugin.display_module(view.json())?;
         self.claims
             .card(self.plugin, view.json(), shown, env, module.as_ref())
-            .map_err(|e| Self::path_fault(credential, e))
+            .map_err(|e| {
+                Fault::caused(
+                    FAULT,
+                    detail!("{id}: card", id = credential.id.to_string()),
+                    e,
+                )
+            })
     }
 
     fn card_module(&self, credential: &Credential<'_>) -> Result<Option<DefinedModule>, Fault> {

@@ -125,16 +125,21 @@ impl siros_explain::Messages for CrateMessages {
     fn messages() -> Vec<siros_explain::Message> {
         let declared: &[fn() -> Vec<siros_explain::Message>] = &[
             ids::InvalidId::messages,
+            text::TextError::messages,
             wallet::RegistrationError::messages,
             json::JsonError::messages,
             claims::PathError::messages,
             claims::ClaimsError::messages,
+            #[cfg(feature = "claims")]
+            claims::kit::CardError::messages,
             #[cfg(feature = "claims")]
             claims::kit::KitRule::messages,
             #[cfg(feature = "claims")]
             claims::kit::QueryRule::<claims::kit::KitRule>::messages,
             #[cfg(feature = "claims")]
             claims::kit::NoAlgorithm::messages,
+            #[cfg(feature = "claims")]
+            claims::kit::RefusedText::messages,
             request::Malformed::messages,
             request::MetadataError::messages,
             request::StructureRule::messages,

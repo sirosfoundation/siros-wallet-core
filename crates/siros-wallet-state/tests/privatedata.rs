@@ -76,7 +76,9 @@ fn states() -> Vec<(String, &'static str)> {
 #[test]
 fn every_plaintext_state() {
     let states = states();
-    assert_eq!(states.len(), 19);
+    for (label, _) in REFUSED {
+        assert!(states.iter().any(|(l, _)| l == label), "{label} is absent");
+    }
     for (label, text) in states {
         let refusal = REFUSED.iter().find(|(l, _)| *l == label).map(|(_, c)| *c);
         let parsed = WalletState::parse(text);
@@ -133,6 +135,8 @@ fn holds(label: &str, text: &str, state: &WalletState, json: &Value) {
     let presentations = json["presentations"].as_array().unwrap();
     assert_eq!(state.presentations().len(), presentations.len(), "{label}");
     for (record, stored) in state.presentations().iter().zip(presentations) {
+        // W4: a record serialises to the members the specification's state holds.
+        assert_eq!(&serde_json::to_value(record).unwrap(), stored, "{label}");
         let ids: Vec<String> = record
             .used_credential_ids()
             .iter()

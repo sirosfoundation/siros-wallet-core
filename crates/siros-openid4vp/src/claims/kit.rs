@@ -17,11 +17,11 @@ use siros_explain::{
 };
 
 pub use display::format_entry;
-use display::{Described, metadata, value_rows};
+use display::{Described, label_text, metadata, metadata_texts, value_rows};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
-pub use rules::{KitRule, NoAlgorithm, QueryRule, VpFormatsMember};
+pub use rules::{CardError, KitRule, NoAlgorithm, QueryRule, RefusedText, VpFormatsMember};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
@@ -31,7 +31,7 @@ use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
 use crate::request::{Item, Query};
 use crate::rows::{Env, Row, WalletText};
-use crate::text::python_space;
+use crate::text::TextError;
 use crate::wallet::Credential;
 use crate::{FAULT, detail};
 
@@ -120,6 +120,17 @@ impl Display<'_> {
             )),
             _ => Text::Raw(written.to_owned()),
         }
+    }
+
+    /// The text of the label `item`, whose metadata wrote `written`, read through
+    /// [`DisplayText`](crate::text::DisplayText); `None` for white space alone.
+    pub(crate) fn label(
+        self,
+        format: &impl ClaimsFormat,
+        item: DisplayItem,
+        written: &str,
+    ) -> Result<Option<Text>, TextError> {
+        Ok(label_text(written)?.map(|_| self.text(format, item, written)))
     }
 }
 
@@ -306,9 +317,53 @@ impl<'q> ClaimsQuery<'q> {
             .collect())
     }
 
+    /// Reads what the End-User could be shown of a credential answering `options` through
+    /// [`DisplayText`](crate::text::DisplayText): every metadata text, the `issuer`, and the
+    /// labels of the options' rows, which a member name may stand in for.
+    ///
+    /// # Errors
+    ///
+    /// [`CardError`]: a text that breaks the rule of display text, or a pointer that selects
+    /// nothing.
+    pub fn displayable(
+        &self,
+        format: &impl ClaimsFormat,
+        view: &Node<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), CardError> {
+        view.get("metadata")
+            .map_or(Ok(()), |metadata| metadata_texts(format, metadata))
+            .map_err(CardError::Text)?;
+        drop(
+            view.get("issuer")
+                .and_then(Node::as_str)
+                .map_or(Ok(None), label_text)
+                .map_err(CardError::Text)?,
+        );
+        let display = Display {
+            locales: env.priority(),
+            module: None,
+        };
+        for option in options {
+            let items = self
+                .claims
+                .options()
+                .get(*option)
+                .map_or(&[][..], |option| option.items());
+            drop(self.claim_rows(format, items, view, display)?);
+        }
+        Ok(())
+    }
+
     /// The credential's card: the display entry's name, else the crate module's
-    /// `WalletText::Credential` message; the `issuer` as subtitle; the logo resolved at issuance,
-    /// else the wallet's default icon; the rows of the items shown.
+    /// `WalletText::Credential` message; the `issuer` as subtitle, white space alone showing none;
+    /// the logo resolved at issuance, else the wallet's default icon; the rows of the items shown.
+    ///
+    /// # Errors
+    ///
+    /// [`CardError`]: a pointer that selects nothing, or a text that breaks the rule of display
+    /// text.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
@@ -316,22 +371,23 @@ impl<'q> ClaimsQuery<'q> {
         shown: Shown<'_>,
         env: &Env,
         module: Option<&DefinedModule>,
-    ) -> Result<Card, PathError> {
+    ) -> Result<Card, CardError> {
         let locales = env.priority();
         let display = Display { locales, module };
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
-            .filter(|name| !name.trim_matches(python_space).is_empty())
-            .map_or_else(
-                || Text::of(&WalletText::Credential),
-                |name| display.text(format, DisplayItem::Name, name),
-            );
+            .map_or(Ok(None), |name| {
+                display.label(format, DisplayItem::Name, name)
+            })
+            .map_err(CardError::Text)?
+            .unwrap_or_else(|| Text::of(&WalletText::Credential));
         let subtitle = view
             .get("issuer")
             .and_then(Node::as_str)
-            .map(|issuer| Text::Raw(issuer.to_owned()));
+            .map_or(Ok(None), label_text)
+            .map_err(CardError::Text)?;
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
         let mut rows = self.claim_rows(format, shown.everyone, view, display)?;
         rows.extend(self.claim_rows(format, shown.chosen, view, display)?);
@@ -351,7 +407,7 @@ impl<'q> ClaimsQuery<'q> {
         items: &[Item],
         view: &Node<'_>,
         display: Display<'_>,
-    ) -> Result<Vec<Row>, PathError> {
+    ) -> Result<Vec<Row>, CardError> {
         let described: Vec<Described<'_, '_>> = metadata(view, "claims")
             .iter()
             .enumerate()
@@ -380,9 +436,13 @@ impl<'q> ClaimsQuery<'q> {
         for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
             let selected = claim
                 .path
-                .select_held(values, |element| format.withheld(element))?;
+                .select_held(values, |element| format.withheld(element))
+                .map_err(CardError::Path)?;
             for (path, value) in selected {
-                rows.extend(value_rows(format, &path, value, &described, display, None));
+                rows.extend(
+                    value_rows(format, &path, value, &described, display, None)
+                        .map_err(CardError::Text)?,
+                );
             }
         }
         Ok(rows)

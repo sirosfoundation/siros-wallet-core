@@ -54,8 +54,8 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher; the matcher's entry emission through the registration's package, and under `register` the registration's package |
-| `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the admission of a query's `trusted_authorities` |
-| `siros-wallet-state` | The decrypted wallet state of the private data container |
+| `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the `Facts` the core matches a query's `trusted_authorities` against |
+| `siros-wallet-state` | The decrypted wallet state of the private data container, and the instance of a batch a presentation uses |
 | `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
 | `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |

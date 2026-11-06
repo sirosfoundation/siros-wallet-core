@@ -10,14 +10,17 @@ use std::num::NonZeroU32;
 
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 use siros_openid4vp::claims::kit::{
-    ClaimsQuery, Constraint, VpFormatsMember, format_entry, vp_formats_refusal,
+    CardError, ClaimsQuery, Constraint, VpFormatsMember, format_entry, vp_formats_refusal,
 };
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Claims, ClaimsError, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Member, Shown};
+use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, IconReference, ImageMedia};
+use siros_openid4vp::rows::{
+    BooleanText, Choice, Env, Icon, IconReference, ImageMedia, WalletText,
+};
+use siros_openid4vp::text::TextError;
 use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
@@ -563,5 +566,119 @@ fn a_json_number_shows_as_the_value_it_writes() {
         };
         let shown = row.value.as_ref().and_then(|value| value.text());
         assert_eq!(shown, Some(&expected), "{written}");
+    }
+}
+
+/// Each text the card reads goes through display text: the entry's name, a claim's label, the
+/// issuer, and a member name standing in for a label. An entry for another language is not read.
+/// Every metadata text reads through the rule of display text, whatever its language; a member
+/// name only where it stands in for a label of the query's claim; a blank text gives way to the
+/// next choice; a claim's value shows as written.
+#[test]
+fn what_could_be_shown_reads_through_the_rule_of_display_text() {
+    let format = ClaimsTest {
+        member: "vct_values",
+        label: "label",
+    };
+    let text = query_text(r#"[{"path": ["a"]}]"#, "vct_values", r#"["t"]"#);
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
+    let env = Env::new(
+        vec![tag("en")],
+        Vec::new(),
+        OPTIONS,
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env");
+    let refused = [
+        (
+            "the entry's name",
+            r#"{"type": "t", "metadata": {"display": [{"locale": "en", "name": "\u202eCard"}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "another language's name",
+            r#"{"type": "t", "metadata": {"display": [{"locale": "en", "name": "Card"}, {"locale": "de", "name": "\u202eKarte"}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a description",
+            r#"{"type": "t", "metadata": {"display": [{"name": "Card", "description": "\u200b"}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a logo's alternative text",
+            r#"{"type": "t", "metadata": {"display": [{"name": "Card", "logo": {"uri": "https://i.example/l", "alt_text": "\u2029"}}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a claim's label",
+            r#"{"type": "t", "metadata": {"claims": [{"path": ["a"], "display": [{"locale": "en", "label": "A\u200bB"}]}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "the label of a claim the query leaves out",
+            r#"{"type": "t", "metadata": {"claims": [{"path": ["b"], "display": [{"locale": "de", "label": "\u0378"}]}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "the issuer",
+            r#"{"type": "t", "issuer": "Bank\u2028", "metadata": {}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a name of white space and a control",
+            r#"{"type": "t", "metadata": {"display": [{"name": " \n"}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a member name standing in for a label",
+            r#"{"type": "t", "metadata": {}, "values": {"a": {"\ue000": 1}}}"#,
+        ),
+    ];
+    let read = |view: &str| {
+        let view = Node::parse(view).expect("view");
+        let options: Vec<OptionIndex> = query
+            .claims()
+            .options()
+            .indexed()
+            .map(|(option, _)| option)
+            .collect();
+        query.displayable(&format, &view, &options, &env)
+    };
+    for (case, view) in refused {
+        assert!(
+            matches!(read(view), Err(CardError::Text(TextError::Unsafe))),
+            "{case}"
+        );
+    }
+    let items = [Item::new(0).expect("item")];
+    let shown = Shown {
+        everyone: &items,
+        chosen: &[],
+    };
+    for (case, view, title, subtitle, label) in [
+        (
+            "blank texts",
+            r#"{"type": "t", "issuer": " ", "metadata": {"display": [{"name": "\u3000"}], "claims": [{"path": ["a"], "display": [{"label": " "}]}]}, "values": {"a": 1}}"#,
+            Text::of(&WalletText::Credential),
+            None,
+            Text::Raw("a".to_owned()),
+        ),
+        (
+            "a blank member name",
+            r#"{"type": "t", "metadata": {}, "values": {"a": {" ": 1}}}"#,
+            Text::of(&WalletText::Credential),
+            None,
+            Text::of(&WalletText::Claim),
+        ),
+        (
+            "a name outside the query and a value",
+            r#"{"type": "t", "issuer": "Bank", "metadata": {"display": [{"name": "Card"}], "claims": [{"path": ["a"], "display": [{"label": "A"}]}]}, "values": {"a": "\u202ex", "\ue000": 2}}"#,
+            Text::Raw("Card".to_owned()),
+            Some(Text::Raw("Bank".to_owned())),
+            Text::Raw("A".to_owned()),
+        ),
+    ] {
+        assert!(read(view).is_ok(), "{case}");
+        let view = Node::parse(view).expect("view");
+        let card = query.card(&format, &view, shown, &env, None).expect(case);
+        assert_eq!(card.title, title, "{case}");
+        assert_eq!(card.subtitle, subtitle, "{case}");
+        assert_eq!(card.rows[0].label, label, "{case}");
     }
 }

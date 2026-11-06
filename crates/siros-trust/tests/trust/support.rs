@@ -8,7 +8,7 @@ use p256::ecdsa::signature::{Keypair, Signer};
 use serde_json::value::RawValue;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::request::Query;
-use siros_trust::{IssuerChain, QueryAuthorities, TrustStore};
+use siros_trust::{IssuerChain, TrustStore};
 use x509_cert::builder::profile::BuilderProfile;
 use x509_cert::builder::{Builder, CertificateBuilder};
 use x509_cert::certificate::TbsCertificate;
@@ -402,21 +402,16 @@ pub fn chain(certificates: &[&Cert]) -> IssuerChain {
     IssuerChain::parse(&first.der(), rest.iter().map(Vec::as_slice)).unwrap()
 }
 
-/// The authorities of a `mso_mdoc` query with `trusted_authorities` `authorities`; `null`
-/// writes a query without the member.
-pub fn authorities(authorities: serde_json::Value) -> QueryAuthorities {
+/// `with` over a `mso_mdoc` query with `trusted_authorities` `authorities`; `null` writes a query
+/// without the member.
+pub fn over_query<R>(authorities: serde_json::Value, with: impl FnOnce(&Query<'_>) -> R) -> R {
     let mut query = serde_json::json!({"id": "pid", "format": "mso_mdoc", "meta": {}});
     if !authorities.is_null() {
         query["trusted_authorities"] = authorities;
     }
     let dcql = RawValue::from_string(serde_json::json!({ "credentials": [query] }).to_string());
     let dcql = dcql.unwrap();
-    let query = Query::read_all(&dcql).unwrap().remove(0);
-    QueryAuthorities::of(
-        &query.id().clone().into_owned(),
-        query.trusted_authorities(),
-    )
-    .unwrap()
+    with(&Query::read_all(&dcql).unwrap()[0])
 }
 
 /// A store record with one entry per `(type, value, certificates)`.

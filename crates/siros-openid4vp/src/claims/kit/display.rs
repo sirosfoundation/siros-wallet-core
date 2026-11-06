@@ -8,8 +8,7 @@ use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 
 use crate::rows::{BooleanText, Row, Value, WalletText};
-use crate::text::lookup;
-use crate::text::python_space;
+use crate::text::{DisplayText, TextError, lookup};
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority
@@ -62,8 +61,10 @@ fn label_of(
     path: &[Concrete<'_>],
     described: &[Described<'_, '_>],
     display: Display<'_>,
-) -> Option<Text> {
-    let found = described.iter().find(|known| known.path.matches(path))?;
+) -> Result<Option<Text>, TextError> {
+    let Some(found) = described.iter().find(|known| known.path.matches(path)) else {
+        return Ok(None);
+    };
     let entry = format_entry(
         found
             .claim
@@ -71,12 +72,55 @@ fn label_of(
             .and_then(Node::as_array)
             .unwrap_or(&[]),
         display.locales,
-    )?;
+    );
     entry
-        .get(format.label_key())
+        .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
-        .filter(|name| !name.trim_matches(python_space).is_empty())
-        .map(|name| display.text(format, DisplayItem::Claim(found.position), name))
+        .map_or(Ok(None), |name| {
+            display.label(format, DisplayItem::Claim(found.position), name)
+        })
+}
+
+/// A label that shows as written; `None` for white space alone, which the wallet's word or a
+/// member name then stands for.
+pub(super) fn label_text(text: &str) -> Result<Option<Text>, TextError> {
+    match DisplayText::label(text) {
+        Ok(label) => Ok(Some(Text::Raw(label.into_string()))),
+        Err(TextError::Empty) => Ok(None),
+        Err(refused) => Err(refused),
+    }
+}
+
+/// Reads each text under a view's `metadata` through [`DisplayText`], whatever its language: the
+/// members `name`, `alt_text` and the format's label as labels, `description` as a value. The
+/// other members are no text the End-User reads.
+pub(super) fn metadata_texts(format: &impl ClaimsFormat, node: &Node<'_>) -> Result<(), TextError> {
+    match node {
+        Node::Object(object) => object.members().iter().try_for_each(|member| {
+            match (member.name.as_ref(), member.value.as_str()) {
+                ("description", Some(text)) => DisplayText::value(text).map(drop),
+                ("name" | "alt_text", Some(text)) => label_text(text).map(drop),
+                (name, Some(text)) if name == format.label_key() => label_text(text).map(drop),
+                _ => metadata_texts(format, &member.value),
+            }
+        }),
+        Node::Array(items) => items
+            .iter()
+            .try_for_each(|item| metadata_texts(format, item)),
+        _ => Ok(()),
+    }
+}
+
+/// The label of a claim without one in the metadata: its last member name, or the wallet's word
+/// for a claim when its path names no member or that name is white space alone.
+fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
+    let name = path.iter().rev().find_map(|step| match step {
+        Concrete::Key(key) => Some(key),
+        Concrete::Index(_) => None,
+    });
+    Ok(name
+        .map_or(Ok(None), |name| label_text(name))?
+        .unwrap_or_else(|| Text::of(&WalletText::Claim)))
 }
 
 /// An object is a heading row then its members; an array of values gives each element the
@@ -84,8 +128,8 @@ fn label_of(
 /// without a label in the metadata shows its last member name, or the wallet's word for a claim
 /// when its path names no member. A scalar value shows by its type: a boolean as the wallet's yes
 /// or no, `null` as the wallet's text for no value, a number as a count or an exact decimal and
-/// beyond those as the JSON text the credential wrote. The issuer's labels and the credential's
-/// names and strings show as written.
+/// beyond those as the JSON text the credential wrote. The labels and names read through
+/// [`DisplayText`]; the credential's strings show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
@@ -93,16 +137,8 @@ pub(super) fn value_rows(
     described: &[Described<'_, '_>],
     display: Display<'_>,
     inherited: Option<&Text>,
-) -> Vec<Row> {
-    let label = label_of(format, path, described, display).or_else(|| inherited.cloned());
-    let fallback = path
-        .iter()
-        .rev()
-        .find_map(|step| match step {
-            Concrete::Key(key) => Some(Text::Raw(key.to_string())),
-            Concrete::Index(_) => None,
-        })
-        .unwrap_or_else(|| Text::of(&WalletText::Claim));
+) -> Result<Vec<Row>, TextError> {
+    let label = label_of(format, path, described, display)?.or_else(|| inherited.cloned());
     let child = |step: Concrete<'_>| -> Vec<Concrete<'_>> {
         path.iter()
             .map(Concrete::to_owned_step)
@@ -111,46 +147,50 @@ pub(super) fn value_rows(
     };
     let text = match value {
         Node::Object(object) => {
-            return label
-                .map(Row::full_text)
-                .into_iter()
-                .chain(object.members().iter().flat_map(|member| {
-                    value_rows(
-                        format,
-                        &child(Concrete::Key(member.name.clone())),
-                        &member.value,
-                        described,
-                        display,
-                        None,
-                    )
-                }))
-                .collect();
+            let mut rows: Vec<Row> = label.map(Row::full_text).into_iter().collect();
+            for member in object.members() {
+                let step = child(Concrete::Key(member.name.clone()));
+                rows.extend(value_rows(
+                    format,
+                    &step,
+                    &member.value,
+                    described,
+                    display,
+                    None,
+                )?);
+            }
+            return Ok(rows);
         }
         Node::Array(items) => {
-            let nested = items.iter().any(|item| {
-                matches!(item, Node::Object(_) | Node::Array(_)) && !format.withheld(item)
-            });
-            let head = label.clone().filter(|_| nested).map(Row::full_text);
-            let passed = (!nested).then(|| label.unwrap_or_else(|| fallback.clone()));
-            return head
-                .into_iter()
-                .chain(
-                    items
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, item)| !format.withheld(item))
-                        .flat_map(|(at, item)| {
-                            value_rows(
-                                format,
-                                &child(Concrete::Index(ArrayIndex::new(at))),
-                                item,
-                                described,
-                                display,
-                                passed.as_ref(),
-                            )
-                        }),
-                )
+            let shown: Vec<(usize, &Node<'_>)> = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| !format.withheld(item))
                 .collect();
+            let nested = shown
+                .iter()
+                .any(|(_, item)| matches!(item, Node::Object(_) | Node::Array(_)));
+            let mut rows = Vec::new();
+            let passed = if nested {
+                rows.extend(label.map(Row::full_text));
+                None
+            } else if shown.is_empty() {
+                label
+            } else {
+                Some(label.map_or_else(|| fallback_label(path), Ok)?)
+            };
+            for (at, item) in shown {
+                let step = child(Concrete::Index(ArrayIndex::new(at)));
+                rows.extend(value_rows(
+                    format,
+                    &step,
+                    item,
+                    described,
+                    display,
+                    passed.as_ref(),
+                )?);
+            }
+            return Ok(rows);
         }
         Node::Bool(true) => Text::of(&BooleanText::Yes),
         Node::Bool(false) => Text::of(&BooleanText::No),
@@ -159,7 +199,10 @@ pub(super) fn value_rows(
             .map_or_else(|| Text::Raw(number.text().to_owned()), Text::Value),
         Node::String(written) => Text::Raw(written.to_string()),
     };
-    vec![Row::new(label.unwrap_or(fallback), Value::Text(text))]
+    Ok(vec![Row::new(
+        label.map_or_else(|| fallback_label(path), Ok)?,
+        Value::Text(text),
+    )])
 }
 
 /// A JSON number (RFC 8259 §6) as an exact value: a natural number as a count, another as a
