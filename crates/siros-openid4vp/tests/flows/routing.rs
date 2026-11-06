@@ -197,7 +197,7 @@ fn the_key_rule_picks_section_8_3s_key_and_enc() {
     let metadata = ClientMetadata::parse(Some(&raw)).expect("metadata");
     let chosen = KeyChoice::of(DirectPostJwt.name(), &metadata).expect("a key and an enc");
     assert_eq!(
-        (chosen.kid(), chosen.enc()),
+        (chosen.kid().as_str(), chosen.enc()),
         ("ac", ContentEncryption::A128GCM)
     );
     // A256GCM when listed, after another value.

@@ -11,7 +11,7 @@ use dyn_clone::DynClone;
 use siros_explain::{Explain, IntoArg, kind};
 
 use crate::envelope::{Channel, Parameters};
-use crate::ids::NamedResponseUri;
+use crate::ids::{KeyId, NamedResponseUri};
 use crate::json::Node;
 #[cfg(feature = "resolve")]
 use crate::plugins::Fault;
@@ -290,8 +290,8 @@ impl<'k> VerifierMetadata<'k> {
 /// chooses under the sealing module's statement, which can narrow it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyChoice {
-    place: usize,
-    kid: String,
+    place: KeyPlace,
+    kid: KeyId<'static>,
     enc: ContentEncryption<'static>,
 }
 
@@ -309,20 +309,20 @@ impl KeyChoice {
         let metadata = VerifierMetadata::of(metadata);
         crate::modes::key_rule(mode, &metadata, &crate::modes::KEY_RULE).map(|(key, enc)| Self {
             place: key.place(),
-            kid: key.key().kid().to_owned(),
+            kid: key.key().kid().clone().into_owned(),
             enc,
         })
     }
 
     /// The key's place among `ClientMetadata::agreeable_keys`.
     #[must_use]
-    pub const fn place(&self) -> usize {
+    pub const fn place(&self) -> KeyPlace {
         self.place
     }
 
     /// The key's `kid`.
     #[must_use]
-    pub fn kid(&self) -> &str {
+    pub const fn kid(&self) -> &KeyId<'static> {
         &self.kid
     }
 
@@ -356,15 +356,30 @@ impl VerifierKeys<'_> {
         self.keys
             .iter()
             .enumerate()
-            .map(|(place, key)| VerifierKey { place, key })
+            .map(|(place, key)| VerifierKey {
+                place: KeyPlace(place),
+                key,
+            })
     }
 
     /// Whether the key is the one these keys hold at its place.
     #[cfg(feature = "resolve")]
     pub(crate) fn holds(&self, key: &VerifierKey<'_>) -> bool {
         self.keys
-            .get(key.place)
+            .get(key.place.0)
             .is_some_and(|held| std::ptr::addr_eq(held, key.key))
+    }
+}
+
+/// A key's place among the Verifier's agreeable keys. Only [`VerifierKeys::iter`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct KeyPlace(usize);
+
+impl KeyPlace {
+    /// The position among the keys.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
     }
 }
 
@@ -372,7 +387,7 @@ impl VerifierKeys<'_> {
 /// so a mode chooses among the request's keys alone.
 #[derive(Debug, Clone, Copy)]
 pub struct VerifierKey<'k> {
-    place: usize,
+    place: KeyPlace,
     key: &'k AgreeableKey<'k>,
 }
 
@@ -383,9 +398,9 @@ impl<'k> VerifierKey<'k> {
         self.key
     }
 
-    /// Its place in `jwks`.
+    /// Its place among the keys.
     #[must_use]
-    pub const fn place(&self) -> usize {
+    pub const fn place(&self) -> KeyPlace {
         self.place
     }
 }

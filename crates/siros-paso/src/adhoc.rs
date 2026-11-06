@@ -250,8 +250,10 @@ mod verify {
             modules: Modules<'_>,
         ) -> Result<(), AdhocFailure> {
             let header = self.jws.header();
-            if header.typ() != Some(TYP) {
-                return Err(AdhocFailure::Typ(header.typ().map(str::to_owned)));
+            if header.typ().map(|typ| typ.as_str()) != Some(TYP) {
+                return Err(AdhocFailure::Typ(
+                    header.typ().map(|typ| typ.as_str().to_owned()),
+                ));
             }
             let x5c = header.member("x5c").is_some();
             let kid = header.kid();
@@ -276,7 +278,7 @@ mod verify {
                 Issuer::KeySet { keys, .. } => {
                     let jwk = kid
                         .filter(|_| !x5c)
-                        .and_then(|kid| keys.get(kid))
+                        .and_then(|kid| keys.get(kid.as_str()))
                         .ok_or(AdhocFailure::UnknownKey)?;
                     let jwk =
                         PublicJwk::parse(jwk.clone()).map_err(|_| AdhocFailure::UnknownKey)?;

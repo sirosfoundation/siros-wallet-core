@@ -311,7 +311,7 @@ impl<'e> Envelope<'e> {
         })?;
         let alg = signed.header().alg();
         if !haip(host).verifies().accepts(alg) {
-            return Err(Unauthenticated::Algorithm(alg.to_owned()));
+            return Err(Unauthenticated::Algorithm(alg.as_str().to_owned()));
         }
         Ok(Pieces {
             client_id,

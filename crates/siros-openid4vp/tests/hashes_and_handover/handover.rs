@@ -164,7 +164,7 @@ impl<H> AnsweredOption<H> for RecorderOption {
         };
         let sealed = session
             .encrypted_to()
-            .map(|key| [key.key().kid(), key.enc().as_str()]);
+            .map(|key| [key.key().kid().as_str(), key.enc().as_str()]);
         let text = serde_json::json!({"aud": session.audience(), "origin": origin.as_str(), "nonce": session.nonce().as_str(), "sealed": sealed});
         Ok(Presentation::object(&text.to_string())
             .map_err(|e| Fault::caused(FAULT, detail!("recorded"), e))?)

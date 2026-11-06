@@ -158,7 +158,7 @@ mod test_util {
                         .protected(HeaderBuilder::new().algorithm(recipient).build())
                         .unprotected(
                             HeaderBuilder::new()
-                                .key_id(key.kid().as_bytes().to_vec())
+                                .key_id(key.kid().as_str().as_bytes().to_vec())
                                 .build(),
                         )
                         .ciphertext(Vec::new())

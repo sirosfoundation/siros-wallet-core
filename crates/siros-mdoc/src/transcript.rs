@@ -26,7 +26,7 @@ impl Thumbprint {
     #[must_use]
     pub fn of(key: &AgreeableKey<'_>) -> Option<Self> {
         let member = |name: &str| key.jwk().get(name).and_then(Node::as_str);
-        let required: &[&str] = match key.kty() {
+        let required: &[&str] = match key.kty().as_str() {
             "EC" => &["crv", "kty", "x", "y"],
             "OKP" => &["crv", "kty", "x"],
             _ => return None,
@@ -97,7 +97,7 @@ impl<'s> Handover<'s> {
                     FAULT,
                     detail!(
                         "the core sealed to a key of type {kty}, which has no RFC 7638 thumbprint here",
-                        kty = sealed.key().kty().to_owned()
+                        kty = sealed.key().kty().as_str().to_owned()
                     ),
                 )
             })?),

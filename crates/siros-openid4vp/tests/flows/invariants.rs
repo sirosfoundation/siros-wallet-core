@@ -531,7 +531,7 @@ fn session_key(route: &Route<'_, TestHost>) -> Option<(String, String)> {
         answering
             .session()
             .encrypted_to()
-            .map(|key| (key.key().kid().to_owned(), key.enc().as_str().to_owned()))
+            .map(|key| (key.key().kid().to_string(), key.enc().as_str().to_owned()))
     })
 }
 

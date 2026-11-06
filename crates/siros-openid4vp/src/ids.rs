@@ -148,6 +148,12 @@ text_id!(
     non_empty
 );
 text_id!(
+    /// A key's `kid` (RFC 7517 §4.5; in a JOSE header, RFC 7515 §4.1.4): a case-sensitive string.
+    KeyId,
+    "kid",
+    |_| true
+);
+text_id!(
     /// The wallet's identifier of a credential it registered.
     CredentialId,
     "credential id",
