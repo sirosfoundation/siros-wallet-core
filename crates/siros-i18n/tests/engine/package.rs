@@ -2,17 +2,21 @@
 //! refused when its entry is read (a module altered after its digest was taken is refused when it
 //! loads); each refusal rule refuses its fixture.
 
+use sha2::{Digest, Sha256};
 use siros_explain::{
     Count, DefinedKey, DefinedModule, Domain, Entry, Keyed, Message, MessageId, MetadataDigest,
     ModuleId, Text, Value, checked,
 };
 use siros_i18n::{
-    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, DeclaredId, FORMAT, Formatted,
-    LanguagePolicy, Module, Package, PackageBuilder, PackageError, PackageRoot,
+    Bidi, BuiltPackage, CURRENCY, Call, Compilers, CredentialName, Declaration, DeclaredId, FORMAT,
+    FormatCompiler, FormatId, Formats, Formatted, LanguageFormats, LanguagePolicy, Module, Package,
+    PackageBuilder, PackageError, PackageRoot, ParsedFormats, RENDERER, Refusal, RefusedOption,
     RegistrationBuilder, RenderError, Screen, TransactionKind,
 };
 
-use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
+use crate::{
+    BODY, FIXTURE, Host, Inner, PROBE, declaration, formats, load, options, renderer, source, tag,
+};
 
 /// The main module: the probe's options, for bare counts.
 fn main_module(locales: &[&str]) -> Module {
@@ -391,6 +395,52 @@ fn a_text_no_package_locale_serves_is_refused() {
     );
 }
 
+/// The package of one entry, `manifest`, as the format's layout writes it: under RFC 9162 §2.1.1's
+/// hash of one leaf, `SHA-256(0x00 || manifest)`, which is also the tree's one node.
+fn one_entry(manifest: &[u8]) -> (Vec<u8>, PackageRoot) {
+    let leaf: [u8; 32] = Sha256::new()
+        .chain_update([0])
+        .chain_update(manifest)
+        .finalize()
+        .into();
+    let mut bytes = b"SIROSPKG".to_vec();
+    bytes.extend(FORMAT.to_be_bytes());
+    bytes.extend(leaf);
+    bytes.extend(1_u64.to_be_bytes());
+    bytes.extend((manifest.len() as u64).to_be_bytes());
+    bytes.extend(leaf);
+    bytes.extend(manifest);
+    (bytes, PackageRoot::new(leaf))
+}
+
+/// The refusal of a screen over the package of one entry, `manifest`.
+fn screen_of(manifest: &[u8]) -> PackageError {
+    let (bytes, root) = one_entry(manifest);
+    let package = Package::read(&bytes, root).expect("the root's node matches");
+    Screen::new(&package, Vec::new()).expect_err("refused")
+}
+
+#[test]
+fn a_manifest_under_its_root_is_read_before_it_is_trusted() {
+    // A count whose continuation bit runs past the entry's end.
+    assert_eq!(screen_of(&[0x80]), PackageError::Malformed { entry: 0 });
+    // The manifest starts with the renderer's version, as a varint.
+    let built = PackageBuilder::new(vec![tag("en")])
+        .expect("a builder")
+        .finish();
+    let manifest_at = built.bytes().len()
+        - usize::try_from(u64::from_be_bytes(
+            built.bytes()[50..58].try_into().expect("eight bytes"),
+        ))
+        .expect("a length");
+    let mut manifest = built.bytes()[manifest_at..].to_vec();
+    manifest[0] ^= 1;
+    assert!(matches!(
+        screen_of(&manifest),
+        PackageError::Renderer { built } if built != RENDERER
+    ));
+}
+
 /// A module holding a key of one token, which only a converter's declaration gives.
 #[test]
 fn a_package_selects_a_defined_modules_key() {
@@ -410,4 +460,61 @@ fn a_package_selects_a_defined_modules_key() {
     builder
         .module(&module, Some(&[label.into()]))
         .expect("the key the module holds");
+}
+
+/// A load half that writes nothing for its render half to read.
+struct Empty;
+
+/// The load half a build registers beside [`CURRENCY`]'s render half.
+static EMPTY: Empty = Empty;
+
+impl FormatCompiler for Empty {
+    fn id(&self) -> FormatId {
+        checked!(FormatId, "currency")
+    }
+
+    fn functions(&self) -> &'static [&'static str] {
+        &["currency"]
+    }
+
+    fn options(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn parse(
+        &self,
+        _language: &LanguageFormats<'_>,
+    ) -> Result<Box<dyn ParsedFormats>, RefusedOption> {
+        Ok(Box::new(Empty))
+    }
+}
+
+impl ParsedFormats for Empty {
+    fn compile(&self, _call: &Call<'_>) -> Result<Vec<u8>, Refusal> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn a_compiled_placeholder_its_render_half_cannot_read_is_refused() {
+    let body = BODY
+        .replace(":number", ":currency")
+        .replace("[formats.number]\ndigits = 3\n", "");
+    let module = Module::load(
+        FIXTURE,
+        &declaration(),
+        &[&source("en", &body)],
+        LanguagePolicy::Any,
+        &Compilers::new(&[&EMPTY]).expect("compilers"),
+    )
+    .expect("a module");
+    let built = crate::package(&[&module]);
+    let formats = Formats::new(&[&CURRENCY]).expect("formats");
+    let renderer = renderer(&built, &[&module], &["en"], &formats, Bidi::None);
+    assert_eq!(
+        renderer
+            .plain(&Text::of(&Host::Counted { count: 1 }))
+            .expect_err("refused"),
+        RenderError::Compiled(checked!(FormatId, "currency"))
+    );
 }

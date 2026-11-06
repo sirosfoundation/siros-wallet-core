@@ -2,8 +2,9 @@
 
 use siros_explain::{Domain, Message, MessageId, ModuleId, checked, names};
 use siros_i18n::{
-    Compilers, Declaration, DeclaredId, FormatId, LanguagePolicy, Module, ModuleError, ModuleKey,
-    Refusal, ResourceRule, Validity,
+    BareKind, Call, Compilers, Declaration, DeclaredId, FormatCompiler, FormatId, LanguageFormats,
+    LanguagePolicy, Module, ModuleError, ModuleKey, ParsedFormats, Refusal, RefusedOption,
+    ResourceRule, Validity,
 };
 
 use crate::{BODY, PROBE, declaration, load, source, tag};
@@ -250,4 +251,101 @@ fn declarations_and_registrations_refuse_their_fixtures() {
         Compilers::new(&[&PROBE, &PROBE]),
         Err(ModuleError::Compiler("number"))
     ));
+}
+
+/// A format module that breaks one rule of [`FormatCompiler`]'s contract. It provides `:number`,
+/// so the main module formats bare counts and decimals through it.
+struct Broken {
+    options: &'static [&'static str],
+    reads: &'static str,
+}
+
+/// It lists its option twice.
+static LISTS_TWICE: Broken = Broken {
+    options: &["digits", "digits"],
+    reads: "digits",
+};
+
+/// It reads an option its `options` do not name.
+static READS_ANOTHER: Broken = Broken {
+    options: &["digits"],
+    reads: "group",
+};
+
+/// It parses its options and compiles no call.
+static COMPILES_NOTHING: Broken = Broken {
+    options: &["digits"],
+    reads: "digits",
+};
+
+impl FormatCompiler for Broken {
+    fn id(&self) -> FormatId {
+        checked!(FormatId, "number")
+    }
+
+    fn functions(&self) -> &'static [&'static str] {
+        &["number"]
+    }
+
+    fn options(&self) -> &'static [&'static str] {
+        self.options
+    }
+
+    fn parse(
+        &self,
+        language: &LanguageFormats<'_>,
+    ) -> Result<Box<dyn ParsedFormats>, RefusedOption> {
+        language.require(self.reads)?;
+        Ok(Box::new(Refuses))
+    }
+}
+
+/// What [`Broken`] parses to.
+struct Refuses;
+
+impl ParsedFormats for Refuses {
+    fn compile(&self, _call: &Call<'_>) -> Result<Vec<u8>, Refusal> {
+        Err(Refusal::Operand)
+    }
+}
+
+#[test]
+fn each_format_module_rule_refuses_its_fixture() {
+    let format = checked!(FormatId, "number");
+    let cases: [(&'static Broken, ModuleError); 3] = [
+        (
+            &LISTS_TWICE,
+            ModuleError::Listed {
+                format,
+                option: "digits",
+            },
+        ),
+        (
+            &READS_ANOTHER,
+            ModuleError::UndeclaredOption {
+                format,
+                option: "group",
+            },
+        ),
+        (
+            &COMPILES_NOTHING,
+            ModuleError::Bare {
+                kind: BareKind::Count,
+                locale: tag("en"),
+                function: "number",
+                refusal: Refusal::Operand,
+            },
+        ),
+    ];
+    let declared = Declaration::new(Vec::new()).expect("empty");
+    for (broken, expected) in cases {
+        let loaded = Module::load(
+            ModuleId::Main,
+            &declared,
+            &[&source("en", "[formats.number]\ndigits = 3\n")],
+            LanguagePolicy::Any,
+            &Compilers::new(&[broken]).expect("compilers"),
+        );
+        assert_eq!(loaded.expect_err("refused"), expected);
+    }
 }
