@@ -102,6 +102,26 @@ fn judged(
     (facts, background)
 }
 
+/// The facts A9 reads from a case's set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Facts {
+    presentable: bool,
+    transactions: TransactionData,
+    settled: bool,
+    whole: bool,
+}
+
+impl Facts {
+    const fn of(facts: &SetFacts) -> Self {
+        Self {
+            presentable: facts.presentable(),
+            transactions: facts.transactions(),
+            settled: facts.settled(),
+            whole: facts.whole(),
+        }
+    }
+}
+
 /// A case: its name, the request, the wallet, the credentials presentable without the wallet's
 /// UI, Credential Manager's display level, and the facts A9 reads.
 type Case<'c> = (
@@ -110,7 +130,7 @@ type Case<'c> = (
     Vec<Held>,
     &'c [&'c str],
     HostDisplay,
-    SetFacts,
+    Facts,
 );
 
 #[test]
@@ -129,9 +149,9 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
     // A credential id a field shows as its value: the test format's first row.
     let paragraph = ["c".repeat(PARAGRAPH)];
     let paragraph = [paragraph[0].as_str()];
-    let met = SetFacts {
+    let met = Facts {
         presentable: true,
-        no_transaction_data: true,
+        transactions: TransactionData::Absent,
         settled: true,
         whole: true,
     };
@@ -152,7 +172,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             one.to_vec(),
             &[],
             full,
-            SetFacts {
+            Facts {
                 presentable: false,
                 ..met
             },
@@ -163,8 +183,8 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             one.to_vec(),
             &["c"],
             full,
-            SetFacts {
-                no_transaction_data: false,
+            Facts {
+                transactions: TransactionData::Carried,
                 whole: false,
                 ..met
             },
@@ -175,8 +195,8 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             one.to_vec(),
             &["c"],
             full,
-            SetFacts {
-                no_transaction_data: false,
+            Facts {
+                transactions: TransactionData::Carried,
                 ..met
             },
         ),
@@ -186,7 +206,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             vec![held("c", &["q"]), held("d", &["q"])],
             &["c", "d"],
             full,
-            SetFacts {
+            Facts {
                 settled: false,
                 ..met
             },
@@ -197,7 +217,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             vec![held("c", &["q"]), held("d", &["r"])],
             &["c", "d"],
             full,
-            SetFacts {
+            Facts {
                 settled: false,
                 ..met
             },
@@ -208,7 +228,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             vec![held(paragraph[0], &["q"])],
             &paragraph,
             full,
-            SetFacts {
+            Facts {
                 whole: false,
                 ..met
             },
@@ -224,9 +244,9 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
     ];
     for (case, request, wallet, presentable, host, want) in cases {
         let (facts, background) = judged(&request, &wallet, presentable, host);
-        assert_eq!(facts, want, "{case}");
+        assert_eq!(Facts::of(&facts), want, "{case}");
         let display = WalletDisplay::of(facts, host);
-        let want = if facts == met && host == full {
+        let want = if want == met && host == full {
             WalletDisplay::NotNeeded
         } else {
             WalletDisplay::Needed
@@ -240,7 +260,6 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             WalletDisplay::Needed => {
                 assert_eq!(Delegation::of(display), Delegation::None, "{case}");
                 let refused = background.expect_err(case);
-
                 assert_eq!(refused.code(), ErrorCode::ACCESS_DENIED, "{case}");
             }
         }

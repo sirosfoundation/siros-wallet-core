@@ -48,18 +48,14 @@ pub enum HostDisplay {
     Skipped,
 }
 
-/// What A9 judges a set by, apart from Credential Manager's display level.
+/// What A9 judges a set by, apart from Credential Manager's display level. Only [`SetFacts::of`]
+/// makes one, from the set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SetFacts {
-    /// Every entry's credential is presentable without the wallet's UI.
-    pub presentable: bool,
-    /// The request carries no `transaction_data`.
-    pub no_transaction_data: bool,
-    /// Every slot holds one choice: the End-User chooses nothing, neither an addition nor a
-    /// subset of a `multiple` query's candidates.
-    pub settled: bool,
-    /// Every row of every entry shows as a field, whole.
-    pub whole: bool,
+    presentable: bool,
+    transactions: TransactionData,
+    settled: bool,
+    whole: bool,
 }
 
 /// Whether a set needs the wallet's display (A9).
@@ -133,10 +129,35 @@ impl SetFacts {
         }
         Ok(Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential)),
-            no_transaction_data: transactions == TransactionData::Absent,
+            transactions,
             settled: set.iter().all(|slot| slot.len() == 1),
             whole,
         })
+    }
+
+    /// Every entry's credential is presentable without the wallet's UI.
+    #[must_use]
+    pub const fn presentable(&self) -> bool {
+        self.presentable
+    }
+
+    /// Whether the request carries `transaction_data`.
+    #[must_use]
+    pub const fn transactions(&self) -> TransactionData {
+        self.transactions
+    }
+
+    /// Every slot holds one choice: the End-User chooses nothing, neither an addition nor a
+    /// subset of a `multiple` query's candidates.
+    #[must_use]
+    pub const fn settled(&self) -> bool {
+        self.settled
+    }
+
+    /// Every row of every entry shows as a field, whole.
+    #[must_use]
+    pub const fn whole(&self) -> bool {
+        self.whole
     }
 }
 
@@ -148,12 +169,12 @@ impl WalletDisplay {
     pub const fn of(facts: SetFacts, host: HostDisplay) -> Self {
         let SetFacts {
             presentable,
-            no_transaction_data,
+            transactions,
             settled,
             whole,
         } = facts;
         if presentable
-            && no_transaction_data
+            && matches!(transactions, TransactionData::Absent)
             && settled
             && whole
             && matches!(host, HostDisplay::Full)
