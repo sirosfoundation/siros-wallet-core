@@ -142,7 +142,8 @@ impl Rng for OsRng {
 /// The remote wallet host: the WMP client on the other side of the
 /// transport. The engine's sub-flow asks (sign, match, consent, tx_code,
 /// presentation, DPoP, attestation, the authorization navigation) go to
-/// the client as **child flows** through the [`WmpHostBridge`] — a
+/// the client as **child flows** through the
+/// [`WmpHostBridge`](crate::host_bridge::WmpHostBridge) — a
 /// `wmp.flow.start` for the ask, the client's `wmp.flow.complete` the
 /// answer — exactly the pattern the #163 bridge's `wmpTransport` drives.
 ///
