@@ -397,6 +397,15 @@ pub trait FormatQuery {
     /// Whether the credential's presentation can carry these transaction response members.
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault>;
 
+    /// Excludes a credential answering `options` when what the End-User could be shown of it
+    /// must not reach them.
+    fn displayable(
+        &self,
+        credential: &Credential<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), NoCandidate>;
+
     /// The credential's card showing the items.
     fn draw(&self, credential: &Credential<'_>, shown: Shown<'_>, env: &Env)
     -> Result<Card, Fault>;

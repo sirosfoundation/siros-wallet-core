@@ -90,6 +90,12 @@ fn cases() -> Vec<Case> {
             Ok(()),
         ),
         case(
+            "an aki value in base64url's alphabet: 0xfb 0xff 0xfe is -__-",
+            signed_by(&iaca, |ds| ds.aki(&[0xfb, 0xff, 0xfe])),
+            json!([{"type": "aki", "values": ["-__-"]}]),
+            Ok(()),
+        ),
+        case(
             "a two-level chain admitted through a store entry",
             signed_by(&iaca, |ds| ds),
             etsi_tl(LIST),

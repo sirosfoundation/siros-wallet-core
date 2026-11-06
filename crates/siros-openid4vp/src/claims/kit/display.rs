@@ -8,7 +8,7 @@ use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 
 use crate::rows::{BooleanText, Row, Value, WalletText};
-use crate::text::{DisplayText, TextError, lookup, python_space};
+use crate::text::{DisplayText, TextError, lookup};
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority
@@ -64,26 +64,49 @@ fn label_of(
     entry
         .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
-        .filter(|name| !name.trim_matches(python_space).is_empty())
-        .map(raw_label)
-        .transpose()
+        .map_or(Ok(None), label_text)
 }
 
-/// A text that shows as written, once it reads as a label.
-pub(super) fn raw_label(text: &str) -> Result<Text, TextError> {
-    DisplayText::label(text).map(|label| Text::Raw(label.into_string()))
+/// A label that shows as written; `None` for white space alone, which the wallet's word or a
+/// member name then stands for.
+pub(super) fn label_text(text: &str) -> Result<Option<Text>, TextError> {
+    match DisplayText::label(text) {
+        Ok(label) => Ok(Some(Text::Raw(label.into_string()))),
+        Err(TextError::Empty) => Ok(None),
+        Err(refused) => Err(refused),
+    }
+}
+
+/// Reads each text under a view's `metadata` through [`DisplayText`], whatever its language: the
+/// members `name`, `alt_text` and the format's label as labels, `description` as a value. The
+/// other members are no text the End-User reads.
+pub(super) fn metadata_texts(format: &impl ClaimsFormat, node: &Node<'_>) -> Result<(), TextError> {
+    match node {
+        Node::Object(object) => object.members().iter().try_for_each(|member| {
+            match (member.name.as_ref(), member.value.as_str()) {
+                ("description", Some(text)) => DisplayText::value(text).map(drop),
+                ("name" | "alt_text", Some(text)) => label_text(text).map(drop),
+                (name, Some(text)) if name == format.label_key() => label_text(text).map(drop),
+                _ => metadata_texts(format, &member.value),
+            }
+        }),
+        Node::Array(items) => items
+            .iter()
+            .try_for_each(|item| metadata_texts(format, item)),
+        _ => Ok(()),
+    }
 }
 
 /// The label of a claim without one in the metadata: its last member name, or the wallet's word
-/// for a claim when its path names no member.
+/// for a claim when its path names no member or that name is white space alone.
 fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
-    path.iter()
-        .rev()
-        .find_map(|step| match step {
-            Concrete::Key(key) => Some(raw_label(key)),
-            Concrete::Index(_) => None,
-        })
-        .unwrap_or_else(|| Ok(Text::of(&WalletText::Claim)))
+    let name = path.iter().rev().find_map(|step| match step {
+        Concrete::Key(key) => Some(key),
+        Concrete::Index(_) => None,
+    });
+    Ok(name
+        .map_or(Ok(None), |name| label_text(name))?
+        .unwrap_or_else(|| Text::of(&WalletText::Claim)))
 }
 
 /// An object is a heading row then its members; an array of values gives each element the

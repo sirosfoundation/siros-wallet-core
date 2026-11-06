@@ -142,6 +142,8 @@ impl siros_explain::Messages for CrateMessages {
             claims::kit::QueryRule::<claims::kit::KitRule>::messages,
             #[cfg(feature = "claims")]
             claims::kit::NoAlgorithm::messages,
+            #[cfg(feature = "claims")]
+            claims::kit::RefusedText::messages,
             request::Malformed::messages,
             request::MetadataError::messages,
             request::StructureRule::messages,

@@ -50,7 +50,7 @@ fn the_spec_aki_value_admits_its_key_and_a_flipped_bit_does_not() {
 }
 
 /// The registered facts admit Annex D's Document Signer by its `aki` and by the store entry that
-/// lists it, in its validity; the matcher's rule and the witness's agree.
+/// lists it, in its validity.
 #[test]
 fn annex_d_document_signer_is_admitted_by_its_aki_and_by_a_store_entry() {
     let chain = chain_of(ANNEX_D_DOCUMENT_SIGNER, &[]);
@@ -62,25 +62,29 @@ fn annex_d_document_signer_is_admitted_by_its_aki_and_by_a_store_entry() {
     .unwrap();
     let time = at("2021-01-01T00:00:00Z");
     let facts = IssuerFacts::at(Some(&chain), &store, time).facts(Holder::Bound);
-    for (authorities, admitted) in [
-        (json!([{"type": "aki", "values": [ANNEX_D_AKI]}]), true),
-        (json!([{"type": "etsi_tl", "values": [LIST]}]), true),
-        (json!([{"type": "aki", "values": [AKI]}]), false),
+    for (authorities, refusals) in [
+        (json!([{"type": "aki", "values": [ANNEX_D_AKI]}]), vec![]),
+        (json!([{"type": "etsi_tl", "values": [LIST]}]), vec![]),
+        (
+            json!([{"type": "aki", "values": [AKI]}]),
+            vec![ChainRefusal::KeyIdentifierAbsent],
+        ),
         (
             json!([{"type": "etsi_tl", "values": ["https://tl.example/other"]}]),
-            false,
+            vec![ChainRefusal::NoStoreEntry],
         ),
     ] {
         over_query(authorities, |query| {
             assert_eq!(
                 facts.admits(query),
-                admitted,
+                refusals.is_empty(),
                 "{:?}",
                 query.trusted_authorities
             );
+            let resolved = AdmittedIssuer::resolve(query, Some(&chain), &store, time);
             assert_eq!(
-                AdmittedIssuer::resolve(query, Some(&chain), &store, time).is_ok(),
-                admitted,
+                resolved.as_ref().err().map_or(&[][..], |e| e.refusals()),
+                refusals.as_slice(),
                 "{:?}",
                 query.trusted_authorities
             );

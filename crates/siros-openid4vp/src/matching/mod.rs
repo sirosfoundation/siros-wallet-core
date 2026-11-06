@@ -94,6 +94,9 @@ pub enum ExcludedBy {
     /// The entry's texts cannot render: no language serves its modules, or the package holds
     /// no module whose locale its profile selected (section 4.14 of the design).
     Language,
+    /// The query's format: what the End-User could be shown of the credential must not reach them
+    /// (`FormatQuery::displayable`).
+    Display,
 }
 
 /// The code of a request the wallet does not meet (§8.5, §15.4.1).
@@ -366,16 +369,25 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 ),
             ));
         }
-        Ok(if options.is_empty() {
-            Considered::Unanswered
-        } else {
-            Considered::Candidate(Candidate {
+        if options.is_empty() {
+            return Ok(Considered::Unanswered);
+        }
+        match self
+            .formatted
+            .query
+            .displayable(credential, &options, self.env)
+        {
+            Ok(()) => Ok(Considered::Candidate(Candidate {
                 credential,
                 options,
                 bound,
                 inputs,
-            })
-        })
+            })),
+            Err(NoCandidate::Excluded(exclude)) => {
+                Ok(Considered::Excluded(ExcludedBy::Display, exclude))
+            }
+            Err(NoCandidate::Fault(fault)) => Err(fault),
+        }
     }
 
     /// The entries the profile binds to the credential with the transaction, for a query

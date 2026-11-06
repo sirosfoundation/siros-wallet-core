@@ -187,6 +187,14 @@ impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
     ) -> Result<bool, siros_openid4vp::plugins::Fault> {
         self.0.carries(credential, members)
     }
+    fn displayable(
+        &self,
+        credential: &siros_openid4vp::wallet::Credential<'_>,
+        options: &[OptionIndex],
+        env: &siros_openid4vp::rows::Env,
+    ) -> Result<(), NoCandidate> {
+        self.0.displayable(credential, options, env)
+    }
     fn draw(
         &self,
         credential: &siros_openid4vp::wallet::Credential<'_>,

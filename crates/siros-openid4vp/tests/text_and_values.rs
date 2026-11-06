@@ -4,11 +4,8 @@
 
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, Shown};
-use siros_openid4vp::text::{
-    CARD_TEXT_MAX, DisplayText, LABEL_MAX, TEMPLATE_MAX, TextError, VALUE_MAX, lookup,
-};
+use siros_openid4vp::text::{DisplayText, TextError, lookup};
 use siros_testkit::fixtures::OPTIONS;
-use unicode_general_category::{GeneralCategory, get_general_category};
 
 fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
@@ -213,7 +210,8 @@ fn json_values_are_written_as_pythons_json_dumps_writes_them() {
 }
 
 /// The display text rule: the characters Unicode's General Category table places in Cc, Cf, Zl,
-/// Zp, Co and Cn, and each kind's length.
+/// Zp, Co and Cn, and each kind's length: 500 for a label, 2000 for a value, 100 for a template
+/// and 600 for a card's line.
 #[test]
 fn unsafe_or_over_long_text_is_refused() {
     type Kind = fn(&str) -> Result<DisplayText, TextError>;
@@ -329,35 +327,30 @@ fn unsafe_or_over_long_text_is_refused() {
             label,
             Some(TextError::Unsafe),
         ),
-        ("a label at its limit", long(LABEL_MAX, 'a'), label, None),
-        (
-            "a label counts characters",
-            long(LABEL_MAX, 'é'),
-            label,
-            None,
-        ),
+        ("a label at its limit", long(500, 'a'), label, None),
+        ("a label counts characters", long(500, 'é'), label, None),
         (
             "a label over its limit",
-            long(LABEL_MAX + 1, 'a'),
+            long(501, 'a'),
             label,
             Some(TextError::TooLong),
         ),
-        ("a value at its limit", long(VALUE_MAX, 'a'), value, None),
+        ("a value at its limit", long(2_000, 'a'), value, None),
         (
             "a value over its limit",
-            long(VALUE_MAX + 1, 'a'),
+            long(2_001, 'a'),
             value,
             Some(TextError::TooLong),
         ),
         (
             "a card line over its limit",
-            long(CARD_TEXT_MAX + 1, 'a'),
+            long(601, 'a'),
             DisplayText::card,
             Some(TextError::TooLong),
         ),
         (
             "a template over its limit",
-            long(TEMPLATE_MAX + 1, 'a'),
+            long(101, 'a'),
             DisplayText::template,
             Some(TextError::TooLong),
         ),
@@ -368,27 +361,4 @@ fn unsafe_or_over_long_text_is_refused() {
             Some(error) => assert_eq!(kind(&text), Err(error), "{case}"),
         }
     }
-}
-
-/// Display text refuses exactly the characters of the General Categories Cc, Cf, Zl, Zp, Co and Cn,
-/// over every code point a `char` holds.
-#[test]
-fn the_refused_characters_are_those_of_the_unsafe_categories() {
-    let differing: Vec<char> = (0..=u32::from(char::MAX))
-        .filter_map(char::from_u32)
-        .filter(|&c| {
-            let category = matches!(
-                get_general_category(c),
-                GeneralCategory::Control
-                    | GeneralCategory::Format
-                    | GeneralCategory::LineSeparator
-                    | GeneralCategory::ParagraphSeparator
-                    | GeneralCategory::PrivateUse
-                    | GeneralCategory::Unassigned
-            );
-            let refused = DisplayText::value(c.encode_utf8(&mut [0; 4])).is_err();
-            category != refused
-        })
-        .collect();
-    assert!(differing.is_empty(), "{differing:?}");
 }

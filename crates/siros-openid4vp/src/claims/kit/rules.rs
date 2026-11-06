@@ -56,7 +56,7 @@ pub enum KitRule {
     },
 }
 
-/// Why a credential's view draws no card: a fault of the wallet's data.
+/// Why a credential's view shows no card.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.claims_kit")]
 pub enum CardError {
@@ -66,6 +66,22 @@ pub enum CardError {
     /// A metadata text, or a member name that stands in for one, breaks the rule of display text.
     #[error("{0}")]
     Text(#[explain(name = "cause")] TextError),
+}
+
+/// A credential's metadata text, or a member name that stands in for one, breaks the rule of
+/// display text: the End-User is not offered the credential.
+#[derive(Debug, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.claims_kit", id = "refused_text")]
+#[error("a text of the credential: {cause}")]
+pub struct RefusedText {
+    /// The rule the text breaks.
+    pub cause: TextError,
+}
+
+impl Exclusion for RefusedText {
+    fn clause(&self) -> Cow<'static, str> {
+        Cow::Borrowed("the rule of display text")
+    }
 }
 
 /// The Verifier's `vp_formats_supported` member admits no identifier the credential's

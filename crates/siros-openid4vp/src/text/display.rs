@@ -4,11 +4,10 @@
 use siros_explain::Explain;
 use unicode_general_category::{GeneralCategory, get_general_category};
 
-/// The most characters of a label, a name, a title or a hint. EC TS12 v1.0.1, Section 3.3.3
-/// allows 250.
+/// The most characters of a label, a name, a title or a hint.
 pub const LABEL_MAX: usize = 500;
 
-/// The most characters of a value. The TS12 mandate text holds at most 1000.
+/// The most characters of a value or a description.
 pub const VALUE_MAX: usize = 2_000;
 
 /// The most characters of an issuer template's text around the issuer's name.
@@ -20,7 +19,8 @@ pub const CARD_TEXT_MAX: usize = LABEL_MAX + TEMPLATE_MAX;
 /// Text that holds no character of the Unicode General Categories Cc (control), Cf (format: the
 /// bidi embeddings, overrides and isolates, the bidi marks and the zero-width characters), Zl and
 /// Zp (line and paragraph separators), Co (private use) and Cn (unassigned). Unsafe or over-long
-/// text is refused whole: the End-User sees exactly the text the other party acts on.
+/// text is refused whole. The claims kit reads a credential's metadata texts through it; the
+/// values of a credential's claims show as written.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DisplayText(String);
 
@@ -45,7 +45,7 @@ impl DisplayText {
         Self::non_blank(text, CARD_TEXT_MAX)
     }
 
-    /// A value: at most [`VALUE_MAX`] characters.
+    /// A value or a description: at most [`VALUE_MAX`] characters.
     ///
     /// # Errors
     ///

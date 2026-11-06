@@ -116,6 +116,15 @@ impl<H> FormatQuery for RecorderQuery<'_, H> {
         self.0.carries(credential, members)
     }
 
+    fn displayable(
+        &self,
+        credential: &Credential<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), NoCandidate> {
+        self.0.displayable(credential, options, env)
+    }
+
     fn draw(
         &self,
         credential: &Credential<'_>,

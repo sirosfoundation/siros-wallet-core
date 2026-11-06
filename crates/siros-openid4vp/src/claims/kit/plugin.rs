@@ -5,12 +5,12 @@ use siros_explain::AllOf;
 #[cfg(feature = "resolve")]
 use super::super::ConcretePath;
 use super::super::PathError;
-use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
+use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, RefusedText};
 use crate::consent::Card;
 use crate::json::Node;
 use crate::plugins::{
-    Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown, ViewAdditions,
-    ViewTypes,
+    Exclude, Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown,
+    ViewAdditions, ViewTypes,
 };
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, Query};
@@ -229,6 +229,21 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
         let view = ClaimsView::read(credential)?;
         self.plugin.carries(self.query, &view, members)
+    }
+
+    fn displayable(
+        &self,
+        credential: &Credential<'_>,
+        options: &[OptionIndex],
+        env: &Env,
+    ) -> Result<(), NoCandidate> {
+        let view = ClaimsView::read(credential)?;
+        self.claims
+            .displayable(self.plugin, view.json(), options, env)
+            .map_err(|error| match error {
+                CardError::Text(cause) => Exclude::new(RefusedText { cause }).into(),
+                CardError::Path(path) => Self::path_fault(credential, path).into(),
+            })
     }
 
     fn draw(

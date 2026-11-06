@@ -302,6 +302,15 @@ impl FormatQuery for StandInQuery {
         ))
     }
 
+    fn displayable(
+        &self,
+        _credential: &Credential<'_>,
+        _options: &[OptionIndex],
+        _env: &Env,
+    ) -> Result<(), NoCandidate> {
+        Ok(())
+    }
+
     fn draw(
         &self,
         credential: &Credential<'_>,
