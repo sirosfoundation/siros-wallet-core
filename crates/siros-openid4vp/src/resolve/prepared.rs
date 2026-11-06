@@ -17,6 +17,7 @@ use crate::host::{
     AnsweredOption, AnsweredQuery, Authentication, AuthenticationNeed, Categories, CoreHost, Host,
     Platform, PresentError, Usable,
 };
+use crate::ids::CredentialId;
 use crate::matching::{Accepted, EntryView, Match, ReturnedRecord, TransactionBinding, Views};
 use crate::plugins::registry::{DynProfile, Placed};
 use crate::plugins::{
@@ -224,6 +225,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
             )
         })?;
         let session = answering.session();
+        let audience = session.audience();
         let phase = Phase {
             request: &request,
             env,
@@ -247,7 +249,14 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
         let members = parameters(registry, routing, &session, host)?;
         let response = AuthorizationResponse::of(vp_token, routing.state(), members);
         let delivery = answering.answer(&response, host)?;
-        Ok(Built::of(response, delivery))
+        let mut used: Vec<CredentialId<'static>> = Vec::new();
+        for Presenting { record, .. } in &presenting {
+            let credential = record.picked.credential.id.clone().into_owned();
+            if !used.contains(&credential) {
+                used.push(credential);
+            }
+        }
+        Ok(Built::of(response, delivery, used, audience))
     }
 }
 

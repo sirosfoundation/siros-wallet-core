@@ -33,6 +33,10 @@ use siros_testkit::Published;
 use siros_testkit::fixtures::{Held, NONCE, OPTIONS, ORIGIN, parameters};
 use siros_testkit::reading::model_shape;
 use siros_testkit::verifier::{self, ISSUER};
+use siros_wallet_state::{
+    CredentialId, PresentationId, PresentationRecord, Timestamp as WalletTimestamp, TransactionId,
+    WalletState,
+};
 
 use common::{paso_app, registry, sri};
 
@@ -103,6 +107,8 @@ struct Answered {
     entry: ConsentEntry,
     vp_token: String,
     delivery: Delivery,
+    used: Vec<String>,
+    audience: String,
 }
 
 /// The request answered through the core with every real plug-in, for an English wallet holding
@@ -156,7 +162,44 @@ fn answer(
         entry,
         vp_token: built.response().vp_token().json(),
         delivery: built.delivery().clone(),
+        used: built.used().iter().map(ToString::to_string).collect(),
+        audience: built.audience().to_owned(),
     }
+}
+
+/// W4 and C5 over an answer: the record the app fills from it, under the wallet state's number 1
+/// for the credential `used` names, reads back from the state, and the batch's next presentation
+/// takes the instance the record does not name.
+fn assert_recorded(answered: &Answered, used: &str) {
+    assert_eq!(answered.used, [used]);
+    let record = PresentationRecord::new(
+        PresentationId::new(1),
+        TransactionId::new(1),
+        answered.vp_token.clone(),
+        vec![CredentialId::new(1)],
+        WalletTimestamp::from_unix(i64::try_from(NOW).expect("seconds")).expect("the instant"),
+        answered.audience.clone(),
+    );
+    let instance = |id: u64, instance: u64| {
+        json!({"credentialId": id, "format": "dc+sd-jwt", "data": "", "kid": "",
+            "instanceId": instance, "batchId": 1, "credentialIssuerIdentifier": "",
+            "credentialConfigurationId": ""})
+    };
+    let state = WalletState::parse(
+        &json!({"schemaVersion": 4, "credentials": [instance(1, 0), instance(2, 1)],
+            "keypairs": [], "presentations": [record]})
+        .to_string(),
+    )
+    .expect("the state");
+    let [recorded] = state.presentations() else {
+        panic!("one record");
+    };
+    assert_eq!(recorded.used_credential_ids(), [CredentialId::new(1)]);
+    let chosen = state.least_used(state.credentials());
+    let [chosen] = chosen.as_slice() else {
+        panic!("one batch");
+    };
+    assert_eq!(chosen.credential_id(), CredentialId::new(2));
 }
 
 /// The one presentation of a query in `vp_token`.
@@ -370,6 +413,8 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
     assert_eq!(names, want);
     // Annex A and B.3.6: the Origin as audience, the request's nonce, sd_hash over the SD-JWT.
     assert_eq!(payload["aud"], json!(format!("origin:{ORIGIN}")));
+    assert_eq!(answered.audience, format!("origin:{ORIGIN}"));
+    assert_recorded(&answered, "card");
     assert_eq!(payload["nonce"], json!(NONCE));
     assert_eq!(payload["iat"], json!(NOW));
     assert_eq!(

@@ -7,6 +7,7 @@
 //! | W2: unique 64-bit `credentialId`s, the eight members of Section 6.0, `metadata` verbatim | [`CredentialEntry`], [`MetadataEntry`] |
 //! | W3: credentials, presentations and key identifiers | [`WalletState::credentials`], [`WalletState::presentations`], [`WalletState::key_ids`] |
 //! | W4: the record the host appends as a `new_presentation` event | [`PresentationRecord`] |
+//! | C5: the instance of a batch a presentation uses | [`WalletState::least_used`] over any [`Instance`] |
 //!
 //! The host supplies `S` with its events folded in. Types that hold a credential, a
 //! presentation or a `metadata` value implement no `Debug`: those hold claim values and
@@ -36,6 +37,7 @@
 mod entry;
 mod error;
 mod ids;
+mod instance;
 mod presentation;
 mod state;
 
@@ -48,5 +50,6 @@ pub use ids::{
     BatchId, ConfigurationId, CredentialId, EmptyIdentifier, FormatIdentifier, InstanceId,
     IssuerIdentifier, KeyId, PresentationId, TransactionId,
 };
+pub use instance::Instance;
 pub use presentation::{PresentationRecord, Timestamp};
 pub use state::WalletState;

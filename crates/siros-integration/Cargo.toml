@@ -24,6 +24,7 @@ siros-credman = { workspace = true, features = ["register"] }
 siros-webuild = { workspace = true }
 siros-x509 = { path = "../siros-x509", features = ["test-util"] }
 siros-testkit = { workspace = true }
+siros-wallet-state = { workspace = true }
 siros-i18n = { workspace = true, features = ["load"] }
 siros-explain = { workspace = true }
 serde_json = { workspace = true }

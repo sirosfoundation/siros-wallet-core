@@ -7,6 +7,9 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
+  C5). `Built::used` and `Built::audience` give the app what it fills a
+  `PresentationRecord` with, beside the `vp_token`.
 - `siros-trust` writes the core's `Facts` from an issuer chain and the trust
   store (`IssuerFacts`): `aki` with the chain's keyIdentifiers in base64url, and
   each admitting store type with its values. The admission rule is the core's
