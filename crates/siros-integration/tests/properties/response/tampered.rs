@@ -84,7 +84,8 @@ pub(super) fn tampered(
         let others: Vec<&EntryView<'_>> = views
             .iter()
             .filter(|o| {
-                o.record.query == view.record.query && o.record.credential != view.record.credential
+                o.record.query() == view.record.query()
+                    && o.record.credential() != view.record.credential()
             })
             .collect();
         let multiple = case.query(view.pick.query).multiple == Multiplicity::Many;
@@ -100,7 +101,7 @@ pub(super) fn tampered(
             rejected.extend(
                 others
                     .iter()
-                    .filter(|o| !o.record.entries.is_empty())
+                    .filter(|o| !o.record.entries().is_empty())
                     .take(1)
                     .map(|o| with(o.record.id().as_str().to_owned())),
             );
@@ -179,7 +180,7 @@ pub(super) fn renewed(
 ) {
     let Some((k, refreshed)) = records.iter().enumerate().find(|(_, view)| {
         view.record
-            .attested
+            .attested()
             .is_some_and(|attested| attested.get("metadata_integrity").is_some())
     }) else {
         return;
@@ -187,7 +188,7 @@ pub(super) fn renewed(
     let mut held = case.held.to_vec();
     let target = held
         .iter_mut()
-        .find(|h| h.id == refreshed.record.credential.as_str())
+        .find(|h| h.id == refreshed.record.credential().as_str())
         .expect("the record's credential");
     for (key, content) in &mut target.documents {
         if key == "paso" {

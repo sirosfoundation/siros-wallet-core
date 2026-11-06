@@ -141,7 +141,7 @@ impl SetFacts {
             whole &= Field::of(&row, text_of)?.is_ok_and(|field| field.extent() == Extent::Whole);
         }
         Ok(Self {
-            presentable: entries().all(|view| presentable.0.contains(view.record.credential)),
+            presentable: entries().all(|view| presentable.0.contains(view.record.credential())),
             no_transaction_data: transactions == TransactionData::Absent,
             settled: set.iter().all(|slot| slot.len() == 1),
             whole,

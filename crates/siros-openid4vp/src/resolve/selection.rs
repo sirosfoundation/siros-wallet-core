@@ -42,13 +42,13 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     let request = accepted.request();
     let mut queries: Vec<(&QueryId<'_>, Vec<&str>)> = Vec::new();
     for view in records {
-        let credential = view.record.credential.as_str();
+        let credential = view.record.credential().as_str();
         match queries
             .iter_mut()
-            .find(|(query, _)| *query == view.record.query)
+            .find(|(query, _)| *query == view.record.query())
         {
             Some((_, credentials)) => credentials.push(credential),
-            None => queries.push((view.record.query, vec![credential])),
+            None => queries.push((view.record.query(), vec![credential])),
         }
     }
     for (query, credentials) in &queries {
@@ -69,7 +69,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     }
     if records
         .iter()
-        .filter(|view| !view.record.entries.is_empty())
+        .filter(|view| !view.record.entries().is_empty())
         .count()
         > 1
     {

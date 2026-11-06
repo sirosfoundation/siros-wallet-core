@@ -36,20 +36,13 @@ impl RecordId {
 /// record equal to one of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record<'m> {
-    /// The query.
-    pub query: &'m QueryId<'m>,
-    /// The credential.
-    pub credential: &'m CredentialId<'m>,
-    /// The option.
-    pub option: OptionIndex,
-    /// The entries it authorizes; empty without a transaction.
-    pub entries: &'m [EntryIndex],
-    /// What it attests.
-    pub attested: Option<&'m Attested>,
-    /// The digest of the request.
-    pub request: &'m RequestDigest,
-    /// What its texts rendered with.
-    pub inputs: &'m RenderingInputs,
+    query: &'m QueryId<'m>,
+    credential: &'m CredentialId<'m>,
+    option: OptionIndex,
+    entries: &'m [EntryIndex],
+    attested: Option<&'m Attested>,
+    request: &'m RequestDigest,
+    inputs: &'m RenderingInputs,
     id: RecordId,
 }
 
@@ -104,6 +97,48 @@ impl<'m> Record<'m> {
     #[must_use]
     pub fn id(&self) -> &RecordId {
         &self.id
+    }
+
+    /// The query.
+    #[must_use]
+    pub const fn query(&self) -> &'m QueryId<'m> {
+        self.query
+    }
+
+    /// The credential.
+    #[must_use]
+    pub const fn credential(&self) -> &'m CredentialId<'m> {
+        self.credential
+    }
+
+    /// The option.
+    #[must_use]
+    pub const fn option(&self) -> OptionIndex {
+        self.option
+    }
+
+    /// The entries it authorizes; empty without a transaction.
+    #[must_use]
+    pub const fn entries(&self) -> &'m [EntryIndex] {
+        self.entries
+    }
+
+    /// What it attests.
+    #[must_use]
+    pub const fn attested(&self) -> Option<&'m Attested> {
+        self.attested
+    }
+
+    /// The digest of the request.
+    #[must_use]
+    pub const fn request(&self) -> &'m RequestDigest {
+        self.request
+    }
+
+    /// What its texts rendered with.
+    #[must_use]
+    pub const fn inputs(&self) -> &'m RenderingInputs {
+        self.inputs
     }
 
     /// The rendering input `returned` names differently, when it names this record's other

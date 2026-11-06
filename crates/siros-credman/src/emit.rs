@@ -180,9 +180,9 @@ pub fn emit(
                     Choice::Entry(view) => {
                         let screen = Screen {
                             selected: view.selected,
-                            credential: Some(view.record.credential.as_str()),
+                            credential: Some(view.record.credential().as_str()),
                             card: view.entry.card(),
-                            committed: Some(view.record.inputs),
+                            committed: Some(view.record.inputs()),
                         };
                         let entry = CredmanEntry::of(&view.entry);
                         screen.drawn(&entry, view.record.id().as_str(), rendering, env)?

@@ -123,7 +123,7 @@ pub(super) fn session(
     tally: &mut Tally,
 ) {
     let aud = format!("origin:{ORIGIN}");
-    let transaction = !view.record.entries.is_empty();
+    let transaction = !view.record.entries().is_empty();
     match format {
         "dc+sd-jwt" => {
             let sd_jwt = presentation["sd_jwt"].as_str().expect("sd_jwt");

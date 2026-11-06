@@ -38,14 +38,14 @@ pub(super) fn members(
     host: &HaipHost,
     tally: &mut Tally,
 ) {
-    let [first] = view.record.entries else {
+    let [first] = view.record.entries() else {
         panic!("a record authorizes one entry of PaSO or QES");
     };
     let entry = case.request.entry(*first).expect("the entry");
     let json = case.entry_json(*first);
     let kind = json["type"].as_str().expect("type");
     let mdoc = format == "mso_mdoc";
-    let held = credential(case, view.record.credential.as_str());
+    let held = credential(case, view.record.credential().as_str());
     if kind.starts_with("urn:paso:sca:") {
         // PaSO Core §6.1-6.3: the locale shown, the hash of the entry as received, the integrity
         // values, the wallet's version and a fresh jti; the record attests what the display
@@ -63,7 +63,7 @@ pub(super) fn members(
                 .map(|(_, value)| value.clone())
         };
         let shown = case
-            .rendered(*first, view.record.credential.as_str())
+            .rendered(*first, view.record.credential().as_str())
             .as_ref()
             .expect("the bound entry renders")
             .view
@@ -71,7 +71,7 @@ pub(super) fn members(
             .to_string();
         let attested = view
             .record
-            .attested
+            .attested()
             .and_then(|attested| attested.get("display_locale"));
         assert!(
             get("display_locale") == Some(json!(shown)) && attested == Some(shown.as_str()),

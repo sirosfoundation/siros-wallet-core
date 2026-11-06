@@ -505,7 +505,7 @@ fn boxes(
             )
             .expect("no fault");
         let Some(bound) = candidate.bound.as_ref().map(|binding| &binding.bound) else {
-            assert!(view.record.entries.is_empty(), "P-record without entries");
+            assert!(view.record.entries().is_empty(), "P-record without entries");
             assert_eq!(
                 CredmanEntry::of(&view.entry),
                 CredmanEntry::Standard(StandardEntry {

@@ -176,7 +176,7 @@ fn registered(
 fn cards<'v>(views: &'v Views<'_>) -> Vec<(&'v str, &'v Card)> {
     views
         .iter()
-        .map(|view| (view.record.credential.as_str(), view.entry.card()))
+        .map(|view| (view.record.credential().as_str(), view.entry.card()))
         .collect()
 }
 
@@ -257,7 +257,7 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                     let emission = emit(shown, &rendering, &env).expect("no fault");
                     assert!(emission.refused().is_empty(), "{:?}", emission.refused());
                     for view in views.iter() {
-                        let credential = Some(view.record.credential.as_str());
+                        let credential = Some(view.record.credential().as_str());
                         let renderer = rendering
                             .renderer(view.selected, credential, &env)
                             .expect("no fault")
@@ -266,7 +266,7 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                             .renderer(view.selected, None, &env)
                             .expect("no fault")
                             .expect("a language");
-                        assert_eq!(renderer.inputs(), *view.record.inputs);
+                        assert_eq!(renderer.inputs(), *view.record.inputs());
                         assert_eq!(renderer.inputs(), wallet.inputs());
                         for text in held(view.entry.card()) {
                             assert!(renderer.holds(text).expect("reads"), "{tags:?}: held");
