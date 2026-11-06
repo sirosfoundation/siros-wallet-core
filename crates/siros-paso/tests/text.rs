@@ -1,6 +1,6 @@
 //! Label text against Proof Metadata §3.3.
 
-use siros_paso::labels::{LabelSlot, LabelText, LabelViolation};
+use siros_paso::labels::{Directional, LabelSlot, LabelText, LabelViolation};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
 /// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
@@ -22,9 +22,19 @@ fn single_labels_meet_section_3_3_as_it_states() {
         LabelText::parse("a\nb", claim),
         Err(LabelViolation::Control('\n'))
     );
+    assert_eq!(
+        LabelText::parse("a\u{85}b", claim),
+        Err(LabelViolation::Control('\u{85}'))
+    );
     assert!(matches!(
         LabelText::parse("a\u{202e}b", claim),
         Err(LabelViolation::Directional(_))
+    ));
+    assert!(matches!(
+        LabelText::parse("a\u{2066}b", claim),
+        Err(LabelViolation::Directional(
+            Directional::UnterminatedIsolate
+        ))
     ));
     assert!(LabelText::parse("a\u{2066}b\u{2069}", claim).is_ok());
     // §3.3 holds no rule on white space.

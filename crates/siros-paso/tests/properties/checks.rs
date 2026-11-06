@@ -15,7 +15,7 @@ use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Source};
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, env, one_query, parameters, section, tables};
+use crate::common::{Card, ExcludedBy, env, one_query, parameters, section, tables};
 use crate::generate::Case;
 
 mod members;
@@ -252,11 +252,11 @@ pub fn case(case: &Case, tally: &mut Tally) {
             (bound, entry, rendered)
         }
         (Err(NoCandidate::Excluded(exclude)), Some((_, _, Err(Outcome::Excluded(_))))) => {
-            assert_eq!(exclude.clause(), "View §4", "P-excluded");
+            assert_eq!(ExcludedBy::of(&exclude), ExcludedBy::Locale, "P-excluded");
             return tally.add("excluded View §4");
         }
         (Err(NoCandidate::Excluded(exclude)), None) => {
-            assert_eq!(exclude.clause(), "Core §7.4.2 step 2", "P-excluded");
+            assert_eq!(ExcludedBy::of(&exclude), ExcludedBy::NoEntry, "P-excluded");
             return tally.add("excluded no compatible entry");
         }
         (got, first) => panic!("P-first match: {got:?} against {first:?}"),

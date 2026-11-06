@@ -8,7 +8,7 @@ use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
 
-use crate::common::{CUSTOM, PAY, Screen, en, env, png, sri};
+use crate::common::{CUSTOM, PAY, Screen, data_png, en, env, png, sri};
 
 use super::{claims, render, render_with, shown};
 
@@ -60,6 +60,10 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
         render(&claims(&n), r#"{"transaction_id": "t", "n": "a\u202eb"}"#),
         Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. })
     );
+    decided!(
+        render(&claims(&n), r#"{"transaction_id": "t", "n": "a\u2066b"}"#),
+        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. })
+    );
     assert!(
         render(
             &claims(&n),
@@ -68,12 +72,41 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
         .is_ok(),
         "a closed isolate passes"
     );
+    // Coverage: a field no claim path addresses, wherever it sits: a member, an empty container
+    // beside a deeper path, a scalar where a path continues, a member of an array element.
+    let deep = format!(r#"{{"path": ["p", "q"], "display": {}}}"#, shown("Q"));
+    let items = format!(
+        r#"{{"path": ["items", null, "name"], "display": {}}}"#,
+        shown("I")
+    );
+    for (meta, payload) in [
+        (&n, r#"{"transaction_id": "t", "n": "a", "extra": "x"}"#),
+        (
+            &deep,
+            r#"{"transaction_id": "t", "p": {"q": "a"}, "extra": {}}"#,
+        ),
+        (&deep, r#"{"transaction_id": "t", "p": "a"}"#),
+        (
+            &items,
+            r#"{"transaction_id": "t", "items": [{"name": "a", "extra": "b"}]}"#,
+        ),
+    ] {
+        decided!(
+            render(&claims(meta), payload),
+            Outcome::NotCompatible(NotCompatible::Uncovered(_))
+        );
+    }
+    // The directional rule reaches the strings inside a covered container.
+    let any = format!(
+        r#"{{"path": ["i"], "value_type": "label_only", "display": {}}}"#,
+        shown("I")
+    );
     decided!(
         render(
-            &claims(&n),
-            r#"{"transaction_id": "t", "n": "a", "extra": "x"}"#
+            &claims(&any),
+            r#"{"transaction_id": "t", "i": {"x": ["a\u202eb"]}}"#
         ),
-        Outcome::NotCompatible(NotCompatible::Uncovered(_))
+        Outcome::NotCompatible(NotCompatible::PayloadDirectional { .. })
     );
     // Conformance (Core §7.4.2 step 2) decides before the locale (View §4): the entry gives way
     // to the next one instead of excluding the credential.
@@ -120,18 +153,33 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             r#"[{{"locale": "en", "name": "{text}", "display_type": "template:mini_markdown"}}]"#
         )
     };
-    decided!(
-        render(
-            &claims(&format!(
-                r#"{{"path": ["i"], "value_type": "label_only", "display": {}}}, {{"path": ["n"], "display": {}}}"#,
-                shown("Note"),
-                label("See {1}")
-            )),
-            r#"{"transaction_id": "t", "i": "x", "n": "a"}"#
+    let forbidden = [
+        (
+            r#"{"path": ["i"], "value_type": "image", "display": [{"locale": "en", "name": "Logo"}]}"#,
+            format!("\"{}\"", data_png(8, 8)),
         ),
-        Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder, .. })
-            if placeholder.get() == 1
-    );
+        (
+            r#"{"path": ["i"], "value_type": "label_only", "display": [{"locale": "en", "name": "Note"}]}"#,
+            "\"x\"".to_owned(),
+        ),
+        (
+            r#"{"path": ["i"], "value_type": "template:mini_markdown", "display": [{"locale": "en", "name": "Sum"}]}"#,
+            "\"y\"".to_owned(),
+        ),
+    ];
+    for (reference, value) in forbidden {
+        decided!(
+            render(
+                &claims(&format!(
+                    r#"{reference}, {{"path": ["n"], "display": {}}}"#,
+                    label("See {1}")
+                )),
+                &format!(r#"{{"transaction_id": "t", "i": {value}, "n": "a"}}"#)
+            ),
+            Outcome::NotCompatible(NotCompatible::ForbiddenReference { placeholder, .. })
+                if placeholder.get() == 1
+        );
+    }
     decided!(
         render(
             &claims(&format!(
@@ -277,12 +325,8 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
     for (why, payload, profile, failure) in cases {
         let rendered = render_with(CUSTOM, &meta, &payload, &en(), &profile);
         match &rendered {
-            Err(outcome @ Outcome::NotCompatible(NotCompatible::Image { failure: got, .. })) => {
-                assert_eq!(
-                    (got, outcome.clause()),
-                    (&failure, "View §3 image; Core §7.4.2 step 3"),
-                    "{why}"
-                );
+            Err(Outcome::NotCompatible(NotCompatible::Image { failure: got, .. })) => {
+                assert_eq!(got, &failure, "{why}");
             }
             other => panic!("{why}: {other:?}"),
         }

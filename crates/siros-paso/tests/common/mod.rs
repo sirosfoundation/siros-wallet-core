@@ -14,18 +14,47 @@ use siros_explain::{Messages, ModuleId, Text};
 use siros_i18n::{DefinedForm, Formatted, Selected};
 use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::Exclude;
 use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
+use siros_paso::outcome::Excluded;
 use siros_paso::render::{TransactionView, ViewRow};
 use siros_paso::rulebook::PasoType;
+use siros_paso::rules::BindExcluded;
 use siros_paso::value::ValueKind;
 use siros_testkit::fixtures::{OPTIONS, with_generic_forms};
 use siros_testkit::render::{
     App, CrateSource, ENGLISH_PASO, GERMAN_PASO, main_locales, main_module,
 };
 use siros_testkit::verifier;
+
+/// The rule that excluded a credential, read from its type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExcludedBy {
+    /// View §4: no locale completes the display.
+    Locale,
+    /// Core §6 and OpenID4VP B.2: the presentation cannot carry the SCA response claims.
+    Carriage,
+    /// Core §7.4.2 step 2: no entry renders for the credential.
+    NoEntry,
+}
+
+impl ExcludedBy {
+    /// The rule of an exclusion PaSO gave.
+    pub fn of(exclude: &Exclude) -> Self {
+        let rule: &dyn std::error::Error = exclude.rule();
+        if rule.downcast_ref::<Excluded>().is_some() {
+            return Self::Locale;
+        }
+        match rule.downcast_ref::<BindExcluded>() {
+            Some(BindExcluded::Carriage) => Self::Carriage,
+            Some(BindExcluded::NoEntry) => Self::NoEntry,
+            None => panic!("no exclusion of PaSO's: {exclude}"),
+        }
+    }
+}
 
 /// The Payment rulebook's type.
 pub const PAY: &str = "urn:paso:sca:global:payment:1";

@@ -13,6 +13,7 @@ use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{Amounts, Image, RemoteImage, Value};
 use siros_paso::outcome::Outcome;
 use siros_paso::rulebook::{Family, PasoType};
+use siros_paso::value::{FormattedKind, ValueKind};
 use siros_paso::{Fetch, PasoProfile};
 
 mod binding;
@@ -164,25 +165,36 @@ fn templates_interpolate_in_one_pass_and_discard_a_locale_entry_whose_claim_is_a
 #[test]
 fn each_value_type_view_section_3_names_renders_a_value() {
     let table = [
-        ("boolean", "true"),
-        ("frequency", r#""MNTH""#),
-        ("iso_date", r#""2026-09-02""#),
-        ("iso_time", r#""10:15:30Z""#),
-        ("iso_date_time", r#""2026-06-02T10:15:30+02:00""#),
-        ("iso_currency", r#""EUR""#),
-        ("iso_currency_amount", r#""100 JPY""#),
-        ("mini_markdown", r#""*a*""#),
-        ("url", r#""https://shop.example/x""#),
+        ("boolean", "true", FormattedKind::Boolean),
+        ("frequency", r#""MNTH""#, FormattedKind::Frequency),
+        ("iso_date", r#""2026-09-02""#, FormattedKind::Date),
+        ("iso_time", r#""10:15:30Z""#, FormattedKind::Time),
+        (
+            "iso_date_time",
+            r#""2026-06-02T10:15:30+02:00""#,
+            FormattedKind::DateTime,
+        ),
+        ("iso_currency", r#""EUR""#, FormattedKind::Currency),
+        (
+            "iso_currency_amount",
+            r#""100 JPY""#,
+            FormattedKind::CurrencyAmount,
+        ),
+        ("mini_markdown", r#""*a*""#, FormattedKind::MiniMarkdown),
+        ("url", r#""https://shop.example/x""#, FormattedKind::Url),
     ];
-    for (value_type, raw) in table {
+    for (value_type, raw, kind) in table {
         let meta = claims(&format!(
             r#"{{"path": ["v"], "display": [{{"locale": "en", "name": "V"}}], "value_type": "{value_type}"}}"#
         ));
-        let rendered = render(&meta, &format!(r#"{{"transaction_id": "t", "v": {raw}}}"#));
-        assert!(
-            rendered.is_ok_and(|rendered| rendered.rows()[0].1.is_some()),
+        let rendered =
+            render(&meta, &format!(r#"{{"transaction_id": "t", "v": {raw}}}"#)).expect(value_type);
+        assert_eq!(
+            rendered.view.rows[0].kind,
+            Some(ValueKind::Formatted(kind)),
             "{value_type}"
         );
+        assert!(rendered.rows()[0].1.is_some(), "{value_type}");
     }
 }
 

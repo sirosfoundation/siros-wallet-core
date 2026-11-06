@@ -10,7 +10,7 @@ use siros_paso::risk::DEFAULT_PROFILE;
 use siros_testkit::Published;
 use siros_testkit::verifier::ISSUER;
 
-use crate::common::{Card, PAY, Screen, annex, en, member, parameters, request_app};
+use crate::common::{Card, ExcludedBy, PAY, Screen, annex, en, member, parameters, request_app};
 
 use super::{
     AMR, MODE, answer, card, host_with, ok, payment, payment_meta, proof, registry, registry_of,
@@ -206,7 +206,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
 }
 
 /// The entries the profile binds for a two-entry request, v2 first.
-pub(super) fn versioned(card: &Card) -> Result<usize, String> {
+pub(super) fn versioned(card: &Card) -> Result<usize, ExcludedBy> {
     let v2 = payment("").replace(PAY, "urn:paso:sca:global:payment:2");
     let parameters = parameters(
         r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,
@@ -230,7 +230,7 @@ pub(super) fn versioned(card: &Card) -> Result<usize, String> {
         &en(),
     ) {
         Ok(bound) => Ok(bound.entries.entries()[0].get()),
-        Err(NoCandidate::Excluded(exclude)) => Err(exclude.clause().into_owned()),
+        Err(NoCandidate::Excluded(exclude)) => Err(ExcludedBy::of(&exclude)),
         Err(NoCandidate::Fault(fault)) => panic!("{fault}"),
     }
 }

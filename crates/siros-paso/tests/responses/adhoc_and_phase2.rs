@@ -21,11 +21,13 @@ use siros_x509::test_util as x509;
 
 use crate::paso_host::PasoHost;
 
-use crate::common::{CARD_TYPE, Card, PAY, annex, en, parameters, png, request_app, sri};
+use crate::common::{
+    CARD_TYPE, Card, ExcludedBy, PAY, annex, en, parameters, png, request_app, sri,
+};
 
 use super::{NOW, answer, card, digest_b64, payment, payment_meta, proof, registry};
 
-/// The SCA claims of the response to a payment with ad-hoc metadata, the clause excluding the
+/// The SCA claims of the response to a payment with ad-hoc metadata, the rule excluding the
 /// card, or the finding phase 2 falls back on with the number of candidates the match informed
 /// of it finds.
 pub(super) fn adhoc_case(
@@ -50,9 +52,7 @@ pub(super) fn adhoc_case(
         let accepted = Accepted::new(&request, &registry).expect("accepted");
         let matched = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
         if let Some(excluded) = matched.excluded().first() {
-            return Err(AdhocOutcome::Excluded(
-                excluded.exclude.clause().into_owned(),
-            ));
+            return Err(AdhocOutcome::Excluded(ExcludedBy::of(&excluded.exclude)));
         }
     }
     match answer(&request, card, &registry, &Published::default(), &host) {
@@ -92,7 +92,7 @@ pub(super) fn adhoc_case(
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AdhocOutcome {
-    Excluded(String),
+    Excluded(ExcludedBy),
     Fallback(Box<PasoFinding>, usize),
 }
 
