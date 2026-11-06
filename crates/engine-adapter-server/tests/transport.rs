@@ -799,11 +799,3 @@ async fn an_anonymous_flow_start_refuses_with_31002() {
         "the reason names the requirement: {body}"
     );
 }
-
-// The OpenID4x action translation (the #163 bridge's wmp_translate.go
-// shape) is unit-tested in the handler module (translation_tests):
-// authorize → authorization_complete, select_credentials →
-// select_credential, provide_tx_code → provide_pin, accept_offer →
-// consent; unknown actions pass through. A full action round-trip needs
-// a flow in flight — the wasm dispatcher's end-to-end script covers
-// that shape.
