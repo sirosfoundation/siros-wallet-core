@@ -103,11 +103,14 @@ pub fn published(k: usize) -> Vec<u8> {
     format!("%PDF-1.7 {}", string(&documents[k], "label")).into_bytes()
 }
 
+/// Whether a refusal is the one a fixture expects.
+pub type Refuses = fn(&Problem) -> bool;
+
 /// One fixture per rule of the type: §7.1.2's entry changed to break it, and the check of the
 /// rule's refusal.
-pub fn rule_table() -> Vec<(String, fn(&Problem) -> bool)> {
+pub fn rule_table() -> Vec<(String, Refuses)> {
     let documents = |docs: &str| approval().set("documentInfos", docs);
-    let table: Vec<(Fields, fn(&Problem) -> bool)> = vec![
+    let table: Vec<(Fields, Refuses)> = vec![
         (
             approval().set("signAlgo", r#""1.2.840.113549.1.1.1""#),
             |p| matches!(p, Problem::UnknownMember(member) if member == "signAlgo"),

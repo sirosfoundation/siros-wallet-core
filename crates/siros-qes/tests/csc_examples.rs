@@ -1,12 +1,12 @@
 //! The profile against the CSC data model bindings' own examples (§7.1.2, §7.3) and its rules
-//! (§6.3, §6.4, §7.2.1), through the core, as check_qes.py runs them. The examples are the
-//! model's reading of the specification (`tests/data`).
+//! (§6.3, §6.4, §7.2.1), through the core. The examples are the model's reading of the
+//! specification (`tests/data`).
 
 mod common;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use siros_explain::Text;
+use siros_explain::{Explain, Text};
 use siros_openid4vp::consent::Header;
 use siros_openid4vp::matching::{Accepted, CoreRule, Match};
 use siros_openid4vp::plugins::ProfileFinding;
@@ -356,13 +356,17 @@ fn a_qes_document_the_profile_cannot_read_is_a_fault() {
         let rendering = app.rendering().expect("the rendering");
         Match::run(&accepted, &wallet, &env("en"), &rendering)
             .map(|matched| matched.excluded().len())
+            .map_err(|fault| fault.id().as_str())
     };
     assert_eq!(
-        matching(r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#).ok(),
-        Some(0)
+        matching(r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#),
+        Ok(0)
     );
-    assert_eq!(matching("{}").ok(), Some(1));
-    assert!(matching(r#"{"signature_qualifiers": "eu_eidas_qes"}"#).is_err());
+    assert_eq!(matching("{}"), Ok(1));
+    assert_eq!(
+        matching(r#"{"signature_qualifiers": "eu_eidas_qes"}"#),
+        Err("qes.fault")
+    );
 }
 
 #[test]
