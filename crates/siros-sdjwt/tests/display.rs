@@ -276,6 +276,14 @@ fn figure_29_loads_as_a_defined_module() {
         assert_eq!(renderer.plain(&card.title).expect("title"), *title);
         assert_eq!(renderer.plain(&card.rows[0].label).expect("label"), *label);
     }
+    // A package without the module cannot render the entry.
+    let bare = App::new(&[&main_module, &crates], &[]).expect("the package");
+    let bare = bare.rendering().expect("the rendering");
+    let env = env(&["en-US", "en"], Vec::new()).expect("env");
+    assert!(matches!(
+        bare.renderer(None, module, None, &env).expect("no fault"),
+        Err(siros_openid4vp::rendering::Unrendered::Module(_))
+    ));
 }
 
 /// A display entry whose `locale` is no language tag has no language to load in.
