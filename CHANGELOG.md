@@ -3,15 +3,18 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.1] — 2026-11-06
+## [0.1.2] — 2026-11-06
 
-Re-cut of 0.1.0 (whose release run failed at the Android packaging job -
-the action's v4 line, fixed here) with the complete artifact set: the
+The first release whose run completed: the 0.1.0 and 0.1.1 tags' runs
+failed at their packaging jobs (the AAR action's v4 line, then the
+image job's action pins - both fixed on main by then) and produced no
+GitHub releases. This cut carries the fixes and the complete artifact
+set: the
 AAR, the XCFramework, the bindings, and the engine server's container
 image (ghcr.io/sirosfoundation/engine-server, this release's new
 publish).
 
-### Added (since 0.1.0)
+### Added (since the 0.1.0 cut)
 
 - The engine server's container image: built by the release workflow
   on tags (ghcr, the version tag + latest) and verified on every push
