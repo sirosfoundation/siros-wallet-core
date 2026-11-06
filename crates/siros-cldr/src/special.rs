@@ -13,20 +13,27 @@ pub(crate) struct Special {
 const HEBREW: &str = "\u{591}-\u{5C7}\u{5D0}-\u{5EA}\u{5EF}-\u{5F4}\u{FB1D}-\u{FB36}\
 \u{FB38}-\u{FB3C}\u{FB3E}\u{FB40}-\u{FB41}\u{FB43}-\u{FB44}\u{FB46}-\u{FB4F}";
 
-/// The special case of a language's and-list or or-list whose end pattern is `end`.
-pub(crate) fn special(language: &str, and: bool, end: &str) -> Option<Special> {
-    match (language, and, end) {
-        ("es", true, "{0} y {1}") => Some(Special {
+/// A list's conjunction.
+#[derive(Clone, Copy)]
+pub(crate) enum Conjunction {
+    And,
+    Or,
+}
+
+/// The special case of a language's list of `conjunction` whose end pattern is `end`.
+pub(crate) fn special(language: &str, conjunction: Conjunction, end: &str) -> Option<Special> {
+    match (language, conjunction, end) {
+        ("es", Conjunction::And, "{0} y {1}") => Some(Special {
             condition: "^[iI]|(?:[hH][iI](?:[^aeAE]|$))".to_owned(),
             pattern: "{0} e {1}",
         }),
-        ("es", false, "{0} o {1}") => Some(Special {
+        ("es", Conjunction::Or, "{0} o {1}") => Some(Special {
             condition:
                 "^[oO]|[hH][oO]|8|(?:11(?:[.\u{a0} ]?[0-9]{3})*(?:,[0-9]*)?(?:[^.,[0-9]]|$))"
                     .to_owned(),
             pattern: "{0} u {1}",
         }),
-        ("he", true, "{0} \u{5D5}{1}") => Some(Special {
+        ("he", Conjunction::And, "{0} \u{5D5}{1}") => Some(Special {
             condition: format!("^[^{HEBREW}]"),
             pattern: "{0} \u{5D5}\u{2011}{1}",
         }),
