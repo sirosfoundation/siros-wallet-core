@@ -121,7 +121,11 @@ fn each_x509_rule_refuses_its_claim() {
     let other = x509_hash(&leaf(&["other.example.com"]));
     assert_eq!(
         refusal(&header(&x5c(&good)), &other),
-        X509Refusal::Hash(LeafHash::parse(other.trim_start_matches("x509_hash:")).expect("a hash"))
+        X509Refusal::Hash(
+            LeafHash::parse(other.trim_start_matches("x509_hash:"))
+                .expect("a hash")
+                .text()
+        )
     );
     assert_eq!(
         refusal(&header(&x5c(&good)), "x509_san_dns:rp_example"),
@@ -332,7 +336,7 @@ fn section_5_9_3s_x509_hash_is_a_base64url_sha_256() {
     let original = "Uvo3HtuIxuhC92rShpgqcT3YXwrqRxWEviRiA0OZszk";
     let hash = LeafHash::parse(original).expect("32 octets");
     assert_eq!(URL_SAFE_NO_PAD.encode(hash.octets()), original);
-    assert_eq!(hash.text(), original);
+    assert_eq!(hash.text().as_str(), original);
 }
 
 #[test]

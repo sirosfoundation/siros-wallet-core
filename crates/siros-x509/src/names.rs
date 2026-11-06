@@ -13,11 +13,8 @@ use crate::chain::ChainCertificate;
 
 /// A SHA-256 hash of a leaf certificate's DER, as `x509_hash` writes it: base64url without
 /// padding of 32 octets.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LeafHash {
-    octets: [u8; 32],
-    text: String,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeafHash([u8; 32]);
 
 impl LeafHash {
     /// The hash an original Client Identifier writes.
@@ -30,36 +27,44 @@ impl LeafHash {
             .decode(original)
             .ok()
             .and_then(|octets| <[u8; 32]>::try_from(octets).ok())
-            .map(Self::of)
+            .map(Self)
             .ok_or_else(|| X509Refusal::HashSyntax(original.to_owned()))
     }
 
-    pub(crate) fn of(octets: [u8; 32]) -> Self {
-        Self {
-            octets,
-            text: URL_SAFE_NO_PAD.encode(octets),
-        }
+    pub(crate) const fn of(octets: [u8; 32]) -> Self {
+        Self(octets)
     }
 
     /// The digest's octets.
     #[must_use]
     pub const fn octets(&self) -> &[u8; 32] {
-        &self.octets
+        &self.0
     }
 
     /// The hash as `x509_hash` writes it.
     #[must_use]
-    pub fn text(&self) -> &str {
-        &self.text
+    pub fn text(&self) -> HashText {
+        HashText(URL_SAFE_NO_PAD.encode(self.0))
     }
 }
 
-/// A hash is named by its text in a message.
-impl IntoArg for LeafHash {
+/// A [`LeafHash`] as `x509_hash` writes it, which a refusal quotes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HashText(String);
+
+impl HashText {
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl IntoArg for HashText {
     type Kind = kind::Raw;
 
     fn arg(&self) -> &str {
-        &self.text
+        &self.0
     }
 }
 

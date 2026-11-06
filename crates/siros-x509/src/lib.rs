@@ -52,7 +52,7 @@ use siros_openid4vp::authenticate::{
 
 pub use chain::{ChainCertificate, SpkiKey, X5c, X5cItem};
 pub use der::Error as DerError;
-pub use names::{LeafHash, SanDnsName};
+pub use names::{HashText, LeafHash, SanDnsName};
 
 use claim::{Rule, X509Claim};
 
@@ -94,8 +94,8 @@ pub enum X509Refusal {
     #[error("x509_hash {0:?} is no base64url SHA-256 hash")]
     HashSyntax(#[explain(name = "original")] String),
     /// The leaf's SHA-256 is another hash than the identifier.
-    #[error("x509_hash {:?} is not the leaf certificate's hash", .0.text())]
-    Hash(#[explain(name = "original")] LeafHash),
+    #[error("x509_hash {:?} is not the leaf certificate's hash", .0.as_str())]
+    Hash(#[explain(name = "original")] HashText),
     /// The original Client Identifier is no DNS name in preferred name syntax (RFC 1034 §3.5).
     #[error("x509_san_dns {0:?} is no DNS name")]
     SanSyntax(#[explain(name = "original")] String),
@@ -149,7 +149,7 @@ impl<H> PrefixHost<H> for X509Hash {
         let chain = X5c::of(claim.signed().header()).map_err(refused)?;
         let hash = LeafHash::parse(claim.original()).map_err(refused)?;
         if hash != chain.leaf().hash() {
-            return Err(refused(X509Refusal::Hash(hash)));
+            return Err(refused(X509Refusal::Hash(hash.text())));
         }
         let key = chain.leaf().key().map_err(refused)?;
         Ok(Box::new(X509Claim::new(claim, chain, key, Rule::Hash)))
