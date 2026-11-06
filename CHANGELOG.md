@@ -3,6 +3,17 @@
 All notable changes to this workspace. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
+  1.89, then each crate with and without its default features. The workspace
+  resolves with resolver 3. The test image builds on Rust 1.99.1, the pinned
+  toolchain.
+- `engine-adapter-sdk` links UniFFI and tokio in every build; the
+  `tokio-runtime` feature and the default features leave.
+
 ## [0.1.2] — 2026-11-06
 
 The first release whose run completed: the 0.1.0 and 0.1.1 tags' runs
@@ -91,13 +102,6 @@ legacy WebSocket protocol (the plan and its record:
 
 ### Changed
 
-- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
-  1.89, then each crate with and without its default features. The workspace
-  resolves with resolver 3. Both container images build on Rust 1.99.1, the
-  pinned toolchain. The production image compiles its C dependencies for musl
-  with musl-gcc and runs on `gcr.io/distroless/static-debian12`.
-- `engine-adapter-sdk` links UniFFI and tokio in every build; the
-  `tokio-runtime` feature and the default features leave.
 - `siros-zkp-req-nym-auth` is renamed to `siros-zkp-catalogues` on import. The
   ZK stack is two crates permanently: `siros-zkp-req` (protocol) and
   `siros-zkp-catalogues` (every rulebook as modules and features). nym_auth is
