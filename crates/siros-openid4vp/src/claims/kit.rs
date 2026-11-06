@@ -6,8 +6,8 @@
 //! presentation.
 //!
 //! A credential's view is a JSON object: `{"type", "metadata": {"display", "claims"}, "values",
-//! "issuer"?, "byte_strings"?, ...}`, the metadata in the format's own display shape, which
-//! [`merge_metadata`] writes at registration.
+//! "issuer"?, "issuer_display"?, "byte_strings"?, ...}`, the metadata in the format's own display
+//! shape, which [`merge_metadata`] writes at registration.
 
 mod display;
 mod merge;
@@ -19,7 +19,9 @@ use siros_explain::{
 };
 
 pub use display::format_entry;
-use display::{Described, byte_strings, label_text, metadata, metadata_texts, value_rows};
+use display::{
+    Described, byte_strings, issuer_display, label_text, metadata, metadata_texts, value_rows,
+};
 pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
@@ -340,6 +342,10 @@ impl<'q> ClaimsQuery<'q> {
         view.get("metadata")
             .map_or(Ok(()), |metadata| metadata_texts(format, metadata))
             .map_err(CardError::Text)?;
+        issuer_display(view)
+            .iter()
+            .try_for_each(|entry| metadata_texts(format, entry))
+            .map_err(CardError::Text)?;
         drop(
             view.get("issuer")
                 .and_then(Node::as_str)
@@ -394,7 +400,7 @@ impl<'q> ClaimsQuery<'q> {
             })
             .map_err(CardError::Text)?
             .unwrap_or_else(|| Text::of(&WalletText::Credential));
-        let named = format_entry(metadata(view, "issuer_display"), locales)
+        let named = format_entry(issuer_display(view), locales)
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
             .map_or(Ok(None), label_text)
@@ -536,8 +542,9 @@ pub fn vp_formats_refusal(
 
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,
 /// a `metadata` object whose `display` and `claims`, when present, are arrays, the credential's
-/// `values`, an `issuer` that is absent, null or a string, and `byte_strings`, when present, an
-/// array of objects with a `path` array and a natural number `length`.
+/// `values`, an `issuer` that is absent, null or a string, an `issuer_display`, when present, an
+/// array, and `byte_strings`, when present, an array of objects with a `path` array and a natural
+/// number `length`.
 #[derive(Debug, Clone)]
 pub struct ClaimsView<'v> {
     credential: &'v Credential<'v>,
@@ -565,6 +572,9 @@ impl<'v> ClaimsView<'v> {
             && json
                 .get("issuer")
                 .is_none_or(|issuer| matches!(issuer, Node::Null | Node::String(_)))
+            && json
+                .get(merge::ISSUER_DISPLAY)
+                .is_none_or(|display| display.as_array().is_some())
             && json.get("byte_strings").is_none_or(|strings| {
                 strings.as_array().is_some_and(|strings| {
                     strings.iter().all(|string| {

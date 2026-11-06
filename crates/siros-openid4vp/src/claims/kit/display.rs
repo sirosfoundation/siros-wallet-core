@@ -10,6 +10,8 @@ use siros_explain::{Count, Decimal, Text, Value as Typed};
 use crate::rows::{BooleanText, ClaimText, Row, Value, WalletText};
 use crate::text::{DisplayText, TextError, lookup};
 
+use super::merge::ISSUER_DISPLAY;
+
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 Lookup (§3.4) over the priority
 /// list, then basic filtering (§3.3.1) over it, then the entry without a locale.
@@ -85,6 +87,14 @@ fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
         Node::Number(length) => Count::parse(length.text()),
         _ => None,
     }
+}
+
+/// The view's Credential Issuer display entries, which [`ClaimsView`](super::ClaimsView) reads as
+/// an array.
+pub(super) fn issuer_display<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
+    view.get(ISSUER_DISPLAY)
+        .and_then(Node::as_array)
+        .unwrap_or(&[])
 }
 
 pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>] {

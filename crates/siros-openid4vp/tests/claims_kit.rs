@@ -170,7 +170,7 @@ fn the_merge_refuses_what_makes_no_view() {
         response: response.and_then(node),
         ..IssuedMetadata::default()
     };
-    let rows: [(IssuedMetadata<'_>, MergeError); 6] = [
+    let rows: [(IssuedMetadata<'_>, MergeError); 5] = [
         (issued("[]", None), MergeError::ConfigurationNotObject),
         (issued("{}", Some("1")), MergeError::ResponseNotObject),
         (
@@ -180,12 +180,6 @@ fn the_merge_refuses_what_makes_no_view() {
         (
             issued(r#"{"display": {}}"#, None),
             MergeError::NotEntries { member: "display" },
-        ),
-        (
-            issued(r#"{"display": [{"locale": "1 2"}]}"#, None),
-            MergeError::Locale {
-                locale: r#""1 2""#.to_owned(),
-            },
         ),
         (
             issued(r#"{"claims": [{"display": []}]}"#, None),
@@ -199,6 +193,10 @@ fn the_merge_refuses_what_makes_no_view() {
             "{input:?}"
         );
     }
+    assert!(matches!(
+        merge_metadata::<AsWritten>(None, &issued(r#"{"display": [{"locale": "1 2"}]}"#, None)),
+        Err(MergeError::Locale { .. })
+    ));
     let format = Node::parse("[]").expect("json");
     assert_eq!(
         merge_metadata::<AsWritten>(Some(&format), &IssuedMetadata::default()),

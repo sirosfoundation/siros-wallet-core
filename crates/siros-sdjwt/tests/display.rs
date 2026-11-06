@@ -351,7 +351,14 @@ fn the_format_display_comes_before_openid4vci_per_language() {
         "claims": [{"path": ["given_name"], "display": [{"label": "Name", "locale": "en"}]}]}"#;
     let shows =
         |title: &str, labels: [&str; 2]| (title.to_owned(), labels.map(str::to_owned).to_vec());
+    // A Type Metadata entry stating no name leaves its language to OpenID4VCI's.
+    let nameless = r#"{"vct": "t", "display": [{"locale": "de"}]}"#;
     let cases = [
+        (
+            nameless,
+            &["de"][..],
+            shows("Identitaet", ["Vorname", "family_name"]),
+        ),
         (
             french,
             &["fr"][..],
@@ -388,4 +395,7 @@ fn the_format_display_comes_before_openid4vci_per_language() {
         Some(siros_explain::Text::Raw("Example University".to_owned()))
     );
     assert_eq!(subtitle(&["de"]), None);
+    // A document merged into `metadata` cannot state the Credential Issuer's name.
+    let claiming = r#"{"vct": "t", "issuer_display": [{"name": "Spoof", "locale": "de"}]}"#;
+    assert_eq!(drawn(&view(claiming), &paths, &["de"]).subtitle, None);
 }

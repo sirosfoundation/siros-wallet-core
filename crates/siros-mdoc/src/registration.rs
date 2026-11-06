@@ -87,8 +87,9 @@ impl Registered {
         })
     }
 
-    /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer"?, "issuer_alg",
-    /// "issuer_curve"?, "device_alg", "device_curve", "key_authorizations", "validity"}`.
+    /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer_display"?, "issuer"?,
+    /// "issuer_alg", "issuer_curve"?, "device_alg", "device_curve", "key_authorizations",
+    /// "validity"}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -208,6 +209,7 @@ fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, Reg
     if !byte_strings.is_empty() {
         members.push((Cow::Borrowed("byte_strings"), Node::Array(byte_strings)));
     }
+    members.extend(resolved.issued.issuer_display_member()?);
     if let Some(issuer) = resolved.issuer {
         members.push((Cow::Borrowed("issuer"), text(issuer)));
     }

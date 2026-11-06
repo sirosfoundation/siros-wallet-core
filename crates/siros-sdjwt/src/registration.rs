@@ -132,7 +132,7 @@ impl Registered {
     }
 
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
-    /// "key_curve"?, "extends"?, "validity"?, "display_module"?}`.
+    /// "key_curve"?, "extends"?, "validity"?, "issuer_display"?, "display_module"?}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -202,6 +202,7 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     if let Some(validity) = validity(claims)? {
         members.push(("validity".into(), validity));
     }
+    members.extend(resolved.issued.issuer_display_member()?);
     if let Some(digest) = module {
         let hex: String = digest
             .digest()

@@ -1,9 +1,9 @@
 //! D1 over the private data specification's vectors (3.1 §5A): both claims formats' registration
-//! keeps `auxiliary_data` out of a view, whichever way the Credential Response carries it.
+//! keeps `auxiliary_data` out of a view, wherever an input carries it.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde_json::Value;
+use serde_json::{Value, json};
 use siros_mdoc::registration as mdoc;
 use siros_openid4vp::claims::kit::IssuedMetadata;
 use siros_openid4vp::json::Node;
@@ -25,11 +25,18 @@ fn node(value: &Value) -> Node<'static> {
 
 /// The view of each format's registration over the configuration's and the response's metadata.
 fn views(configuration: Option<&Value>, response: &Value) -> [Node<'static>; 2] {
-    let issued = || IssuedMetadata {
+    registered(None, &|| IssuedMetadata {
         configuration: configuration.map(node),
         response: Some(node(response)),
         ..IssuedMetadata::default()
-    };
+    })
+}
+
+/// The view of each format's registration; an mdoc's format states no document of its own.
+fn registered(
+    type_metadata: Option<&Value>,
+    issued: &dyn Fn() -> IssuedMetadata<'static>,
+) -> [Node<'static>; 2] {
     let credential = |extra: &str| {
         Node::parse(&format!(
             r#"{{"type": "t", "metadata": {{}}, "values": {{"ns": {{"a": 1}}}}, {extra}}}"#
@@ -42,6 +49,7 @@ fn views(configuration: Option<&Value>, response: &Value) -> [Node<'static>; 2] 
     let sd_jwt = siros_sdjwt::Registered::of(
         &compact,
         &siros_sdjwt::Resolved {
+            metadata: type_metadata.map(node),
             issued: issued(),
             ..siros_sdjwt::Resolved::default()
         },
@@ -102,6 +110,51 @@ fn the_wire_vector_reaches_no_view() {
             let written = view.python_compact().to_string();
             assert_eq!(written.matches("auxiliary_data").count(), 0, "{case}");
             assert_eq!(written.matches("opening").count(), 0, "{case}");
+            for stored in case["expected"]["storedMetadataPerCredential"]
+                .as_array()
+                .expect("stored")
+                .iter()
+                .filter(|stored| stored["type"] != "auxiliary_data")
+            {
+                let metadata = view.get("metadata").expect("metadata");
+                let member = metadata.get(stored["type"].as_str().expect("type"));
+                assert_eq!(member, Some(&node(&stored["value"])), "{case}");
+            }
+        }
+    }
+}
+
+/// `auxiliary_data` written under a display entry, a claim or another member reaches no view.
+#[test]
+fn a_delivered_secret_reaches_no_view_at_any_depth() {
+    let secret = json!([{"opening": "SECRET"}]);
+    let entry = json!({"name": "n", "locale": "en", "auxiliary_data": secret});
+    let display = json!({"display": [entry]});
+    let claims = json!({"claims": [{"path": ["a"], "auxiliary_data": secret, "display": [entry]}]});
+    let member = json!({"com.example.x": {"auxiliary_data": secret}});
+    let issued = |issuer_display: Option<&Value>, configuration, response| IssuedMetadata {
+        issuer_display: issuer_display.map(node),
+        configuration,
+        response,
+    };
+    let cases: [(Option<&Value>, IssuedMetadata<'static>); 8] = [
+        (Some(&display), IssuedMetadata::default()),
+        (Some(&claims), IssuedMetadata::default()),
+        (Some(&member), IssuedMetadata::default()),
+        (None, issued(Some(&json!([entry])), None, None)),
+        (None, issued(None, Some(node(&display)), None)),
+        (None, issued(None, Some(node(&member)), None)),
+        (None, issued(None, None, Some(node(&claims)))),
+        (
+            Some(&display),
+            issued(None, Some(node(&claims)), Some(node(&member))),
+        ),
+    ];
+    for (type_metadata, input) in &cases {
+        for view in registered(*type_metadata, &|| input.clone()) {
+            let written = view.python_compact().to_string();
+            assert_eq!(written.matches("auxiliary_data").count(), 0, "{input:?}");
+            assert_eq!(written.matches("SECRET").count(), 0, "{input:?}");
         }
     }
 }

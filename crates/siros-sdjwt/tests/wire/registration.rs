@@ -4,7 +4,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::claims::kit::{ClaimsFormat, IssuedMetadata, MergeError};
 use siros_openid4vp::claims::{ClaimPath, Concrete};
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::wallet::Holder;
 use siros_sdjwt::{HolderKeyFault, Registered, RegistrationError, Resolved, SdJwtVc};
 use siros_testkit::sd_jwt_issuer;
@@ -316,8 +316,10 @@ fn resolved_refusals() {
     assert!(matches!(
         Registered::of(&issued, &repeated),
         Err(RegistrationError::Metadata {
-            cause: MergeError::Json { .. }
-        })
+            cause: MergeError::Json {
+                cause: JsonError::DuplicateMember(name)
+            }
+        }) if name == "rendering"
     ));
 }
 
