@@ -48,7 +48,6 @@
 //! | `sha3`, `blake2`, `k12` | `Sha3`, `Blake2`, `K12`; each implies `transaction-data` |
 //! | `sri` | W3C SRI |
 //! | `claims` | the claims kit |
-//! | `test-util` | the constructors a plug-in's tests use |
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]

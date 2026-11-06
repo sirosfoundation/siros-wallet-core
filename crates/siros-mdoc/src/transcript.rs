@@ -14,8 +14,7 @@ use siros_openid4vp::session::{Session, SessionBinding};
 
 use crate::FAULT;
 
-/// A JWK SHA-256 Thumbprint (RFC 7638) of a key. Only [`Thumbprint::of`] makes one, from the key;
-/// a test build (`test-util`) also takes a vector's digest.
+/// A JWK SHA-256 Thumbprint (RFC 7638) of a key. Only [`Thumbprint::of`] makes one, from the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Thumbprint([u8; 32]);
 

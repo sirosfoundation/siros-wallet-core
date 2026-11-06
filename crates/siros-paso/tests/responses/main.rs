@@ -25,7 +25,7 @@ use siros_openid4vp::plugins::{Format, FormatQuery, HostedProfile, Member, Membe
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Query, Request};
 use siros_openid4vp::resolve::{Outcome as Phase2, Prepared};
-use siros_openid4vp::rows::Choice;
+use siros_openid4vp::rows::{Amounts, Choice};
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::risk::{
     Catalogue, DEFAULT_PROFILE, Effective, MaxAge, Need, ProfileId, RiskProfile, RiskSignal,
@@ -248,7 +248,7 @@ fn core_a3_the_device_signed_elements_are_the_examples_and_the_hash_a_byte_strin
     );
     let host = PasoHost::at(Timestamp(NOW));
     let authentication = pin_and_device(Timestamp(NOW));
-    let env = en();
+    let env = common::env(&["de"], Amounts::Formatted);
     let app = request_app(&request, &[&card], &env);
     let rendering = app.rendering().expect("the rendering");
     let members = common::read_card_record(

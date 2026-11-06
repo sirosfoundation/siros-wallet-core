@@ -120,7 +120,8 @@ presentation flows, and keeps it pure and offline.
   COSE, the DC API alone no URI flow, unsigned requests alone no signature step, no build any
   curve arithmetic in the core, and a build without transaction data no hash algorithm beyond
   SHA-256. A module's test double ships with
-  the crate that defines the module, behind that crate's `test-util` feature.
+  the plug-in crate that defines the module, behind that crate's `test-util` feature; the core's
+  doubles sit in siros-testkit.
 - **Documentation** (decision 17, section 4.12). Each crate's README is its crate documentation:
   the problem the crate solves and how to use it, with an example that compiles. Each extension
   point documents how to implement it, with an example that compiles.
@@ -299,8 +300,8 @@ optional mechanism, which the crates using it turn on (section 4.11): `dc-api`, 
 `request-decryption`, `cbor`, `transaction-data` with `sha3`, `blake2` and `k12`, `sri` and
 `claims`. The matcher builds `match`, `dc-api` and what its plug-ins' phase 1 turns on.
 fluent-uri enters it through `HttpsUrl` (section 4.9.3); every other crate a mechanism links
-stays behind that mechanism's feature, and no feature of the core links curve arithmetic. `test-util` compiles a crate's module
-doubles for tests (section 4.11).
+stays behind that mechanism's feature, and no feature of the core links curve arithmetic. The core's module doubles sit in
+siros-testkit (section 4.11).
 
 ### 4.2 Core signatures (siros-openid4vp)
 
@@ -3260,9 +3261,9 @@ whether or not another crate turns `sealed-signals` on.
   `render` alone. Its error domain is `i18n`. `render` names sha2 and ct-merkle; `load` adds
   unicode-normalization (NFC at load) and unicode-general-category (a currency symbol's edge).
   siros-explain names thiserror, and its derive syn.
-- A module's test double ships with the crate that defines the module, behind `test-util`, the
-  pattern of tokio's `test-util`, written with the crate's public API alone, so anyone could write
-  it and it opens nothing: Cargo's feature unification can turn the feature on in any build, and
+- A module's test double ships with the plug-in crate that defines the module, behind `test-util`,
+  the pattern of tokio's `test-util`, written with the crate's public API alone, so anyone could
+  write it and it opens nothing: Cargo's feature unification can turn the feature on in any build, and
   a constructor behind it would open what its type seals. A test reaches a sealed value the way a
   plug-in does: siros-testkit's `probe` holds a format and a profile registered with the core
   alongside the doubles, which hand a test's closure the `QueryContext`, `AnsweredContext` and
@@ -5355,7 +5356,7 @@ By module:
 | siros-mdoc, siros-sdjwt | Their tests' sessions; `wallet_formats`; `placement`. siros-mdoc: B.2.6's handover, `Thumbprint` and `SessionTranscript` from the session's binding facts, with the core's `cbor`; the `DeviceMac` double behind `test-util`. siros-sdjwt: the registration view's `types` through `ViewAdditions`, `meta_matches` over them. |
 | siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits`, public `bound`, `BiometricClass`, the `RandomIds` module with uuid, the `IssuerTrust` module with siros-x509, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
 | siros-zkp-req | What the core's API forces: its `Prover` module and `ProofRequest` (decision 13), `QueryContext`, `AllOf` refusals, an empty `wallet_formats`, `placement` `None`. |
-| siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), the probes `read_query`, `read_phase_two`, `read_record`, `read_session` and `read_redirect_session` with `ProbeFormat`, `ProfileProbe` and `NamedPrefix`, `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
+| siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), the probes `read_query`, `read_parsed`, `read_phase_two`, `read_record`, `read_session` and `read_redirect_session` with `ProbeFormat`, `ProfileProbe` and `NamedPrefix`, `probe::dc_api` and `probe::sealed_to_b26` for their routes, `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
 | siros-integration | The generator signs DC API requests over their parameters; `end_to_end.rs` gains every flow of section 5; the properties generate URI requests, by GET and by POST; the HAIP and WE BUILD builds, over hosts of the crates' `test-util` doubles. |
 | Elsewhere | siros-matcher (siros-dc-matcher-config) calls `Request::parse`; it moves to `Received::dc_api` with the registration's `DcApiProtocols`, `Envelope::parse` over its registry with the core's DC API modes, and siros-credman for Credential Manager's entries. It lives outside this workspace; its call sites are uncounted. |
 

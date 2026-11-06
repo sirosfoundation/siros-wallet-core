@@ -97,8 +97,8 @@ mod test_util {
 
     use crate::modules::{CoseEnc, CoseEncrypt};
 
-    /// The double's domain.
-    const FAULT: FaultDomain = checked!(FaultDomain, "paso.test_cose_encrypt.fault");
+    /// The crate's domain.
+    const FAULT: FaultDomain = checked!(FaultDomain, "paso.fault");
 
     /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
     const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [

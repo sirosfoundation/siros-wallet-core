@@ -2,7 +2,9 @@
 //! core alongside the doubles, each handing a test's closure what the core's flow gives a plug-in
 //! and stopping the flow there: [`read_query`] a query's [`QueryContext`], [`read_phase_two`] a
 //! query's [`AnsweredContext`] with the route's [`Session`], [`read_record`] a record's
-//! [`FetchedRecord`]. [`read_session`] and [`read_redirect_session`] run the route alone.
+//! [`FetchedRecord`]. [`read_parsed`] hands the closure a format's reading of a query.
+//! [`read_session`] and [`read_redirect_session`] run the route alone; [`dc_api`] and
+//! [`sealed_to_b26`] make what a route takes.
 //!
 //! A plug-in the registry stores is `'static`, so a closure owns what it reads. Each runs on the
 //! calling thread, the one that makes the core's call.
