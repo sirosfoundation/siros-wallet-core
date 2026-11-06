@@ -240,7 +240,13 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         let view = ClaimsView::read(credential)?;
         self.claims
             .card(self.plugin, view.json(), shown, env)
-            .map_err(|e| Self::path_fault(credential, e))
+            .map_err(|e| {
+                Fault::caused(
+                    FAULT,
+                    detail!("{id}: card", id = credential.id.to_string()),
+                    e,
+                )
+            })
     }
 }
 

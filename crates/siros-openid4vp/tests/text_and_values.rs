@@ -4,8 +4,11 @@
 
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, Shown};
-use siros_openid4vp::text::lookup;
+use siros_openid4vp::text::{
+    CARD_TEXT_MAX, DisplayText, LABEL_MAX, TEMPLATE_MAX, TextError, VALUE_MAX, lookup,
+};
 use siros_testkit::fixtures::OPTIONS;
+use unicode_general_category::{GeneralCategory, get_general_category};
 
 fn tag(text: &'static str) -> LocaleTag {
     LocaleTag::parse(text).expect("tag")
@@ -207,4 +210,185 @@ fn json_values_are_written_as_pythons_json_dumps_writes_them() {
             .collect::<Vec<_>>(),
         ["b", "a"]
     );
+}
+
+/// The display text rule: the characters Unicode's General Category table places in Cc, Cf, Zl,
+/// Zp, Co and Cn, and each kind's length.
+#[test]
+fn unsafe_or_over_long_text_is_refused() {
+    type Kind = fn(&str) -> Result<DisplayText, TextError>;
+    let label: Kind = DisplayText::label;
+    let value: Kind = DisplayText::value;
+    let long = |n: usize, c: char| c.to_string().repeat(n);
+    let table: Vec<(&str, String, Kind, Option<TextError>)> = vec![
+        ("letters and spaces", "Given Name".into(), label, None),
+        (
+            "a label of white space alone",
+            " \u{3000}".into(),
+            label,
+            Some(TextError::Empty),
+        ),
+        ("a value of white space alone", " ".into(), value, None),
+        (
+            "non-ASCII letters",
+            "Straße 7, Zürich, 名前".into(),
+            label,
+            None,
+        ),
+        ("a no-break space", "a\u{a0}b".into(), label, None),
+        ("an emoji", "\u{1f600}".into(), label, None),
+        (
+            "a line feed (Cc)",
+            "line\nbreak".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        ("a tab (Cc)", "a\tb".into(), value, Some(TextError::Unsafe)),
+        ("DEL (Cc)", "\u{7f}".into(), label, Some(TextError::Unsafe)),
+        (
+            "a C1 control (Cc)",
+            "\u{85}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a right-to-left override (Cf)",
+            "\u{202e}gpj.exe".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a left-to-right isolate (Cf)",
+            "\u{2066}x\u{2069}".into(),
+            value,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a left-to-right mark (Cf)",
+            "a\u{200e}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "an Arabic letter mark (Cf)",
+            "\u{61c}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a zero-width space (Cf)",
+            "a\u{200b}b".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a byte order mark (Cf)",
+            "\u{feff}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a tag character (Cf)",
+            "\u{e0041}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a line separator (Zl)",
+            "\u{2028}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a paragraph separator (Zp)",
+            "\u{2029}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a private-use character (Co)",
+            "\u{e000}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a supplementary private-use character (Co)",
+            "\u{f0000}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "an unassigned code point (Cn)",
+            "\u{378}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        (
+            "a noncharacter (Cn)",
+            "\u{fffe}".into(),
+            label,
+            Some(TextError::Unsafe),
+        ),
+        ("a label at its limit", long(LABEL_MAX, 'a'), label, None),
+        (
+            "a label counts characters",
+            long(LABEL_MAX, 'é'),
+            label,
+            None,
+        ),
+        (
+            "a label over its limit",
+            long(LABEL_MAX + 1, 'a'),
+            label,
+            Some(TextError::TooLong),
+        ),
+        ("a value at its limit", long(VALUE_MAX, 'a'), value, None),
+        (
+            "a value over its limit",
+            long(VALUE_MAX + 1, 'a'),
+            value,
+            Some(TextError::TooLong),
+        ),
+        (
+            "a card line over its limit",
+            long(CARD_TEXT_MAX + 1, 'a'),
+            DisplayText::card,
+            Some(TextError::TooLong),
+        ),
+        (
+            "a template over its limit",
+            long(TEMPLATE_MAX + 1, 'a'),
+            DisplayText::template,
+            Some(TextError::TooLong),
+        ),
+    ];
+    for (case, text, kind, expected) in table {
+        match expected {
+            None => assert_eq!(kind(&text).expect(case).as_str(), text, "{case}"),
+            Some(error) => assert_eq!(kind(&text), Err(error), "{case}"),
+        }
+    }
+}
+
+/// Display text refuses exactly the characters of the General Categories Cc, Cf, Zl, Zp, Co and Cn,
+/// over every code point a `char` holds.
+#[test]
+fn the_refused_characters_are_those_of_the_unsafe_categories() {
+    let differing: Vec<char> = (0..=u32::from(char::MAX))
+        .filter_map(char::from_u32)
+        .filter(|&c| {
+            let category = matches!(
+                get_general_category(c),
+                GeneralCategory::Control
+                    | GeneralCategory::Format
+                    | GeneralCategory::LineSeparator
+                    | GeneralCategory::ParagraphSeparator
+                    | GeneralCategory::PrivateUse
+                    | GeneralCategory::Unassigned
+            );
+            let refused = DisplayText::value(c.encode_utf8(&mut [0; 4])).is_err();
+            category != refused
+        })
+        .collect();
+    assert!(differing.is_empty(), "{differing:?}");
 }

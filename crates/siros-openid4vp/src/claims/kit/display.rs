@@ -8,8 +8,7 @@ use crate::json::Node;
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 
 use crate::rows::{BooleanText, Row, Value, WalletText};
-use crate::text::lookup;
-use crate::text::python_space;
+use crate::text::{DisplayText, TextError, lookup, python_space};
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 basic filtering over the priority
@@ -54,26 +53,44 @@ fn label_of(
     path: &[Concrete<'_>],
     described: &[(ClaimPath<'_>, &Node<'_>)],
     locales: &[LocaleTag],
-) -> Option<String> {
-    let (_, claim) = described
-        .iter()
-        .find(|(pointer, _)| pointer.matches(path))?;
+) -> Result<Option<Text>, TextError> {
+    let Some((_, claim)) = described.iter().find(|(pointer, _)| pointer.matches(path)) else {
+        return Ok(None);
+    };
     let entry = format_entry(
         claim.get("display").and_then(Node::as_array).unwrap_or(&[]),
         locales,
-    )?;
+    );
     entry
-        .get(format.label_key())
+        .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
         .filter(|name| !name.trim_matches(python_space).is_empty())
-        .map(str::to_owned)
+        .map(raw_label)
+        .transpose()
+}
+
+/// A text that shows as written, once it reads as a label.
+pub(super) fn raw_label(text: &str) -> Result<Text, TextError> {
+    DisplayText::label(text).map(|label| Text::Raw(label.into_string()))
+}
+
+/// The label of a claim without one in the metadata: its last member name, or the wallet's word
+/// for a claim when its path names no member.
+fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
+    path.iter()
+        .rev()
+        .find_map(|step| match step {
+            Concrete::Key(key) => Some(raw_label(key)),
+            Concrete::Index(_) => None,
+        })
+        .unwrap_or_else(|| Ok(Text::of(&WalletText::Claim)))
 }
 
 /// An object is a heading row then its members; an array of values gives each element the
 /// array's label; an array holding objects or arrays is a heading row then its elements. A claim
 /// without a label in the metadata shows its last member name, or the wallet's word for a claim
-/// when its path names no member; a non-string value its JSON text. The issuer's labels and the
-/// credential's names and values show as written.
+/// when its path names no member; a non-string value its JSON text. The labels and names read
+/// through [`DisplayText`]; the credential's values show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
@@ -81,64 +98,60 @@ pub(super) fn value_rows(
     described: &[(ClaimPath<'_>, &Node<'_>)],
     locales: &[LocaleTag],
     inherited: Option<&Text>,
-) -> Vec<Row> {
-    let label = label_of(format, path, described, locales)
-        .filter(|l| !l.is_empty())
-        .map(Text::Raw)
-        .or_else(|| inherited.cloned());
-    let fallback = path
-        .iter()
-        .rev()
-        .find_map(|step| match step {
-            Concrete::Key(key) => Some(Text::Raw(key.to_string())),
-            Concrete::Index(_) => None,
-        })
-        .unwrap_or_else(|| Text::of(&WalletText::Claim));
+) -> Result<Vec<Row>, TextError> {
+    let label = label_of(format, path, described, locales)?.or_else(|| inherited.cloned());
     let child = |step: Concrete<'_>| -> Vec<Concrete<'_>> {
         path.iter()
             .map(Concrete::to_owned_step)
             .chain(std::iter::once(step.to_owned_step()))
             .collect()
     };
+    let mut rows = Vec::new();
     match value {
-        Node::Object(object) => label
-            .map(Row::full_text)
-            .into_iter()
-            .chain(object.members().iter().flat_map(|member| {
-                value_rows(
+        Node::Object(object) => {
+            rows.extend(label.map(Row::full_text));
+            for member in object.members() {
+                let step = child(Concrete::Key(member.name.clone()));
+                rows.extend(value_rows(
                     format,
-                    &child(Concrete::Key(member.name.clone())),
+                    &step,
                     &member.value,
                     described,
                     locales,
                     None,
-                )
-            }))
-            .collect(),
+                )?);
+            }
+        }
         Node::Array(items) => {
             let nested = items
                 .iter()
                 .any(|item| matches!(item, Node::Object(_) | Node::Array(_)));
-            let head = label.clone().filter(|_| nested).map(Row::full_text);
-            let passed = (!nested).then(|| label.unwrap_or_else(|| fallback.clone()));
-            head.into_iter()
-                .chain(items.iter().enumerate().flat_map(|(at, item)| {
-                    value_rows(
-                        format,
-                        &child(Concrete::Index(at)),
-                        item,
-                        described,
-                        locales,
-                        passed.as_ref(),
-                    )
-                }))
-                .collect()
+            let passed = if nested {
+                rows.extend(label.map(Row::full_text));
+                None
+            } else if items.is_empty() {
+                label
+            } else {
+                Some(label.map_or_else(|| fallback_label(path), Ok)?)
+            };
+            for (at, item) in items.iter().enumerate() {
+                let step = child(Concrete::Index(at));
+                rows.extend(value_rows(
+                    format,
+                    &step,
+                    item,
+                    described,
+                    locales,
+                    passed.as_ref(),
+                )?);
+            }
         }
-        scalar => vec![Row::new(
-            label.unwrap_or(fallback),
+        scalar => rows.push(Row::new(
+            label.map_or_else(|| fallback_label(path), Ok)?,
             Value::Text(scalar_text(scalar)),
-        )],
+        )),
     }
+    Ok(rows)
 }
 
 /// A claim's scalar value as its type shows it: a boolean as the wallet's yes or no, `null` as

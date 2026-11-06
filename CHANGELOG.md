@@ -7,6 +7,10 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
+  General Categories Cc, Cf, Zl, Zp, Co and Cn and text over `LABEL_MAX`,
+  `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every
+  metadata text through it; a text it refuses is a fault of the wallet's data.
 - `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
   C5). `Built::used` and `Built::audience` give the app what it fills a
   `PresentationRecord` with, beside the `vp_token`.

@@ -15,11 +15,11 @@ mod rules;
 use siros_explain::{AllOf, Explained, Text};
 
 pub use display::format_entry;
-use display::{metadata, value_rows};
+use display::{metadata, raw_label, value_rows};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
-pub use rules::{KitRule, NoAlgorithm, QueryRule};
+pub use rules::{CardError, KitRule, NoAlgorithm, QueryRule};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
@@ -232,28 +232,34 @@ impl<'q> ClaimsQuery<'q> {
 
     /// The credential's card: the display entry's name, else the wallet's "Credential"; the
     /// `issuer` as subtitle; the logo resolved at issuance, else the wallet's default icon; the
-    /// rows of the items shown.
+    /// rows of the items shown. Every metadata text reads through
+    /// [`DisplayText`](crate::text::DisplayText).
+    ///
+    /// # Errors
+    ///
+    /// [`CardError`]: a pointer that selects nothing, or a text that breaks the rule of display
+    /// text.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
         view: &Node<'_>,
         shown: Shown<'_>,
         env: &Env,
-    ) -> Result<Card, PathError> {
+    ) -> Result<Card, CardError> {
         let locales = env.priority();
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
             .filter(|name| !name.trim_matches(python_space).is_empty())
-            .map_or_else(
-                || Text::of(&WalletText::Credential),
-                |name| Text::Raw(name.to_owned()),
-            );
+            .map_or_else(|| Ok(Text::of(&WalletText::Credential)), raw_label)
+            .map_err(CardError::Text)?;
         let subtitle = view
             .get("issuer")
             .and_then(Node::as_str)
-            .map(|issuer| Text::Raw(issuer.to_owned()));
+            .map(raw_label)
+            .transpose()
+            .map_err(CardError::Text)?;
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
         let mut rows = self.claim_rows(format, shown.everyone, view, locales)?;
         rows.extend(self.claim_rows(format, shown.chosen, view, locales)?);
@@ -273,7 +279,7 @@ impl<'q> ClaimsQuery<'q> {
         items: &[Item],
         view: &Node<'_>,
         locales: &[LocaleTag],
-    ) -> Result<Vec<Row>, PathError> {
+    ) -> Result<Vec<Row>, CardError> {
         let described: Vec<(ClaimPath<'_>, &Node<'_>)> = metadata(view, "claims")
             .iter()
             .filter_map(|claim| {
@@ -295,8 +301,11 @@ impl<'q> ClaimsQuery<'q> {
         let values = view.get("values").unwrap_or(&NULL);
         let mut rows = Vec::new();
         for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
-            for (path, value) in claim.path.select(values)? {
-                rows.extend(value_rows(format, &path, value, &described, locales, None));
+            for (path, value) in claim.path.select(values).map_err(CardError::Path)? {
+                rows.extend(
+                    value_rows(format, &path, value, &described, locales, None)
+                        .map_err(CardError::Text)?,
+                );
             }
         }
         Ok(rows)

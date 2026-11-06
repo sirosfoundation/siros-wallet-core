@@ -9,13 +9,16 @@ mod common;
 use std::num::NonZeroU32;
 
 use siros_explain::{Count, Decimal, Text, Value as Typed};
-use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_formats_refusal};
+use siros_openid4vp::claims::kit::{
+    CardError, ClaimsQuery, Constraint, format_entry, vp_formats_refusal,
+};
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
 use siros_openid4vp::request::Item;
 use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, ImageMedia};
+use siros_openid4vp::text::TextError;
 use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
@@ -524,4 +527,64 @@ fn a_json_number_shows_as_the_value_it_writes() {
             (shown, value) => assert_eq!(shown, value.as_ref(), "{written}"),
         }
     }
+}
+
+/// Each text the card reads goes through display text: the entry's name, a claim's label, the
+/// issuer, and a member name standing in for a label. An entry for another language is not read.
+#[test]
+fn a_metadata_text_with_a_refused_character_draws_no_card() {
+    let format = ClaimsTest {
+        member: "vct_values",
+        label: "label",
+    };
+    let text = query_text(r#"[{"path": ["a"]}]"#, "vct_values", r#"["t"]"#);
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let query = ClaimsQuery::parse(&format, &request.queries()[0], None).expect("query");
+    let env = Env::new(
+        vec![tag("en")],
+        Vec::new(),
+        OPTIONS,
+        Vec::new(),
+        Choice::First,
+    )
+    .expect("env");
+    let items = [Item::new(0).expect("item")];
+    let card = |view: &str| {
+        let view = Node::parse(view).expect("view");
+        let shown = Shown {
+            everyone: &items,
+            chosen: &[],
+        };
+        query.card(&format, &view, shown, &env).map(drop)
+    };
+    for (case, view) in [
+        (
+            "the entry's name",
+            r#"{"type": "t", "metadata": {"display": [{"locale": "en", "name": "\u202eCard"}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a claim's label",
+            r#"{"type": "t", "metadata": {"claims": [{"path": ["a"], "display": [{"locale": "en", "label": "A\u200bB"}]}]}, "values": {"a": 1}}"#,
+        ),
+        (
+            "the issuer",
+            r#"{"type": "t", "issuer": "Bank\u2028", "metadata": {}, "values": {"a": 1}}"#,
+        ),
+        (
+            "a member name",
+            r#"{"type": "t", "metadata": {}, "values": {"a": {"\ue000": 1}}}"#,
+        ),
+    ] {
+        assert!(
+            matches!(card(view), Err(CardError::Text(TextError::Unsafe))),
+            "{case}"
+        );
+    }
+    assert!(
+        card(
+            r#"{"type": "t", "metadata": {"display": [{"locale": "en", "name": "Card"}, {"locale": "de", "name": "\u202eKarte"}]}, "values": {"a": 1}}"#
+        )
+        .is_ok()
+    );
 }

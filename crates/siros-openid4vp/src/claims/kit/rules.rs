@@ -5,10 +5,11 @@ use std::borrow::Cow;
 
 use siros_explain::{Explain, Explained};
 
-use super::super::ClaimsError;
+use super::super::{ClaimsError, PathError};
 use crate::json::JsonError;
 use crate::plugins::Exclusion;
 use crate::refusal::{ErrorCode, ReprList, RequestRule};
+use crate::text::TextError;
 
 /// A rule a claims query breaks, under its format and its id: `invalid_request`.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -53,6 +54,18 @@ pub enum KitRule {
         /// The format's rule.
         rule: Box<dyn Explained>,
     },
+}
+
+/// Why a credential's view draws no card: a fault of the wallet's data.
+#[derive(Debug, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.claims_kit")]
+pub enum CardError {
+    /// A claim's pointer selects nothing the values hold.
+    #[error("{0}")]
+    Path(#[explain(name = "cause")] PathError),
+    /// A metadata text, or a member name that stands in for one, breaks the rule of display text.
+    #[error("{0}")]
+    Text(#[explain(name = "cause")] TextError),
 }
 
 /// The Verifier's `vp_formats_supported` member admits no identifier the credential's
