@@ -20,7 +20,6 @@ use crate::amr;
 #[cfg(feature = "sealed-signals")]
 use crate::cose::SealedCose;
 use crate::document::PasoDocument;
-use crate::entry::PasoEntry;
 use crate::measure::{Paso, Reading};
 #[cfg(feature = "sealed-signals")]
 use crate::modules::CoseEnc;
@@ -160,13 +159,12 @@ impl<'h> Modules<'h> {
     }
 }
 
-/// What answering a record reads: the request, the entry it authorizes as received and as read,
-/// the credential's document, the signal set of the metadata that rendered the entry, what the
-/// record attests, how the proof places the members, and the response mode the answer goes in.
+/// What answering a record reads: the request, the entry it authorizes as received, the
+/// credential's document, the signal set of the metadata that rendered the entry, what the record
+/// attests, how the proof places the members, and the response mode the answer goes in.
 pub(crate) struct Answer<'a> {
     pub(crate) request: &'a Request<'a>,
-    pub(crate) received: &'a Entry<'a>,
-    pub(crate) entry: PasoEntry<'a>,
+    pub(crate) entry: &'a Entry<'a>,
     pub(crate) document: &'a PasoDocument<'a>,
     pub(crate) signals: Effective,
     pub(crate) attested: &'a Attested,
@@ -194,7 +192,7 @@ impl Answer<'_> {
         };
         // Core §6.1: SHA-256 over the entry as received, B.3.3.1's default algorithm.
         let algorithm = Sha2::Sha256;
-        let digest = algorithm.digest(self.received.raw().as_bytes());
+        let digest = algorithm.digest(self.entry.raw().as_bytes());
         let mut out = vec![
             (
                 sca::member(placement, Sca::Jti),

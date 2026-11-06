@@ -447,8 +447,7 @@ pub(crate) fn respond(
             .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
         Answer {
             request: record.request(),
-            received: read.received,
-            entry: read.entry,
+            entry: read.received,
             document: read.document,
             signals,
             attested: record.attested(),
