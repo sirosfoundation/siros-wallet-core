@@ -133,7 +133,7 @@ impl Processor {
                 claim: IssuedClaim::new(value, Some(disclosure)),
             });
         }
-        Object::new(members).map_err(|repeated| ParseError::ClaimNameExists(repeated.0))
+        Object::new(members).map_err(|repeated| ParseError::ClaimNameExists(repeated.name))
     }
 
     /// §7.1, step 3.c.iii: an element `{"...": digest}` is the value its disclosure reveals, or

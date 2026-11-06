@@ -281,9 +281,13 @@ fn first_repeated<T: Named>(values: &[T]) -> Option<&str> {
 }
 
 /// A name a [`Distinct`] was given twice.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("the name {0} repeats")]
-pub struct RepeatedName(pub String);
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.json", id = "repeated_name")]
+#[error("the name {name} repeats")]
+pub struct RepeatedName {
+    /// The name.
+    pub name: String,
+}
 
 /// Values of distinct names, in their order. Each writes an [`Object`] member without a second
 /// check of its name.
@@ -304,7 +308,9 @@ impl<T: Named> Distinct<T> {
     /// [`RepeatedName`]: the first repeated name in code point order.
     pub fn new(values: Vec<T>) -> Result<Self, RepeatedName> {
         match first_repeated(&values) {
-            Some(name) => Err(RepeatedName(name.to_owned())),
+            Some(name) => Err(RepeatedName {
+                name: name.to_owned(),
+            }),
             None => Ok(Self(values)),
         }
     }
