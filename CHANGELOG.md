@@ -11,6 +11,10 @@ All notable changes to this workspace. The format follows
   message sources, and display literals in the shipped crates, in place of
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text
   type with `Display`.
+- `cargo xtask layout` refuses, under `feature = "test-util"`, an inherent `impl`
+  of a type outside the gate and any item that makes a value of a type with
+  private fields, and refuses the gate on anything but a whole item. The types
+  the gate declares are the doubles'.
 - `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
 - `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
