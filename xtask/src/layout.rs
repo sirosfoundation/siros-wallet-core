@@ -29,7 +29,7 @@ use self::names::{Names, module_of};
 use crate::Failure;
 
 /// The presentation core's crates whose texts reach the End-User (design section 4.11).
-const SHIPPED: [&str; 10] = [
+const SHIPPED: [&str; 11] = [
     "siros-openid4vp",
     "siros-x509",
     "siros-mdoc",
@@ -38,6 +38,7 @@ const SHIPPED: [&str; 10] = [
     "siros-qes",
     "siros-credman",
     "siros-webuild",
+    "siros-ts12",
     "siros-i18n",
     "siros-explain",
 ];

@@ -666,6 +666,17 @@
       ]
     },
     {
+      "name": "siros-ts12",
+      "names": [
+        "siros-openid4vp",
+        "siros-paso",
+        "siros-x509",
+        "siros-i18n",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
       "name": "siros-webuild",
       "names": [
         "siros-openid4vp",

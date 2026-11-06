@@ -7,6 +7,12 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-ts12` serves TS12's `urn:eudi:sca:payment:1` and
+  `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
+  payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
+  label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
+- `siros-paso` opens `render::Request`, `Registered`, `LabelLimits` and `bound` to a second profile.
+- `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
 - `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,
   message sources, and display literals in the shipped crates, in place of
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text

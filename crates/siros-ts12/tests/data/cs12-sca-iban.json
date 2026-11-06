@@ -1,0 +1,78 @@
+{
+  "vct": "https://issuer.bank.example/credentials/sca/iban/1.0",
+  "name": "Example Bank SCA-IBAN Attestation",
+  "extends": "https://webuildconsortium.eu/sca/sca-iban/1.0",
+  "category": "urn:eu:europa:ec:eudi:sua:sca",
+  "transaction_data_types": {
+    "urn:eudi:sca:payment:1": {
+      "schema_uri": "urn:eudi:sca:payment:1",
+      "claims": [
+        {
+          "path": ["payload", "amount"],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Amount",
+              "description": "Amount of the payment"
+            }
+          ]
+        },
+        {
+          "path": ["payload", "payee", "name"],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Payee",
+              "description": "Recipient of the payment"
+            }
+          ]
+        }
+      ],
+      "ui_labels": {
+        "affirmative_action_label": [
+          { "lang": "en", "value": "Confirm Payment" }
+        ],
+        "denial_action_label": [
+          { "lang": "en", "value": "Cancel Payment" }
+        ]
+      }
+    },
+    "urn:eudi:sca:login_risk_transaction:1": {
+      "schema_uri": "urn:eudi:sca:login_risk_transaction:1",
+      "claims": [
+        {
+          "path": ["payload", "service"],
+          "visualisation": 2,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Service",
+              "description": "Service requesting confirmation"
+            }
+          ]
+        },
+        {
+          "path": ["payload", "action"],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Action",
+              "description": "Action to be confirmed"
+            }
+          ]
+        }
+      ],
+      "ui_labels": {
+        "affirmative_action_label": [
+          { "lang": "en", "value": "Confirm" }
+        ],
+        "denial_action_label": [
+          { "lang": "en", "value": "Cancel" }
+        ]
+      }
+    }
+  }
+}
