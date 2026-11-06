@@ -78,20 +78,32 @@ struct Matcher {
 
 /// What a build must not compile, as the table writes it: `crate` or `crate/feature`.
 #[derive(Clone, Deserialize)]
-#[serde(from = "String")]
+#[serde(try_from = "String")]
 enum Forbidden {
     Crate(String),
     Feature { name: String, feature: String },
 }
 
-impl From<String> for Forbidden {
-    fn from(text: String) -> Self {
+/// Whether a text is a package name or a feature: non-empty, and of ASCII alphanumerics, `-`, `_`,
+/// `+` and `.` (The Cargo Book, "Features").
+fn named(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'+' | b'.'))
+}
+
+impl TryFrom<String> for Forbidden {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
         match text.split_once('/') {
-            Some((name, feature)) => Self::Feature {
+            Some((name, feature)) if named(name) && named(feature) => Ok(Self::Feature {
                 name: name.to_owned(),
                 feature: feature.to_owned(),
-            },
-            None => Self::Crate(text),
+            }),
+            None if named(&text) => Ok(Self::Crate(text)),
+            _ => Err(format!("{text:?} is neither `crate` nor `crate/feature`")),
         }
     }
 }
@@ -233,10 +245,16 @@ impl fmt::Display for Failure {
     }
 }
 
-/// The workspace: its root and its members, each with its directory.
+/// A workspace member.
+struct Member {
+    name: String,
+    directory: PathBuf,
+}
+
+/// The workspace: its root and its members.
 struct Workspace {
     root: PathBuf,
-    members: Vec<(String, PathBuf)>,
+    members: Vec<Member>,
 }
 
 fn main() -> ExitCode {
@@ -298,7 +316,10 @@ impl Workspace {
                     .map(Path::new)
                     .and_then(Path::parent);
                 match (name, manifest) {
-                    (Some(name), Some(directory)) => Ok((name.to_owned(), directory.to_path_buf())),
+                    (Some(name), Some(directory)) => Ok(Member {
+                        name: name.to_owned(),
+                        directory: directory.to_path_buf(),
+                    }),
                     _ => Err(Failure::Read(
                         "a package without its name or manifest".to_owned(),
                     )),
@@ -322,8 +343,8 @@ impl Workspace {
     fn directory(&self, name: &str) -> Result<&Path, Failure> {
         self.members
             .iter()
-            .find(|(member, _)| member == name)
-            .map(|(_, directory)| directory.as_path())
+            .find(|member| member.name == name)
+            .map(|member| member.directory.as_path())
             .ok_or_else(|| Failure::Read(format!("{name} is no workspace member")))
     }
 }
@@ -502,7 +523,7 @@ fn alone(workspace: &Workspace) -> Result<bool, Failure> {
             .into_iter()
             .map(|compiled| compiled.name)
             .filter(|name| {
-                *name != row.name && workspace.members.iter().any(|(member, _)| member == name)
+                *name != row.name && workspace.members.iter().any(|member| member.name == *name)
             })
             .collect();
         named.dedup();
