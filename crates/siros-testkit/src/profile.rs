@@ -182,8 +182,8 @@ impl Profile for TestProfile {
             Row::new(
                 RequestText::raw("Logo".to_owned()),
                 Value::Image(Image::Embedded(ImageRef {
-                    source: "data:image/png".to_owned(),
-                    media: "image/png".to_owned(),
+                    source: siros_openid4vp::rows::ImageSource::Data,
+                    media: siros_openid4vp::rows::ImageMedia::PNG,
                     width: 1,
                     height: 1,
                 })),

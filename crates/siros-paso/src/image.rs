@@ -8,7 +8,9 @@ use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use siros_explain::Explain;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::rows::{HttpsUrl, Image, ImageRef, RemoteImage};
+use siros_openid4vp::rows::{
+    HttpsUrl, Image, ImageMedia, ImageRef, ImageSource, RemoteImage, SriMetadata,
+};
 use siros_openid4vp::sri;
 use siros_openid4vp::text::python_space;
 
@@ -107,6 +109,14 @@ impl Media {
     fn of(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|media| media.name() == name)
     }
+
+    const fn image(self) -> ImageMedia {
+        match self {
+            Self::Png => ImageMedia::PNG,
+            Self::Jpeg => ImageMedia::JPEG,
+            Self::Svg => ImageMedia::SVG,
+        }
+    }
 }
 
 /// A Data URL `data:<image media type>;base64,<base64>`: its media type and base64 text.
@@ -142,17 +152,19 @@ pub fn resolve<'r>(
             let content = BASE64
                 .decode(encoded)
                 .map_err(|_| refuse(ImageFailure::BadBase64))?;
-            (Cow::Owned(content), media, format!("data:{}", media.name()))
+            (Cow::Owned(content), media, ImageSource::Data)
         }
-        None if HttpsUrl::shown(url).is_ok() => {
+        None => {
+            let shown =
+                HttpsUrl::shown(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?;
             let integrity = integrity
                 .and_then(Node::as_str)
                 .ok_or_else(|| refuse(ImageFailure::NoIntegrity))?;
             let (content, media) = match resolution(url) {
                 Resolution::Unknown => {
                     return Ok(Image::Remote(RemoteImage {
-                        url: url.to_owned(),
-                        integrity: integrity.to_owned(),
+                        url: shown,
+                        integrity: SriMetadata::written(integrity.to_owned()),
                     }));
                 }
                 Resolution::Failed(reason) => {
@@ -168,9 +180,8 @@ pub fn resolve<'r>(
             }
             let media = Media::of(media)
                 .ok_or_else(|| refuse(ImageFailure::MediaType(media.to_owned())))?;
-            (Cow::Borrowed(content), media, url.to_owned())
+            (Cow::Borrowed(content), media, ImageSource::Url(shown))
         }
-        None => return Err(refuse(ImageFailure::NeitherDataNorHttps)),
     };
     let size = Size::of(&content, media).ok_or_else(|| refuse(ImageFailure::Unreadable))?;
     if size.width > MAX_PIXELS || size.height > MAX_PIXELS {
@@ -181,7 +192,7 @@ pub fn resolve<'r>(
     }
     Ok(Image::Embedded(ImageRef {
         source,
-        media: media.name().to_owned(),
+        media: media.image(),
         width: u32::try_from(size.width).map_err(|_| refuse(ImageFailure::Unreadable))?,
         height: u32::try_from(size.height).map_err(|_| refuse(ImageFailure::Unreadable))?,
     }))

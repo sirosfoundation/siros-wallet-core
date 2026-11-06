@@ -24,26 +24,65 @@ pub enum Image {
     Remote(RemoteImage),
 }
 
+/// Where the bytes of an image the matcher holds came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageSource {
+    /// A Data URL, of the image's media type.
+    Data,
+    /// An https URL.
+    Url(Shown),
+}
+
 /// An image the matcher holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRef {
-    /// The https URL, or the Data URL's media type.
-    pub source: String,
+    /// Where its bytes came from.
+    pub source: ImageSource,
     /// The media type.
-    pub media: String,
+    pub media: ImageMedia,
     /// The width in pixels.
     pub width: u32,
     /// The height in pixels.
     pub height: u32,
 }
 
+impl ImageRef {
+    /// The source as text: the https URL as written, or `data:` and the media type.
+    #[must_use]
+    pub fn source_text(&self) -> String {
+        match &self.source {
+            ImageSource::Data => format!("data:{}", self.media.as_str()),
+            ImageSource::Url(url) => url.written().to_owned(),
+        }
+    }
+}
+
+/// Integrity metadata (W3C SRI) as the document wrote it; `sri::matches` reads it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct SriMetadata(String);
+
+impl SriMetadata {
+    /// The metadata as written.
+    #[must_use]
+    pub const fn written(text: String) -> Self {
+        Self(text)
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// An https image phase 2 fetches.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteImage {
     /// The URL.
-    pub url: String,
-    /// Its integrity metadata (W3C SRI).
-    pub integrity: String,
+    pub url: Shown,
+    /// Its integrity metadata.
+    pub integrity: SriMetadata,
 }
 
 /// A row's value, its text a [`Text`] or, in a transaction's overlay, a [`RequestText`].

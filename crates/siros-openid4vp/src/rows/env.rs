@@ -45,7 +45,8 @@ impl siros_explain::Requested for BooleanText {
 }
 
 /// An image media type (RFC 6838 §4.2.3): the essence of a media type of top-level type `image`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(transparent)]
 pub struct ImageMedia(Cow<'static, str>);
 
 /// A media type that names no image.
@@ -65,6 +66,8 @@ impl ImageMedia {
     pub const PNG: Self = Self(Cow::Borrowed("image/png"));
     /// `image/jpeg` (RFC 2046 §4.2).
     pub const JPEG: Self = Self(Cow::Borrowed("image/jpeg"));
+    /// `image/svg+xml` (RFC 6838).
+    pub const SVG: Self = Self(Cow::Borrowed("image/svg+xml"));
 
     /// The image media type of a media type: its essence when its top-level type is `image`.
     ///

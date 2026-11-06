@@ -83,6 +83,24 @@ pub enum Shown {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnreachableUrl(Iri<String>);
 
+/// A shown URL serializes as written.
+impl serde::Serialize for Shown {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.written())
+    }
+}
+
+impl Shown {
+    /// The text as written.
+    #[must_use]
+    pub fn written(&self) -> &str {
+        match self {
+            Self::Url(url) => url.written(),
+            Self::Unreachable(unreachable) => unreachable.written(),
+        }
+    }
+}
+
 impl UnreachableUrl {
     /// The IRI as written.
     #[must_use]

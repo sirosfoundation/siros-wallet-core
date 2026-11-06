@@ -114,8 +114,10 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
     assert_eq!(
         rendered.view.rows[2].row.value,
         Some(Value::Image(Image::Embedded(ImageRef {
-            source: url.to_owned(),
-            media: "image/png".to_owned(),
+            source: siros_openid4vp::rows::ImageSource::Url(
+                HttpsUrl::shown(url).expect("an https URL")
+            ),
+            media: siros_openid4vp::rows::ImageMedia::PNG,
             width: 64,
             height: 64,
         })))
@@ -447,8 +449,10 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
     assert_eq!(
         rendered.view.rows[2].row.value,
         Some(Value::Image(Image::Embedded(ImageRef {
-            source: url.to_owned(),
-            media: "image/png".to_owned(),
+            source: siros_openid4vp::rows::ImageSource::Url(
+                HttpsUrl::shown(url).expect("an https URL")
+            ),
+            media: siros_openid4vp::rows::ImageMedia::PNG,
             width: 96,
             height: 96,
         })))
