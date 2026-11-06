@@ -2,6 +2,7 @@
 //! (`Haip::verifies`, A7) and the curves and JWE algorithms the decrypting module decrypts
 //! (`RequestDecryption::decrypts`, U11). Each list has one owner, the module that implements it.
 
+use super::HeaderAlgorithm;
 use crate::request::{ContentEncryption, Curve, KeyAgreement, jose_name};
 
 /// A JWS `alg` (IANA "JSON Web Signature and Encryption Algorithms"): one or more printable ASCII
@@ -49,8 +50,8 @@ impl JwsAlgorithms {
 
     /// Whether it states the `alg` a header names.
     #[must_use]
-    pub fn accepts(&self, alg: &str) -> bool {
-        self.0.iter().any(|stated| stated.as_str() == alg)
+    pub fn accepts(&self, alg: &HeaderAlgorithm) -> bool {
+        self.0.iter().any(|stated| stated.as_str() == alg.as_str())
     }
 
     /// The algorithms.

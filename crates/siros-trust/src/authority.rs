@@ -234,9 +234,9 @@ impl QueryAuthorities {
                     .iter()
                     .flat_map(|entry| {
                         entry
-                            .values
+                            .values()
                             .iter()
-                            .map(|value| Authority::read(&entry.kind, value))
+                            .map(|value| Authority::read(entry.kind(), value))
                     })
                     .collect::<Result<_, _>>()?,
                 sent: trusted_authorities

@@ -511,7 +511,7 @@ pub struct JwsSignature(Vec<u8>);
 
 /// A protected header: `alg`, `typ`, `kid` and `crit` read; every member kept for the prefix
 /// plug-in.
-pub struct ProtectedHeader { alg: String, typ: Option<String>, kid: Option<String>,
+pub struct ProtectedHeader { alg: HeaderAlgorithm, typ: Option<HeaderType>, kid: Option<KeyId<'static>>,
                              members: Object<'static> }
 
 pub struct CompactJws<'t> { text: Cow<'t, str>, header: ProtectedHeader, payload: String,
@@ -725,7 +725,7 @@ impl<'k> VerifierMetadata<'k> {
 pub struct VerifierKeys<'k> { keys: Vec<AgreeableKey<'k>> }
 /// One of the Verifier's keys by its place; only `VerifierKeys::iter` yields one, so a mode
 /// chooses among the request's keys alone.
-pub struct VerifierKey<'k> { place: usize, key: &'k AgreeableKey<'k> }
+pub struct VerifierKey<'k> { place: KeyPlace, key: &'k AgreeableKey<'k> }
 
 pub struct ModeHandle(usize);                  // a place in the registry; only the registry makes one
 /// The registered mode a request names on its channel; only `Envelope::parse` makes one, from the
@@ -737,7 +737,7 @@ pub struct RoutedMode { handle: ModeHandle, name: ModeName, carries: Carries }
 /// the key's place among the request's agreeable keys, its `kid`, and the `enc`; `modes`
 /// re-exports it. A reader that binds the key before phase 2 reads it; phase 2 chooses under the
 /// sealing module's statement, which can narrow it.
-pub struct KeyChoice { place: usize, kid: String, enc: ContentEncryption }
+pub struct KeyChoice { place: KeyPlace, kid: KeyId<'static>, enc: ContentEncryption }
 impl KeyChoice {
     pub fn of(mode: ModeName, metadata: &ClientMetadata<'_>) -> Result<Self, KeyRule>;   // C7
 }
@@ -760,7 +760,7 @@ impl<'r> Routing<'r> {
     pub fn response_type(&self) -> Option<ResponseTypeName>;
     /// The registered mode the request names on its channel; `None` when it names none.
     pub fn mode(&self) -> Option<&RoutedMode>;
-    pub fn response_uri(&self) -> Option<&str>;
+    pub fn response_uri(&self) -> Option<&NamedResponseUri<'r>>;
     pub fn echo(&self) -> Option<&Echo<'r>>;
     pub fn state(&self) -> Option<State<'_>>;
     pub fn refusals(&self) -> &[Refusal];
@@ -769,13 +769,13 @@ impl<'r> Routing<'r> {
 /// What a format's request rules read. Only `Accepted::new` makes one, from the request's
 /// routing.
 pub struct QueryContext<'q> { request: &'q Request<'q>, mode: Option<ModeName>,
-                              named: bool, supported: Option<Node<'q>> }
+                              naming: EntryNaming, supported: Option<Node<'q>> }
 impl<'q> QueryContext<'q> {
     pub fn request(&self) -> &'q Request<'q>;
     /// The mode's name; `None` when rule C5 refuses the request's mode.
     pub fn mode(&self) -> Option<ModeName>;
     /// Whether a `transaction_data` entry names the query.
-    pub fn named(&self) -> bool;
+    pub fn naming(&self) -> EntryNaming;
     /// The Verifier's `vp_formats_supported` value for the format.
     pub fn supported(&self) -> Option<&Node<'q>>;
 }
@@ -1098,6 +1098,10 @@ pub enum RouteBreach { ErrorsAnswered, KeyInTheClear, NoKey, Foreign, Unstated, 
 /// outside the names the registry kept for the part; `Twice`: a name an earlier member holds.
 pub enum ParameterBreach { Undeclared, Twice }
 
+/// A profile wrote a presentation member outside those it declares for the placement: the cause
+/// of phase 2's `Fault` (`resolve`, id `openid4vp.undeclared_member`).
+pub struct UndeclaredMember;
+
 /// A URI request whose mode names no registered error mode (C5): the wallet tells the End-User.
 /// Domain `openid4vp.route`: "the request names no response mode the wallet can carry an error
 /// in". `Outcome::Unroutable` carries it.
@@ -1212,8 +1216,8 @@ with a `Fault` (`BodyChannel`), and wraps it in the `Delivery` of the route's bo
 core read back; a form body comes from `FormBody::of`. `wallet_metadata` writes the names
 `metadata_names` declares; another name is a `Fault`. `Route`, `AnswerRoute`, `RouteKey`,
 `ModeRoute`, `RoutedMode`, `VerifierKey`, `VerifierKeys`, `VerifierMetadata`, `PostBody`,
-`DcApiData`, `AuthorizationResponse`, `ErrorResponse` and `Built` have private fields, and a
-`compile_fail` doctest holds each (I1). The domains: `RouteBreach` `openid4vp.route_breach`,
+`DcApiData`, `AuthorizationResponse`, `ErrorResponse` and `Built` have private fields (I1).
+The domains: `RouteBreach` `openid4vp.route_breach`,
 `ParameterBreach` `openid4vp.parameter_breach`, `Unroutable` `openid4vp.route`, `FormMedia`
 `openid4vp.post_body`, `NotObject` `openid4vp.dc_api_data`, `NotForm` `openid4vp.form`.
 
@@ -1985,10 +1989,12 @@ pub struct TransactionHeader { pub counterparty: Text, pub amount: Text, pub row
 /// the overlay's rows, then the card's, a transaction header's left out.
 pub struct ConsentEntry { card: Card, overlay: Option<Overlay> }
 /// An entry the wallet adds to every set, one per slot, first in every set (`matching`).
-pub struct StaticEntry { pub id: String, pub card: Card }
+pub struct StaticEntry { pub id: StaticEntryId<'static>, pub card: Card }
 /// An icon of at least one byte, a wallet asset or a card's logo, with its image media type
 /// (`rows`).
-pub struct Icon { pub reference: Cow<'static, str>, pub media: ImageMedia, pub size: NonZeroU32 }
+pub struct Icon { pub reference: IconReference, pub media: ImageMedia, pub size: NonZeroU32 }
+/// What an icon names: a wallet asset or a card's logo URI (`rows`).
+pub enum IconReference { Asset(Cow<'static, str>), Logo(Cow<'static, str>) }
 /// The essence of any media type of top-level type `image` (RFC 6838 §4.2.3), read through the
 /// core's `MediaType` (`media`, ungated; `effects` re-exports it); `NotImageMedia` refuses
 /// another (`Media`, `Type`).
@@ -4430,7 +4436,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `DcApiRequest` | `arrival` | A DC API request in its protocol's form (A.3) | Holds: an enum; each variant holds a parsed `Parameters`, `CompactJws` or `JsonJws` |
 | `ReceivedApi` | `arrival` | Reads a DC API request into a `Received` (U1 to U3, U10, U16) | Holds: the inherent methods of `Received` |
 | `PrefixName` | `authenticate` | A Client Identifier Prefix: one or more `VSCHAR` other than `:`, other than `origin` (§5.9.1, §5.9.3) | Holds: private `&'static str`; `const fn new -> Option`; a plug-in's by `checked!` |
-| `ClientClaim` | `authenticate` | A signed request's claim: its Client Identifier, the signature it belongs to, the parameters and the channel | Holds: private fields; only `EnvelopeAuthApi::questions` makes one; a `compile_fail,E0451` doctest holds it |
+| `ClientClaim` | `authenticate` | A signed request's claim: its Client Identifier, the signature it belongs to, the parameters and the channel | Holds: private fields; only `EnvelopeAuthApi::questions` makes one |
 | `ClientClaimApi` | `authenticate` | Reads a claim's parts | Holds: the inherent methods of `ClientClaim` |
 | `ClaimChannel` | `authenticate` | The DC API with its Origin, or a URI with its parsed `request_uri` and `response_uri` (§15.8.2, A13) | Holds: an enum of checked references; every variant is a channel |
 | `PrefixRefusal` | `authenticate` | A prefix rule a claim breaks, with the prefix the core called (A5) | Holds: a refusal struct; private fields; the core makes it from `ClientPrefix::claim`'s refusal |
@@ -4467,8 +4473,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Sealed` | `effects` | The question kinds are the core's two | Holds: private trait sealing `Ask` |
 | `Ask` | `effects` | A question kind and the answer it takes | Holds: sealed trait: `Evaluation` takes `Decision`, `Resource` takes `Fetch` |
 | `Slots` | `effects` | One slot per question of one kind, in order | Fixed (caller list): typed slots only the step makes; its continuation fills each through the caller's function, once, in order |
-| `Filled` | `effects` | One answer of the question's kind per question, in order | Fixed (caller list): only `Slots::fill` makes one; a `compile_fail,E0451` doctest holds it |
-| `Decided` | `effects` | A claim's own evaluations with their decisions, in its order | Fixed (caller list): private; only `Pending::authenticate` makes one, from its filled slots; a `compile_fail,E0423` doctest holds it |
+| `Filled` | `effects` | One answer of the question's kind per question, in order | Fixed (caller list): only `Slots::fill` makes one |
+| `Decided` | `effects` | A claim's own evaluations with their decisions, in its order | Fixed (caller list): private; only `Pending::authenticate` makes one, from its filled slots |
 | `MediaType` | `media` | A `Content-Type` value (RFC 9110 §8.3.1) and its essence, in every build | Holds: private fields; `parse -> Result<_, NotMediaType>` refuses another text, naming the rule; `form` gives `application/x-www-form-urlencoded` and `is_form` tests the essence; `effects` re-exports it |
 | `MediaTypeApi` | `media` | Parses a media type and reads its essence | Holds: the inherent methods of `MediaType` |
 | `NotMediaType` | `media` | The RFC 9110 rule a text breaks, at its byte offset | Holds: a refusal enum, one variant per rule |
@@ -4503,7 +4509,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `CoseEnc` | `profile` | A content encryption a `COSE_Encrypt` carries (IANA COSE Algorithms, RFC 9053 §4.1) | Holds: private `i64`; constants for RFC 9053's AES-GCM values; the registry stays open, and a module states the values it implements |
 | `SignFailed` | `host` | The End-User cancelled, or the keystore broke its contract | Holds: a refusal enum, one variant per rule; derives `Explain` |
 | `DecryptFailed` | `host` | A JWE that does not decrypt | Holds: a refusal struct, one rule |
-| `EphemeralKey` | `host` | A fresh key the wallet posts: its public JWK and the module's handle to the secret | Fixed (relational rule outside a step): private fields; only `new(public, handle)` makes one; the core checks the JWK's `crv` against `decrypts` and links no curve arithmetic; a `compile_fail,E0451` doctest holds it |
+| `EphemeralKey` | `host` | A fresh key the wallet posts: its public JWK and the module's handle to the secret | Fixed (relational rule outside a step): private fields; only `new(public, handle)` makes one; the core checks the JWK's `crv` against `decrypts` and links no curve arithmetic |
 | `RequestDecryption` | `host` | States its curves and JWE algorithms; draws a fresh key and keeps its secret; decrypts a JWE under it, consuming it (RFC 7516 §5.2) | Holds: a trait; `decrypt` takes the `EphemeralKey` by value; the registered `EncryptedRequests` bounds it |
 | `CoseEncrypt` | `profile` | A `COSE_Encrypt` to a public key (RFC 9052 §5.1, RFC 9053 §6.3), for siros-paso's sealed signals | Holds: a trait in siros-paso in every `resolve` build, bounded `MayHave` in every build; `encryptions` states what it implements; returns a checked `SealedCose` |
 | `CoreHost` | `host` | The module the core calls with no extension registered: `Platform` | Holds: a trait with a blanket implementation over its bound |
@@ -4524,7 +4530,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `RegistryApi` | `host` | Registers a plug-in whose host bounds the build meets; `client_prefix` bounds `Haip`, `jwe_mode` `JweHost`, `request_encryption` `RequestDecryption` | Holds: the inherent methods of `Registry`; each module bound sits in its method's `where` clause; `mode`, `jwe_mode` and `error_mode` take `M` by name, whose `TypeId` the registration records |
 | `HostedFormat` | `host` | A format the registry of `H` takes: a `Format` for `NoHost`, a `FormatHost<H>` for a host | Holds: a conversion trait with one impl per host kind, so a feature changes no signature |
 | `HostedProfile` | `host` | A profile the registry of `H` takes: a `Profile` for `NoHost`, a `ProfileHost<H>` for a host | Holds: a conversion trait with one impl per host kind |
-| `FetchedRecord` | `host` | A record with the resources its profile wanted, each with what the caller fetched | Holds: private fields; only the core's phase 2 makes one; a `compile_fail,E0451` doctest holds it |
+| `FetchedRecord` | `host` | A record with the resources its profile wanted, each with what the caller fetched | Holds: private fields; only the core's phase 2 makes one |
 | `FetchedRecordApi` | `host` | The record and its resources | Holds: the inherent methods of `FetchedRecord` |
 | `JwsError` | `jose` | One variant per JWS rule (U10, U16) | Holds: a refusal enum, one variant per rule |
 | `ProtectedHeader` | `jose` | A protected header: `alg`, `typ`, `kid` and `crit` read (RFC 7515 §4) | Holds: private fields; only the JWS parses make one |
@@ -4549,6 +4555,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `VerificationKey` | `jose` | The key a prefix binds and a signature verifies under: a public JWK | Fixed (public constructor takes it unchecked): `of` takes a `PublicJwk`, which `parse` checks; the verifying module checks the key's fit to the `alg`, a point off its curve included |
 | `OptionIndex` | `kept` | A position in its query's options | Fixed (constrained primitive in a public field): private; only the query's `options` and the core's slots make one (section 2) |
 | `OptionIndexApi` | `kept` | The position | Holds: the inherent methods of `OptionIndex` |
+| `Options` | `plugins` | A Credential Query's options, in the Verifier's order | Holds: private `Vec`; `indexed` is the only way to an `OptionIndex`; `consider` faults on a list of another order or of another query's options |
 | `Thumbprint` | `plugins` | A JWK SHA-256 thumbprint (RFC 7638) of the key the core sealed to | Fixed (public field): siros-mdoc's, private; only `Thumbprint::of` makes one, from an `EC` or `OKP` key |
 | `ThumbprintApi` | `plugins` | The thumbprint of a key | Holds: the inherent methods of `Thumbprint` |
 | `Authentication` | `kept` | When the End-User authenticated, and each factor applied, one or more | Fixed (non-empty `Vec`): `factors` an `AllOf<Factor>`; private fields |
@@ -4556,7 +4563,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Point` | `kept` | A key's base64url-decoded coordinates | Boundary: their lengths are the mode's key rule's, the point's place on its curve the agreeing module's; the matcher, which reads keys in `admits` and C7, links no curve arithmetic (I10) |
 | `AgreeableKey` | `kept` | A public key the wallet can agree a key with: its JWK, `kid`, curve, point and `alg` | Fixed (constrained primitive in a public field): private fields; `of` decodes the coordinates and reads `crv` and `alg` as JOSE names |
 | `AgreeableKeyApi` | `kept` | Reads a key from its JWK | Holds: `of -> Option`; the accessors are inherent |
-| `Session` | `kept` | A presentation's binding facts: the channel's binding, the nonce, the key the core sealed to, the Verifier's keys | Fixed (typestate gap): private fields; only `AnswerRoute::session` makes one, from a route holding a `nonce` N1 accepts; a `compile_fail,E0451` doctest holds it |
+| `Session` | `kept` | A presentation's binding facts: the channel's binding, the nonce, the key the core sealed to, the Verifier's keys | Fixed (typestate gap): private fields; only `AnswerRoute::session` makes one, from a route holding a `nonce` N1 accepts |
 | `SessionApi` | `kept` | The accessors of `Session`, and its audience | Holds: the inherent methods of `Session` |
 | `Prepared` | `phase2` | An authenticated request's records, and one slot per resource their profiles revalidate with | Fixed (caller list): `Slots<Resource>`; `respond` fills them through the caller's `fetch`; it holds the registry the envelope was read with, owns the request, and holds each record by index, so `respond` reads each query through `FormatHost::answer` again |
 | `Picked` | `phase2` | A derived record: its query and option by index, the wallet's credential, its transaction | Holds: a private struct; only `prepare` builds it from a record it derived and checked |
@@ -4584,7 +4591,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ChainCertificateApi` | `plugins` | Reads a certificate's hash, dNSNames and P-256 key as a public JWK | Holds: the inherent methods of `ChainCertificate`; `key -> Result<VerificationKey, X509Refusal>` |
 | `SpkiKey` | `plugins` | Reads the P-256 key of a SubjectPublicKeyInfo as a public JWK (RFC 5480 §2.1.1, §2.2) | Holds: a trait with `&self`; refuses another key with `X509Refusal::Key` |
 | `ViewAdditions` | `kept` | A credential's types: its own, then those its metadata extends, nearest first (SD-JWT VC §6.4) | Holds: a trait of the core's registration view (`Debug`), so a profile names the core alone |
-| `ViewTypes` | `kept` | A credential's types as its format read them, the core's `ViewAdditions` value | Holds: private `Vec<String>`; `new` takes them as given |
+| `ViewTypes` | `kept` | A credential's types as its format read them, the core's `ViewAdditions` value | Holds: private `Vec<CredentialType<'static>>`; `new` takes them as given |
 | `ClientIdAdditions` | `kept` | What `ClientId` gains: `prefixed`, the one reading of a Client Identifier Prefix (§5.9.1) | Holds: a trait over the checked `ClientId` |
 | `SessionTranscriptBytes` | `plugins` | `#6.24(bstr .cbor SessionTranscript)`, from the session's handover or a held transcript | Holds: private slice; only `SessionTranscript::tagged_bytes` makes one |
 | `SessionTranscriptBytesApi` | `plugins` | Reads the bytes | Holds: the inherent methods of `SessionTranscriptBytes` |
@@ -4645,6 +4652,19 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `DcApiErrors` | `recourse` | Cancel, or respond with `{"error": ...}` (§15.9.2, A.4) | Holds: an enum whose every variant is a policy |
 | `Reply` | `recourse` | Deliver the error response, or cancel | Holds: an enum; `Deliver` holds a built `Delivery` |
 | `FormatId` | `render` | A format module's identity: one or more `siros_explain::tokens` | Holds: private `&'static str`; `const fn new -> Option`; a module's by `checked!` |
+| `FormatName` | `ids` | The Credential Format Identifier a claims format names itself by in refusals | Holds: private `&'static str`; `const fn new -> Option` refuses an empty text; a format's by `checked!` |
+| `VpFormatsMember` | `claims::kit` | A member of a format's `vp_formats_supported` value that lists algorithm identifiers (Appendix B) | Holds: private `&'static str`; the format names its own |
+| `NamedQueryId`, `ExpectedOrigin`, `NamedResponseUri`, `StaticEntryId`, `ClaimId`, `KeyId`, `CredentialType` | `ids` | A text in its role: a `credential_ids` element, an `expected_origins` element, a named `response_uri`, a static entry's id, a claims query's id (§6.3's charset), a `kid`, a credential's type | Holds: private text; `parse` refuses what the role's rule refuses: an empty text for `StaticEntryId`, §6.3's charset for `ClaimId`; each other holds any text as written |
+| `Audience` | `session` | The audience a presentation's key binding states | Holds: private text; only `Session::audience` makes one |
+| `HeaderAlgorithm`, `HeaderType` | `jose` | A protected header's `alg` and `typ` | Holds: private text; only the JWS parses make one |
+| `KeyPlace` | `routing` | A key's place among the request's agreeable keys | Holds: private `usize`; only `VerifierKeys::iter` makes one |
+| `KeyType` | `request` | A key's `kty` | Holds: borrows the key's text; only `AgreeableKey::kty` makes one |
+| `AttestedName`, `AttestedText` | `plugins` | A member name and a value text a credential attests | Holds: private text |
+| `ChoiceId` | `matching` | An entry's id in a display set: a credential's or a static entry's | Holds: private text; only `Choice::id` makes one |
+| `SetIndex`, `CandidateIndex` | `matching` | A set's position in a display; a candidate's position in a query's | Holds: private `usize`; only `Display::set` and `Match::indexed_candidates` make one |
+| `DisplaySet` | `matching` | A set of a display, the only way to select | Holds: `Display::set` makes one or refuses `NoSet`; `select` takes the ids the platform returned |
+| `ArrayIndex` | `claims` | A position in a JSON array in a claims path pointer (§7.1) | Holds: a `usize` in its role; `Step::Beyond` stands for an integer no `usize` holds |
+| `IconReference` | `rows` | What an icon names: a wallet asset or a card's logo URI | Holds: an enum |
 | `Call` | `render` | A placeholder calling one of its format module's functions | Fixed (typestate gap): private fields; only the loader makes one, `function` one of the module's `functions` |
 | `LanguageFormats` | `load` | One language's options of one format, each name once, and the language's direction | Holds: private fields; `locale()`, `direction()`, `options()`, `option(name)` and `require(name)` read it, and only the loader makes one |
 | `FormatCompiler` | `render` | A format module's load half | Fixed (check after construction): `parse` gives one language's options as the format's `ParsedFormats`, which the loaded module holds |
@@ -4690,7 +4710,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Style` | `render` | A style MF2 markup applies | Holds: an enum whose every variant is a style |
 | `ModuleError` | `render` | One variant per module rule | Holds: a refusal enum, one variant per rule |
 | `RenderError` | `render` | One variant per rendering rule | Holds: a refusal enum, one variant per rule |
-| `Route` | `response` | Where and how an answer and an error go: the registered modes, the bound endpoint, the authenticated Client Identifier or Origin, the answering mode's encryption, the `nonce` N1 accepts | Fixed (values of two registries): private fields; only `RouteApi::new` makes one, from an `Authenticated` and the registry its envelope was read with, each mode read by `ModeHandle`; `state` and the Verifier's metadata are read from the `Authenticated`; a `compile_fail,E0451` doctest in the core holds it |
+| `Route` | `response` | Where and how an answer and an error go: the registered modes, the bound endpoint, the authenticated Client Identifier or Origin, the answering mode's encryption, the `nonce` N1 accepts | Fixed (values of two registries): private fields; only `RouteApi::new` makes one, from an `Authenticated` and the registry its envelope was read with, each mode read by `ModeHandle`; `state` and the Verifier's metadata are read from the `Authenticated` |
 | `Unroutable` | `response` | A URI request whose mode names no registered error mode (C5) | Holds: a refusal struct, one rule; domain `openid4vp.route` |
 | `UnmetCode` | `matching` | `access_denied` or `vp_formats_not_supported` (§8.5, §15.4.1) | Holds: an enum whose every variant is a code; the core derives it (`MatchAdditions::unmet`) |
 | `UnmetCodeApi` | `matching` | The code an unmet request's error carries | Holds: the inherent methods of `UnmetCode` |
@@ -4701,13 +4721,14 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `RouteApi` | `response` | An authenticated request's route and its errors in the mode's form | Fixed (relational rule outside a step): `new` takes the `Authenticated` and its registry, checks each handle's name, and calls the mode's `encryption` once; a broken choice is a `Fault` caused by `RouteBreach`; a key is checked by identity against the request's `VerifierKeys` |
 | `RouteBreach` | `response` | How a mode's route or body breaks its registration, the cause of phase 2's `Fault` | Holds: an enum, one variant per breach; a fixture compares the cause by type |
 | `ParameterBreach` | `response` | How a response parameters part breaks its registration: an undeclared name, a name twice | Holds: an enum, one variant per breach; a fixture compares the cause by type |
+| `UndeclaredMember` | `resolve` | A profile wrote a presentation member outside those it declares for the placement | Holds: a fixture compares the cause by type |
 | `AuthorizationResponse` | `response` | The VP Token, the request's `state` and the registered response parameters' members (§8.1) | Holds: private fields; only `Prepared::respond` makes one; `json` writes §8.1's object |
 | `ErrorDescription` | `response` | One or more characters of %x20-21, %x23-5B, %x5D-7E (RFC 6749 Appendix A.8); the core's `refusal`, every build | Holds: private `String`; `sanitized` and `parse -> Option` through `is_nqschars`; `Serialize` alone |
 | `ErrorDescriptionApi` | `response` | Sanitizes or parses a description | Holds: the inherent methods of `ErrorDescription` |
 | `ResponseForm` | `modes` | `direct_post.jwt`'s form: `response`, the JWE (§8.3.1) | Holds: a private reference to a `SealedJwe`'s text; only `of(&SealedJwe)` makes one; `Serialize` alone |
 | `ErrorForm` | `modes` | §8.2's plain error form: `error`, `error_description`, `state` as received | Holds: private fields of checked types: `ErrorCode`, `ErrorDescription`, `Echo`; only `of(&ErrorResponse)` makes one, `state` the error's `Echo`; `Serialize` alone |
-| `PostBody` | `response` | A POST body and its media type; a form from `FormBody::of` alone | Holds: private fields; `form` takes a `FormBody`, `of` refuses the form media type; a `compile_fail,E0451` doctest holds it |
-| `DcApiData` | `response` | The DigitalCredential's `data`, a JSON object with unique member names (A.4) | Holds: private `String`; `of` reads the text back through the `json` module, `error` writes A.4's form; a `compile_fail,E0423` doctest holds it |
+| `PostBody` | `response` | A POST body and its media type; a form from `FormBody::of` alone | Holds: private fields; `form` takes a `FormBody`, `of` refuses the form media type |
+| `DcApiData` | `response` | The DigitalCredential's `data`, a JSON object with unique member names (A.4) | Holds: private `String`; `of` reads the text back through the `json` module, `error` writes A.4's form |
 | `Delivery` | `response` | POST a mode's body to the route's `response_uri`, or return DC API `data` | Holds: an enum of checked parts; only the core writes one, from the route's endpoint and the mode's body |
 | `Handover` | `plugins` | siros-mdoc's handover of the session's channel (B.2.6) | Holds: a public enum with public fields; siros-mdoc's phase 2 builds it with `HandoverApi::of`, and siros-zkp-catalogues builds a Verifier's without a `Session` (Appendix A) |
 | `State` | `routing` | A non-empty `state` of ASCII letters, digits, `-`, `.`, `_`, `~` (§5.2, P6) | Holds: private `Cow<str>`; `parse -> Option` |
@@ -4718,7 +4739,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `RequestParseApi` | `routing` | The request's content, read from one envelope, by URI its scope values through the envelope's registry | Fixed (relational rule outside a step): `parse` takes the envelope alone and reads the routing and the registry it holds |
 | `AcceptedApi` | `routing` | The request rules over one request | Fixed (relational rule outside a step): `new` takes the request alone and reads its envelope's routing |
 | `QueryContext` | `routing` | A query's request, mode name, transaction naming and Verifier formats | Fixed (typestate gap): private fields behind accessors; only `Accepted::new` makes one |
-| `AnsweredContext` | `routing` | A query's context in phase 2, its mode the one rule C5 accepted | Fixed (a refused reading in phase 2): private; only `Prepared::prepare` makes one; a `compile_fail,E0451` doctest holds it |
+| `AnsweredContext` | `routing` | A query's context in phase 2, its mode the one rule C5 accepted | Fixed (a refused reading in phase 2): private; only `Prepared::prepare` makes one |
 | `UriError` | `uri` | One variant per U3 URI rule | Holds: a refusal enum, one variant per rule |
 | `AuthorizationUri` | `uri` | An Authorization Request URI with its `client_id`, `request_uri` and `request_uri_method` parsed (§9, U3 to U8, U18, U19) | Holds: private fields; `parse -> Result<_, Unreadable>` |
 | `AuthorizationUriApi` | `uri` | Parses the URI and reads its parameters | Holds: the inherent methods of `AuthorizationUri` |
@@ -4759,11 +4780,11 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ChannelKind` | `routing` | The DC API or a URI | Holds: an enum whose every variant is a channel |
 | `Carries` | `routing` | A registered mode carries answers, or errors alone (reading 24), by its registration | Holds: an enum whose every variant is a carriage |
 | `Mode` | `routing` | A response mode as phase 1 reads it: name, channel, rules, `wallet_metadata` names | Holds: a trait; its rules return `Refusal`s with their codes; its names are constants the registry checks |
-| `VerifierMetadata` | `routing` | The Verifier's `client_metadata` and its agreeable `jwks` keys | Holds: private fields; only the core makes one, from the request it parsed; a `compile_fail,E0451` doctest holds it |
-| `VerifierKeys` | `routing` | The Verifier's agreeable keys, in its order | Holds: private `Vec`; only the core makes one; `iter` yields each as a `VerifierKey`; a `compile_fail,E0451` doctest holds it |
-| `VerifierKey` | `routing` | One of the request's keys by its place | Fixed (relational rule outside a step): private; only `VerifierKeys::iter` yields one, so a mode chooses among the request's keys alone; a `compile_fail,E0451` doctest holds it |
+| `VerifierMetadata` | `routing` | The Verifier's `client_metadata` and its agreeable `jwks` keys | Holds: private fields; only the core makes one, from the request it parsed |
+| `VerifierKeys` | `routing` | The Verifier's agreeable keys, in its order | Holds: private `Vec`; only the core makes one; `iter` yields each as a `VerifierKey` |
+| `VerifierKey` | `routing` | One of the request's keys by its place | Fixed (relational rule outside a step): private; only `VerifierKeys::iter` yields one, so a mode chooses among the request's keys alone |
 | `ModeHandle` | `routing` | A registered mode, by its place in the envelope's registry | Holds: private `usize`; only the registry makes one |
-| `RoutedMode` | `routing` | The registered mode a request names on its channel | Holds: private fields; only `Envelope::parse` makes one; phase 2 reads its registration by `handle`, the name checked; a `compile_fail,E0451` doctest holds it |
+| `RoutedMode` | `routing` | The registered mode a request names on its channel | Holds: private fields; only `Envelope::parse` makes one; phase 2 reads its registration by `handle`, the name checked |
 | `KeyChoice` | `routing` | The key rule's phase-1 choice: a key's place and `kid`, an `enc`; `modes` re-exports it | Holds: private fields; only `KeyChoiceApi::of` makes one, through `modes::key_rule` |
 | `KeyChoiceApi` | `routing` | Reads the key rule's choice for a reader that binds the key before phase 2 | Holds: the inherent methods of `KeyChoice`; `of -> Result<_, KeyRule>` |
 | `MetadataMember` | `wallet_metadata` | One `wallet_metadata` member a contributor writes | Holds: private fields; `new` takes a checked `ParameterName` and a JSON value; the registry refuses a name twice, the composition an undeclared one |
@@ -4785,9 +4806,9 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Card` | `consent` | What a format draws for a credential: icon, title, subtitle, rows | Holds: public fields of `Icon`, `Text` and `Row` |
 | `Overlay` | `consent` | What a profile draws over a card: rows, a transaction header, a hint | Holds: public fields of checked types |
 | `TransactionHeader` | `consent` | A transaction's counterparty, amount and rows (PSD2 RTS Art. 5(1)(a)) | Holds: public fields of `Text` and `Row` |
-| `ConsentEntry` | `consent` | A consent entry: the card and the transaction's overlay | Holds: private fields; only the core's display step makes one; a `compile_fail,E0451` doctest holds it |
+| `ConsentEntry` | `consent` | A consent entry: the card and the transaction's overlay | Holds: private fields; only the core's display step makes one |
 | `Icon` | `consent` | An icon of at least one byte with its image media type; the core's `rows` | Holds: public fields of checked types: `ImageMedia`, `NonZeroU32` |
-| `ImageMedia` | `consent` | The essence of a media type of top-level type `image` (RFC 6838 §4.2.3); the core's `rows` | Holds: private text; only `of` and `parse` make one, and the consts `PNG`, `JPEG` |
+| `ImageMedia` | `consent` | The essence of a media type of top-level type `image` (RFC 6838 §4.2.3); the core's `rows` | Holds: private text; only `of` and `parse` make one, and the consts `PNG`, `JPEG`, `SVG` |
 | `ImageMediaApi` | `consent` | Reads the image media type of a media type or a text | Holds: the inherent methods of `ImageMedia` |
 | `NotImageMedia` | `consent` | A text that is no media type, or names no image | Holds: a refusal enum, one variant per rule |
 | `StaticEntry` | `consent` | An entry the wallet adds first to every set; the core's `matching` | Holds: public fields: an id and a core-made `Card` |
@@ -4816,17 +4837,17 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `PaymentEntry` | `plugins` | siros-credman's Payment entry (`AddPaymentEntryToSetV2`) | Holds: public fields of checked types; its method icon an `EntryIcon` |
 | `CredmanEntry` | `plugins` | A Standard or a Payment entry | Holds: an enum; `Payment` for an entry whose overlay holds a transaction header |
 | `CredmanEntryApi` | `plugins` | Maps a consent entry, or a static entry, to Credential Manager's entry | Holds: a trait; `of` and `of_static` read core-made entries |
-| `EntryIcon` | `plugins` | An icon Credential Manager draws: the card's PNG or JPEG, else `Icon::DEFAULT` | Holds: private field; only `EntryIconApi::of` makes one; a `compile_fail,E0423` doctest holds it |
+| `EntryIcon` | `plugins` | An icon Credential Manager draws: the card's PNG or JPEG, else `Icon::DEFAULT` | Holds: private field; only `EntryIconApi::of` makes one |
 | `EntryIconApi` | `plugins` | Reads a card's icon into an `EntryIcon` | Holds: the inherent methods of `EntryIcon` |
 | `TransactionData` | `plugins` | Whether the request carries `transaction_data` (siros-credman's A9) | Holds: an enum read from the request |
 | `TransactionDataApi` | `plugins` | Reads the request's `transaction_data` presence | Holds: the inherent methods of `TransactionData` |
 | `SetFacts` | `plugins` | What A9 judges a set of the `Display` by | Holds: public `bool` fields; `of` reads them from the set, the presentable credentials and `TransactionData` |
 | `SetFactsApi` | `plugins` | Reads a set's facts | Holds: the inherent methods of `SetFacts` |
 | `Encrypting` | `response` | A mode's choice: the clear, or one of the request's keys with an `enc`, which the core seals to | Holds: an enum; `Jwe` holds a `VerifierKey`, which only the request's keys yield; the core checks it against the sealing statement and the Verifier's list |
-| `RouteKey` | `response` | The key and `enc` a route bound, which the core seals to and the session holds | Fixed (relational rule outside a step): private; only `Route::new` makes one, after checking the mode's choice; a `compile_fail,E0451` doctest holds it |
+| `RouteKey` | `response` | The key and `enc` a route bound, which the core seals to and the session holds | Fixed (relational rule outside a step): private; only `Route::new` makes one, after checking the mode's choice |
 | `ModeHost` | `response` | A mode's answers in phase 2: its encryption, its `wallet_metadata` values, the body around an answer | Fixed (an extension's output the core takes unchecked): the core checks the choice, seals itself and hands a sealed route's mode the JWE alone; it checks each body's channel and sends it to the route's endpoint |
 | `HostedMode` | `response` | A mode the registry of `H` takes: a `Mode` for `NoHost`, a `ModeHost<H>` for a host | Holds: a conversion trait with one impl per host kind |
-| `ModeRoute` | `response` | What a mode reads of its route: the bound key and `state` | Holds: private fields; only the route makes one; a `compile_fail,E0451` doctest holds it |
+| `ModeRoute` | `response` | What a mode reads of its route: the bound key and `state` | Holds: private fields; only the route makes one |
 | `RouteEncryption` | `response` | The answering mode's choice, made once: the clear, a bound key, or refused (C7, or C6 for `client_metadata`) | Holds: a private enum; only `Route::new` builds it, from a checked choice; `Route::read` returns the refusal beside the route |
 | `ErrorResponse` | `response` | An error response: code, description, `state` as received (§8.5) | Holds: private fields; only the core's route and rejection make one |
 | `Body` | `response` | What a mode writes: DC API `data` or a POST body | Holds: an enum of checked `DcApiData` and `PostBody` |
@@ -4870,7 +4891,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ResponseMember` | `response` | One Authorization Response parameter an extension writes | Holds: private fields; `new` takes a checked `ParameterName` and a JSON value |
 | `ChannelRoute` | `response` | A route per channel with the session's binding facts: over the DC API the Origin and the answering mode when registered; by URI the bound `response_uri`, the authenticated Client Identifier, the error mode and the answering mode | Holds: a private enum; only `Route::new` builds it, so a URI route holds an endpoint, a Client Identifier and an error mode |
 | `Chosen` | `response` | An answering mode and its encryption, chosen once | Holds: a private struct; only `Route::new` builds it |
-| `AnswerRoute` | `response` | The route an Authorization Response takes: the chosen mode, its key, the Verifier's keys, the `nonce` | Fixed (typestate gap): only `RouteApi::answering` makes one, for a route whose request names a registered answering mode whose choice holds, under no C6 refusal, with a `nonce` N1 accepts; a `compile_fail,E0451` doctest in the core holds it |
+| `AnswerRoute` | `response` | The route an Authorization Response takes: the chosen mode, its key, the Verifier's keys, the `nonce` | Fixed (typestate gap): only `RouteApi::answering` makes one, for a route whose request names a registered answering mode whose choice holds, under no C6 refusal, with a `nonce` N1 accepts |
 | `AnswerRouteApi` | `response` | The session the presentations bind; delivers an answer: sealed by the core, wrapped by the mode, sent to the bound endpoint | Holds: the inherent methods of `AnswerRoute` |
 | `KeyHandle` | `host` | The module's reference to the secret of a key it drew | Holds: private `u64`; the core holds it and reads nothing of it |
 | `NamePlace` | `host` | Where a registered name sits: `wallet_metadata`, the POST, the Response URI's answer, the Authorization Response | Holds: an enum whose every variant is a place |
@@ -5321,7 +5342,7 @@ lists the files). A line can hold one call; a file several.
 | `Request::response_mode()` → `Routing::mode`, and `Answered::mode`, a `ModeName`, for siros-paso's response mode signal | 3 | 3 |
 | `Request::request_object()` keeps its signature (siros-paso reads it) | 4 | 4 |
 | `Request::origin()` → the envelope's channel | 3 | 3 |
-| `Request::expected_origins()` keeps its signature (C8) | 2 | 1 |
+| `Request::expected_origins()` returns `&[ExpectedOrigin]` (C8) | 2 | 1 |
 | `Request::client_metadata()` keeps its signature: both X.509 prefixes take the metadata from the request | 6 | 5 |
 | `Nonce::parse` keeps its signature; its rule gains N1, and every nonce in the tests and the model (`n-0S6_WzA2Mj`) holds | 7 | 6 |
 | `ClientId::parse` keeps its signature; its rule gains RFC 6749 Appendix A.1's `*VSCHAR` (U3), and the one test identifier, `x509_san_dns:client.example.org`, holds | 1 | 1 |
@@ -5466,7 +5487,7 @@ section 4.5's recourse says.
 
 | I | Invariant | Measure |
 | :-- | :-- | :-- |
-| I1 | Typestate: `Authenticated`, `Route`, an `AnswerRoute` and an `ErrorRoute` to a `response_uri` cannot be built outside the core; neither can phase 2's `AnsweredContext`, a step's filled answers (`Filled`), or an `EphemeralKey` from a JWK and a handle apart. An extension builds none of the values the core binds or hands it: a `VerifierKey` outside the request's keys, `VerifierKeys`, `VerifierMetadata`, a `RouteKey`, a `ModeRoute`, a `RoutedMode` the request did not name, a `Session`, a `ClientClaim`, a `Decided`, a `FetchedRecord`, an `Answered`, a `ConsentEntry`, a `PostBody` apart from `FormBody::of` and `PostBody::of`, a `DcApiData` the core did not read back, an `AuthorizationResponse`, an `ErrorResponse`, a `Built`. | `compile_fail` doctests, one per item: 24, each with its error code (E0451; E0423 for `DcApiData` and `Decided`); the `Route` and `AnswerRoute` ones write a value by struct update over one the core made (`Route { authenticated, registry, ..other }`, `AnswerRoute { key: None, ..sealed }`), and compile with the fields public. Each compiles once its guard is removed. `sigs/` holds 16 of them beside `EntryIcon`'s (section 4.15), `cargo test --doc`: 17 passed; with the eight added guards made public in a scratch copy, those eight and `EphemeralKey`'s report "Test compiled successfully". |
+| I1 | Typestate: `Authenticated`, `Route`, an `AnswerRoute` and an `ErrorRoute` to a `response_uri` cannot be built outside the core; neither can phase 2's `AnsweredContext`, a step's filled answers (`Filled`), or an `EphemeralKey` from a JWK and a handle apart. An extension builds none of the values the core binds or hands it: a `VerifierKey` outside the request's keys, `VerifierKeys`, `VerifierMetadata`, a `RouteKey`, a `ModeRoute`, a `RoutedMode` the request did not name, a `Session`, a `ClientClaim`, a `Decided`, a `FetchedRecord`, an `Answered`, a `ConsentEntry`, a `PostBody` apart from `FormBody::of` and `PostBody::of`, a `DcApiData` the core did not read back, an `AuthorizationResponse`, an `ErrorResponse`, a `Built`. | The compiler: each item's fields are private, or its constructor `pub(crate)`. |
 | I2 | Every Authorization Response goes to the authenticated endpoint, whatever mode carries it. Every error goes to it, to the platform, to a `response_uri` a `Framework` binding vouches for, or through an `Unverified` route in the plain form; every URI endpoint is an absolute `https` URI with a host; every sealed answer and error is sealed by the core to the session's `RouteKey`, and the mode of a sealed route receives no plaintext. | Property in siros-openid4vp's flows tests over `TestFormat` and `TestPrefix`, over generated URI and DC API requests, accepted and refused, with tampered signatures and endpoints, run once per registered mode: the core's four and 24 `TestMode` variants (each channel; a body of its own channel or the other; the clear, B.2.6's key with A128GCM, with A256GCM, a key of other metadata, a key on a clear registration, no key on a JWE one). Each variant's route verdict (clear, sealed to its `kid` and `enc`, C7, or the named `RouteBreach`) and phase 2 outcome (an answer, refused, `BodyChannel`) derive from its registration, its choice, the request's keys and `enc`s and the test `Haip`'s statement. DC API errors are A.4's `{"error": code}` in the clear; URI errors are sealed when the session holds a key; a built route never faults its errors; a rejection posts to the request's own `response_uri`, `Listed` only when the trust double lists it. Default 24 requests per mode (seed 1); per merge 1,500 per mode over seeds 1 to 3. Violations 0; each mutation (an unlisted `enc` accepted, a foreign key accepted, the clear faulting, `Unverified` written `Listed`, errors in the clear on a sealed route) gives violations. |
 | I3 | Records hold for every arrival: phase 2 answers only records phase 1 derived. | The existing property, run over generated URI and DC API requests: mismatches 0. |
 | I4 | Digest domains: two received forms never share a digest; DC API digests equal today's. | Property over pairs: collisions 0. The differentials' record ids compare byte for byte. |
@@ -5487,7 +5508,7 @@ section 4.5's recourse says.
 | I19 | One honest end-to-end path per build. | siros-integration: the HAIP build over F5; the WE BUILD build over F11: POST and a JWE Request Object encrypted with the first values of the posted `authorization_encryption_*` lists (reading 21), `verifier_info` to the trust service, a TS12 payment, the Key Binding JWT's TS12 claims, the Verifier's error read by siros-webuild's reader. |
 | I20 | siros-ts12's parse accepts no payload TS12's own schemas refuse. | A one-off run over generated payloads: every payload siros-ts12 accepts validates against TS12's payment and login schemas, format assertion off; each schema-valid payload it refuses falls under a rule of section 4.10.2, counted per rule. |
 | I21 | WE BUILD's test bed accepts the WE BUILD build. | Its CS-12 payment test at the milestone: pass, with the run's log. |
-| I22 | A build takes no plug-in or mechanism whose required module its host lacks, and no host changes a module's presence while running. | `compile_fail` doctests over a host that implements `Platform` alone, so `RegistryApi<H: Build>` is reachable and each failure is the method's own bound: siros-paso registered without `Paso`; `jwe_mode(DcApiJwt)` without `Haip` (`JweHost`); `client_prefix(X509Hash)` without `Haip`; `request_encryption` without `RequestDecryption`; a host type implementing the sealed `Slot`. 5. Each compiles once its guard is removed. Features change no signature: a `Registry::<NoHost>` of siros-sdjwt with `format` and `jwe_mode` compiles with and without siros-x509 in the build, which turns `resolve` on; one host stating `lacks { CoseEncrypt }` compiles with siros-paso with and without `sealed-signals`. |
+| I22 | A build takes no plug-in or mechanism whose required module its host lacks, and no host changes a module's presence while running. | The compiler, by the method's own bound: siros-paso registered without `Paso`; `jwe_mode(DcApiJwt)` without `Haip` (`JweHost`); `client_prefix(X509Hash)` without `Haip`; `request_encryption` without `RequestDecryption`; a host type implementing the sealed `Slot`. Features change no signature: a `Registry::<NoHost>` of siros-sdjwt with `format` and `jwe_mode` compiles with and without siros-x509 in the build, which turns `resolve` on; one host stating `lacks { CoseEncrypt }` compiles with siros-paso with and without `sealed-signals`. |
 | I23 | The core holds no plug-in's module, binding or platform vocabulary. | `DeviceMac`, `Paso`, `SignalType`, `Measurement`, `Reading`, `ProofRequest`, `SessionTranscript`, `Thumbprint`, `OpenID4VPHandover`, `bio_strong`, `StandardBox`, `PaymentBox`, `AddPaymentEntryToSetV2`, `RandomIds`, `CoseEncrypt`, `SealedCose`, `Cs02`, `CS-02`, `"dc+sd-jwt"`, `"mso_mdoc"` in `crates/siros-openid4vp/src`: 0; `"dc+sd-jwt"` and `"mso_mdoc"` in siros-paso's, siros-qes's and siros-ts12's sources: 0. |
 | I24 | The host modules change no output. | A one-off comparison across that commit: every delivery and response member over the tests and the differentials, byte-identical. |
 | I25 | Crates stand alone (section 4.11). | Each crate builds alone, with its default features and with `--no-default-features`; per crate, `cargo tree -e normal` lists exactly the SIROS crates section 4.11's table names; each optional crate removed (siros-x509, siros-mdoc, siros-sdjwt, siros-paso with siros-ts12, siros-qes, siros-zkp-req), the workspace builds and passes its tests, siros-testkit unchanged. |
@@ -5605,8 +5626,7 @@ query read over serde_urlencoded. `crates/wasm/` built the matcher-profile probe
 siros-openid4vp and siros-paso and the picked crates, pinned: `cargo check` with no warning and no
 error. The core's four modes implement `Mode`, `ModeHost<H>` and `ErrorModeHost<H>` there with
 their bodies, `VpToken` implements `ResponseType`, and the SHA-2 algorithms `HashAlgorithm`, so
-each extension point's trait is shown implementable by its core peers. `cargo test --doc` passes each `compile_fail` doctest of
-section 8.3's I1 that `sigs/` holds, each with its error code (I1 gives the count).
+each extension point's trait is shown implementable by its core peers.
 
 **Litmus G1.** `g1/g1-scan.py` scans the core signatures (`sigs/src` without the plug-in modules
 `plugins.rs` and `profile.rs`): every hit is `_req` inside an `invalid_request*` code.

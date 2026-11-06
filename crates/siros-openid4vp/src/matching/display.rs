@@ -1,12 +1,15 @@
 //! The consent display every renderer draws: each entry's record, consent entry and header, the
 //! sets of slots of choices, and the selection read back from the ids the platform returns.
 
+use std::fmt;
+
 use rustc_hash::FxHashMap;
-use siros_explain::{Explain, Text};
+use siros_explain::{Count, Explain, IntoArg, Text, kind};
 
 use super::{Match, OfferSet, Offered, Pick, Record};
 use crate::consent::{Card, ConsentEntry, Header};
-use crate::plugins::{Fault, OptionIndex, OptionItems, Shown};
+use crate::ids::StaticEntryId;
+use crate::plugins::{Fault, OptionIndex, OptionItems, Options, Shown};
 use crate::request::Item;
 use crate::rows::{Env, Selected, WalletText};
 use crate::{FAULT, detail};
@@ -24,15 +27,15 @@ pub fn wallet_header() -> Header {
 /// The option's items in every option the candidate answers, then those this option adds.
 #[must_use]
 pub fn option_items(
-    options: &[OptionItems],
+    options: &Options,
     answerable: &[OptionIndex],
     option: OptionIndex,
 ) -> (Vec<Item>, Vec<Item>) {
-    let items = options.get(option.0).map_or(&[][..], OptionItems::items);
+    let items = options.get(option).map_or(&[][..], OptionItems::items);
     let in_all = |item: &Item| {
         answerable.iter().all(|o| {
             options
-                .get(o.0)
+                .get(*o)
                 .is_some_and(|other| other.items().contains(item))
         })
     };
@@ -83,13 +86,13 @@ impl<'m> Views<'m> {
                 continue;
             };
             let options = formatted.query.options();
-            for (k, candidate) in matched.candidates(index).iter().enumerate() {
+            for (at, candidate) in matched.indexed_candidates(index) {
                 let bound = candidate.bound.as_ref().map(|binding| &binding.bound);
                 for option in &candidate.options {
                     let (everyone, chosen) = option_items(options, &candidate.options, *option);
                     let entries = bound.map_or(&[][..], |bound| bound.entries.entries());
                     let record = Record::new(
-                        &query.id,
+                        query.id(),
                         &candidate.credential.id,
                         *option,
                         entries,
@@ -108,7 +111,7 @@ impl<'m> Views<'m> {
                     views.push(EntryView {
                         pick: Pick {
                             query: index,
-                            candidate: super::CandidateIndex(k),
+                            candidate: at,
                             option: *option,
                         },
                         record,
@@ -151,7 +154,7 @@ impl<'m> Views<'m> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticEntry {
     /// Its id, which the platform returns when the End-User picks it.
-    pub id: String,
+    pub id: StaticEntryId<'static>,
     /// What it shows.
     pub card: Card,
 }
@@ -167,15 +170,28 @@ pub enum Choice<'v> {
     Entry(&'v EntryView<'v>),
 }
 
-impl Choice<'_> {
-    /// The choice's id, which the platform returns when the End-User picks it.
+/// A choice's id: a static entry's, `none`, or a record's. The platform returns it when the
+/// End-User picks the choice. Only [`Choice::id`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ChoiceId<'v>(&'v str);
+
+impl<'v> ChoiceId<'v> {
+    /// The text.
     #[must_use]
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Static(content) => &content.id,
+    pub const fn as_str(self) -> &'v str {
+        self.0
+    }
+}
+
+impl<'v> Choice<'v> {
+    /// The choice's id.
+    #[must_use]
+    pub fn id(&self) -> ChoiceId<'v> {
+        ChoiceId(match self {
+            Self::Static(content) => content.id.as_str(),
             Self::Nothing => "none",
             Self::Entry(view) => view.record.id().as_str(),
-        }
+        })
     }
 }
 
@@ -217,6 +233,33 @@ pub fn display<'v>(
     Ok(Display { sets })
 }
 
+/// A set of a [`Display`] by its position in [`Display::sets`]. Only [`Display::set`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SetIndex(usize);
+
+impl SetIndex {
+    /// The position in [`Display::sets`].
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for SetIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A position is named as a count in a message.
+impl IntoArg for SetIndex {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
 /// A selection that is not one of the display's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.selection")]
@@ -224,7 +267,7 @@ pub enum SelectionError {
     /// No set at that index.
     #[error("set {set} of {sets}")]
     NoSet {
-        /// The index.
+        /// The position the platform returned.
         set: usize,
         /// The number of sets.
         sets: usize,
@@ -233,7 +276,7 @@ pub enum SelectionError {
     #[error("set {set}: {ids} ids for {slots} slots")]
     Length {
         /// The set.
-        set: usize,
+        set: SetIndex,
         /// The ids returned.
         ids: usize,
         /// The slots.
@@ -243,7 +286,7 @@ pub enum SelectionError {
     #[error("set {set} slot {slot}: {id} is not one of its entries")]
     NotAChoice {
         /// The set.
-        set: usize,
+        set: SetIndex,
         /// The slot.
         slot: usize,
         /// The id.
@@ -261,24 +304,67 @@ impl<'v> Display<'v> {
         &self.sets
     }
 
-    /// The selection the platform returned: the set's index and the chosen entry's id per slot.
-    /// An id that is not one of its slot's choices is refused.
-    pub fn select(&self, set: usize, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
-        let slots = self.sets.get(set).ok_or(SelectionError::NoSet {
-            set,
-            sets: self.sets.len(),
-        })?;
-        if ids.len() != slots.len() {
+    /// The set at the position the platform returned.
+    ///
+    /// # Errors
+    ///
+    /// [`SelectionError::NoSet`]: the display holds no set there.
+    pub fn set(&self, position: usize) -> Result<DisplaySet<'_, 'v>, SelectionError> {
+        self.sets
+            .get(position)
+            .map(|slots| DisplaySet {
+                index: SetIndex(position),
+                slots,
+            })
+            .ok_or(SelectionError::NoSet {
+                set: position,
+                sets: self.sets.len(),
+            })
+    }
+}
+
+/// One set of a [`Display`], which the platform returned.
+#[derive(Debug, Clone, Copy)]
+pub struct DisplaySet<'d, 'v> {
+    index: SetIndex,
+    slots: &'d [Vec<Choice<'v>>],
+}
+
+impl<'v> DisplaySet<'_, 'v> {
+    /// Its position in the display.
+    #[must_use]
+    pub const fn index(&self) -> SetIndex {
+        self.index
+    }
+
+    /// Its slots of choices.
+    #[must_use]
+    pub const fn slots(&self) -> &[Vec<Choice<'v>>] {
+        self.slots
+    }
+
+    /// The selection of the chosen entry's id per slot. An id that is not one of its slot's
+    /// choices is refused.
+    ///
+    /// # Errors
+    ///
+    /// [`SelectionError`]: not one id per slot, an id of no choice of its slot, or two
+    /// transactions.
+    pub fn select(&self, ids: &[&str]) -> Result<Selection<'v>, SelectionError> {
+        let set = self.index;
+        if ids.len() != self.slots.len() {
             return Err(SelectionError::Length {
                 set,
                 ids: ids.len(),
-                slots: slots.len(),
+                slots: self.slots.len(),
             });
         }
         let mut chosen = Vec::new();
-        for (slot, (choices, id)) in slots.iter().zip(ids).enumerate() {
-            let hits: Vec<&Choice<'v>> =
-                choices.iter().filter(|choice| choice.id() == *id).collect();
+        for (slot, (choices, id)) in self.slots.iter().zip(ids).enumerate() {
+            let hits: Vec<&Choice<'v>> = choices
+                .iter()
+                .filter(|choice| choice.id().as_str() == *id)
+                .collect();
             match hits.as_slice() {
                 [Choice::Entry(view)] => chosen.push(*view),
                 [_] => {}

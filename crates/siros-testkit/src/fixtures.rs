@@ -385,7 +385,7 @@ pub fn icon(uri: &str, size: u32) -> Option<(String, Icon)> {
     Some((
         uri.to_owned(),
         Icon {
-            reference: uri.to_owned().into(),
+            reference: siros_openid4vp::rows::IconReference::Logo(uri.to_owned().into()),
             media: ImageMedia::PNG,
             size: NonZeroU32::new(size)?,
         },
@@ -542,9 +542,7 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     env: &Env,
     rendering: &siros_openid4vp::rendering::Rendering<'_>,
 ) -> Result<Vec<String>, String> {
-    use siros_openid4vp::matching::{
-        Accepted, Choice as Offer, Consent, Match, Views, display, offer,
-    };
+    use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
     let accepted = Accepted::new(request, registry).map_err(|e| e.to_string())?;
     let matched = Match::run(&accepted, wallet, env, rendering).map_err(|e| e.to_string())?;
     let consent = Consent::of(&matched).ok_or("the wallet cannot meet the request")?;
@@ -554,9 +552,16 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     let first = shown.sets().first().ok_or("no set")?;
     let ids: Vec<&str> = first
         .iter()
-        .map(|slot| slot.first().map(Offer::id).ok_or("an empty slot"))
+        .map(|slot| {
+            slot.first()
+                .map(|choice| choice.id().as_str())
+                .ok_or("an empty slot")
+        })
         .collect::<Result<_, _>>()?;
-    let chosen = shown.select(0, &ids).map_err(|e| e.to_string())?;
+    let chosen = shown
+        .set(0)
+        .and_then(|set| set.select(&ids))
+        .map_err(|e| e.to_string())?;
     Ok(chosen.ids().into_iter().map(str::to_owned).collect())
 }
 
@@ -602,7 +607,7 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
 pub fn present_option<H>(
     query: &dyn siros_openid4vp::host::AnsweredQuery<H>,
     credential: siros_openid4vp::host::Usable<'_>,
-    option: siros_openid4vp::plugins::OptionIndex,
+    position: usize,
     members: &siros_openid4vp::plugins::Members,
     session: &siros_openid4vp::session::Session<'_>,
     host: &H,
@@ -620,7 +625,7 @@ pub fn present_option<H>(
     let answered = query
         .choose(credential, &env, &provided)?
         .into_iter()
-        .find(|answered| answered.option() == option)
+        .find(|answered| answered.option().position() == position)
         .ok_or_else(|| {
             Fault::new(
                 crate::FAULT,

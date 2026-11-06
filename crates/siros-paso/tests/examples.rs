@@ -113,12 +113,14 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
     );
     assert_eq!(
         rendered.view.rows[2].row.value,
-        Some(Value::Image(Image::Embedded(ImageRef {
-            source: url.to_owned(),
-            media: "image/png".to_owned(),
-            width: 64,
-            height: 64,
-        })))
+        Some(Value::Image(Image::Embedded(ImageRef::new(
+            siros_openid4vp::rows::ImageSource::Url(Box::new(
+                HttpsUrl::parse(url).expect("an https URL"),
+            )),
+            siros_openid4vp::rows::ImageMedia::PNG,
+            siros_openid4vp::rows::ImageWidth::new(64),
+            siros_openid4vp::rows::ImageHeight::new(64),
+        ))))
     );
     assert_eq!(
         rendered.plain(&rendered.view.rows[2].row.label),
@@ -446,12 +448,14 @@ fn mandate_a2_draws_the_agents_logo_under_its_name_and_keeps_list_markers_litera
     );
     assert_eq!(
         rendered.view.rows[2].row.value,
-        Some(Value::Image(Image::Embedded(ImageRef {
-            source: url.to_owned(),
-            media: "image/png".to_owned(),
-            width: 96,
-            height: 96,
-        })))
+        Some(Value::Image(Image::Embedded(ImageRef::new(
+            siros_openid4vp::rows::ImageSource::Url(Box::new(
+                HttpsUrl::parse(url).expect("an https URL"),
+            )),
+            siros_openid4vp::rows::ImageMedia::PNG,
+            siros_openid4vp::rows::ImageWidth::new(96),
+            siros_openid4vp::rows::ImageHeight::new(96),
+        ))))
     );
     // Each list item keeps its "- "; the strong emphasis of "must" and "must not" leaves the
     // text, as a value from outside any module holds no style.

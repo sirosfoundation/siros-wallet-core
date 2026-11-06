@@ -66,7 +66,9 @@ pub(super) fn image(value: &str, profile: &PasoProfile) -> ImageShown {
         .expect("no fault")
     {
         Ok(rendered) => match &rendered.view.rows[0].row.value {
-            Some(Value::Image(Image::Embedded(shown))) => Ok((shown.width, shown.height)),
+            Some(Value::Image(Image::Embedded(shown))) => {
+                Ok((shown.width().get(), shown.height().get()))
+            }
             other => panic!("an image row: {other:?}"),
         },
         Err(Outcome::NotCompatible(NotCompatible::Image { failure, .. })) => Err(failure),
@@ -326,6 +328,6 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
         .expect("renders");
     assert!(matches!(
         &rendered.view.rows[0].row.value,
-        Some(Value::Image(Image::Embedded(shown))) if (shown.width, shown.height) == (1, 1)
+        Some(Value::Image(Image::Embedded(shown))) if (shown.width().get(), shown.height().get()) == (1, 1)
     ));
 }

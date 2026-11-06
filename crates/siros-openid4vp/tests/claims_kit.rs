@@ -9,13 +9,15 @@ mod common;
 use std::num::NonZeroU32;
 
 use siros_explain::{Count, Decimal, Text, Value as Typed};
-use siros_openid4vp::claims::kit::{ClaimsQuery, Constraint, format_entry, vp_formats_refusal};
-use siros_openid4vp::claims::{ClaimPath, Step};
+use siros_openid4vp::claims::kit::{
+    ClaimsQuery, Constraint, VpFormatsMember, format_entry, vp_formats_refusal,
+};
+use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Claims, ClaimsError, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Member, OptionIndex, Shown};
+use siros_openid4vp::plugins::{Member, Shown};
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, ImageMedia};
+use siros_openid4vp::rows::{BooleanText, Choice, Env, Icon, IconReference, ImageMedia};
 use siros_testkit::fixtures::OPTIONS;
 
 use common::{ClaimsTest, parameters, request_of, unsigned};
@@ -65,7 +67,7 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
     let query = ClaimsQuery::parse(&MDOC, &request.queries()[0], None).expect("query");
     let logo = "https://state.example.org/public/mdl.png";
     let icon = Icon {
-        reference: logo.into(),
+        reference: IconReference::Logo(logo.into()),
         media: ImageMedia::PNG,
         size: NonZeroU32::new(800).expect("size"),
     };
@@ -217,7 +219,7 @@ fn vp_formats_supported_admits_by_each_member_it_states() {
     let request = request_of(&received).expect("request");
     let es256 = Node::parse(r#""ES256""#).expect("alg");
     let constraints = [Constraint {
-        member: "sd-jwt_alg_values",
+        member: VpFormatsMember::new("sd-jwt_alg_values"),
         matched: vec![es256],
     }];
     // A member the Verifier states must list an identifier the presentation can match; a member
@@ -255,9 +257,18 @@ fn an_option_discloses_its_elements_once_in_claim_order() {
     )
     .expect("view");
     let written = [Member::element("tx", "w")];
+    let at = |position: usize| {
+        let (option, _) = query
+            .claims()
+            .options()
+            .indexed()
+            .nth(position)
+            .expect("an option");
+        option
+    };
     let names = |option: usize| -> Vec<String> {
         query
-            .disclosed(&MDOC, OptionIndex(option), &view, &written)
+            .disclosed(&MDOC, at(option), &view, &written)
             .expect("disclosed")
             .iter()
             .map(|(path, value)| format!("{path:?}={}", value.python_text()))
@@ -299,7 +310,7 @@ fn claims_path_pointers_follow_section_7() {
         let query = ClaimsQuery::parse(&format, &request.queries()[0], None)
             .map_err(|r| format!("refused: {}", r.items()[0].text()))?;
         let claim = query
-            .claims
+            .claims()
             .claim(Item::new(0).expect("item"))
             .expect("claim");
         let found = !query
@@ -307,7 +318,7 @@ fn claims_path_pointers_follow_section_7() {
             .expect("the view's types")
             .is_empty();
         let selected = claim
-            .path
+            .path()
             .select(values)
             .map_err(|e| format!("component {} fails, found {found}", e.step()))?;
         Ok(selected
@@ -369,7 +380,7 @@ fn claims_path_pointers_follow_section_7() {
         ClaimPath::parse(&Node::parse(r#"["a", null, 1]"#).expect("pointer")),
         Some(ClaimPath::of(
             Step::Key("a".into()),
-            [Step::All, Step::Index(Some(1))]
+            [Step::All, Step::Index(ArrayIndex::new(1))]
         ))
     );
 }
@@ -442,27 +453,51 @@ fn claim_metadata_labels_the_elements_its_path_selects() {
         ]
         .map(|(label, value)| (label.to_owned(), value.map(str::to_owned)))
     );
-    // claim_sets is a non-empty array (§6.4.1).
-    let empty_sets = parameters(
-        r#"{"credentials": [{"id": "q", "format": "x", "meta": {"vct_values": ["t"]}, "claims": [{"id": "a", "path": ["a"]}], "claim_sets": []}]}"#,
-        "",
-    );
-    let received = unsigned(&empty_sets).expect("received");
-    let request = request_of(&received).expect("request");
-    assert!(ClaimsQuery::parse(&format, &request.queries()[0], None).is_err());
-    // A claim's id is a string (§6.3).
-    let identified = |id: &str| {
-        let text = parameters(
-            &format!(
-                r#"{{"credentials": [{{"id": "q", "format": "x", "meta": {{"vct_values": ["t"]}}, "claims": [{{"id": {id}, "path": ["a"]}}]}}]}}"#
-            ),
-            "",
-        );
-        let received = unsigned(&text).expect("received");
-        let request = request_of(&received).expect("request");
-        ClaimsQuery::parse(&format, &request.queries()[0], None).is_ok()
+}
+
+/// OpenID4VP §6.3's `id` and §6.4.1's `claim_sets`, one fixture per clause.
+#[test]
+fn claims_breaking_section_6_3_or_6_4_1_are_refused() {
+    let with = |members: &str| {
+        let query = format!("{{{members}}}");
+        Claims::parse(&Node::parse(&query).expect("JSON")).map(|_| ())
     };
-    assert_eq!((identified(r#""a""#), identified("1")), (true, false));
+    let table = [
+        (
+            r#""claims":[{"id":"a b","path":["a"]}]"#,
+            ClaimsError::Id(0),
+        ),
+        (r#""claims":[{"id":"","path":["a"]}]"#, ClaimsError::Id(0)),
+        (r#""claims":[{"id":1,"path":["a"]}]"#, ClaimsError::Id(0)),
+        (
+            r#""claims":[{"id":"a","path":["a"]},{"id":"a","path":["b"]}]"#,
+            ClaimsError::IdTwice("a".to_owned()),
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]},{"path":["b"]}],"claim_sets":[["a"]]"#,
+            ClaimsError::IdAbsent(1),
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[]"#,
+            ClaimsError::ClaimSets,
+        ),
+        (
+            r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[["b"]]"#,
+            ClaimsError::ClaimSets,
+        ),
+        (r#""claim_sets":[["a"]]"#, ClaimsError::ClaimSets),
+    ];
+    for (members, refused) in table {
+        assert_eq!(with(members), Err(refused), "{members}");
+    }
+    assert_eq!(
+        with(r#""claims":[{"id":"a-b_1","path":["a"]},{"path":["b"]}]"#),
+        Ok(())
+    );
+    assert_eq!(
+        with(r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[["a"]]"#),
+        Ok(())
+    );
 }
 
 /// A claim's JSON number (RFC 8259 §6) shows as the value it writes, read by hand: a natural

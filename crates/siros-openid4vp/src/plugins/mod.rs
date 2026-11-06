@@ -37,7 +37,7 @@ pub use registry::{
 pub use registry::{FindingData, InformError, ProfileFinding};
 
 use crate::consent::{Card, Header, Overlay};
-use crate::ids::FormatId;
+use crate::ids::{CredentialType, FormatId};
 use crate::json::Node;
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, EntryIndex, Item, ItemSet, Query, Request};
@@ -136,20 +136,8 @@ impl FaultDomain {
 }
 
 /// A fault's detail: a formatter of the format string over the values named after it, each
-/// owned by the formatter, which writes when the log line is written.
-///
-/// ```
-/// use siros_explain::checked;
-/// use siros_openid4vp::detail;
-/// use siros_openid4vp::plugins::{Fault, FaultDomain};
-///
-/// const FAULT: FaultDomain = checked!(FaultDomain, "example.fault");
-///
-/// fn view_fault(id: &str) -> Fault {
-///     Fault::new(FAULT, detail!("{id}: no view", id = id.to_owned()))
-/// }
-/// assert_eq!(view_fault("c1").to_string(), "c1: no view");
-/// ```
+/// owned by the formatter, which writes when the log line is written:
+/// `detail!("{id}: no view", id = id.to_owned())`.
 #[macro_export]
 macro_rules! detail {
     ($text:literal $(, $name:ident = $value:expr)* $(,)?) => {{
@@ -274,9 +262,51 @@ impl OptionItems {
     }
 }
 
-/// An option by its position in the query's options.
+/// A Credential Query's options, in the Verifier's order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Options(Vec<OptionItems>);
+
+impl Options {
+    /// The options of a query a format holds no option for: phase 1 answers none.
+    pub(crate) const NONE: &'static Self = &Self(Vec::new());
+
+    /// The options, in the Verifier's order.
+    #[must_use]
+    pub const fn new(options: Vec<OptionItems>) -> Self {
+        Self(options)
+    }
+
+    /// Each option, in order.
+    pub fn iter(&self) -> impl Iterator<Item = &OptionItems> {
+        self.0.iter()
+    }
+
+    /// Each option with its index, the only way to an [`OptionIndex`].
+    pub fn indexed(&self) -> impl Iterator<Item = (OptionIndex, &OptionItems)> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(position, items)| (OptionIndex(position), items))
+    }
+
+    /// The option at an index; `None` for an index of a longer query's options.
+    #[must_use]
+    pub fn get(&self, option: OptionIndex) -> Option<&OptionItems> {
+        self.0.get(option.0)
+    }
+}
+
+/// An option by its position in a query's options. Only [`Options::indexed`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OptionIndex(pub usize);
+pub struct OptionIndex(usize);
+
+impl OptionIndex {
+    /// The position in the query's options.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
 
 /// The items a card shows: those in every option the credential answers, then those the chosen
 /// option adds.
@@ -348,24 +378,24 @@ pub trait ViewAdditions: fmt::Debug {
     /// The credential's type, then each type its type metadata extends, nearest first, from the
     /// chain the caller resolved at registration (SD-JWT VC §6.4 for `dc+sd-jwt`); empty for a
     /// format whose credentials state no type.
-    fn types(&self) -> Vec<&str>;
+    fn types(&self) -> &[CredentialType<'static>];
 }
 
 /// A credential's types as its format read them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ViewTypes(Vec<String>);
+pub struct ViewTypes(Vec<CredentialType<'static>>);
 
 impl ViewTypes {
     /// The types, the credential's own first, then those it extends, nearest first.
     #[must_use]
-    pub const fn new(types: Vec<String>) -> Self {
+    pub const fn new(types: Vec<CredentialType<'static>>) -> Self {
         Self(types)
     }
 }
 
 impl ViewAdditions for ViewTypes {
-    fn types(&self) -> Vec<&str> {
-        self.0.iter().map(String::as_str).collect()
+    fn types(&self) -> &[CredentialType<'static>] {
+        &self.0
     }
 }
 
@@ -374,7 +404,7 @@ dyn_clone::clone_trait_object!(Format);
 /// A Credential Query as its format parsed it.
 pub trait FormatQuery {
     /// The options, in the Verifier's order.
-    fn options(&self) -> &[OptionItems];
+    fn options(&self) -> &Options;
 
     /// Excludes the credential when the Verifier's `vp_formats_supported` admits no algorithm
     /// its presentation can use; `keys`: the Verifier's keys, which a presentation may need.
@@ -384,7 +414,9 @@ pub trait FormatQuery {
         keys: &[AgreeableKey<'_>],
     ) -> Result<(), NoCandidate>;
 
-    /// The options the credential answers, ascending; empty when it does not match the query.
+    /// The options of [`FormatQuery::options`] the credential answers, ascending; empty when it
+    /// does not match the query. The core faults on a list of another order or of another
+    /// query's options.
     /// `provided`: the response members the transaction bound to the credential writes, which a
     /// claim may name.
     fn answerable(
@@ -395,7 +427,7 @@ pub trait FormatQuery {
     ) -> Result<Vec<OptionIndex>, Fault>;
 
     /// Whether the credential's presentation can carry these transaction response members.
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault>;
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault>;
 
     /// The credential's card showing the items.
     fn draw(&self, credential: &Credential<'_>, shown: Shown<'_>, env: &Env)
@@ -432,9 +464,45 @@ impl BoundEntries {
     }
 }
 
+/// A name a response attests a text of the display under.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttestedName(String);
+
+impl AttestedName {
+    /// The name.
+    #[must_use]
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    /// The text of the name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A text of the display a response attests.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AttestedText(String);
+
+impl AttestedText {
+    /// The text.
+    #[must_use]
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What a response attests of the display: (name, text) pairs, each name once.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub struct Attested(Vec<(String, String)>);
+pub struct Attested(Vec<(AttestedName, AttestedText)>);
 
 /// An attested name given twice.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -444,7 +512,7 @@ pub struct AttestedTwice(#[explain(name = "name")] pub String);
 
 impl Attested {
     /// The pairs, each name once.
-    pub fn new(pairs: Vec<(String, String)>) -> Result<Self, AttestedTwice> {
+    pub fn new(pairs: Vec<(AttestedName, AttestedText)>) -> Result<Self, AttestedTwice> {
         if let Some((name, _)) = pairs.iter().enumerate().find_map(|(k, (name, text))| {
             pairs.get(..k).and_then(|before| {
                 before
@@ -453,24 +521,24 @@ impl Attested {
                     .then_some((name, text))
             })
         }) {
-            return Err(AttestedTwice(name.clone()));
+            return Err(AttestedTwice(name.as_str().to_owned()));
         }
         Ok(Self(pairs))
     }
 
     /// The pairs in order.
     #[must_use]
-    pub fn pairs(&self) -> &[(String, String)] {
+    pub fn pairs(&self) -> &[(AttestedName, AttestedText)] {
         &self.0
     }
 
     /// The text attested under a name.
     #[must_use]
-    pub fn get(&self, name: &str) -> Option<&str> {
+    pub fn get(&self, name: &str) -> Option<&AttestedText> {
         self.0
             .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, text)| text.as_str())
+            .find(|(n, _)| n.as_str() == name)
+            .map(|(_, text)| text)
     }
 }
 

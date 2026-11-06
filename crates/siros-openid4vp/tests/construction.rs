@@ -15,9 +15,9 @@ use siros_openid4vp::ids::{
 };
 use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::{
-    Answered, Attested, AttestedTwice, Binding, Bound, BoundEntries, Exclude, Fault, FetchedRecord,
-    Member, MemberTwice, MemberValue, Members, NoCandidate, NoHost, Profile, Registry,
-    RegistryError,
+    Answered, Attested, AttestedName, AttestedText, AttestedTwice, Binding, Bound, BoundEntries,
+    Exclude, Fault, FetchedRecord, Member, MemberTwice, MemberValue, Members, NoCandidate, NoHost,
+    Profile, Registry, RegistryError,
 };
 use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::{EntryIndex, Request};
@@ -129,8 +129,8 @@ fn what_cannot_exist_is_refused_at_construction() {
     );
     assert_eq!(
         Attested::new(vec![
-            ("a".to_owned(), "1".to_owned()),
-            ("a".to_owned(), "2".to_owned())
+            (AttestedName::new("a"), AttestedText::new("1")),
+            (AttestedName::new("a"), AttestedText::new("2"))
         ]),
         Err(AttestedTwice("a".to_owned()))
     );
@@ -206,7 +206,7 @@ fn request_entries(count: usize) -> Vec<EntryIndex> {
 
 #[test]
 fn constrained_strings_are_refused_when_they_break_their_rule() {
-    use siros_openid4vp::ids::{LocaleTag, Nonce, QueryId, TypePrefix};
+    use siros_openid4vp::ids::{Nonce, QueryId, TypePrefix};
     // OpenID4VP §6.1: a query id is non-empty, of letters, digits, _ and -.
     assert!(QueryId::parse("a_b-1").is_ok());
     for invalid in ["", "a b", "a.b", "é"] {
@@ -217,7 +217,6 @@ fn constrained_strings_are_refused_when_they_break_their_rule() {
     assert!(Nonce::parse("").is_err());
     assert!(Origin::parse("").is_err());
     assert!(TypePrefix::parse("").is_err());
-    assert!(LocaleTag::parse("").is_err());
 }
 
 /// The codes as RFC 6749 §4.1.2.1, RFC 9101 §7 and OpenID4VP §8.5 name them; a code is one or

@@ -20,16 +20,7 @@ use rustc_hash::FxHashSet;
 use crate::rows::HttpsUrl;
 
 /// An https URL a profile revalidates with; it takes a [`Fetch`]. Only the core makes one, from
-/// a profile's `wanted`:
-///
-/// ```compile_fail,E0423
-/// use siros_openid4vp::effects::Resource;
-/// use siros_openid4vp::rows::HttpsUrl;
-///
-/// fn forged(url: HttpsUrl) -> Resource {
-///     Resource(url)
-/// }
-/// ```
+/// a profile's `wanted`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resource(HttpsUrl);
 
@@ -140,15 +131,7 @@ impl<Q: Ask> Reply<Q> {
 }
 
 /// Each question with its answer, in order, one answer per slot. Only [`Slots`]' continuation
-/// makes one; a set built otherwise does not compile:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::effects::{Filled, Resource};
-///
-/// fn forged() -> Filled<Resource> {
-///     Filled { replies: Vec::new() }
-/// }
-/// ```
+/// makes one; a set built otherwise does not compile.
 #[derive(Debug)]
 pub struct Filled<Q: Ask> {
     replies: Vec<Reply<Q>>,

@@ -297,10 +297,10 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
     let pending = render(&meta, &payload).expect("renders");
     assert_eq!(
         pending.view.rows[1].row.value,
-        Some(Value::Image(Image::Remote(RemoteImage {
-            url: url.to_owned(),
-            integrity: sri(&logo)
-        })))
+        Some(Value::Image(Image::Remote(RemoteImage::new(
+            siros_openid4vp::rows::HttpsUrl::shown(url).expect("an https URL"),
+            siros_openid4vp::rows::SriMetadata::written(sri(&logo)),
+        ))))
     );
     let card = Card::sd_jwt(&format!(r#"{{"{CUSTOM}": {meta}}}"#));
     let entry_json =
@@ -323,7 +323,7 @@ fn an_integrity_companion_is_covered_and_an_unfetched_image_renders_pending() {
         .expect("no fault")
         .expect("renders");
     assert!(
-        matches!(&rendered.view.rows[1].row.value, Some(Value::Image(Image::Embedded(image))) if image.width == 32)
+        matches!(&rendered.view.rows[1].row.value, Some(Value::Image(Image::Embedded(image))) if image.width().get() == 32)
     );
 }
 

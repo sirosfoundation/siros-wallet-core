@@ -85,7 +85,7 @@ fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestR
         KeyChoice::of(mode, &metadata).map_err(|_| policy(PolicyRule::EncryptionKeyMissing))?;
     let encryption_key = metadata
         .agreeable_keys()
-        .get(chosen.place())
+        .get(chosen.place().position())
         .and_then(Thumbprint::of)
         .ok_or(policy(PolicyRule::EncryptionKeyMissing))?;
     let nonce = parameters

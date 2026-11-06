@@ -27,9 +27,9 @@ use siros_openid4vp::ids::{FormatId, InvalidId};
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::matching::Accepted;
 use siros_openid4vp::plugins::{
-    Answered, Binding, Bound, Build, Fault, FetchedRecord, FindingData, Format, FormatQuery,
-    HostedErrorMode, HostedMode, Member, Members, NoCandidate, NoHost, OptionIndex, OptionItems,
-    Profile, Registry, RegistryBuilder, Shown, ViewAdditions, ViewTypes,
+    Answered, Binding, Bound, Build, Carriage, Fault, FetchedRecord, FindingData, Format,
+    FormatQuery, HostedErrorMode, HostedMode, Member, Members, NoCandidate, NoHost, OptionIndex,
+    OptionItems, Options, Profile, Registry, RegistryBuilder, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::rendering::Rendering;
@@ -194,7 +194,7 @@ impl Format for ProbeFormat {
         context: QueryContext<'q>,
     ) -> Result<Box<dyn FormatQuery + 'q>, AllOf<Refusal>> {
         if let Some(armed) = armed::<QueryRead>() {
-            if armed.query == query.id.as_str() {
+            if armed.query == query.id().as_str() {
                 (armed.read)(query, context);
             } else {
                 arm(armed);
@@ -220,19 +220,19 @@ impl<H: 'static> FormatHost<H> for ProbeFormat {
 
 /// A query of [`ProbeFormat`].
 struct ProbeQuery {
-    options: [OptionItems; 1],
+    options: Options,
 }
 
 impl ProbeQuery {
     fn new() -> Self {
         Self {
-            options: [OptionItems::new(Vec::new())],
+            options: Options::new(vec![OptionItems::new(Vec::new())]),
         }
     }
 }
 
 impl FormatQuery for ProbeQuery {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         &self.options
     }
 
@@ -250,11 +250,15 @@ impl FormatQuery for ProbeQuery {
         _env: &Env,
         _provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
-        Ok(vec![OptionIndex(0)])
+        Ok(self.options.indexed().map(|(index, _)| index).collect())
     }
 
-    fn carries(&self, _credential: &Credential<'_>, _members: &[Member]) -> Result<bool, Fault> {
-        Ok(true)
+    fn carries(
+        &self,
+        _credential: &Credential<'_>,
+        _members: &[Member],
+    ) -> Result<Carriage, Fault> {
+        Ok(Carriage::Carried)
     }
 
     fn draw(
@@ -280,7 +284,7 @@ struct Answering<'q> {
 }
 
 impl FormatQuery for Answering<'_> {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         self.reading.options()
     }
 
@@ -301,7 +305,7 @@ impl FormatQuery for Answering<'_> {
         self.reading.answerable(credential, env, provided)
     }
 
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         self.reading.carries(credential, members)
     }
 
@@ -322,22 +326,31 @@ impl<H: 'static> AnsweredQuery<H> for Answering<'_> {
         _env: &Env,
         _provided: &[Member],
     ) -> Result<Vec<Box<dyn AnsweredOption<H> + 'a>>, Fault> {
-        Ok(vec![Box::new(AnsweringOption {
-            query: self.query,
-            context: &self.context,
-        })])
+        Ok(self
+            .reading
+            .options
+            .indexed()
+            .map(|(option, _)| {
+                Box::new(AnsweringOption {
+                    option,
+                    query: self.query,
+                    context: &self.context,
+                }) as Box<dyn AnsweredOption<H> + 'a>
+            })
+            .collect())
     }
 }
 
 /// The option of an [`Answering`] query.
 struct AnsweringOption<'a, 'q> {
+    option: OptionIndex,
     query: &'q Query<'q>,
     context: &'a AnsweredContext<'q>,
 }
 
 impl<H: 'static> AnsweredOption<H> for AnsweringOption<'_, '_> {
     fn option(&self) -> OptionIndex {
-        OptionIndex(0)
+        self.option
     }
 
     /// Runs [`read_phase_two`]'s closure, the flow's last step.
@@ -436,12 +449,12 @@ pub fn read_query<R: 'static>(
     read: impl for<'q> FnOnce(&'q Query<'q>, QueryContext<'q>) -> R + 'static,
 ) -> Result<R, FixtureError> {
     let mut builder = Registry::<NoHost>::builder();
-    builder.format(ProbeFormat::new(query.format.as_str(), None)?);
+    builder.format(ProbeFormat::new(query.format().as_str(), None)?);
     let registry = builder.build()?;
     let out = Rc::new(Cell::new(None));
     let sink = Rc::clone(&out);
     let armed = Armed::with(QueryRead {
-        query: query.id.to_string(),
+        query: query.id().to_string(),
         read: Box::new(move |query, context| {
             sink.set(Some(read(query, context)));
         }),

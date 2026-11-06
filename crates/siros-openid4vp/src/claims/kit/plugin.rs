@@ -7,14 +7,15 @@ use super::super::ConcretePath;
 use super::super::PathError;
 use super::{ClaimsFormat, ClaimsQuery, ClaimsView, Constraint};
 use crate::consent::Card;
+use crate::ids::CredentialType;
 use crate::json::Node;
 use crate::plugins::{
-    Fault, FormatQuery, Member, NoCandidate, OptionIndex, OptionItems, Shown, ViewAdditions,
+    Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown, ViewAdditions,
     ViewTypes,
 };
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, Query};
-use crate::routing::QueryContext;
+use crate::routing::{EntryNaming, QueryContext};
 use crate::rows::Env;
 use crate::wallet::Credential;
 use crate::{FAULT, detail};
@@ -28,9 +29,8 @@ use crate::{
 /// A claims format as a format plug-in: what it adds to the kit, which parses its Credential
 /// Queries, matches, admits, draws and discloses its credentials.
 pub trait ClaimsPlugin: ClaimsFormat + Send + Sync {
-    /// The request rules the format adds to the kit's for a query; `named`: a `transaction_data`
-    /// entry names it.
-    fn rules(&self, query: &Query<'_>, named: bool) -> Vec<Refusal>;
+    /// The request rules the format adds to the kit's for a query.
+    fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal>;
 
     /// Per `vp_formats_supported` member constraining the credential's presentation, the
     /// identifiers the presentation can match; `keys`: the Verifier's keys.
@@ -46,7 +46,7 @@ pub trait ClaimsPlugin: ClaimsFormat + Send + Sync {
         query: &Query<'_>,
         view: &ClaimsView<'_>,
         members: &[Member],
-    ) -> Result<bool, Fault>;
+    ) -> Result<Carriage, Fault>;
 }
 
 /// A claims format's presentation over the build's host `H`; its bounds name the modules it
@@ -120,7 +120,7 @@ pub fn query<'q, P: ClaimsPlugin>(
     Ok(Box::new(PluginQuery::parse(
         plugin,
         query,
-        context.named(),
+        context.naming(),
         context.supported().cloned(),
     )?))
 }
@@ -137,7 +137,7 @@ pub fn additions<'c>(
     let view = ClaimsView::read(credential)?;
     let types = format.types(view.json())?;
     Ok(Box::new(ViewTypes::new(
-        types.into_iter().map(str::to_owned).collect(),
+        types.into_iter().map(CredentialType::into_owned).collect(),
     )))
 }
 
@@ -153,7 +153,7 @@ pub fn answer<'q, H, P: ClaimsPresent<H>>(
     Ok(Box::new(PluginQuery::parse(
         plugin,
         query,
-        context.named(),
+        context.naming(),
         context.supported().cloned(),
     )?))
 }
@@ -171,10 +171,10 @@ impl<'q, P: ClaimsPlugin> PluginQuery<'q, P> {
     fn parse(
         plugin: &'q P,
         query: &'q Query<'q>,
-        named: bool,
+        naming: EntryNaming,
         supported: Option<Node<'q>>,
     ) -> Result<Self, AllOf<Refusal>> {
-        let own = AllOf::new(plugin.rules(query, named));
+        let own = AllOf::new(plugin.rules(query, naming));
         match (ClaimsQuery::parse(plugin, query, supported), own) {
             (Ok(claims), None) => Ok(Self {
                 plugin,
@@ -197,8 +197,8 @@ impl<'q, P: ClaimsPlugin> PluginQuery<'q, P> {
 }
 
 impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
-    fn options(&self) -> &[OptionItems] {
-        self.claims.claims.options()
+    fn options(&self) -> &Options {
+        self.claims.claims().options()
     }
 
     /// The kit's rule over the identifiers the format gives; nothing to check when the Verifier
@@ -208,7 +208,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         credential: &Credential<'_>,
         keys: &[AgreeableKey<'_>],
     ) -> Result<(), NoCandidate> {
-        if self.claims.supported.is_none() {
+        if self.claims.supported().is_none() {
             return Ok(());
         }
         let view = ClaimsView::read(credential)?;
@@ -226,7 +226,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         self.claims.answerable(self.plugin, view.json(), provided)
     }
 
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         let view = ClaimsView::read(credential)?;
         self.plugin.carries(self.query, &view, members)
     }

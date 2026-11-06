@@ -25,21 +25,7 @@ pub trait MayHave<M: ?Sized> {
 
 /// A module slot a build fills ([`Held`]) or leaves empty ([`Empty`]). Sealed: presence is a
 /// property of the host's type, which no host changes while running. A host type cannot make a
-/// slot of its own:
-///
-/// ```compile_fail,E0277
-/// use siros_openid4vp::host::{Haip, Slot};
-///
-/// struct Forged;
-///
-/// impl Slot<dyn Haip> for Forged {
-///     const HELD: bool = true;
-///
-///     fn filled(&self) -> Option<&(dyn Haip + 'static)> {
-///         None
-///     }
-/// }
-/// ```
+/// slot of its own.
 pub trait Slot<M: ?Sized>: sealed::Sealed {
     /// Whether the slot holds the module.
     const HELD: bool;

@@ -2,7 +2,7 @@
 
 use siros_explain::AllOf;
 
-use super::{Finding, Outcome, Rejection};
+use super::{Finding, Outcome, RecordIndex, Rejection};
 use crate::ids::QueryId;
 use crate::matching::{Accepted, EntryView, ReturnedRecord, Views};
 use crate::request::{Multiplicity, QuerySet};
@@ -21,12 +21,13 @@ pub(super) fn derived<'v>(
         .zip(returned)
         .enumerate()
         .filter(|(_, (view, _))| view.is_none())
-        .map(
-            |(record, (_, id))| match views.iter().find_map(|view| view.record.other_input(id)) {
+        .map(|(position, (_, id))| {
+            let record = RecordIndex(position);
+            match views.iter().find_map(|view| view.record.other_input(id)) {
                 Some(input) => Finding::Rendered { record, input },
                 None => Finding::Diverged { record },
-            },
-        )
+            }
+        })
         .collect();
     AllOf::new(diverged).map_or_else(
         || Ok(records.into_iter().flatten().collect()),
@@ -41,13 +42,13 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     let request = accepted.request();
     let mut queries: Vec<(&QueryId<'_>, Vec<&str>)> = Vec::new();
     for view in records {
-        let credential = view.record.credential.as_str();
+        let credential = view.record.credential().as_str();
         match queries
             .iter_mut()
-            .find(|(query, _)| *query == view.record.query)
+            .find(|(query, _)| *query == view.record.query())
         {
             Some((_, credentials)) => credentials.push(credential),
-            None => queries.push((view.record.query, vec![credential])),
+            None => queries.push((view.record.query(), vec![credential])),
         }
     }
     for (query, credentials) in &queries {
@@ -57,7 +58,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
         let multiple = request
             .queries()
             .iter()
-            .any(|q| q.id == **query && q.multiple == Multiplicity::Many);
+            .any(|q| *q.id() == **query && q.multiple() == Multiplicity::Many);
         if distinct.len() != credentials.len() || (credentials.len() > 1 && !multiple) {
             return Err(Rejection::QueryRecords {
                 query: query.to_string(),
@@ -68,7 +69,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     }
     if records
         .iter()
-        .filter(|view| !view.record.entries.is_empty())
+        .filter(|view| !view.record.entries().is_empty())
         .count()
         > 1
     {
@@ -78,7 +79,7 @@ pub(super) fn check(accepted: &Accepted<'_>, records: &[&EntryView<'_>]) -> Resu
     if !request
         .alternatives()
         .iter()
-        .any(|alternative| alternative.set == presented)
+        .any(|alternative| alternative.set() == presented)
     {
         let mut names: Vec<String> = queries.iter().map(|(query, _)| query.to_string()).collect();
         names.sort();

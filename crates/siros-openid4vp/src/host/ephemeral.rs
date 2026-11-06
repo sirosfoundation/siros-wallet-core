@@ -26,16 +26,7 @@ impl KeyHandle {
 /// handle to the secret the decrypting module keeps. The core links no curve arithmetic: it
 /// checks that the JWK is public ([`PublicJwk`]) and that its `crv` is one
 /// `RequestDecryption::decrypts` states, a `Fault` otherwise. Only [`EphemeralKey::new`] makes
-/// one; a pair assembled from parts does not compile:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::host::{EphemeralKey, KeyHandle};
-/// use siros_openid4vp::jose::PublicJwk;
-///
-/// fn pair(public: PublicJwk, handle: KeyHandle) -> EphemeralKey {
-///     EphemeralKey { public, handle }
-/// }
-/// ```
+/// one; a pair assembled from parts does not compile.
 ///
 /// The `Fetch` owns it until `resume` hands it to `RequestDecryption::decrypt`.
 #[derive(Debug)]

@@ -13,8 +13,8 @@ mod rules;
 
 pub use consent::{Consent, Slot, answer_slots, option_of};
 pub use display::{
-    Choice, Display, EntryView, Selection, SelectionError, StaticEntry, Views, display,
-    option_items, wallet_header,
+    Choice, ChoiceId, Display, DisplaySet, EntryView, Selection, SelectionError, SetIndex,
+    StaticEntry, Views, display, option_items, wallet_header,
 };
 pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
 pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};
@@ -30,9 +30,18 @@ use crate::wallet::{Credential, Holder, Wallet};
 use crate::{FAULT, detail};
 use rules::Formatted;
 
-/// A candidate by its position among a query's candidates.
+/// A candidate by its position among a query's candidates. Only the core's match makes one
+/// ([`Match::indexed_candidates`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CandidateIndex(pub usize);
+pub struct CandidateIndex(usize);
+
+impl CandidateIndex {
+    /// The position among the query's candidates.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
 
 /// One entry of the consent: a query, one of its candidates, one option it answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -180,6 +189,17 @@ impl<'m> Match<'m> {
         self.candidates.get(query.get()).map_or(&[], Vec::as_slice)
     }
 
+    /// A query's candidates with their indices.
+    pub fn indexed_candidates(
+        &self,
+        query: QueryIndex,
+    ) -> impl Iterator<Item = (CandidateIndex, &Candidate<'m>)> {
+        self.candidates(query)
+            .iter()
+            .enumerate()
+            .map(|(position, candidate)| (CandidateIndex(position), candidate))
+    }
+
     /// A candidate.
     #[must_use]
     pub fn candidate(
@@ -218,7 +238,7 @@ impl<'m> Match<'m> {
         if !alternatives.is_empty()
             && alternatives
                 .iter()
-                .all(|alternative| alternative.queries.iter().any(unsupported))
+                .all(|alternative| alternative.queries().iter().any(unsupported))
         {
             UnmetCode::VpFormatsNotSupported
         } else {
@@ -306,9 +326,9 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
     /// OpenID4VP §6.1: the query's format, an issuer the query trusts, and a key the credential
     /// is bound to unless the query waives holder binding.
     fn eligible(&self, credential: &Credential<'_>) -> bool {
-        let holder = self.query.holder_binding == HolderBinding::Waived
+        let holder = self.query.holder_binding() == HolderBinding::Waived
             || credential.facts.holder == Holder::Bound;
-        credential.format == self.query.format && credential.trusted_for(self.query) && holder
+        credential.format == *self.query.format() && credential.trusted_for(self.query) && holder
     }
 
     /// The credential as a candidate, when the plug-ins admit and bind it and it answers an
@@ -353,16 +373,17 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             .formatted
             .query
             .answerable(credential, self.env, provided)?;
-        let count = self.formatted.query.options().len();
+        let own = self.formatted.query.options();
         let ascending = options
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if a < b));
-        if !ascending || options.iter().any(|option| option.0 >= count) {
+        if !ascending || options.iter().any(|option| own.get(*option).is_none()) {
             return Err(Fault::new(
                 FAULT,
                 detail!(
-                    "{query}: the format answered options {options:?} of {count}",
-                    query = self.query.id.to_string()
+                    "{query}: the format answered options {options:?} of its query's {count}",
+                    query = self.query.id().to_string(),
+                    count = own.iter().count()
                 ),
             ));
         }
@@ -388,10 +409,8 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             return Ok(None);
         };
         let carriage = match self.members {
-            Some(members) if self.formatted.query.carries(credential, members)? => {
-                Carriage::Carried
-            }
-            _ => Carriage::Uncarried,
+            Some(members) => self.formatted.query.carries(credential, members)?,
+            None => Carriage::Uncarried,
         };
         let additions = self.formatted.format.additions(credential)?;
         let binding = Binding {
@@ -416,7 +435,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 FAULT,
                 detail!(
                     "{query}: a profile bound entries no entry naming the query offered",
-                    query = self.query.id.to_string()
+                    query = self.query.id().to_string()
                 ),
             )
             .into())

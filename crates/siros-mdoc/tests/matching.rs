@@ -85,7 +85,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Vec<(String, Vec<usize>)>, 
         .map(|c| {
             (
                 c.credential.id.to_string(),
-                c.options.iter().map(|o| o.0).collect(),
+                c.options.iter().map(|o| o.position()).collect(),
             )
         })
         .collect();
@@ -187,7 +187,7 @@ fn the_openid4vci_example_draws_its_card() {
                     .collect();
                 (
                     as_written(&card.title),
-                    card.icon.reference.to_string(),
+                    card.icon.reference.as_str().to_owned(),
                     rows,
                 )
             };
@@ -506,6 +506,7 @@ fn key_authorizations_admit_the_response_members() {
                 query
                     .carries(&held.credential().expect("credential"), members)
                     .expect("carries")
+                    == siros_openid4vp::plugins::Carriage::Carried
             };
             let paso = [
                 Member::element("urn:paso:sca:1", "jti"),

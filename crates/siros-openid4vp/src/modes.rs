@@ -183,7 +183,7 @@ pub fn key_rule<'k>(
         .iter()
         .find(|candidate| {
             let key = candidate.key();
-            key.kty() == "EC"
+            key.kty().as_str() == "EC"
                 && key.alg().is_some_and(|alg| {
                     KEY_RULE.agrees(key.curve(), alg) && sealer.agrees(key.curve(), alg)
                 })

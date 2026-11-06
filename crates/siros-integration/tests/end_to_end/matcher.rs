@@ -153,7 +153,7 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
         let cards: Vec<RegisteredCard<'_>> = views
             .iter()
             .map(|view| RegisteredCard {
-                credential: view.record.credential,
+                credential: view.record.credential(),
                 card: view.entry.card(),
             })
             .collect();
@@ -219,7 +219,7 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
         let (mut texts, mut differences) = (0, 0);
         for view in views.iter() {
             assert!(view.selected.is_some(), "the ad-hoc module shows");
-            let credential = Some(view.record.credential.as_str());
+            let credential = Some(view.record.credential().as_str());
             let renderer = matcher
                 .renderer(view.selected, credential, &env)
                 .expect("no fault")

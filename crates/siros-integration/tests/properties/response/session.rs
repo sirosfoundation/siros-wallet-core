@@ -123,7 +123,7 @@ pub(super) fn session(
     tally: &mut Tally,
 ) {
     let aud = format!("origin:{ORIGIN}");
-    let transaction = !view.record.entries.is_empty();
+    let transaction = !view.record.entries().is_empty();
     match format {
         "dc+sd-jwt" => {
             let sd_jwt = presentation["sd_jwt"].as_str().expect("sd_jwt");
@@ -146,7 +146,7 @@ pub(super) fn session(
                     json!(b64url(&Sha256::digest(sd_jwt.as_bytes()))),
                     "R-sd_hash"
                 );
-                let waived = case.query(view.pick.query).holder_binding == HolderBinding::Waived;
+                let waived = case.query(view.pick.query).holder_binding() == HolderBinding::Waived;
                 tally.add(if waived {
                     "KB-JWTs with holder binding waived"
                 } else {

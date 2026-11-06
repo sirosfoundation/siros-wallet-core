@@ -43,20 +43,26 @@ mod view;
 mod presentation;
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
-use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_openid4vp::claims::kit::{
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
+};
 use siros_openid4vp::claims::{Claim, ClaimPath};
-use siros_openid4vp::ids::{FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
+use siros_openid4vp::plugins::{
+    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+};
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{AgreeableKey, HolderBinding, Query};
+use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::{Credential, Holder};
 use siros_openid4vp::wallet_metadata::Placement;
 
 use view::SdJwtMembers;
 
 /// The Credential Format Identifier.
-const ID: &str = "dc+sd-jwt";
+const NAME: FormatName = siros_explain::checked!(FormatName, "dc+sd-jwt");
+const ID: &str = NAME.as_str();
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "sdjwt.fault");
@@ -165,8 +171,8 @@ impl Format for SdJwtVc {
 }
 
 impl ClaimsFormat for SdJwtVc {
-    fn id(&self) -> &'static str {
-        ID
+    fn id(&self) -> FormatName {
+        NAME
     }
 
     /// SD-JWT VC §8.2: a claim's display entry holds its `label`.
@@ -209,7 +215,7 @@ impl ClaimsFormat for SdJwtVc {
     }
 
     /// The view's `type`, then each type of its `extends`, nearest first (§6.4).
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         let fault = || {
             Fault::new(
                 FAULT,
@@ -223,18 +229,23 @@ impl ClaimsFormat for SdJwtVc {
         };
         std::iter::once(Some(own))
             .chain(extended.iter().map(Node::as_str))
-            .map(|kind| kind.ok_or_else(fault))
+            .map(|kind| {
+                kind.and_then(|kind| CredentialType::parse(kind).ok())
+                    .ok_or_else(fault)
+            })
             .collect()
     }
 
     /// B.3.5: one of `vct_values` names the credential's type or a type it inherits from.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
         meta.get("vct_values")
             .and_then(Node::as_array)
             .is_some_and(|values| {
-                values
-                    .iter()
-                    .any(|value| value.as_str().is_some_and(|value| types.contains(&value)))
+                values.iter().any(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|value| types.iter().any(|kind| *kind == *value))
+                })
             })
     }
 
@@ -252,10 +263,10 @@ impl ClaimsFormat for SdJwtVc {
 impl ClaimsPlugin for SdJwtVc {
     /// B.3.3: transaction data needs a Key Binding JWT, so a query transaction data names
     /// requires holder binding.
-    fn rules(&self, query: &Query<'_>, named: bool) -> Vec<Refusal> {
-        if named && query.holder_binding == HolderBinding::Waived {
+    fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal> {
+        if naming == EntryNaming::Named && query.holder_binding() == HolderBinding::Waived {
             vec![Refusal::new(HolderBindingWaived {
-                query: query.id.to_string(),
+                query: query.id().to_string(),
             })]
         } else {
             Vec::new()
@@ -271,12 +282,12 @@ impl ClaimsPlugin for SdJwtVc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = SdJwtMembers::of(view);
         let mut constraints = vec![Constraint {
-            member: "sd-jwt_alg_values",
+            member: VpFormatsMember::new("sd-jwt_alg_values"),
             matched: members.issuer()?.identifiers(),
         }];
         if view.credential().facts.holder == Holder::Bound {
             constraints.push(Constraint {
-                member: "kb-jwt_alg_values",
+                member: VpFormatsMember::new("kb-jwt_alg_values"),
                 matched: members.holder()?.identifiers(),
             });
         }
@@ -290,12 +301,19 @@ impl ClaimsPlugin for SdJwtVc {
         query: &Query<'_>,
         view: &ClaimsView<'_>,
         members: &[Member],
-    ) -> Result<bool, Fault> {
-        Ok(query.holder_binding == HolderBinding::Required
-            && view.credential().facts.holder == Holder::Bound
-            && members
-                .iter()
-                .all(|member| matches!(member, Member::Claim(_))))
+    ) -> Result<Carriage, Fault> {
+        Ok(
+            if query.holder_binding() == HolderBinding::Required
+                && view.credential().facts.holder == Holder::Bound
+                && members
+                    .iter()
+                    .all(|member| matches!(member, Member::Claim(_)))
+            {
+                Carriage::Carried
+            } else {
+                Carriage::Uncarried
+            },
+        )
     }
 }
 

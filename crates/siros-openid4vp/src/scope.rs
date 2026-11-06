@@ -104,7 +104,7 @@ impl ScopeEntry {
         };
         let credentials = list("credentials")?;
         let sets = list("credential_sets")?;
-        let mut ids: Vec<String> = queries.iter().map(|query| query.id.to_string()).collect();
+        let mut ids: Vec<String> = queries.iter().map(|query| query.id().to_string()).collect();
         for credential in &credentials {
             let claims = RawObject::parse(credential.get())
                 .ok()?

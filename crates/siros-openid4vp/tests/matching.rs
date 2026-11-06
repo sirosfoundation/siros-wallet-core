@@ -156,7 +156,7 @@ impl siros_openid4vp::plugins::Format for Scripted {
 }
 
 impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
-    fn options(&self) -> &[siros_openid4vp::plugins::OptionItems] {
+    fn options(&self) -> &siros_openid4vp::plugins::Options {
         self.0.options()
     }
     fn admits(
@@ -177,14 +177,20 @@ impl siros_openid4vp::plugins::FormatQuery for ScriptedQuery<'_> {
             Script::WhenProvided | Script::DrawFails => {
                 self.0.answerable(credential, env, provided)
             }
-            Script::OutOfRange => Ok(vec![OptionIndex(5)]),
+            Script::OutOfRange => {
+                let wider = siros_openid4vp::plugins::Options::new(vec![
+                    siros_openid4vp::plugins::OptionItems::new(Vec::new());
+                    6
+                ]);
+                Ok(wider.indexed().map(|(option, _)| option).skip(5).collect())
+            }
         }
     }
     fn carries(
         &self,
         credential: &siros_openid4vp::wallet::Credential<'_>,
         members: &[siros_openid4vp::plugins::Member],
-    ) -> Result<bool, siros_openid4vp::plugins::Fault> {
+    ) -> Result<siros_openid4vp::plugins::Carriage, siros_openid4vp::plugins::Fault> {
         self.0.carries(credential, members)
     }
     fn draw(

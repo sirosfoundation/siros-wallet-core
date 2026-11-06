@@ -2,13 +2,49 @@
 //! Verifier's algorithms.
 
 use std::borrow::Cow;
+use std::fmt;
 
-use siros_explain::{Explain, Explained};
+use siros_explain::{Explain, Explained, IntoArg, kind};
 
 use super::super::ClaimsError;
+use crate::ids::{FormatName, QueryId};
 use crate::json::JsonError;
 use crate::plugins::Exclusion;
 use crate::refusal::{ErrorCode, ReprList, RequestRule};
+
+/// A member of a format's `vp_formats_supported` value that lists algorithm identifiers
+/// (Appendix B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VpFormatsMember(&'static str);
+
+impl VpFormatsMember {
+    /// The member of this name.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        Self(name)
+    }
+
+    /// The name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl fmt::Display for VpFormatsMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// A member is named by its text in a message.
+impl IntoArg for VpFormatsMember {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.0
+    }
+}
 
 /// A rule a claims query breaks, under its format and its id: `invalid_request`.
 #[derive(Debug, thiserror::Error, Explain)]
@@ -16,9 +52,9 @@ use crate::refusal::{ErrorCode, ReprList, RequestRule};
 #[error("{format} {query}: {rule}")]
 pub struct QueryRule<R: Explained> {
     /// The format identifier.
-    pub format: &'static str,
+    pub format: FormatName,
     /// The query's id.
-    pub query: String,
+    pub query: QueryId<'static>,
     /// The rule.
     pub rule: R,
 }
@@ -62,7 +98,7 @@ pub enum KitRule {
 #[error("{member} {listed} admits no algorithm of the credential ({matched})")]
 pub struct NoAlgorithm {
     /// The member.
-    pub member: &'static str,
+    pub member: VpFormatsMember,
     /// The member's identifiers.
     pub listed: ReprList,
     /// The identifiers the presentation can match.

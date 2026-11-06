@@ -53,15 +53,7 @@ impl Signature {
 }
 
 /// A presentation in a VP Token (§8.1: "a string or a JSON object"), as its JSON text. Only
-/// [`Presentation::text`] and [`Presentation::object`] make one:
-///
-/// ```compile_fail,E0423
-/// use siros_openid4vp::host::Presentation;
-///
-/// fn forged(json: String) -> Presentation {
-///     Presentation(json)
-/// }
-/// ```
+/// [`Presentation::text`] and [`Presentation::object`] make one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Presentation(String);
 

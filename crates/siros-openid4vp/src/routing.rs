@@ -11,6 +11,7 @@ use dyn_clone::DynClone;
 use siros_explain::{Explain, IntoArg, kind};
 
 use crate::envelope::{Channel, Parameters};
+use crate::ids::{KeyId, NamedResponseUri};
 use crate::json::Node;
 #[cfg(feature = "resolve")]
 use crate::plugins::Fault;
@@ -238,19 +239,7 @@ impl ResponseType for VpToken {
 }
 
 /// The Verifier's metadata as a mode reads it: `client_metadata` (§5.1, §5.9.3), and its `jwks`
-/// keys the wallet can agree a key with. Only the core makes one, from the request it parsed:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::ClientMetadata;
-/// use siros_openid4vp::routing::{VerifierKeys, VerifierMetadata};
-///
-/// fn forged<'k>(
-///     metadata: &'k ClientMetadata<'k>,
-///     keys: VerifierKeys<'k>,
-/// ) -> VerifierMetadata<'k> {
-///     VerifierMetadata { metadata, keys }
-/// }
-/// ```
+/// keys the wallet can agree a key with. Only the core makes one, from the request it parsed.
 #[derive(Debug, Clone)]
 pub struct VerifierMetadata<'k> {
     metadata: &'k ClientMetadata<'k>,
@@ -301,8 +290,8 @@ impl<'k> VerifierMetadata<'k> {
 /// chooses under the sealing module's statement, which can narrow it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyChoice {
-    place: usize,
-    kid: String,
+    place: KeyPlace,
+    kid: KeyId<'static>,
     enc: ContentEncryption<'static>,
 }
 
@@ -320,20 +309,20 @@ impl KeyChoice {
         let metadata = VerifierMetadata::of(metadata);
         crate::modes::key_rule(mode, &metadata, &crate::modes::KEY_RULE).map(|(key, enc)| Self {
             place: key.place(),
-            kid: key.key().kid().to_owned(),
+            kid: key.key().kid().clone().into_owned(),
             enc,
         })
     }
 
     /// The key's place among `ClientMetadata::agreeable_keys`.
     #[must_use]
-    pub const fn place(&self) -> usize {
+    pub const fn place(&self) -> KeyPlace {
         self.place
     }
 
     /// The key's `kid`.
     #[must_use]
-    pub fn kid(&self) -> &str {
+    pub const fn kid(&self) -> &KeyId<'static> {
         &self.kid
     }
 
@@ -345,16 +334,7 @@ impl KeyChoice {
 }
 
 /// The keys of the Verifier's `client_metadata.jwks` that [`AgreeableKey`] reads, in the
-/// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::AgreeableKey;
-/// use siros_openid4vp::routing::VerifierKeys;
-///
-/// fn forged(keys: Vec<AgreeableKey<'static>>) -> VerifierKeys<'static> {
-///     VerifierKeys { keys }
-/// }
-/// ```
+/// Verifier's order. Only the core makes them, so every [`VerifierKey`] is one of the request's.
 #[derive(Debug, Clone)]
 pub struct VerifierKeys<'k> {
     keys: Vec<AgreeableKey<'k>>,
@@ -366,32 +346,38 @@ impl VerifierKeys<'_> {
         self.keys
             .iter()
             .enumerate()
-            .map(|(place, key)| VerifierKey { place, key })
+            .map(|(place, key)| VerifierKey {
+                place: KeyPlace(place),
+                key,
+            })
     }
 
     /// Whether the key is the one these keys hold at its place.
     #[cfg(feature = "resolve")]
     pub(crate) fn holds(&self, key: &VerifierKey<'_>) -> bool {
         self.keys
-            .get(key.place)
+            .get(key.place.0)
             .is_some_and(|held| std::ptr::addr_eq(held, key.key))
     }
 }
 
+/// A key's place among the Verifier's agreeable keys. Only [`VerifierKeys::iter`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct KeyPlace(usize);
+
+impl KeyPlace {
+    /// The position among the keys.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
+
 /// One of the Verifier's keys, by its place among them. Only [`VerifierKeys::iter`] yields one,
-/// so a mode chooses among the request's keys alone:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::AgreeableKey;
-/// use siros_openid4vp::routing::VerifierKey;
-///
-/// fn forged<'k>(key: &'k AgreeableKey<'k>) -> VerifierKey<'k> {
-///     VerifierKey { place: 0, key }
-/// }
-/// ```
+/// so a mode chooses among the request's keys alone.
 #[derive(Debug, Clone, Copy)]
 pub struct VerifierKey<'k> {
-    place: usize,
+    place: KeyPlace,
     key: &'k AgreeableKey<'k>,
 }
 
@@ -402,9 +388,9 @@ impl<'k> VerifierKey<'k> {
         self.key
     }
 
-    /// Its place in `jwks`.
+    /// Its place among the keys.
     #[must_use]
-    pub const fn place(&self) -> usize {
+    pub const fn place(&self) -> KeyPlace {
         self.place
     }
 }
@@ -431,15 +417,7 @@ impl ModeHandle {
 
 /// The registered mode a request names on its channel, as the registry holds it. Only
 /// `Envelope::parse` makes one, from the registry the envelope then holds, so no answer goes in
-/// a mode the request did not name:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::routing::{Carries, ModeHandle, ModeName, RoutedMode};
-///
-/// fn forged(handle: ModeHandle, name: ModeName) -> RoutedMode {
-///     RoutedMode { handle, name, carries: Carries::Answers }
-/// }
-/// ```
+/// a mode the request did not name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RoutedMode {
     handle: ModeHandle,
@@ -604,7 +582,7 @@ enum Routed<'r> {
 pub struct Routing<'r> {
     response_type: Option<ResponseTypeName>,
     mode: Routed<'r>,
-    response_uri: Option<Cow<'r, str>>,
+    response_uri: Option<NamedResponseUri<'r>>,
     state: Option<Echo<'r>>,
     refusals: Vec<RoutingRule>,
 }
@@ -672,7 +650,10 @@ impl<'r> Routing<'r> {
                     refusals.push(RoutingRule::State);
                 }
                 (
-                    parameters.text("response_uri").flatten(),
+                    parameters
+                        .text("response_uri")
+                        .flatten()
+                        .and_then(|uri| NamedResponseUri::parse(uri).ok()),
                     state.flatten().map(Echo::of),
                 )
             }
@@ -715,8 +696,8 @@ impl<'r> Routing<'r> {
 
     /// The `response_uri` as the request names it, which authentication parses (A13).
     #[must_use]
-    pub fn response_uri(&self) -> Option<&str> {
-        self.response_uri.as_deref()
+    pub const fn response_uri(&self) -> Option<&NamedResponseUri<'r>> {
+        self.response_uri.as_ref()
     }
 
     /// `state` as received.
@@ -748,6 +729,27 @@ fn repr(value: Option<&Node<'_>>) -> String {
     )
 }
 
+/// Whether a `transaction_data` entry names a query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntryNaming {
+    /// An entry names it.
+    Named,
+    /// No entry names it.
+    Unnamed,
+}
+
+impl EntryNaming {
+    /// Whether the query is in the set of queries entries name.
+    #[cfg(feature = "match")]
+    pub(crate) fn of(named: crate::request::QuerySet, query: crate::request::QueryIndex) -> Self {
+        if named.contains(query) {
+            Self::Named
+        } else {
+            Self::Unnamed
+        }
+    }
+}
+
 /// What a format's request rules read beyond the query (the zkp_req proposal's M4): the request,
 /// its mode, whether transaction data names the query, and the Verifier's `vp_formats_supported`
 /// value for the format. Only `Accepted::new` makes one, from the request's routing, and phase 2
@@ -756,7 +758,7 @@ fn repr(value: Option<&Node<'_>>) -> String {
 pub struct QueryContext<'q> {
     request: &'q Request<'q>,
     mode: Option<ModeName>,
-    named: bool,
+    naming: EntryNaming,
     supported: Option<Node<'q>>,
 }
 
@@ -765,13 +767,13 @@ impl<'q> QueryContext<'q> {
     pub(crate) const fn of(
         request: &'q Request<'q>,
         mode: Option<ModeName>,
-        named: bool,
+        naming: EntryNaming,
         supported: Option<Node<'q>>,
     ) -> Self {
         Self {
             request,
             mode,
-            named,
+            naming,
             supported,
         }
     }
@@ -790,8 +792,8 @@ impl<'q> QueryContext<'q> {
 
     /// Whether a `transaction_data` entry names the query.
     #[must_use]
-    pub const fn named(&self) -> bool {
-        self.named
+    pub const fn naming(&self) -> EntryNaming {
+        self.naming
     }
 
     /// The Verifier's `vp_formats_supported` value for the format, from its `client_metadata`.
@@ -803,15 +805,7 @@ impl<'q> QueryContext<'q> {
 
 /// What a format's phase 2 reads of a query: its phase-1 context, under the mode rule C5
 /// accepted. Only `Prepared::prepare` makes one, from a request whose mode C5 accepts, so no
-/// phase-2 reading under a refused mode exists:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::routing::{AnsweredContext, QueryContext, ModeName};
-///
-/// fn forged(context: QueryContext<'_>, mode: ModeName) -> AnsweredContext<'_> {
-///     AnsweredContext { context, mode }
-/// }
-/// ```
+/// phase-2 reading under a refused mode exists.
 #[cfg(feature = "resolve")]
 #[derive(Debug, Clone)]
 pub struct AnsweredContext<'q> {

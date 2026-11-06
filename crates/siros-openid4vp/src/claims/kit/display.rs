@@ -1,7 +1,7 @@
 //! A credential's card from its display metadata: the display entry for the wallet's locales and
 //! the rows of its claims.
 
-use super::super::{ClaimPath, Concrete};
+use super::super::{ArrayIndex, ClaimPath, Concrete};
 use super::{ClaimsFormat, text_of};
 use crate::ids::LocaleTag;
 use crate::json::Node;
@@ -125,7 +125,7 @@ pub(super) fn value_rows(
                 .chain(items.iter().enumerate().flat_map(|(at, item)| {
                     value_rows(
                         format,
-                        &child(Concrete::Index(at)),
+                        &child(Concrete::Index(ArrayIndex::new(at))),
                         item,
                         described,
                         locales,

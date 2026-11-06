@@ -77,7 +77,7 @@ fn judged(
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, env.choice());
     let statics = [StaticEntry {
-        id: "notice".to_owned(),
+        id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),

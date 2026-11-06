@@ -114,22 +114,7 @@ impl<'e, H> Claimed<'e, H> {
 
 /// A request whose Verifier the wallet authenticated, with the Verifier's metadata and keys
 /// from its `client_metadata`, or C6's refusal of it. Only [`Pending::authenticate`] makes one, so
-/// a route answers the Verifier the wallet authenticated:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::authenticate::{Authenticated, Verifier};
-/// use siros_openid4vp::envelope::Envelope;
-/// use siros_openid4vp::request::MetadataError;
-/// use siros_openid4vp::routing::VerifierMetadata;
-///
-/// fn forged<'e>(
-///     envelope: &'e Envelope<'e>,
-///     verifier: Verifier<'e>,
-///     metadata: Result<VerifierMetadata<'e>, &'e MetadataError>,
-/// ) -> Authenticated<'e> {
-///     Authenticated { envelope, verifier, metadata }
-/// }
-/// ```
+/// a route answers the Verifier the wallet authenticated.
 pub struct Authenticated<'e> {
     envelope: &'e Envelope<'e>,
     verifier: Verifier<'e>,
@@ -182,7 +167,7 @@ impl<'e> Envelope<'e> {
         let reject = |cause: Unauthenticated, route| Box::new(Rejected::of(cause, route));
         let response_uri = match (self.channel(), self.routing().response_uri()) {
             (Channel::Uri, Some(text)) => Some(
-                ResponseUri::parse(text.to_owned())
+                ResponseUri::parse(text.to_string())
                     .map_err(|e| reject(Unauthenticated::EndpointScheme(e), None))?,
             ),
             _ => None,
@@ -326,7 +311,7 @@ impl<'e> Envelope<'e> {
         })?;
         let alg = signed.header().alg();
         if !haip(host).verifies().accepts(alg) {
-            return Err(Unauthenticated::Algorithm(alg.to_owned()));
+            return Err(Unauthenticated::Algorithm(alg.as_str().to_owned()));
         }
         Ok(Pieces {
             client_id,

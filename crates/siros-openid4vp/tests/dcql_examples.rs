@@ -4,11 +4,11 @@
 
 mod common;
 
+use siros_explain::{ArgValue, Explain};
 use siros_openid4vp::claims::kit::ClaimsQuery;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::matching::{Accepted, Match};
-use siros_openid4vp::plugins::OptionIndex;
-use siros_openid4vp::request::{Request, factor, project};
+use siros_openid4vp::request::{Request, SetNeed, factor, project};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::Binds;
 
@@ -20,7 +20,7 @@ fn shape(request: &Request<'_>) -> Vec<(Vec<String>, Vec<Vec<String>>)> {
         let mut ids: Vec<String> = set
             .iter()
             .filter_map(|q| request.query(q))
-            .map(|q| q.id.to_string())
+            .map(|q| q.id().to_string())
             .collect();
         ids.sort();
         ids
@@ -158,7 +158,7 @@ fn answered(
                 .answerable(&format, &view, &[])
                 .expect("the view's types")
                 .into_iter()
-                .map(|o| o.0)
+                .map(|o| o.position())
                 .collect();
             (!options.is_empty()).then(|| ((*id).to_owned(), options))
         })
@@ -281,12 +281,20 @@ fn a_json_boolean_is_no_integer() {
             .answerable(&format, &Node::parse(&view).expect("view"), &[])
             .expect("the view's types")
     };
-    assert_eq!(
-        answers(r#"{"age_over_18": true}"#),
-        Vec::<OptionIndex>::new()
-    );
-    assert_eq!(answers(r#"{"age_over_18": 1}"#), vec![OptionIndex(0)]);
-    // A query without its format's meta is refused by the format.
+    assert_eq!(answers(r#"{"age_over_18": true}"#), []);
+    let positions: Vec<usize> = answers(r#"{"age_over_18": 1}"#)
+        .iter()
+        .map(|option| option.position())
+        .collect();
+    assert_eq!(positions, [0]);
+}
+
+#[test]
+fn a_claims_format_refuses_a_query_without_its_meta() {
+    let format = ClaimsTest {
+        member: "vct_values",
+        label: "label",
+    };
     let bare = parameters(
         r#"{"credentials": [{"id": "q", "format": "x", "claims": []}]}"#,
         "",
@@ -294,7 +302,16 @@ fn a_json_boolean_is_no_integer() {
     let received = unsigned(&bare).expect("received");
     let bare = request_of(&received).expect("request");
     let refusals = ClaimsQuery::parse(&format, &bare.queries()[0], None).expect_err("refused");
-    assert_eq!(refusals.items()[0].text(), "x q: meta.vct_values is absent");
+    let refusal = &refusals.items()[0];
+    let rule = refusal
+        .args()
+        .as_slice()
+        .iter()
+        .find_map(|named| match named.arg().value() {
+            ArgValue::Message(rule) => Some(rule.id().as_str()),
+            _ => None,
+        });
+    assert_eq!(rule, Some("openid4vp.claims_kit.meta"));
 }
 
 #[test]
@@ -342,19 +359,20 @@ fn credential_sets_and_entries_parse_as_written() {
     );
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
-    let id =
-        |q: &siros_openid4vp::request::QueryIndex| request.query(*q).expect("query").id.to_string();
+    let id = |q: &siros_openid4vp::request::QueryIndex| {
+        request.query(*q).expect("query").id().to_string()
+    };
     let sets: Vec<(Vec<Vec<String>>, bool)> = request
         .sets()
         .expect("credential sets")
         .iter()
         .map(|set| {
             (
-                set.options
+                set.options()
                     .iter()
                     .map(|o| o.iter().map(id).collect())
                     .collect(),
-                set.required,
+                set.need() == SetNeed::Required,
             )
         })
         .collect();
@@ -381,10 +399,13 @@ fn credential_sets_and_entries_parse_as_written() {
     let [entry] = request.entries() else {
         panic!("one entry")
     };
-    assert_eq!(
-        (entry.kind().as_str(), entry.credential_ids()),
-        ("t1", &["pid".to_owned()][..])
-    );
+    assert_eq!(entry.kind().as_str(), "t1");
+    let named: Vec<&str> = entry
+        .credential_ids()
+        .iter()
+        .map(|id| id.as_str())
+        .collect();
+    assert_eq!(named, ["pid"]);
     // The entry decodes to the JSON text the Verifier encoded, its members as written.
     assert_eq!(entry.decoded(), json);
     assert_eq!(

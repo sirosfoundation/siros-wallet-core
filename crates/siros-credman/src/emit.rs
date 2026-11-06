@@ -65,7 +65,7 @@ pub struct EntryId(String);
 
 impl EntryId {
     fn of(choice: &Choice<'_>) -> Self {
-        Self(choice.id().to_owned())
+        Self(choice.id().as_str().to_owned())
     }
 
     /// Its text.
@@ -220,9 +220,9 @@ pub fn emit(
                     Choice::Entry(view) => {
                         let screen = Screen {
                             selected: view.selected,
-                            credential: Some(view.record.credential.as_str()),
+                            credential: Some(view.record.credential().as_str()),
                             card: view.entry.card(),
-                            committed: Some(view.record.inputs),
+                            committed: Some(view.record.inputs()),
                         };
                         let entry = CredmanEntry::of(&view.entry);
                         screen.drawn(&entry, &id, rendering, env)?

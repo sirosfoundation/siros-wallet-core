@@ -78,11 +78,11 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
         tally.add_many("static boxes", statics.len() * shown.sets().len());
         for (k, slots) in shown.sets().iter().enumerate() {
             for combo in product(slots) {
-                let ids: Vec<&str> = combo.iter().map(|choice| choice.id()).collect();
+                let ids: Vec<&str> = combo.iter().map(|choice| choice.id().as_str()).collect();
                 // The ids Credential Manager returns parse back to the selection's records; one
                 // transaction at most (C3, and one transaction-bearing member per `multiple`
                 // fill).
-                let selection = match shown.select(k, &ids) {
+                let selection = match shown.set(k).and_then(|set| set.select(&ids)) {
                     Ok(selection) => selection,
                     Err(SelectionError::TwoTransactions) => {
                         panic!("P-one transaction per selection: {ids:?}")
@@ -127,11 +127,13 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
             }
             // Refused: an id that is not one of its slot's entries, a selection of the wrong
             // length, a set the display lacks.
-            let ids: Vec<&str> = slots.iter().map(|slot| slot[0].id()).collect();
-            let firsts: Vec<&str> = slots[0].iter().map(Shown::id).collect();
-            let foreign = slots
-                .last()
-                .and_then(|last| last.iter().map(Shown::id).find(|id| !firsts.contains(id)));
+            let ids: Vec<&str> = slots.iter().map(|slot| slot[0].id().as_str()).collect();
+            let firsts: Vec<&str> = slots[0].iter().map(|choice| choice.id().as_str()).collect();
+            let foreign = slots.last().and_then(|last| {
+                last.iter()
+                    .map(|choice| choice.id().as_str())
+                    .find(|id| !firsts.contains(id))
+            });
             let mut tampered: Vec<(usize, Vec<&str>)> = Vec::new();
             if let Some(foreign) = foreign.filter(|_| slots.len() > 1) {
                 let mut changed = ids.clone();
@@ -142,7 +144,7 @@ pub fn check(case: &Case<'_>, matched: &Match<'_>, views: &Views<'_>, tally: &mu
             tampered.push((shown.sets().len(), ids.clone()));
             for (at, bad) in tampered {
                 assert!(
-                    shown.select(at, &bad).is_err(),
+                    shown.set(at).and_then(|set| set.select(&bad)).is_err(),
                     "P-foreign selection accepted: set {at} {bad:?}"
                 );
                 tally.add("foreign selections refused");

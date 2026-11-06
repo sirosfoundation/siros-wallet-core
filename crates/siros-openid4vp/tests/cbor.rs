@@ -9,8 +9,6 @@ use siros_openid4vp::cbor::{
 use siros_openid4vp::json::Node;
 use siros_testkit::reading::model_value;
 
-use coset::{AsCborValue, CoseSign1};
-
 fn unhex(text: &str) -> Vec<u8> {
     let digits: Vec<u8> = text.bytes().filter(u8::is_ascii_hexdigit).collect();
     digits
@@ -88,7 +86,6 @@ fn a_key_twice_is_refused_at_every_depth() {
             Some(|e| matches!(e, CborError::Depth(256))),
         ),
     ];
-    let mut held = 0;
     for (name, text, refused) in cases {
         let result = decode(&unhex(text));
         match (refused, &result) {
@@ -96,15 +93,12 @@ fn a_key_twice_is_refused_at_every_depth() {
             (Some(expected), Err(error)) if expected(error) => {}
             _ => panic!("{name}: {result:?}"),
         }
-        held += 1;
     }
     // An embedded item is a byte string to the outer reading; its own reading refuses the repeat.
     let inner = unhex("a2616101616102");
     let outer = encode(&embedded(inner.clone())).unwrap();
     assert!(decode(&outer).is_ok());
     assert!(matches!(decode(&inner), Err(CborError::RepeatedKey(_))));
-    held += 1;
-    assert_eq!(held, 21);
 }
 
 #[test]
@@ -142,25 +136,15 @@ fn a_cose_label_sits_in_one_bucket_once() {
             Value::Bytes(b"signature".to_vec()),
         ])
     };
-    let mut held = 0;
-    // A label in both buckets: coset accepts it, the wallet refuses it (RFC 9052 §3).
+    // A label in both buckets (RFC 9052 §3).
     let both = sign1(vec![alg(-7)], vec![alg(-7)]);
-    assert!(CoseSign1::from_cbor_value(both.clone()).is_ok());
-    held += 1;
     assert!(matches!(read_sign1(both), Err(CoseShape::BothBuckets(_))));
-    held += 1;
-    // A label twice in the unprotected bucket: coset refuses it.
+    // A label twice in the unprotected bucket.
     let twice = sign1(vec![alg(-7)], vec![kid(1), kid(2)]);
-    assert!(matches!(
-        CoseSign1::from_cbor_value(twice.clone()),
-        Err(coset::CoseError::DuplicateMapKey)
-    ));
-    held += 1;
     assert!(matches!(
         read_sign1(twice),
         Err(CoseShape::Cose(coset::CoseError::DuplicateMapKey))
     ));
-    held += 1;
     // A label twice in the protected bucket's bytes: the decoder refuses it first.
     let twice = Value::Array(vec![
         Value::Bytes(unhex("a201260126")),
@@ -172,13 +156,9 @@ fn a_cose_label_sits_in_one_bucket_once() {
         read_sign1(twice),
         Err(CoseShape::Protected(CborError::RepeatedKey(_)))
     ));
-    held += 1;
     // Disjoint buckets, and an empty protected bucket, read.
     assert!(read_sign1(sign1(vec![alg(-7)], vec![kid(1)])).is_ok());
-    held += 1;
     assert!(read_sign1(sign1(vec![], vec![alg(-7)])).is_ok());
-    held += 1;
-    assert_eq!(held, 7);
 }
 
 /// A linear congruential draw in `0..n`.

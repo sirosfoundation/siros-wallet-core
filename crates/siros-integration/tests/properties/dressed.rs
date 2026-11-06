@@ -12,7 +12,7 @@ use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::FormatId;
 use siros_openid4vp::matching::{Accepted, Candidate, Match, StaticEntry, Views, option_items};
 use siros_openid4vp::plugins::{
-    Fault, FormatQuery, Member, NoCandidate, OptionIndex, Profile, Registry, Shown,
+    Carriage, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Profile, Registry, Shown,
 };
 use siros_openid4vp::request::{
     ClientMetadata, EntryIndex, HolderBinding, Item, Query, QueryIndex, Request,
@@ -86,7 +86,7 @@ impl Parsed<'_> {
         read_query(self.request, self.query, move |query, context| {
             let client = ClientMetadata::parse(context.request().client_metadata())
                 .expect("accepted metadata");
-            let format = registry.format(&query.format).expect("a format");
+            let format = registry.format(query.format()).expect("a format");
             let parsed = format
                 .query(query, context)
                 .map_err(|refusals| format!("{refusals:?}"))
@@ -105,7 +105,7 @@ impl Parsed<'_> {
     }
 
     /// [`FormatQuery::carries`].
-    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
         let members = members.to_vec();
         self.read(credential, move |parsed, credential, _, _| {
             parsed.carries(credential, &members)
@@ -161,7 +161,7 @@ impl<'c> Case<'c> {
 
     /// The format's identifier for a query.
     pub fn format_id(&self, query: QueryIndex) -> FormatId<'_> {
-        self.query(query).format.borrowed()
+        self.query(query).format().borrowed()
     }
 
     /// A PaSO entry rendered for a credential.
@@ -221,12 +221,12 @@ pub fn document(credential: &Credential<'_>, key: &str) -> Option<Value> {
 /// OpenID4VP §6.1.1: no Trusted Authorities Query, or a value the credential holds under one of
 /// the query's types.
 fn trusted(query: &Query<'_>, credential: &Credential<'_>) -> bool {
-    query.trusted_authorities.is_empty()
-        || query.trusted_authorities.iter().any(|wanted| {
+    query.trusted_authorities().is_empty()
+        || query.trusted_authorities().iter().any(|wanted| {
             credential
                 .facts
-                .authority(&wanted.kind)
-                .is_some_and(|held| wanted.values.iter().any(|v| held.values.contains(v)))
+                .authority(wanted.kind())
+                .is_some_and(|held| wanted.values().iter().any(|v| held.values.contains(v)))
         })
 }
 
@@ -297,7 +297,7 @@ pub fn check(dressed: &Dressed, spec: &Spec, tally: &mut Tally) {
     let parsed = request
         .indexed_queries()
         .map(|(_, query)| {
-            registry.format(&query.format).map(|_| Parsed {
+            registry.format(query.format()).map(|_| Parsed {
                 request: &request,
                 query,
                 registry: Rc::clone(&registry),
@@ -340,7 +340,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
             assert!(
                 candidates.is_empty(),
                 "P-no format, no candidate {}",
-                query.id
+                query.id()
             );
             continue;
         };
@@ -348,16 +348,16 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
         for credential in case.wallet.credentials() {
             let (got, excluded) = given(matched, index, credential);
             let trusted = trusted(query, credential);
-            let keyed = query.holder_binding == HolderBinding::Waived
+            let keyed = query.holder_binding() == HolderBinding::Waived
                 || credential.facts.holder == Holder::Bound;
-            if credential.format != query.format || !trusted || !keyed {
+            if credential.format != *query.format() || !trusted || !keyed {
                 assert!(
                     got.is_none() && !excluded,
                     "P-not a candidate {} {}",
-                    query.id,
+                    query.id(),
                     credential.id
                 );
-                if credential.format == query.format && trusted {
+                if credential.format == *query.format() && trusted {
                     tally.add("not candidates: holder binding without a key");
                 }
                 continue;
@@ -368,7 +368,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-algorithms {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add("excluded by the Verifier's algorithms");
@@ -387,7 +387,9 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
             let members = crate::common::placement(&case.format_id(index))
                 .and_then(|placement| paso.members(placement));
             let carried = !own.is_empty()
-                && members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
+                && members.is_some_and(|m| {
+                    parsed.carries(credential, m).expect("no fault") == Carriage::Carried
+                });
             let mut want = Want::Nothing;
             if carried {
                 for e in &own {
@@ -418,7 +420,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_some() == answers(&[]) && got.is_none_or(|got| got.bound.is_none()),
                         "P-unnamed {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                 }
@@ -429,13 +431,13 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                         got.is_some(),
                         answers(provided),
                         "P-matched {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     assert!(
                         got.is_none_or(|got| bound_entries(got) == [e]),
                         "P-first match {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     if got.is_some() {
@@ -447,7 +449,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-excluded {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add(format!("excluded {clause}"));
@@ -457,7 +459,7 @@ fn bindings(case: &Case<'_>, matched: &Match<'_>, tally: &mut Tally) {
                     assert!(
                         got.is_none() && excluded,
                         "P-excluded {} {}",
-                        query.id,
+                        query.id(),
                         credential.id
                     );
                     tally.add("excluded no compatible entry");
@@ -514,7 +516,8 @@ fn qes_binding(
     let qes = QesProfile::default();
     let members = crate::common::placement(&case.format_id(query))
         .and_then(|placement| qes.members(placement));
-    let carried = members.is_some_and(|m| parsed.carries(credential, m).expect("no fault"));
+    let carried = members
+        .is_some_and(|m| parsed.carries(credential, m).expect("no fault") == Carriage::Carried);
     if approves && carried {
         let provided = members.expect("QES's members for the format");
         let answers = !parsed
@@ -565,7 +568,7 @@ fn boxes(
             .draw(candidate.credential, &everyone, &chosen)
             .expect("no fault");
         let Some(bound) = candidate.bound.as_ref().map(|binding| &binding.bound) else {
-            assert!(view.record.entries.is_empty(), "P-record without entries");
+            assert!(view.record.entries().is_empty(), "P-record without entries");
             assert_eq!(
                 CredmanEntry::of(&view.entry),
                 CredmanEntry::Standard(StandardEntry {

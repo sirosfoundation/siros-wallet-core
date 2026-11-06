@@ -15,6 +15,7 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 
+use crate::ids::KeyId;
 use crate::json::{JsonError, Node, Object};
 #[cfg(feature = "request-decryption")]
 use crate::request::{ContentEncryption, KeyAgreement};
@@ -70,14 +71,39 @@ impl JwsSignature {
     }
 }
 
+/// A protected header's `alg` (RFC 7515 §4.1.1): a JOSE name other than `none`. Only the header's
+/// parse makes one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HeaderAlgorithm(String);
+
+impl HeaderAlgorithm {
+    /// The name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A protected header's `typ` as received (RFC 7515 §4.1.9). Only the header's parse makes one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HeaderType(String);
+
+impl HeaderType {
+    /// The text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A protected header (RFC 7515 §4): `alg` read as a name, `typ` and `kid` read, `crit` refused,
 /// every member kept for the prefix plug-in, which reads its own (the certificate chain). Which
 /// algorithms verify is the verifying module's statement (`Haip::verifies`, A7).
 #[derive(Debug, Clone)]
 pub struct ProtectedHeader {
-    alg: String,
-    typ: Option<String>,
-    kid: Option<String>,
+    alg: HeaderAlgorithm,
+    typ: Option<HeaderType>,
+    kid: Option<KeyId<'static>>,
     members: Object<'static>,
 }
 
@@ -87,37 +113,39 @@ impl ProtectedHeader {
         let members = object(&utf8(part)?)?;
         let alg = match members.get("alg") {
             Some(Node::String(alg)) if alg != "none" && crate::request::jose_name(alg) => {
-                alg.to_string()
+                HeaderAlgorithm(alg.to_string())
             }
             other => return Err(JwsError::Algorithm(other.map(shown))),
         };
         critical(&members)?;
         let member = |name: &str| members.get(name).and_then(Node::as_str).map(str::to_owned);
+        let kid = member("kid").and_then(|kid| KeyId::parse(kid).ok());
         Ok(Self {
             alg,
-            typ: member("typ"),
-            kid: member("kid"),
+            typ: member("typ").map(HeaderType),
+            kid,
             members,
         })
     }
 
     /// `alg`, a JOSE name other than `none`.
     #[must_use]
-    pub fn alg(&self) -> &str {
+    pub const fn alg(&self) -> &HeaderAlgorithm {
         &self.alg
     }
 
     /// `typ` as received.
     #[must_use]
-    pub fn typ(&self) -> Option<&str> {
-        self.typ.as_deref()
+    pub const fn typ(&self) -> Option<&HeaderType> {
+        self.typ.as_ref()
     }
 
     /// Whether `typ` names the media type: compared as RFC 7515 §4.1.9 says, `application/`
     /// prefixed when it holds no `/`, case-insensitively.
     #[must_use]
     pub fn typ_is(&self, subtype: &str) -> bool {
-        self.typ.as_deref().is_some_and(|typ| {
+        self.typ.as_ref().is_some_and(|typ| {
+            let typ = typ.as_str();
             let bare = match typ.split_once('/') {
                 None => Some(typ),
                 Some((kind, rest)) => kind.eq_ignore_ascii_case("application").then_some(rest),
@@ -128,8 +156,8 @@ impl ProtectedHeader {
 
     /// `kid`, a case-sensitive string.
     #[must_use]
-    pub fn kid(&self) -> Option<&str> {
-        self.kid.as_deref()
+    pub const fn kid(&self) -> Option<&KeyId<'static>> {
+        self.kid.as_ref()
     }
 
     /// A member as received.

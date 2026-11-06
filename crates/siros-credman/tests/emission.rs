@@ -21,7 +21,7 @@ use siros_openid4vp::matching::{
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::rows::{
-    Bidi, Choice, Env, Icon, ImageMedia, OnRenderError, RenderOptions, Row, Value,
+    Bidi, Choice, Env, Icon, IconReference, ImageMedia, OnRenderError, RenderOptions, Row, Value,
 };
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, OPTIONS, parameters, request_of, unsigned};
@@ -182,7 +182,7 @@ fn cards<'v>(views: &'v Views<'_>) -> Vec<RegisteredCard<'v>> {
     views
         .iter()
         .map(|view| RegisteredCard {
-            credential: view.record.credential,
+            credential: view.record.credential(),
             card: view.entry.card(),
         })
         .collect()
@@ -234,7 +234,7 @@ impl Case {
 #[test]
 fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
     let statics = [StaticEntry {
-        id: "notice".to_owned(),
+        id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),
@@ -265,7 +265,7 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                     let emission = emit(shown, &rendering, &env).expect("no fault");
                     assert!(emission.refused().is_empty(), "{:?}", emission.refused());
                     for view in views.iter() {
-                        let credential = Some(view.record.credential.as_str());
+                        let credential = Some(view.record.credential().as_str());
                         let renderer = rendering
                             .renderer(view.selected, credential, &env)
                             .expect("no fault")
@@ -274,7 +274,7 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                             .renderer(view.selected, None, &env)
                             .expect("no fault")
                             .expect("a language");
-                        assert_eq!(renderer.inputs(), *view.record.inputs);
+                        assert_eq!(renderer.inputs(), *view.record.inputs());
                         assert_eq!(renderer.inputs(), wallet.inputs());
                         for text in held(view.entry.card()) {
                             assert!(renderer.holds(text).expect("reads"), "{tags:?}: held");
@@ -294,14 +294,14 @@ fn the_matcher_renders_what_the_request_decides_and_reads_the_rest_as_held() {
                             for (choice, emitted) in slot.iter().zip(choices) {
                                 match emitted {
                                     Emitted::Entry { id, shown } => {
-                                        assert_eq!(id.as_str(), choice.id());
+                                        assert_eq!(id.as_str(), choice.id().as_str());
                                         let title = match shown {
                                             Shown::Standard(entry) => &entry.title,
                                             Shown::Payment(entry) => &entry.method_name,
                                         };
                                         assert!(!title.is_empty());
                                     }
-                                    Emitted::Nothing => assert_eq!(choice.id(), "none"),
+                                    Emitted::Nothing => assert_eq!(choice.id().as_str(), "none"),
                                 }
                             }
                         }
@@ -326,7 +326,7 @@ fn an_entry_that_does_not_render_ends_the_emission_or_stays_out() {
     let live = App::new(&modules.iter().collect::<Vec<_>>(), &[]).expect("the live modules' app");
     let live_rendering = live.rendering().expect("the live rendering");
     let statics = [StaticEntry {
-        id: "notice".to_owned(),
+        id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
             title: Text::Raw("Notice".to_owned()),
@@ -592,12 +592,12 @@ fn an_icon_credential_manager_does_not_draw_gives_way_to_the_wallets() {
         ("image/webp", false),
     ] {
         let logo = Icon {
-            reference: "logo".into(),
+            reference: IconReference::Logo("logo".into()),
             media: ImageMedia::parse(media).expect("an image media type"),
             ..Icon::DEFAULT
         };
         let entry = CredmanEntry::of_static(&StaticEntry {
-            id: "notice".to_owned(),
+            id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
             card: Card {
                 icon: logo.clone(),
                 title: Text::Raw("Notice".to_owned()),

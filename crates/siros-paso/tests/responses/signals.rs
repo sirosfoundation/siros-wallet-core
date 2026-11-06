@@ -186,7 +186,7 @@ pub(super) fn a_payment_entry_shows_the_security_hint_exactly_as_its_additional_
         PAY,
         &meta,
         &en(),
-        &siros_openid4vp::ids::LocaleTag::parse(locale).expect("a tag"),
+        &siros_openid4vp::ids::LocaleTag::parse(locale.as_str()).expect("a tag"),
     );
     let payment = bound.overlay.header.as_ref().expect("a payment");
     assert_eq!(

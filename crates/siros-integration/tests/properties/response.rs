@@ -107,15 +107,21 @@ impl Fields {
     fn of(view: &EntryView<'_>) -> Self {
         let record = &view.record;
         Self {
-            query: record.query.to_string(),
-            credential: record.credential.to_string(),
-            option: record.option.0,
-            entries: record.entries.iter().map(|e| e.get()).collect(),
+            query: record.query().to_string(),
+            credential: record.credential().to_string(),
+            option: record.option().position(),
+            entries: record.entries().iter().map(|e| e.get()).collect(),
             attested: record
-                .attested
-                .map(|attested| attested.pairs().to_vec())
+                .attested()
+                .map(|attested| {
+                    attested
+                        .pairs()
+                        .iter()
+                        .map(|(name, text)| (name.as_str().to_owned(), text.as_str().to_owned()))
+                        .collect()
+                })
                 .unwrap_or_default(),
-            request: record.request.as_str().to_owned(),
+            request: record.request().as_str().to_owned(),
             rendering: Self::parse(record.id().as_str()).rendering,
         }
     }
@@ -218,7 +224,8 @@ pub fn check(
             .as_ref()
             .map_or(&[], |binding| binding.bound.entries.entries());
         assert_eq!(
-            view.record.entries, bound,
+            view.record.entries(),
+            bound,
             "R-record entries are the bound ones"
         );
     }
@@ -243,8 +250,8 @@ pub fn check(
                 .items()
                 .iter()
                 .map(|finding| match finding {
-                    Finding::Unusable { record } => (*record, Found::Unusable),
-                    Finding::Revalidation { record, finding } => (*record, found(finding)),
+                    Finding::Unusable { record } => (record.get(), Found::Unusable),
+                    Finding::Revalidation { record, finding } => (record.get(), found(finding)),
                     Finding::Diverged { record } | Finding::Rendered { record, .. } => {
                         panic!("R-phase 2 derives every record: {record} diverged")
                     }
@@ -364,20 +371,20 @@ fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize,
         if case
             .unusable
             .iter()
-            .any(|id| id == view.record.credential.as_str())
+            .any(|id| id == view.record.credential().as_str())
         {
             out.push((k, Found::Unusable));
             continue;
         }
-        let Some(first) = view.record.entries.first() else {
+        let Some(first) = view.record.entries().first() else {
             continue;
         };
         let entry = case.entry_json(*first);
         let kind = entry["type"].as_str().expect("type");
         if kind.starts_with("urn:paso:sca:") {
-            let held = credential(case, view.record.credential.as_str());
+            let held = credential(case, view.record.credential().as_str());
             let document = document(held, "paso").expect("a PaSO document");
-            let held_credential = credential(case, view.record.credential.as_str());
+            let held_credential = credential(case, view.record.credential().as_str());
             let refused: Vec<(String, &'static str)> = entry
                 .get("metadata")
                 .and_then(Value::as_str)
@@ -462,7 +469,9 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     let gone: Vec<&str> = findings
         .iter()
         .filter_map(|finding| match finding {
-            Finding::Unusable { record } => Some(records[*record].record.credential.as_str()),
+            Finding::Unusable { record } => {
+                Some(records[record.get()].record.credential().as_str())
+            }
             Finding::Diverged { .. }
             | Finding::Rendered { .. }
             | Finding::Revalidation { .. }
@@ -483,8 +492,8 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
     let again = Match::run(&accepted, &kept, case.env, case.rendering).expect("no fault");
     for finding in findings {
         let (record, revalidated) = match finding {
-            Finding::Unusable { record } => (*record, false),
-            Finding::Revalidation { record, .. } => (*record, true),
+            Finding::Unusable { record } => (record.get(), false),
+            Finding::Revalidation { record, .. } => (record.get(), true),
             Finding::Diverged { record } | Finding::Rendered { record, .. } => {
                 panic!("R-fallback: {record} diverged")
             }
@@ -494,13 +503,12 @@ fn fallback(case: &Case<'_>, records: &[&EntryView<'_>], findings: &[Finding], t
         let back = again
             .candidates(view.pick.query)
             .iter()
-            .find(|c| c.credential.id == *view.record.credential);
+            .find(|c| c.credential.id == *view.record.credential());
         assert!(
             back.is_none_or(|back| revalidated
-                && back
-                    .bound
-                    .as_ref()
-                    .is_some_and(|binding| binding.bound.entries.entries() != view.record.entries)),
+                && back.bound.as_ref().is_some_and(
+                    |binding| binding.bound.entries.entries() != view.record.entries()
+                )),
             "R-fallback offers the failed record again"
         );
     }
@@ -517,7 +525,7 @@ fn answered(
 ) {
     let mut by_query: Vec<(&str, Vec<&EntryView<'_>>)> = Vec::new();
     for view in records {
-        let query = view.record.query.as_str();
+        let query = view.record.query().as_str();
         match by_query.iter_mut().find(|(known, _)| *known == query) {
             Some((_, views)) => views.push(view),
             None => by_query.push((query, vec![view])),
@@ -541,8 +549,8 @@ fn answered(
             .request
             .queries()
             .iter()
-            .find(|q| q.id.as_str() == *query)
-            .is_some_and(|q| q.multiple == Multiplicity::Many);
+            .find(|q| q.id().as_str() == *query)
+            .is_some_and(|q| q.multiple() == Multiplicity::Many);
         assert!(
             token[query].as_array().expect("presentations").len() == views.len()
                 && (views.len() == 1 || multiple),
@@ -626,8 +634,8 @@ fn answered(
             .request
             .queries()
             .iter()
-            .find(|q| q.id.as_str() == *query)
-            .map(|q| q.format.as_str())
+            .find(|q| q.id().as_str() == *query)
+            .map(|q| q.format().as_str())
             .expect("the query's format");
         for (view, written) in views
             .iter()
@@ -635,10 +643,10 @@ fn answered(
         {
             let read = (format == "mso_mdoc").then(|| read_mdoc(written));
             let presentation = read.as_ref().unwrap_or(written);
-            let held = credential(case, view.record.credential.as_str());
+            let held = credential(case, view.record.credential().as_str());
             session(case, view, held, format, presentation, host, tally);
             let got = members_of(format, presentation);
-            if view.record.entries.is_empty() {
+            if view.record.entries().is_empty() {
                 // A presentation without a transaction carries no member.
                 assert!(got.is_empty(), "R-members without a transaction: {got:?}");
                 continue;

@@ -46,7 +46,7 @@ pub(super) fn tampered(
     let index_of = |query: &str| {
         case.request
             .indexed_queries()
-            .find(|(_, q)| q.id.as_str() == query)
+            .find(|(_, q)| q.id().as_str() == query)
             .map(|(index, _)| index)
             .expect("a query of the request")
     };
@@ -61,7 +61,12 @@ pub(super) fn tampered(
         let stray = case
             .request
             .indexed_entries()
-            .find(|(_, entry)| !entry.credential_ids().contains(&record.query))
+            .find(|(_, entry)| {
+                !entry
+                    .credential_ids()
+                    .iter()
+                    .any(|id| id.as_str() == record.query)
+            })
             .map(|(index, _)| index.get());
         if let Some(stray) = stray {
             diverging.push(changed(&|r: &mut Fields| {
@@ -84,10 +89,11 @@ pub(super) fn tampered(
         let others: Vec<&EntryView<'_>> = views
             .iter()
             .filter(|o| {
-                o.record.query == view.record.query && o.record.credential != view.record.credential
+                o.record.query() == view.record.query()
+                    && o.record.credential() != view.record.credential()
             })
             .collect();
-        let multiple = case.query(view.pick.query).multiple == Multiplicity::Many;
+        let multiple = case.query(view.pick.query).multiple() == Multiplicity::Many;
         if !multiple {
             rejected.push(with(ids[k].clone()));
             rejected.extend(
@@ -100,7 +106,7 @@ pub(super) fn tampered(
             rejected.extend(
                 others
                     .iter()
-                    .filter(|o| !o.record.entries.is_empty())
+                    .filter(|o| !o.record.entries().is_empty())
                     .take(1)
                     .map(|o| with(o.record.id().as_str().to_owned())),
             );
@@ -156,7 +162,7 @@ pub(super) fn tampered(
                     .items()
                     .iter()
                     .map(|finding| match finding {
-                        Finding::Diverged { record } => *record,
+                        Finding::Diverged { record } => record.get(),
                         other => panic!("R-diverged: {other:?}"),
                     })
                     .collect();
@@ -179,7 +185,7 @@ pub(super) fn renewed(
 ) {
     let Some((k, refreshed)) = records.iter().enumerate().find(|(_, view)| {
         view.record
-            .attested
+            .attested()
             .is_some_and(|attested| attested.get("metadata_integrity").is_some())
     }) else {
         return;
@@ -187,7 +193,7 @@ pub(super) fn renewed(
     let mut held = case.held.to_vec();
     let target = held
         .iter_mut()
-        .find(|h| h.id == refreshed.record.credential.as_str())
+        .find(|h| h.id == refreshed.record.credential().as_str())
         .expect("the record's credential");
     for (key, content) in &mut target.documents {
         if key == "paso" {
@@ -221,9 +227,11 @@ pub(super) fn renewed(
                 .items()
                 .iter()
                 .filter_map(|finding| match finding {
-                    Finding::Diverged { record } if *record == k => Some("diverged"),
-                    Finding::Unusable { record } if *record == k => Some("unusable"),
-                    Finding::Revalidation { record, .. } if *record == k => Some("revalidation"),
+                    Finding::Diverged { record } if record.get() == k => Some("diverged"),
+                    Finding::Unusable { record } if record.get() == k => Some("unusable"),
+                    Finding::Revalidation { record, .. } if record.get() == k => {
+                        Some("revalidation")
+                    }
                     _ => None,
                 })
                 .collect();

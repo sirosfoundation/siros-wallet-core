@@ -5,7 +5,7 @@
 use std::fmt;
 
 use siros_explain::Explain;
-use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
+use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::refusal::Quoted;
 
@@ -51,7 +51,7 @@ pub fn at<'n>(
                 .ok_or_else(|| Mismatch::Index {
                     path: concrete_text(path),
                 })?
-                .get(*index),
+                .get(index.position()),
         };
         match next {
             Some(node) => current = node,
@@ -99,8 +99,12 @@ pub fn substitute<'p>(steps: &[Step<'p>], indices: &[usize]) -> Option<ConcreteP
         .iter()
         .map(|step| match step {
             Step::Key(key) => Some(Concrete::Key(key.clone())),
-            Step::Index(index) => index.map(Concrete::Index),
-            Step::All => nulls.next().copied().map(Concrete::Index),
+            Step::Index(index) => Some(Concrete::Index(*index)),
+            Step::Beyond => None,
+            Step::All => nulls
+                .next()
+                .copied()
+                .map(|index| Concrete::Index(ArrayIndex::new(index))),
         })
         .collect()
 }
@@ -113,7 +117,8 @@ pub fn claim_text(steps: &[Step<'_>]) -> String {
             .iter()
             .map(|step| match step {
                 Step::Key(key) => Part::Key(key),
-                Step::Index(index) => Part::Index(*index),
+                Step::Index(index) => Part::Index(Some(index.position())),
+                Step::Beyond => Part::Index(None),
                 Step::All => Part::Null,
             })
             .collect(),
@@ -129,7 +134,7 @@ pub fn concrete_text(parts: &[Concrete<'_>]) -> String {
             .iter()
             .map(|part| match part {
                 Concrete::Key(key) => Part::Key(key),
-                Concrete::Index(index) => Part::Index(Some(*index)),
+                Concrete::Index(index) => Part::Index(Some(index.position())),
             })
             .collect(),
     )

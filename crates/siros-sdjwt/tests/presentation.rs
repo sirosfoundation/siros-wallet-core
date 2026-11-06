@@ -17,7 +17,7 @@ use siros_openid4vp::host::{
 };
 use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, OptionIndex, Registry};
+use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, Registry};
 use siros_openid4vp::wallet::{Holder, Wallet};
 use siros_sdjwt::SdJwtVc;
 use siros_testkit::fixtures::{
@@ -50,7 +50,7 @@ fn presented_over(
             present_option(
                 query.as_ref(),
                 Usable::checked(&credential),
-                OptionIndex(0),
+                0,
                 &members,
                 phase_two.session,
                 phase_two.host,

@@ -8,6 +8,7 @@ mod parsing;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_explain::{ArgValue, Explain};
 use siros_openid4vp::arrival::Unreadable;
 use siros_openid4vp::envelope::Envelope;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, ProfileHost};
@@ -35,20 +36,46 @@ fn raw(text: &str) -> String {
     URL_SAFE_NO_PAD.encode(text)
 }
 
-/// A refusal as the Verifier receives it: its text and its code.
+/// A refusal by its stable identifiers: the rule, the innermost cause it names, and its code.
 #[derive(Debug, PartialEq, Eq)]
 struct Said {
-    text: String,
+    rule: &'static str,
+    cause: &'static str,
     code: ErrorCode,
+}
+
+impl Said {
+    fn of(message: &dyn Explain, code: ErrorCode) -> Self {
+        Self {
+            rule: message.id().as_str(),
+            cause: innermost(message),
+            code,
+        }
+    }
 }
 
 impl From<Refusal> for Said {
     fn from(refusal: Refusal) -> Self {
-        Self {
-            text: refusal.text(),
-            code: refusal.code(),
-        }
+        Self::of(&refusal, refusal.code())
     }
+}
+
+/// The identifier of the last message a message names, or its own.
+fn innermost(message: &dyn Explain) -> &'static str {
+    message
+        .args()
+        .as_slice()
+        .iter()
+        .find_map(|named| match named.arg().value() {
+            ArgValue::Message(cause) => Some(innermost(*cause)),
+            _ => None,
+        })
+        .unwrap_or_else(|| message.id().as_str())
+}
+
+/// Each refusal's rule.
+fn rules(said: &[Said]) -> Vec<&'static str> {
+    said.iter().map(|said| said.rule).collect()
 }
 
 /// The refusals of a request, unsigned or signed by the test Verifier: its envelope's, else its
@@ -59,14 +86,14 @@ fn refusals(parameters: &str, signed: bool, registry: &Registry<TestHost>) -> Ve
     } else {
         parameters.to_owned()
     };
-    // A U rule: its text and its code.
+    // A U rule: its identifiers and its code.
     let unreadable = |cause: Unreadable| {
-        vec![Said {
-            text: cause.to_string(),
-            code: Failure::Unreadable(cause)
+        let said = |code| Said::of(&cause, code);
+        vec![said(
+            Failure::Unreadable(cause.clone())
                 .code()
                 .expect("a U rule the parameters break has a code"),
-        }]
+        )]
     };
     let received = match if signed {
         fixtures::signed(&data)
@@ -183,15 +210,13 @@ fn a_profile_judges_all_its_entries_at_once() {
     builder.exact(TransactionType::parse("t1").expect("type"), profile);
     let registry = builder.build().expect("registry");
     let named = entry(r#"{"type": "t1", "credential_ids": ["q"]}"#);
-    let texts: Vec<String> = refusals(
-        &request("dc_api", "{}", &[named.clone(), named], ""),
-        false,
-        &registry,
-    )
-    .into_iter()
-    .map(|refusal| refusal.text)
-    .collect();
-    assert_eq!(texts, ["2 entries"]);
+    let text = request("dc_api", "{}", &[named.clone(), named], "");
+    let received = fixtures::unsigned(&text).expect("received");
+    let request = fixtures::request_of(&received).expect("request");
+    let refused = Accepted::new(&request, &registry)
+        .map(drop)
+        .expect_err("the profile refuses");
+    assert_eq!(refused.texts().collect::<Vec<_>>(), ["2 entries"]);
 }
 
 #[test]
@@ -199,7 +224,6 @@ fn each_core_rule_refuses_with_its_error_code() {
     let registry = two_profiles();
     let named =
         |kind: &str, ids: &str| entry(&format!(r#"{{"type": "{kind}", "credential_ids": {ids}}}"#));
-    let _signed = "eyJ.request.sig";
     let unsigned = request("dc_api", "{}", &[], "");
     let cases: [(&str, String, bool, ErrorCode, &str); 14] = [
         (
@@ -208,28 +232,28 @@ fn each_core_rule_refuses_with_its_error_code() {
                 .to_owned(),
             false,
             ErrorCode::INVALID_REQUEST,
-            "dcql_query is absent",
+            "openid4vp.structure.dcql_absent",
         ),
         (
             "transaction_data",
             request("dc_api", "{}", &[], r#","transaction_data":[]"#),
             false,
             ErrorCode::INVALID_REQUEST,
-            "transaction_data is not a non-empty array of strings",
+            "openid4vp.structure.transaction_data",
         ),
         (
             "expected_origins",
             request("dc_api", "{}", &[], r#","expected_origins":5"#),
             true,
             ErrorCode::INVALID_REQUEST,
-            "expected_origins is not an array of strings",
+            "openid4vp.structure.expected_origins",
         ),
         (
             "nonce",
             unsigned.replace(r#""nonce":"n-0S6_WzA2Mj""#, r#""nonce":5"#),
             false,
             ErrorCode::INVALID_REQUEST,
-            "nonce is not a non-empty string",
+            "openid4vp.structure.nonce",
         ),
         (
             "a format's rules",
@@ -239,28 +263,28 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_REQUEST,
-            "test q: options is not an array of item arrays",
+            "testkit.format.options",
         ),
         (
             "C0",
             request("dc_api", "{}", &["e30=".to_owned()], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "C0 entry 0: not base64url without padding",
+            "openid4vp.rules.c0",
         ),
         (
             "C1",
             request("dc_api", "{}", &[named("t9", r#"["q"]"#)], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "C1 entry 0: no profile for type t9",
+            "openid4vp.rules.c1",
         ),
         (
             "C2",
             request("dc_api", "{}", &[named("t1", r#"["q", "qX"]"#)], ""),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "C2 entry 0: credential_ids ['q', 'qX'] names no Credential Query of the request",
+            "openid4vp.rules.c2",
         ),
         (
             "C3",
@@ -272,7 +296,7 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "C3 two queries transaction data names can be presented together",
+            "openid4vp.rules.c3",
         ),
         (
             "C4",
@@ -284,47 +308,41 @@ fn each_core_rule_refuses_with_its_error_code() {
             ),
             false,
             ErrorCode::INVALID_TRANSACTION_DATA,
-            "C4 q: entries of two profiles name it",
+            "openid4vp.rules.c4",
         ),
         (
             "C5",
             request("direct_post", "{}", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "C5 response_mode 'direct_post' is no DC API response mode",
+            "openid4vp.routing.c5",
         ),
         (
             "C6",
             request("dc_api", "[]", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "C6 client_metadata: client_metadata is not a JSON object",
+            "openid4vp.rules.c6",
         ),
         (
             "C7",
             request("dc_api.jwt", "{}", &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
-            "C7 dc_api.jwt: client_metadata offers no key and content encryption the wallet supports",
+            "openid4vp.modes.c7_key",
         ),
         (
             "C8",
             request("dc_api", "{}", &[], ""),
             true,
             ErrorCode::INVALID_REQUEST,
-            "C8 a signed request whose expected_origins [] lack the Origin https://verifier.example",
+            "openid4vp.rules.c8",
         ),
     ];
-    for (rule, parameters, is_signed, code, text) in cases {
+    for (name, parameters, is_signed, code, rule) in cases {
         let refused = refusals(&parameters, is_signed, &registry);
-        assert_eq!(
-            refused,
-            [Said {
-                text: text.to_owned(),
-                code
-            }],
-            "{rule}"
-        );
+        let said: Vec<_> = refused.iter().map(|said| (said.rule, said.code)).collect();
+        assert_eq!(said, [(rule, code)], "{name}");
     }
 }
 
@@ -334,25 +352,21 @@ fn malformed_entries_are_refused_by_c0() {
     let cases = [
         (
             raw(r#"{"type": "t1", "credential_ids": ["q"], "a": 1, "a": 2}"#),
-            Some("C0 entry 0: an object repeats a member name: a"),
+            "openid4vp.json.duplicate_member",
         ),
-        (raw("[1]"), Some("C0 entry 0: not a JSON object")),
-        (raw(r#"{"a":"#), None),
-        (
-            "e30=".to_owned(),
-            Some("C0 entry 0: not base64url without padding"),
-        ),
-        (
-            "e30+".to_owned(),
-            Some("C0 entry 0: not base64url without padding"),
-        ),
+        (raw("[1]"), "openid4vp.entry.not_object"),
+        (raw(r#"{"a":"#), "openid4vp.json.syntax"),
+        ("e30=".to_owned(), "openid4vp.entry.not_base64_url"),
+        ("e30+".to_owned(), "openid4vp.entry.not_base64_url"),
+        // No base64url text has a length of 1 modulo 4.
+        ("e30aa".to_owned(), "openid4vp.entry.not_base64_url"),
         (
             raw(r#"{"type": 5, "credential_ids": ["q"]}"#),
-            Some("C0 entry 0: type is not a string"),
+            "openid4vp.entry.type",
         ),
         (
             raw(r#"{"type": "t1", "credential_ids": []}"#),
-            Some("C0 entry 0: credential_ids is not a non-empty array of strings"),
+            "openid4vp.entry.credential_ids",
         ),
     ];
     // base64url's own characters, `-` and `_`, decode.
@@ -365,31 +379,25 @@ fn malformed_entries_are_refused_by_c0() {
         ),
         []
     );
-    assert_eq!(
-        refusals(
-            &request("dc_api", "{}", &["e30aa".to_owned()], ""),
-            false,
-            &registry
-        )[0]
-        .text,
-        "C0 entry 0: not base64url without padding",
-        "no base64url text has a length of 1 modulo 4"
-    );
-    for (entry, want) in cases {
+    for (entry, cause) in cases {
         let refused = refusals(
             &request("dc_api", "{}", std::slice::from_ref(&entry), ""),
             false,
             &registry,
         );
-        let [refusal] = refused.as_slice() else {
-            panic!("one refusal for {entry}: {refused:?}")
-        };
-        assert_eq!(refusal.code, ErrorCode::INVALID_TRANSACTION_DATA);
-        match want {
-            Some(text) => assert_eq!(refusal.text, text),
-            // A syntax error's wording is the JSON parser's.
-            None => assert!(refusal.text.starts_with("C0 entry 0: "), "{}", refusal.text),
-        }
+        let said: Vec<_> = refused
+            .iter()
+            .map(|said| (said.rule, said.cause, said.code))
+            .collect();
+        assert_eq!(
+            said,
+            [(
+                "openid4vp.rules.c0",
+                cause,
+                ErrorCode::INVALID_TRANSACTION_DATA
+            )],
+            "{entry}"
+        );
     }
 }
 
@@ -397,23 +405,15 @@ fn malformed_entries_are_refused_by_c0() {
 fn response_mode_and_client_metadata_follow_annex_a_and_section_8_3() {
     let registry = registry(Binds::First);
     let key = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "alg": "ECDH-ES"}"#;
-    let c7 =
-        "C7 dc_api.jwt: client_metadata offers no key and content encryption the wallet supports";
+    let c7 = "openid4vp.modes.c7_key";
+    let c7_enc = "openid4vp.modes.c7_enc";
     let cases: [(&str, String, &[&str]); 11] = [
-        (
-            "direct_post",
-            "{}".to_owned(),
-            &["C5 response_mode 'direct_post' is no DC API response mode"],
-        ),
-        (
-            "dc_api",
-            "[]".to_owned(),
-            &["C6 client_metadata: client_metadata is not a JSON object"],
-        ),
+        ("direct_post", "{}".to_owned(), &["openid4vp.routing.c5"]),
+        ("dc_api", "[]".to_owned(), &["openid4vp.rules.c6"]),
         (
             "dc_api",
             r#"{"vp_formats_supported": []}"#.to_owned(),
-            &["C6 client_metadata: vp_formats_supported is not a JSON object"],
+            &["openid4vp.rules.c6"],
         ),
         ("dc_api.jwt", "{}".to_owned(), &[c7]),
         (
@@ -429,7 +429,7 @@ fn response_mode_and_client_metadata_follow_annex_a_and_section_8_3() {
             format!(
                 r#"{{"jwks": {{"keys": [{key}]}}, "encrypted_response_enc_values_supported": ["XC20P"]}}"#
             ),
-            &[c7],
+            &[c7_enc],
         ),
         // The key rule (§8.3, HAIP §5; reading 25): no key it accepts (`alg` absent, a
         // coordinate of another length, a key wrap), and no `enc` it accepts.
@@ -462,7 +462,7 @@ fn response_mode_and_client_metadata_follow_annex_a_and_section_8_3() {
             format!(
                 r#"{{"jwks": {{"keys": [{key}]}}, "encrypted_response_enc_values_supported": ["A128CBC-HS256"]}}"#
             ),
-            &[c7],
+            &[c7_enc],
         ),
         (
             "dc_api.jwt",
@@ -472,11 +472,7 @@ fn response_mode_and_client_metadata_follow_annex_a_and_section_8_3() {
     ];
     for (mode, metadata, want) in cases {
         let refused = refusals(&request(mode, &metadata, &[], ""), false, &registry);
-        assert_eq!(
-            refused.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
-            want,
-            "{mode} {metadata}"
-        );
+        assert_eq!(rules(&refused), want, "{mode} {metadata}");
     }
 }
 
@@ -488,13 +484,13 @@ fn a_signed_request_names_the_origin_in_expected_origins() {
         r#","expected_origins":["https://other.example","{}"]"#,
         ORIGINS[0]
     );
-    let lacks = "C8 a signed request whose expected_origins ['https://other.example'] lack the Origin https://verifier.example";
     assert_eq!(
-        refusals(&request("dc_api", "{}", &[], other), true, &registry)
-            .iter()
-            .map(|r| r.text.as_str())
-            .collect::<Vec<_>>(),
-        [lacks]
+        rules(&refusals(
+            &request("dc_api", "{}", &[], other),
+            true,
+            &registry
+        )),
+        ["openid4vp.rules.c8"]
     );
     assert_eq!(
         refusals(&request("dc_api", "{}", &[], &both), true, &registry),
@@ -546,16 +542,10 @@ fn phase_2_answers_no_request_the_rules_refuse() {
     let Err(Outcome::Refused(refused)) = outcome else {
         panic!("{outcome:?}")
     };
-    let said: Vec<Said> = refused
-        .into_refusals()
-        .into_iter()
-        .map(Said::from)
+    let said: Vec<_> = refused
+        .refusals()
+        .iter()
+        .map(|refusal| (refusal.id().as_str(), refusal.code()))
         .collect();
-    assert_eq!(
-        said,
-        [Said {
-            text: "C5 response_mode 'query' is no DC API response mode".to_owned(),
-            code: ErrorCode::INVALID_REQUEST,
-        }]
-    );
+    assert_eq!(said, [("openid4vp.routing.c5", ErrorCode::INVALID_REQUEST)]);
 }

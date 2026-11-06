@@ -20,7 +20,7 @@ use siros_openid4vp::host::Usable;
 use siros_openid4vp::host::{CoreHost, FormatHost, Haip, Has, PresentError};
 use siros_openid4vp::ids::Origin;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, JsonText, Member, MemberValue, Members, OptionIndex};
+use siros_openid4vp::plugins::{Fault, JsonText, Member, MemberValue, Members};
 use siros_openid4vp::request::{AgreeableKey, ContentEncryption, KeyAgreement};
 use siros_openid4vp::session::Session;
 use siros_testkit::TestChoice;
@@ -120,7 +120,7 @@ where
             let presentation = present_option(
                 parsed.as_ref(),
                 Usable::checked(&credential),
-                OptionIndex(0),
+                0,
                 &Members::new(members).expect("members"),
                 phase_two.session,
                 phase_two.host,

@@ -95,7 +95,11 @@ pub(super) fn members(
     assert_eq!(text("transaction_data_hash_alg"), "sha-256");
     assert_eq!(
         Some(text("display_locale").as_str()),
-        answer.bound.attested.get("display_locale"),
+        answer
+            .bound
+            .attested
+            .get("display_locale")
+            .map(|text| text.as_str()),
         "R-locale shown"
     );
     assert_eq!(

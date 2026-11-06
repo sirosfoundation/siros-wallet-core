@@ -3,6 +3,7 @@
 
 use siros_explain::Explain;
 
+use super::EntryIndex;
 use super::entry::Malformed;
 use super::sets::MAX_POSITIONS;
 use crate::json::JsonError;
@@ -69,7 +70,7 @@ impl RequestRule for ParameterRule {
 #[error("C0 entry {entry}: {malformed}")]
 pub struct UndecodedEntry {
     /// The entry's position.
-    pub entry: usize,
+    pub entry: EntryIndex,
     /// Why it does not decode.
     pub malformed: Malformed,
 }

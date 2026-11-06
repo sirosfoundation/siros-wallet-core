@@ -8,8 +8,8 @@ use siros_explain::AllOf;
 use super::route::Route;
 use super::selection::{check, derived};
 use super::{
-    AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, Rejection, ResponseMember,
-    VpToken,
+    AuthorizationResponse, Built, Finding, Outcome, ParameterBreach, RecordIndex, Rejection,
+    ResponseMember, UndeclaredMember, VpToken,
 };
 use crate::authenticate::Authenticated;
 use crate::effects::{Fetch, Filled, Resource, Resources, Slots};
@@ -26,7 +26,7 @@ use crate::plugins::{
 use crate::refusal::Refused;
 use crate::rendering::Rendering;
 use crate::request::{ClientMetadata, Query, QueryIndex, Request};
-use crate::routing::{AnsweredContext, Carries, ModeName, QueryContext, Routing};
+use crate::routing::{AnsweredContext, Carries, EntryNaming, ModeName, QueryContext, Routing};
 use crate::rows::Env;
 use crate::session::Session;
 use crate::wallet::{Credential, Wallet};
@@ -242,7 +242,7 @@ impl<'p, H: CoreHost> Prepared<'p, H> {
                         PresentError::Fault(fault) => Outcome::Fault(fault),
                         PresentError::Failed { reason } => Outcome::NotPresented(reason),
                     })?;
-            vp_token.push(&record.query.id, presentation);
+            vp_token.push(record.query.id(), presentation);
         }
         let members = parameters(registry, routing, &session, host)?;
         let response = AuthorizationResponse::of(vp_token, routing.state(), members);
@@ -327,14 +327,14 @@ impl<'r, 'p: 'r, H: CoreHost> Read<'r, 'p, H> {
             .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
         let Placed { format, .. } = self
             .registry
-            .placed_host(&query.format)
+            .placed_host(query.format())
             .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
         let context = AnsweredContext::of(
             QueryContext::of(
                 request,
                 Some(self.mode),
-                request.entry_named().contains(picked.query),
-                self.metadata.vp_formats(&query.format).cloned(),
+                EntryNaming::of(request.entry_named(), picked.query),
+                self.metadata.vp_formats(query.format()).cloned(),
             ),
             self.mode,
         );
@@ -374,7 +374,7 @@ fn picked<'p, H: CoreHost>(
         .query(view.pick.query)
         .ok_or_else(|| Fault::new(FAULT, detail!("a record names no query")))?;
     let Placed { placement, .. } = registry
-        .placed_host(&query.format)
+        .placed_host(query.format())
         .ok_or_else(|| Fault::new(FAULT, detail!("a record's query has no format")))?;
     let transacted = match &candidate.bound {
         Some(TransactionBinding { transaction, bound }) => {
@@ -434,6 +434,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
         let mut findings = Vec::new();
         let mut presenting = Vec::new();
         for (position, record) in records.iter().enumerate() {
+            let position = RecordIndex(position);
             let credential = record.picked.credential;
             let Some(credential) = self.host.get::<dyn Platform>().usable(credential) else {
                 findings.push(Finding::Unusable { record: position });
@@ -459,7 +460,7 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
         &self,
         picked: &Picked<'_, H>,
         filled: &Filled<Resource>,
-        position: usize,
+        position: RecordIndex,
     ) -> Result<Option<Finding>, Fault> {
         let Some(transacted) = &picked.transacted else {
             return Ok(None);
@@ -564,12 +565,13 @@ impl<'a, 'r: 'a, H: CoreHost> Phase<'a, 'r, H> {
             .and_then(|placement| profile.members(placement))
             .unwrap_or(&[]);
         if let Some(extra) = members.names().find(|member| !declared.contains(member)) {
-            return Err(Fault::new(
+            return Err(Fault::caused(
                 FAULT,
                 detail!(
                     "a profile wrote {extra}, which it does not declare",
                     extra = extra.clone()
                 ),
+                UndeclaredMember,
             )
             .into());
         }

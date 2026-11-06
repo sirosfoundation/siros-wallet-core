@@ -390,7 +390,9 @@ fn typ(header: &ProtectedHeader) -> Result<(), Unreadable> {
     if header.typ_is(REQUEST_OBJECT) {
         Ok(())
     } else {
-        Err(Unreadable::Typ(header.typ().map(str::to_owned)))
+        Err(Unreadable::Typ(
+            header.typ().map(|typ| typ.as_str().to_owned()),
+        ))
     }
 }
 

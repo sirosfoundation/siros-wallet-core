@@ -1,7 +1,7 @@
 //! The consent's shape on the platform: sets of slots of alternative entries, in the shape
 //! the wallet chooses.
 
-use super::{CandidateIndex, Consent, Match, Pick};
+use super::{Candidate, CandidateIndex, Consent, Match, Pick};
 use crate::product::product;
 use crate::request::{Multiplicity, QueryIndex};
 use crate::rows::Choice;
@@ -48,37 +48,39 @@ fn entries(matched: &Match<'_>, query: QueryIndex, candidate: CandidateIndex) ->
 /// transaction with "none"; every fill appears exactly once.
 #[must_use]
 pub fn ways(matched: &Match<'_>, query: QueryIndex) -> Vec<Way> {
-    let candidates = matched.candidates(query);
-    let indices = (0..candidates.len()).map(CandidateIndex);
+    let candidates: Vec<(CandidateIndex, &Candidate<'_>)> =
+        matched.indexed_candidates(query).collect();
     let multiple = matched
         .accepted()
         .request()
         .query(query)
-        .is_some_and(|q| q.multiple == Multiplicity::Many);
+        .is_some_and(|q| q.multiple() == Multiplicity::Many);
     if !multiple {
         return vec![vec![
-            indices
-                .flat_map(|candidate| entries(matched, query, candidate))
+            candidates
+                .iter()
+                .flat_map(|(candidate, _)| entries(matched, query, *candidate))
                 .collect(),
         ]];
     }
-    let bearing = |k: usize| {
-        candidates
-            .get(k)
-            .is_some_and(|candidate| candidate.bound.is_some())
-    };
+    let bearing = |candidate: &Candidate<'_>| candidate.bound.is_some();
     let mut out = Vec::new();
-    for first in 0..candidates.len() {
-        let later = first + 1..candidates.len();
-        let plain: Vec<usize> = later.clone().filter(|k| !bearing(*k)).collect();
-        let joining: Vec<Option<usize>> = std::iter::once(None)
-            .chain(later.filter(|k| !bearing(first) && bearing(*k)).map(Some))
+    for (at, (first, held)) in candidates.iter().enumerate() {
+        let later = candidates.get(at + 1..).unwrap_or_default();
+        let plain = later.iter().filter(|(_, other)| !bearing(other));
+        let joining: Vec<Option<CandidateIndex>> = std::iter::once(None)
+            .chain(
+                later
+                    .iter()
+                    .filter(|(_, other)| !bearing(held) && bearing(other))
+                    .map(|(candidate, _)| Some(*candidate)),
+            )
             .collect();
         for joined in joining {
-            let mut way = vec![entries(matched, query, CandidateIndex(first))];
-            way.extend(joined.map(|k| entries(matched, query, CandidateIndex(k))));
-            for k in &plain {
-                let mut slot = entries(matched, query, CandidateIndex(*k));
+            let mut way = vec![entries(matched, query, *first)];
+            way.extend(joined.map(|candidate| entries(matched, query, candidate)));
+            for (candidate, _) in plain.clone() {
+                let mut slot = entries(matched, query, *candidate);
                 slot.push(Offered::Nothing);
                 way.push(slot);
             }
@@ -126,12 +128,12 @@ fn ordered(matched: &Match<'_>, option: crate::request::QuerySet) -> Vec<QueryIn
 #[must_use]
 pub fn flatten(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
     let per_slot: Vec<Vec<Way>> = consent
-        .slots
+        .slots()
         .iter()
         .map(|slot| {
             let mut branches: Vec<Way> = Vec::new();
             let mut merged: Option<usize> = None;
-            for option in &slot.options {
+            for option in slot.options() {
                 let contributions: Vec<Way> = if option.is_empty() {
                     vec![vec![vec![Offered::Nothing]]]
                 } else {
@@ -178,10 +180,10 @@ pub fn flatten(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
 #[must_use]
 pub fn each(matched: &Match<'_>, consent: &Consent) -> Vec<OfferSet> {
     let per_slot: Vec<Vec<Way>> = consent
-        .slots
+        .slots()
         .iter()
         .map(|slot| {
-            slot.options
+            slot.options()
                 .iter()
                 .flat_map(|option| -> Vec<Way> {
                     if option.is_empty() {

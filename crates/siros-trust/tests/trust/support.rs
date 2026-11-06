@@ -412,7 +412,11 @@ pub fn authorities(authorities: serde_json::Value) -> QueryAuthorities {
     let dcql = RawValue::from_string(serde_json::json!({ "credentials": [query] }).to_string());
     let dcql = dcql.unwrap();
     let query = Query::read_all(&dcql).unwrap().remove(0);
-    QueryAuthorities::of(&query.id.into_owned(), &query.trusted_authorities).unwrap()
+    QueryAuthorities::of(
+        &query.id().clone().into_owned(),
+        query.trusted_authorities(),
+    )
+    .unwrap()
 }
 
 /// A store record with one entry per `(type, value, certificates)`.

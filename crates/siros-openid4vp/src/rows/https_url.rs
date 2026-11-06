@@ -83,6 +83,17 @@ pub enum Shown {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnreachableUrl(Iri<String>);
 
+impl Shown {
+    /// The text as written.
+    #[must_use]
+    pub fn written(&self) -> &str {
+        match self {
+            Self::Url(url) => url.written(),
+            Self::Unreachable(unreachable) => unreachable.written(),
+        }
+    }
+}
+
 impl UnreachableUrl {
     /// The IRI as written.
     #[must_use]

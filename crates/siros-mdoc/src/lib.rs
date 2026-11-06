@@ -61,13 +61,18 @@ pub use transcript::{
 };
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
-use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_openid4vp::claims::kit::{
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
+};
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
-use siros_openid4vp::ids::{FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions};
+use siros_openid4vp::plugins::{
+    Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+};
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
+use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
@@ -75,7 +80,8 @@ use cose::Signer;
 use view::MdocMembers;
 
 /// The Credential Format Identifier.
-const ID: &str = "mso_mdoc";
+const NAME: FormatName = siros_explain::checked!(FormatName, "mso_mdoc");
+const ID: &str = NAME.as_str();
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "mdoc.fault");
@@ -180,8 +186,8 @@ impl Format for Mdoc {
 }
 
 impl ClaimsFormat for Mdoc {
-    fn id(&self) -> &'static str {
-        ID
+    fn id(&self) -> FormatName {
+        NAME
     }
 
     /// OpenID4VCI B.2: a claim's display entry holds its `name`.
@@ -214,27 +220,28 @@ impl ClaimsFormat for Mdoc {
 
     /// B.2.3: the credential's docType is `doctype_value`.
     /// The view's `type`, the doctype.
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault> {
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault> {
         view.get("type")
             .and_then(Node::as_str)
+            .and_then(|doctype| CredentialType::parse(doctype).ok())
             .map(|doctype| vec![doctype])
             .ok_or_else(|| Fault::new(FAULT, siros_openid4vp::detail!("a view without a doctype")))
     }
 
     /// B.2.3: `doctype_value` is the credential's doctype.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool {
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool {
         meta.get("doctype_value")
             .and_then(Node::as_str)
-            .is_some_and(|doctype| types == [doctype])
+            .is_some_and(|doctype| matches!(types, [kind] if *kind == *doctype))
     }
 
     /// A `DeviceSigned` data element the transaction writes answers a claim naming it, unless the
     /// claim asks for values: the element's value is made at presentation.
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool {
-        let [Step::Key(namespace), Step::Key(element)] = claim.path.steps() else {
+        let [Step::Key(namespace), Step::Key(element)] = claim.path().steps() else {
             return false;
         };
-        claim.values.is_none()
+        claim.values().is_none()
             && provided.iter().any(|member| {
                 matches!(member, Member::Element { namespace: n, element: e } if n == namespace && e == element)
             })
@@ -249,7 +256,7 @@ impl ClaimsFormat for Mdoc {
 
 impl ClaimsPlugin for Mdoc {
     /// None beyond the kit's.
-    fn rules(&self, _query: &Query<'_>, _named: bool) -> Vec<Refusal> {
+    fn rules(&self, _query: &Query<'_>, _naming: EntryNaming) -> Vec<Refusal> {
         Vec::new()
     }
 
@@ -268,11 +275,11 @@ impl ClaimsPlugin for Mdoc {
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
             Constraint {
-                member: "issuerauth_alg_values",
+                member: VpFormatsMember::new("issuerauth_alg_values"),
                 matched: identifiers(members.issuer_auth()?.identifiers()),
             },
             Constraint {
-                member: "deviceauth_alg_values",
+                member: VpFormatsMember::new("deviceauth_alg_values"),
                 matched: identifiers(device.identifiers().into_iter().chain(mac).collect()),
             },
         ])
@@ -285,11 +292,18 @@ impl ClaimsPlugin for Mdoc {
         _query: &Query<'_>,
         view: &ClaimsView<'_>,
         members: &[Member],
-    ) -> Result<bool, Fault> {
+    ) -> Result<Carriage, Fault> {
         let authorizations = MdocMembers::of(view).key_authorizations()?;
-        Ok(members
-            .iter()
-            .all(|member| authorizations.authorizes(member)))
+        Ok(
+            if members
+                .iter()
+                .all(|member| authorizations.authorizes(member))
+            {
+                Carriage::Carried
+            } else {
+                Carriage::Uncarried
+            },
+        )
     }
 }
 

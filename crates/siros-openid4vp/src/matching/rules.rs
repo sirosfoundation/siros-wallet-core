@@ -10,7 +10,7 @@ use crate::plugins::registry::{Catalog, Placed};
 use crate::plugins::{Build, Format, FormatQuery, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
-use crate::routing::{QueryContext, RoutedMode, VerifierMetadata};
+use crate::routing::{EntryNaming, QueryContext, RoutedMode, VerifierMetadata};
 use crate::wallet_metadata::Placement;
 
 /// The core's rules C1 to C8, each with its code.
@@ -22,7 +22,7 @@ pub enum CoreRule {
     #[explain(id = "c1")]
     NoProfile {
         /// The entry's position.
-        entry: usize,
+        entry: EntryIndex,
         /// Its type.
         kind: String,
     },
@@ -31,7 +31,7 @@ pub enum CoreRule {
     #[explain(id = "c2")]
     CredentialIds {
         /// The entry's position.
-        entry: usize,
+        entry: EntryIndex,
         /// Its `credential_ids`.
         ids: ReprList,
     },
@@ -204,10 +204,12 @@ impl<'q> Accepted<'q> {
 
     /// The query's options as its format parsed them; empty for a format without a plug-in.
     #[must_use]
-    pub fn options(&self, query: QueryIndex) -> &[crate::plugins::OptionItems] {
+    pub fn options(&self, query: QueryIndex) -> &crate::plugins::Options {
         self.plan(query)
             .and_then(|plan| plan.formatted.as_ref())
-            .map_or(&[], |formatted| formatted.query.options())
+            .map_or(crate::plugins::Options::NONE, |formatted| {
+                formatted.query.options()
+            })
     }
 }
 
@@ -222,12 +224,12 @@ impl<'q> Formatted<'q> {
         index: QueryIndex,
         query: &'q crate::request::Query<'q>,
     ) -> Option<Result<Self, AllOf<Refusal>>> {
-        let Placed { format, placement } = registry.placed(&query.format)?;
+        let Placed { format, placement } = registry.placed(query.format())?;
         let context = QueryContext::of(
             request,
             mode,
-            request.entry_named().contains(index),
-            metadata.vp_formats(&query.format).cloned(),
+            EntryNaming::of(request.entry_named(), index),
+            metadata.vp_formats(query.format()).cloned(),
         );
         Some(format.query(query, context).map(|parsed| Self {
             format,
@@ -244,7 +246,7 @@ fn one_transaction(request: &Request<'_>) -> Option<Refusal> {
     request
         .alternatives()
         .iter()
-        .any(|alternative| alternative.set.intersection(named).len() > 1)
+        .any(|alternative| alternative.set().intersection(named).len() > 1)
         .then(|| Refusal::new(CoreRule::TwoTransactions))
 }
 
@@ -270,7 +272,7 @@ fn transactions(
         }
         if profiles.len() > 1 {
             refusals.push(Refusal::new(CoreRule::TwoProfiles {
-                query: query.id.to_string(),
+                query: query.id().to_string(),
             }));
         }
         transactions.push(match profiles.first() {
@@ -293,7 +295,7 @@ fn expected_origin(request: &Request<'_>) -> Option<Refusal> {
     let named = request
         .expected_origins()
         .iter()
-        .any(|expected| expected.as_ref() == origin.as_str());
+        .any(|expected| expected.as_str() == origin.as_str());
     (request.request_object().is_some() && !named).then(|| {
         Refusal::new(CoreRule::ExpectedOrigins {
             expected: ReprList::strings(request.expected_origins()),
@@ -307,7 +309,6 @@ fn expected_origin(request: &Request<'_>) -> Option<Refusal> {
 fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
     let mut refusals = Vec::new();
     for (k, entry) in request.indexed_entries() {
-        let k = k.get();
         if registry.profile(entry.kind()).is_none() {
             refusals.push(Refusal::new(CoreRule::NoProfile {
                 entry: k,
@@ -315,10 +316,12 @@ fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
             }));
         }
         let ids = entry.credential_ids();
-        if !ids
-            .iter()
-            .all(|id| request.queries().iter().any(|query| query.id == **id))
-        {
+        if !ids.iter().all(|id| {
+            request
+                .queries()
+                .iter()
+                .any(|query| query.id().as_str() == id.as_str())
+        }) {
             refusals.push(Refusal::new(CoreRule::CredentialIds {
                 entry: k,
                 ids: ReprList::strings(ids),

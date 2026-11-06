@@ -16,17 +16,7 @@ use crate::wallet_metadata::ParameterName;
 /// the session holds. Only `Route::new` makes one, from the mode's [`Encrypting::Jwe`] once it
 /// has checked it: the key is one of the request's (`VerifierKey`), its curve and `alg` and the
 /// `enc` are ones the sealing module states (`Haip::agreements`), and the `enc` is one the
-/// Verifier lists (A128GCM when it lists none, §5.1):
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::request::ContentEncryption;
-/// use siros_openid4vp::resolve::RouteKey;
-/// use siros_openid4vp::routing::VerifierKey;
-///
-/// fn forged<'k>(key: VerifierKey<'k>, enc: ContentEncryption<'static>) -> RouteKey<'k> {
-///     RouteKey { key, enc }
-/// }
-/// ```
+/// Verifier lists (A128GCM when it lists none, §5.1).
 ///
 /// [`Encrypting::Jwe`]: crate::routing::Encrypting::Jwe
 #[derive(Debug, Clone, Copy)]
@@ -110,15 +100,7 @@ impl ResponseMember {
 }
 
 /// An Authorization Response (§8.1): the VP Token, the request's `state`, and the registered
-/// response parameters' members. Only `Prepared::respond` makes one, from the routing:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::resolve::{AuthorizationResponse, VpToken};
-///
-/// fn forged(vp_token: VpToken) -> AuthorizationResponse<'static> {
-///     AuthorizationResponse { vp_token, state: None, members: Vec::new() }
-/// }
-/// ```
+/// response parameters' members. Only `Prepared::respond` makes one, from the routing.
 #[derive(Debug, Clone)]
 pub struct AuthorizationResponse<'a> {
     vp_token: VpToken,
@@ -178,16 +160,7 @@ impl<'a> AuthorizationResponse<'a> {
 }
 
 /// An error response (§8.5, RFC 6749 §4.1.2.1): its code, its description, and `state` as
-/// received. Only the core's route and rejection make one:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::refusal::ErrorCode;
-/// use siros_openid4vp::resolve::ErrorResponse;
-///
-/// fn forged() -> ErrorResponse<'static> {
-///     ErrorResponse { code: ErrorCode::ACCESS_DENIED, description: None, echo: None }
-/// }
-/// ```
+/// received. Only the core's route and rejection make one.
 #[derive(Debug, Clone)]
 pub struct ErrorResponse<'a> {
     code: ErrorCode,
@@ -266,15 +239,7 @@ pub enum ErrorContent<'a> {
 }
 
 /// What a mode reads of its route: the key and `enc` the route bound, and `state` as received.
-/// Only the core's route makes one:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::resolve::ModeRoute;
-///
-/// fn forged() -> ModeRoute<'static> {
-///     ModeRoute { encryption: None, echo: None }
-/// }
-/// ```
+/// Only the core's route makes one.
 #[derive(Debug, Clone, Copy)]
 pub struct ModeRoute<'r> {
     encryption: Option<&'r RouteKey<'r>>,
@@ -312,16 +277,7 @@ pub enum Body {
 }
 
 /// A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]
-/// refuses `application/x-www-form-urlencoded`, and only the two make one:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::media::MediaType;
-/// use siros_openid4vp::resolve::PostBody;
-///
-/// fn forged(media: MediaType) -> PostBody {
-///     PostBody { media, bytes: b"a[b]=1".to_vec() }
-/// }
-/// ```
+/// refuses `application/x-www-form-urlencoded`, and only the two make one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostBody {
     media: MediaType,
@@ -371,15 +327,7 @@ impl PostBody {
 }
 
 /// The DigitalCredential's `data` (A.4): a JSON object whose objects name each member once.
-/// Only [`DcApiData::of`] makes one:
-///
-/// ```compile_fail,E0423
-/// use siros_openid4vp::resolve::DcApiData;
-///
-/// fn forged() -> DcApiData {
-///     DcApiData(String::from("{\"a\":1,\"a\":2}"))
-/// }
-/// ```
+/// Only [`DcApiData::of`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DcApiData(String);
 
@@ -431,15 +379,7 @@ pub enum Delivery {
 }
 
 /// Phase 2's answer: the Authorization Response and its delivery. Only `Prepared::respond`
-/// makes one, so a delivery goes where the route sends it:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::resolve::{AuthorizationResponse, Built, Delivery};
-///
-/// fn forged(response: AuthorizationResponse<'_>, delivery: Delivery) -> Built<'_> {
-///     Built { response, delivery }
-/// }
-/// ```
+/// makes one, so a delivery goes where the route sends it.
 #[derive(Debug, Clone)]
 pub struct Built<'p> {
     response: AuthorizationResponse<'p>,

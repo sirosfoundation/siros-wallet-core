@@ -91,8 +91,9 @@ use siros_openid4vp::detail;
 use siros_openid4vp::host::Slot;
 use siros_openid4vp::ids::{InvalidId, TypePrefix};
 use siros_openid4vp::plugins::{
-    Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
-    HostedProfile, Member, NoCandidate, Profile, ProfileHandle, RegistryBuilder,
+    Attested, AttestedName, AttestedText, Binding, Bound, BoundEntries, Build, Carriage, Exclude,
+    Fault, FaultDomain, HostedProfile, Member, NoCandidate, Profile, ProfileHandle,
+    RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Agreements, Entry, EntryIndex, Request};
@@ -535,9 +536,15 @@ fn bound(rendered: Rendered, offered: &[EntryIndex], entry: EntryIndex) -> Resul
         payment: payment_rows,
     } = view;
     let selected = Selected::new(ModuleId::Defined(module), locale.clone());
-    let mut attested = vec![("display_locale".to_owned(), locale.to_string())];
+    let mut attested = vec![(
+        AttestedName::new("display_locale"),
+        AttestedText::new(locale.to_string()),
+    )];
     if let Source::Stored { integrity } = source {
-        attested.push(("metadata_integrity".to_owned(), integrity));
+        attested.push((
+            AttestedName::new("metadata_integrity"),
+            AttestedText::new(integrity),
+        ));
     }
     let overlay = match (payment_rows, payment) {
         (Some(heads), Some((merchant, amount))) => {

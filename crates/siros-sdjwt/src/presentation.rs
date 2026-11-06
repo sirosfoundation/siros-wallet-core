@@ -105,7 +105,10 @@ fn payload<'p>(
     let id = || credential.id.to_string();
     let mut claims: Vec<(Cow<'p, str>, Node<'p>)> = vec![
         ("iat".into(), Node::integer(i128::from(platform.now().0))),
-        ("aud".into(), text(presenting.session.audience())),
+        (
+            "aud".into(),
+            text(presenting.session.audience().as_str().to_owned()),
+        ),
         (
             "nonce".into(),
             text(presenting.session.nonce().as_str().to_owned()),
@@ -213,7 +216,7 @@ fn disclosure(path: &ConcretePath<'_>, value: &Node<'_>) -> Result<String, Fault
         .collect();
     let name = match path.last() {
         Some(Concrete::Key(key)) => text(key.to_string()),
-        Some(Concrete::Index(at)) => Node::integer(*at as i128),
+        Some(Concrete::Index(at)) => Node::integer(at.position() as i128),
         None => {
             return Err(Fault::new(
                 FAULT,

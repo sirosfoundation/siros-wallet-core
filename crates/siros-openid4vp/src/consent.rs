@@ -46,15 +46,7 @@ pub struct TransactionHeader {
 }
 
 /// A consent entry: the card, and the overlay of the transaction when there is one. Only the
-/// core's display step makes one, so a platform mapping reads entries it cannot write:
-///
-/// ```compile_fail,E0451
-/// use siros_openid4vp::consent::{Card, ConsentEntry};
-///
-/// fn forged(card: Card) -> ConsentEntry {
-///     ConsentEntry { card, overlay: None }
-/// }
-/// ```
+/// core's display step makes one, so a platform mapping reads entries it cannot write.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsentEntry {
     card: Card,

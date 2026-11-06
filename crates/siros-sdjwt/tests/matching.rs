@@ -81,11 +81,11 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
                 .map(|c| {
                     (
                         c.credential.id.to_string(),
-                        c.options.iter().map(|o| o.0).collect(),
+                        c.options.iter().map(|o| o.position()).collect(),
                     )
                 })
                 .collect();
-            (query.id.to_string(), found)
+            (query.id().to_string(), found)
         })
         .collect();
     let excluded = matched
@@ -93,7 +93,7 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
         .iter()
         .map(|x| {
             (
-                request.query(x.query).expect("query").id.to_string(),
+                request.query(x.query).expect("query").id().to_string(),
                 x.credential.id.to_string(),
                 x.exclude.clause().to_string(),
             )
@@ -232,7 +232,8 @@ fn vct_values_match_a_type_the_credential_inherits_from() {
     let format = SdJwtVc::new().expect("format");
     let credential = card.credential().expect("credential");
     let additions = format.additions(&credential).expect("additions");
-    assert_eq!(additions.types(), [own, parent, root]);
+    let types: Vec<&str> = additions.types().iter().map(|kind| kind.as_str()).collect();
+    assert_eq!(types, [own, parent, root]);
     for (vct, want) in [(own, true), (root, true), ("https://other.example", false)] {
         let text = parameters(
             &format!(
@@ -448,6 +449,7 @@ fn a_key_binding_jwt_carries_claims_alone() {
                 query
                     .carries(&held.credential().expect("credential"), &members)
                     .expect("carries")
+                    == siros_openid4vp::plugins::Carriage::Carried
             },
         )
         .expect("the query")
@@ -503,13 +505,13 @@ fn shape(dcql: &str, held: &[Held]) -> Vec<Vec<Vec<String>>> {
                             Offered::Nothing => "none".to_owned(),
                             Offered::Pick(pick) => format!(
                                 "{} {} {}",
-                                request.query(pick.query).expect("query").id,
+                                request.query(pick.query).expect("query").id(),
                                 matched
                                     .candidate(pick.query, pick.candidate)
                                     .expect("candidate")
                                     .credential
                                     .id,
-                                pick.option.0
+                                pick.option.position()
                             ),
                         })
                         .collect()

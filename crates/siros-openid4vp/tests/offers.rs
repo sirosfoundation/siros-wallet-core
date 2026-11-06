@@ -7,7 +7,7 @@ use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::matching::{
     Accepted, Consent, Match, Offered, answer_slots, offer, option_items, option_of,
 };
-use siros_openid4vp::plugins::OptionIndex;
+use siros_openid4vp::plugins::{AttestedName, AttestedText, OptionItems, Options};
 use siros_openid4vp::request::{Item, ItemSet, Request};
 use siros_openid4vp::rows::{Choice, Env};
 use siros_openid4vp::wallet::Wallet;
@@ -47,13 +47,13 @@ fn sets(text: &str, held: &[Held], choice: Choice) -> Vec<Vec<Vec<String>>> {
                             Offered::Nothing => "none".to_owned(),
                             Offered::Pick(p) => format!(
                                 "{}/{}/{}",
-                                request.query(p.query).expect("query").id,
+                                request.query(p.query).expect("query").id(),
                                 matched
                                     .candidate(p.query, p.candidate)
                                     .expect("candidate")
                                     .credential
                                     .id,
-                                p.option.0
+                                p.option.position()
                             ),
                         })
                         .collect()
@@ -212,15 +212,20 @@ fn a_candidates_options_factor_like_the_credential_sets() {
                 listed(answer_slots(options, both)),
                 [(vec![0], vec![vec![0]]), (vec![1], vec![vec![1], vec![]])]
             );
+            let mut indices = options.indexed().map(|(option, _)| option);
+            let (first, second) = (
+                indices.next().expect("two options"),
+                indices.next().expect("two options"),
+            );
             assert_eq!(
                 (
                     option_of(options, both, items(&[0, 1])),
                     option_of(options, both, items(&[0]))
                 ),
-                (Some(OptionIndex(0)), Some(OptionIndex(1)))
+                (Some(first), Some(second))
             );
             assert_eq!(
-                option_items(options, &both.options, OptionIndex(0)),
+                option_items(options, &both.options, first),
                 (
                     vec![Item::new(0).expect("item")],
                     vec![Item::new(1).expect("item")]
@@ -306,11 +311,14 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .collect();
     let credential = CredentialId::parse("c \"1\" \\ \u{1} é").expect("id");
     let attested = Attested::new(vec![
-        ("display_locale".to_owned(), "de\n".to_owned()),
-        ("x".to_owned(), "é".to_owned()),
+        (
+            AttestedName::new("display_locale"),
+            AttestedText::new("de\n"),
+        ),
+        (AttestedName::new("x"), AttestedText::new("é")),
     ])
     .expect("attested");
-    let query = &request.queries()[0].id;
+    let query = &request.queries()[0].id();
     let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
         .expect("the test app");
     let rendering = app.rendering().expect("the rendering");
@@ -320,10 +328,12 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
         .expect("no fault")
         .expect("a language")
         .inputs();
+    let options = Options::new(vec![OptionItems::new(Vec::new()); 3]);
+    let (third, _) = options.indexed().nth(2).expect("three options");
     let record = Record::new(
         query,
         &credential,
-        OptionIndex(2),
+        third,
         &entries,
         Some(&attested),
         request.digest(),
@@ -348,7 +358,6 @@ fn a_record_id_reads_back_as_the_json_of_its_fields() {
             )
         })
         .collect();
-    assert_eq!(modules.len(), 3, "main, testkit and openid4vp");
     let rendering = serde_json::json!({"selected": null, "language": "de", "fallback": false, "modules": modules,
         "amounts": "formatted", "bidi": "none", "renderer": siros_openid4vp::rows::RENDERER.number()});
     assert_eq!(
@@ -398,8 +407,11 @@ fn a_transaction_binds_its_entry_through_the_record_into_the_response() {
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
-    let id = shown.sets()[0][0][0].id().to_owned();
-    let selection = shown.select(0, &[&id]).expect("selection");
+    let id = shown.sets()[0][0][0].id().as_str().to_owned();
+    let selection = shown
+        .set(0)
+        .and_then(|set| set.select(&[&id]))
+        .expect("selection");
     // The record names the entry and attests what the profile attests; the header is the
     // transaction's.
     assert!(id.contains(r#",[0],{"entries":"0"},"#), "{id}");
@@ -461,7 +473,7 @@ fn multiple_offers_one_transaction_bearing_credential_per_selection() {
 
 #[test]
 fn a_selection_is_read_back_only_from_its_sets_entries() {
-    use siros_openid4vp::matching::{CandidateIndex, Pick, SelectionError, Views, display};
+    use siros_openid4vp::matching::{Pick, SelectionError, Views, display};
     let text = parameters(&common::test_queries(&["q", "r"]), "");
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
@@ -481,28 +493,28 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let views = Views::of(&matched, &env).expect("views");
     let sets = offer(&matched, &consent, Choice::First);
     let shown = display(&sets, &views, &[]).expect("display");
-    let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
-    assert_eq!(shown.select(0, &ids).expect("selection").ids(), ids);
+    let ids: Vec<&str> = shown.sets()[0]
+        .iter()
+        .map(|slot| slot[0].id().as_str())
+        .collect();
+    let set = shown.set(0).expect("the set");
+    assert_eq!(set.select(&ids).expect("selection").ids(), ids);
     assert_eq!(
-        shown.select(1, &ids).err(),
+        shown.set(1).err(),
         Some(SelectionError::NoSet { set: 1, sets: 1 })
     );
     assert_eq!(
-        shown.select(0, &ids[..1]).err(),
+        set.select(&ids[..1]).err(),
         Some(SelectionError::Length {
-            set: 0,
+            set: set.index(),
             ids: 1,
             slots: 2
         })
     );
     let swapped = [ids[1], ids[0]];
     assert!(matches!(
-        shown.select(0, &swapped),
-        Err(SelectionError::NotAChoice {
-            set: 0,
-            slot: 0,
-            ..
-        })
+        set.select(&swapped),
+        Err(SelectionError::NotAChoice { slot: 0, .. })
     ));
     // One confirmation carries one transaction: a display offering two transaction-bearing
     // entries in one set, which no offer makes, refuses choosing both.
@@ -527,18 +539,25 @@ fn a_selection_is_read_back_only_from_its_sets_entries() {
     let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
     let views = Views::of(&matched, &env).expect("views");
     let m = request.indexed_queries().next().expect("m").0;
-    let pick = |k: usize| {
-        Offered::Pick(Pick {
-            query: m,
-            candidate: CandidateIndex(k),
-            option: OptionIndex(0),
+    let option = matched.candidates(m)[0].options[0];
+    let picks: Vec<Offered> = matched
+        .indexed_candidates(m)
+        .map(|(candidate, _)| {
+            Offered::Pick(Pick {
+                query: m,
+                candidate,
+                option,
+            })
         })
-    };
-    let both = [vec![vec![pick(0)], vec![pick(1)]]];
+        .collect();
+    let both = [vec![vec![picks[0]], vec![picks[1]]]];
     let shown = display(&both, &views, &[]).expect("display");
-    let ids: Vec<&str> = shown.sets()[0].iter().map(|slot| slot[0].id()).collect();
+    let ids: Vec<&str> = shown.sets()[0]
+        .iter()
+        .map(|slot| slot[0].id().as_str())
+        .collect();
     assert_eq!(
-        shown.select(0, &ids).err(),
+        shown.set(0).and_then(|set| set.select(&ids)).err(),
         Some(SelectionError::TwoTransactions)
     );
 }

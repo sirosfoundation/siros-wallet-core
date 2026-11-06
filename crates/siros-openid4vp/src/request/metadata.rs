@@ -4,7 +4,7 @@
 use serde_json::value::RawValue;
 use siros_explain::Explain;
 
-use crate::ids::FormatId;
+use crate::ids::{FormatId, KeyId};
 use crate::json::{JsonError, Node, Object};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -259,14 +259,26 @@ impl Point {
     }
 }
 
+/// A JWK's `kty` (RFC 7517 §4.1), as the key wrote it. Only [`AgreeableKey::of`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KeyType<'k>(&'k str);
+
+impl<'k> KeyType<'k> {
+    /// The text.
+    #[must_use]
+    pub const fn as_str(self) -> &'k str {
+        self.0
+    }
+}
+
 /// A public key the wallet can agree a key with: the JWK, its `kid`, its curve, its point, and
 /// its `alg` when present. Only [`AgreeableKey::of`] makes one, from a JWK whose `use`, when
 /// present, is `enc`.
 #[derive(Debug, Clone)]
 pub struct AgreeableKey<'k> {
     jwk: &'k Node<'k>,
-    kty: &'k str,
-    kid: &'k str,
+    kty: KeyType<'k>,
+    kid: KeyId<'k>,
     curve: Curve<'k>,
     point: Point,
     alg: Option<KeyAgreement<'k>>,
@@ -298,8 +310,8 @@ impl<'k> AgreeableKey<'k> {
         };
         usable.then_some(Self {
             jwk,
-            kty,
-            kid: member("kid")?,
+            kty: KeyType(kty),
+            kid: KeyId::parse(member("kid")?).ok()?,
             curve,
             point: Point { x, y },
             alg,
@@ -314,14 +326,14 @@ impl<'k> AgreeableKey<'k> {
 
     /// The key type, `kty`.
     #[must_use]
-    pub const fn kty(&self) -> &'k str {
+    pub const fn kty(&self) -> KeyType<'k> {
         self.kty
     }
 
     /// The `kid`.
     #[must_use]
-    pub const fn kid(&self) -> &'k str {
-        self.kid
+    pub const fn kid(&self) -> &KeyId<'k> {
+        &self.kid
     }
 
     /// The curve.

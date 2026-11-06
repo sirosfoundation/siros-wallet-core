@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use crate::value::{FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_explain::RequestText;
-use siros_openid4vp::claims::{ClaimPath, Concrete, ConcretePath, Step};
+use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::{Node, Object};
 
 use crate::entry::Payload;
@@ -216,7 +216,7 @@ fn children<'n>(node: &'n Node<'n>) -> Vec<(Concrete<'n>, &'n Node<'n>)> {
         Node::Array(items) => items
             .iter()
             .enumerate()
-            .map(|(k, item)| (Concrete::Index(k), item))
+            .map(|(k, item)| (Concrete::Index(ArrayIndex::new(k)), item))
             .collect(),
         _ => Vec::new(),
     }
@@ -327,8 +327,8 @@ fn concrete<'m>(steps: &[Step<'m>]) -> Option<ConcretePath<'m>> {
         .iter()
         .map(|step| match step {
             Step::Key(key) => Some(Concrete::Key(key.clone())),
-            Step::Index(index) => index.map(Concrete::Index),
-            Step::All => None,
+            Step::Index(index) => Some(Concrete::Index(*index)),
+            Step::Beyond | Step::All => None,
         })
         .collect()
 }
@@ -384,7 +384,7 @@ fn expand<'m>(
                         .enumerate()
                         .map(|(k, step)| {
                             if k == position {
-                                Step::Index(Some(element))
+                                Step::Index(ArrayIndex::new(element))
                             } else {
                                 step.clone()
                             }

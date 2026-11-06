@@ -115,7 +115,7 @@ impl Haip for TestHaip {
 
     /// ES256 under a P-256 JWK, by p256.
     fn verify(&self, key: &VerificationKey, signed: &Signed<'_>) -> Result<(), SignatureInvalid> {
-        (signed.header().alg() == JwsAlgorithm::ES256.as_str()
+        (signed.header().alg().as_str() == JwsAlgorithm::ES256.as_str()
             && crate::jose::verifies(key, signed.signing_input(), signed.signature().as_bytes()))
         .then_some(())
         .ok_or(SignatureInvalid)
@@ -156,7 +156,7 @@ impl Haip for TestHaip {
             ),
             (
                 Cow::Borrowed("kid"),
-                Node::String(Cow::Owned(key.kid().to_owned())),
+                Node::String(Cow::Owned(key.kid().to_string())),
             ),
         ])
         .map_err(|e| Fault::caused(FAULT, detail!("a JWE header"), e))?;
@@ -200,7 +200,7 @@ impl Haip for JweHaip {
     ) -> Result<SealedJwe, Fault> {
         let jwe = crate::jose::seal(
             key.jwk(),
-            Some(key.kid()),
+            Some(key.kid().as_str()),
             enc.as_str(),
             crate::jose::Zip::None,
             plaintext,

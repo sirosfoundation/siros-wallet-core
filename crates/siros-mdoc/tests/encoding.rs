@@ -20,7 +20,7 @@ use siros_openid4vp::host::{
 };
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{Fault, Members, OptionIndex};
+use siros_openid4vp::plugins::{Fault, Members};
 use siros_openid4vp::request::{AgreeableKey, ContentEncryption};
 use siros_testkit::fixtures::{
     B26_THUMBPRINT, Held as Registered, NONCE, ORIGIN, parameters, present_option, unsigned,
@@ -163,7 +163,7 @@ where
             let presentation = present_option(
                 parsed.as_ref(),
                 Usable::checked(&credential),
-                OptionIndex(0),
+                0,
                 &members,
                 phase_two.session,
                 phase_two.host,

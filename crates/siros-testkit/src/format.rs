@@ -16,8 +16,8 @@ use siros_openid4vp::host::{
 use siros_openid4vp::ids::{FormatId, InvalidId, QueryId};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::plugins::{
-    Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
-    OptionIndex, OptionItems, Shown, ViewAdditions, ViewTypes,
+    Carriage, Exclude, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members,
+    NoCandidate, OptionIndex, OptionItems, Options, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::{Quoted, Refusal};
 use siros_openid4vp::request::{AgreeableKey, Item, Query};
@@ -169,7 +169,7 @@ impl<H> FormatHost<H> for TestFormat {
 impl<'q> TestQuery<'q> {
     fn parse(query: &'q Query<'q>, supported: Option<Node<'q>>) -> Result<Self, AllOf<Refusal>> {
         let refuse = |rule: FormatRule| AllOf::one(Refusal::new(rule));
-        let id = || query.id.to_string();
+        let id = || query.id().to_string();
         let algs_ok = supported.as_ref().is_none_or(|value| {
             value.as_object().is_some_and(|object| {
                 object
@@ -180,7 +180,7 @@ impl<'q> TestQuery<'q> {
         if !algs_ok {
             return Err(refuse(FormatRule::Algs { query: id() }));
         }
-        let object = Node::from_raw(query.object)
+        let object = Node::from_raw(query.object())
             .map_err(|cause| refuse(FormatRule::Json { query: id(), cause }))?;
         let options = match object.get("options") {
             None => vec![OptionItems::new(Vec::new())],
@@ -190,8 +190,8 @@ impl<'q> TestQuery<'q> {
                 .ok_or_else(|| refuse(FormatRule::Options { query: id() }))?,
         };
         Ok(Self {
-            id: query.id.clone(),
-            options,
+            id: query.id().clone(),
+            options: Options::new(options),
             supported,
         })
     }
@@ -213,7 +213,7 @@ fn option(node: &Node<'_>) -> Option<OptionItems> {
 
 struct TestQuery<'q> {
     id: QueryId<'q>,
-    options: Vec<OptionItems>,
+    options: Options,
     supported: Option<Node<'q>>,
 }
 
@@ -225,7 +225,7 @@ fn view<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
 }
 
 impl FormatQuery for TestQuery<'_> {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         &self.options
     }
 
@@ -297,16 +297,18 @@ impl FormatQuery for TestQuery<'_> {
                     .any(|o| matches!(o, Node::Number(n) if n.as_u64() == Some(k as u64)))
             })
         };
-        Ok((0..self.options.len())
-            .filter(|k| listed(*k))
-            .map(OptionIndex)
+        Ok(self
+            .options
+            .indexed()
+            .map(|(option, _)| option)
+            .filter(|option| listed(option.position()))
             .collect())
     }
 
-    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<bool, Fault> {
+    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<Carriage, Fault> {
         match view(credential)?.get("carries") {
-            None => Ok(true),
-            Some(Node::Bool(carries)) => Ok(*carries),
+            None | Some(Node::Bool(true)) => Ok(Carriage::Carried),
+            Some(Node::Bool(false)) => Ok(Carriage::Uncarried),
             Some(_) => Err(Fault::new(
                 FAULT,
                 detail!(
@@ -399,7 +401,7 @@ impl TestOption<'_> {
         session: &Session<'_>,
     ) -> Result<Presentation, Fault> {
         let mut proof = vec![
-            format!("\"aud\":{}", quote(&session.audience())),
+            format!("\"aud\":{}", quote(session.audience().as_str())),
             format!("\"nonce\":{}", quote(session.nonce().as_str())),
         ];
         for (member, value) in members.iter() {
@@ -442,7 +444,7 @@ impl TestOption<'_> {
         let text = format!(
             "{{\"credential\":{},\"option\":{},\"proof\":{{{}}}}}",
             quote(self.credential.credential().id.as_str()),
-            self.option.0,
+            self.option.position(),
             proof.join(",")
         );
         Presentation::object(&text)

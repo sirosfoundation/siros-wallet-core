@@ -7,20 +7,54 @@
 pub mod kit;
 
 use std::borrow::Cow;
+use std::fmt;
 
 use siros_explain::Explain;
 
+use crate::ids::ClaimId;
 use crate::json::Node;
-use crate::plugins::OptionItems;
+use crate::plugins::{OptionItems, Options};
 use crate::request::Item;
+
+/// An index into an array (§7.1).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ArrayIndex(usize);
+
+impl ArrayIndex {
+    /// The index.
+    #[must_use]
+    pub const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    /// The position in the array.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for ArrayIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Display for ArrayIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 /// One component of a claims path pointer (§7.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step<'a> {
     /// A member name of an object.
     Key(Cow<'a, str>),
-    /// An index into an array; `None` for one past every array.
-    Index(Option<usize>),
+    /// An index into an array.
+    Index(ArrayIndex),
+    /// An index past every array: an integer no `usize` holds. It selects nothing.
+    Beyond,
     /// Every element of an array (`null`).
     All,
 }
@@ -35,7 +69,7 @@ pub enum Concrete<'a> {
     /// A member name.
     Key(Cow<'a, str>),
     /// An array index.
-    Index(usize),
+    Index(ArrayIndex),
 }
 
 impl Concrete<'_> {
@@ -77,7 +111,7 @@ impl<'a> Step<'a> {
         match (self, part) {
             (Step::All, Concrete::Index(_)) => true,
             (Step::Key(key), Concrete::Key(name)) => key == name,
-            (Step::Index(Some(index)), Concrete::Index(at)) => index == at,
+            (Step::Index(index), Concrete::Index(at)) => index == at,
             _ => false,
         }
     }
@@ -109,11 +143,12 @@ impl<'a> ClaimPath<'a> {
                     if digits.starts_with('-') && digits != "-0" {
                         return None;
                     }
-                    Some(Step::Index(
+                    Some(
                         number
                             .as_u64()
-                            .and_then(|index| usize::try_from(index).ok()),
-                    ))
+                            .and_then(|index| usize::try_from(index).ok())
+                            .map_or(Step::Beyond, |index| Step::Index(ArrayIndex(index))),
+                    )
                 }
                 _ => None,
             })
@@ -156,20 +191,20 @@ impl<'a> ClaimPath<'a> {
                     }
                     Step::Index(index) => {
                         let items = value.as_array().ok_or(refused("an index"))?;
-                        if let Some((at, item)) =
-                            index.and_then(|at| items.get(at).map(|item| (at, item)))
-                        {
-                            next.push((extended(&path, Concrete::Index(at)), item));
+                        if let Some(item) = items.get(index.0) {
+                            next.push((extended(&path, Concrete::Index(*index)), item));
+                        }
+                    }
+                    Step::Beyond => {
+                        if value.as_array().is_none() {
+                            return Err(refused("an index"));
                         }
                     }
                     Step::All => {
                         let items = value.as_array().ok_or(refused("null"))?;
-                        next.extend(
-                            items
-                                .iter()
-                                .enumerate()
-                                .map(|(at, item)| (extended(&path, Concrete::Index(at)), item)),
-                        );
+                        next.extend(items.iter().enumerate().map(|(at, item)| {
+                            (extended(&path, Concrete::Index(ArrayIndex(at))), item)
+                        }));
                     }
                 }
             }
@@ -199,15 +234,30 @@ fn extended<'n>(path: &[Concrete<'n>], step: Concrete<'n>) -> ConcretePath<'n> {
 /// A claims query (§6.3).
 #[derive(Debug, Clone)]
 pub struct Claim<'a> {
-    /// The `id`, required with `claim_sets`.
-    pub id: Option<Cow<'a, str>>,
-    /// The `path`.
-    pub path: ClaimPath<'a>,
-    /// The `values`, one of which a selected element must equal.
-    pub values: Option<Vec<Node<'a>>>,
+    id: Option<ClaimId<'a>>,
+    path: ClaimPath<'a>,
+    values: Option<Vec<Node<'a>>>,
 }
 
 impl<'a> Claim<'a> {
+    /// The `id`, present on every claim of a query with `claim_sets`.
+    #[must_use]
+    pub const fn id(&self) -> Option<&ClaimId<'a>> {
+        self.id.as_ref()
+    }
+
+    /// The `path`.
+    #[must_use]
+    pub const fn path(&self) -> &ClaimPath<'a> {
+        &self.path
+    }
+
+    /// The `values`, at least one, one of which a selected element must equal.
+    #[must_use]
+    pub fn values(&self) -> Option<&[Node<'a>]> {
+        self.values.as_deref()
+    }
+
     /// §6.3: the path selects at least one element of the credential's values, and with
     /// `values` one of them equals one of the values (equal JSON of one type).
     #[must_use]
@@ -226,7 +276,7 @@ impl<'a> Claim<'a> {
 #[derive(Debug, Clone)]
 pub struct Claims<'a> {
     claims: Vec<Claim<'a>>,
-    options: Vec<OptionItems>,
+    options: Options,
 }
 
 /// `claims` or `claim_sets` that break §6.3-6.4.
@@ -239,6 +289,15 @@ pub enum ClaimsError {
     /// `values` is no non-empty array.
     #[error("claims[{0}].values is not a non-empty array")]
     Values(#[explain(name = "claim")] usize),
+    /// `id` is no non-empty string of letters, digits, `_` and `-` (§6.3).
+    #[error("claims[{0}].id is not a non-empty string of letters, digits, _ and -")]
+    Id(#[explain(name = "claim")] usize),
+    /// Two claims queries share an `id` (§6.3).
+    #[error("the id {0} names two claims queries")]
+    IdTwice(#[explain(name = "id")] String),
+    /// A claims query without an `id` beside `claim_sets` (§6.3).
+    #[error("claims[{0}] has no id, which claim_sets requires")]
+    IdAbsent(#[explain(name = "claim")] usize),
     /// `claim_sets` without `claims`, or not a non-empty array of non-empty arrays of claim ids.
     #[error("claim_sets is not a non-empty array of non-empty arrays of claim ids")]
     ClaimSets,
@@ -262,6 +321,16 @@ impl<'a> Claims<'a> {
                 .map(|(k, claim)| Claim::parse(k, claim))
                 .collect::<Result<Vec<_>, _>>()?,
         };
+        if let Some(twice) = claims.iter().enumerate().find_map(|(k, claim)| {
+            let before = claims.get(..k)?;
+            claim.id.as_ref().filter(|id| {
+                before
+                    .iter()
+                    .any(|earlier| earlier.id.as_ref() == Some(*id))
+            })
+        }) {
+            return Err(ClaimsError::IdTwice(twice.to_string()));
+        }
         let item = |k: usize| Item::new(k).ok_or(ClaimsError::TooMany);
         let options = match query.get("claim_sets") {
             None => vec![OptionItems::new(
@@ -272,6 +341,9 @@ impl<'a> Claims<'a> {
                     .as_array()
                     .filter(|sets| !sets.is_empty() && !claims.is_empty())
                     .ok_or(ClaimsError::ClaimSets)?;
+                if let Some(absent) = claims.iter().position(|claim| claim.id.is_none()) {
+                    return Err(ClaimsError::IdAbsent(absent));
+                }
                 sets.iter()
                     .map(|set| {
                         let ids = set
@@ -284,7 +356,9 @@ impl<'a> Claims<'a> {
                                 let id = id.as_str().ok_or(ClaimsError::ClaimSets)?;
                                 let k = claims
                                     .iter()
-                                    .rposition(|claim| claim.id.as_deref() == Some(id))
+                                    .position(|claim| {
+                                        claim.id.as_ref().is_some_and(|known| *known == *id)
+                                    })
                                     .ok_or(ClaimsError::ClaimSets)?;
                                 item(k)
                             })
@@ -294,7 +368,10 @@ impl<'a> Claims<'a> {
                     .collect::<Result<Vec<_>, ClaimsError>>()?
             }
         };
-        Ok(Self { claims, options })
+        Ok(Self {
+            claims,
+            options: Options::new(options),
+        })
     }
 
     /// The claims queries.
@@ -311,7 +388,7 @@ impl<'a> Claims<'a> {
 
     /// The options as claim items.
     #[must_use]
-    pub fn options(&self) -> &[OptionItems] {
+    pub const fn options(&self) -> &Options {
         &self.options
     }
 }
@@ -324,8 +401,10 @@ impl<'a> Claim<'a> {
             .ok_or(ClaimsError::Claims)?;
         let id = match node.get("id") {
             None => None,
-            Some(Node::String(id)) => Some(id.clone()),
-            Some(_) => return Err(ClaimsError::Claims),
+            Some(Node::String(id)) => {
+                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id(k))?)
+            }
+            Some(_) => return Err(ClaimsError::Id(k)),
         };
         let values = node
             .get("values")

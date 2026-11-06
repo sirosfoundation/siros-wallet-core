@@ -19,11 +19,11 @@ use display::{metadata, value_rows};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
-pub use rules::{KitRule, NoAlgorithm, QueryRule};
+pub use rules::{KitRule, NoAlgorithm, QueryRule, VpFormatsMember};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
-use crate::ids::{LocaleTag, QueryId};
+use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
 use crate::json::Node;
 use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
@@ -36,7 +36,7 @@ use crate::{FAULT, detail};
 /// What sets one claims format apart from another.
 pub trait ClaimsFormat {
     /// The format identifier, as refusals name it.
-    fn id(&self) -> &'static str;
+    fn id(&self) -> FormatName;
     /// The claim display member holding the label.
     fn label_key(&self) -> &'static str;
     /// The OpenID4VP appendix of the format.
@@ -60,9 +60,9 @@ pub trait ClaimsFormat {
     /// # Errors
     ///
     /// The view states them in a shape the format does not read, a fault of the wallet's data.
-    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<&'n str>, Fault>;
+    fn types<'n>(&self, view: &'n Node<'n>) -> Result<Vec<CredentialType<'n>>, Fault>;
     /// Whether the credential's types match the query's `meta`.
-    fn meta_matches(&self, meta: &Node<'_>, types: &[&str]) -> bool;
+    fn meta_matches(&self, meta: &Node<'_>, types: &[CredentialType<'_>]) -> bool;
     /// Whether the claim names a response member the bound transaction writes.
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool;
     /// The format's rule a claims path pointer breaks: it cannot address the format's
@@ -92,26 +92,46 @@ fn in_order(
 /// presentation can match.
 #[derive(Debug, Clone)]
 pub struct Constraint<'n> {
-    /// The member name.
-    pub member: &'static str,
+    /// The member.
+    pub member: VpFormatsMember,
     /// The identifiers, each a JSON value as `vp_formats_supported` writes it.
     pub matched: Vec<Node<'n>>,
 }
 
-/// A Credential Query of a claims format, parsed.
+/// A Credential Query of a claims format. Only [`ClaimsQuery::parse`] makes one.
 #[derive(Debug, Clone)]
 pub struct ClaimsQuery<'q> {
-    /// The query's id.
-    pub id: QueryId<'q>,
-    /// The query's `meta`.
-    pub meta: Node<'q>,
-    /// The query's claims and options.
-    pub claims: Claims<'q>,
-    /// The Verifier's `vp_formats_supported` value for the format.
-    pub supported: Option<Node<'q>>,
+    id: QueryId<'q>,
+    meta: Node<'q>,
+    claims: Claims<'q>,
+    supported: Option<Node<'q>>,
 }
 
 impl<'q> ClaimsQuery<'q> {
+    /// The query's id.
+    #[must_use]
+    pub const fn id(&self) -> &QueryId<'q> {
+        &self.id
+    }
+
+    /// The query's `meta`.
+    #[must_use]
+    pub const fn meta(&self) -> &Node<'q> {
+        &self.meta
+    }
+
+    /// The query's claims and options.
+    #[must_use]
+    pub const fn claims(&self) -> &Claims<'q> {
+        &self.claims
+    }
+
+    /// The Verifier's `vp_formats_supported` value for the format.
+    #[must_use]
+    pub const fn supported(&self) -> Option<&Node<'q>> {
+        self.supported.as_ref()
+    }
+
     /// Parses the query, or gives the rules it breaks: a `meta` the format accepts, a
     /// `vp_formats_supported` value of the format's algorithms, well-formed claims.
     pub fn parse(
@@ -122,17 +142,17 @@ impl<'q> ClaimsQuery<'q> {
         let refuse = |rule: KitRule| {
             Refusal::new(QueryRule {
                 format: format.id(),
-                query: query.id.to_string(),
+                query: query.id().clone().into_owned(),
                 rule,
             })
         };
         let object =
-            Node::from_raw(query.object).map_err(|e| AllOf::one(refuse(KitRule::Json(e))))?;
+            Node::from_raw(query.object()).map_err(|e| AllOf::one(refuse(KitRule::Json(e))))?;
         let meta = format
             .read_meta(object.get("meta"))
             .cloned()
             .map_err(|rule| refuse(KitRule::Meta(rule)));
-        let algorithms = vp_formats_refusal(format, &query.id, supported.as_ref());
+        let algorithms = vp_formats_refusal(format, query.id(), supported.as_ref());
         let claims = Claims::parse(&object)
             .map_err(|why| AllOf::one(refuse(KitRule::Claims(why))))
             .and_then(|claims| {
@@ -150,7 +170,7 @@ impl<'q> ClaimsQuery<'q> {
             });
         match (meta, algorithms, claims) {
             (Ok(meta), None, Ok(claims)) => Ok(Self {
-                id: query.id.clone(),
+                id: query.id().clone(),
                 meta,
                 claims,
                 supported,
@@ -172,7 +192,10 @@ impl<'q> ClaimsQuery<'q> {
             return Ok(());
         };
         for constraint in constraints {
-            let Some(listed) = supported.get(constraint.member).and_then(Node::as_array) else {
+            let Some(listed) = supported
+                .get(constraint.member.as_str())
+                .and_then(Node::as_array)
+            else {
                 continue;
             };
             if !constraint
@@ -218,15 +241,14 @@ impl<'q> ClaimsQuery<'q> {
         Ok(self
             .claims
             .options()
-            .iter()
-            .enumerate()
+            .indexed()
             .filter(|(_, option)| {
                 option
                     .items()
                     .iter()
                     .all(|item| found.get(item.get()) == Some(&true))
             })
-            .map(|(k, _)| OptionIndex(k))
+            .map(|(option, _)| option)
             .collect())
     }
 
@@ -315,7 +337,7 @@ impl<'q> ClaimsQuery<'q> {
         let items = self
             .claims
             .options()
-            .get(option.0)
+            .get(option)
             .map_or(&[][..], |option| option.items());
         let mut out: Vec<(ConcretePath<'v>, &'v Node<'v>)> = Vec::new();
         for claim in items.iter().filter_map(|item| self.claims.claim(*item)) {
@@ -360,7 +382,7 @@ pub fn vp_formats_refusal(
         .map(|_| {
             Refusal::new(QueryRule {
                 format: format.id(),
-                query: query.to_string(),
+                query: query.clone().into_owned(),
                 rule: KitRule::VpFormats,
             })
         })

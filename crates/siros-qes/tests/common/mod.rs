@@ -20,8 +20,8 @@ use siros_openid4vp::ids::{CredentialId, DocumentKey, FormatId, LocaleTag};
 use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::matching::{Accepted, Match, Views};
 use siros_openid4vp::plugins::{
-    Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
-    OptionIndex, OptionItems, Registry, Shown,
+    Carriage, Fault, FindingData, Format, FormatQuery, Member, MemberValue, Members, NoCandidate,
+    OptionIndex, OptionItems, Options, Registry, Shown,
 };
 use siros_openid4vp::refusal::{Refusal, Refused};
 use siros_openid4vp::request::{AgreeableKey, Query, Request};
@@ -250,20 +250,21 @@ impl<H> FormatHost<H> for StandIn {
 }
 
 struct StandInQuery {
-    options: Vec<OptionItems>,
+    options: Options,
 }
 
 impl StandInQuery {
     /// One option of no item.
     fn one() -> Self {
         Self {
-            options: vec![OptionItems::new(Vec::new())],
+            options: Options::new(vec![OptionItems::new(Vec::new())]),
         }
     }
 }
 
 /// The stand-in's one option for a credential.
 struct StandInOption<'a> {
+    option: OptionIndex,
     credential: Usable<'a>,
 }
 
@@ -274,7 +275,7 @@ fn view<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
 }
 
 impl FormatQuery for StandInQuery {
-    fn options(&self) -> &[OptionItems] {
+    fn options(&self) -> &Options {
         &self.options
     }
 
@@ -292,14 +293,14 @@ impl FormatQuery for StandInQuery {
         _env: &Env,
         _provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
-        Ok(vec![OptionIndex(0)])
+        Ok(self.options.indexed().map(|(option, _)| option).collect())
     }
 
-    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<bool, Fault> {
-        Ok(!matches!(
-            view(credential)?.get("carries"),
-            Some(Node::Bool(false))
-        ))
+    fn carries(&self, credential: &Credential<'_>, _members: &[Member]) -> Result<Carriage, Fault> {
+        Ok(match view(credential)?.get("carries") {
+            Some(Node::Bool(false)) => Carriage::Uncarried,
+            _ => Carriage::Carried,
+        })
     }
 
     fn draw(
@@ -341,13 +342,19 @@ impl<H> AnsweredQuery<H> for StandInQuery {
         _env: &Env,
         _provided: &[Member],
     ) -> Result<Vec<Box<dyn AnsweredOption<H> + 'a>>, Fault> {
-        Ok(vec![Box::new(StandInOption { credential })])
+        Ok(self
+            .options
+            .indexed()
+            .map(|(option, _)| {
+                Box::new(StandInOption { option, credential }) as Box<dyn AnsweredOption<H> + 'a>
+            })
+            .collect())
     }
 }
 
 impl<H> AnsweredOption<H> for StandInOption<'_> {
     fn option(&self) -> OptionIndex {
-        OptionIndex(0)
+        self.option
     }
 
     fn revalidate(
