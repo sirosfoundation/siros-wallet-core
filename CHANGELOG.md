@@ -12,6 +12,7 @@ All notable changes to this workspace. The format follows
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text
   type with `Display`.
 - `siros-mdoc::stored`'s errors implement `Explain`.
+- A refusal's message and a claim's display name a received number as written.
 - The presentation core: `siros-openid4vp`, `siros-x509`, `siros-mdoc`,
   `siros-sdjwt`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
   `siros-explain-derive`, `siros-i18n`, `siros-cldr` and `siros-integration`,
