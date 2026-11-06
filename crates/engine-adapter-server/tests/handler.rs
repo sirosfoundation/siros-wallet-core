@@ -154,10 +154,11 @@ async fn the_flow_types_carry_their_required_tacs() {
     // OID4VCI receives a new one (insert).
     assert!(tac_grants(&handler, "i", "oid4vci"));
     assert!(!tac_grants(&handler, "r", "oid4vci"));
-    // Other flow types require nothing: a TAC with neither permission starts
-    // them.
-    assert!(tac_grants(&handler, "x", "vctm"));
-    assert!(tac_grants(&handler, "x", "anything-else"));
+    // Other flow types require nothing: two disjoint TACs both start them.
+    for flow_type in ["vctm", "anything-else"] {
+        assert!(tac_grants(&handler, "x", flow_type));
+        assert!(tac_grants(&handler, "y", flow_type));
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -166,9 +167,6 @@ async fn the_principal_tac_gates_the_flow_types() {
     // `ri` grants both engine flows.
     assert!(tac_grants(&handler, "ri", "oid4vp"));
     assert!(tac_grants(&handler, "ri", "oid4vci"));
-    // `r` alone grants only the presentation.
-    assert!(tac_grants(&handler, "r", "oid4vp"));
-    assert!(!tac_grants(&handler, "r", "oid4vci"));
     // The gate does not apply to the legacy principal's empty TAC.
     let legacy = Principal::new("alice", "acme");
     assert!(legacy.tac.is_empty());

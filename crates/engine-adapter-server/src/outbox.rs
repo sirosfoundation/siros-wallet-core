@@ -15,7 +15,6 @@
 //! boundary never rides a replayable event stream.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use rustc_hash::FxHashMap;
@@ -94,7 +93,6 @@ impl SessionLog {
 #[derive(Default)]
 pub struct Outbox {
     logs: Mutex<FxHashMap<String, SessionLog>>,
-    writes: AtomicU64,
 }
 
 impl Outbox {
@@ -109,7 +107,6 @@ impl Outbox {
     /// when none does (a message outside any session — logged all the same,
     /// under that key).
     pub fn write(&self, message: &[u8]) -> LoggedEvent {
-        self.writes.fetch_add(1, Ordering::SeqCst);
         let redacted = redact(message);
         let session = session_of(message);
         let mut logs = self.logs.lock().unwrap_or_else(|p| p.into_inner());
@@ -174,11 +171,6 @@ impl Outbox {
             .entry(session.to_owned())
             .or_insert_with(SessionLog::new);
         log.broadcast.subscribe()
-    }
-
-    /// The number of writes the log has taken (the tests' probe).
-    pub fn write_count(&self) -> u64 {
-        self.writes.load(Ordering::SeqCst)
     }
 }
 

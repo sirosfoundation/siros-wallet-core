@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use engine_adapter_server::outbox::{Outbox, OutboxReplayer, OutboxTransport, ReplayGap, RETAIN};
+use tokio::sync::broadcast::error::TryRecvError;
 use wmp_core::sessionservice::MessageReplayer;
 use wmp_core::transport::{Transport, TransportError};
 
@@ -166,8 +167,15 @@ fn the_replayer_counts_the_missed_events() {
 fn the_transport_writes_and_never_reads() {
     let outbox = Arc::new(Outbox::new());
     let transport = OutboxTransport::new(outbox.clone());
+    // A message outside any session logs under the empty key.
+    let mut receiver = outbox.subscribe("");
     assert!(transport.write_message(b"{\"x\":1}").is_ok());
-    assert_eq!(outbox.write_count(), 1);
+    let event = receiver.try_recv().expect("the write logs one event");
+    assert_eq!(event.id, 1);
+    assert_eq!(
+        receiver.try_recv().map(|event| event.id),
+        Err(TryRecvError::Empty)
+    );
     // The POST route is the inbound path.
     assert_eq!(transport.read_message(), Err(TransportError::Closed));
 }
