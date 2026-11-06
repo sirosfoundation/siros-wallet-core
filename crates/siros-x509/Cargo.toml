@@ -9,10 +9,6 @@ authors.workspace = true
 rust-version.workspace = true
 publish = false
 
-[features]
-# Certificates and chains generated for the tests of crates that register the prefixes.
-test-util = ["dep:p256"]
-
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["signed"] }
 siros-explain = { workspace = true }
@@ -22,10 +18,8 @@ der = { workspace = true }
 spki = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
-p256 = { workspace = true, features = ["ecdsa"], optional = true }
 
 [dev-dependencies]
-siros-x509 = { path = ".", features = ["test-util"] }
 siros-testkit = { workspace = true }
 serde_json = { workspace = true }
 

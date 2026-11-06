@@ -58,7 +58,7 @@ impl HaipHost {
             random_ids: TestRandomIds::default(),
             issuer_trust: TestIssuerTrust {
                 roots: vec![
-                    RootCertificate::parse(&siros_x509::test_util::root()).expect("a certificate"),
+                    RootCertificate::parse(&siros_testkit::x509::root()).expect("a certificate"),
                 ],
             },
         }

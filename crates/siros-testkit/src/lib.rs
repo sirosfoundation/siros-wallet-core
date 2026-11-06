@@ -13,7 +13,8 @@
 //! encoders of [`verifier`], the reading of an mdoc presentation in the reference model's shape
 //! ([`reading`]), a Verifier's reading of an SD-JWT presentation ([`sd_jwt_reading`]), the fixtures
 //! the format plug-ins' tests share ([`fixtures`]), the probes that hand a test what the core's
-//! flow gives a plug-in ([`probe`]), and the reference
+//! flow gives a plug-in ([`probe`]), the certificates and chains the X.509 tests sign under
+//! ([`x509`]), and the reference
 //! model's shapes the tests read ([`oracle`]), and the test app's texts: its main module, the
 //! crate modules in its English and German, and a renderer over them ([`render`]).
 
@@ -54,6 +55,7 @@ pub mod rules;
 pub mod sd_jwt_issuer;
 pub mod sd_jwt_reading;
 pub mod verifier;
+pub mod x509;
 
 use siros_explain::{Message, Messages};
 use siros_openid4vp::plugins::FaultDomain;

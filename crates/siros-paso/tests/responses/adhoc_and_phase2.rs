@@ -16,8 +16,8 @@ use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal, Verified};
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::{PasoFinding, PasoProfile};
 use siros_testkit::verifier::{ISSUER, adhoc_jwt, secret_key};
+use siros_testkit::x509;
 use siros_testkit::{Published, PublishedResource};
-use siros_x509::test_util as x509;
 
 use crate::paso_host::PasoHost;
 

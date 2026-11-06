@@ -1,6 +1,5 @@
-//! X.509 certificates generated for tests (feature `test-util`): DER written here from RFC 5280
-//! §4.1's structure, apart from x509-cert, which parses it; signed with ES256 (ecdsa-with-SHA256)
-//! by p256.
+//! X.509 certificates generated for tests: DER written here from RFC 5280 §4.1's structure, apart
+//! from x509-cert, which parses it; signed with ES256 (ecdsa-with-SHA256) by p256.
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -24,8 +23,7 @@ const COMMON_NAME: &[u8] = &[0x06, 0x03, 0x55, 0x04, 0x03];
 const SUBJECT_ALT_NAME: &[u8] = &[0x06, 0x03, 0x55, 0x1d, 0x11];
 
 /// A DER TLV: the tag, the definite length in its shortest form, the content.
-#[must_use]
-pub fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
+fn tlv(tag: u8, content: &[u8]) -> Vec<u8> {
     let length = content.len();
     let mut out = vec![tag];
     if length < 0x80 {

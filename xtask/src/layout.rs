@@ -12,9 +12,11 @@
 //!   or a `format!`, a `Label::text` or `Label::mini_markdown` of a literal.
 //! - I27, in the same sources: a type deriving `thiserror::Error` that neither derives nor
 //!   implements `Explain`; a type deriving `Explain` alone that implements `Display`.
+//! - `feature = "test-util"`, in every source: see [`gate`].
 //!
 //! Macro bodies and attribute values are token trees to `syn`: the same rules read their tokens.
 
+mod gate;
 mod names;
 
 use std::fs;
@@ -25,6 +27,7 @@ use quote::ToTokens;
 use syn::ext::IdentExt;
 use syn::visit::{self, Visit};
 
+use self::gate::Gates;
 use self::names::{Names, module_of};
 use crate::Failure;
 
@@ -89,7 +92,7 @@ impl Scope {
             ["crates", name, "src", ..] => Self {
                 test_code: name.starts_with("siros-"),
                 message_includes: *name != "siros-testkit",
-                shipped: SHIPPED.contains(name) && parts.last() != Some(&"test_util.rs"),
+                shipped: SHIPPED.contains(name),
             },
             ["crates", "siros-testkit", ..] => return None,
             _ if parts.contains(&"src") => Self {
@@ -114,6 +117,7 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
     let mut hits = Vec::new();
     let mut files = Vec::new();
     let mut names = Names::default();
+    let mut gates = Gates::default();
     for top in ["crates", "xtask", "locales", "proving"] {
         if root.join(top).exists() {
             walk(root, top, &mut files, &mut hits);
@@ -128,10 +132,11 @@ pub(crate) fn run(root: &Path) -> Result<bool, Failure> {
             });
         }
         if let Some(scope) = Scope::of(file) {
-            scan(root, file, scope, &mut hits, &mut names);
+            scan(root, file, scope, &mut hits, &mut names, &mut gates);
         }
     }
     names.judge(&mut hits);
+    gates.judge(&names, &mut hits);
     for hit in &hits {
         println!("{}:{}: {}", hit.file, hit.line, hit.rule);
     }
@@ -186,7 +191,14 @@ fn message_source_exempt(file: &str) -> bool {
 }
 
 /// Reads and parses one source and walks its tree.
-fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, names: &mut Names) {
+fn scan(
+    root: &Path,
+    file: &str,
+    scope: Scope,
+    hits: &mut Vec<Hit>,
+    names: &mut Names,
+    gates: &mut Gates,
+) {
     let text = match fs::read_to_string(root.join(file)) {
         Ok(text) => text,
         Err(cause) => {
@@ -200,9 +212,7 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, names: &mut 
     match syn::parse_file(&text) {
         Ok(tree) => {
             let module = module_of(file);
-            if scope.shipped {
-                names.enter(&module);
-            }
+            names.enter(&module);
             let mut scanner = Scanner {
                 file,
                 scope,
@@ -212,6 +222,7 @@ fn scan(root: &Path, file: &str, scope: Scope, hits: &mut Vec<Hit>, names: &mut 
                 hits,
             };
             scanner.visit_file(&tree);
+            gate::read(file, &tree, names, gates);
         }
         Err(cause) => hits.push(Hit {
             file: file.to_owned(),
@@ -397,10 +408,10 @@ impl Scanner<'_> {
         }
     }
 
-    /// A shipped source's struct or enum, for I27.
+    /// A struct or enum for the names' table, and a shipped source's for I27.
     fn declare(&mut self, metas: Vec<TokenStream>, ident: &Ident) {
         if !self.scope.shipped {
-            return;
+            return self.names.add_item(&self.module, plain(ident));
         }
         let mut derives = Vec::new();
         for meta in metas {
@@ -417,9 +428,7 @@ impl Scanner<'_> {
     }
 
     fn add_use(&mut self, tree: &syn::UseTree) {
-        if self.scope.shipped {
-            self.names.add_use(&self.module, tree, &mut Vec::new());
-        }
+        self.names.add_use(&self.module, tree, &mut Vec::new());
     }
 
     /// I28: a call that builds a display text from a string literal.
@@ -486,14 +495,12 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
     }
 
     fn visit_item_extern_crate(&mut self, item: &'ast syn::ItemExternCrate) {
-        if self.scope.shipped {
-            let name = plain(&item.ident);
-            let given = item
-                .rename
-                .as_ref()
-                .map_or_else(|| name.clone(), |(_, given)| plain(given));
-            self.names.add_extern(&self.module, given, name);
-        }
+        let name = plain(&item.ident);
+        let given = item
+            .rename
+            .as_ref()
+            .map_or_else(|| name.clone(), |(_, given)| plain(given));
+        self.names.add_extern(&self.module, given, name);
         visit::visit_item_extern_crate(self, item);
     }
 
@@ -507,9 +514,7 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
         let depth = self.inline.len();
         self.inline.extend(inline_directories(module));
         self.module.push(plain(&module.ident));
-        if self.scope.shipped {
-            self.names.enter(&self.module);
-        }
+        self.names.enter(&self.module);
         for item in items {
             self.visit_item(item);
         }

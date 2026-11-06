@@ -1,13 +1,14 @@
 //! The names I27 reads: each module's `use` items, and the types and `impl`s the shipped crates
 //! declare, resolved along Rust's path rules (the Reference's "Use declarations" and "Paths").
-//! A `use` or an item in a function body counts in its module.
+//! A `use` or an item in a function body counts in its module. The test-util rule reads the same
+//! table, over every crate's sources.
 
 use rustc_hash::FxHashMap;
 
 use super::Hit;
 
 /// A path from a crate's name: the crate's segment joins its name's words with `_`.
-type Global = Vec<String>;
+pub(super) type Global = Vec<String>;
 
 /// How many `use` items one name may follow: rustc refuses a cycle, and a chain stays short.
 const DEPTH: usize = 16;
@@ -19,11 +20,11 @@ struct Scope {
     uses: Vec<(String, Vec<String>)>,
     /// Each glob's path as written.
     globs: Vec<Vec<String>>,
-    /// The types it declares.
+    /// The types, functions, constants and statics it declares.
     items: Vec<String>,
 }
 
-/// A type I27 judges.
+/// A type I27 judges, in a shipped crate.
 struct Judged {
     module: Global,
     name: String,
@@ -47,13 +48,17 @@ pub(super) struct Names {
     impls: Vec<Implemented>,
 }
 
-/// The module of a source under `crates/<crate>/src/`, or of another source's path.
+/// The module of a source under `<crate>/src/`, or of another source's path.
 pub(super) fn module_of(file: &str) -> Global {
     let parts: Vec<&str> = file.split('/').collect();
-    let (krate, inner) = match parts.as_slice() {
-        ["crates", krate, "src", inner @ ..] => (*krate, inner),
-        other => ("", other),
-    };
+    let (krate, inner) = parts
+        .iter()
+        .position(|part| *part == "src")
+        .and_then(|src| {
+            let krate = parts.get(src.checked_sub(1)?)?;
+            Some((*krate, parts.get(src + 1..)?))
+        })
+        .unwrap_or(("", parts.as_slice()));
     let mut module = vec![krate.replace('-', "_")];
     if let Some((last, directories)) = inner.split_last() {
         module.extend(directories.iter().map(|part| (*part).to_owned()));
@@ -128,7 +133,18 @@ impl Names {
         self.scope(module).uses.push((given, vec![name]));
     }
 
-    /// A struct or an enum, with the paths it derives.
+    /// An item I27 does not judge: a function, a constant, a static, a union, or an unshipped
+    /// crate's struct or enum.
+    pub(super) fn add_item(&mut self, module: &[String], name: String) {
+        self.scope(module).items.push(name);
+    }
+
+    /// `type given = target;`.
+    pub(super) fn add_alias(&mut self, module: &[String], given: String, target: Vec<String>) {
+        self.scope(module).uses.push((given, target));
+    }
+
+    /// A shipped crate's struct or enum, with the paths it derives.
     pub(super) fn add_type(
         &mut self,
         module: &[String],
@@ -159,6 +175,16 @@ impl Names {
             ty,
             implemented,
         });
+    }
+
+    /// The paths `written`, read in `module`, can name.
+    pub(super) fn paths(&self, module: &[String], written: &[String]) -> Vec<Global> {
+        self.resolve(module, written, DEPTH)
+    }
+
+    /// Whether `path` names a module of this table.
+    pub(super) fn holds_module(&self, path: &[String]) -> bool {
+        self.scopes.contains_key(path)
     }
 
     /// The paths `written`, read in `module`, can name, from a crate's name.
