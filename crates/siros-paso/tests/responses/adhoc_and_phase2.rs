@@ -277,9 +277,10 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             AdhocFailure::UnknownKey,
         ),
         (
+            // The credential's chain ends in the JWT's root, which the trust store lacks.
             "step 3, x5c",
             elsewhere,
-            chained_issuer(&x509::root(), "Bank Issuer"),
+            chained_issuer(&other_root, "Bank Issuer"),
             AdhocFailure::Untrusted,
         ),
         (
@@ -303,9 +304,19 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             AdhocFailure::Expired,
         ),
         (
-            "step 6, sub and format",
+            "step 6, sub",
             keyed(
                 &claims.replace(CARD_TYPE, "org.example.other"),
+                &secret_key("issuer-secret-1"),
+                "issuer-key-1",
+            ),
+            keys.clone(),
+            AdhocFailure::Binding,
+        ),
+        (
+            "step 6, format",
+            keyed(
+                &claims.replace(r#""format": "dc+sd-jwt""#, r#""format": "mso_mdoc""#),
                 &secret_key("issuer-secret-1"),
                 "issuer-key-1",
             ),
@@ -336,8 +347,10 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
         ),
     ];
     let host = PasoHost::at(Timestamp(NOW));
+    // The card's stored metadata lists the type: it never stands in for a refused JWT.
+    let stored = format!(r#"{{"{PAY}": {}}}"#, payment_meta());
     for (step, jwt, issuer, failure) in cases {
-        let card = card("{}", None, &issuer);
+        let card = card(&stored, None, &issuer);
         let refusal = AdhocRefusal {
             jwt: jwt.clone(),
             credential: card.credential().id.as_str().to_owned(),
