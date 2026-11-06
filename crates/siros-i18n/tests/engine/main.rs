@@ -1,7 +1,7 @@
-//! The engine's guarantees: each load rule refuses its fixture (I30), rendering is a function of
-//! its inputs (I31), `Raw` is shown as written and classed (I32), one language serves a
-//! presentation (I33), a package serializes, reads back and renders the same whatever it holds
-//! (I38), and a defined module written with no loader renders as the loader compiles it.
+//! The engine's guarantees: each load rule refuses its fixture, rendering is a function of its
+//! inputs, `Raw` is shown as written, one language serves a presentation, a package serializes,
+//! reads back and renders the same whatever it holds, and a defined module written with no loader
+//! renders as the loader compiles it.
 
 mod defined;
 mod language;

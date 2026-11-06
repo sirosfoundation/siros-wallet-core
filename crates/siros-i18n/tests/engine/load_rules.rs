@@ -1,4 +1,4 @@
-//! I30: one fixture per load rule, each refused for its rule and no other.
+//! One fixture per load rule, each refused for its rule and no other.
 
 use std::borrow::Cow;
 

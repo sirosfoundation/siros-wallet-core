@@ -16,7 +16,9 @@ use siros_i18n::{
 use crate::cldr;
 use crate::test_function::TEST;
 
-/// A test's result: a pass says whether its text rendered through the three packages of I38.
+/// A test's result: a pass says whether its text rendered through the three packages, one
+/// holding its text precomputed, one holding its key compiled and one compiled from the live
+/// module.
 pub enum Outcome {
     Pass { packaged: bool },
     Fail(String),
@@ -171,7 +173,7 @@ fn package(
     let mut texts = builder.texts(held.formats);
     match texts.precompute(held.text, held.options) {
         Ok(()) | Err(RenderError::Message(_) | RenderError::AbsentArgument { .. }) => {}
-        Err(error) => return Err(format!("I38: precompute refused for no MF2 error: {error}")),
+        Err(error) => return Err(format!("precompute refused for no MF2 error: {error}")),
     }
     Ok(texts.finish())
 }
@@ -202,7 +204,7 @@ fn through(
     Ok(renderer.formatted(held.text))
 }
 
-/// I38 over one text: packages built twice give the same bytes, read back and written again the
+/// Over one text: packages built twice give the same bytes, read back and written again the
 /// same bytes, and the text renders byte-equal through a package that holds it precomputed, one
 /// that holds its key compiled, and one compiled from the live module.
 fn packaged(
@@ -214,21 +216,21 @@ fn packaged(
     let keys: &[&str] = &[KEY];
     let compiled = package(module, tag, Some(keys), None)?;
     if package(module, tag, Some(keys), None)? != compiled {
-        return Err("I38: a package built twice differs".to_owned());
+        return Err("a package built twice differs".to_owned());
     }
     let package_read =
         Package::read(compiled.bytes(), compiled.root()).map_err(|e| e.to_string())?;
     if package_read.rewrite().map_err(|e| e.to_string())? != compiled {
-        return Err("I38: a package read back and written again differs".to_owned());
+        return Err("a package read back and written again differs".to_owned());
     }
     let precomputed = package(module, tag, None, Some(held))?;
     if package(module, tag, None, Some(held))? != precomputed {
-        return Err("I38: a package with a precomputed text built twice differs".to_owned());
+        return Err("a package with a precomputed text built twice differs".to_owned());
     }
     let package_read =
         Package::read(precomputed.bytes(), precomputed.root()).map_err(|e| e.to_string())?;
     if package_read.rewrite().map_err(|e| e.to_string())? != precomputed {
-        return Err("I38: a package with a precomputed text written again differs".to_owned());
+        return Err("a package with a precomputed text written again differs".to_owned());
     }
     let live = package(module, tag, None, None)?;
     let renders = [
@@ -238,7 +240,7 @@ fn packaged(
     ];
     match &renders {
         [first, rest @ ..] if rest.iter().all(|other| other == first) => Ok(first.clone()),
-        _ => Err(format!("I38: the packages render differently: {renders:?}")),
+        _ => Err(format!("the packages render differently: {renders:?}")),
     }
 }
 

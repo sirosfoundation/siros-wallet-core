@@ -1,5 +1,4 @@
-//! What a registration's package was built from beside its modules (section 4.14 of the design,
-//! "DC API precomputation"): the End-User's priority list, the app's fallback list, the rendering
+//! What a registration's package was built from beside its modules: the End-User's priority list, the app's fallback list, the rendering
 //! options, each credential with its candidate languages, and each transaction type with its
 //! module. The matcher reads its lists and options from it, and a package whose inputs differ
 //! from the app's is stale.

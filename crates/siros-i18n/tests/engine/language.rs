@@ -1,4 +1,4 @@
-//! I33: one language per presentation, by RFC 4647 basic filtering over the priority list headed by
+//! One language per presentation, by RFC 4647 basic filtering over the priority list headed by
 //! the locale a profile selected for its own module and that locale's RFC 4647 §3.4 truncations.
 
 use rand::{Rng, SeedableRng};

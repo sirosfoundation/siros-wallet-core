@@ -13,7 +13,7 @@ use siros_explain::{ArgKind, DefinedKey, DefinedModule, Explain, Keyed, ParamKin
 use crate::bytes::Writer;
 use crate::form::{
     BareCalls, BareKind, BodyForm, CompiledCall, Dir, Expression, KeyRef, LanguagePolicy,
-    MessageForm, ParamForm, PartForm, Root, SelectorForm, VariantForm,
+    MessageForm, ParamForm, ParamName, PartForm, Root, SelectorForm, VariantForm,
 };
 use crate::format::Direction;
 use crate::locale::LocaleTag;
@@ -89,6 +89,14 @@ pub enum DefinedError {
     /// A locale given twice.
     #[error("the locale {0} is given twice")]
     Locale(#[explain(name = "locale")] LocaleTag),
+    /// A declaration's parameter name that is no tokens, the grammar of a [`DefinedKey`].
+    #[error("{key} declares the parameter {name}, which is no tokens")]
+    ParameterName {
+        /// The key.
+        key: String,
+        /// The name.
+        name: String,
+    },
     /// A locale lacks a declared key.
     #[error("{key} has no message in {locale}")]
     Missing {
@@ -270,7 +278,7 @@ impl Compiling<'_> {
     fn argument(&self, name: &str) -> Result<usize, DefinedError> {
         self.params
             .iter()
-            .position(|param| param.name == name)
+            .position(|param| param.name.as_str() == name)
             .ok_or_else(|| DefinedError::Argument {
                 key: self.key.to_owned(),
                 argument: name.to_owned(),
@@ -425,8 +433,8 @@ impl DefinedBuilder {
     ///
     /// # Errors
     ///
-    /// [`DefinedError`]: the locale is given twice; a declared key lacks a body or a body's key is
-    /// undeclared; a body names an undeclared argument, formats a typed argument the main entry
+    /// [`DefinedError`]: the locale is given twice; a declared parameter's name is no tokens; a
+    /// declared key lacks a body or a body's key is undeclared; a body names an undeclared argument, formats a typed argument the main entry
     /// gives no format of, selects on an argument that is no text, breaks MF2's variant rules or
     /// leaves its markup unbalanced.
     pub fn locale(
@@ -457,16 +465,25 @@ impl DefinedBuilder {
                     key: key.to_owned(),
                     locale: locale.clone(),
                 })?;
-            let params: Vec<ParamForm> = declared
+            let params = declared
                 .value()
                 .entries()
                 .iter()
-                .map(|param| ParamForm {
-                    name: param.key().clone().into_owned(),
-                    kind: param.value().kind(),
-                    presence: param.value().presence(),
+                .map(|param| {
+                    let name = param.key().clone().into_owned();
+                    let parsed = DefinedKey::parse(name.clone()).ok_or_else(|| {
+                        DefinedError::ParameterName {
+                            key: key.to_owned(),
+                            name,
+                        }
+                    })?;
+                    Ok(ParamForm {
+                        name: ParamName::Defined(parsed),
+                        kind: param.value().kind(),
+                        presence: param.value().presence(),
+                    })
                 })
-                .collect();
+                .collect::<Result<Vec<ParamForm>, DefinedError>>()?;
             let mut compiling = Compiling {
                 key,
                 params: &params,

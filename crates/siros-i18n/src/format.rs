@@ -20,8 +20,8 @@ use crate::locale::LocaleTag;
 #[cfg(feature = "render")]
 use crate::sink::Sink;
 
-/// A format module's identity, which each compiled placeholder records: one or more
-/// [`siros_explain::tokens`] (`number`, `currency`). A format module makes its own with
+/// A format module's identity, which each compiled placeholder records: one or more tokens, as a
+/// [`Domain`](siros_explain::Domain) is (`number`, `currency`). A format module makes its own with
 /// `siros_explain::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FormatId(&'static str);
@@ -30,10 +30,9 @@ impl FormatId {
     /// The identity; `None` for a text that is no tokens.
     #[must_use]
     pub const fn new(id: &'static str) -> Option<Self> {
-        if siros_explain::tokens(id, 1) {
-            Some(Self(id))
-        } else {
-            None
+        match siros_explain::Domain::new(id) {
+            Some(_) => Some(Self(id)),
+            None => None,
         }
     }
 

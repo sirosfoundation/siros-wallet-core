@@ -33,10 +33,9 @@ pub struct PackageBuilder {
     registration: Option<Registration>,
 }
 
-/// A registration's package under construction (section 4.14 of the design, "DC API
-/// precomputation"): its locales the tags of the End-User's priority list with their RFC 4647
-/// §3.4 truncations and the tags of the app's fallback list, its modules, the credentials and
-/// transaction types it serves, and the lists and options it records. Only
+/// A registration's package under construction: its locales the tags of the End-User's priority
+/// list with their RFC 4647 §3.4 truncations and the tags of the app's fallback list, its modules,
+/// the credentials and transaction types it serves, and the lists and options it records. Only
 /// [`RegistrationBuilder::new`] makes one.
 #[derive(Debug)]
 pub struct RegistrationBuilder {

@@ -290,6 +290,19 @@ fn each_refusal_rule_refuses_its_fixture() {
             DefinedError::Locale(tag("en")),
         ),
         (
+            "a parameter name outside the grammar",
+            DefinedForm::builder(
+                DEFINED,
+                LanguagePolicy::Any,
+                Keyed::first_of([Entry::new(key("k"), params(&[("A b", ArgKind::Raw)]))]),
+            )
+            .locale(tag("en"), en, &one("k", Body::Pattern(vec![text("x")]))),
+            DefinedError::ParameterName {
+                key: "k".to_owned(),
+                name: "A b".to_owned(),
+            },
+        ),
+        (
             "a key missing",
             only("k", ArgKind::Raw).locale(tag("en"), en, &Keyed::empty()),
             DefinedError::Missing {

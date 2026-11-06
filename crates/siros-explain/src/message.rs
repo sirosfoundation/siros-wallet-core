@@ -5,7 +5,8 @@ use std::fmt;
 
 use crate::arg::{ArgKind, ArgName, Args, IntoArg, Kind, Names, Presence};
 
-/// A message identifier, `<domain>.<id>`: two or more [`tokens`]. Stable across releases, unique
+/// A message identifier, `<domain>.<id>`: two or more tokens separated by `.`, each a lowercase
+/// ASCII letter, then lowercase letters, digits and underscores. Stable across releases, unique
 /// among an app's messages. [`checked!`](crate::checked) makes one when the crate builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MessageId(&'static str);
@@ -24,8 +25,8 @@ impl MessageId {
     }
 }
 
-/// A domain: one or more [`tokens`] (`openid4vp`, `openid4vp.routing`). A crate module's
-/// identity, and the prefix of its messages' identifiers.
+/// A domain: one or more of [`MessageId`]'s tokens (`openid4vp`, `openid4vp.routing`). A crate
+/// module's identity, and the prefix of its messages' identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Domain(&'static str);
 
@@ -50,7 +51,7 @@ impl Domain {
 /// Whether a text is at least `min` tokens separated by `.`, each a lowercase ASCII letter, then
 /// lowercase letters, digits and underscores: the grammar of identifiers, domains and keys.
 #[must_use]
-pub const fn tokens(text: &str, min: usize) -> bool {
+pub(crate) const fn tokens(text: &str, min: usize) -> bool {
     let mut rest = text.as_bytes();
     let (mut count, mut start) = (1, true);
     while let [b, tail @ ..] = rest {
@@ -79,9 +80,9 @@ pub const fn tokens(text: &str, min: usize) -> bool {
 /// # Implementing
 ///
 /// Derive it beside thiserror's `Error` (`#[derive(Explain)]` with the type's `domain`), or write
-/// it by hand: `id` is a [`MessageId`] made with `checked!`, unique across the build (one test
-/// over every crate's `Messages`); `args` gives each argument under its declared name and kind,
-/// and a secret cannot be one. Every error type and text type of a wallet crate implements it.
+/// it by hand: `id` is a [`MessageId`] made with `checked!`, unique across the build; `args`
+/// gives each argument under its declared name and kind, and a secret cannot be one. Every error
+/// type and text type of a wallet crate implements it.
 pub trait Explain: fmt::Debug + Send + Sync {
     /// The message's identifier.
     fn id(&self) -> MessageId;

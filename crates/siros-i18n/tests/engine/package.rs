@@ -1,6 +1,6 @@
-//! I38: a package serializes, reads back and renders the same whatever it holds; an altered byte
-//! is refused when its entry is read (I31's digest clause: a module altered after its digest was
-//! taken is refused when it loads); each refusal rule refuses its fixture.
+//! A package serializes, reads back and renders the same whatever it holds; an altered byte is
+//! refused when its entry is read (a module altered after its digest was taken is refused when it
+//! loads); each refusal rule refuses its fixture.
 
 use siros_explain::{Count, Domain, Message, ModuleId, Text, Value, checked};
 use siros_i18n::{
@@ -144,7 +144,7 @@ fn packages_write_read_back_and_render_the_same() {
             compared += held.len();
         }
     }
-    println!("I38: {compared} texts byte-equal through precomputed, compiled and live packages");
+    println!("{compared} texts byte-equal through precomputed, compiled and live packages");
 }
 
 /// What one read of an altered package gave.

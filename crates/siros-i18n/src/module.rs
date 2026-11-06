@@ -4,13 +4,14 @@
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 
-use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind, tokens};
+use siros_explain::{DefinedKey, Entry, Keyed, Message, ModuleId, ParamKind};
 
 use crate::compile::{self, Site};
 use crate::defined::MainLocale;
 use crate::error::{ModuleError, OptionRefusal};
 use crate::form::{
     BareCalls, BareKind, CompiledCall, CompiledModule, LanguagePolicy, LocaleForm, ParamForm,
+    ParamName,
 };
 use crate::format::{
     Call, Compilers, FormatCompiler, FormatId, LanguageFormats, Operand, ParsedFormats, Uses,
@@ -57,8 +58,8 @@ impl Declaration {
     ///
     /// # Errors
     ///
-    /// [`ModuleError::ParameterName`] for a parameter name outside the tokens
-    /// (`siros_explain::tokens`).
+    /// [`ModuleError::ParameterName`] for a parameter name that is no tokens, the grammar of an
+    /// [`ArgName`](siros_explain::ArgName) and of a [`DefinedKey`].
     pub fn defined(
         messages: Keyed<DefinedKey, Keyed<Cow<'static, str>, ParamKind>>,
     ) -> Result<Self, ModuleError> {
@@ -66,14 +67,15 @@ impl Declaration {
         for entry in messages.entries() {
             let mut params = Vec::with_capacity(entry.value().entries().len());
             for param in entry.value().entries() {
-                if !tokens(param.key(), 1) {
-                    return Err(ModuleError::ParameterName {
-                        key: entry.key().as_str().to_owned(),
-                        name: param.key().clone().into_owned(),
-                    });
-                }
+                let name =
+                    DefinedKey::parse(param.key().clone().into_owned()).ok_or_else(|| {
+                        ModuleError::ParameterName {
+                            key: entry.key().as_str().to_owned(),
+                            name: param.key().clone().into_owned(),
+                        }
+                    })?;
                 params.push(ParamForm {
-                    name: param.key().clone().into_owned(),
+                    name: ParamName::Defined(name),
                     kind: param.value().kind(),
                     presence: param.value().presence(),
                 });

@@ -1,6 +1,5 @@
-//! The texts that depend on a request, and the messages they draw from (section 4.14 of the
-//! design, "Texts that depend on the request"). A registration's package holds a module's
-//! compiled messages for such texts alone: each module declares them as one type
+//! The texts that depend on a request, and the messages they draw from. A registration's package
+//! holds a module's compiled messages for such texts alone: each module declares them as one type
 //! ([`DeclaredModule::Requested`]), and a [`RequestText`] is built only from a message of that type,
 //! from a value, a name, a received text, or a defined module's message, which the package holds
 //! whole. A request text built from another message does not compile.

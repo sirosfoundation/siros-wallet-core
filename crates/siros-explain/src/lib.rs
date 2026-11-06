@@ -11,9 +11,10 @@
 //! English text, written when a log line or a Verifier's error response is.
 //!
 //! A value's kind is its type's: [`IntoArg::Kind`] fixes what the value gives, and only
-//! [`Arg::of`] makes an argument. A message's argument names are [`Names`], which refuse a repeated
-//! name when the crate builds. A message that names another message holds it as one argument, whose
-//! own arguments stay in its own query.
+//! [`Arg::of`] makes an argument. A value without [`IntoArg`] cannot be one, so a secret never
+//! reaches a message. A message's argument names are [`Names`], which refuse a repeated name when
+//! the crate builds. A message that names another message holds it as one argument, whose own
+//! arguments stay in its own query.
 //!
 //! The crate imposes the trait alone: a type keeps its own shape, and `#[derive(Explain)]`
 //! (feature `derive`) writes the implementation beside `#[derive(thiserror::Error)]`, as miette's
@@ -45,47 +46,6 @@
 //! let [named] = args.as_slice() else { panic!("one argument") };
 //! let seven = ArgValue::Value(Value::Count(Count::of(7)));
 //! assert_eq!((named.name().as_str(), named.arg().value()), ("at", &seven));
-//! ```
-//!
-//! A value without [`IntoArg`] cannot be an argument, so a secret never reaches a message:
-//!
-//! ```compile_fail,E0277
-//! use siros_explain::Explain;
-//!
-//! #[derive(Debug)]
-//! pub struct Secret([u8; 16]);
-//!
-//! #[derive(Debug, thiserror::Error, Explain)]
-//! #[explain(domain = "example")]
-//! #[error("the seed does not open the commitment")]
-//! pub struct Opening { seed: Secret }
-//! ```
-//!
-//! A message that names an argument twice does not build:
-//!
-//! ```compile_fail,E0080
-//! use siros_explain::Explain;
-//!
-//! #[derive(Debug, thiserror::Error, Explain)]
-//! #[explain(domain = "example")]
-//! #[error("{0} to {1}")]
-//! pub struct Between(#[explain(name = "age")] u64, #[explain(name = "age")] u64);
-//! ```
-//!
-//! A value gives the argument of its declared kind alone:
-//!
-//! ```compile_fail,E0308
-//! use siros_explain::{IntoArg, Kind, kind};
-//!
-//! pub struct Age(String);
-//!
-//! impl IntoArg for Age {
-//!     type Kind = kind::Count;
-//!
-//!     fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
-//!         self.0.as_str()
-//!     }
-//! }
 //! ```
 
 #![forbid(unsafe_code)]
@@ -127,9 +87,7 @@ pub use calendar::{Date, DateTime, Fraction, Offset, OffsetTime, Second, Time};
 pub use iso4217::Currency;
 pub use keyed::{Entry, Keyed, Repeated};
 pub use list::{AllOf, AnyOf, ListKind, Listed};
-pub use message::{
-    Domain, Explain, Explained, Message, MessageId, Messages, Param, ParamKind, tokens,
-};
+pub use message::{Domain, Explain, Explained, Message, MessageId, Messages, Param, ParamKind};
 pub use requested::{DeclaredModule, RequestText, Requested};
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;

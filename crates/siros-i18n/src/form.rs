@@ -4,9 +4,9 @@
 
 use std::fmt;
 
-use siros_explain::{ArgKind, IntoArg, Presence, Value, kind};
+use siros_explain::{ArgKind, DefinedKey, IntoArg, Presence, Value, kind};
 #[cfg(feature = "load")]
-use siros_explain::{Message, ModuleId, Param};
+use siros_explain::{ArgName, Message, ModuleId, Param};
 
 #[cfg(feature = "load")]
 use crate::format::Direction;
@@ -228,7 +228,7 @@ pub(crate) struct MessageForm {
 /// absent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ParamForm {
-    pub(crate) name: String,
+    pub(crate) name: ParamName,
     pub(crate) kind: ArgKind,
     pub(crate) presence: Presence,
 }
@@ -238,13 +238,43 @@ impl ParamForm {
     /// The form of each parameter `message` declares, in order.
     pub(crate) fn of_message(message: &Message) -> Vec<Self> {
         let form = |param: &Param| Self {
-            name: param.name().as_str().to_owned(),
+            name: ParamName::Declared(param.name()),
             kind: param.kind().kind(),
             presence: param.kind().presence(),
         };
         message.params().iter().map(form).collect()
     }
 }
+
+/// A parameter's name: one or more of [`MessageId`](siros_explain::MessageId)'s tokens, as a
+/// crate's message declares it or as a defined module's converter or a package gives it.
+#[derive(Debug, Clone)]
+pub(crate) enum ParamName {
+    /// A crate's message's argument name.
+    #[cfg(feature = "load")]
+    Declared(ArgName),
+    /// A defined module's or a package's parameter name, of [`DefinedKey`]'s grammar.
+    Defined(DefinedKey),
+}
+
+impl ParamName {
+    /// Its text.
+    pub(crate) fn as_str(&self) -> &str {
+        match self {
+            #[cfg(feature = "load")]
+            Self::Declared(name) => name.as_str(),
+            Self::Defined(name) => name.as_str(),
+        }
+    }
+}
+
+impl PartialEq for ParamName {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for ParamName {}
 
 /// An expression: its root operand, the call its format module compiled, and its `u:dir`.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-//! I35 and I36: the format modules with the CLDR tool's options render as ICU4X 2.4 renders over
+//! The format modules with the CLDR tool's options render as ICU4X 2.4 renders over
 //! its compiled data of the same CLDR release, 49.0.0, for the test app's languages, en and de:
 //! plural categories and number texts, amounts in every ISO 4217 currency, and- and
 //! or-lists, and dates and times at every length. Spanish and Hebrew add the list patterns'

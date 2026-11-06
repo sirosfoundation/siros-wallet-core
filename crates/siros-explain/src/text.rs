@@ -57,7 +57,7 @@ pub enum Key {
     },
 }
 
-/// A defined module's key, as its converter gives it: one or more [`tokens`].
+/// A defined module's key, as its converter gives it: one or more of [`MessageId`]'s tokens.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefinedKey(String);
 

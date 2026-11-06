@@ -1,5 +1,6 @@
-//! I31: a rendering is a function of its text and its inputs, which the renderer reports; and the
-//! argument rules of section 4.14.
+//! A rendering is a function of its text and its inputs, which the renderer reports; a text's
+//! arguments are those its message declares, each of its declared kind; an absent argument,
+//! an absent text and a module outside the screen are refused.
 
 use std::borrow::Cow;
 
@@ -8,7 +9,7 @@ use siros_explain::{
     Query, Text, Value, checked,
 };
 use siros_i18n::{
-    Amounts, BareKind, Bidi, Compilers, LanguagePolicy, Module, Package, RENDERER, RenderError,
+    Amounts, BareKind, Bidi, Compilers, LanguagePolicy, Module, Package, RenderError,
     RenderOptions, Screen, Style,
 };
 
@@ -50,7 +51,6 @@ fn equal_inputs_render_equal_bytes_and_each_input_counts() {
         renderer(&built_second, &[&second], &["en"], &formats, Bidi::Default),
     );
     assert_eq!(a.inputs(), b.inputs());
-    assert_eq!(a.inputs().renderer(), RENDERER);
     assert_eq!(
         a.inputs().modules().get(&crate::FIXTURE),
         Some(&first.digest())

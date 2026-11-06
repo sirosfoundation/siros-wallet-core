@@ -302,10 +302,12 @@ impl<'m> Screen<'m> {
     }
 
     /// The presentation's language over the End-User's priority list and the app's fallback
-    /// list, by [`decide`] over the screen's modules. A selected module shows its entry of the
-    /// locale its profile selected, and the others decide over the priority list headed by that
-    /// locale and its RFC 4647 §3.4 truncations ([`LocaleTag::truncations`]): `de-CH` selected
-    /// heads the list with `de-CH`, `de`.
+    /// list: the first tag of the priority list every module of the screen matches; with none,
+    /// and no module enforcing understood languages, the first tag of the fallback list every
+    /// module matches. A selected module shows its entry of the locale its profile selected, and
+    /// the others decide over the priority list headed by that locale and its RFC 4647 §3.4
+    /// truncations ([`LocaleTag::truncations`]): `de-CH` selected heads the list with `de-CH`,
+    /// `de`.
     ///
     /// # Errors
     ///
