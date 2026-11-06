@@ -455,14 +455,17 @@ impl Pdp for BackendProxyPdp {
         // proxy's default SPOCP rules' allowed set). The evaluation's
         // context rides as the optional top-level member the profile
         // leaves to the deployment.
-        let subject_type = if request.subject.starts_with("did:") {
-            "key"
-        } else {
-            "url"
-        };
+        //
+        // The subject type mirrors the SDK's own evaluation
+        // (siros-sdk-kotlin's evaluateTrust: subject {type "key", id
+        // subjectId}): the trust decision is about the KEY HOLDER the
+        // subject names, so the routed policy (go-wallet-backend's
+        // DefaultWalletRules Rule 1: subject type must be "key")
+        // matches whatever scheme the id carries — url or did: — under
+        // the one type the rule allows.
         let body = serde_json::json!({
             "subject": {
-                "type": subject_type,
+                "type": "key",
                 "id": request.subject,
             },
             "resource": {

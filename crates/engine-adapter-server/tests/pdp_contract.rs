@@ -178,8 +178,8 @@ async fn the_evaluation_binds_the_authzen_shape_and_the_tac_bearer() {
     let bound: serde_json::Value = serde_json::from_str(body).expect("the body is JSON");
     assert_eq!(
         bound["subject"],
-        serde_json::json!({"type": "url", "id": "https://issuer.example"}),
-        "the subject binds as type/id: {bound}"
+        serde_json::json!({"type": "key", "id": "https://issuer.example"}),
+        "the subject binds as the key holder (the routed policy's one allowed type): {bound}"
     );
     assert_eq!(
         bound["resource"]["id"], "https://issuer.example",
@@ -204,9 +204,10 @@ async fn the_evaluation_binds_the_authzen_shape_and_the_tac_bearer() {
     assert_eq!(bearer[0], "an-as-issued-token");
 }
 
-/// A `did:`-schemed subject binds as the key type (the AuthZEN Trust
-/// Registry Profile's other subject), the DID resolution's matched JWK
-/// as the resource.
+/// A `did:`-schemed subject binds the same as an https one (the key
+/// holder), the DID resolution's matched JWK as the resource - the
+/// scheme rides the id, the routed policy's one subject type matches
+/// both.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_did_subject_binds_as_the_key_type() {
     let proxy = scripted_proxy();

@@ -516,8 +516,8 @@ async fn the_engine_serves_an_issuance_and_its_notification_end_to_end() {
     .unwrap_or_default();
     assert_eq!(
         evaluation["subject"],
-        serde_json::json!({"type": "url", "id": issuer}),
-        "the issuer was evaluated, as the AuthZEN subject: {evaluation}"
+        serde_json::json!({"type": "key", "id": issuer}),
+        "the issuer was evaluated, as the key holder (the routed policy's subject type): {evaluation}"
     );
     assert_eq!(
         evaluation["resource"]["id"], issuer,
