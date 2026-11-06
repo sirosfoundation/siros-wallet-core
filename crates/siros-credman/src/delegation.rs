@@ -6,7 +6,7 @@
 
 use siros_explain::{Explain, Text};
 use siros_openid4vp::ids::CredentialId;
-use siros_openid4vp::matching::{Choice, Display, SelectionError};
+use siros_openid4vp::matching::Choice;
 use siros_openid4vp::refusal::ErrorCode;
 use siros_openid4vp::request::Request;
 
@@ -92,20 +92,11 @@ pub enum Fulfilment {
     Background(HostDisplay),
 }
 
-/// Why a background fulfilment is refused.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+/// A background fulfilment refused: the set needs the wallet's display (A9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "credman.fulfilment")]
-pub enum WalletDisplayNeeded {
-    /// The set needs the wallet's display (A9).
-    #[error("set {set} needs the wallet's display")]
-    Needed {
-        /// The set.
-        set: usize,
-    },
-    /// The display holds no such set.
-    #[error(transparent)]
-    Selection(#[from] SelectionError),
-}
+#[error("the set needs the wallet's display")]
+pub struct WalletDisplayNeeded;
 
 impl WalletDisplayNeeded {
     /// The error the wallet answers with: `access_denied` (RFC 6749 §4.1.2.1), as for a declined
@@ -186,18 +177,17 @@ impl Delegation {
 }
 
 impl Fulfilment {
-    /// A9 in the wallet: a background fulfilment of a set of the display of a request carrying
-    /// `transactions` that needs the wallet's display is refused; on the wallet's display every
-    /// set stands. `text_of` renders each row's texts as Credential Manager drew them.
+    /// A9 in the wallet: a background fulfilment of `slots`, a set of the display of a request
+    /// carrying `transactions`, that needs the wallet's display is refused; on the wallet's
+    /// display every set stands. `text_of` renders each row's texts as Credential Manager drew
+    /// them.
     ///
     /// # Errors
     ///
-    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside: the set needs the wallet's
-    /// display, or the display holds no such set.
+    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside.
     pub fn check<E>(
         self,
-        display: &Display<'_>,
-        set: usize,
+        slots: &[Vec<Choice<'_>>],
         presentable: Presentable<'_>,
         transactions: TransactionData,
         text_of: &mut impl FnMut(&Text) -> Result<String, E>,
@@ -205,18 +195,10 @@ impl Fulfilment {
         let Self::Background(host) = self else {
             return Ok(Ok(()));
         };
-        let sets = display.sets();
-        let Some(slots) = sets.get(set) else {
-            return Ok(Err(SelectionError::NoSet {
-                set,
-                sets: sets.len(),
-            }
-            .into()));
-        };
         let facts = SetFacts::of(slots, presentable, transactions, text_of)?;
         Ok(match WalletDisplay::of(facts, host) {
             WalletDisplay::NotNeeded => Ok(()),
-            WalletDisplay::Needed => Err(WalletDisplayNeeded::Needed { set }),
+            WalletDisplay::Needed => Err(WalletDisplayNeeded),
         })
     }
 }

@@ -49,7 +49,8 @@ pub use delegation::{
     WalletDisplayNeeded,
 };
 pub use emit::{
-    Emission, EmitError, Emitted, NotEmitted, PaymentShown, Shown, StandardShown, emit, held,
+    Emission, EmitError, Emitted, EntryId, NotEmitted, PaymentShown, RefusedEntry, Shown,
+    StandardShown, emit, held,
 };
 pub use entry::{CredmanEntry, EntryIcon, PaymentEntry, StandardEntry};
 pub use field::{Extent, FIELD_MAX, Field, FieldName, FieldText, NoName};

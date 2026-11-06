@@ -4,11 +4,11 @@
 //! beside the package; each text equals the wallet's for the verified JWT.
 
 use serde_json::{Value, json};
-use siros_credman::register::{Registered, Registration, package};
+use siros_credman::register::{Registered, RegisteredCard, Registration, package};
 use siros_credman::{Emitted, Shown, emit};
 use siros_explain::{DeclaredModule, Messages, ModuleId, RequestText, Text};
 use siros_i18n::{Module, Package};
-use siros_openid4vp::consent::{Card, ConsentEntry};
+use siros_openid4vp::consent::ConsentEntry;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::matching::{Accepted, Consent, Display, Match, Views, display, offer};
 use siros_openid4vp::rendering::Rendering;
@@ -150,9 +150,12 @@ fn the_matcher_offers_and_renders_an_entry_with_ad_hoc_metadata_as_the_wallet_do
 
     // The registration: the card's texts, no transaction type.
     let built = shown(&request, &wallet, &env, &wallet_rendering, |views, _| {
-        let cards: Vec<(&str, &Card)> = views
+        let cards: Vec<RegisteredCard<'_>> = views
             .iter()
-            .map(|view| (view.record.credential.as_str(), view.entry.card()))
+            .map(|view| RegisteredCard {
+                credential: view.record.credential,
+                card: view.entry.card(),
+            })
             .collect();
         package(
             &Registration {

@@ -97,7 +97,7 @@ fn judged(
     let facts = SetFacts::of(&shown.sets()[0], presentable, transactions, &mut plain)
         .expect("the texts render");
     let background = Fulfilment::Background(host)
-        .check(&shown, 0, presentable, transactions, &mut plain)
+        .check(&shown.sets()[0], presentable, transactions, &mut plain)
         .expect("the texts render");
     (facts, background)
 }
@@ -240,7 +240,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             WalletDisplay::Needed => {
                 assert_eq!(Delegation::of(display), Delegation::None, "{case}");
                 let refused = background.expect_err(case);
-                assert_eq!(refused, WalletDisplayNeeded::Needed { set: 0 }, "{case}");
+
                 assert_eq!(refused.code(), ErrorCode::ACCESS_DENIED, "{case}");
             }
         }

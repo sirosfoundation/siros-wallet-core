@@ -4,7 +4,7 @@
 //! entry renders before the first is added; an entry whose texts do not render ends the emission
 //! or stays out of its slot, as the app's `RenderOptions::on_error` states.
 
-use siros_explain::{Explain, Text};
+use siros_explain::{Explain, IntoArg, Text, kind};
 use siros_i18n::{RenderError, Renderer};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::matching::{Choice, Display};
@@ -58,13 +58,47 @@ pub enum Shown {
     Payment(Box<PaymentShown>),
 }
 
+/// The id of a choice of the display, which the platform returns when the End-User picks it.
+/// Only [`emit`] makes one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryId(String);
+
+impl EntryId {
+    fn of(choice: &Choice<'_>) -> Self {
+        Self(choice.id().to_owned())
+    }
+
+    /// Its text.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl IntoArg for EntryId {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
+/// An entry that did not render.
+#[derive(Debug)]
+pub struct RefusedEntry {
+    /// The entry.
+    pub id: EntryId,
+    /// Why it did not render.
+    pub reason: NotEmitted,
+}
+
 /// One choice of a slot as the matcher adds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Emitted {
     /// An entry, with the id the platform returns when the End-User picks it.
     Entry {
         /// The id.
-        id: String,
+        id: EntryId,
         /// What Credential Manager draws.
         shown: Shown,
     },
@@ -78,7 +112,7 @@ pub enum Emitted {
 #[derive(Debug, Default)]
 pub struct Emission {
     sets: Vec<Vec<Vec<Emitted>>>,
-    refused: Vec<(String, NotEmitted)>,
+    refused: Vec<RefusedEntry>,
 }
 
 impl Emission {
@@ -88,9 +122,9 @@ impl Emission {
         &self.sets
     }
 
-    /// Each entry that did not render, by its id, with its reason.
+    /// Each entry that did not render.
     #[must_use]
-    pub fn refused(&self) -> &[(String, NotEmitted)] {
+    pub fn refused(&self) -> &[RefusedEntry] {
         &self.refused
     }
 }
@@ -120,12 +154,12 @@ pub enum EmitError {
     #[error(transparent)]
     Fault(#[from] Fault),
     /// An entry's renderer takes other inputs than its record commits to.
-    #[error("the renderer of the entry {0} takes other inputs than its record")]
-    Inputs(#[explain(name = "entry")] String),
+    #[error("the renderer of the entry {0:?} takes other inputs than its record")]
+    Inputs(#[explain(name = "entry")] EntryId),
     /// A text of an entry's card, which no request changes, is not held precomputed in the
     /// language its screen shows: the registration's package was built for other cards.
-    #[error("a card text of the entry {0} is not held in its language")]
-    NotHeld(#[explain(name = "entry")] String),
+    #[error("a card text of the entry {0:?} is not held in its language")]
+    NotHeld(#[explain(name = "entry")] EntryId),
 }
 
 /// The texts of a card no request changes: its title and subtitle, and each row's label, value
@@ -162,7 +196,7 @@ pub fn emit(
         for slot in set {
             let mut choices = Vec::with_capacity(slot.len());
             for choice in slot {
-                let id = choice.id().to_owned();
+                let id = EntryId::of(choice);
                 let shown = match choice {
                     Choice::Nothing => {
                         choices.push(Emitted::Nothing);
@@ -185,12 +219,12 @@ pub fn emit(
                             committed: Some(view.record.inputs),
                         };
                         let entry = CredmanEntry::of(&view.entry);
-                        screen.drawn(&entry, view.record.id().as_str(), rendering, env)?
+                        screen.drawn(&entry, &id, rendering, env)?
                     }
                 };
                 match shown {
                     Ok(shown) => choices.push(Emitted::Entry { id, shown }),
-                    Err(reason) => refused.push((id, reason)),
+                    Err(reason) => refused.push(RefusedEntry { id, reason }),
                 }
             }
             slots.push(choices);
@@ -219,7 +253,7 @@ impl Screen<'_> {
     fn drawn(
         &self,
         entry: &CredmanEntry,
-        id: &str,
+        id: &EntryId,
         rendering: &Rendering<'_>,
         env: &Env,
     ) -> Result<Result<Shown, NotEmitted>, EmitError> {
@@ -231,12 +265,12 @@ impl Screen<'_> {
             .committed
             .is_some_and(|committed| renderer.inputs() != *committed)
         {
-            return Err(EmitError::Inputs(id.to_owned()));
+            return Err(EmitError::Inputs(id.clone()));
         }
         for text in held(self.card) {
             match renderer.holds(text) {
                 Ok(true) => {}
-                Ok(false) => return Err(EmitError::NotHeld(id.to_owned())),
+                Ok(false) => return Err(EmitError::NotHeld(id.clone())),
                 Err(refused) => return Ok(Err(refused.into())),
             }
         }
