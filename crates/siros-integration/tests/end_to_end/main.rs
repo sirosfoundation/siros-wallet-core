@@ -342,6 +342,7 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
             "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}"#,
     );
     card = card.with_issued().expect("the issued SD-JWT");
+    let issued = String::from_utf8(card.documents[0].1.clone()).expect("the issued SD-JWT's text");
     card.documents
         .push(("paso".to_owned(), document.into_bytes()));
     let host = authenticated_as_a2();
@@ -352,6 +353,7 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
     // Key Binding JWT of the card's key.
     let sd_jwt = presentation["sd_jwt"].as_str().expect("sd_jwt");
     let parts: Vec<&str> = sd_jwt.split('~').collect();
+    assert_eq!(parts.first(), issued.split('~').next().as_ref());
     assert_eq!(parts.last(), Some(&""), "an SD-JWT ends with ~");
     let disclosed: Vec<(Value, Value)> = parts[1..parts.len() - 1]
         .iter()

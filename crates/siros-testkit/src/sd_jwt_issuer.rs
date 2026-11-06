@@ -53,16 +53,23 @@ fn key_curve<'v>(view: &'v Node<'_>, alg: &'v str) -> Result<&'v str, IssueError
     }
 }
 
-/// The holder key as a `cnf.jwk` (RFC 7800 §3.2), its coordinates zero.
+/// The holder key as a `cnf.jwk` (RFC 7800 §3.2), its coordinates zero at the curve's size (RFC 7518
+/// §6.2.1.2; RFC 8037 §2).
 fn confirmation(view: &Node<'_>) -> Result<Option<Node<'static>>, IssueError> {
     let Some(alg) = view.get("key_alg") else {
         return Ok(None);
     };
     let alg = alg.as_str().ok_or(IssueError::View("key_alg"))?;
     let curve = key_curve(view, alg)?;
-    let zero = URL_SAFE_NO_PAD.encode([0u8; 32]);
+    let size = match curve {
+        "P-384" => 48,
+        "P-521" => 66,
+        "Ed448" => 57,
+        _ => 32,
+    };
+    let zero = URL_SAFE_NO_PAD.encode(vec![0u8; size]);
     let mut jwk: Members = vec![("crv".into(), text(curve)), ("alg".into(), text(alg))];
-    if curve.starts_with("P-") {
+    if !matches!(curve, "Ed25519" | "Ed448") {
         jwk.extend([
             ("kty".into(), text("EC")),
             ("x".into(), text(&zero)),
@@ -91,6 +98,27 @@ fn permanent(view: &Node<'_>) -> Result<Members, IssueError> {
         claims.push(("cnf".into(), confirmation));
     }
     Ok(claims)
+}
+
+/// The view of a credential bound to no key: `view` without its holder key's members, which
+/// [`issue`] writes as `cnf`.
+///
+/// # Errors
+///
+/// The view is no object.
+pub fn without_key(view: &Node<'_>) -> Result<Node<'static>, IssueError> {
+    let members = view.as_object().ok_or(IssueError::View("view"))?.members();
+    Ok(Node::object(
+        members
+            .iter()
+            .filter(|member| !matches!(member.name.as_ref(), "key_alg" | "key_curve"))
+            .map(|member| {
+                (
+                    Cow::Owned(member.name.clone().into_owned()),
+                    member.value.clone().into_owned(),
+                )
+            }),
+    )?)
 }
 
 /// The issuer's state: every disclosure so far, in digest order of first reference.

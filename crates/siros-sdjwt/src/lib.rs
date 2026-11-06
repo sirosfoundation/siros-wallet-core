@@ -81,8 +81,9 @@ use view::SdJwtMembers;
 pub use {
     alg::{Digest, SigningAlg},
     error::{
-        DisclosureFault, EncodedJsonFault, IssuerJwtFault, KeyBindingError, Misplaced, ParseError,
-        RegistrationError, ReservedFault, SdAlgFault, SelectError, X5cError,
+        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, KeyBindingError,
+        Misplaced, ParseError, PresentFault, RegistrationError, ReservedFault, SdAlgFault,
+        SelectError, X5cError,
     },
     key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
     process::MAX_DEPTH,
@@ -132,9 +133,11 @@ fn phase_two() -> Vec<Message> {
         ReservedFault::messages(),
         ParseError::messages(),
         X5cError::messages(),
+        HolderKeyFault::messages(),
         RegistrationError::messages(),
         SelectError::messages(),
         KeyBindingError::messages(),
+        PresentFault::messages(),
     ]
     .concat()
 }

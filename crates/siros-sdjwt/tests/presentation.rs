@@ -6,21 +6,25 @@
 use siros_openid4vp::detail;
 use siros_testkit::FAULT;
 use std::borrow::Cow;
+use std::error::Error as _;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use sha2::{Digest, Sha256};
-use siros_openid4vp::host::{AuthenticationNeed, FormatHost, ProfileHost, Timestamp, Usable};
+use siros_explain::Explain;
+use siros_openid4vp::host::{
+    AuthenticationNeed, FormatHost, PresentError, ProfileHost, Timestamp, Usable,
+};
 use siros_openid4vp::ids::{Nonce, Origin, TransactionType};
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::plugins::{JsonText, Member, MemberValue, Members, OptionIndex, Registry};
 use siros_openid4vp::request::ClientMetadata;
 use siros_openid4vp::routing::VerifierMetadata;
 use siros_openid4vp::session::{Session, SessionBinding};
 use siros_openid4vp::wallet::{Holder, Wallet};
-use siros_sdjwt::SdJwtVc;
+use siros_sdjwt::{IssuerJwtFault, KeyBindingError, ParseError, PresentFault, SdJwtVc};
 use siros_testkit::fixtures::{
     Held, NONCE, ORIGIN, answer_first, dc_api_context, env, parameters, present_option, request_of,
     unsigned,
@@ -99,21 +103,22 @@ fn a_key_binding_jwt_whenever_the_credential_has_a_key() {
     // B.3: a query that waives holder binding may take an SD-JWT without a Key Binding JWT; the
     // plug-in adds one whenever the credential has a key.
     let waived = r#"{"credentials": [{"id": "q", "format": "dc+sd-jwt", "meta": {"vct_values": ["t"]}, "require_cryptographic_holder_binding": false}]}"#;
-    let mut held = Held::new(
-        "c",
-        "dc+sd-jwt",
-        format!(r#"{{"type": "t", "values": {{}}, {VIEW}}}"#),
-    )
-    .with_issued()
-    .expect("issued");
-    let bound = presented(
+    let held = |holder| {
+        let mut held = Held::new(
+            "c",
+            "dc+sd-jwt",
+            format!(r#"{{"type": "t", "values": {{}}, {VIEW}}}"#),
+        );
+        held.holder = holder;
+        held.with_issued().expect("issued")
+    };
+    let bound = presented(waived, "", &[held(Holder::Bound)], &registry(Binds::First));
+    let unbound = presented(
         waived,
         "",
-        std::slice::from_ref(&held),
+        &[held(Holder::Unbound)],
         &registry(Binds::First),
     );
-    held.holder = Holder::Unbound;
-    let unbound = presented(waived, "", &[held], &registry(Binds::First));
     assert!(bound.key_binding.is_some());
     assert!(unbound.key_binding.is_none());
 }
@@ -188,6 +193,19 @@ fn value(rng: &mut ChaCha8Rng, depth: u8) -> String {
     }
 }
 
+/// The members and elements below a value, each selectively disclosable.
+fn descendants(value: &Node<'_>) -> usize {
+    match value {
+        Node::Object(object) => object
+            .members()
+            .iter()
+            .map(|member| 1 + descendants(&member.value))
+            .sum(),
+        Node::Array(items) => items.iter().map(|item| 1 + descendants(item)).sum(),
+        _ => 0,
+    }
+}
+
 #[test]
 fn every_presentation_binds_what_it_shows() {
     let mut rng = ChaCha8Rng::seed_from_u64(1);
@@ -246,15 +264,14 @@ fn every_presentation_binds_what_it_shows() {
                 r#"{{"type": "t", "values": {{{}}}, {VIEW}}}"#,
                 values.join(", ")
             ),
-        )
-        .with_issued()
-        .expect("issued");
+        );
         let bound = rng.random_bool(0.8);
         held.holder = if bound {
             Holder::Bound
         } else {
             Holder::Unbound
         };
+        let held = held.with_issued().expect("issued");
         let members: Vec<(Member, MemberValue)> = if bound {
             (0..rng.random_range(0..3))
                 .map(|k| {
@@ -292,6 +309,22 @@ fn every_presentation_binds_what_it_shows() {
         .expect("presentation");
         let text = Node::parse(presentation.as_str()).expect("json");
         let read = read(text.as_str().expect("a string")).expect("a Verifier takes it");
+        let issued = std::str::from_utf8(&held.documents[0].1).expect("text");
+        assert_eq!(issued.split('~').next(), Some(read.issuer_jwt.as_str()));
+        // S3: the option's claims in its order, each with one disclosure per node of its value.
+        let shown: Vec<&str> = read
+            .disclosures
+            .iter()
+            .filter_map(|disclosure| disclosure.name.as_deref())
+            .filter(|name| names.contains(name))
+            .collect();
+        assert_eq!(shown, option, "case {case}");
+        let nodes: usize = option
+            .iter()
+            .filter_map(|name| held_values.iter().find(|(held, _)| held == name))
+            .map(|(_, value)| 1 + descendants(&Node::parse(value).expect("value")))
+            .sum();
+        assert_eq!(read.disclosures.len(), nodes, "case {case}");
         // The claims a Verifier reads: the option's, each with its whole value, and no other.
         for name in names {
             let want = option
@@ -410,96 +443,154 @@ fn what_cannot_be_presented_is_a_fault() {
         none.keys(),
     );
     let good = format!(r#"{{"type": "t", "values": {{"a": 1}}, {VIEW}}}"#);
-    let issued = sd_jwt_issuer::issue(&Node::parse(&good).expect("view")).expect("issued");
+    let written = Node::parse(&good).expect("view");
+    let keyed = sd_jwt_issuer::issue(&written).expect("issued");
+    let keyless =
+        sd_jwt_issuer::issue(&sd_jwt_issuer::without_key(&written).expect("view")).expect("issued");
     let claim = |name: &'static str, value: MemberValue| (Member::claim(name), value);
     let text_member = || MemberValue::Text("x".to_owned());
-    // (view, document, holder, members, why it is presented or refused).
+    /// Why a case ends as it does.
+    enum Why {
+        Presented,
+        /// The plug-in's own cause.
+        Plugin(PresentFault),
+        /// A fault of this crate's domain with no typed cause: the view's reading.
+        Reading(&'static str),
+    }
+    // (name, view, document, holder, members, why).
     type Case = (
+        &'static str,
         String,
         Option<String>,
         Holder,
         Vec<(Member, MemberValue)>,
-        &'static str,
+        Why,
     );
-    let document = || Some(issued.clone());
+    let document = || Some(keyed.clone());
+    let own_claim = KeyBindingError::Repeated(JsonError::DuplicateMember("aud".to_owned()));
     let cases: Vec<Case> = vec![
         (
+            "presented",
             good.clone(),
             document(),
             Holder::Bound,
             Vec::new(),
-            "presented",
+            Why::Presented,
         ),
         // The document: an SD-JWT holding what the view states.
-        (good.clone(), None, Holder::Bound, Vec::new(), "no document"),
         (
+            "no document",
             good.clone(),
-            Some("eyJ.c".to_owned()),
+            None,
             Holder::Bound,
             Vec::new(),
-            "a document of two parts",
+            Why::Plugin(PresentFault::NoDocument),
         ),
         (
+            "a document of two parts",
+            good.clone(),
+            Some("eyJ.c~".to_owned()),
+            Holder::Bound,
+            Vec::new(),
+            Why::Plugin(PresentFault::Document(ParseError::IssuerJwt(
+                IssuerJwtFault::Segments(2),
+            ))),
+        ),
+        (
+            "a view the document contradicts",
             good.replace(r#""a": 1"#, r#""a": 2"#),
             document(),
             Holder::Bound,
             Vec::new(),
-            "a view the document contradicts",
+            Why::Plugin(PresentFault::View),
         ),
         (
+            "facts of no key over a document with a key",
+            good.clone(),
+            document(),
+            Holder::Unbound,
+            Vec::new(),
+            Why::Plugin(PresentFault::Holder),
+        ),
+        (
+            "facts of a key over a document without one",
+            good.clone(),
+            Some(keyless.clone()),
+            Holder::Bound,
+            Vec::new(),
+            Why::Plugin(PresentFault::Holder),
+        ),
+        (
+            "no holder key algorithm",
             good.replace(r#""key_alg": "ES256", "#, ""),
             document(),
             Holder::Bound,
             Vec::new(),
-            "no holder key algorithm",
+            Why::Reading("sdjwt.fault"),
+        ),
+        (
+            "a holder key algorithm of none",
+            good.replace(r#""key_alg": "ES256""#, r#""key_alg": "none""#),
+            document(),
+            Holder::Bound,
+            Vec::new(),
+            Why::Plugin(PresentFault::KeyAlg),
         ),
         // The members: claims of text or JSON, none of the Key Binding JWT's own, and only with
         // a Key Binding JWT.
         (
+            "a byte string",
             good.clone(),
             document(),
             Holder::Bound,
             vec![claim("x", MemberValue::Bytes(vec![1]))],
-            "a byte string",
+            Why::Plugin(PresentFault::Binary("x".to_owned())),
         ),
         (
+            "a data element",
             good.clone(),
             document(),
             Holder::Bound,
             vec![(Member::element("ns", "x"), text_member())],
-            "a data element",
+            Why::Plugin(PresentFault::NoClaim(
+                Member::element("ns", "x").to_string(),
+            )),
         ),
         (
+            "the Key Binding JWT's own claim",
             good.clone(),
             document(),
             Holder::Bound,
             vec![claim("aud", text_member())],
-            "the Key Binding JWT's own claim",
+            Why::Plugin(PresentFault::KeyBinding(own_claim)),
         ),
         (
+            "a member without a key",
             good.clone(),
-            document(),
+            Some(keyless.clone()),
             Holder::Unbound,
             vec![claim("x", text_member())],
-            "a member without a key",
+            Why::Plugin(PresentFault::NoKeyForMember(Member::claim("x").to_string())),
         ),
         // The view is the kit's.
         (
+            "no type",
             good.replace(r#""type": "t", "#, ""),
             document(),
             Holder::Bound,
             Vec::new(),
-            "no type",
+            Why::Reading("openid4vp.fault"),
         ),
         (
+            "no object",
             "[]".to_owned(),
             document(),
             Holder::Bound,
             Vec::new(),
-            "no object",
+            Why::Reading("openid4vp.fault"),
         ),
     ];
-    for (view, document, holder, members, why) in cases {
+    for (name, view, document, holder, members, why) in cases {
         let mut held = Held::new("c", "dc+sd-jwt", view);
         held.holder = holder;
         if let Some(document) = document {
@@ -515,7 +606,23 @@ fn what_cannot_be_presented_is_a_fault() {
             &session,
             &TestHost::default(),
         );
-        assert_eq!(result.is_ok(), why == "presented", "{why}");
+        let fault = match (result, why) {
+            (Ok(_), Why::Presented) => continue,
+            (Err(PresentError::Fault(fault)), why) => (fault, why),
+            (other, _) => panic!("{name}: {:?}", other.map(|p| p.as_str().to_owned())),
+        };
+        let (fault, why) = fault;
+        let cause = fault
+            .source()
+            .and_then(|cause| cause.downcast_ref::<PresentFault>());
+        match why {
+            Why::Presented => panic!("{name}: {fault}"),
+            Why::Plugin(want) => assert_eq!(cause, Some(&want), "{name}"),
+            Why::Reading(domain) => {
+                assert_eq!(cause, None, "{name}");
+                assert_eq!(fault.id().as_str(), domain, "{name}");
+            }
+        }
     }
 }
 

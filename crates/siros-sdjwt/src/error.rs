@@ -237,6 +237,31 @@ pub enum X5cError {
     Certificate(#[explain(name = "position")] usize),
 }
 
+/// Why `cnf` names no key a Key Binding JWT can answer to.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.holder_key")]
+pub enum HolderKeyFault {
+    /// `cnf` is no object with a `jwk` member (RFC 7800 §3.1).
+    #[error("it is no object with a jwk member (RFC 7800 §3.1)")]
+    Cnf,
+    /// `jwk` is no object (RFC 7800 §3.2).
+    #[error("its jwk is no object (RFC 7800 §3.2)")]
+    Jwk,
+    /// `crv` is no string naming a curve that signs under a JWS algorithm.
+    #[error("its crv names no curve that signs under a JWS algorithm")]
+    Curve,
+    /// `kty` is not the key type of the curve (RFC 7518 §6.2; RFC 8037 §2).
+    #[error("its kty is not the key type of its curve")]
+    KeyType,
+    /// This coordinate is no base64url of the curve's coordinate size (RFC 7518 §6.2.1.2).
+    #[error("its {0} is no base64url of the curve's coordinate size")]
+    Coordinate(#[explain(name = "coordinate")] &'static str),
+    /// `alg` is no algorithm the curve signs under: `none` and the MAC algorithms among them
+    /// (RFC 9901 §4.3).
+    #[error("its alg is no algorithm its curve signs under")]
+    Alg,
+}
+
 /// Why an issued SD-JWT makes no view (SD-JWT VC §3.2).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "sdjwt.registration")]
@@ -256,9 +281,13 @@ pub enum RegistrationError {
     /// `iss` is no string (SD-JWT VC §3.2.2.2, RFC 7519 §4.1.1).
     #[error("iss is no string (RFC 7519 §4.1.1)")]
     Iss,
-    /// `cnf.jwk` is no object with a string `crv` and, when stated, a string `alg` (RFC 7800 §3.2).
-    #[error("cnf.jwk is no object with a string crv (RFC 7800 §3.2)")]
-    Key,
+    /// `cnf` names no key a Key Binding JWT can answer to.
+    #[error("cnf: {0}")]
+    Key(
+        #[from]
+        #[explain(name = "cause")]
+        HolderKeyFault,
+    ),
     /// `nbf` or `exp` is no number a finite double holds (RFC 7519 §2).
     #[error("{0} is no NumericDate (RFC 7519 §2)")]
     Validity(#[explain(name = "claim")] &'static str),
@@ -295,4 +324,69 @@ pub enum KeyBindingError {
     /// An extra claim repeats a claim of the payload (RFC 9901 §4.3).
     #[error(transparent)]
     Repeated(#[from] JsonError),
+}
+
+/// Why a registered credential cannot be presented: a fault's source.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "sdjwt.present")]
+pub enum PresentFault {
+    /// The credential holds no `dc+sd-jwt` document.
+    #[error("no dc+sd-jwt document")]
+    NoDocument,
+    /// The document is no UTF-8 text.
+    #[error("the document is no UTF-8 text")]
+    DocumentText,
+    /// The document is no issued SD-JWT.
+    #[error("the document: {0}")]
+    Document(
+        #[source]
+        #[explain(name = "cause")]
+        ParseError,
+    ),
+    /// The document's processed claims write no JSON value.
+    #[error("the document's claims: {0}")]
+    Values(
+        #[source]
+        #[explain(name = "cause")]
+        JsonError,
+    ),
+    /// The document's `cnf` and the credential's `Facts::holder` disagree.
+    #[error("the document's cnf and the credential's holder fact disagree")]
+    Holder,
+    /// The view states a value the document does not hold.
+    #[error("the view states a value the document does not hold")]
+    View,
+    /// A selected path reaches no value of the document.
+    #[error("a selected path: {0}")]
+    Selected(
+        #[source]
+        #[explain(name = "cause")]
+        SelectError,
+    ),
+    /// The view's `key_alg` signs with no private key (RFC 9901 §4.3).
+    #[error("the view's key_alg signs with no private key")]
+    KeyAlg,
+    /// A transaction's member needs a Key Binding JWT, and the credential has no key (B.3.3).
+    #[error("the member {0} needs a Key Binding JWT, and the credential has no key (B.3.3)")]
+    NoKeyForMember(#[explain(name = "member")] String),
+    /// A Key Binding JWT holds claims, and this member is a data element.
+    #[error("a Key Binding JWT holds claims, and {0} is a data element")]
+    NoClaim(#[explain(name = "member")] String),
+    /// A Key Binding JWT claim holds no byte string or CBOR data item.
+    #[error("a Key Binding JWT claim holds no byte string or CBOR data item ({0})")]
+    Binary(#[explain(name = "member")] String),
+    /// The member's JSON text reads as no value.
+    #[error("the member's JSON text: {0}")]
+    MemberJson(
+        #[source]
+        #[explain(name = "cause")]
+        JsonError,
+    ),
+    /// A member is one of the Key Binding JWT's own claims.
+    #[error("a member is a Key Binding JWT claim: {0}")]
+    KeyBinding(
+        #[source]
+        #[explain(name = "cause")]
+        KeyBindingError,
+    ),
 }

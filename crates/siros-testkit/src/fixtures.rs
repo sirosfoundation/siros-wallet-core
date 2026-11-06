@@ -500,7 +500,11 @@ impl Held {
         let document = if self.format == sd_jwt_issuer::DOCUMENT {
             (
                 sd_jwt_issuer::DOCUMENT.to_owned(),
-                sd_jwt_issuer::issue(&view)?.into_bytes(),
+                match self.holder {
+                    Holder::Bound => sd_jwt_issuer::issue(&view)?,
+                    Holder::Unbound => sd_jwt_issuer::issue(&sd_jwt_issuer::without_key(&view)?)?,
+                }
+                .into_bytes(),
             )
         } else {
             (DOCUMENT.to_owned(), issue(&view)?)

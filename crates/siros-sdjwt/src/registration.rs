@@ -4,9 +4,12 @@
 
 use std::borrow::Cow;
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::wallet::Holder;
 
-use crate::error::RegistrationError;
+use crate::error::{HolderKeyFault, RegistrationError};
 use crate::sd_jwt::SdJwt;
 use crate::tree::{ClaimValue, Element, IssuedClaim, Object};
 use crate::type_metadata;
@@ -49,6 +52,7 @@ pub struct Resolved<'a> {
 pub struct Registered {
     view: Vec<u8>,
     document: Vec<u8>,
+    holder: Holder,
 }
 
 impl Registered {
@@ -70,9 +74,14 @@ impl Registered {
             return Err(RegistrationError::SelectivelyDisclosed(claim));
         }
         let view = view(&sd_jwt, resolved)?;
+        let holder = match sd_jwt.claims().get("cnf") {
+            Some(_) => Holder::Bound,
+            None => Holder::Unbound,
+        };
         Ok(Self {
             view: view.written_compact().into_bytes(),
             document: issued.as_bytes().to_vec(),
+            holder,
         })
     }
 
@@ -87,6 +96,13 @@ impl Registered {
     #[must_use]
     pub fn document(&self) -> &[u8] {
         &self.document
+    }
+
+    /// The credential's `Facts::holder`: `cnf` binds it to a key. Phase 2 refuses a credential
+    /// whose facts say otherwise.
+    #[must_use]
+    pub fn holder(&self) -> Holder {
+        self.holder
     }
 }
 
@@ -126,8 +142,8 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
         members.push(("curve".into(), text(curve)));
     }
     if let Some((alg, curve)) = holder_key(claims)? {
-        members.push(("key_alg".into(), text(&alg)));
-        members.push(("key_curve".into(), text(&curve)));
+        members.push(("key_alg".into(), text(alg)));
+        members.push(("key_curve".into(), text(curve)));
     }
     if !resolved.extends.is_empty() {
         let extends = resolved.extends.iter().map(|kind| text(kind)).collect();
@@ -190,37 +206,82 @@ fn issuer_curve<'a>(
     }
 }
 
-/// The JWS algorithm of a key on a curve (RFC 7518 §3.4; RFC 8037 §3.1); `None` for a curve that
-/// signs under none of them.
-fn signing_alg(curve: &str) -> Option<&'static str> {
-    match curve {
-        "P-256" => Some("ES256"),
-        "P-384" => Some("ES384"),
-        "P-521" => Some("ES512"),
-        "secp256k1" => Some("ES256K"),
-        "Ed25519" | "Ed448" => Some("EdDSA"),
-        _ => None,
+/// What a holder key's curve fixes of its JWK: its `kty`, its coordinates and their size, and its
+/// JWS algorithm (RFC 7518 §3.4, §6.2.1.2; RFC 8037 §2, §3.1; RFC 8812 §3.1).
+struct KeyShape {
+    kty: &'static str,
+    coordinates: &'static [&'static str],
+    size: usize,
+    alg: &'static str,
+}
+
+impl KeyShape {
+    /// The shape of a key on `curve`; `None` for a curve that signs under no JWS algorithm.
+    fn of(curve: &str) -> Option<Self> {
+        let elliptic = |size, alg| Self {
+            kty: "EC",
+            coordinates: &["x", "y"],
+            size,
+            alg,
+        };
+        let edwards = |size| Self {
+            kty: "OKP",
+            coordinates: &["x"],
+            size,
+            alg: "EdDSA",
+        };
+        match curve {
+            "P-256" => Some(elliptic(32, "ES256")),
+            "P-384" => Some(elliptic(48, "ES384")),
+            "P-521" => Some(elliptic(66, "ES512")),
+            "secp256k1" => Some(elliptic(32, "ES256K")),
+            "Ed25519" => Some(edwards(32)),
+            "Ed448" => Some(edwards(57)),
+            _ => None,
+        }
+    }
+
+    /// Whether `value` is the base64url of a coordinate.
+    fn holds(&self, value: Option<&str>) -> bool {
+        value
+            .and_then(|text| URL_SAFE_NO_PAD.decode(text).ok())
+            .is_some_and(|bytes| bytes.len() == self.size)
     }
 }
 
-/// `cnf.jwk`'s algorithm and curve (RFC 7800 §3.2): its `alg`, else its curve's; `None` without a
-/// `jwk`, as a credential bound in another way or to no key has.
-fn holder_key(claims: &Object) -> Result<Option<(String, String)>, RegistrationError> {
-    let Some(ClaimValue::Object(cnf)) = claims.get("cnf").map(IssuedClaim::value) else {
+/// `cnf.jwk`'s algorithm and curve (RFC 7800 §3.1, §3.2): its `alg`, else its curve's; `None`
+/// without a `cnf`. No other confirmation method names a key the Key Binding JWT's signature
+/// answers to (SD-JWT VC §3.2.2.2).
+fn holder_key(claims: &Object) -> Result<Option<(&str, &str)>, HolderKeyFault> {
+    let Some(cnf) = claims.get("cnf") else {
         return Ok(None);
     };
-    let Some(jwk) = cnf.get("jwk") else {
-        return Ok(None);
+    let ClaimValue::Object(cnf) = cnf.value() else {
+        return Err(HolderKeyFault::Cnf);
     };
+    let jwk = cnf.get("jwk").ok_or(HolderKeyFault::Cnf)?;
     let ClaimValue::Object(jwk) = jwk.value() else {
-        return Err(RegistrationError::Key);
+        return Err(HolderKeyFault::Jwk);
     };
-    let curve = string(jwk.get("crv")).ok_or(RegistrationError::Key)?;
+    let curve = string(jwk.get("crv")).ok_or(HolderKeyFault::Curve)?;
+    let shape = KeyShape::of(curve).ok_or(HolderKeyFault::Curve)?;
+    if string(jwk.get("kty")) != Some(shape.kty) {
+        return Err(HolderKeyFault::KeyType);
+    }
+    if let Some(name) = shape
+        .coordinates
+        .iter()
+        .find(|name| !shape.holds(string(jwk.get(name))))
+    {
+        return Err(HolderKeyFault::Coordinate(name));
+    }
     let alg = match jwk.get("alg") {
-        Some(alg) => string(Some(alg)).ok_or(RegistrationError::Key)?,
-        None => signing_alg(curve).ok_or(RegistrationError::Key)?,
+        None => shape.alg,
+        Some(alg) => string(Some(alg))
+            .filter(|alg| *alg == shape.alg || fixed_curve(alg) == Some(curve))
+            .ok_or(HolderKeyFault::Alg)?,
     };
-    Ok(Some((alg.to_owned(), curve.to_owned())))
+    Ok(Some((alg, curve)))
 }
 
 /// `{"not_before": nbf, "not_after": exp}`, each a NumericDate as the issuer wrote it (SD-JWT VC

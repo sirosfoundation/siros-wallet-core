@@ -302,15 +302,15 @@ pub(super) fn dress_credential(
         ));
     }
     let mut held = Held::new(&credential.id, format, view.to_string());
-    if format == "mso_mdoc" || format == "dc+sd-jwt" {
-        held = held.with_issued().expect("the issued form");
-    }
-    held.documents.extend(documents);
     held.holder = if rng.random_bool(0.9) {
         Holder::Bound
     } else {
         Holder::Unbound
     };
+    if format == "mso_mdoc" || format == "dc+sd-jwt" {
+        held = held.with_issued().expect("the issued form");
+    }
+    held.documents.extend(documents);
     if rng.random_bool(0.5) {
         held.authorities = vec![("aki".to_owned(), vec!["k1".to_owned()])];
     }

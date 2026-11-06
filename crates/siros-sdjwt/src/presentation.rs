@@ -17,10 +17,25 @@ use siros_openid4vp::wallet::{Credential, Holder};
 
 use crate::FAULT;
 use crate::alg::SigningAlg;
+use crate::error::PresentFault;
 use crate::key_binding::{Audience, Binding, KbNonce, NumericDate};
 use crate::registration::DOCUMENT;
 use crate::sd_jwt::SdJwt;
 use crate::view::SdJwtMembers;
+
+/// A fault of `credential` for the cause `why`.
+fn fault(credential: &Credential<'_>, why: PresentFault) -> Fault {
+    let shown = why.to_string();
+    Fault::caused(
+        FAULT,
+        detail!(
+            "{id}: {shown}",
+            id = credential.id.to_string(),
+            shown = shown
+        ),
+        why,
+    )
+}
 
 /// The presentation of what the option discloses, with the transaction's members as Key Binding
 /// JWT claims.
@@ -29,58 +44,25 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
     host: &H,
 ) -> Result<Presentation, PresentError> {
     let credential = presenting.view.credential();
-    let id = || credential.id.to_string();
     let sd_jwt = issued(credential)?;
-    let values = sd_jwt
-        .values()
-        .map_err(|e| Fault::caused(FAULT, detail!("{id}: the document", id = id()), e))?;
-    let paths: Vec<ConcretePath<'_>> = presenting
-        .disclosed
-        .iter()
-        .map(|(path, value)| {
-            if node_at(&values, path) == Some(*value) {
-                Ok(path.clone())
-            } else {
-                Err(Fault::new(
-                    FAULT,
-                    detail!(
-                        "{id}: the view states a value the document does not hold",
-                        id = id()
-                    ),
-                ))
-            }
-        })
-        .collect::<Result<_, Fault>>()?;
-    let selected = sd_jwt
-        .select(&paths)
-        .map_err(|e| Fault::caused(FAULT, detail!("{id}: the selected paths", id = id()), e))?;
+    let has_key = sd_jwt.claims().get("cnf").is_some();
+    if has_key != (credential.facts.holder == Holder::Bound) {
+        return Err(fault(credential, PresentFault::Holder).into());
+    }
+    let selected = selected(&presenting, &sd_jwt)?;
     match credential.facts.holder {
         Holder::Unbound => {
             if let Some(member) = presenting.members.names().next() {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!(
-                        "{id}: the member {member} needs a Key Binding JWT, and the credential has no key (B.3.3)",
-                        id = id(),
-                        member = member.clone()
-                    ),
-                )
-                .into());
+                let why = PresentFault::NoKeyForMember(member.to_string());
+                return Err(fault(credential, why).into());
             }
             Ok(Presentation::text(selected.as_str()))
         }
         Holder::Bound => {
             let extra = members(&presenting)?;
             let key_alg = SdJwtMembers::of(presenting.view).holder()?.alg;
-            let key_alg = SigningAlg::parse(key_alg).ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!(
-                        "{id}: the view's key_alg signs with no private key",
-                        id = id()
-                    ),
-                )
-            })?;
+            let key_alg = SigningAlg::parse(key_alg)
+                .ok_or_else(|| fault(credential, PresentFault::KeyAlg))?;
             let binding = selected
                 .key_binding(
                     Binding {
@@ -91,13 +73,7 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
                     },
                     extra,
                 )
-                .map_err(|e| {
-                    Fault::caused(
-                        FAULT,
-                        detail!("{id}: a member is a Key Binding JWT claim", id = id()),
-                        e,
-                    )
-                })?;
+                .map_err(|e| fault(credential, PresentFault::KeyBinding(e)))?;
             let signature = host
                 .get::<dyn Haip>()
                 .sign(&credential.id, binding.signing_input())?;
@@ -110,14 +86,36 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
 
 /// The issued SD-JWT the registration holds.
 fn issued(credential: &Credential<'_>) -> Result<SdJwt, Fault> {
-    let id = || credential.id.to_string();
+    let fail = |why| fault(credential, why);
     let document = credential
         .document(DOCUMENT)
-        .ok_or_else(|| Fault::new(FAULT, detail!("{id}: no dc+sd-jwt document", id = id())))?;
-    let text = std::str::from_utf8(document)
-        .map_err(|e| Fault::caused(FAULT, detail!("{id}: the document", id = id()), e))?;
-    SdJwt::parse(text)
-        .map_err(|e| Fault::caused(FAULT, detail!("{id}: the document", id = id()), e))
+        .ok_or_else(|| fail(PresentFault::NoDocument))?;
+    let text = std::str::from_utf8(document).map_err(|_| fail(PresentFault::DocumentText))?;
+    SdJwt::parse(text).map_err(|e| fail(PresentFault::Document(e)))
+}
+
+/// The presentation of the option's paths, each holding in the document what the view states.
+fn selected(
+    presenting: &Presenting<'_>,
+    sd_jwt: &SdJwt,
+) -> Result<crate::key_binding::Presentation, Fault> {
+    let credential = presenting.view.credential();
+    let fail = |why| fault(credential, why);
+    let values = sd_jwt.values().map_err(|e| fail(PresentFault::Values(e)))?;
+    let paths: Vec<ConcretePath<'_>> = presenting
+        .disclosed
+        .iter()
+        .map(|(path, value)| {
+            if node_at(&values, path) == Some(*value) {
+                Ok(path.clone())
+            } else {
+                Err(fail(PresentFault::View))
+            }
+        })
+        .collect::<Result<_, Fault>>()?;
+    sd_jwt
+        .select(&paths)
+        .map_err(|e| fail(PresentFault::Selected(e)))
 }
 
 /// The value at `path` of `values`.
@@ -131,43 +129,22 @@ fn node_at<'n>(values: &'n Node<'n>, path: &[Concrete<'_>]) -> Option<&'n Node<'
 /// The transaction's members as Key Binding JWT claims.
 fn members<'p>(presenting: &Presenting<'p>) -> Result<Vec<(Cow<'p, str>, Node<'p>)>, Fault> {
     let credential = presenting.view.credential();
-    let id = || credential.id.to_string();
     presenting
         .members
         .iter()
         .map(|(member, value)| {
             let Member::Claim(name) = member else {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!(
-                        "{id}: a Key Binding JWT holds claims, and {member} is a data element",
-                        id = id(),
-                        member = member.clone()
-                    ),
-                ));
+                let why = PresentFault::NoClaim(member.to_string());
+                return Err(fault(credential, why));
             };
             let value = match value {
                 MemberValue::Text(value) => Node::String(Cow::Owned(value.clone())),
-                MemberValue::Json(value) => {
-                    Node::parse(value.as_str())
-                        .map(Node::into_owned)
-                        .map_err(|e| {
-                            Fault::caused(
-                                FAULT,
-                                detail!("{id}: the member {name}", id = id(), name = name.clone()),
-                                e,
-                            )
-                        })?
-                }
+                MemberValue::Json(value) => Node::parse(value.as_str())
+                    .map(Node::into_owned)
+                    .map_err(|e| fault(credential, PresentFault::MemberJson(e)))?,
                 MemberValue::Bytes(_) | MemberValue::Cbor(_) => {
-                    return Err(Fault::new(
-                        FAULT,
-                        detail!(
-                            "{id}: a Key Binding JWT claim holds no byte string or CBOR data item ({name})",
-                            id = id(),
-                            name = name.clone()
-                        ),
-                    ));
+                    let why = PresentFault::Binary(name.to_string());
+                    return Err(fault(credential, why));
                 }
             };
             Ok((name.clone(), value))
