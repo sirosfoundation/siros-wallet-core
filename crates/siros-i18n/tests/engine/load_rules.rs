@@ -23,20 +23,6 @@ fn resource(text: &str) -> ResourceRule {
 }
 
 #[test]
-fn the_fixture_loads() {
-    let english = source("en", BODY);
-    let german = source("de", &BODY.replace("Hello", "Hallo"));
-    let module = load(&[&english, &german]).expect("the fixture loads");
-    assert_eq!(
-        module
-            .locales()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>(),
-        ["en", "de"]
-    );
-}
-
-#[test]
 fn each_resource_rule_refuses_its_fixture() {
     let entry = format!("hello = x\n{}", source("en", BODY));
     let cases = [

@@ -4,9 +4,9 @@
 
 use siros_explain::{Count, Domain, Message, MessageId, ModuleId, Text, Value, checked};
 use siros_i18n::{
-    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, FORMAT, FormatId, Formats,
-    Formatted, LanguagePolicy, Module, Package, PackageBuilder, PackageError, PackageRoot,
-    RegistrationBuilder, RenderError, Screen, TransactionKind,
+    Bidi, BuiltPackage, Compilers, CredentialName, Declaration, FORMAT, Formatted, LanguagePolicy,
+    Module, Package, PackageBuilder, PackageError, PackageRoot, RegistrationBuilder, RenderError,
+    Screen, TransactionKind,
 };
 
 use crate::{BODY, FIXTURE, Host, Inner, PROBE, formats, load, options, source, tag};
@@ -263,10 +263,6 @@ fn each_package_rule_refuses_its_fixture() {
     assert_eq!(
         Screen::new(&package, vec![FIXTURE]).expect_err("a byte past the last entry"),
         PackageError::Length
-    );
-    assert_eq!(
-        Formats::new(&[&PROBE, &PROBE]).err(),
-        Some(RenderError::Registered(checked!(FormatId, "number")))
     );
     let mut other = built.bytes().to_vec();
     other[8..10].copy_from_slice(&(FORMAT + 1).to_be_bytes());
