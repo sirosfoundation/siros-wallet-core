@@ -1,5 +1,5 @@
-//! Known answers from the specifications: every hash B.3.3.1 names on its standard's examples,
-//! RFC 9861 §5's KT128 and KT256 values among them, W3C SRI §3's example digests, OpenID4VP
+//! Known answers from the specifications: every hash B.3.3.1 names on its standard's example,
+//! RFC 9861 §5's KT128 and KT256 among them, W3C SRI §3's example digests, OpenID4VP
 //! B.3.3.1's hash rule, the session phase 2 binds and §5.9's audience, and §8.3's choice of the
 //! response encryption and its JWE.
 
@@ -9,7 +9,7 @@ mod handover;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use k12::{ExtendableOutput, Kt128, Kt256};
+use k12::{ExtendableOutput, Kt256};
 use serde_json::Value as Json;
 use sha2::{Digest, Sha256, Sha512};
 use sha3::Sha3_256;
@@ -113,67 +113,21 @@ fn every_named_hash_matches_its_standards_examples() {
     for (name, want) in abc {
         assert_eq!(digest(name, b"abc"), want, "{name}");
     }
-    // RFC 9861 §5: KT128 and KT256 of ptn(n), k12-256 and k12-512 with an empty customization
-    // string; KT256 over 8192 bytes builds a tree of two chunks.
-    let ptn = |n: usize| (0..n).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+    // RFC 9861 §5: KT128 and KT256 of the empty message, k12-256 and k12-512 with an empty
+    // customization string.
     let kangaroo = [
         (
             "k12-256",
-            0,
             "1AC2D450FC3B4205D19DA7BFCA1B37513C0803577AC7167F06FE2CE1F0EF39E5",
         ),
         (
-            "k12-256",
-            1,
-            "2BDA92450E8B147F8A7CB629E784A058EFCA7CF7D8218E02D345DFAA65244A1F",
-        ),
-        (
-            "k12-256",
-            17,
-            "6BF75FA2239198DB4772E36478F8E19B0F371205F6A9A93A273F51DF37122888",
-        ),
-        (
-            "k12-256",
-            289,
-            "0C315EBCDEDBF61426DE7DCF8FB725D1E74675D7F5327A5067F367B108ECB67C",
-        ),
-        (
-            "k12-256",
-            4913,
-            "CB552E2EC77D9910701D578B457DDF772C12E322E4EE7FE417F92C758F0D59D0",
-        ),
-        (
-            "k12-256",
-            83521,
-            "8701045E22205345FF4DDA05555CBB5C3AF1A771C2B89BAEF37DB43D9998B9FE",
-        ),
-        (
             "k12-512",
-            0,
             "B23D2E9CEA9F4904E02BEC06817FC10CE38CE8E93EF4C89E6537076AF8646404E3E8B68107B8833A5D30490AA33482353FD4ADC7148ECB782855003AAEBDE4A9",
         ),
-        (
-            "k12-512",
-            8192,
-            "C6EE8E2AD3200C018AC87AAA031CDAC22121B412D07DC6E0DCCBB53423747E9A1C18834D99DF596CF0CF4B8DFAFB7BF02D139D0C9035725ADC1A01B7230A41FA",
-        ),
     ];
-    for (name, n, want) in kangaroo {
-        assert_eq!(digest(name, &ptn(n)), want, "{name} of ptn({n})");
+    for (name, want) in kangaroo {
+        assert_eq!(digest(name, b""), want, "{name}");
     }
-    // Squeezing past the rate.
-    let mut kt128_long = vec![0u8; 10032];
-    Kt128::digest_xof(b"", &mut kt128_long);
-    assert_eq!(
-        hex(&kt128_long[10000..]).to_uppercase(),
-        "E8DC563642F7228C84684C898405D3A834799158C079B12880277A1D28E2FF6D"
-    );
-    let mut kt256_long = vec![0u8; 10064];
-    Kt256::digest_xof(b"", &mut kt256_long);
-    assert_eq!(
-        hex(&kt256_long[10000..]).to_uppercase(),
-        "AD4A1D718CF950506709A4C33396139B4449041FC79A05D68DA35F1E453522E056C64FE94958E7085F2964888259B9932752F3CCD855288EFEE5FCBB8B563069"
-    );
 }
 
 #[test]

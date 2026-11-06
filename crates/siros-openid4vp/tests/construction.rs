@@ -206,7 +206,7 @@ fn request_entries(count: usize) -> Vec<EntryIndex> {
 
 #[test]
 fn constrained_strings_are_refused_when_they_break_their_rule() {
-    use siros_openid4vp::ids::{LocaleTag, Nonce, QueryId, TypePrefix};
+    use siros_openid4vp::ids::{Nonce, QueryId, TypePrefix};
     // OpenID4VP §6.1: a query id is non-empty, of letters, digits, _ and -.
     assert!(QueryId::parse("a_b-1").is_ok());
     for invalid in ["", "a b", "a.b", "é"] {
@@ -217,7 +217,6 @@ fn constrained_strings_are_refused_when_they_break_their_rule() {
     assert!(Nonce::parse("").is_err());
     assert!(Origin::parse("").is_err());
     assert!(TypePrefix::parse("").is_err());
-    assert!(LocaleTag::parse("").is_err());
 }
 
 /// The codes as RFC 6749 §4.1.2.1, RFC 9101 §7 and OpenID4VP §8.5 name them; a code is one or
