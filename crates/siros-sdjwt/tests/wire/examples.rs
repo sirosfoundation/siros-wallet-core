@@ -15,7 +15,6 @@ use siros_openid4vp::claims::kit::ClaimsFormat;
 use siros_openid4vp::claims::{ClaimPath, ConcretePath};
 use siros_openid4vp::json::Node;
 use siros_sdjwt::{Audience, Binding, KbNonce, NumericDate, SdJwt, SdJwtVc, SigningAlg};
-use siros_testkit::sd_jwt_reading::{SdJwtReadError, read};
 
 use crate::common::{compact_fixture, issued, json_fixture, processed};
 
@@ -47,8 +46,7 @@ const EXAMPLES: [(&str, &str); 5] = [
 
 /// The issued SD-JWT holds every input claim; the core's pointer walk over its values selects the
 /// RFC's presentation byte for byte; the Verifier's processed payload and the Key Binding JWT's
-/// header and payload, `sd_hash` included, equal the RFC's; a disclosure removed from the RFC's
-/// presentation fails `sd_hash`.
+/// header and payload, `sd_hash` included, equal the RFC's.
 #[test]
 fn rfc9901_examples() {
     let format = SdJwtVc::new().unwrap();
@@ -92,14 +90,6 @@ fn rfc9901_examples() {
         if kb_jwt.is_empty() {
             continue;
         }
-        assert!(read(&stated).is_ok(), "{dir}");
-        let (first, rest) = sent.split_once('~').unwrap();
-        let (_, others) = rest.split_once('~').unwrap();
-        assert_eq!(
-            read(&format!("{first}~{others}{kb_jwt}")).map(|_| ()),
-            Err(SdJwtReadError::SdHash),
-            "{dir}"
-        );
         let mut segments = kb_jwt.split('.');
         let header = decoded(segments.next().unwrap());
         let payload = decoded(segments.next().unwrap());

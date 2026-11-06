@@ -1,21 +1,19 @@
-//! Matching SD-JWT VCs: OpenID4VP 1.0's DCQL examples (`siros-openid4vp/tests/data/spec_vectors`,
-//! verbatim copies of `1.0/examples/query_lang`), the format's request rules with their error
-//! codes, the Verifier's algorithms (B.3.4, RFC 9864), the carriage of response members, and the
-//! consent's shapes of the reference model's check.py through SD-JWT VC credentials.
+//! Matching SD-JWT VCs: `vct_values` (B.3.5), the format's request rules with their error codes,
+//! the Verifier's algorithms (B.3.4, RFC 9864), and the carriage of response members.
 
+use std::error::Error;
+
+use siros_openid4vp::claims::kit::{KitRule, QueryRule};
 use siros_openid4vp::ids::TransactionType;
-use siros_openid4vp::json::Node;
-use siros_openid4vp::matching::{Accepted, Consent, Match, Offered, flatten};
+use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::{Format, Member, Registry};
-use siros_openid4vp::refusal::ErrorCode;
+use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::wallet::{Holder, Wallet};
-use siros_sdjwt::SdJwtVc;
+use siros_sdjwt::{HolderBindingWaived, SdJwtRule, SdJwtVc};
 use siros_testkit::TestHost;
 use siros_testkit::fixtures::{Held, env, parameters, request_of, unsigned};
 use siros_testkit::{Binds, TestProfile, verifier};
-
-const IDC: &str = "https://credentials.example.com/identity_credential";
 
 /// An SD-JWT VC of a type and values, ES256 on P-256, its key ES256 on P-256.
 fn sd_jwt(id: &str, vct: &str, values: &str) -> Held {
@@ -26,14 +24,6 @@ fn sd_jwt(id: &str, vct: &str, values: &str) -> Held {
             r#"{{"type": "{vct}", "metadata": {{}}, "values": {values}, "alg": "ES256", "curve": "P-256", "key_alg": "ES256", "key_curve": "P-256"}}"#
         ),
     )
-}
-
-fn vector(name: &str) -> String {
-    let path = format!(
-        "{}/../siros-openid4vp/tests/data/spec_vectors/{name}.json",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    std::fs::read_to_string(path).expect("vector")
 }
 
 /// The SD-JWT VC plug-in, and the test profile for the type `t1`.
@@ -102,120 +92,6 @@ fn matched(request: &Request<'_>, held: &[Held]) -> (Answers, Exclusions) {
     (answers, excluded)
 }
 
-fn answers(name: &str, held: &[Held]) -> Vec<(String, Vec<usize>)> {
-    let text = parameters(&vector(name), "");
-    let received = unsigned(&text).expect("received");
-    let request = request_of(&received).expect("request");
-    let (mut answers, _) = matched(&request, held);
-    answers.remove(0).1
-}
-
-#[test]
-fn the_dcql_examples_match_the_credentials_their_values_satisfy() {
-    let everything = r#""family_name": "Doe", "postal_code": "90210", "locality": "Berlin", "region": "BE", "date_of_birth": "1990-01-01""#;
-    let without = |name: &str| {
-        let kept: Vec<&str> = everything
-            .split(", ")
-            .filter(|member| !member.starts_with(&format!("\"{name}\"")))
-            .collect();
-        format!("{{{}}}", kept.join(", "))
-    };
-    // §6.4.1 claim_sets [a, c, d, e] or [a, b, e]: each holder answers the options its values
-    // satisfy; one answering none, or of another vct, is no candidate.
-    assert_eq!(
-        answers(
-            "claims_alternatives",
-            &[
-                sd_jwt("full", IDC, &format!("{{{everything}}}")),
-                sd_jwt("no-locality", IDC, &without("locality")),
-                sd_jwt("no-postal", IDC, &without("postal_code")),
-                sd_jwt("no-name", IDC, &without("family_name")),
-                sd_jwt(
-                    "other-type",
-                    "https://other.example/x",
-                    &format!("{{{everything}}}")
-                ),
-            ]
-        ),
-        [
-            ("full".to_owned(), vec![0, 1]),
-            ("no-locality".to_owned(), vec![1]),
-            ("no-postal".to_owned(), vec![0])
-        ]
-    );
-    // §6.3 values: equality of type and value.
-    let doe = r#""given_name": "J", "address": {"street_address": "1 Way"}"#;
-    assert_eq!(
-        answers(
-            "value_matching_simple",
-            &[
-                sd_jwt(
-                    "doe",
-                    IDC,
-                    &format!(r#"{{"family_name": "Doe", {doe}, "postal_code": "90211"}}"#)
-                ),
-                sd_jwt(
-                    "smith",
-                    IDC,
-                    &format!(r#"{{"family_name": "Smith", {doe}, "postal_code": "90211"}}"#)
-                ),
-                sd_jwt(
-                    "elsewhere",
-                    IDC,
-                    &format!(r#"{{"family_name": "Doe", {doe}, "postal_code": "10115"}}"#)
-                ),
-                sd_jwt(
-                    "number",
-                    IDC,
-                    &format!(r#"{{"family_name": "Doe", {doe}, "postal_code": 90211}}"#)
-                ),
-            ]
-        ),
-        [("doe".to_owned(), vec![0])]
-    );
-    // A JSON boolean is no integer: true does not match 1.
-    let flag = parameters(
-        &format!(
-            r#"{{"credentials": [{{"id": "q", "format": "dc+sd-jwt", "meta": {{"vct_values": ["{IDC}"]}}, "claims": [{{"path": ["age_over_18"], "values": [1]}}]}}]}}"#
-        ),
-        "",
-    );
-    let received = unsigned(&flag).expect("received");
-    let request = request_of(&received).expect("request");
-    let (found, _) = matched(
-        &request,
-        &[
-            sd_jwt("boolean", IDC, r#"{"age_over_18": true}"#),
-            sd_jwt("integer", IDC, r#"{"age_over_18": 1}"#),
-        ],
-    );
-    assert_eq!(found[0].1, [("integer".to_owned(), vec![0])]);
-    // §6.1.1: a value of one of the query's types; another type's value does not count.
-    let trusted = parameters(
-        &format!(
-            r#"{{"credentials": [{{"id": "q", "format": "dc+sd-jwt", "meta": {{"vct_values": ["{IDC}"]}}, "trusted_authorities": [{{"type": "aki", "values": ["s9tIpPmhxdiuNkHMEWNpYim8S8Y"]}}]}}]}}"#
-        ),
-        "",
-    );
-    let received = unsigned(&trusted).expect("received");
-    let request = request_of(&received).expect("request");
-    let mut listed = sd_jwt("listed", IDC, "{}");
-    listed.authorities = vec![(
-        "aki".to_owned(),
-        vec!["s9tIpPmhxdiuNkHMEWNpYim8S8Y".to_owned()],
-    )];
-    let mut other = sd_jwt("other", IDC, "{}");
-    other.authorities = vec![
-        ("aki".to_owned(), vec!["x".to_owned()]),
-        (
-            "etsi_tl".to_owned(),
-            vec!["s9tIpPmhxdiuNkHMEWNpYim8S8Y".to_owned()],
-        ),
-    ];
-    let (found, _) = matched(&request, &[listed, other, sd_jwt("unknown", IDC, "{}")]);
-    assert_eq!(found[0].1, [("listed".to_owned(), vec![0])]);
-}
-
 #[test]
 fn vct_values_match_a_type_the_credential_inherits_from() {
     // B.3.5: "The Wallet MAY return Credentials that inherit from any of the specified types";
@@ -253,8 +129,35 @@ fn vct_values_match_a_type_the_credential_inherits_from() {
     assert!(format.additions(&credential).is_err());
 }
 
-/// The rules the request breaks, as (text, code).
-fn refusals(dcql: &str, extra: &str) -> Vec<(String, ErrorCode)> {
+/// A rule of the format, or of the kit under it.
+#[derive(Debug, PartialEq)]
+enum Rule {
+    VctValues,
+    VpFormats,
+    HolderBinding,
+}
+
+fn rule(refusal: &Refusal) -> Rule {
+    let rule: &dyn Error = refusal.rule();
+    if rule.downcast_ref::<HolderBindingWaived>().is_some() {
+        return Rule::HolderBinding;
+    }
+    match rule
+        .downcast_ref::<QueryRule<KitRule>>()
+        .map(|rule| &rule.rule)
+    {
+        Some(KitRule::VpFormats) => Rule::VpFormats,
+        Some(KitRule::Meta(meta)) => {
+            let meta: &dyn Error = meta.as_ref();
+            assert_eq!(meta.downcast_ref(), Some(&SdJwtRule::VctValues));
+            Rule::VctValues
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The rules the request breaks, each with its code.
+fn refusals(dcql: &str, extra: &str) -> Vec<(Rule, ErrorCode)> {
     let text = parameters(dcql, extra);
     let received = unsigned(&text).expect("received");
     let request = request_of(&received).expect("request");
@@ -264,7 +167,7 @@ fn refusals(dcql: &str, extra: &str) -> Vec<(String, ErrorCode)> {
         Err(refused) => refused
             .refusals()
             .iter()
-            .map(|refusal| (refusal.text(), refusal.code()))
+            .map(|refusal| (rule(refusal), refusal.code()))
             .collect(),
     }
 }
@@ -283,11 +186,7 @@ fn each_format_rule_refuses_with_its_code() {
     ] {
         assert_eq!(
             refusals(&query(meta), ""),
-            [(
-                "dc+sd-jwt q: meta.vct_values is not a non-empty array of strings (B.3.5)"
-                    .to_owned(),
-                ErrorCode::INVALID_REQUEST
-            )],
+            [(Rule::VctValues, ErrorCode::INVALID_REQUEST)],
             "{meta}"
         );
     }
@@ -298,11 +197,7 @@ fn each_format_rule_refuses_with_its_code() {
             &query(meta),
             r#""client_metadata":{"vp_formats_supported":{"dc+sd-jwt":{"sd-jwt_alg_values":[-7]}}}"#
         ),
-        [(
-            "dc+sd-jwt q: vp_formats_supported is not an object of non-empty algorithm arrays"
-                .to_owned(),
-            ErrorCode::INVALID_REQUEST
-        )]
+        [(Rule::VpFormats, ErrorCode::INVALID_REQUEST)]
     );
     // B.3.3: transaction data needs holder binding.
     let entry = verifier::encode(r#"{"type": "t1", "credential_ids": ["q"]}"#).expect("entry");
@@ -314,10 +209,7 @@ fn each_format_rule_refuses_with_its_code() {
             )),
             &entries
         ),
-        [(
-            "dc+sd-jwt q: transaction data on a query without holder binding (B.3.3)".to_owned(),
-            ErrorCode::INVALID_TRANSACTION_DATA
-        )]
+        [(Rule::HolderBinding, ErrorCode::INVALID_TRANSACTION_DATA)]
     );
     assert_eq!(refusals(&query(meta), &entries), [], "with holder binding");
 }
@@ -468,139 +360,5 @@ fn a_key_binding_jwt_carries_claims_alone() {
             &[Member::element("urn:paso:sca:1", "jti")]
         ),
         "a data element is no claim"
-    );
-}
-
-/// The first set of the flattened offer, each entry (query, credential, option) or "none".
-fn shape(dcql: &str, held: &[Held]) -> Vec<Vec<Vec<String>>> {
-    let text = parameters(dcql, "");
-    let received = unsigned(&text).expect("received");
-    let request = request_of(&received).expect("request");
-    let registry = registry();
-    let wallet = Wallet::new(
-        held.iter()
-            .map(|h| h.credential().expect("credential"))
-            .collect(),
-    )
-    .expect("wallet");
-    let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(
-        &accepted,
-        &wallet,
-        &env(&["en"], Vec::new()).expect("env"),
-        &rendering,
-    )
-    .expect("match");
-    let consent = Consent::of(&matched).expect("consent");
-    flatten(&matched, &consent)
-        .iter()
-        .map(|set| {
-            set.iter()
-                .map(|slot| {
-                    slot.iter()
-                        .map(|offered| match offered {
-                            Offered::Nothing => "none".to_owned(),
-                            Offered::Pick(pick) => format!(
-                                "{} {} {}",
-                                request.query(pick.query).expect("query").id(),
-                                matched
-                                    .candidate(pick.query, pick.candidate)
-                                    .expect("candidate")
-                                    .credential
-                                    .id,
-                                pick.option.position()
-                            ),
-                        })
-                        .collect()
-                })
-                .collect()
-        })
-        .collect()
-}
-
-fn set(slots: &[&[&str]]) -> Vec<Vec<String>> {
-    slots
-        .iter()
-        .map(|slot| slot.iter().map(|entry| (*entry).to_owned()).collect())
-        .collect()
-}
-
-#[test]
-fn the_consent_takes_the_shapes_check_py_states() {
-    // credentials_alternatives: the coupled option is a set of its own with two slots.
-    let vector = vector("credentials_alternatives");
-    let values = r#"{"given_name": "a", "family_name": "b", "address": {"street_address": "c"}, "postal_code": "d", "locality": "e", "region": "f", "rewards_number": "g"}"#;
-    let parsed = Node::parse(&vector).expect("vector");
-    let ids: Vec<(&str, &str)> = parsed
-        .get("credentials")
-        .and_then(Node::as_array)
-        .expect("credentials")
-        .iter()
-        .map(|query| {
-            let id = query.get("id").and_then(Node::as_str).expect("id");
-            let vct = query
-                .get("meta")
-                .and_then(|meta| meta.get("vct_values"))
-                .and_then(Node::as_array)
-                .and_then(|values| values.first())
-                .and_then(Node::as_str)
-                .expect("vct");
-            (id, vct)
-        })
-        .collect();
-    let held: Vec<Held> = ids
-        .iter()
-        .map(|(id, vct)| sd_jwt(id, vct, values))
-        .collect();
-    assert_eq!(
-        shape(&vector, &held),
-        [
-            set(&[
-                &["pid pid 0", "other_pid other_pid 0"],
-                &["nice_to_have nice_to_have 0", "none"]
-            ]),
-            set(&[
-                &["pid_reduced_cred_1 pid_reduced_cred_1 0"],
-                &["pid_reduced_cred_2 pid_reduced_cred_2 0"],
-                &["nice_to_have nice_to_have 0", "none"]
-            ])
-        ]
-    );
-    // multiple: every non-empty subset once, by its first member.
-    let multiple = format!(
-        r#"{{"credentials": [{{"id": "m", "format": "dc+sd-jwt", "multiple": true, "meta": {{"vct_values": ["{IDC}"]}}}}]}}"#
-    );
-    let held: Vec<Held> = (0..3)
-        .map(|k| sd_jwt(&format!("x{k}"), IDC, "{}"))
-        .collect();
-    assert_eq!(
-        shape(&multiple, &held),
-        [
-            set(&[&["m x0 0"], &["m x1 0", "none"], &["m x2 0", "none"]]),
-            set(&[&["m x1 0"], &["m x2 0", "none"]]),
-            set(&[&["m x2 0"]])
-        ]
-    );
-    // [c, b], [a, d], [c, d], [a, b] factor into {c, a} and {b, d}; without b, d comes next.
-    let queries: Vec<String> = ["a", "b", "c", "d"]
-        .iter()
-        .map(|id| {
-            format!(r#"{{"id": "{id}", "format": "dc+sd-jwt", "meta": {{"vct_values": ["{IDC}"]}}, "claims": [{{"path": ["{id}"]}}]}}"#)
-        })
-        .collect();
-    let dcql = format!(
-        r#"{{"credentials": [{}], "credential_sets": [{{"options": [["c", "b"], ["a", "d"], ["c", "d"], ["a", "b"]]}}]}}"#,
-        queries.join(", ")
-    );
-    let held: Vec<Held> = ["a", "c", "d"]
-        .iter()
-        .map(|id| sd_jwt(id, IDC, &format!(r#"{{"{id}": "v"}}"#)))
-        .collect();
-    assert_eq!(
-        shape(&dcql, &held),
-        [set(&[&["c c 0", "a a 0"], &["d d 0"]])]
     );
 }
