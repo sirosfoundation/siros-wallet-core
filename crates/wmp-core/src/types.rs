@@ -5,6 +5,22 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+/// Deserializes a field that may arrive as an explicit JSON `null`, the way
+/// the SDK codecs (kotlinx.serialization's default) write their nullable
+/// properties. The Go engine this core replaces read its params with
+/// `encoding/json`, where a null IS the zero value - a client that always
+/// worked against it must keep working here (drop-in parity). Without this,
+/// one null fails the whole params decode (-32602) - found driving the
+/// Kotlin sample app against a live engine.
+pub fn null_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<T>::deserialize(deserializer)?;
+    Ok(value.unwrap_or_default())
+}
+
 /// The `wmp` envelope present in every WMP message.
 ///
 /// Timestamps (`timestamp`, `expires_at`, `deliver_after`) are carried as
@@ -16,37 +32,69 @@ pub struct Metadata {
     #[serde(default)]
     pub version: String,
     /// The session the message belongs to.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub session_id: String,
     /// The sender's WMP identity.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub sender: String,
     /// When the message was sent, RFC 3339.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
     /// The token that proves the timestamp.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub timestamp_token: String,
     /// When the message expires, RFC 3339.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<String>,
     /// Whether the payload is encrypted.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub encrypted: bool,
     /// The MLS epoch of the message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch: Option<i64>,
     /// The signature over the message.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub signature: String,
     /// Identity assertions binding the sender to a legal identity.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub identity_assertions: Vec<IdentityAssertion>,
     /// Provenance entries for messages that traversed a relay.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub relay_chain: Vec<RelayEntry>,
     /// A tracing identifier.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub trace_id: String,
     /// The delegated sender acting on behalf of the original sender.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,21 +213,38 @@ pub struct DelegateAuthorization {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct SecurityMode {
     /// The security mode: for example `tls` or `mls`.
+    #[serde(default, deserialize_with = "null_default")]
     pub mode: String,
     /// The minimum TLS version.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub min_tls_version: String,
     /// The cipher suites, by IANA number.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub cipher_suites: Vec<i64>,
     /// The single cipher suite negotiated for the session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cipher_suite: Option<i64>,
     /// The MLS group information.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub mls_group_info: String,
     /// The capabilities that must be encrypted.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "null_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub encrypted_capabilities: Vec<String>,
 }
 
