@@ -719,6 +719,19 @@
     {
       "name": "siros-integration",
       "names": []
+    },
+    {
+      "name": "siros-trust",
+      "names": [
+        "siros-openid4vp",
+        "siros-i18n",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-wallet-state",
+      "names": []
     }
   ]
 }
