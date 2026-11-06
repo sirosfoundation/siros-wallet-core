@@ -100,8 +100,8 @@ impl fmt::Display for UiKey {
 #[derive(Debug, Clone, PartialEq, Eq, Explain)]
 #[explain(domain = "paso.array_at")]
 pub enum ArrayAt {
-    /// The `display` of the claim at a path, as Python writes the list.
-    Claim(#[explain(name = "path")] String),
+    /// The `display` of the claim at a path.
+    Claim(#[explain(name = "path")] ReprItem),
     /// A UI label's entries.
     Ui(#[explain(name = "key")] UiKey),
 }

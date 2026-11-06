@@ -15,6 +15,8 @@ All notable changes to this workspace. The format follows
 - A refusal's message and a claim's display name a received number as written.
 - The JSON writer writes RFC 8259 text: a number goes out as received, so `1e400`
   stays `1e400` in a response, a wallet metadata text and a metadata digest's input.
+- A PaSO rule's `path`, `claim`, `field` and `member` arguments name a claim path as
+  its JSON array: `null` for a wildcard, an index beyond `usize` by its digits.
 - `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
   General Categories Cc, Cf, Zl, Zp, Co and Cn and text over `LABEL_MAX`,
   `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every

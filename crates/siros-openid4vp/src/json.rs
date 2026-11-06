@@ -324,6 +324,10 @@ impl PartialEq for Number<'_> {
     }
 }
 
+/// A number's text holds RFC 8259 §6's grammar or `FiniteDouble`'s `repr`, so its double is never
+/// NaN and every number equals itself.
+impl Eq for Number<'_> {}
+
 /// A JSON string borrowed from the text when it holds no escape.
 struct Text<'a>(Cow<'a, str>);
 

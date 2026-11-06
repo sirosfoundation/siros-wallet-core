@@ -2,12 +2,10 @@
 //! OpenID4VCI B.2 and OpenID4VP §7), concrete paths of payload elements, and reading an element
 //! at a concrete path.
 
-use std::fmt;
-
 use siros_explain::Explain;
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Concrete, ConcretePath, Step};
 use siros_openid4vp::json::Node;
-use siros_openid4vp::refusal::Quoted;
+use siros_openid4vp::refusal::{Quoted, ReprItem};
 
 use crate::conform::NullIndices;
 
@@ -19,16 +17,16 @@ pub enum Mismatch {
     /// A member name read in a non-object.
     #[error("path {path} reads {} in a non-object", Quoted(.key))]
     Key {
-        /// The path, as Python writes the list.
-        path: String,
+        /// The path.
+        path: ReprItem,
         /// The member name.
         key: String,
     },
     /// An index or `null` read in a non-array.
     #[error("path {path} indexes a non-array")]
     Index {
-        /// The path, as Python writes the list.
-        path: String,
+        /// The path.
+        path: ReprItem,
     },
 }
 
@@ -105,7 +103,7 @@ pub(crate) fn substitute<'p>(
         .map(|step| match step {
             Step::Key(key) => Some(Concrete::Key(key.clone())),
             Step::Index(index) => Some(Concrete::Index(*index)),
-            Step::Beyond => None,
+            Step::Beyond(_) => None,
             Step::All => nulls
                 .next()
                 .map(|index| Concrete::Index(ArrayIndex::new(index))),
@@ -113,60 +111,37 @@ pub(crate) fn substitute<'p>(
         .collect()
 }
 
-/// A claim path as Python's `repr` of its list writes it.
+/// A claim path a rule names: its text writes Python's `repr` of the list, its message the
+/// array as JSON (OpenID4VP §7.1).
 #[must_use]
-pub fn claim_text(steps: &[Step<'_>]) -> String {
-    PythonList(
+pub fn claim_text(steps: &[Step<'_>]) -> ReprItem {
+    ReprItem::repr(&Node::Array(
         steps
             .iter()
             .map(|step| match step {
-                Step::Key(key) => Part::Key(key),
-                Step::Index(index) => Part::Index(Some(index.position())),
-                Step::Beyond => Part::Index(None),
-                Step::All => Part::Null,
+                Step::Key(key) => Node::String(key.clone()),
+                Step::Index(index) => index_node(*index),
+                Step::Beyond(number) => Node::Number(number.clone()),
+                Step::All => Node::Null,
             })
             .collect(),
-    )
-    .to_string()
+    ))
 }
 
-/// A concrete path as Python's `repr` of its list writes it.
+/// A concrete path a rule names, as [`claim_text`] names a claim path.
 #[must_use]
-pub fn concrete_text(parts: &[Concrete<'_>]) -> String {
-    PythonList(
+pub fn concrete_text(parts: &[Concrete<'_>]) -> ReprItem {
+    ReprItem::repr(&Node::Array(
         parts
             .iter()
             .map(|part| match part {
-                Concrete::Key(key) => Part::Key(key),
-                Concrete::Index(index) => Part::Index(Some(index.position())),
+                Concrete::Key(key) => Node::String(key.clone()),
+                Concrete::Index(index) => index_node(*index),
             })
             .collect(),
-    )
-    .to_string()
+    ))
 }
 
-enum Part<'p> {
-    Key(&'p str),
-    Index(Option<usize>),
-    Null,
-}
-
-struct PythonList<'p>(Vec<Part<'p>>);
-
-impl fmt::Display for PythonList<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("[")?;
-        for (k, part) in self.0.iter().enumerate() {
-            if k > 0 {
-                f.write_str(", ")?;
-            }
-            match part {
-                Part::Key(key) => write!(f, "{}", Quoted(key))?,
-                Part::Index(Some(index)) => write!(f, "{index}")?,
-                Part::Index(None) => f.write_str("...")?,
-                Part::Null => f.write_str("None")?,
-            }
-        }
-        f.write_str("]")
-    }
+fn index_node(index: ArrayIndex) -> Node<'static> {
+    Node::integer(index.position() as i128)
 }

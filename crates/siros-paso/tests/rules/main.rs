@@ -323,3 +323,28 @@ fn a_documents_integrity_is_w3c_sri_metadata_kept_as_written() {
         );
     }
 }
+
+/// A rule names a claims path pointer (OpenID4VP §7.1): its argument is the received JSON array,
+/// its log text Python's `repr` of the list.
+#[test]
+fn a_rule_names_a_claim_path_as_json_in_its_message_and_as_repr_in_its_log() {
+    use siros_explain::IntoArg;
+    for (received, repr) in [
+        (r#"["a", null, 0]"#, "['a', None, 0]"),
+        (r#"["it's", null]"#, r#"["it's", None]"#),
+        (
+            r#"["a", 123456789012345678901234567890]"#,
+            "['a', 123456789012345678901234567890]",
+        ),
+    ] {
+        let claim = format!(r#"{{"path": {received}}}"#);
+        let meta = claims(&format!("{claim}, {claim}"));
+        let Err(Outcome::Unsupported(Unsupported::PathTwice(named))) =
+            render(&meta, r#"{"transaction_id": "t"}"#)
+        else {
+            panic!("{received} is a repeated path");
+        };
+        assert_eq!(IntoArg::arg(&named), received);
+        assert_eq!(named.to_string(), repr);
+    }
+}

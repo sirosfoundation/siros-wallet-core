@@ -367,7 +367,7 @@ fn concrete<'m>(steps: &[Step<'m>]) -> Option<ConcretePath<'m>> {
         .map(|step| match step {
             Step::Key(key) => Some(Concrete::Key(key.clone())),
             Step::Index(index) => Some(Concrete::Index(*index)),
-            Step::Beyond | Step::All => None,
+            Step::Beyond(_) | Step::All => None,
         })
         .collect()
 }

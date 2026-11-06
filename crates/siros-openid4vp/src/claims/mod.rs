@@ -12,7 +12,7 @@ use std::fmt;
 use siros_explain::Explain;
 
 use crate::ids::ClaimId;
-use crate::json::Node;
+use crate::json::{Node, Number};
 use crate::plugins::{OptionItems, Options};
 use crate::request::Item;
 
@@ -53,8 +53,8 @@ pub enum Step<'a> {
     Key(Cow<'a, str>),
     /// An index into an array.
     Index(ArrayIndex),
-    /// An index past every array: an integer no `usize` holds. It selects nothing.
-    Beyond,
+    /// An index past every array: an integer no `usize` holds, as received. It selects nothing.
+    Beyond(Number<'a>),
     /// Every element of an array (`null`).
     All,
 }
@@ -147,7 +147,10 @@ impl<'a> ClaimPath<'a> {
                         number
                             .as_u64()
                             .and_then(|index| usize::try_from(index).ok())
-                            .map_or(Step::Beyond, |index| Step::Index(ArrayIndex(index))),
+                            .map_or_else(
+                                || Step::Beyond(number.clone()),
+                                |index| Step::Index(ArrayIndex(index)),
+                            ),
                     )
                 }
                 _ => None,
@@ -207,7 +210,7 @@ impl<'a> ClaimPath<'a> {
                             next.push((extended(&path, Concrete::Index(*index)), item));
                         }
                     }
-                    Step::Beyond => {
+                    Step::Beyond(_) => {
                         if value.as_array().is_none() {
                             return Err(refused("an index"));
                         }
