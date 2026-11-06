@@ -594,6 +594,15 @@ const REFUSED: &[Refused] = &[
         "FORGED",
     ),
     refused(
+        "a pub function that is no double",
+        &[(
+            LIB,
+            concat!(gate!(), "pub fn chain() -> Vec<u8> {\n    Vec::new()\n}\n"),
+        )],
+        2,
+        "chain",
+    ),
+    refused(
         "a literal of a type with private fields",
         &[(
             LIB,

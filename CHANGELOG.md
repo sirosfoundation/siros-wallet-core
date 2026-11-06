@@ -12,9 +12,10 @@ All notable changes to this workspace. The format follows
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text
   type with `Display`.
 - `cargo xtask layout` refuses, under `feature = "test-util"`, an inherent `impl`
-  of a type outside the gate and any item that makes a value of a type with
-  private fields, and refuses the gate on anything but a whole item. The types
-  the gate declares are the doubles'.
+  of a type outside the gate, any item that makes a value of a type with private
+  fields, and a free `pub fn`, a `pub const` or a `pub static`, and refuses the
+  gate on anything but a whole item. The types the gate declares are the
+  doubles'.
 - `siros-testkit`'s `x509` holds the test certificates and chains; `siros-x509`
   has no `test-util` feature.
 - `siros-mdoc::stored`'s errors implement `Explain`.

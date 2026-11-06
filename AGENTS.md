@@ -66,8 +66,8 @@ engine core. Keep changes small and protocol-specific.
   crate defines, written with its public API alone.** No constructor sits behind
   `test-util`: tests reach restricted values through
   `crates/siros-testkit/src/probe.rs`. `cargo xtask layout` refuses an inherent
-  `impl` of a type outside the gate and any item that makes a value of a type
-  with private fields.
+  `impl` of a type outside the gate, any item that makes a value of a type with
+  private fields, and a free `pub fn`, a `pub const` or a `pub static`.
 - **Every test enforces a source of truth outside the code it tests**: a
   specification, published vectors, an independent implementation, or a
   property that must hold. Delete a test whose expected value comes from the

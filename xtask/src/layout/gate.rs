@@ -8,6 +8,7 @@
 //!   fields;
 //! - a `pub` item whose signature or type names such a type, a trait `impl`'s methods apart: the
 //!   extension point fixes those;
+//! - a free `pub fn`, a `pub const` and a `pub static`: a double is a type with its `impl`s;
 //! - a value of such a type made by its literal or its tuple constructor;
 //! - a call of a function outside the gate with no `pub`;
 //! - a `pub use` of an item outside the gate;
@@ -65,6 +66,8 @@ enum Kind {
     Value(Vec<String>),
     /// A method call's name.
     Method(String),
+    /// A `pub` function, constant or static outside an `impl`.
+    Fixture,
     /// A `pub use`'s path.
     Reexport(Vec<String>),
 }
@@ -217,7 +220,8 @@ impl Reader<'_> {
         mentions: Vec<Vec<String>>,
     ) {
         let owner = self.self_ty.clone().filter(|_| self.inherent);
-        if owner.is_none() {
+        let free = owner.is_none();
+        if free {
             self.names.add_item(&self.module, plain(name));
         }
         self.gates.callables.push(Callable {
@@ -230,6 +234,9 @@ impl Reader<'_> {
         });
         if !matches!(vis, syn::Visibility::Inherited) {
             self.fact(name.span().start().line, Kind::Signature(mentions));
+        }
+        if free && is_public(vis) {
+            self.fact(name.span().start().line, Kind::Fixture);
         }
     }
 
@@ -803,6 +810,7 @@ impl Table<'_> {
                     .filter(|method| !method.reachable && method.makes_restricted)
                     .map(|_| format!("calls `.{name}`, outside the public API"))
             }
+            Kind::Fixture => Some("a `pub` item that is no type: a double is a type".to_owned()),
             Kind::Reexport(path) => self.reexport(module, path),
         }
     }
