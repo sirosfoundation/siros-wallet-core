@@ -7,6 +7,7 @@
 pub mod kit;
 
 use std::borrow::Cow;
+use std::fmt;
 
 use siros_explain::Explain;
 
@@ -15,13 +16,45 @@ use crate::json::Node;
 use crate::plugins::{OptionItems, Options};
 use crate::request::Item;
 
+/// An index into an array (§7.1).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ArrayIndex(usize);
+
+impl ArrayIndex {
+    /// The index.
+    #[must_use]
+    pub const fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    /// The position in the array.
+    #[must_use]
+    pub const fn position(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Debug for ArrayIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Display for ArrayIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// One component of a claims path pointer (§7.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step<'a> {
     /// A member name of an object.
     Key(Cow<'a, str>),
-    /// An index into an array; `None` for one past every array.
-    Index(Option<usize>),
+    /// An index into an array.
+    Index(ArrayIndex),
+    /// An index past every array: an integer no `usize` holds. It selects nothing.
+    Beyond,
     /// Every element of an array (`null`).
     All,
 }
@@ -36,7 +69,7 @@ pub enum Concrete<'a> {
     /// A member name.
     Key(Cow<'a, str>),
     /// An array index.
-    Index(usize),
+    Index(ArrayIndex),
 }
 
 impl Concrete<'_> {
@@ -78,7 +111,7 @@ impl<'a> Step<'a> {
         match (self, part) {
             (Step::All, Concrete::Index(_)) => true,
             (Step::Key(key), Concrete::Key(name)) => key == name,
-            (Step::Index(Some(index)), Concrete::Index(at)) => index == at,
+            (Step::Index(index), Concrete::Index(at)) => index == at,
             _ => false,
         }
     }
@@ -110,11 +143,12 @@ impl<'a> ClaimPath<'a> {
                     if digits.starts_with('-') && digits != "-0" {
                         return None;
                     }
-                    Some(Step::Index(
+                    Some(
                         number
                             .as_u64()
-                            .and_then(|index| usize::try_from(index).ok()),
-                    ))
+                            .and_then(|index| usize::try_from(index).ok())
+                            .map_or(Step::Beyond, |index| Step::Index(ArrayIndex(index))),
+                    )
                 }
                 _ => None,
             })
@@ -157,20 +191,20 @@ impl<'a> ClaimPath<'a> {
                     }
                     Step::Index(index) => {
                         let items = value.as_array().ok_or(refused("an index"))?;
-                        if let Some((at, item)) =
-                            index.and_then(|at| items.get(at).map(|item| (at, item)))
-                        {
-                            next.push((extended(&path, Concrete::Index(at)), item));
+                        if let Some(item) = items.get(index.0) {
+                            next.push((extended(&path, Concrete::Index(*index)), item));
+                        }
+                    }
+                    Step::Beyond => {
+                        if value.as_array().is_none() {
+                            return Err(refused("an index"));
                         }
                     }
                     Step::All => {
                         let items = value.as_array().ok_or(refused("null"))?;
-                        next.extend(
-                            items
-                                .iter()
-                                .enumerate()
-                                .map(|(at, item)| (extended(&path, Concrete::Index(at)), item)),
-                        );
+                        next.extend(items.iter().enumerate().map(|(at, item)| {
+                            (extended(&path, Concrete::Index(ArrayIndex(at))), item)
+                        }));
                     }
                 }
             }

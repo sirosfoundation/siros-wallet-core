@@ -216,7 +216,7 @@ fn disclosure(path: &ConcretePath<'_>, value: &Node<'_>) -> Result<String, Fault
         .collect();
     let name = match path.last() {
         Some(Concrete::Key(key)) => text(key.to_string()),
-        Some(Concrete::Index(at)) => Node::integer(*at as i128),
+        Some(Concrete::Index(at)) => Node::integer(at.position() as i128),
         None => {
             return Err(Fault::new(
                 FAULT,

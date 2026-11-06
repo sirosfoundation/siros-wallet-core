@@ -7,8 +7,8 @@ use siros_explain::Explained;
 use siros_openid4vp::claims::kit::ClaimsFormat;
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{
-    AuthorityType, AuthorityValue, CredentialId, CredentialType, DocumentKey, FormatId, LocaleTag,
-    TransactionType,
+    AuthorityType, AuthorityValue, CredentialId, CredentialType, DocumentKey, FormatId, FormatName,
+    LocaleTag, TransactionType,
 };
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Registry;
@@ -169,8 +169,8 @@ pub struct ClaimsTest {
 }
 
 impl ClaimsFormat for ClaimsTest {
-    fn id(&self) -> &'static str {
-        "x"
+    fn id(&self) -> FormatName {
+        siros_explain::checked!(FormatName, "x")
     }
     fn label_key(&self) -> &'static str {
         self.label

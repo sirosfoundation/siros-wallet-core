@@ -61,9 +61,11 @@ pub use transcript::{
 };
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
-use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_openid4vp::claims::kit::{
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
+};
 use siros_openid4vp::claims::{Claim, ClaimPath, Step};
-use siros_openid4vp::ids::{CredentialType, FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -78,7 +80,8 @@ use cose::Signer;
 use view::MdocMembers;
 
 /// The Credential Format Identifier.
-const ID: &str = "mso_mdoc";
+const NAME: FormatName = siros_explain::checked!(FormatName, "mso_mdoc");
+const ID: &str = NAME.as_str();
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "mdoc.fault");
@@ -183,8 +186,8 @@ impl Format for Mdoc {
 }
 
 impl ClaimsFormat for Mdoc {
-    fn id(&self) -> &'static str {
-        ID
+    fn id(&self) -> FormatName {
+        NAME
     }
 
     /// OpenID4VCI B.2: a claim's display entry holds its `name`.
@@ -272,11 +275,11 @@ impl ClaimsPlugin for Mdoc {
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
             Constraint {
-                member: "issuerauth_alg_values",
+                member: VpFormatsMember::new("issuerauth_alg_values"),
                 matched: identifiers(members.issuer_auth()?.identifiers()),
             },
             Constraint {
-                member: "deviceauth_alg_values",
+                member: VpFormatsMember::new("deviceauth_alg_values"),
                 matched: identifiers(device.identifiers().into_iter().chain(mac).collect()),
             },
         ])

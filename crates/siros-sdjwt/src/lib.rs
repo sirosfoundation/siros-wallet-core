@@ -43,9 +43,11 @@ mod view;
 mod presentation;
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
-use siros_openid4vp::claims::kit::{self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint};
+use siros_openid4vp::claims::kit::{
+    self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
+};
 use siros_openid4vp::claims::{Claim, ClaimPath};
-use siros_openid4vp::ids::{CredentialType, FormatId, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -59,7 +61,8 @@ use siros_openid4vp::wallet_metadata::Placement;
 use view::SdJwtMembers;
 
 /// The Credential Format Identifier.
-const ID: &str = "dc+sd-jwt";
+const NAME: FormatName = siros_explain::checked!(FormatName, "dc+sd-jwt");
+const ID: &str = NAME.as_str();
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "sdjwt.fault");
@@ -168,8 +171,8 @@ impl Format for SdJwtVc {
 }
 
 impl ClaimsFormat for SdJwtVc {
-    fn id(&self) -> &'static str {
-        ID
+    fn id(&self) -> FormatName {
+        NAME
     }
 
     /// SD-JWT VC §8.2: a claim's display entry holds its `label`.
@@ -279,12 +282,12 @@ impl ClaimsPlugin for SdJwtVc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = SdJwtMembers::of(view);
         let mut constraints = vec![Constraint {
-            member: "sd-jwt_alg_values",
+            member: VpFormatsMember::new("sd-jwt_alg_values"),
             matched: members.issuer()?.identifiers(),
         }];
         if view.credential().facts.holder == Holder::Bound {
             constraints.push(Constraint {
-                member: "kb-jwt_alg_values",
+                member: VpFormatsMember::new("kb-jwt_alg_values"),
                 matched: members.holder()?.identifiers(),
             });
         }

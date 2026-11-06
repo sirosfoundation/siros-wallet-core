@@ -386,7 +386,7 @@ pub fn icon(uri: &str, size: u32) -> Option<(String, Icon)> {
     Some((
         uri.to_owned(),
         Icon {
-            reference: uri.to_owned().into(),
+            reference: siros_openid4vp::rows::IconReference::Logo(uri.to_owned().into()),
             media: ImageMedia::PNG,
             size: NonZeroU32::new(size)?,
         },

@@ -145,7 +145,7 @@ fn concrete(path: &[Concrete<'_>]) -> Vec<Value> {
     path.iter()
         .map(|part| match part {
             Concrete::Key(key) => json!(key),
-            Concrete::Index(index) => json!(index),
+            Concrete::Index(index) => json!(index.position()),
         })
         .collect()
 }

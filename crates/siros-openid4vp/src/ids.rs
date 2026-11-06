@@ -222,6 +222,44 @@ text_id!(
     "transaction data type prefix",
     non_empty
 );
+/// A Credential Format Identifier a claims format names itself by, as its refusals name it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FormatName(&'static str);
+
+impl FormatName {
+    /// The name; `None` for an empty text. A format names its own with `checked!(FormatName,
+    /// "...")`.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Option<Self> {
+        if name.is_empty() {
+            None
+        } else {
+            Some(Self(name))
+        }
+    }
+
+    /// The text.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl fmt::Display for FormatName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+/// A format is named by its text in a message.
+impl IntoArg for FormatName {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.0
+    }
+}
+
 impl ClientId<'_> {
     /// The Client Identifier Prefix and the original identifier (§5.9.1): the text before the
     /// first `:` and the text after it; `None` for an identifier without a `:`, a pre-registered

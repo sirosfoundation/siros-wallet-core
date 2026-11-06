@@ -196,7 +196,7 @@ pub(super) fn icons() -> Vec<(String, Icon)> {
             (
                 (*uri).to_owned(),
                 Icon {
-                    reference: Cow::Borrowed(uri),
+                    reference: siros_openid4vp::rows::IconReference::Logo(Cow::Borrowed(uri)),
                     media: ImageMedia::PNG,
                     size: NonZeroU32::new(size).expect("a size"),
                 },
@@ -212,7 +212,9 @@ pub(super) fn static_entry(k: usize) -> StaticEntry {
             .expect("a static entry id"),
         card: Card {
             icon: Icon {
-                reference: Cow::Borrowed("wallet:warning"),
+                reference: siros_openid4vp::rows::IconReference::Asset(Cow::Borrowed(
+                    "wallet:warning",
+                )),
                 media: ImageMedia::PNG,
                 size: NonZeroU32::new(1024).expect("a size"),
             },

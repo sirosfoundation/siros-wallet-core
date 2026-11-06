@@ -190,7 +190,7 @@ fn the_openid4vci_example_draws_its_card() {
             .collect();
         (
             as_written(&card.title),
-            card.icon.reference.to_string(),
+            card.icon.reference.as_str().to_owned(),
             rows,
         )
     };

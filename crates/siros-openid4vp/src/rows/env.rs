@@ -96,11 +96,30 @@ impl ImageMedia {
     }
 }
 
+/// What an icon names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IconReference {
+    /// A wallet asset, such as `wallet:card`.
+    Asset(Cow<'static, str>),
+    /// A card's logo URI.
+    Logo(Cow<'static, str>),
+}
+
+impl IconReference {
+    /// The asset's name or the logo's URI.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Asset(text) | Self::Logo(text) => text,
+        }
+    }
+}
+
 /// An icon of at least one byte: a wallet asset or a card's logo, with its image media type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Icon {
-    /// The card's logo URI, or a wallet asset.
-    pub reference: Cow<'static, str>,
+    /// What it names.
+    pub reference: IconReference,
     /// The media type.
     pub media: ImageMedia,
     /// The byte length.
@@ -110,13 +129,13 @@ pub struct Icon {
 impl Icon {
     /// The wallet's icon for a card without a logo.
     pub const DEFAULT: Icon = Icon {
-        reference: Cow::Borrowed("wallet:card"),
+        reference: IconReference::Asset(Cow::Borrowed("wallet:card")),
         media: ImageMedia::PNG,
         size: NonZeroU32::MIN.saturating_add(4095),
     };
     /// The wallet's icon for the empty choice.
     pub const NONE: Icon = Icon {
-        reference: Cow::Borrowed("wallet:none"),
+        reference: IconReference::Asset(Cow::Borrowed("wallet:none")),
         media: ImageMedia::PNG,
         size: NonZeroU32::MIN.saturating_add(2047),
     };

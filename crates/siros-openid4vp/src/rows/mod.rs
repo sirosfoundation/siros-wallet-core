@@ -7,7 +7,9 @@ mod https_url;
 
 use siros_explain::{RequestText, Text};
 
-pub use env::{BooleanText, Choice, Env, EnvError, Icon, ImageMedia, NotImageMedia, WalletText};
+pub use env::{
+    BooleanText, Choice, Env, EnvError, Icon, IconReference, ImageMedia, NotImageMedia, WalletText,
+};
 pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
 pub use siros_i18n::{
     Amounts, Bidi, Language, ModuleName, OnRenderError, RENDERER, RenderOptions, RenderingInputs,

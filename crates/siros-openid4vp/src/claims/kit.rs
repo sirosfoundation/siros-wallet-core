@@ -19,11 +19,11 @@ use display::{metadata, value_rows};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
-pub use rules::{KitRule, NoAlgorithm, QueryRule};
+pub use rules::{KitRule, NoAlgorithm, QueryRule, VpFormatsMember};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
-use crate::ids::{CredentialType, LocaleTag, QueryId};
+use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
 use crate::json::Node;
 use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
@@ -36,7 +36,7 @@ use crate::{FAULT, detail};
 /// What sets one claims format apart from another.
 pub trait ClaimsFormat {
     /// The format identifier, as refusals name it.
-    fn id(&self) -> &'static str;
+    fn id(&self) -> FormatName;
     /// The claim display member holding the label.
     fn label_key(&self) -> &'static str;
     /// The OpenID4VP appendix of the format.
@@ -92,8 +92,8 @@ fn in_order(
 /// presentation can match.
 #[derive(Debug, Clone)]
 pub struct Constraint<'n> {
-    /// The member name.
-    pub member: &'static str,
+    /// The member.
+    pub member: VpFormatsMember,
     /// The identifiers, each a JSON value as `vp_formats_supported` writes it.
     pub matched: Vec<Node<'n>>,
 }
@@ -142,7 +142,7 @@ impl<'q> ClaimsQuery<'q> {
         let refuse = |rule: KitRule| {
             Refusal::new(QueryRule {
                 format: format.id(),
-                query: query.id().to_string(),
+                query: query.id().clone().into_owned(),
                 rule,
             })
         };
@@ -192,7 +192,10 @@ impl<'q> ClaimsQuery<'q> {
             return Ok(());
         };
         for constraint in constraints {
-            let Some(listed) = supported.get(constraint.member).and_then(Node::as_array) else {
+            let Some(listed) = supported
+                .get(constraint.member.as_str())
+                .and_then(Node::as_array)
+            else {
                 continue;
             };
             if !constraint
@@ -379,7 +382,7 @@ pub fn vp_formats_refusal(
         .map(|_| {
             Refusal::new(QueryRule {
                 format: format.id(),
-                query: query.to_string(),
+                query: query.clone().into_owned(),
                 rule: KitRule::VpFormats,
             })
         })
