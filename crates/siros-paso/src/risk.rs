@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
+use siros_explain::checked;
 use siros_openid4vp::ids::InvalidId;
 use siros_openid4vp::json::Node;
 
@@ -18,7 +19,9 @@ const SIGNAL_PREFIX: &str = "urn:paso:risk:";
 const PROFILE_PREFIX: &str = "urn:paso:risk-profile:";
 
 /// The profile PaSO publishes (Default.md).
-pub const DEFAULT_PROFILE: &str = "urn:paso:risk-profile:global:default:1";
+const DEFAULT: FixedProfile = checked!(FixedProfile, "urn:paso:risk-profile:global:default:1");
+/// The identifier of the profile PaSO publishes (Default.md).
+pub const DEFAULT_PROFILE: &str = DEFAULT.0;
 
 /// A signal type the wallet measures: a URN (RFC 8141), `urn:`, a non-empty namespace
 /// identifier, `:` and a non-empty namespace-specific string.
@@ -60,25 +63,72 @@ impl fmt::Display for SignalType<'_> {
     }
 }
 
-/// A risk signal type (§2.1): a URN under `urn:paso:risk:`.
+/// Whether a text is `<prefix><domain>:<suffix>:<version>` (§2.1, §3.2): one or more segments of
+/// `<suffix>`, none empty, `<version>` a number.
+const fn structured(text: &str, prefix: &str) -> bool {
+    let Some((head, mut rest)) = text.as_bytes().split_at_checked(prefix.len()) else {
+        return false;
+    };
+    let (mut head, mut expected) = (head, prefix.as_bytes());
+    while let ([written, written_tail @ ..], [wanted, wanted_tail @ ..]) = (head, expected) {
+        if *written != *wanted {
+            return false;
+        }
+        head = written_tail;
+        expected = wanted_tail;
+    }
+    let (mut separators, mut segment, mut numeric) = (0_usize, 0_usize, true);
+    while let [byte, tail @ ..] = rest {
+        if *byte == b':' {
+            if segment == 0 {
+                return false;
+            }
+            separators += 1;
+            segment = 0;
+            numeric = true;
+        } else {
+            segment += 1;
+            numeric = numeric && byte.is_ascii_digit();
+        }
+        rest = tail;
+    }
+    separators >= 2 && segment > 0 && numeric
+}
+
+/// A risk signal type (§2.1): `urn:paso:risk:<domain>:<suffix>:<version>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RiskSignal(SignalType<'static>);
 
+/// A risk signal type the crate fixes, its rule checked when the crate builds.
+#[derive(Clone, Copy)]
+struct FixedSignal(&'static str);
+
+impl FixedSignal {
+    const fn new(text: &'static str) -> Option<Self> {
+        if structured(text, SIGNAL_PREFIX) {
+            Some(Self(text))
+        } else {
+            None
+        }
+    }
+
+    const fn signal(self) -> RiskSignal {
+        RiskSignal(SignalType(Cow::Borrowed(self.0)))
+    }
+}
+
 impl RiskSignal {
     /// The response mode signal, which the request itself gives (Risk Signal Registry §2.7).
-    pub const RESPONSE_MODE: Self = Self(SignalType(Cow::Borrowed(
-        "urn:paso:risk:global:response_mode:1",
-    )));
+    pub const RESPONSE_MODE: Self =
+        checked!(FixedSignal, "urn:paso:risk:global:response_mode:1").signal();
     /// The authentication methods signal, which strong customer authentication requires (Risk
     /// Signal Registry §2.8).
-    pub const AMR: Self = Self(SignalType(Cow::Borrowed("urn:paso:risk:global:amr:1")));
+    pub const AMR: Self = checked!(FixedSignal, "urn:paso:risk:global:amr:1").signal();
 
     /// The signal type a text names.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        text.starts_with(SIGNAL_PREFIX)
-            .then(|| SignalType::parse(text.to_owned()).ok().map(Self))
-            .flatten()
+        structured(text, SIGNAL_PREFIX).then(|| Self(SignalType(Cow::Owned(text.to_owned()))))
     }
 
     /// The type as the PaSO module measures it.
@@ -94,21 +144,29 @@ impl RiskSignal {
     }
 }
 
-/// A risk signal profile identifier (§3.2): `urn:paso:risk-profile:<domain>:<suffix>:<version>`,
-/// one or more segments of `<suffix>`, none empty, `<version>` a number.
+/// A risk signal profile identifier (§3.2): `urn:paso:risk-profile:<domain>:<suffix>:<version>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ProfileId(String);
+pub struct ProfileId(Cow<'static, str>);
+
+/// A risk signal profile identifier the crate fixes, its rule checked when the crate builds.
+#[derive(Clone, Copy)]
+struct FixedProfile(&'static str);
+
+impl FixedProfile {
+    const fn new(text: &'static str) -> Option<Self> {
+        if structured(text, PROFILE_PREFIX) {
+            Some(Self(text))
+        } else {
+            None
+        }
+    }
+}
 
 impl ProfileId {
     /// The identifier a text names.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let segments: Vec<&str> = text.strip_prefix(PROFILE_PREFIX)?.split(':').collect();
-        let version = segments.last()?;
-        (segments.len() >= 3
-            && segments.iter().all(|segment| !segment.is_empty())
-            && version.bytes().all(|b| b.is_ascii_digit()))
-        .then(|| Self(text.to_owned()))
+        structured(text, PROFILE_PREFIX).then(|| Self(Cow::Owned(text.to_owned())))
     }
 
     /// The identifier.
@@ -205,24 +263,12 @@ impl Catalogue {
     pub fn paso() -> Self {
         let signals = [
             RiskSignal::RESPONSE_MODE,
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:geolocation:1",
-            ))),
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:call_activity:1",
-            ))),
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:device_motion:1",
-            ))),
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:screen_capture:1",
-            ))),
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:device_basics:1",
-            ))),
-            RiskSignal(SignalType(Cow::Borrowed(
-                "urn:paso:risk:global:app_vendor_id:1",
-            ))),
+            checked!(FixedSignal, "urn:paso:risk:global:geolocation:1").signal(),
+            checked!(FixedSignal, "urn:paso:risk:global:call_activity:1").signal(),
+            checked!(FixedSignal, "urn:paso:risk:global:device_motion:1").signal(),
+            checked!(FixedSignal, "urn:paso:risk:global:screen_capture:1").signal(),
+            checked!(FixedSignal, "urn:paso:risk:global:device_basics:1").signal(),
+            checked!(FixedSignal, "urn:paso:risk:global:app_vendor_id:1").signal(),
         ]
         .into_iter()
         .map(|signal| SignalSpec {
@@ -232,7 +278,7 @@ impl Catalogue {
         })
         .collect();
         Self::new(vec![(
-            ProfileId(DEFAULT_PROFILE.to_owned()),
+            ProfileId(Cow::Borrowed(DEFAULT.0)),
             RiskProfile {
                 sealing: Sealing::Encrypted,
                 signals,

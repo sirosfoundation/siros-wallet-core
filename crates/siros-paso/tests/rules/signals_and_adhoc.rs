@@ -6,6 +6,7 @@ use siros_openid4vp::refusal::ErrorCode;
 use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal};
 use siros_paso::entry::EntryRule;
 use siros_paso::outcome::{NotCompatible, Outcome};
+use siros_paso::risk::{ProfileId, RiskSignal};
 use siros_paso::rules::{EntryPosition, PasoRule};
 use siros_paso::{PasoProfile, Rendered};
 use siros_testkit::fixtures;
@@ -51,6 +52,14 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk:global:x:1"]"#),
         Outcome::NotCompatible(NotCompatible::RiskProfiles)
+    );
+    decided!(
+        case(r#", "risk_signal_profiles": ["urn:paso:risk-profile:x"]"#),
+        Outcome::NotCompatible(NotCompatible::RiskProfiles)
+    );
+    decided!(
+        case(r#", "risk_signals": [{"type": "urn:paso:risk:x"}]"#),
+        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed(_))
     );
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk-profile:com.example:x:1"]"#),
@@ -305,4 +314,33 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         rules(&parameters(two_sets, &[&card_entry], ""), true),
         [(PasoRule::Sets, ErrorCode::INVALID_TRANSACTION_DATA)]
     );
+}
+
+/// §2.1 and §3.2 give both identifiers one structure under their own prefixes.
+#[test]
+fn signal_types_and_profile_identifiers_keep_their_structure() {
+    let well_formed = [
+        "global:default:1",
+        "com.example:a:b:2",
+        "com.example:geolocation:10",
+    ];
+    for tail in well_formed {
+        assert!(RiskSignal::parse(&format!("urn:paso:risk:{tail}")).is_some());
+        assert!(ProfileId::parse(&format!("urn:paso:risk-profile:{tail}")).is_some());
+    }
+    let broken = [
+        "x",
+        "global:default",
+        "global::1",
+        ":default:1",
+        "global:default:one",
+        "global:default:",
+    ];
+    for tail in broken {
+        assert!(RiskSignal::parse(&format!("urn:paso:risk:{tail}")).is_none());
+        assert!(ProfileId::parse(&format!("urn:paso:risk-profile:{tail}")).is_none());
+    }
+    // §3.2: neither stands where the other is expected.
+    assert!(RiskSignal::parse("urn:paso:risk-profile:global:default:1").is_none());
+    assert!(ProfileId::parse("urn:paso:risk:global:amr:1").is_none());
 }
