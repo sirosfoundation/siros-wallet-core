@@ -2037,6 +2037,62 @@ plain text (styles dropped), its label and value at most `FIELD_MAX` (80) charac
 own bound; a longer one is clipped, an image clipped, a white-space label no field (`NoName`).
 Static entries disclose nothing and stay out of the facts.
 
+#### The core's vocabulary (`json`, `cbor`, `ids`, `plugins`, `wallet`, `claims::kit`)
+
+A JSON object the core writes holds each name once, and a repeat of known names fails the build:
+
+```rust
+/// What a `Distinct` tells its values apart by.
+pub trait Named { fn name(&self) -> &str; }
+/// The first name two values hold, in code point order.
+pub struct RepeatedName { pub name: String }
+/// Values whose names differ: `new(Vec<T>) -> Result<Self, RepeatedName>`.
+pub struct Distinct<T>(Vec<T>);
+/// Names a constant writes: `const fn new -> Option<Self>`, `None` on a repeat.
+pub struct FieldNames<const N: usize>([&'static str; N]);
+```
+
+- `known_object! { "name" => Option<Node>, .. }` writes the object of the members present, in the
+  written order. A repeated name fails the build (E0080).
+- `cbor::distinct_map(pairs, read)` reads a decoded map, whose keys the decoder holds distinct, into
+  a `Distinct`.
+- `Object::set` replaces a member in its place or adds it last. `Object::retain` drops members.
+  `Node::natural` writes a length or a position. `Entry::members` gives an entry's `Object`.
+- `Node::{json_spaced, json_compact, json_ascii}` give `WrittenJson`. Each writes a number as its
+  received token. A double the core makes from CBOR or a measurement writes as Python's `repr`
+  (`python_repr`, `FiniteDouble`). `Number` is `Eq`, and `Step::Beyond(Number)` holds a claims
+  path's index as received.
+
+A value's role is its type:
+
+```rust
+/// A citation (`CSC §6.3`) its crate's source writes: `Clause::cited`, `as_str`, `Display`.
+pub struct Clause(&'static str);
+/// A key of a credential's documents, non-empty: `const fn new -> Option<Self>`.
+pub struct DocumentKey<'a>(Cow<'a, str>);
+/// A prefix a profile registers its types under, non-empty: `const fn new -> Option<Self>`.
+pub struct TypePrefix<'a>(Cow<'a, str>);
+/// What a registration writes: a view, a document. `new`, `as_bytes`.
+pub struct ViewBytes<'a>(&'a [u8]);
+pub struct DocumentBytes<'a>(&'a [u8]);
+/// One DER certificate of an issuer chain, its bytes as the chain holds them.
+pub struct DerCertificate<'a>(&'a [u8]);
+/// One `vp_formats_supported` member constraining a presentation.
+pub struct Constraint<'n> {
+    pub member: VpFormatsMember,
+    /// The credential's key identifiers. `NoAlgorithm` names them.
+    pub matched: Vec<Node<'n>>,
+    /// What the member admits beyond them: a device MAC header's fixed `alg`. A refusal leaves them
+    /// out.
+    pub also: Vec<Node<'n>>,
+}
+```
+
+`checked!(Type, "text")` makes a value by `Type::new` and `Option::expect` in a constant, so a
+refused literal fails the build (E0080). `ClaimsFormat::vp_formats_clause` returns a `Clause`, and
+`NoAlgorithm.clause` holds it. `Credential::new` and `Document.content` take `&[u8]`, and
+`Credential::document` takes `&str`: a plug-in passes `as_bytes` and `DOCUMENT.as_str()`.
+
 ### 4.3 The effects interface
 
 The caller performs every effect and answers in data. Crypto, time and the End-User's
@@ -2217,6 +2273,8 @@ names the form, so each form has one reading.
 
 **10. The redirect handover** holds the `response_uri` as the request names it, and the
 thumbprint of the key the core sealed to: B.2.6.1 includes it "if the response is encrypted".
+`Handover::Redirect.response_uri` is a `HandoverUri`: any text, with `From<&ResponseUri>`, since
+B.2.6.1's hash takes the text as written.
 siros-mdoc builds the handover from the session's binding facts, so a plain URI mode gives a
 null thumbprint and `direct_post.jwt` a thumbprint always.
 
@@ -2608,9 +2666,10 @@ auditor render the same bytes (gate I37). PaSO View §3 asks the wallet to show 
 mitigate homograph confusion with the punycode form. Two texts with one ASCII form are one URL:
 equality and hash read `ascii`, `Resource::distinct` asks one GET for them, and `with_resource`,
 `image::resolve`, `Ts12Profile::resolution` and `FailedImage::url` key on `ascii()`.
-`NotCompatible::Image` names `ascii()` once the text parses, and `IntoArg` names it in a message,
-as `ComposeError::Unfetched` does. `written()` feeds only what the render engine parses again: a
-TS12 payload's `payee.logo` and `payee.website`, and the URL `image::resolve` reads.
+`NotCompatible::Image` names the first 60 characters of `ascii()` once the text parses, and
+`IntoArg` names it in a message, as `ComposeError::Unfetched` does. `written()` feeds only what the
+render engine parses again: a TS12 payload's `payee.logo` and `payee.website`, and the URL
+`image::resolve` reads.
 
 `parse` holds no UTS #46 rule, so a host UTS #46 would refuse is a URL in phase 1. A PaSO `url`
 value, a TS12 `payee.website` and `payee.logo` and a QES document link parse and show its Punycode.
@@ -2644,13 +2703,14 @@ their verdict and ASCII text. `https://\u{fffd}.example/l.png` (siros-paso
 `tests/responses.rs:882`) moves: U+FFFD lies outside `ucschar`, so the text is no IRI. That
 test's case, an https image whose fetch fails, moves to `https://\u{301}x.example/l.png`, a label
 that UTS #46 refuses for starting with a combining mark. Of 20,000 generated URLs,
-13,807 agree. Each of the others falls in a class its tokens name:
+13,128 agree. Each of the others falls in a class its tokens name:
 
 | Class | URLs | f718dc3 | fluent-uri |
 | :-- | --: | :-- | :-- |
 | a character or escape RFC 3987 refuses: `\|`, `{`, `<`, `%zz`, a second `#`, U+FFFD | 5,698 | reads it | refuses it |
 | an empty host after a userinfo or a port (RFC 9110 §4.2.2) | 132 | reads it | refuses it |
 | `HTTPS` in capitals (RFC 3986 §3.1) | 363 | refuses it | reads it |
+| a host UTS #46 refuses | 679 | writes no ASCII form | writes its Punycode |
 
 **Comparisons.** Every URL the generators write is among the 53 literals that agree: `REMOTE`,
 `DOCS`, `LOGOS`, the test format's and PaSO's `https://bücher.example/x`, the QES documents. The
@@ -2785,15 +2845,15 @@ member order: a byte string as `{"bstr": hex}`, an embedded item as its content,
 IssuerSignedItems as `{elementIdentifier: elementValue}`, a tagged COSE_Encrypt as the model's
 `{"COSE_Encrypt": {"protected": {"alg", "enc", "kid"}, "ciphertext"}}`, and DeviceSignature or
 DeviceMac as the stand-in's text. It refuses any other member or shape, a payload, a non-empty
-unprotected header, an alg other than the view's `device_alg` or HMAC 256/256, and an IssuerAuth
-without its payload. `rebuild` carries the model's handover and the view's `device_alg`. With
-it, the reading rebuilds DeviceAuthentication from the model's Origin, nonce and thumbprint
-through a transcript it writes itself, the docType, and the DeviceNameSpacesBytes as received.
-The stand-in's digest must cover that rebuild, and then reads `covered`. `covered(model)` turns
-the model's digest into `covered` too: the model's covers Python's `repr` and the port's covers
-CBOR, so each compares by what it covers. Every entry of the model's DeviceAuthentication is
-thus compared: the transcript and the docType through the rebuild, the device name spaces as
-values.
+unprotected header, a DeviceMac `alg` other than HMAC 256/256, and an IssuerAuth without its
+payload. `rebuild` carries the model's handover and the view's `device_alg`. With it, the reading
+refuses a DeviceSignature `alg` other than `device_alg`, and it rebuilds DeviceAuthentication from
+the model's Origin, nonce and thumbprint through a transcript it writes itself, the docType, and the
+DeviceNameSpacesBytes as received. The stand-in's digest must cover that rebuild, and then reads
+`covered`. `covered(model)` turns the model's digest into `covered` too: the model's covers Python's
+`repr` and the port's covers CBOR, so each compares by what it covers. Every entry of the model's
+DeviceAuthentication is thus compared: the transcript and the docType through the rebuild, the
+device name spaces as values.
 
 **Exporters.** `export_formats.py` and `export_dressed.py` wrap the model's `respond.Session`
 and record each response's handover: the Origin, the nonce, the thumbprint in hexadecimal or
@@ -2805,13 +2865,13 @@ their Origin and nonce are constants on both sides.
 
 | Differential: kind | Count per seed | Today | Then |
 | :-- | :-- | :-- | :-- |
-| siros-mdoc: phase 2 outcomes | 2,087 / 2,583 / 2,919 | vp_token and data texts | each mso_mdoc presentation read with `rebuild` and the model's `covered`; data's JWE stand-in plaintext read alike; both written by `python_compact` |
+| siros-mdoc: phase 2 outcomes | 2,087 / 2,583 / 2,919 | vp_token and data texts | each mso_mdoc presentation read with `rebuild` and the model's `covered`; data's JWE stand-in plaintext read alike; both written by `json_compact` |
 | siros-mdoc: directed presentations with members | 400 / 400 / 400 | presentation texts | read with `rebuild` (Origin, nonce, the exported thumbprint) against `covered` |
 | siros-mdoc: presentations, mdoc deviceSignature / deviceMac | 640/7, 1,312/53, 2,853/3 | markers in the port's text | the same markers in the read text |
 | siros-mdoc: directed deviceSignature / deviceMac | 375/25, 376/24, 377/23 | as above | as above |
 | siros-integration: phase 2 outcomes | 7,954 / 9,362 / 12,295 | vp_token and data texts | as siros-mdoc's |
 | siros-integration: response members per presentation | 4,831 / 7,144 / 17,510 | the port's JSON device name spaces | the read device name spaces; the model's `members_of` as today |
-| siros-paso: responses, risk signals sealed for an mdoc among them | 64 / 138 / 216 | `{"json": the stand-in's text}` | the COSE_Encrypt read into the stand-in dict, written by `python_compact` |
+| siros-paso: responses, risk signals sealed for an mdoc among them | 64 / 138 / 216 | `{"json": the stand-in's text}` | the COSE_Encrypt read into the stand-in dict, written by `json_compact` |
 
 **The `amr` signal.** The frozen model reports `amr` unavailable, and siros-paso writes
 Registry §2.8's form. The oracle's `amr_reported` rewrites each of the model's `amr` envelopes
@@ -2847,11 +2907,11 @@ checks reading mdoc presentations through `model_shape`.
 
 | Gate | Source | Result |
 | :-- | :-- | :-- |
-| KA2, KA3, KA4 through `SessionTranscript::of(Handover::Redirect)`; KA5 through `Handover::DcApi` and through the reading's transcript | OpenID4VP B.2.6.1, B.2.6.2 | 5 of 5 |
+| KA1 through `Thumbprint::of`; KA2, KA3, KA4 through `SessionTranscript::of(Handover::Redirect)`; KA5 through `Handover::DcApi` | OpenID4VP B.2.6.1, B.2.6.2, RFC 7638 | 5 of 5 |
 | Sig_structure and MAC_structure handed to the runtime equal ones built by hand | RFC 9052 §4.4, §6.3 | 2 of 2 |
 | A key twice: at the top, nested, in an array, in a tag, in an indefinite map and inside a key; 0.0 and -0.0 one key; 1 and 1.0, text and bytes, a tag and its content distinct; a byte after the item; a cut item; 300 nested arrays | RFC 8949 §5.6.1 | 18 of 18 |
 | COSE buckets: a label in both (coset accepts it, `read_sign1` refuses it); a label twice in one bucket refused; disjoint and empty buckets read | RFC 9052 §3 | 7 of 7 |
-| JSON to CBOR and back over export_formats.py's `json_value` grammar: decode of encode is identity, the read text equals the JSON's Python text, RFC 8949 §6.1 inverts §6.2 | RFC 8949 §6 | 10,000 of 10,000 |
+| JSON to CBOR and back over export_formats.py's `json_value` grammar: decode of encode is identity, the read text equals the JSON's compact text, RFC 8949 §6.1 inverts §6.2 | RFC 8949 §6 | 10,000 of 10,000 |
 | Presented items digest to the MSO's value digests; 5 IssuerSigned refusals | the issuer stand-in | 3 of 3; 5 of 5 |
 | The reading against the frozen model: Python runs `fmt_mdoc.present` on 4 cases (no member; text, bytes, JSON and COSE_Encrypt members; a MAC on P-256; P-384 with doubles and control characters), compared as text with the designed presentation after `covered`; a wrong nonce refused | wallet-ref | 4 of 4; 4 of 4 |
 | The matcher with siros-mdoc registered, matching one credential (a wasm32-wasip1 pair) | `replace/wasm/` | Behind the core's `resolve`, ciborium and coset stay out of the `match` build (`cargo tree`). As siros-mdoc's plain dependency, coset compiles 8 more crates and adds −16 B (326,002 B against 325,986 B). |
@@ -3120,6 +3180,11 @@ so `amr` always holds two categories. siros-ts12 writes TS12's claims alone, its
 - `account_access` and `emandate` (T4);
 - the wallet-side `aud` check of CS-12 §6.1 step 3 (reading 28).
 
+`Ts12Excluded` tells a wallet why phase 1 excludes the credential, and `Ts12Unsupported` holds a
+variant per rule on a type's document: its `schema`, its `claims`, each claim's path, level and
+labels, and its `ui_labels`. A `ts12` document the wallet holds and cannot read is a `Fault`, as in
+phase 2.
+
 The transaction log of TS12 §5.3 is the caller's, optional under CS-12 §7.3 item 11: the
 `Received` the caller keeps holds every value it lists.
 
@@ -3181,7 +3246,9 @@ impl Ts12Profile {
     /// What the wallet fetched of each https logo.
     pub fn with_resources(self, resources: Keyed<HttpsUrl, Fetch>) -> Self;
     /// Registers the profile under `urn:eudi:sca:`.
-    pub fn register(self, builder: &mut RegistryBuilder) -> ProfileHandle;
+    pub fn register<H: Build>(self, builder: &mut RegistryBuilder<H>) -> ProfileHandle
+    where
+        Self: HostedProfile<H>;
 }
 
 impl Profile for Ts12Profile { /* refusals: T1 to T6; members: placement Claims alone; bind:
@@ -3262,7 +3329,7 @@ siros-matcher       siros-dc-matcher: the core and the plug-ins without resolve,
 | siros-mdoc | the core; siros-explain; siros-i18n with `date` under `resolve` | the traits it implements; an element's `full-date` and `tdate`, which a card's rows hold as typed values and the registration's package holds precomputed (section 4.14) |
 | siros-sdjwt | the core; siros-explain; siros-i18n with `render` | the traits it implements; a type metadata document's `display` as a defined module (section 4.14) |
 | siros-paso | the core; siros-explain; siros-i18n with `number`, `currency` and `date`; siros-x509 under `resolve` | the traits it implements; PaSO View's value types, which render as amounts and dates (section 4.14); an ad-hoc metadata JWT's `x5c` chain, its leaf's key and subject (Proof Metadata §5.3) |
-| siros-ts12 | the core; siros-paso; siros-explain | siros-paso's engine renders TS12's entries (section 4.10.3); the core's `ViewAdditions` gives a credential's `types` (reading 26); the error contract (section 4.13) |
+| siros-ts12 | the core; siros-paso; siros-explain; siros-i18n without features | siros-paso's engine renders TS12's entries (section 4.10.3); the core's `ViewAdditions` gives a credential's `types` (reading 26); the error contract (section 4.13); the types in `view::convert`'s signature |
 | siros-credman | the core; siros-explain; siros-i18n with `render`, and `load` under `register` | the consent entry it maps; the texts `emit` renders; the registration's package |
 | siros-i18n | siros-explain | the texts and values it renders, and its errors' contract (sections 4.13, 4.14) |
 | siros-explain | none | |
@@ -3340,10 +3407,15 @@ whether or not another crate turns `sealed-signals` on.
   `resolve` links sha3 unused (phase 1 recognizes the SHA-3 OIDs, phase 2 digests; Cargo expresses
   no dependency on two features).
 - A plug-in's normal dependencies are those its code uses: siros-sdjwt and siros-mdoc read JSON
-  through the core's `json`; base64 and sha2 (siros-sdjwt, siros-qes), base64, sha2 and rustc-hash
-  (siros-mdoc), serde_json (siros-paso) are optional behind each crate's `resolve`. The core links
-  sha2 in every build; a build with neither channel, `sri` nor `transaction-data` leaves it unused,
-  and no request reaches such a build.
+  through the core's `json`. siros-sdjwt names sha2 in every build, and base64 and rustc-hash behind
+  `resolve`. siros-mdoc names base64, sha2 and rustc-hash behind `resolve`, siros-qes base64 and
+  sha2. siros-paso names icu_properties (CommonMark's whitespace and punctuation), base64, sha2,
+  hmac, unicode-segmentation and rustc-hash in every build, and serde_json, uuid and siros-x509
+  behind `resolve`. siros-ts12 names base64 for a data URL and SRI. The core links icu_properties,
+  idna, fluent-uri, base64, sha2 and serde_json in every build; `DisplayText` and
+  `refusal::printable` read general categories through icu_properties. Sha2 sits in every build; a
+  build with neither channel, `sri` nor `transaction-data` leaves it unused, and no request reaches
+  such a build.
 - siros-i18n's features: `load`, the wallet's (the parser, the checks, the compilation, the package
   builder); `render`, the matcher's (the package reader, the renderer); and one per format module:
   `number`, `currency`, `offset`, `date`, `list`. Each crate turns on the format modules its own
@@ -3358,7 +3430,15 @@ whether or not another crate turns `sealed-signals` on.
 - A crate's `test-util` feature holds doubles of the extension points it defines, and no
   constructor sits behind it, the pattern of tokio's `test-util`. Each double is written with the
   crate's public API alone, so anyone could write it and it opens nothing: Cargo's feature unification can turn the feature on in any build, and
-  a constructor behind it would open what its type seals. A test reaches a sealed value the way a
+  a constructor behind it would open what its type seals. `cargo xtask layout` holds the rule. The
+  gate stands on a whole item, module or file. Under it, the check refuses an inherent `impl` of a
+  type declared outside the gate; a trait `impl` on such a type with private fields; a `pub` item
+  whose signature or type names such a type, a trait `impl`'s methods apart; a free `pub fn`,
+  `pub const` or `pub static`; a value of such a type written by its literal or tuple constructor; a
+  call of a non-`pub` function outside the gate; a `pub use` of an item outside the gate; a glob
+  `pub use`, a macro call in item position and `#[path]`. It refuses the gate on an associated item
+  outside the gate, a field or a part, `cfg_attr` and a macro's tokens. A double's own constructor
+  stays. A test reaches a sealed value the way a
   plug-in does: siros-testkit's `probe` holds a format and a profile registered with the core
   alongside the doubles, which hand a test's closure the `QueryContext`, `AnsweredContext` and
   `Session` or `FetchedRecord` the core's flow gives them and stop the flow there, and a session
@@ -3457,7 +3537,7 @@ implement the same trait.
 | Extension point | Implemented by | Inputs (core-made) | The core checks | Registry refuses | Host bounds | Feature | For real in | Double |
 | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | `Format`, `FormatHost` | a credential format | `Query`, `QueryContext`, `AnsweredContext`, `Credential`, `Usable`, `Session` | refusals as `AllOf<Refusal>`, `displayable`'s refusal as `ExcludedBy::Display`, a `Presentation` of §8.1's two forms, `wallet_formats` a JSON object, `placement` read once at build | a format id twice | `FormatHost<H>`'s, taken through `HostedFormat<H: Build>` | `match`, `resolve` | siros-mdoc, siros-sdjwt, siros-zkp-req | siros-testkit `TestFormat` |
-| `Profile`, `ProfileHost` | a transaction data type | `Binding` with its `additions`, `Answered`, `FetchedRecord`, `Authentication` | members within `members(placement)`, refusals with their codes | a type prefix twice, a member twice, a member the format's placement does not hold (`MemberPlacement`) | `ProfileHost<H>`'s, taken through `HostedProfile<H: Build>` | `match`, `resolve` | siros-paso, siros-ts12, siros-qes | `TestProfile` |
+| `Profile`, `ProfileHost` | a transaction data type | `Binding` with its `additions`, `Answered`, `FetchedRecord`, `Authentication`; `reserves` the `Credential` with its `ViewAdditions` | members within `members(placement)`, refusals with their codes, `reserves`' answer or its `Fault` | a type prefix twice, a member twice, a member the format's placement does not hold (`MemberPlacement`) | `ProfileHost<H>`'s, taken through `HostedProfile<H: Build>` | `match`, `resolve` | siros-paso, siros-ts12, siros-qes | `TestProfile` |
 | `ClientPrefix`, `PrefixHost` | a Client Identifier Prefix | `ClientClaim`, `Decided` | the `alg` against `Haip::verifies` before any question (A7), the signature under the bound key (A8), the endpoint the core binds | a prefix name twice; `origin` | `PrefixHost<H>`'s; its registration `client_prefix` `Has<dyn Haip>` | `signed` | siros-x509 | `TestPrefix` |
 | `ObjectRule` | a rule on a Request Object's claims | the payload's claims, after A10 | its refusal under its own code (A14) | | none | `signed` | siros-webuild's `Cs02Claims` | `TestObjectRule` |
 | `ResponseType` | a response type (RFC 6749 §8.4) | none | P1 against the registered names | a name twice | none | `match` | the core's `vp_token` | `TestResponseType` |
@@ -3717,7 +3797,14 @@ pub enum RoutingRule {
   detail skipped. The detail is a formatter that owns its values, run when the log line is
   written: `detail!("{id}: view", id = …)` moves each value into it.
 - **An exclusion** is `Exclude::new(rule: impl Exclusion)`. `Exclusion: Explained` adds
-  `clause()`, the clause of the profile's specification the rule applies.
+  `clause() -> Clause`, the clause of the profile's specification the rule applies.
+  `Exclude::clause` and siros-paso's `Outcome::clause`, `Unsupported::clause`,
+  `NotCompatible::clause` and `Excluded::clause` return it.
+- **A claims path in a PaSO error** is a `ReprItem`: `Mismatch`, `Unsupported::{PathTwice,
+  ValueTypeWithoutDisplay, ClaimLabel, MandatoryLabelOnly}`, `NotCompatible::{ValueType,
+  PayloadDirectional, Uncovered, MandatoryAbsent, TemplateNotString, PaymentRequired,
+  GenericPayment, MandatePayment}`, `ArrayAt::Claim`, `RenderedAt::Claim`. The argument is the JSON
+  array, with each number as received; the log text is Python's `repr` of the list.
 - **Each crate lists its messages.** A public unit struct `CrateMessages` implements `Messages`
   over the crate's error types and its fault, in every feature set, so a test reads every crate's
   messages and refuses an identifier that names two. A crate with display messages holds
@@ -4154,6 +4241,23 @@ covers it.
   conversion tags `en`. View §4 then presents the example to every list whose Lookup reaches
   `en` (`[en-US, en]`, `[en-US]`, `[en-GB]`, `[en]`) and excludes it for a list without English.
 
+**A credential's display.** The claims kit reads a credential's display from the view's `metadata`
+and its `issuer_display`:
+
+- `format_entry` takes a display array's entry for the wallet's locales: RFC 4647 Lookup over the
+  priority list, then basic filtering, then the entry without a locale. Format and OpenID4VCI
+  entries form a single list, the format's first, so Lookup reaches OpenID4VCI's `en` before
+  filtering reaches the format's `en-US`.
+- An array answering no language gives the kit's next choice: the wallet's word for a title, the
+  member name for a label, the default icon. A format's entry stating no text answers no language.
+  A defined module writes a tag's body by `format_entry` over that tag, then the priority list.
+- A card's subtitle takes the name of the view's `issuer_display` entry, then the view's `issuer`.
+- A refused text excludes the credential at the query (`FormatQuery::displayable`,
+  `ExcludedBy::Display`). Registration admits every text. `CardError::Text` serves a direct
+  `ClaimsQuery::card`.
+- `ClaimText::Bytes { length }` shows a byte string by its length, which the mdoc view's
+  `byte_strings`, `{"path", "length"}`, states. `Node::natural` writes it.
+
 **Texts.** A consent entry (`Card`, `Overlay`, `TransactionHeader`), a row, a record and the
 matcher's pick hold `Text`, the unrendered form. The 16 `String` fields become `Text`; siros-credman's
 Credential Manager entries carry the same `Text`s.
@@ -4231,21 +4335,21 @@ pub struct DateTime { date: Date, clock: Clock, offset: Option<Offset> }
 - **PaSO's rules load as a module.** siros-paso converts a metadata document's display rules into
   a defined module with no loader: `view::convert` writes a `DefinedForm` over the package's main
   locales. The module's identity is `view::module_of`: `PLUGIN` and the SHA-256 of the document's
-  compact JSON. Each display array is one message, under a claim's `claim_<k>` or a UI label's
-  name. The module supports each tag of the End-User's priority list View §4 can select. In each, an
-  array's message is the text of the entries View §4 tries for that tag: one entry's, or, for a
-  template an absent claim discards, a selection over each entry's argument `e<j>` (`live` or
-  `dead`) whose fallback is the last entry tried. A `mini_markdown` label becomes spans of the styles
-  it opens, and a `{n}` placeholder the argument `c<n>` of claim n's value kind, absent when the
-  claim is. A claim's value becomes a typed value (`date`, `time`, `date_time`, `currency`,
-  `currency_amount`), a query (`frequency`, `boolean`) or `Raw` (`text`, `url`). `DefinedBuilder`
-  checks the form, so a rule that does not convert leaves the entry not compatible in phase 1
-  (`ConvertError`), and each tag's typed arguments format as the main module's entry RFC 4647 Lookup
-  finds for the tag (`MainLocale`). PaSO View's display types, value types, templates and
-  `mini_markdown` parser sit in siros-paso; the core holds no PaSO token (I6). siros-sdjwt loads a
-  type metadata document's `display` as a module of the same form (`Resolved::display`, a
-  registration's opt-in), which the claims kit's `ClaimsFormat::display_module` names and
-  `FormatQuery::card_module` hands the rendering.
+  compact JSON, each number as received. Each display array is one message, under a claim's
+  `claim_<k>` or a UI label's name. The module supports each tag of the End-User's priority list
+  View §4 can select. In each, an array's message is the text of the entries View §4 tries for that
+  tag: one entry's, or, for a template an absent claim discards, a selection over each entry's
+  argument `e<j>` (`live` or `dead`) whose fallback is the last entry tried. A `mini_markdown` label
+  becomes spans of the styles it opens, and a `{n}` placeholder the argument `c<n>` of claim n's
+  value kind, absent when the claim is. A claim's value becomes a typed value (`date`, `time`,
+  `date_time`, `currency`, `currency_amount`), a query (`frequency`, `boolean`) or `Raw` (`text`,
+  `url`). `DefinedBuilder` checks the form, so a rule that does not convert leaves the entry not
+  compatible in phase 1 (`ConvertError`), and each tag's typed arguments format as the main module's
+  entry RFC 4647 Lookup finds for the tag (`MainLocale`). PaSO View's display types, value types,
+  templates and `mini_markdown` parser sit in siros-paso; the core holds no PaSO token (I6).
+  siros-sdjwt loads a type metadata document's `display` as a module of the same form
+  (`Resolved::display`, a registration's opt-in), which the claims kit's
+  `ClaimsFormat::display_module` names and `FormatQuery::card_module` hands the rendering.
 
 ```rust
 /// A module's identity.
@@ -4473,14 +4577,14 @@ Gates: I28 to I38.
 ### 4.15 Type audit
 
 Every type the sketches define has one row, and so has every type this plan's code blocks define
-beside the sketches: 776 rows. `checks/audit.py` compares the tables with the inventory, name for
+beside the sketches: 878 rows. `checks/audit.py` compares the tables with the inventory, name for
 name.
 
 ```sh
 PAT='^\s*(pub(\([a-z]+\))? )?(struct|enum|trait) [A-Z][A-Za-z0-9_]*|^\s*pub(\([a-z]+\))? type [A-Z][A-Za-z0-9_]*'
-grep -rnE "$PAT" --include=*.rs sigs host-sketch explain-sketch replace/sigs | grep -v '/target/'   # 767 definitions
-awk '/^```rust/{f=1;next} /^```/{f=0} f' proposal.md | grep -E "$PAT"   # 273 definitions,
-# 9 of whose names no sketch defines
+grep -rnE "$PAT" --include=*.rs sigs host-sketch explain-sketch replace/sigs | grep -v '/target/'   # 867 definitions
+awk '/^```rust/{f=1;next} /^```/{f=0} f' proposal.md | grep -E "$PAT"   # 289 definitions,
+# 11 of whose names no sketch defines
 ```
 
 Each type was checked for these classes:
@@ -4526,7 +4630,7 @@ One mechanism serves each family:
   `SealedCose`.
 - **Types as kinds**: an argument's kind is its value's type (`IntoArg::Kind`).
 
-Counts: 76 rows fixed, 8 boundaries kept with their reason, 716 holding as built.
+Counts: 76 rows fixed, 9 boundaries kept with their reason, 793 holding as built.
 The fixes that close a guarantee hole:
 
 - **Answers from a caller list.** A caller's answers matched by position could give a fetch where
@@ -4565,8 +4669,10 @@ The fixes that close a guarantee hole:
   declared one, and a message could name an argument twice, each found when a text rendered. The
   kind is the type's, and `Names` refuses a repeat when the crate builds.
 
-The 8 boundaries:
+The 9 boundaries:
 
+- `HandoverUri`: any text, since B.2.6.1's hash takes the `response_uri` as written;
+  `From<&ResponseUri>` gives the core's flow its checked URI.
 - `FormatRenderer`'s compiled placeholder: the module's own form, under the package's Merkle root
   (I38); a byte the render half cannot read is a `RenderError`.
 - `Point`: its coordinates' lengths are the key rule's and its place on its curve the agreeing
@@ -4595,6 +4701,9 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `DcApiProtocols` | `arrival` | The protocols the wallet registers, among A.1's three, as the app's configuration picks them | Holds: private slice; only the consts `ALL`, `SIGNED` and `UNSIGNED` make one |
 | `DcApiProtocolsApi` | `arrival` | Answers whether the wallet registers a protocol | Holds: the inherent methods of `DcApiProtocols` |
 | `Unreadable` | `arrival` | One variant per U rule | Holds: a refusal enum, one variant per rule |
+| `DataShape` | `arrival` | What DC API `data` lacks of its protocol's shape | Holds: a refusal enum, one variant per rule |
+| `NestedParameter` | `arrival` | A Request Object's member RFC 9101 §4 forbids: `request` or `request_uri` | Holds: a closed enum |
+| `ClientIdPlacement` | `arrival` | Where a multisigned request holds `client_id` outside its protected headers | Holds: a closed enum |
 | `Received` | `arrival` | The request as it reached the wallet, and the digest of that form | Holds: private fields; only `ReceivedApi::dc_api` and the URI step make one, and each computes the digest |
 | `ReceivedForm` | `arrival` | A DC API request with its Origin, or a URI with the Request Object its `request_uri` returned | Holds: an enum of checked parts; only `Received`'s constructors build the one a `Received` holds |
 | `DcApiRequest` | `arrival` | A DC API request in its protocol's form (A.3) | Holds: an enum; each variant holds a parsed `Parameters`, `CompactJws` or `JsonJws` |
@@ -4779,6 +4888,16 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ComposedDocument` | `profile` | A registration's `ts12` document | Holds: private; only `Ts12DocumentApi::compose` makes one |
 | `Category` | `profile` | SCA's category, or anything else | Holds: an enum; `Ts12Document::read` makes one |
 | `TwinnedMember` | `profile` | A member TS12 §4.1 lets a type write inline or by a `_uri` twin | Holds: an enum whose every variant is such a member |
+| `FetchedDocumentApi` | `profile` | Parses a fetched document | Holds: the inherent `parse` |
+| `ComposedDocumentApi` | `profile` | Reads a registration's content | Holds: the inherent `content`, a `DocumentBytes` |
+| `TypeMetadata` | `profile` | A built-in type's field table, claims and catalogue under TS12 §3.3 | Holds: crate-private; only `TypeEntry::built_in` makes one |
+| `Field` | `profile` | A field of a type's table: its path and role | Holds: crate-private; the tables' constants |
+| `Role` | `profile` | An object shown by its label alone, or a leaf under the display rules | Holds: crate-private; an enum |
+| `ValueType` | `profile` | The PaSO value type a leaf states | Holds: crate-private; an enum |
+| `Shown` | `profile` | What the display rules ask of a leaf: always, declared, or when held | Holds: crate-private; an enum |
+| `Label` | `profile` | A label with its tag as TS12 means it | Holds: crate-private fields |
+| `Claim` | `profile` | A claim of the claims metadata: its field and the labels TS12 §3.3.1 displays it under; `None` keeps the field internal | Holds: crate-private fields |
+| `Catalogue` | `profile` | The UI labels PaSO reads: title, the required `affirmative_action_label`, denial, hint | Holds: crate-private fields |
 | `Ts12DocumentApi` | `profile` | Composes the registration document; reads it and its entries | Holds: the inherent methods of `Ts12Document` |
 | `Amount` | `profile` | An exact decimal amount, at most its currency's minor-unit digits | Holds: private `String`; only `Ts12PayloadApi::parse` makes one, beside its currency |
 | `CurrencyCode` | `profile` | An ISO 4217 code of the core's table, with its minor-unit digits, which `Amount` reads | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
@@ -4789,8 +4908,22 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Integrity` | `profile` | A Subresource Integrity value (W3C SRI §3.5) | Holds: private; `parse -> Option` refuses a text outside the grammar or a digest of another length |
 | `DataUrlApi` | `profile` | The parse of `DataUrl` | Holds: the inherent `parse` |
 | `IntegrityApi` | `profile` | The parse of `Integrity` | Holds: the inherent `parse` |
-| `TransactionId`, `Service`, `Action` | `profile` | Their members, within the schemas' lengths | Holds: private; only `Ts12PayloadApi::parse` makes one |
-| `PayeeName`, `PayeeId`, `PispLegalName`, `PispBrandName`, `PispDomainName`, `RecurrenceNumber`, `InitialAmountNumber`, `Apr`, `AmountEstimated`, `AmountEarmarked`, `SctInst`, `AmountVariable` | `profile` | Their members | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `TransactionId` | `profile` | `transaction_id`, one to 36 characters | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `Service` | `profile` | `service`, at most 100 characters | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `Action` | `profile` | `action`, at most 140 characters | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PayeeName` | `profile` | `payee.name` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PayeeId` | `profile` | `payee.id` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PispLegalName` | `profile` | `pisp.legal_name` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PispBrandName` | `profile` | `pisp.brand_name` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PispDomainName` | `profile` | `pisp.domain_name` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `RecurrenceNumber` | `profile` | `recurrence.number` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `InitialAmountNumber` | `profile` | `recurrence.mit_options.initial_amount_number` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `AmountEstimated` | `profile` | `amount_estimated` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `AmountEarmarked` | `profile` | `amount_earmarked` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `SctInst` | `profile` | `sct_inst` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `AmountVariable` | `profile` | `recurrence.mit_options.amount_variable` | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `Apr` | `profile` | `apr`, the exact decimal value at most 38 digits wide | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `MinorDigits` | `profile` | A currency's minor-unit digits, which `Amount` reads | Holds: private; only `CurrencyCode` holds one |
 | `Payee` | `profile` | TS12 §4.3.1's `payee` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `Pisp` | `profile` | TS12 §4.3.1's `pisp` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `MitOptions` | `profile` | TS12 §4.3.1's `recurrence.mit_options` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
@@ -4812,6 +4945,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `AmrCategory` | `profile` | An `amr` category of TS12 §3.6 | Holds: an enum whose every variant is a category |
 | `AmrMethod` | `profile` | A method of TS12 §3.6, with the category holding it | Holds: an enum; `category()` and `name()` follow from the variant |
 | `AmrApi` | `profile` | The `amr` object of a factor | Holds: a trait; returns an `AmrMethod` |
+| `AmrMethodApi` | `profile` | Reads a method's category and name | Holds: the inherent methods of `AmrMethod` |
+| `Ts12Finding` | `profile` | A logo's fetch that failed, by its URL | Holds: public fields of checked types; phase 2 makes one |
 | `AttestationType` | `profile` | A `vct` value a credential's `types` may name, non-empty | Holds: private; `const fn new -> Option` refuses an empty text |
 | `Ts12Profile` | `profile` | The attestation types, one or more, and View §2's item bound | Fixed (non-empty `Vec`): `AllOf<AttestationType>` |
 | `Ts12Host` | `profile` | The modules siros-ts12 needs: `Platform` and siros-paso's `RandomIds` | Holds: a trait whose bounds name the modules |
@@ -4833,7 +4968,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `KeyType` | `request` | A key's `kty` | Holds: borrows the key's text; only `AgreeableKey::kty` makes one |
 | `ChoiceId` | `matching` | An entry's id in a display set: a credential's or a static entry's | Holds: private text; only `Choice::id` makes one |
 | `DisplaySet` | `matching` | A set of a display, the only way to select | Holds: `Display::set` makes one or refuses `NoSet`; `select` takes the ids the platform returned |
-| `ArrayIndex` | `claims` | A position in a JSON array in a claims path pointer (§7.1) | Holds: a `usize` in its role; `Step::Beyond` stands for an integer no `usize` holds |
+| `ArrayIndex` | `claims` | A position in a JSON array in a claims path pointer (§7.1) | Holds: a `usize` in its role; `Step::Beyond(Number)` holds an integer no `usize` holds, as received |
 | `IconReference` | `rows` | What an icon names: a wallet asset or a card's logo URI | Holds: an enum |
 | `Call` | `render` | A placeholder calling one of its format module's functions | Fixed (typestate gap): private fields; only the loader makes one, `function` one of the module's `functions` |
 | `LanguageFormats` | `load` | One language's options of one format, each name once, and the language's direction | Holds: private fields; `locale()`, `direction()`, `options()`, `option(name)` and `require(name)` read it, and only the loader makes one |
@@ -5029,6 +5164,9 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `RegistryErrorAdditions` | `host` | The registry's refusals beside a format's and a profile's: modes, response types, prefixes, hashes and `sha-256`, scopes, the POST, a name twice or reserved | Holds: a refusal enum, one variant per rule |
 | `RequestPost` | `uri` | The POST of `wallet_metadata` (§5.10), a core component | Holds: a unit struct; `RegistryApi::request_post` takes it with no module bound |
 | `NotForm` | `uri` | Members that make no form body: a nested value, or a name twice | Holds: a refusal enum, one variant per rule; domain `openid4vp.form` |
+| `HashesAlgRule` | `hash` | B.3.3.1's rules on an entry's `transaction_data_hashes_alg`: `invalid_transaction_data` | Holds: a refusal enum, one variant per rule |
+| `ReprList` | `hash` | Values a rule names: its text writes Python's `repr` of the list, its message an and-list | Holds: private `Vec<ReprItem>` |
+| `ReprItem` | `hash` | A received value a rule names: its `repr` for the logs, and the text as written for the message | Holds: private fields |
 | `HashName` | `hash` | A Hash Name String: lowercase ASCII letters, digits, `-` (RFC 6920 §9.4) | Holds: private `&'static str`; `const fn new -> Option` |
 | `HashAlgorithm` | `hash` | A transaction data hash algorithm: name, digest length and digest (B.3.3.1) | Holds: a trait; the registry refuses a name twice and a transaction data build without `sha-256`; the core refuses a digest of another length than `octets` |
 | `Hashes` | `hash` | The registered hash algorithms the request carries from its registry | Holds: a private slice; only the registry makes one; `plugins::Hashes`, re-exported as `hash::Hashes` |
@@ -5052,6 +5190,49 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Cs02Claims` | `plugins` | siros-webuild's CS-02 §8.2 rule: `exp` and `aud` present | Holds: a unit struct implementing `ObjectRule` |
 | `ClaimAbsent` | `plugins` | The CS-02 §8.2 claim a Request Object lacks | Holds: a refusal struct with a private `claim: RequiredClaim`, read by `claim()` |
 | `ClaimAbsentApi` | `plugins` | Reads the claim a `ClaimAbsent` names | Holds: the inherent methods of `ClaimAbsent` |
+| `Clause` | `kept` | A citation its crate's source writes | Holds: private `&'static str`; `cited` |
+| `DocumentKey` | `kept` | A key of a credential's documents, non-empty | Holds: private text; `const fn new -> Option`; `checked!` |
+| `TypePrefix` | `kept` | A prefix a profile registers under, non-empty | Holds: private text; `const fn new -> Option`; `checked!` |
+| `ViewBytes` | `kept` | A format's view, in its encoding | Holds: private bytes in their role |
+| `DocumentBytes` | `kept` | A document's content, in the plug-in's encoding | Holds: private bytes in their role |
+| `DerCertificate` | `kept` | One DER certificate of an issuer chain, its bytes as the chain holds them | Holds: private bytes in their role |
+| `BytesRole` | `kept` | What the role types above share | Holds: a trait; `new` and `as_bytes` |
+| `Constraint` | `kept` | One `vp_formats_supported` member over a presentation | Holds: public fields of checked types; `also` stays out of a refusal |
+| `IssuedMetadata` | `kept` | What OpenID4VCI states of a credential's display | Holds: public optional fields, each as received; the merge reads them |
+| `DocumentNumber` | `qes::approval` | A document's number from 1, which `QesText::Section.document` and `Excluded::Checksum.document` hold | Holds: private `NonZeroUsize`; only `ApprovalRequest::numbered_documents` makes one |
+| `Excluded` | `qes::rules` | Why the QES profile excludes a credential: the qualifier, the carriage or a document's checksum | Holds: a refusal enum, one variant per rule |
+| `P256Point` | `trust::certificate` | A certificate's P-256 key, SEC 1 | Holds: private; only `Certificate::p256_key` makes one |
+| `P384Point` | `trust::certificate` | A certificate's P-384 key, SEC 1 | Holds: private; only `Certificate::p384_key` makes one |
+| `JwkCoordinate` | `sdjwt::error` | `x` or `y` | Holds: an enum whose every variant is a coordinate |
+| `PermanentClaim` | `sdjwt::error` | A claim no disclosure reveals (SD-JWT VC §3.2.2) | Holds: an enum whose every variant is such a claim |
+| `ValidityClaim` | `sdjwt::error` | `nbf` or `exp` | Holds: an enum whose every variant is such a claim |
+| `FixedSd` | `sdjwt::type_metadata` | An `sd` an extending type keeps (SD-JWT VC §8.5.1) | Holds: an enum of the two |
+| `DisplayModule` | `sdjwt::registration` | Whether the wallet loaded `display` as a defined module | Holds: an enum in place of a boolean |
+| `Resolved` | `sdjwt::registration` | What the wallet resolved beside the issued SD-JWT | Holds: public fields of checked types; `metadata` an `Object` |
+| `ResolvedCurve` | `sdjwt::error` | A curve a refusal names | Holds: private text; `From<Curve>` |
+| `IssuerJwt` | `sdjwt::sd_jwt` | The Issuer-signed JWT in compact form | Holds: private; only `SdJwt::issuer_jwt` makes one |
+| `JwtType` | `sdjwt::sd_jwt` | The Issuer-signed JWT's `typ` | Holds: private; only `SdJwt::typ` makes one |
+| `KbSigningInput` | `sdjwt::key_binding` | What the holder's key signs | Holds: private; only `KeyBinding::signing_input` makes one |
+| `KbSignature` | `sdjwt::key_binding` | A Key Binding JWT's signature | Holds: private bytes in their role |
+| `SdJwtKb` | `sdjwt::key_binding` | The presentation as sent | Holds: private; only `KeyBinding::assemble` makes one |
+| `HandoverUri` | `mdoc` | A `response_uri` as B.2.6.1 hashes it | Boundary: any text, since B.2.6.1 hashes it as written; `From<&ResponseUri>` |
+| `HandoverUriApi` | `mdoc` | Makes and reads a `HandoverUri` | Holds: the inherent methods of `HandoverUri` |
+| `Curve` | `mdoc::stored` | A curve of ISO/IEC 18013-5 Table 22 | Holds: an enum whose every variant is such a curve |
+| `SignatureAlgorithm` | `mdoc::cose` | A COSE signature algorithm a device key makes | Holds: an enum whose every variant signs |
+| `SignatureAlgorithmApi` | `mdoc::cose` | Parses a COSE identifier and gives it back | Holds: the public inherent methods of `SignatureAlgorithm` |
+| `SignatureAlgorithmCrateApi` | `mdoc::cose` | Whether a key on a curve makes the algorithm: `made_on` | Holds: crate-private; the crate-private inherent method of `SignatureAlgorithm` |
+| `DeviceKey` | `mdoc::stored` | The MSO's device key, a stated algorithm its curve makes | Holds: private fields; only the stored reader makes one, refusing with `DeviceKeyFault::Algorithm` |
+| `DeviceKeyApi` | `mdoc::stored` | Reads the curve and the algorithm | Holds: the inherent methods of `DeviceKey` |
+| `DeviceKeyView` | `mdoc::cose` | A device key as the view states it | Holds: crate-private fields; `new -> Option` applies `made_on` |
+| `DeviceKeyFault` | `mdoc::stored::device_key` | What an MSO holds that names no device key | Holds: a refusal enum, one variant per rule |
+| `DeviceAuthRefused` | `mdoc::presentation` | Why a device key cannot authenticate for a Verifier | Holds: a refusal enum, one variant per rule |
+| `IssuerName` | `mdoc::registration` | The issuer's name from `x5chain` | Holds: private text in its role |
+| `IssuerSignature` | `mdoc::stored` | `issuerAuth`'s signature | Holds: private bytes in their role |
+| `DataElements` | `mdoc::stored` | A name space's elements `KeyAuthorizations` admits | Holds: private fields; only the stored reader makes one |
+| `Resolved` | `mdoc::registration` | What the wallet resolved beside the stored mdoc | Holds: public fields of checked types |
+| `RegistrationError` | `mdoc::registration` | Why a stored mdoc makes no view | Holds: a refusal enum, one variant per rule |
+| `WalletVersion` | `paso::measure` | The wallet application's version (Core §6.1 `wallet_instance_version`), which Core gives no grammar | Holds: private `Cow`; `new`, `as_str` |
+| `PasoTypeApi` | `profile` | A type under a profile's own identifier | Holds: the inherent `rendered_by`, which `PasoType::parse` calls |
 | `Cs02ErrorAnswer` | `plugins` | siros-webuild's reader of CS-02 §8.3's `error` and `error_description` | Holds: a unit struct implementing `AnswerReader` |
 | `ErrorAnswerForm` | `plugins` | An error answer outside RFC 6749 §5.2's form | Holds: a refusal struct, one rule |
 | `AnswerContent` | `response` | What a mode wraps for an answer: the clear response, or the JWE the core sealed it in | Holds: an enum of core-made values; a sealed route's mode receives the JWE alone |
@@ -5407,7 +5588,10 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `HashesError` | `§4.9.1` | No algorithm every entry allows, or a member twice (B.3.3.1) | Holds: a refusal enum, one variant per rule |
 | `Item` | `§4.9.4` | One CBOR data item in its encoding, its keys distinct at every depth | Fixed (constrained primitive in a public variant): private; only `Item::parse`, through `cbor::decode`, makes one |
 | `MemberValue` | `§4.9.4` | A member value a profile writes: text, bytes, JSON text, or one CBOR item | Fixed (constrained primitive in a public variant): `Cbor` holds an `Item` |
-| `Named` | `§4.13` | One argument under its declared name | Holds: private fields; only `Args::new` makes them, one per name |
+| `Named` | `§4.13`, `§4.2` | One argument under its declared name; a value `Distinct` tells apart by its name | Holds: private fields, only `Args::new` makes them, one per name; a trait over `name` |
+| `Distinct` | `§4.2` | Values whose names differ | Holds: private `Vec`; `new -> Result<_, RepeatedName>` |
+| `RepeatedName` | `§4.2` | The first name two values hold | Holds: a refusal struct |
+| `FieldNames` | `§4.2` | Names a constant writes, distinct | Holds: private array; `const fn new -> Option` |
 | `Entry` | `§4.13` | A value under its key, in a `Keyed` | Holds: private fields; `Keyed::new` refuses a repeated key |
 | `PackageTexts` | `§4.14` | A package whose module set is closed, rendering its texts in advance | Fixed (relational rule outside a step): only `PackageBuilder::texts` makes one, so no module joins after a text renders |
 
@@ -5695,9 +5879,9 @@ By module:
 | :-- | :-- |
 | Core, new | `arrival.rs`, `uri.rs` (the GET, `RequestPost`, `EncryptedRequests`, `FormBody`, the Response URI's answer and `AnswerReader`), `jose.rs` (`CompactJwe` beside the JWS, the algorithm statements, `PublicJwk`), `envelope.rs` (`verifier_info` as received, the registry it was read with, `client_metadata` and the `nonce` read once), `routing.rs` (`ResponseType`, `Mode`, `ModeHost`, `ErrorModeHost`, `ResponseParameters`, `ResponseParametersHost`, the Verifier's metadata), `authenticate.rs` (the classification, `ClientPrefix`, `PrefixHost`, `ObjectRule`, `Pending`, `Authenticated` with the Verifier's metadata), `effects.rs`, `resolve/route.rs` (the route, `AnswerRoute`, the sealing, `Unroutable`), `modes.rs` (the core's four modes, the key rule), `hash.rs`, `scope.rs`, `consent.rs`, `recourse.rs`, `wallet_metadata.rs` (the names, the contributions, `PostContribution`). |
 | Core, changed | `request/mod.rs` (scope), `request/metadata.rs` (the agreeable-key vocabulary as checked names), `request/digest.rs` (the multisigned and URI rows), `ids.rs` (N1; `ClientId`'s Appendix A.1 rule), `matching/rules.rs`, `matching/mod.rs` (`ExcludedBy`, `UnmetCode`, `Match::unmet`, `Candidate::bound` as `TransactionBinding`), `matching/display.rs` (the consent entry), `resolve/mod.rs` (`RouteBreach`, `ParameterBreach`), `resolve/prepared.rs` (`Prepared` over the `Authenticated`), `resolve/response.rs` (the bodies, the delivery, `ResponseMember`), `session.rs` (the binding facts), `txhash.rs` (the registered algorithms), `runtime.rs` → `host.rs` (the access traits, `Platform`, `Haip`, `RequestDecryption`, `KeyHandle`, `Inherence`), `refusal.rs` (the open `ErrorCode`), `plugins/mod.rs` (`placement`, `Presentation`, `ViewAdditions`), `plugins/registry.rs`, `lib.rs`, `Cargo.toml` (the features of section 4.11). `boxes.rs` leaves for siros-credman. |
-| New crate | siros-x509 (x509-cert, der, spki, sha2, base64): `verifier_info` and the `dcql_query` in its evaluation's context; the leaf's key as a public JWK. siros-ts12 (siros-openid4vp, siros-paso; the core's `ViewAdditions` for a credential's `types`). siros-credman (siros-openid4vp): Credential Manager's entries. siros-webuild (siros-openid4vp): `Cs02Claims`, `Cs02ErrorAnswer`. |
-| siros-mdoc, siros-sdjwt | Their tests' sessions; `wallet_formats`; `placement`. siros-mdoc: B.2.6's handover, `Thumbprint` and `SessionTranscript` from the session's binding facts, with the core's `cbor`; the `DeviceMac` double behind `test-util`. siros-sdjwt: the registration view's `types` through `ViewAdditions`, `meta_matches` over them. |
-| siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits`, public `bound`, `view::convert`, `view::carried`, `view::verified`, `adhoc::Carried::read`, `adhoc::Verified::of`, `PasoProfile::with_verified`, `PasoFinding::refused`, `BiometricClass`, the `RandomIds` module with uuid, the `IssuerTrust` module with siros-x509, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
+| New crate | siros-x509 (x509-cert, der, spki, sha2, base64): `verifier_info` and the `dcql_query` in its evaluation's context; the leaf's key as a public JWK. siros-ts12 (siros-openid4vp, siros-paso, siros-i18n, base64; the core's `ViewAdditions` for a credential's `types`). siros-credman (siros-openid4vp): Credential Manager's entries. siros-webuild (siros-openid4vp): `Cs02Claims`, `Cs02ErrorAnswer`. |
+| siros-mdoc, siros-sdjwt | Their tests' sessions; `wallet_formats`; `placement`. siros-mdoc: B.2.6's handover with `HandoverUri`, `Thumbprint` and `SessionTranscript` from the session's binding facts, with the core's `cbor`; `DeviceKey`, `SignatureAlgorithm::made_on`, `DeviceAuthRefused`; the `DeviceMac` double behind `test-util`. siros-sdjwt: the registration view's `types` through `ViewAdditions`, `meta_matches` over them; `Resolved`, `PermanentClaim`, `ValidityClaim`, `JwkCoordinate`, `FixedSd`. |
+| siros-paso, siros-qes | `wanted`; `revalidate` from fetched resources; `authentication`; members by placement. siros-paso: public `render::Request` with `LabelLimits` and one lifetime, `Registered::of`, `PasoType::rendered_by`, `label_limit!`, `WalletVersion`, public `bound`, `view::convert`, `view::carried`, `view::verified`, `adhoc::Carried::read`, `adhoc::Verified::of`, `PasoProfile::with_verified`, `PasoFinding::refused`, `BiometricClass`, the `RandomIds` module with uuid, the `IssuerTrust` module with siros-x509, the `CoseEncrypt` module and the `sealed-signals` feature, the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` doubles behind `test-util`. siros-qes: the `sha3` feature. |
 | siros-credman | `emit` over a `Display` and a `Rendering`: `Emission`, `Emitted`, `Shown`, `RefusedEntry`, `NotEmitted`, `EmitError`; feature `register`: `Registered::of`, `Registration`, `package`, `RegisterError`; `held`; `SetFacts::of` and `Fulfilment::check` over a text function. |
 | siros-zkp-req | What the core's API forces: its `Prover` module and `ProofRequest` (decision 13), `QueryContext`, `AllOf` refusals, an empty `wallet_formats`, `placement` `None`. |
 | siros-testkit | `TestPrefix` (both endpoint bases, configurable answers), `TestMode` (either channel, answers and errors, its body's channel `TestBody`, an unchecked key choice `TestChoice` with `Foreign`, an undeclared metadata name), the probes `read_query`, `read_parsed`, `read_phase_two`, `read_record`, `read_session` and `read_redirect_session` with `ProbeFormat`, `ProfileProbe` and `NamedPrefix`, `probe::dc_api` and `probe::sealed_to_b26` for their routes, `JweHaip` (a real ECDH-ES sealing), `fixtures::authenticate` and `fixtures::trust_config`, `TestResponseType`, `TestResponseParameters`, `TestPostContribution`, `TestAnswerReader`, `TestObjectRule`, `TestHash`, `TestScope`, a test trust service (registration-certificate answers too), the core's module doubles with their counters in `Cell`s, `test_host!`, signed fixtures as real JWS with `client_id`. |
@@ -5753,9 +5937,9 @@ implementation's tests reproduce every row with it. KA1 to KA5 run through siros
 | KA17 | §5.2's `nonce` `n-0S6_WzA2Mj` and `state` `eyJhb...6-sVA` | both accepted (`.` is URL-safe) | §5.2 |
 | KA18 | B.3.6's session: Client Identifier `x509_san_dns:client.example.org`, through the route in F5 | KB-JWT `aud` `x509_san_dns:client.example.org` | B.3.6 |
 | KA20 | §5.9.3's `x509_hash` example | the original identifier is base64url without padding of 32 octets | §5.9.3 |
-| KA21 | CS-12 §7.2's `sca-iban` type metadata; §8.1's payment entry; the priority list `[en-GB, en]` | offered, presented in `en`; the header's merchant `Example Merchant B.V.` and amount 129.95 EUR; confirm `Confirm Payment` | CS-12 §7.2, §8.1 |
-| KA22 | CS-12 §7.2's `sca-user` type metadata; §8.1's `login_risk_transaction` entry; the priority list `[en-GB, en]` | offered, presented in `en`; the rows `Service` and `Action` | CS-12 §7.2, §8.1 |
-| KA23 | WE BUILD's test bed: its `sca-iban` configuration and its default payment (`amount` 42.5, `date_time` with milliseconds); the priority list `[en-GB, en]` | offered, presented in `en`; `date_time` and `payee.id` internal; amount 42.50 EUR | nxd-wallet-conformance-backend `179507e` |
+| KA21 | CS-12 §7.2's `sca-iban` type metadata; §8.1's payment entry; the priority list `[en-GB, en]` | offered; the selected tag `en-GB` over the `en` labels (I33: the list's first); the header's merchant `Example Merchant B.V.` and amount 129.95 EUR; confirm `Confirm Payment` | CS-12 §7.2, §8.1 |
+| KA22 | CS-12 §7.2's `sca-user` type metadata; §8.1's `login_risk_transaction` entry; the priority list `[en-GB, en]` | offered; the selected tag `en-GB` over the `en` labels; the rows `Service` and `Action` | CS-12 §7.2, §8.1 |
+| KA23 | WE BUILD's test bed: its `sca-iban` configuration and its default payment (`amount` 42.5, `date_time` with milliseconds); the priority list `[en-GB, en]` | offered; the selected tag `en-GB`; `date_time` and `payee.id` internal; amount 42.50 EUR | nxd-wallet-conformance-backend `179507e` |
 | KA24 | Each `Factor` | an `amr` value TS12 §3.6 lists, spelled as there | TS12 §3.6 |
 
 KA2 to KA4 and KA18 take their Client Identifiers from the specification's examples; a session
@@ -5815,11 +5999,11 @@ section 4.5's recourse says.
 | I3 | Records hold for every arrival: phase 2 answers only records phase 1 derived. | The existing property, run over generated URI and DC API requests: mismatches 0. |
 | I4 | Digest domains: two received forms never share a digest; DC API digests equal today's. | Property over pairs: collisions 0. The differentials' record ids compare byte for byte. |
 | I5 | Replay: the same `Received`, answers and host outputs give the same `Delivery` bytes. | Property over a sealed URI route and a `dc_api.jwt` route: 50 replays per route by default, 1,000 per merge, differences 0. |
-| I6 | Litmus G1: the core's tokens name no plug-in concept. | The zkp_req proposal's scan, with the plug-in vocabulary, the WE BUILD profile's words and PaSO View's display vocabulary added (`g1/g1-scan.py`). Baseline at `f718dc3`: 35 hits, 13 `_req` inside `invalid_request` tokens, 1 `urn:`, and 21 of PaSO View's vocabulary in `rows/` (`MiniMarkdown`, `CurrencyAmount`, `mini_markdown`, `currency_amount`) (`g1/g1-f718dc3.out`). The core signatures of section 4, scanned by `g1/g1-gate.sh` on this revision's `sigs/src` (`g1/g1-sigs.out`): 10 hits, each `_req` inside an `invalid_request*` code; their plug-in modules, the positive control (`g1/g1-control.out`): 79. After: every hit is `_req` inside an `invalid_request*` code; the `urn:` leaves with `SignalType` (decision 13), PaSO View's vocabulary with the internal model (decision 19). |
+| I6 | Litmus G1: the core's tokens name no plug-in concept. | The zkp_req proposal's scan, with the plug-in vocabulary, the WE BUILD profile's words and PaSO View's display vocabulary added (`g1/g1-scan.py`). Baseline at `f718dc3`: 35 hits, 13 `_req` inside `invalid_request` tokens, 1 `urn:`, and 21 of PaSO View's vocabulary in `rows/` (`MiniMarkdown`, `CurrencyAmount`, `mini_markdown`, `currency_amount`) (`g1/g1-f718dc3.out`). The core signatures of section 4, scanned by `g1/g1-gate.sh` on this revision's `sigs/src` (`g1/g1-sigs.out`): 10 hits, each `_req` inside an `invalid_request*` code; their plug-in modules, the positive control (`g1/g1-control.out`): 168. After: every hit is `_req` inside an `invalid_request*` code; the `urn:` leaves with `SignalType` (decision 13), PaSO View's vocabulary with the internal model (decision 19). |
 | I7 | Litmus G2 (section 8.4). | `tools/litmus-g2.sh`. |
 | I8 | Litmus G3: siros-x509 removed, the workspace builds and passes its tests. | Outside `crates/siros-x509` the removal touches siros-integration alone: its dev-dependency and the end-to-end tests that register siros-x509's prefixes. |
 | I9 | The differentials compare everything they compared. | Per-kind tallies of every differential at seeds 1, 2, 3 × 1,500 equal the baseline measured on the implementation's base, apart from the `dc_api.jwt` classes reading 25 moves: a first key off P-256; a key without `alg`; a key wrap; a coordinate of another length; an `enc` list with A256GCM after another value, or with neither GCM value. Each class is tallied; mismatches outside them 0. |
-| I10 | The matcher's build carries no X.509, form, CBOR or curve arithmetic code, and fluent-uri only for `HttpsUrl`. | `cargo build --target wasm32-wasip1 -p siros-openid4vp --no-default-features --features match,dc-api` passes; `cargo tree` for it lists no serde_urlencoded, form_urlencoded, x509-cert, ciborium, coset or p256, and fluent-uri without its `net` feature; the matcher stays within 460,800 bytes: the wallet core's matcher measured 412,760 at `c77d33a` on std's allocator, 48,040 under the budget; the renderer's core and each format module's render half are measured alone and on the combined build; the ISO 4217 table adds +1,165. |
+| I10 | The matcher's build carries no X.509, form, CBOR or curve arithmetic code, and fluent-uri only for `HttpsUrl`. | `cargo build --target wasm32-wasip1 -p siros-openid4vp --no-default-features --features match,dc-api` passes; `cargo tree` for it lists no serde_urlencoded, form_urlencoded, x509-cert, ciborium, coset or p256, and fluent-uri without its `net` feature; the matcher stays within I18's limit, which this check fails at `687eb65`: `state/paso-size/gate-merge/verdict.txt` measures the matcher probe at 503,427 B for SD-JWT with no PaSO, 656,051 B with PaSO and 729,035 B for WE BUILD, above the limit by 42,627 B, 195,251 B and 268,235 B; the renderer's core and each format module's render half are measured alone and on the combined build; the ISO 4217 table adds +1,165. |
 | I11 | No network notion in the core. | `fn fetch` and `.fetch(` in `crates/siros-openid4vp` and siros-x509: 0. |
 | I12 | Every known answer holds through the core's and siros-mdoc's code. | KA1 to KA6, KA8, KA12 to KA15, KA17, KA18, KA20: 14 of 14. |
 | I13 | Merge gates. | `tools/merge-gates.sh`: every line `EXIT=0`. |
@@ -5827,8 +6011,8 @@ section 4.5's recourse says.
 | I15 | Every JSON object the core and siros-x509 read passes the `json` module, and every CBOR item the core and the plug-ins read passes `cbor::decode`; both refuse a repeated name or key at every depth. | `serde_json::from_` outside `json.rs`: the `strings` helper of `request/mod.rs` alone, which reads an array of strings. ciborium's readers outside `cbor.rs`: 0. |
 | I16 | siros-paso holds no TS12 code. | `urn:eudi:sca`, `ts12` and `visualisation` in `crates/siros-paso`: 0. |
 | I17 | siros-paso's seams change no PaSO output. | A one-off comparison across the seams' commit: every rendering, `Bound` and response member over siros-paso's tests and the differentials' PaSO corpus, byte-identical. |
-| I18 | The matcher with siros-ts12 stays within its budget. | `matcher.wasm` with siros-paso and siros-ts12 registered: at most 460,800 bytes. |
-| I19 | One honest end-to-end path per build. | siros-integration: the HAIP build over F5; the WE BUILD build over F11: POST and a JWE Request Object encrypted with the first values of the posted `authorization_encryption_*` lists (reading 21), `verifier_info` to the trust service, a TS12 payment, the Key Binding JWT's TS12 claims, the Verifier's error read by siros-webuild's reader. |
+| I18 | The matcher with siros-ts12 stays within its budget. | `matcher.wasm` with siros-paso and siros-ts12 registered: at most 460,800 bytes. The gate fails at `687eb65`: `state/paso-size/gate-merge/verdict.txt` measures 729,035 B for WE BUILD, 268,235 B above the limit. That file's own size gate exits 1 on `bytes-ts12`, 729,035 against 725,000, and `ts12-bind-bytes`, 17,020 against 12,000. |
+| I19 | One honest end-to-end path per build. | siros-integration, whose `tests/end_to_end/we_build.rs` holds the WE BUILD row and host: the HAIP build over F5; the WE BUILD build over F11 and over F12, a DC API answer to a TS12 payment with `verifier_info` under the required trust service. F11: POST and a JWE Request Object encrypted with the first values of the posted `authorization_encryption_*` lists (reading 21), `verifier_info` to the trust service, a TS12 payment, the Key Binding JWT's TS12 claims, the Verifier's error read by siros-webuild's reader. |
 | I20 | siros-ts12's parse accepts no payload TS12's own schemas refuse. | A one-off run over generated payloads: every payload siros-ts12 accepts validates against TS12's payment and login schemas, format assertion off; each schema-valid payload it refuses falls under a rule of section 4.10.2, counted per rule. |
 | I21 | WE BUILD's test bed accepts the WE BUILD build. | Its CS-12 payment test at the milestone: pass, with the run's log. |
 | I22 | A build takes no plug-in or mechanism whose required module its host lacks, and no host changes a module's presence while running. | The compiler, by the method's own bound: siros-paso registered without `Paso`; `jwe_mode(DcApiJwt)` without `Haip` (`JweHost`); `client_prefix(X509Hash)` without `Haip`; `request_encryption` without `RequestDecryption`; a host type implementing the sealed `Slot`. `cargo xtask alone` compiles each crate with and without its default features. |
@@ -5841,14 +6025,14 @@ section 4.5's recourse says.
 | I29 | The engine conforms to MessageFormat 2. | The message-format-wg test suite at `16372a6`, for the stable scope (syntax, data model, pattern selection, bidi, `:string`, `:number`, `:integer`, `:offset`, `:currency`, `:percent`): the loader refuses each syntax and data-model error test, and the renderer passes each formatting test: N of N, outside four skipped classes, each skip listed with its class: markup outside the renderer's styles, parameter names outside the tokens, undeclared inputs, and variable option values. A suite test that expects a fallback value passes when the renderer returns that test's error. |
 | I30 | Modules are complete and compatible (section 4.14). | Every crate's declaration with the test app's English and German sources, and the corpus's PaSO and type metadata converted: every one loads. One fixture per load rule, each refused for its rule and no other: a message that does not parse (`Syntax`), a key missing in a supported locale (`Missing`), an undeclared argument (`Argument`), a function that refuses the argument's kind or its own options (`Kind`), a function no registered format module provides (`Function`), a format option missing in a supported locale (`Option`), an option text its format refuses (`OptionText`), markup naming a style the renderer does not apply (`Markup`), a locale's source given twice (`Locale`), a declaration with two different messages under one identifier (`Declaration`), two load halves sharing a `FormatId` or a function (`Compiler`). An argument name twice cannot be declared: `Names` refuses it when the crate builds (I27), and a converter declares a defined module's arguments in a `Keyed`. A crate module's declaration equals its code's `Messages`: two equal sets of keys and argument kinds. Each crate module's keys equal the messages of every `Explain` type that I27's source check counts. |
 | I31 | Rendering is verifiable. | Over the differentials' corpus, the matcher's build and the wallet's build render byte-equal texts from the same `Text` and rendering inputs (the locale a profile selected, the language and its fallback flag, each module's digest, the rendering options, the renderer's version): 0 differences. A module altered after its digest was taken is refused when it loads. Phase 2 refuses a pick whose rendering inputs differ from its own. Siros-testkit's English and German sources render the texts of `f718dc3`'s tables, each difference classed, in one comparison the milestone runs once. |
-| I32 | `Raw` is the last resort. | Every `Text::Raw` construction and every `Explain` field whose argument kind is `Raw` in the shipped crates is classed: a text an issuer or a Verifier wrote outside any module, or a received value without a type. Unclassed: 0. |
+| I32 | `Raw` is the last resort. | Every `Text::Raw` construction and every `Explain` field whose argument kind is `Raw` in the shipped crates is classed: a text an issuer or a Verifier wrote outside any module, or a received value without a type. Unclassed: 0. At `817afca`: 240 classed, 0 unclassed. |
 | I33 | One language per presentation where PaSO View §4 allows it (section 4.14). | PaSO's locale, a property over priority lists, display arrays, default entries and discarded template entries, against a selection the test writes from View §4: the first tag whose every array matches by RFC 4647 Lookup or its default entry, the credential excluded with none. Known answers from RFC 4647 §3.4: `de-CH` over `[de]` gives `de`; `en-US` over `[en]` gives `en`; `en` over `[en-GB]` gives none, and the default entry answers. WE BUILD's TS12 example, its `en-GB` claim labels converted to `en`, is presented to `[en-US, en]`, `[en-US]`, `[en-GB]` and `[en]` under the list's first tag, and excluded for `[de]`; an array of `en-GB` and `en-US` labels beside no `en` converts its first to `en` and keeps the second. Replaying `display_locale` by View §4's step 1 over the metadata and the payload gives the consent's entries: 0 differences. The language, a property over priority lists, profile locales, module tag sets and enforcement: the first tag, over the profile's locale, its RFC 4647 truncations and then the list, that every module matches; known answers: `de-CH` selected, modules `de` and `en`, `[de-CH, en]` gives `de`; `fr` selected, modules `de` and `en`, `[fr, en]` gives `en`; with none, an enforcing module excludes the entry, and without one the fallback is a language every module covers, marked in the record; every text of those modules comes from its module's entry for that language. Known answers from RFC 4647 §3.3.1 and the list's rule: `en` over `[en-GB]` gives `en-GB`, over `[en-US, en-GB]` gives `en-US`, over `[en-GB, en]` gives `en`; `en-US` over `[en]`, `en-US` over `[en-GB]` and `en-GB` over `[en]` give none. Over the corpus, the picker's and the consent's languages and PaSO locales are equal: 0 differences. |
-| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside idna's own dependency `idna_adapter` (with icu_normalizer, icu_properties and the crates they pull in), of which `HttpsUrl`, calling `idna::punycode` alone, links no item. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
+| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside `icu_properties`, which reads general categories, and idna's own dependency `idna_adapter` (with icu_normalizer and the crates they pull in), of which `HttpsUrl`, calling `idna::punycode` alone, links no item. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
 | I35 | Dates and times render as ICU4X renders them. | For every locale the wallet ships, the renderer's dates and times at each length, with the options the CLDR tool writes, equal ICU4X 2.4's `DateTimeFormatter` over the same CLDR release, for each day of 2000 to 2030 at 00:00, 09:05, 12:00 and 23:59, and for 4 March and 31 December of every year 0 to 3000 and of 9999: 0 differences. Classed: German `full` dates before year 1000, where CLDR 49's pattern holds the field `Y` and ICU4X writes a literal `Y`. In the per-merge tier (`#[ignore]`). |
 | I36 | Numbers, plural categories, currencies and lists render as ICU4X renders them. | For every locale the wallet ships: plural categories and number texts for the 153 values of the probe (integers, decimals with and without trailing zeros, negatives, large numbers); an amount in every ISO 4217 currency; and- and or-lists of one to five items, the special-case initials included: each, with the options the CLDR tool writes, equal to ICU4X 2.4 over the same CLDR release: 0 differences. Classed: the German cells where CLDR 49 sets a symbol to its code and ICU4X's datagen falls back to root's symbol (PHP's symbol, SYP's narrow symbol, XXX's symbol and narrow symbol). In the per-merge tier (`#[ignore]`). |
 | I37 | The DC API matcher renders only what the request decides (section 4.14). | Over the differentials' corpus: texts the matcher renders per request equal the request-dependent texts of its entries, their disclosures included; the app lays out each entry; no card title, no credential's claim value, and a claim label only inside a disclosure, as its precomputed text; package bytes read per request, over the packages siros-credman's `register::package` writes and the core's match build reads = the entries read plus their audit paths, each audit path 32·⌈log2 n⌉ bytes for n entries; each pre-rendered text equal to the renderer's output for its `Text` and inputs: 0 differences. A change of the language preferences, a module or a credential changes the inputs of the texts it touches. An entry with ad-hoc PaSO metadata (Proof Metadata §5) is offered and rendered by the matcher, its texts equal to the wallet's for the verified JWT: 0 differences; phase 2 refuses it as incompatible when its JWT fails a §5.3 step, one fixture per step. The compiled messages a package holds are those of the texts that depend on the request: their keys, each reached by such a text. |
 | I38 | A package serializes, reads back, and renders the same whatever it holds (section 4.14). | Over the differentials' corpus: a package built twice from the same content gives the same bytes; read back and written again, the same bytes; every text renders byte-equal through a package that holds it precomputed, one that holds it compiled, and a package compiled from the live modules: 0 differences. A package of another format version is refused with `Version`. A package with an altered byte is refused when that byte's entry is read, with `Integrity` and no other error. A package builder given a locale twice and a screen given a module twice are refused with `Repeated`, a screen given a module its package lacks with `Module`, and two render halves sharing a `FormatId` with `Registered`. |
-| I39 | A build compiles what it registers (section 4.11, decision 20). | `cargo tree -e normal,features` of each build of section 4.11's per-build table, the core and the plug-ins it registers, with the features its crates turn on: each lists none of the crates its row names, and siros-i18n with the features its row names alone; the SD-JWT and the mdoc DC API builds each compile fewer crates than 96, the count at `a307cca`, and the two counts differ. At `026f122` the rows count 65 and 73, and the URI, PaSO, HAIP and WE BUILD rows 76, 78, 84 and 83; their matcher builds count 64, 64, 64, 69, 65 and 69. `cargo xtask builds` holds the count clause per row (`fewer_than`, `differs_from`). |
+| I39 | A build compiles what it registers (section 4.11, decision 20). | `cargo tree -e normal,features` of each build of section 4.11's per-build table, the core and the plug-ins it registers, with the features its crates turn on: each lists none of the crates its row names, and siros-i18n with the features its row names alone; the SD-JWT and the mdoc DC API builds each compile fewer crates than 96, the count at `a307cca`, and the two counts differ. At `817afca` the rows count 64 and 72, and the URI, PaSO, HAIP and WE BUILD rows 75, 77, 83 and 83; their matcher builds count 63, 63, 63, 68, 64 and 69. `cargo xtask builds` holds the count clause per row (`fewer_than`, `differs_from`). |
 | I40 | The core's own cases are peers of an extension's. | The core's four modes, `vp_token` and its hash algorithms reach the core through its public API alone: `pub(crate)` items named in `modes.rs`, `hash.rs` and `VpToken`'s implementation: 0; the two files compiled outside the core raise no privacy error (E0603, E0624). Every registered mode passes I2's property, the core's and `TestMode`. Each extension point of section 4.12's table has its `# Implementing` section (I26), its test double, and one fixture per registry conflict (section 8.2): 0 missing. |
 
 ### 8.4 Litmus G2
@@ -6224,7 +6408,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain; siros-i18n (`resolve`: `date`) |
 | siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain; siros-i18n (`render`) |
 | siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n; `resolve`: siros-x509 |
-| siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain |
+| siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain; siros-i18n |
 | siros-qes | wallet-rs | `resolve`, `sha3`, both default | the core (`sri`); siros-explain |
 | siros-credman | new (section 6, commit 9) | `register` | the core (`match`); siros-explain; siros-i18n (`render`; `register`: `load`) |
 | siros-webuild | new (section 6, commit 11) | | the core (`signed`, `uri`); siros-explain |
@@ -6308,11 +6492,26 @@ the signature's bytes held as text. Milestone 6 carries over the issued SD-JWT's
 | RFC 9901's examples A.1 to A.4 and §5 (`tests/sd_jwt/rfc9901`) | Carried over as known answers. |
 
 `Registered::of` holds SD-JWT VC's rules over S1: `typ` is `dc+sd-jwt`; no disclosure reveals a
-registered claim or its sub-claims; `cnf` is an object whose `jwk` has its curve's `kty`, coordinate
-sizes and an `alg` the curve signs under, each breach a `HolderKeyFault`; `nbf` and `exp` are finite. The view writes each number as
-the issuer did. `Registered::holder` gives `Facts::holder`, and `PresentFault::Holder` refuses a
-credential whose fact and document disagree. `SigningAlg` holds the `alg` of the Issuer-signed JWT
-and of the Key Binding JWT: `none` and the MAC algorithms make no value.
+registered claim or its sub-claims (`SelectivelyDisclosed(PermanentClaim)`); `cnf` is an object
+whose `jwk` has its curve's `kty`, coordinate sizes and an `alg` the curve signs under, each breach
+a `HolderKeyFault`; `nbf` and `exp` are finite. The view writes each number as the issuer did.
+`Registered::holder` gives `Facts::holder`, and `PresentFault::Holder` refuses a credential whose
+fact and document disagree. `SigningAlg` holds the `alg` of the Issuer-signed JWT and of the Key
+Binding JWT: `none` and the MAC algorithms make no value.
+
+A digest without its disclosure cannot be told from a decoy (RFC 9901 §4.2.5), so a withheld `exp`
+is no `exp`: the view has no `validity`. Whether that is acceptable is the operating environment's
+(RFC 9901 §7.1, §9.7), through `Platform::usable`.
+
+`Resolved` holds `metadata: Option<Object>`, `issued: IssuedMetadata`, `display: DisplayModule`,
+`extends: Vec<CredentialType>` and `issuer_curve: Option<Curve>`. `Resolved::view_metadata` is the
+document a wallet converts to a defined module, and `type_metadata::{extend, module_of, convert}`
+take `&Object`. The closed names are types: `PermanentClaim`, `ValidityClaim`, `JwkCoordinate`,
+`FixedSd` (`ExtendError::Sd.base`). `tree::Object` is a `Distinct<Member>`. `SdJwt::values` gives a
+`Node`, `signing_alg` a `&SigningAlg`, and `HolderBindingWaived.query` holds a `QueryId<'static>`.
+`SdJwt::{issuer_jwt, x5c, typ}` give `IssuerJwt`, `DerCertificate` and `JwtType`.
+`KeyBinding::signing_input` gives a `KbSigningInput`, `assemble` takes a `KbSignature` and gives an
+`SdJwtKb`, and `RegistrationError::IssuerCurve.curve` is a `ResolvedCurve`.
 
 The view's `display_module` names a type metadata document the wallet loaded
 (`Resolved::display`). `ClaimsFormat::display_module`, `FormatQuery::card_module` and
@@ -6339,14 +6538,45 @@ reader, so milestone 2 carries the reader over.
 | `names`: `DigestId`, `ElementIdentifier`, `NameSpace` | siros-mdoc's `issuer_signed`. |
 | ISO/IEC 18013-5:2021 Annex D, D.4.1.2: the example DeviceResponse (`tests/vectors/annex_d_device_response.hex`) | Carried over as a known answer. It closes section 4.9.4's open Annex D item. |
 
-`DeviceKey` holds a curve of Table 22 and the signature algorithm the key makes: label 3, else the
-curve's. A label 3 of no signature algorithm leaves the key signing nothing (RFC 9052 §7.1), as
-X25519 and X448 do (RFC 9053 §7.1). A label 3 of a signature algorithm its curve does not make is
-`DeviceKeyFault::Algorithm`: ES256, ES384 and ES512 hold on every EC2 curve (RFC 9053 §2.1), EdDSA on
-Ed25519 and Ed448 (§2.2), and each fully-specified identifier on its own curve (RFC 9864 §2).
+`DeviceKey` holds a public `Curve` of Table 22 and the signature algorithm the key makes,
+`algorithm() -> Option<SignatureAlgorithm>`: label 3, else the curve's. A label 3 of no signature
+algorithm leaves the key signing nothing (RFC 9052 §7.1), as X25519 and X448 do (RFC 9053 §7.1), and
+the view then has no `device_alg`. A label 3 of a signature algorithm its curve does not make is
+`DeviceKeyFault::Algorithm`, which reaches registration as
+`RegistrationError::Stored(MdocError::DeviceKey(..))`. `SignatureAlgorithm::made_on`, crate-private,
+is the table: ES256, ES384 and ES512 hold on every EC2 curve, EdDSA on Ed25519 and Ed448 (RFC 9053
+§2.2), and each fully-specified identifier on its own curve (RFC 9864 §2). RFC 9053 §2.1 names
+P-256, P-384 and P-521; the brainpool curves rest on IANA's EC2 rows, which cite ISO/IEC
+18013-5:2021 §9.1.5.2 (paywalled, unread), and on Multipaz's defaults. `DeviceKeyView`,
+crate-private, applies the table in its `new`, so a view's read refuses the same pair with a
+`Fault`.
+
+A key that signs nothing authenticates by device MAC alone (ISO/IEC 18013-5 §9.1.3.5). `choose`
+answers `DeviceAuthRefused::KeyAgreementOnly` when the Verifier holds no key on its curve, or when
+`deviceauth_alg_values` lists neither the curve's MAC row nor 5. `cose::mac_row`
+holds the nine rows of B.2.2's Table 2 by the device curve, and answers `None` on Ed25519 and Ed448.
+A DeviceMac header's `alg` is `HMAC_256_256`, 5 (B.2.2's rule 1): `Constraint::also` and `choose`
+admit it, and the exclusion clause leaves it out. `Handover::Redirect.response_uri` is a
+`HandoverUri`.
+
 `DeviceKey::p256` gives the point of a P-256 key; the view reads only the curve and the
 algorithm of another. `registration::Registered` builds the view from a stored mdoc, with
-`validityInfo`.
+`validityInfo`. `Resolved` holds `issued: IssuedMetadata`, `issuer: Option<IssuerName>` and
+`issuer_curve: Option<Curve>`. `RegistrationError` is `Stored`, `Value`, `Metadata { cause }`,
+`FullDate` or `Tdate`, the last two with the name space and the element.
+`CertificateChain::new` is crate-private, and `first` and `certificates` give `DerCertificate`s.
+`IssuerSigned` holds its `IssuedNameSpace`s, each a `NameSpace` and its `IssuedItem`s, the
+IssuerAuth COSE_Sign1 and the `DocType` that `IssuerSigned::doctype` gives. `Disclosed` and
+`IssuedError::{Twice, Missing, Differs}` name a `NameSpace` and an `ElementIdentifier`.
+`IssuerAuth::signature` gives an `IssuerSignature`. `StoredMdoc.name_spaces`,
+`IssuerNameSpace.items` and `KeyAuthorizations::data_elements` are `Distinct`, the last of
+`DataElements { name_space, identifiers }`.
+
+An mdoc's dates: tag 1004 holds RFC 8943's `full-date`, and tag 0 a `tdate` of
+`YYYY-MM-DDThh:mm:ssZ` over years 0000 to 9999, a leap second refused
+(`claims::kit::{full_date, tdate}`). `validityInfo` keeps 1970 to 9999 in `stored::mso::instant`.
+The view's `values` keep the text as written, so matching, disclosure and `IssuedError::Differs`
+read it. Another CBOR tag's content shows as RFC 8949 §6.1 converts it.
 
 **siros-oid4vp** (5,926 lines)
 
@@ -6392,7 +6622,7 @@ resolves `trusted_authorities` locally (TR1–TR5)").
 | Capability | Lands in |
 | :-- | :-- |
 | `TrustStore`, `StoreEntry`, `StoreError`, `EntryError`, `Unanchored` (TR1) | siros-trust; the core's `json` reads the store's record. |
-| `IssuerChain`, `Certificate`, `CertificateError`, `DistinguishedName`, `ChainError`, the positions (TR2) | siros-trust, over the DER chain siros-mdoc and siros-sdjwt read, with the workspace's x509-cert and der. |
+| `IssuerChain`, `Certificate`, `CertificateError`, `DistinguishedName`, `ChainError`, the positions (TR2) | siros-trust, over the DER chain siros-mdoc and siros-sdjwt read, with the workspace's x509-cert and der. `Certificate::{p256_key, p384_key}` give `Option<P256Point>` and `Option<P384Point>`. |
 | `validate_path`, `OnPath`, `PathRefusal`, `extensions` (TR3's RFC 5280 rules) | siros-trust. |
 | `IssuerFacts::at` (TR5) | siros-trust. `IssuerFacts::facts(holder)` writes the core's `Facts` through `Facts::of(holder, (type, value) pairs)`: one `HeldAuthority` for `aki`, with the chain's keyIdentifiers in base64url, and one per admitting store type with its values. `holder` is the wallet's. |
 | `Admission`, `Issuer`, `Ground`, `Refusal`, `FactRefusal` | The core's rule over `Facts`, which the matcher and phase 2 both run. The rule moves to `Facts::admits(&Query)` in the core's `wallet`, and `Credential::trusted_for` calls it. |
@@ -6409,11 +6639,11 @@ SIROS crate.
 
 | Capability | Lands in |
 | :-- | :-- |
-| `WalletState::parse` (W1: `schemaVersion` 3 or 4, absent meaning 1) | siros-wallet-state. |
-| `CredentialEntry`, `CredentialData`, `MetadataEntry`, `MetadataType`, `MetadataValue`, the identifiers (W2) | siros-wallet-state. |
+| `WalletState::parse` (W1: `schemaVersion` 3 or 4, absent meaning 1) | siros-wallet-state. A crate-private `Members` reads each object the crate reads, and refuses a repeated name. A metadata value and an unknown member hold repeated names verbatim, as §6 preserves them. |
+| `CredentialEntry`, `CredentialData`, `MetadataEntry`, `MetadataType`, `MetadataValue`, the identifiers (W2) | siros-wallet-state. `CredentialEntry::format` is `Option<FormatIdentifier>`, and an empty text reads as unknown. |
 | `credentials`, `presentations`, `key_ids` (W3) | siros-wallet-state. |
-| `PresentationRecord` (W4: `new_presentation`'s members) | siros-wallet-state; the app fills it from `Built`: `used()` under the state's credential numbers, `audience()` and the `vp_token`. |
-| Its errors over siros-codec's JSON errors | Its own errors over serde_json. |
+| `PresentationRecord` (W4: `new_presentation`'s members) | siros-wallet-state; the app fills it from `Built`: `used()` under the state's credential numbers, `audience()` and the `vp_token`. `new` takes `PresentationData` and `Audience`, and `parse` reads through `Members`. |
+| Its errors over siros-codec's JSON errors | Its own errors with stable codes, over serde_json. |
 
 **siros-credential** (1,779 lines)
 
@@ -6427,18 +6657,18 @@ SIROS crate.
 | `ClaimTree`: `of`, `claims`, `to_cbor`, `from_cbor` (K1's projection) | Superseded: the matcher reads the same registration through the same core (owner, 2026-10-31: one code path inside and outside the DC API). The registration's bytes are siros-matcher's. |
 | `sd_jwt_vc`: SD-JWT VC's rules over the stored SD-JWT | siros-sdjwt, with S1. |
 | `holder_key`, `HolderKeyError`, `RegisteredClaim`, `ClaimFault`, `CborTag`, `Coordinate`, `CoordinateFault` | The view's `key_alg` and `key_curve`; `Facts::holder`; the formats' readers. |
-| `auxiliary_data` | Left out of every registration (D1). |
+| `auxiliary_data` | Left out of every registration's metadata (D1). The view's `values` keep a claim of that name as the credential signs it. |
 
 **siros-display** (2,780 lines)
 
 | Capability | Lands in |
 | :-- | :-- |
-| `IssuerMetadata::merge`, with `auxiliary_data` removed before any merge (D1) | Carried over into the claims kit's metadata merge, which both claims formats' registration calls. |
-| `lookup`, `Locale`, `Localized`, `LocaleError` (D2) | The claims kit's display entry (RFC 4647 Lookup, then filtering, then the entry without a locale) and siros-i18n's `LocaleTag`. |
-| `DisplayCache::card`, `DisplayCache::claim_rows` (D3: the format's display first, OpenID4VCI `credential_metadata` per language after it) | Carried over into the claims kit's merge. |
+| `IssuerMetadata::merge`, with `auxiliary_data` removed before any merge (D1) | Carried over into the claims kit's metadata merge, which both claims formats' registration calls. `merge_metadata` strips the member at every depth of the format's document, the configuration, the response and the Credential Issuer's display, and refuses a configuration holding it as its own member (`AuxiliaryDataPublished`). The literal stays in the claims kit as a rule of issued metadata. |
+| `lookup`, `Locale`, `Localized`, `LocaleError` (D2) | The claims kit's `format_entry` (RFC 4647 Lookup, then filtering, then the entry without a locale; section 4.14) and siros-i18n's `LocaleTag`. |
+| `DisplayCache::card`, `DisplayCache::claim_rows` (D3: the format's display first, OpenID4VCI `credential_metadata` per language after it) | Carried over into the claims kit's merge (`IssuedMetadata`), one list under Lookup (section 4.14). `IssuedMetadata::issuer_display_member` writes the view's `issuer_display`, beside `metadata`. |
 | `DisplayValue` (D4) | The claims kit's rows, typed as decision 19 types them. An mdoc's `full-date` and `tdate` elements (ISO/IEC 18013-5 §7.2.1) are `Value::Date` and `Value::DateTime`: the registration refuses a value under those tags that their forms do not read, and the view's `dates`, `{"path", "date"}` beside `values`, states each one's path. An SD-JWT's JSON strings carry no type and show as written. |
-| `DisplayValue::Bytes`, shown by its length (D5) | Carried over into the claims kit's rows. |
-| `DisplayText`, `text::unsafe_ranges`: the characters of Cc, Cf, Zl, Zp, Co and Cn refused; `LABEL_MAX`, `VALUE_MAX`, `TEMPLATE_MAX`, `CARD_TEXT_MAX` | The rule carries over into the core's `text`: `DisplayText` reads each character's category through icu_properties' `CodePointMapData::<GeneralCategory>`. The claims kit reads every metadata text through it, in every language: under the view's `metadata`, `name`, `alt_text` and the format's label as labels and `description` as a value, then the view's `issuer` and a member name standing in for a label. A refused text excludes the credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`); a label of white space alone gives way to the next choice. A claim's value shows as written. siros-paso keeps PaSO's label rule (Proof Metadata §3.3). |
+| `DisplayValue::Bytes`, shown by its length (D5) | Carried over into the claims kit's rows (`ClaimText::Bytes`), with the mdoc view's `byte_strings`. `RegistrationError::Metadata` holds `{ cause: MergeError }` in both formats. |
+| `DisplayText`, `text::unsafe_ranges`: the characters of Cc, Cf, Zl, Zp, Co and Cn refused; `LABEL_MAX`, `VALUE_MAX`, `TEMPLATE_MAX`, `CARD_TEXT_MAX` | The rule carries over into the core's `text`: `DisplayText` reads each character's category through icu_properties' `CodePointMapData::<GeneralCategory>`. The claims kit reads every metadata text through it, in every language: under the view's `metadata`, `name`, `alt_text` and the format's label as labels and `description` as a value, then the view's `issuer` and a member name standing in for a label. A refused text excludes the credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`); a label of white space alone gives way to the next choice. A title and a subtitle read through `label`. `DisplayText::card` and `DisplayText::template` hold the limits of a wallet's own card text and issuer template. A claim's value shows as written. siros-paso keeps PaSO's label rule (Proof Metadata §3.3). |
 | `Card`, `CardWording`, `CardText`, `LabelText`, `IssuerTemplate`, `ClaimRow`, `ClaimLabels`, `DescribedLabel` | The consent entry's `Card` and `Row` (section 4.2), and the claims kit's card and rows. |
 | `Field`, `FieldText`, `FieldName`, `Extent`, `FIELD_MAX` (A9's clipped fields) | siros-credman, with A9 (siros-presentation's table). |
 | `Colour` | Superseded: section 4.2's `Card` holds an icon, a title, a subtitle and rows. The colours stay in the view's `metadata` for the app's layout. |
@@ -6744,7 +6974,7 @@ siros-oid4vp entries leave. `[profile.dev.package.*]` takes the union of the two
 | Document | Change |
 | :-- | :-- |
 | `docs/wallet-core-architecture.md` | Replaced by `docs/wallet-core-design.md`, this plan. The plan's evidence (`ka/`, `trace/`, `coverage/`, `inventory/`, `sigs/`, `g1/`, `g2/`, `crates/`, `checks/`) stays in wallet-core-design, where its scripts run. Section 6 and Appendix B each leave the document once the milestone that makes their changes lands. |
-| `AGENTS.md` | `docs/wallet-core-design.md` is the contract of the plan's crates. The rules gain decision 20's: each mechanism a specification leaves open is an extension point with core-made inputs and checked outputs; a build compiles what it uses; the core names no plug-in. They gain the `test-util` rule: a crate's feature holds doubles of the extension points the crate defines, written with its public API alone. They gain the test rule: a test's expected value comes from a specification, published vectors, an independent implementation or a property, and a test whose expected value comes from the code it tests is deleted. Tests live outside the source files, in each crate's `tests/` directory, and check the crate through its public API (the owner: "tests are always outside of source files"): `#[test]` and `#[cfg(test)]` under the plan's crates' `src/`: 0. A test of a dependency's guarantees, or of an invariant the compiler enforces, is deleted (the owner: "we must trust the libraries we use are already proerly tested", "do not test compiler enforced invariants"). The "Construction guards validity" bullet becomes a "Types" section: parse, don't validate, with checking once at construction and no value of a type invalid, and newtypes giving general primitives their meaning so that a wrong use does not compile (the owner: "parse don't valdiate must be globally enforced"). A "Wording" section states that the crates ship no End-User text. The trust bullet reads: the core matches `trusted_authorities` against registered facts, which siros-trust computes locally at registration; a Verifier's trust is an AuthZEN evaluation the caller answers. The engine bullet, "The engine crates are stubs. Do not start them", contradicts main; it becomes the engine's rule over the core: the engine performs the core's effects and keeps its runtime, ports and transport. The floor becomes 1.89. |
+| `AGENTS.md` | `docs/wallet-core-design.md` is the contract of the plan's crates. The rules gain decision 20's: each mechanism a specification leaves open is an extension point with core-made inputs and checked outputs; a build compiles what it uses; the core names no plug-in. They gain the `test-util` rule: a crate's feature holds doubles of the extension points the crate defines, written with its public API alone, as section 4.11's readings hold it. They gain the test rule: a test's expected value comes from a specification, published vectors, an independent implementation or a property, and a test whose expected value comes from the code it tests is deleted. Tests live outside the source files, in each crate's `tests/` directory, and check the crate through its public API (the owner: "tests are always outside of source files"): `#[test]` and `#[cfg(test)]` under the plan's crates' `src/`: 0. A test of a dependency's guarantees, or of an invariant the compiler enforces, is deleted (the owner: "we must trust the libraries we use are already proerly tested", "do not test compiler enforced invariants"). The "Construction guards validity" bullet becomes a "Types" section: parse, don't validate, with checking once at construction and no value of a type invalid, and newtypes giving general primitives their meaning so that a wrong use does not compile (the owner: "parse don't valdiate must be globally enforced"). A "Wording" section states that the crates ship no End-User text. The trust bullet reads: the core matches `trusted_authorities` against registered facts, which siros-trust computes locally at registration; a Verifier's trust is an AuthZEN evaluation the caller answers. The engine bullet, "The engine crates are stubs. Do not start them", contradicts main; it becomes the engine's rule over the core: the engine performs the core's effects and keeps its runtime, ports and transport. The floor becomes 1.89. |
 | `CONTRIBUTING.md` | Provenance stays. siros-dcql's rules leave. The floor becomes 1.89, and the MSRV paragraph names the per-crate matrix. `proving/`'s reason becomes its 1.95 floor. |
 | `README.md` | The presentation core's part becomes section 4.12's: one paragraph, the crate table with the problem each crate solves, section 4.11's tree, MSRV, the check commands, the license. The engine's part stays the colleague's. |
 | `CHANGELOG.md` | Each milestone's entries, under "Unreleased". |
@@ -6784,12 +7014,19 @@ The harness tallies these classes apart from its comparison, as I9 allows, each 
 | `registered views equal to the issued (milestone 6)` | A view the testkit's issuers issue goes through the format's registration, which the model has no counterpart of | The registration's view against the issuer's statement; a difference fails the run |
 | `type metadata converted and loaded (milestone 6)` | The model reads a metadata document's `display` raw; the port's conversion to a defined module has no model counterpart | The converted module loads under siros-i18n; a refusal fails the run |
 | `holder keys off their curve, issued on Ed25519 (milestone 6)` | The model states `EdDSA` on P-256, which RFC 8037 §3.1 rules out and registration refuses. The credential is issued on Ed25519, with the model's members written back into the view | The presentation, as for every other case |
+| `entry views with an array answering no language, the model's first entry the port leaves out (milestone 7)` | The model's array ends in its first entry; `format_entry` gives the kit's next choice | The model's view rewritten with the port's next choice, from the claim's path and the test app's two words, against the port's |
+| `device keys that only agree, the model's signature replaced by the port's answer (milestone 7)` | The model signs with X25519 and X448 under a stated algorithm; the port's view states none (RFC 9053 §7.1) | Each of the 382 cases is a refusal whose cause the harness checks as `KeyAgreementOnly`. `a_key_that_only_agrees_authenticates_by_mac_alone` covers the MAC path, which no corpus case reaches |
 
 The harness's PaSO and QES `bind` replays pass empty `ViewTypes`, the input of siros-sdjwt's
 `meta_matches` alone. siros-paso accepts a white-space label, as PaSO Proof
 Metadata §3.3 does; the model refuses one (wallet-ref `paso.py:149`), and the paso
 differential generates none (0 mismatches over seeds 1 to 3). siros-credman's `NoName` owns the
 field-name rule.
+
+The core keeps a JSON number's token where Python normalises it: `1.50`, `-0`, `1E2`, `1e400` and
+`1e-400` keep their tokens, and a rule text built through `ReprItem::json` or `ReprList::json`
+writes them as received. A credential admitting `5` reaches the model's clause text through
+`matched` alone, so the clause, the answers and the options equal the model's.
 
 ### 10.9 The branch `flows`
 
@@ -6819,9 +7056,9 @@ every workspace run passes; the branch's base is green from its merge of origin/
 | R1 | The import is wallet-rs's code | Each imported crate equals wallet-rs `flows` `a307cca` (`git archive`) outside the import's listed files. `cargo tree -e normal,build --prefix none -p <crate>` equals wallet-rs's output: 0 differing lines. |
 | R2 | The removed crates leave the tree | `git grep -n -E 'siros[-_](codec\|credential\|dcql\|display\|oid4vp\|presentation\|transaction[-_]data)\b' -- ':!CHANGELOG.md' ':!docs/wallet-core-design.md'`: 0; the design names the crates it supersedes. The removed directories are absent. |
 | R3 | The forced changes keep zkp_req's behaviour | `scripts/vectors_digest.sh --digest` equals the base's. The zkp crates' test names equal the base's, all passing. `repo-gates.sh` runs proving's tests under `GATES_ZKP=1` and, with `GATES_PROVING_PROOFS=1` beside it, the real-proof run; CI builds them. |
-| R4 | The repository's checks | fmt; clippy with all targets and features; the tests with all features; `check_panic_sites.py Cargo.toml proving/Cargo.toml`: 0 sites, 0 roots without the lints; the msrv job on 1.89. At `026f122` the workspace's tests: 708 passed, 0 failed, 8 ignored. |
+| R4 | The repository's checks | fmt; clippy with all targets and features; the tests with all features; `check_panic_sites.py Cargo.toml proving/Cargo.toml`: 0 sites, 0 roots without the lints; the msrv job on 1.89. At `817afca` the workspace's tests: 751 passed, 0 failed, 8 ignored. |
 | R5 | The engine holds no OpenID4VP rule | Each name of section 10.4's first table in engine-core's sources: `parse_request`, `fetch_request_object`, `url_to_params`, `parse_request_object`, `parse_request_value`, `resolve_request_uri`, `query_param`, `ClientIdScheme`, `ResponseMode`, `AuthorizationRequest`, `RequestError`, `TransactionDataError`, `KNOWN_TRANSACTION_DATA_TYPES`, `ResponseError`, `resolve_client_metadata`, `fetch_client_metadata`, `build_verifier_info`, `extract_domain`, `evaluate_verifier_trust`, `validate_client_id_match`, `validate_response_uri_origin`, `build_jarm_claims`, `SELF_ISSUED_ISS`, `select_verifier_jwk`, `resolve_algorithms`, `map_key_algorithm`, `map_content_encryption`, `DEFAULT_CONTENT_ENCRYPTION`, `encrypt_jarm_response`, `submit_jarm_response`, `verifier_jwk_thumbprint`, `submit_direct_post`, `build_fragment_redirect`, `build_query_redirect`, `submit_error_response`, `validate_raw_query`, `unsatisfied_required_queries`, `build_dcql_vp_token`, `requested_credential_types`, `sanitize_endpoint_url`, `validate_transaction_data`, `reject_null`, `submit_response`, `TransactionData`, `ClientMetadata`, `MAX_CLIENT_METADATA_BYTES`, `DcqlError`, `JarmError`, `scheme_and_host`, `percent_decode`, `decode_base64`, `request_vp`: 0 occurrences; `url_encode`, `TrustError`, `decode_base64url` in `crates/engine-core/src/oid4vp/`: 0 occurrences (oid4vci defines its own). The table's other names are the engine's part: `MAX_REQUEST_OBJECT_BYTES` and `MAX_REPLY_BYTES` (its fetch and reply bounds), `Oid4vpFlow` and `start_flow` (its `FlowHandler`), `request_match` (its host port) |
-| R6 | The differentials compare what they compared | The harness's per-seed lines against the reference's, leaving out zkp_req's, the mismatch lines all 0. A class a milestone adds is tallied apart with its reason under `GATES_SEEDLINES_APART`, as I9 allows (section 10.8). At `026f122` 539 lines equal the reference and every mismatch line is 0; 21 lines of the three classes whose names end `(milestone 6)` are tallied apart. |
+| R6 | The differentials compare what they compared | The harness's per-seed lines against the reference's, leaving out zkp_req's, the mismatch lines all 0. A class a milestone adds is tallied apart with its reason under `GATES_SEEDLINES_APART`, as I9 allows (section 10.8). At `817afca` 537 lines equal the reference and every mismatch line is 0; 33 lines of the classes whose names end `(milestone N)` are tallied apart. |
 
 **The milestones**, in order:
 
@@ -6865,8 +7102,8 @@ waits for zkp_req's own plan, which builds on the core's traits as any extension
   session transcript before phase 2.
 
 siros-zkp-catalogues keeps what siros-mdoc's and siros-trust's API changes force on it: a device key
-off its curve refused as `FormError::DeviceKey`, code `device_key_curve`, and `AdmittedIssuer::resolve`
-taking the `&Query`.
+off its curve refused as `FormError::DeviceKey`, code `device_key_curve`, `AdmittedIssuer::resolve`
+taking the `&Query`, and `point.as_bytes()` over `P256Point` in `attestation.rs`.
 
 siros-zkp-req keeps what the core's API changes force on the existing crate: its `Prover` module,
 `QueryContext`, `AllOf` refusals, an empty `wallet_formats`, `placement` `None`, and the core's
