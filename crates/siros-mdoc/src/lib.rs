@@ -279,8 +279,8 @@ impl ClaimsPlugin for Mdoc {
     }
 
     /// B.2.4: IssuerAuth's algorithm under `issuerauth_alg_values`; the device key's signature
-    /// algorithm under `deviceauth_alg_values`, with the device MAC's identifier for the device
-    /// key's curve when a Verifier key on that curve lets the wallet agree the MAC key.
+    /// algorithm under `deviceauth_alg_values`, with the device MAC's identifiers (B.2.2's rules 1
+    /// and 3) when a Verifier key on the device key's curve lets the wallet agree the MAC key.
     fn algorithms<'v>(
         &self,
         view: &ClaimsView<'v>,
@@ -288,16 +288,14 @@ impl ClaimsPlugin for Mdoc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = MdocMembers::of(view);
         let device = members.device_key()?;
-        let mac = reader_key(device, keys)
-            .and_then(|_| cose::mac(device.curve))
-            .into_iter()
-            .flatten();
+        let mac = reader_key(device, keys).and_then(|_| cose::mac_row(device.curve));
         let identifiers =
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
             Constraint {
                 member: VpFormatsMember::new("issuerauth_alg_values"),
                 matched: identifiers(members.issuer_auth()?.identifiers()),
+                also: Vec::new(),
             },
             Constraint {
                 member: VpFormatsMember::new("deviceauth_alg_values"),
@@ -308,6 +306,7 @@ impl ClaimsPlugin for Mdoc {
                         .chain(mac)
                         .collect(),
                 ),
+                also: identifiers(mac.map(|_| cose::HMAC_256_256).into_iter().collect()),
             },
         ])
     }

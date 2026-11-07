@@ -224,6 +224,7 @@ fn vp_formats_supported_admits_by_each_member_it_states() {
     let constraints = [Constraint {
         member: VpFormatsMember::new("sd-jwt_alg_values"),
         matched: vec![es256],
+        also: Vec::new(),
     }];
     // A member the Verifier states must list an identifier the presentation can match; a member
     // it leaves out, or no value at all, constrains nothing.

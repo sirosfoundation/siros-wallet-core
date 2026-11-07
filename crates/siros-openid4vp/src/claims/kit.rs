@@ -158,8 +158,12 @@ fn in_order(
 pub struct Constraint<'n> {
     /// The member.
     pub member: VpFormatsMember,
-    /// The identifiers, each a JSON value as `vp_formats_supported` writes it.
+    /// The identifiers of the credential's keys, each a JSON value as `vp_formats_supported`
+    /// writes it. A refusal names them.
     pub matched: Vec<Node<'n>>,
+    /// The identifiers the member also admits that name no key of the credential, such as a MAC
+    /// header's fixed `alg`. A refusal leaves them out.
+    pub also: Vec<Node<'n>>,
 }
 
 /// A Credential Query of a claims format. Only [`ClaimsQuery::parse`] makes one.
@@ -265,6 +269,7 @@ impl<'q> ClaimsQuery<'q> {
             if !constraint
                 .matched
                 .iter()
+                .chain(&constraint.also)
                 .any(|id| listed.iter().any(|value| value == id))
             {
                 return Err(Exclude::new(NoAlgorithm {

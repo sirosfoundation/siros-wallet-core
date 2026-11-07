@@ -74,25 +74,25 @@ impl Curve {
     }
 }
 
-/// The `alg` of a DeviceMac's COSE header: HMAC 256/256 (RFC 9053 §3.1; ISO/IEC 18013-5 §9.1.3.5).
-const HMAC_256_256: i64 = 5;
+/// The `alg` of a DeviceMac's COSE header: HMAC 256/256 (RFC 9053 §3.1; ISO/IEC 18013-5 §9.1.3.5),
+/// which B.2.2's rule 1 lists.
+pub(crate) const HMAC_256_256: i64 = 5;
 
-/// B.2.2: the identifiers a device MAC on the device key's curve matches, the header's `alg` and
-/// the curve's row of Table 2; `None` for a curve no ECDH agrees a key on.
-pub(crate) fn mac(curve: Curve) -> Option<[i64; 2]> {
-    let row = match curve {
-        Curve::P256 => -65537,
-        Curve::P384 => -65538,
-        Curve::P521 => -65539,
-        Curve::X25519 => -65540,
-        Curve::X448 => -65541,
-        Curve::BrainpoolP256r1 => -65542,
-        Curve::BrainpoolP320r1 => -65543,
-        Curve::BrainpoolP384r1 => -65544,
-        Curve::BrainpoolP512r1 => -65545,
-        Curve::Ed25519 | Curve::Ed448 => return None,
-    };
-    Some([HMAC_256_256, row])
+/// B.2.2's Table 2: the identifier of a device MAC on the device key's curve; `None` for a curve no
+/// ECDH agrees a key on.
+pub(crate) fn mac_row(curve: Curve) -> Option<i64> {
+    match curve {
+        Curve::P256 => Some(-65537),
+        Curve::P384 => Some(-65538),
+        Curve::P521 => Some(-65539),
+        Curve::X25519 => Some(-65540),
+        Curve::X448 => Some(-65541),
+        Curve::BrainpoolP256r1 => Some(-65542),
+        Curve::BrainpoolP320r1 => Some(-65543),
+        Curve::BrainpoolP384r1 => Some(-65544),
+        Curve::BrainpoolP512r1 => Some(-65545),
+        Curve::Ed25519 | Curve::Ed448 => None,
+    }
 }
 
 /// A device key as the view states it: the `alg` it signs with, when it signs, and its curve.

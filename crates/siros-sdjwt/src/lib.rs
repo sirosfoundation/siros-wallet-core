@@ -383,11 +383,13 @@ impl ClaimsPlugin for SdJwtVc {
         let mut constraints = vec![Constraint {
             member: VpFormatsMember::new("sd-jwt_alg_values"),
             matched: members.issuer()?.identifiers(),
+            also: Vec::new(),
         }];
         if view.credential().facts.holder == Holder::Bound {
             constraints.push(Constraint {
                 member: VpFormatsMember::new("kb-jwt_alg_values"),
                 matched: members.holder()?.identifiers(),
+                also: Vec::new(),
             });
         }
         Ok(constraints)
