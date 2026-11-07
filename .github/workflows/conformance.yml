@@ -52,7 +52,9 @@ on:
         default: "both"
 
 permissions:
-  contents: read
+  # Read everywhere; write ONLY on the release tags (the certification
+  # ZIPs upload to the release, and the tag-triggered dispatch).
+  contents: ${{ github.ref_type == 'tag' && 'write' || 'read' }}
   # The publish (release tags only) rides a repository_dispatch to the
   # conformance repo (its own workflow owns the gh-pages push), so this
   # repo needs no write scope anywhere: CONFORMANCE_DISPATCH_TOKEN (a
@@ -168,6 +170,22 @@ jobs:
             conformance-repo/conformance-results/
             conformance-repo/test-results/
           if-no-files-found: warn
+
+      # The certification-package ZIPs: the suite's exporthtml exports (the
+      # same ZIPs a "Publish for certification" submission attaches -
+      # docs.oidf-conformance.md's submission form), attached to the
+      # RELEASE, so a release's conformance verdict ships in the
+      # submission's exact format, ready for the self-certification request
+      # (the signed declaration and the fee are the submitter's - a human's
+      # - the automation gets everything else to the door).
+      - name: The certification-package ZIPs, on the release
+        if: github.ref_type == 'tag'
+        working-directory: conformance-repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls conformance-results/*.zip 2>/dev/null || { echo "No exported plan ZIPs"; exit 0; }
+          gh release upload "${GITHUB_REF_NAME}" conformance-results/*.zip --clobber
 
       # The publish: RELEASE TAGS ONLY, via the conformance repo's own
       # workflow (repository_dispatch: conformance-wallet - the same path
