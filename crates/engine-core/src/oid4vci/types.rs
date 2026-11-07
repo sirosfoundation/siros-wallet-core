@@ -246,3 +246,60 @@ pub enum AsMetadataError {
     #[error("oid4vci: AS metadata answered {0}")]
     Status(u16),
 }
+
+#[cfg(test)]
+mod tests {
+    //! The AS metadata's wire guarantees - one per drive-found gap.
+
+    use super::*;
+
+    /// RFC 9126's `require_pushed_authorization_requests` (the flag's ONLY
+    /// spelling on the wire) parses into `require_par` - drive-found
+    /// (2026-11-07, the GDC issuance): without the alias the flag never parsed,
+    /// a PAR-requiring AS served as "PAR optional", the engine's PAR push
+    /// failure silently fell back to the plain /authorize URL, and the AS
+    /// answered a browser-side validation_error the wallet could not read.
+    #[test]
+    fn require_pushed_authorization_requests_parses_into_require_par() {
+        let metadata: AsMetadata = serde_json::from_str(
+            r#"{
+                "issuer": "https://as.example",
+                "token_endpoint": "https://as.example/token",
+                "pushed_authorization_request_endpoint": "https://as.example/par",
+                "require_pushed_authorization_requests": true
+            }"#,
+        )
+        .expect("the AS metadata parses");
+        assert!(metadata.require_par, "the RFC 9126 spelling sets the flag");
+        assert_eq!(
+            metadata.par_endpoint, "https://as.example/par",
+            "the RFC 9126 endpoint spelling parses too"
+        );
+    }
+
+    /// An AS that does not require PAR: the flag defaults to false (the plain
+    /// /authorize path stays a legal fallback), and a PAR endpoint alone
+    /// advertises without requiring.
+    #[test]
+    fn require_par_defaults_false_and_a_bare_par_endpoint_advertises_without_requiring() {
+        let bare: AsMetadata = serde_json::from_str(
+            r#"{"issuer": "https://as.example", "token_endpoint": "https://as.example/token"}"#,
+        )
+        .expect("the minimal AS metadata parses");
+        assert!(!bare.require_par);
+        assert!(bare.par_endpoint.is_empty());
+
+        let advertised: AsMetadata = serde_json::from_str(
+            r#"{
+                "issuer": "https://as.example",
+                "token_endpoint": "https://as.example/token",
+                "pushed_authorization_request_endpoint": "https://as.example/par"
+            }"#,
+        )
+        .expect("the advertising AS parses");
+        assert!(
+            !advertised.require_par,
+            "an advertised PAR endpoint does not require PAR (RFC 9126 §5)"
+        );
+    }
+}
