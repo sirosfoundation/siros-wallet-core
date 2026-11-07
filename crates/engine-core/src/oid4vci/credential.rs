@@ -12,6 +12,20 @@ use super::types::IssuerMetadata;
 /// are larger than the plain form).
 const MAX_CREDENTIAL_BYTES: usize = 4 << 20;
 
+/// One entry of a batch `credentials[]` credential response (OID4VCI §7.5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialEntry {
+    /// The credential itself (the JWT / SD-JWT string).
+    #[serde(default)]
+    pub credential: Option<String>,
+    /// The entry's format (e.g. `dc+sd-jwt`), when it carries one.
+    #[serde(default)]
+    pub format: Option<String>,
+    /// The entry's notification id (OID4VCI §11.1), when it carries one.
+    #[serde(default)]
+    pub notification_id: Option<String>,
+}
+
 /// The parsed credential response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialResponse {
@@ -19,6 +33,14 @@ pub struct CredentialResponse {
     /// or the format-specific member).
     #[serde(default)]
     pub credential: Option<String>,
+    /// The batch member `credentials[]` (OID4VCI §7.5's batch shape) -
+    /// SUNET's GDC apigw answers a single-credential request with this
+    /// array anyway, so the first entry IS the credential (found driving
+    /// the GDC issuance, 2026-11-07: the engine read a flat `credential`
+    /// and answered "the issuance delivered no credential" while the
+    /// credential sat in `credentials[0]`).
+    #[serde(default)]
+    pub credentials: Vec<CredentialEntry>,
     /// The format-specific member (`jwt`, `sd_jwt`, etc), when present.
     #[serde(default)]
     pub format_specific: Option<serde_json::Value>,
@@ -434,6 +456,23 @@ pub async fn request_credential(
 
     let credential_response: CredentialResponse =
         serde_json::from_value(value).map_err(|_| CredentialError::NotJson)?;
+    // The batch shape's credential: the first entry (this request was for
+    // one configuration). See the field's doc comment.
+    let credential_response = if credential_response.credential.is_none() {
+        let mut filled = credential_response.clone();
+        if let Some(entry) = filled.credentials.first() {
+            filled.credential = entry.credential.clone();
+            if filled.format_specific.is_none() {
+                filled.format_specific = entry.format.clone().map(serde_json::Value::String);
+            }
+            if filled.notification_id.is_none() {
+                filled.notification_id = entry.notification_id.clone();
+            }
+        }
+        filled
+    } else {
+        credential_response
+    };
 
     // The plain-secret check (v0.1 §7.1): a PLAIN response carrying
     // auxiliary_data travelled a Secret Value unencrypted — the flow
@@ -568,7 +607,7 @@ fn base64url(bytes: &[u8]) -> String {
 
 /// The public JWK as a proof header carries it: the public members
 /// only (no private material ever crosses the port boundary twice),
-/// the RFC 7638 thumbprint as the `kid`, and `key_ops` limited to
+/// the RFC 7638 thumbprint as the `kid` (no `key_ops` - the Go engine's
 /// verification — the SDK's proof-header shape.
 fn public_jwk_for_header(jwk: &Value) -> Value {
     let Some(object) = jwk.as_object() else {
@@ -587,7 +626,11 @@ fn public_jwk_for_header(jwk: &Value) -> Value {
     // object by construction, and indexing panics.
     if let Some(object) = jwk.as_object_mut() {
         object.insert("kid".to_owned(), Value::String(kid));
-        object.insert("key_ops".to_owned(), serde_json::json!(["verify"]));
+        // No `key_ops` (RFC 7517 §4) in a PROOF header's JWK: the Go engine's
+        // wallet-generated proofs carry the bare JWK + kid, and `key_ops:
+        // ["verify"]` on a key that is SIGNING is semantically contradictory
+        // (a strict issuer rejects the proof - found driving the GDC
+        // issuance: the credential endpoint answered 400).
     }
     jwk
 }
@@ -1476,7 +1519,10 @@ mod tests {
         assert_eq!(header["jwk"]["kid"], expected_thumbprint);
         assert!(header.get("kid").is_none());
         assert!(header.get("x5c").is_none());
-        assert_eq!(header["jwk"]["key_ops"], serde_json::json!(["verify"]));
+        assert!(
+            header["jwk"].get("key_ops").is_none(),
+            "a proof header's JWK carries no key_ops (found driving: the issuer refused it)"
+        );
         // The iat is the Clock's now, not a placeholder.
         assert_eq!(claims["iat"], 1_000);
     }
