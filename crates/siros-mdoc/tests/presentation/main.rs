@@ -538,11 +538,16 @@ fn what_cannot_be_presented_is_a_fault() {
     // Each fixture beside the one it changes, which presents.
     assert!(refused(&issued(&good), Vec::new()).is_none());
     // The device key's algorithm is a signature algorithm (RFC 9053 §2.1, §2.2; -25 is
-    // ECDH-ES + HKDF-256, §6.3.1), its curve one of Table 22.
+    // ECDH-ES + HKDF-256, §6.3.1) its curve makes (X25519: ECDH only, §7.1), its curve one of
+    // Table 22.
     for tampered in [
         good.replace("\"device_alg\": -7", "\"device_alg\": \"ES256\""),
         good.replace("\"device_alg\": -7", "\"device_alg\": 12345"),
         good.replace("\"device_alg\": -7", "\"device_alg\": -25"),
+        good.replace(
+            "\"device_curve\": \"P-256\"",
+            "\"device_curve\": \"X25519\"",
+        ),
         good.replace("\"device_curve\": \"P-256\"", "\"device_curve\": \"P-999\""),
     ] {
         assert!(

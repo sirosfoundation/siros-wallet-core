@@ -68,8 +68,8 @@ impl<'a, 'v> MdocMembers<'a, 'v> {
         })
     }
 
-    /// The device key: `device_curve` and `device_alg`, a signature algorithm, absent on a key
-    /// that signs nothing.
+    /// The device key: `device_curve` and `device_alg`, a signature algorithm its curve makes,
+    /// absent on a key that signs nothing.
     pub(crate) fn device_key(&self) -> Result<DeviceKeyView, Fault> {
         let curve = self.curve("device")?;
         let alg = self
@@ -79,7 +79,8 @@ impl<'a, 'v> MdocMembers<'a, 'v> {
                     .ok_or_else(|| self.fault("device", "_alg is no signature algorithm"))
             })
             .transpose()?;
-        Ok(DeviceKeyView { alg, curve })
+        DeviceKeyView::new(alg, curve)
+            .ok_or_else(|| self.fault("device", "_alg is no signature algorithm of its curve"))
     }
 
     /// The MSO's KeyAuthorizations (ISO/IEC 18013-5 §9.1.2.4): `key_authorizations`, an object

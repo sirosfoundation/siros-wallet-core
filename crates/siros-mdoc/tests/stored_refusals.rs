@@ -377,6 +377,60 @@ fn each_table_22_curve_reads_with_its_algorithm() {
     }
 }
 
+/// RFC 9053 §2.1 (ECDSA needs `kty` EC2, each hash on any curve), §2.2 (EdDSA needs OKP and an EdDSA
+/// curve), §7.1 (X25519 for ECDH only), RFC 9864 §2.1 (ESP384, -51, is ECDSA on P-384 alone), and
+/// RFC 9052 §7.1: a stated `alg` reads only on a curve that makes it.
+#[test]
+fn a_stated_signature_algorithm_reads_only_on_a_curve_that_makes_it() {
+    // (crv, kty, label 3, the algorithm read or `None` for a refusal).
+    let rows = [
+        (4, 1, Some(-7), None),
+        (6, 1, Some(-7), None),
+        (1, 2, Some(-8), None),
+        (1, 2, Some(-51), None),
+        (2, 2, Some(-7), Some(Some(-7))),
+        (6, 1, Some(-8), Some(Some(-8))),
+        (4, 1, None, Some(None)),
+    ];
+    for (crv, kty, stated, read) in rows {
+        let mut parts = honest();
+        parts.device_key[0].1 = int(kty);
+        parts.device_key[1].1 = int(crv);
+        parts
+            .device_key
+            .extend(stated.map(|alg| (int(3), int(alg))));
+        let data = assemble(&parts);
+        let row = (crv, stated);
+        match read {
+            Some(alg) => assert_eq!(
+                StoredMdoc::parse(&data)
+                    .unwrap_or_else(|e| panic!("{row:?}: {e}"))
+                    .mso()
+                    .device_key()
+                    .algorithm()
+                    .map(|alg| alg.value()),
+                alg,
+                "{row:?}"
+            ),
+            None => {
+                let refusal = MdocError::DeviceKey(DeviceKeyFault::Algorithm);
+                assert_eq!(
+                    StoredMdoc::parse(&data).err(),
+                    Some(refusal.clone()),
+                    "{row:?}"
+                );
+                assert!(
+                    matches!(
+                        Registered::of(&data, &Resolved::default()),
+                        Err(RegistrationError::Stored(found)) if found == refusal
+                    ),
+                    "{row:?}"
+                );
+            }
+        }
+    }
+}
+
 /// What makes no view: a text of no stored mdoc, an element whose value has no JSON form (RFC 8949
 /// §6.1).
 #[test]

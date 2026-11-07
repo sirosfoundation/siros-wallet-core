@@ -345,7 +345,7 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
         r#"{"kty": "EC", "crv": "brainpoolP384r1", "kid": "reader-bp384", "x": "AA", "y": "AQ"}"#;
     let bp512 =
         r#"{"kty": "EC", "crv": "brainpoolP512r1", "kid": "reader-bp512", "x": "AA", "y": "AQ"}"#;
-    let cases: [Admission; 24] = [
+    let cases: [Admission; 21] = [
         // B.2.4's example: -7 on P-256 matches the fully-specified -9.
         (
             r#"{"issuerauth_alg_values": [-9], "deviceauth_alg_values": [-9]}"#,
@@ -391,20 +391,6 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             (-7, "P-256"),
             (-35, "P-384"),
             None,
-        ),
-        (
-            r#"{"deviceauth_alg_values": [-65540]}"#,
-            x25519,
-            (-7, "P-256"),
-            (-8, "X25519"),
-            None,
-        ),
-        (
-            r#"{"deviceauth_alg_values": [-65537]}"#,
-            x25519,
-            (-7, "P-256"),
-            (-8, "X25519"),
-            Some(clause),
         ),
         // RFC 9864: ES384 on P-384 is ESP384 (-51), ES512 on P-521 ESP512 (-52), EdDSA on
         // Ed25519 Ed25519 (-19), ES256 on brainpoolP256r1 ESB256 (-265).
@@ -510,19 +496,12 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             (-36, "brainpoolP512r1"),
             None,
         ),
-        // B.2.4's table: P-521 -65539, X448 -65541.
+        // B.2.4's table: P-521 -65539.
         (
             r#"{"deviceauth_alg_values": [-65539]}"#,
             p521,
             (-7, "P-256"),
             (-36, "P-521"),
-            None,
-        ),
-        (
-            r#"{"deviceauth_alg_values": [-65541]}"#,
-            x448,
-            (-7, "P-256"),
-            (-8, "X448"),
             None,
         ),
     ];
@@ -580,6 +559,20 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             x25519,
             "X25519",
             None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65537]}"#,
+            x25519,
+            "X25519",
+            Some(clause),
+        ),
+        (r#"{"deviceauth_alg_values": [-65541]}"#, x448, "X448", None),
+        // RFC 9053 §7.1: X25519 signs nothing, so a listing of ES256 alone admits no such key.
+        (
+            r#"{"deviceauth_alg_values": [-7]}"#,
+            x25519,
+            "X25519",
+            Some(clause),
         ),
     ] {
         let device = format!(r#""device_curve": "{device_curve}""#);

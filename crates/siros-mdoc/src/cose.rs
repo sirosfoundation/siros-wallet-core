@@ -145,6 +145,41 @@ impl SignatureAlgorithm {
             Self::Ed448 => -53,
         }
     }
+
+    /// Whether a key on `curve` makes this algorithm.
+    ///
+    /// - ES256, ES384, ES512: every EC2 curve. RFC 9053 §2.1 requires `kty` EC2 and only suggests
+    ///   a hash per curve; IANA's COSE Elliptic Curves registers each brainpool curve as EC2.
+    /// - EdDSA: Ed25519 and Ed448 (RFC 9053 §2.2, §7.1 "for use w/ EdDSA only").
+    /// - ESP256, ESP384, ESP512, ESB256, ESB320, ESB384, ESB512: the one curve of its name
+    ///   (RFC 9864 §2.1; IANA's COSE Algorithms).
+    /// - Ed25519, Ed448: the curve of its name (RFC 9864 §2.2; IANA's COSE Algorithms).
+    ///
+    /// X25519 and X448 make none: RFC 9053 §7.1 keeps them "for use w/ ECDH only".
+    pub(crate) const fn made_on(self, curve: Curve) -> bool {
+        match self {
+            Self::Es256 | Self::Es384 | Self::Es512 => matches!(
+                curve,
+                Curve::P256
+                    | Curve::P384
+                    | Curve::P521
+                    | Curve::BrainpoolP256r1
+                    | Curve::BrainpoolP320r1
+                    | Curve::BrainpoolP384r1
+                    | Curve::BrainpoolP512r1
+            ),
+            Self::EdDsa => matches!(curve, Curve::Ed25519 | Curve::Ed448),
+            Self::Esp256 => matches!(curve, Curve::P256),
+            Self::Esp384 => matches!(curve, Curve::P384),
+            Self::Esp512 => matches!(curve, Curve::P521),
+            Self::Esb256 => matches!(curve, Curve::BrainpoolP256r1),
+            Self::Esb320 => matches!(curve, Curve::BrainpoolP320r1),
+            Self::Esb384 => matches!(curve, Curve::BrainpoolP384r1),
+            Self::Esb512 => matches!(curve, Curve::BrainpoolP512r1),
+            Self::Ed25519 => matches!(curve, Curve::Ed25519),
+            Self::Ed448 => matches!(curve, Curve::Ed448),
+        }
+    }
 }
 
 /// The `alg` of a DeviceMac's COSE header: HMAC 256/256 (RFC 9053 §3.1; ISO/IEC 18013-5 §9.1.3.5),
@@ -171,13 +206,28 @@ pub(crate) fn mac_row(curve: Curve) -> Option<i64> {
 /// A device key as the view states it: the `alg` it signs with, when it signs, and its curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DeviceKeyView {
-    /// The algorithm; `None` for a key that signs nothing.
-    pub(crate) alg: Option<SignatureAlgorithm>,
-    /// The key's curve.
-    pub(crate) curve: Curve,
+    alg: Option<SignatureAlgorithm>,
+    curve: Curve,
 }
 
 impl DeviceKeyView {
+    /// The key of `curve` signing with `alg`; `None` for an algorithm the curve does not make
+    /// ([`SignatureAlgorithm::made_on`]).
+    pub(crate) fn new(alg: Option<SignatureAlgorithm>, curve: Curve) -> Option<Self> {
+        alg.is_none_or(|alg| alg.made_on(curve))
+            .then_some(Self { alg, curve })
+    }
+
+    /// The algorithm; `None` for a key that signs nothing.
+    pub(crate) const fn alg(self) -> Option<SignatureAlgorithm> {
+        self.alg
+    }
+
+    /// The key's curve.
+    pub(crate) const fn curve(self) -> Curve {
+        self.curve
+    }
+
     /// The identifiers a device signature matches; none for a key that signs nothing.
     pub(crate) fn signature_identifiers(self) -> Vec<i64> {
         self.alg.map_or_else(Vec::new, |alg| {

@@ -290,7 +290,7 @@ impl ClaimsPlugin for Mdoc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = MdocMembers::of(view);
         let device = members.device_key()?;
-        let mac = reader_key(device, keys).and_then(|_| cose::mac_row(device.curve));
+        let mac = reader_key(device, keys).and_then(|_| cose::mac_row(device.curve()));
         let identifiers =
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
@@ -384,5 +384,5 @@ fn reader_key<'k>(
     keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
 ) -> Option<&'k AgreeableKey<'k>> {
     keys.into_iter()
-        .find(|key| key.curve().as_str() == device.curve.name())
+        .find(|key| key.curve().as_str() == device.curve().name())
 }
