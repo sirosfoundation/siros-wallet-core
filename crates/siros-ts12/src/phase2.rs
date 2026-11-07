@@ -7,7 +7,7 @@ use siros_openid4vp::detail;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, Has, Platform, ProfileHost};
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::plugins::{
     Answered, Fault, FetchedRecord, JsonText, Member, MemberValue, Members,
 };
@@ -131,7 +131,7 @@ where
         host: &H,
         authentication: &Authentication,
     ) -> Result<Members, Fault> {
-        let amr = amr_claim(authentication)?;
+        let amr = amr_claim(authentication);
         let mut members = vec![
             (
                 Member::claim("jti"),
@@ -154,19 +154,19 @@ where
 }
 
 /// One object per factor applied, in the order applied.
-fn amr_claim(authentication: &Authentication) -> Result<Node<'static>, Fault> {
-    authentication
-        .factors()
-        .items()
-        .iter()
-        .map(|factor| {
-            let (category, method) = amr(factor);
-            Node::object([(
-                Cow::Borrowed(category.name()),
-                Node::String(Cow::Borrowed(method)),
-            )])
-            .map_err(|e| Fault::caused(FAULT, detail!("an amr object"), e))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Node::Array)
+fn amr_claim(authentication: &Authentication) -> Node<'static> {
+    Node::Array(
+        authentication
+            .factors()
+            .items()
+            .iter()
+            .map(|factor| {
+                let method = amr(factor);
+                Node::Object(Object::single(
+                    Cow::Borrowed(method.category().name()),
+                    Node::String(Cow::Borrowed(method.name())),
+                ))
+            })
+            .collect(),
+    )
 }

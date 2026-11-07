@@ -88,7 +88,7 @@ use siros_paso::render::{self, ItemBound, Registered};
 use siros_paso::{FailedImage, Fetch};
 
 #[cfg(feature = "resolve")]
-pub use amr::{AmrCategory, amr};
+pub use amr::{AmrCategory, AmrMethod, amr};
 pub use document::{
     BuiltInEntry, Category, ComposeError, ComposedDocument, DOCUMENT, FetchedDocument,
     Ts12Document, Ts12Type, TwinnedMember, TypeEntry, WrittenSchema,

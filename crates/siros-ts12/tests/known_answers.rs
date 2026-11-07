@@ -209,7 +209,12 @@ fn ka24_each_factor_answers_a_value_ts12_lists() {
         (inherence(Modality::Unknown, Sensor::External), I, "other"),
     ];
     for (factor, category, method) in table {
-        assert_eq!(amr(&factor), (category, method), "{factor:?}");
+        let read = amr(&factor);
+        assert_eq!(
+            (read.category(), read.name()),
+            (category, method),
+            "{factor:?}"
+        );
     }
 }
 

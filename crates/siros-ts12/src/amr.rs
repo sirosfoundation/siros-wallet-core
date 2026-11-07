@@ -25,45 +25,127 @@ impl AmrCategory {
     }
 }
 
-/// The method TS12 §3.6 keeps for a factor outside its list.
-const OTHER: &str = "other";
+/// A method TS12 §3.6 lists, with the category it falls under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AmrMethod {
+    /// `pin_less_than_6_digits`.
+    PinLessThan6Digits,
+    /// `pin_6_or_more_digits`.
+    Pin6OrMoreDigits,
+    /// `passphrase_less_than_8_chars`.
+    PassphraseLessThan8Chars,
+    /// `passphrase_8_to_11_chars`.
+    Passphrase8To11Chars,
+    /// `passphrase_12_or_more_chars`.
+    Passphrase12OrMoreChars,
+    /// `pattern`.
+    Pattern,
+    /// `other` under `knowledge`.
+    OtherKnowledge,
+    /// `key_in_remote_wscd`.
+    KeyInRemoteWscd,
+    /// `key_in_local_external_wscd`.
+    KeyInLocalExternalWscd,
+    /// `key_in_local_internal_wscd`.
+    KeyInLocalInternalWscd,
+    /// `key_in_local_native_wscd`.
+    KeyInLocalNativeWscd,
+    /// `other` under `possession`.
+    OtherPossession,
+    /// `fingerprint_device`.
+    FingerprintDevice,
+    /// `fingerprint_external`.
+    FingerprintExternal,
+    /// `face_device`.
+    FaceDevice,
+    /// `face_external`.
+    FaceExternal,
+    /// `other` under `inherence`.
+    OtherInherence,
+}
 
-/// The `amr` object of a factor: its category and method.
-#[must_use]
-pub fn amr(factor: &Factor) -> (AmrCategory, &'static str) {
-    match factor {
-        Factor::Knowledge(knowledge) => (AmrCategory::Knowledge, knowledge_method(*knowledge)),
-        Factor::Possession(possession) => (
-            AmrCategory::Possession,
-            match possession {
-                Possession::RemoteWscd => "key_in_remote_wscd",
-                Possession::LocalExternalWscd => "key_in_local_external_wscd",
-                Possession::LocalInternalWscd => "key_in_local_internal_wscd",
-                Possession::LocalNativeWscd => "key_in_local_native_wscd",
-                Possession::Software => OTHER,
-            },
-        ),
-        Factor::Inherence(inherence) => (
-            AmrCategory::Inherence,
-            match (inherence.modality, inherence.sensor) {
-                (Modality::Fingerprint, Sensor::Device) => "fingerprint_device",
-                (Modality::Fingerprint, Sensor::External) => "fingerprint_external",
-                (Modality::Face, Sensor::Device) => "face_device",
-                (Modality::Face, Sensor::External) => "face_external",
-                (Modality::Iris | Modality::Unknown, _) => OTHER,
-            },
-        ),
+impl AmrMethod {
+    /// The category holding the method.
+    #[must_use]
+    pub const fn category(self) -> AmrCategory {
+        match self {
+            Self::PinLessThan6Digits
+            | Self::Pin6OrMoreDigits
+            | Self::PassphraseLessThan8Chars
+            | Self::Passphrase8To11Chars
+            | Self::Passphrase12OrMoreChars
+            | Self::Pattern
+            | Self::OtherKnowledge => AmrCategory::Knowledge,
+            Self::KeyInRemoteWscd
+            | Self::KeyInLocalExternalWscd
+            | Self::KeyInLocalInternalWscd
+            | Self::KeyInLocalNativeWscd
+            | Self::OtherPossession => AmrCategory::Possession,
+            Self::FingerprintDevice
+            | Self::FingerprintExternal
+            | Self::FaceDevice
+            | Self::FaceExternal
+            | Self::OtherInherence => AmrCategory::Inherence,
+        }
+    }
+
+    /// The member's value.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PinLessThan6Digits => "pin_less_than_6_digits",
+            Self::Pin6OrMoreDigits => "pin_6_or_more_digits",
+            Self::PassphraseLessThan8Chars => "passphrase_less_than_8_chars",
+            Self::Passphrase8To11Chars => "passphrase_8_to_11_chars",
+            Self::Passphrase12OrMoreChars => "passphrase_12_or_more_chars",
+            Self::Pattern => "pattern",
+            Self::KeyInRemoteWscd => "key_in_remote_wscd",
+            Self::KeyInLocalExternalWscd => "key_in_local_external_wscd",
+            Self::KeyInLocalInternalWscd => "key_in_local_internal_wscd",
+            Self::KeyInLocalNativeWscd => "key_in_local_native_wscd",
+            Self::FingerprintDevice => "fingerprint_device",
+            Self::FingerprintExternal => "fingerprint_external",
+            Self::FaceDevice => "face_device",
+            Self::FaceExternal => "face_external",
+            Self::OtherKnowledge | Self::OtherPossession | Self::OtherInherence => "other",
+        }
     }
 }
 
-fn knowledge_method(knowledge: Knowledge) -> &'static str {
+/// The `amr` method of a factor.
+#[must_use]
+pub const fn amr(factor: &Factor) -> AmrMethod {
+    match factor {
+        Factor::Knowledge(knowledge) => knowledge_method(*knowledge),
+        Factor::Possession(possession) => match possession {
+            Possession::RemoteWscd => AmrMethod::KeyInRemoteWscd,
+            Possession::LocalExternalWscd => AmrMethod::KeyInLocalExternalWscd,
+            Possession::LocalInternalWscd => AmrMethod::KeyInLocalInternalWscd,
+            Possession::LocalNativeWscd => AmrMethod::KeyInLocalNativeWscd,
+            Possession::Software => AmrMethod::OtherPossession,
+        },
+        Factor::Inherence(inherence) => match (inherence.modality, inherence.sensor) {
+            (Modality::Fingerprint, Sensor::Device) => AmrMethod::FingerprintDevice,
+            (Modality::Fingerprint, Sensor::External) => AmrMethod::FingerprintExternal,
+            (Modality::Face, Sensor::Device) => AmrMethod::FaceDevice,
+            (Modality::Face, Sensor::External) => AmrMethod::FaceExternal,
+            (Modality::Iris | Modality::Unknown, _) => AmrMethod::OtherInherence,
+        },
+    }
+}
+
+const fn knowledge_method(knowledge: Knowledge) -> AmrMethod {
     match knowledge {
-        Knowledge::Pin(Some(digits)) if digits.get() < 6 => "pin_less_than_6_digits",
-        Knowledge::Pin(Some(_)) => "pin_6_or_more_digits",
-        Knowledge::Passphrase(Some(chars)) if chars.get() < 8 => "passphrase_less_than_8_chars",
-        Knowledge::Passphrase(Some(chars)) if chars.get() < 12 => "passphrase_8_to_11_chars",
-        Knowledge::Passphrase(Some(_)) => "passphrase_12_or_more_chars",
-        Knowledge::Pattern => "pattern",
-        Knowledge::Pin(None) | Knowledge::Passphrase(None) | Knowledge::Unknown => OTHER,
+        Knowledge::Pin(Some(digits)) if digits.get() < 6 => AmrMethod::PinLessThan6Digits,
+        Knowledge::Pin(Some(_)) => AmrMethod::Pin6OrMoreDigits,
+        Knowledge::Passphrase(Some(chars)) if chars.get() < 8 => {
+            AmrMethod::PassphraseLessThan8Chars
+        }
+        Knowledge::Passphrase(Some(chars)) if chars.get() < 12 => AmrMethod::Passphrase8To11Chars,
+        Knowledge::Passphrase(Some(_)) => AmrMethod::Passphrase12OrMoreChars,
+        Knowledge::Pattern => AmrMethod::Pattern,
+        Knowledge::Pin(None) | Knowledge::Passphrase(None) | Knowledge::Unknown => {
+            AmrMethod::OtherKnowledge
+        }
     }
 }
