@@ -253,11 +253,13 @@ fn zoned(
 }
 
 /// Years where ICU4X writes a two-digit year in full (1000 to 1949 and from 2050) or adds the
-/// era (to 999), each on 4 March and 31 December.
+/// era (to 999), each on 4 March and 31 December, and 1 January of year 0, whose weekday counts
+/// from the year before.
 fn years() -> Vec<Date> {
     (0..=3000u16)
         .chain([9999])
         .flat_map(|year| [Date::new(year, 3, 4), Date::new(year, 12, 31)])
+        .chain([Date::new(0, 1, 1)])
         .flatten()
         .collect()
 }

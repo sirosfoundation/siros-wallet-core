@@ -5,7 +5,9 @@ use super::super::{ArrayIndex, ClaimPath, Concrete};
 use super::{ClaimsFormat, Display, DisplayItem};
 use crate::ids::LocaleTag;
 use crate::json::Node;
-use siros_explain::{Count, Decimal, Text, Value as Typed};
+use siros_explain::{
+    Count, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
+};
 
 use crate::rows::{BooleanText, ClaimText, Row, Value, WalletText};
 use crate::text::{DisplayText, TextError, lookup};
@@ -65,8 +67,62 @@ pub(super) fn byte_strings<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
         .unwrap_or(&[])
 }
 
-/// The length of the byte string at `path`; `None` for another value.
-fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
+/// The view's `dates`: where its `values` hold a date, with its text. [`ClaimsView`](super::ClaimsView)
+/// reads their shape.
+pub(super) fn dates<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
+    view.get("dates").and_then(Node::as_array).unwrap_or(&[])
+}
+
+/// The number `digits` write; `None` for another byte or past a `u16`.
+fn number(digits: &[u8]) -> Option<u16> {
+    digits.iter().try_fold(0u16, |value, digit| {
+        if !digit.is_ascii_digit() {
+            return None;
+        }
+        value.checked_mul(10)?.checked_add(u16::from(digit - b'0'))
+    })
+}
+
+/// The date of a `full-date`, `YYYY-MM-DD` (RFC 8943; RFC 3339 §5.6).
+#[must_use]
+pub fn full_date(text: &str) -> Option<Date> {
+    let [y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2] = *text.as_bytes() else {
+        return None;
+    };
+    Date::new(
+        number(&[y1, y2, y3, y4])?,
+        u8::try_from(number(&[m1, m2])?).ok()?,
+        u8::try_from(number(&[d1, d2])?).ok()?,
+    )
+}
+
+/// The date and time of a `tdate` of the form `YYYY-MM-DDThh:mm:ssZ` (RFC 8949 §3.4.1; ISO/IEC
+/// 18013-5 §9.1.2.4: no fraction, no offset but `Z`).
+#[must_use]
+pub fn tdate(text: &str) -> Option<DateTime> {
+    let (date, time) = text.split_once('T')?;
+    let [h1, h2, b':', m1, m2, b':', s1, s2, b'Z'] = *time.as_bytes() else {
+        return None;
+    };
+    let second = Second::new(u8::try_from(number(&[s1, s2])?).ok()?, Fraction::NONE)?;
+    let at = Time::new(
+        u8::try_from(number(&[h1, h2])?).ok()?,
+        u8::try_from(number(&[m1, m2])?).ok()?,
+        Some(second),
+    )?;
+    Some(DateTime::new(full_date(date)?, at, Some(Offset::new(0)?)))
+}
+
+/// The value of an entry of the view's `dates`: its `date`, a `full-date` or a `tdate`.
+pub(super) fn date_of(entry: &Node<'_>) -> Option<Typed> {
+    let text = entry.get("date")?.as_str()?;
+    full_date(text)
+        .map(Typed::Date)
+        .or_else(|| tdate(text).map(Typed::DateTime))
+}
+
+/// The entry of `entries` whose `path` is `path`.
+fn entry_at<'v, 'a>(entries: &'v [Node<'a>], path: &[Concrete<'_>]) -> Option<&'v Node<'a>> {
     let same = |written: &[Node<'_>]| {
         written.len() == path.len()
             && written.iter().zip(path).all(|(step, at)| match (step, at) {
@@ -77,13 +133,14 @@ fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
                 _ => false,
             })
     };
-    let found = strings.iter().find(|string| {
-        string
-            .get("path")
-            .and_then(Node::as_array)
-            .is_some_and(same)
-    })?;
-    match found.get("length")? {
+    entries
+        .iter()
+        .find(|entry| entry.get("path").and_then(Node::as_array).is_some_and(same))
+}
+
+/// The length of the byte string at `path`; `None` for another value.
+fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Option<Count> {
+    match entry_at(strings, path)?.get("length")? {
         Node::Number(length) => Count::parse(length.text()),
         _ => None,
     }
@@ -184,8 +241,9 @@ fn fallback_label(path: &[Concrete<'_>]) -> Result<Text, TextError> {
 /// without a label in the metadata shows its last member name, or the wallet's word for a claim
 /// when its path names no member. A scalar value shows by its type: a boolean as the wallet's yes
 /// or no, `null` as the wallet's text for no value, a number as a count or an exact decimal and
-/// beyond those as the JSON text the credential wrote, a byte string by its length. The labels and
-/// names read through [`DisplayText`]; the credential's strings show as written.
+/// beyond those as the JSON text the credential wrote, a byte string by its length, a date of the
+/// view's `dates` as a typed value, which the wallet's modules format. The labels and names read
+/// through [`DisplayText`]; the credential's other strings show as written.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
@@ -254,7 +312,11 @@ pub(super) fn value_rows(
         Node::Number(number) => number_value(number.text())
             .map_or_else(|| Text::Raw(number.text().to_owned()), Text::Value),
         Node::String(written) => byte_length(display.byte_strings, path).map_or_else(
-            || Text::Raw(written.to_string()),
+            || {
+                entry_at(display.dates, path)
+                    .and_then(date_of)
+                    .map_or_else(|| Text::Raw(written.to_string()), Text::Value)
+            },
             |length| Text::of(&ClaimText::Bytes { length }),
         ),
     };

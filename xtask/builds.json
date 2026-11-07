@@ -150,6 +150,7 @@
         {
           "name": "siros-i18n",
           "features": [
+            "date",
             "list",
             "load",
             "number",
@@ -443,6 +444,7 @@
         {
           "name": "siros-i18n",
           "features": [
+            "date",
             "list",
             "load",
             "number",

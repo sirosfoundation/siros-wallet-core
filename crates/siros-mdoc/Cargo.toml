@@ -18,6 +18,7 @@ resolve = [
     "dep:base64",
     "dep:sha2",
     "dep:rustc-hash",
+    "dep:siros-i18n",
 ]
 # The `DeviceMac` double for the tests of crates that register siros-mdoc.
 test-util = ["resolve"]
@@ -27,6 +28,9 @@ siros-openid4vp = { workspace = true, features = ["claims"] }
 base64 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
+# The format module of an element's `full-date` and `tdate`, which the registration's package
+# holds precomputed.
+siros-i18n = { workspace = true, features = ["date"], optional = true }
 # The stored mdoc's value digests (ISO/IEC 18013-5, 9.1.2.5) and its device signing input.
 sha2 = { workspace = true, optional = true }
 rustc-hash = { workspace = true, optional = true }

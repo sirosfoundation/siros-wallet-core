@@ -395,8 +395,8 @@ impl<'m> Located<'m> {
     /// # Errors
     ///
     /// [`RenderError::Package`] for a locale entry the package refuses;
-    /// [`RenderError::Format`] when a module's locale entry calls a format module the build
-    /// does not register.
+    /// [`RenderError::Format`] when a message of a module's locale entry calls a format module the
+    /// build does not register. A bare value's format is refused at the text that needs it.
     pub fn renderer(
         self,
         formats: &'m Formats,
@@ -487,7 +487,7 @@ impl ChosenForm<'_> {
         }
     }
 
-    /// The format modules its messages and bare formats call.
+    /// The format modules its messages call.
     fn formats(&self) -> Vec<String> {
         match self {
             Self::Package { index, .. } => index.formats.clone(),

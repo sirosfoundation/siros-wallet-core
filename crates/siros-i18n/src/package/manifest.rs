@@ -315,8 +315,9 @@ pub(crate) struct MessageRef {
     pub(crate) entry: usize,
 }
 
-/// A module's locale entry: its tag, its direction, the formats its messages and bare formats
-/// call, its bare formats, and its messages by key in ascending order.
+/// A module's locale entry: its tag, its direction, the formats its messages call, its bare
+/// formats, and its messages by key in ascending order. A bare value's format is required by the
+/// text that needs it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocaleIndex {
     pub(crate) locale: LocaleTag,

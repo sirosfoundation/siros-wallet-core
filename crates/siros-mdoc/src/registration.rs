@@ -6,12 +6,14 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Value};
-use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
+use siros_openid4vp::claims::kit::{
+    IssuedMetadata, IssuedShape, MergeError, full_date, merge_metadata, tdate,
+};
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::known_object;
 use siros_openid4vp::wallet::{DocumentBytes, ViewBytes};
 
-use crate::stored::{Curve, MdocError, StoredMdoc};
+use crate::stored::{Curve, ElementIdentifier, MdocError, NameSpace, StoredMdoc};
 
 /// The issuer's name from `x5chain`: any text its certificate states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +69,23 @@ pub enum RegistrationError {
         #[from]
         cause: MergeError,
     },
+    /// A value under tag 1004 is no `full-date` (RFC 8943, ISO/IEC 18013-5 §7.2.1).
+    #[error("{namespace}: {element} holds a value under tag 1004 that is no `full-date`")]
+    FullDate {
+        /// The name space.
+        namespace: NameSpace,
+        /// The element identifier.
+        element: ElementIdentifier,
+    },
+    /// A value under tag 0 is no `tdate` of the form `YYYY-MM-DDThh:mm:ssZ` (ISO/IEC 18013-5
+    /// §9.1.2.4).
+    #[error("{namespace}: {element} holds a value under tag 0 that is no `tdate`")]
+    Tdate {
+        /// The name space.
+        namespace: NameSpace,
+        /// The element identifier.
+        element: ElementIdentifier,
+    },
 }
 
 /// OpenID4VCI's display metadata, as an mdoc's view holds it.
@@ -102,9 +121,9 @@ impl Registered {
         })
     }
 
-    /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer_display"?, "issuer"?,
-    /// "issuer_alg", "issuer_curve"?, "device_alg"?, "device_curve", "key_authorizations",
-    /// "validity"}`.
+    /// The view: `{"type", "metadata", "values", "byte_strings"?, "dates"?, "issuer_display"?,
+    /// "issuer"?, "issuer_alg", "issuer_curve"?, "device_alg"?, "device_curve",
+    /// "key_authorizations", "validity"}`.
     #[must_use]
     pub fn view(&self) -> ViewBytes<'_> {
         ViewBytes::new(&self.view)
@@ -127,47 +146,95 @@ fn values(mdoc: &StoredMdoc) -> Result<Object<'static>, CborError> {
     })
 }
 
-/// Each byte string under the items' values, which RFC 8949 §6.1 writes as text in `values`, as
-/// `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
-fn byte_strings(mdoc: &StoredMdoc) -> Vec<Node<'static>> {
-    let mut found = Vec::new();
-    for space in mdoc.name_spaces() {
-        for item in space.items() {
-            let mut path = vec![
-                text(&space.name().to_string()),
-                text(&item.identifier().to_string()),
-            ];
-            bytes_under(item.value(), &mut path, &mut found);
-        }
-    }
-    found
+/// What the items' values state that RFC 8949 §6.1 leaves out of the text in `values`.
+#[derive(Default)]
+struct Typed {
+    /// Each byte string as `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
+    byte_strings: Vec<Node<'static>>,
+    /// Each `full-date` and `tdate` as `{"path", "date"}` (ISO/IEC 18013-5 §7.2.1).
+    dates: Vec<Node<'static>>,
 }
 
-fn bytes_under(value: &Value, path: &mut Vec<Node<'static>>, found: &mut Vec<Node<'static>>) {
-    match value {
-        Value::Bytes(bytes) => found.push(Node::Object(known_object! {
-            "path" => Some(Node::Array(path.clone())),
-            "length" => Some(Node::natural(bytes.len())),
-        })),
-        Value::Tag(2 | 3, _) => {}
-        Value::Tag(_, inner) => bytes_under(inner, path, found),
-        Value::Array(items) => {
-            for (at, item) in items.iter().enumerate() {
-                path.push(Node::natural(at));
-                bytes_under(item, path, found);
-                drop(path.pop());
+impl Typed {
+    /// What the items of `mdoc` state.
+    fn of(mdoc: &StoredMdoc) -> Result<Self, RegistrationError> {
+        let mut typed = Self::default();
+        for space in mdoc.name_spaces() {
+            for item in space.items() {
+                let mut path = vec![
+                    text(&space.name().to_string()),
+                    text(&item.identifier().to_string()),
+                ];
+                typed.under(item.value(), &mut path, (space.name(), item.identifier()))?;
             }
         }
-        Value::Map(pairs) => {
-            for (key, item) in pairs {
-                if let Value::Text(name) = key {
-                    path.push(text(name));
-                    bytes_under(item, path, found);
+        Ok(typed)
+    }
+
+    fn date(&mut self, path: &[Node<'static>], written: &str) {
+        self.dates.push(Node::Object(known_object! {
+            "path" => Some(Node::Array(path.to_vec())),
+            "date" => Some(text(written)),
+        }));
+    }
+
+    /// Reads `value`, at `path` under the element `item`.
+    fn under(
+        &mut self,
+        value: &Value,
+        path: &mut Vec<Node<'static>>,
+        item: (&NameSpace, &ElementIdentifier),
+    ) -> Result<(), RegistrationError> {
+        match value {
+            Value::Bytes(bytes) => {
+                self.byte_strings.push(Node::Object(known_object! {
+                    "path" => Some(Node::Array(path.clone())),
+                    "length" => Some(Node::natural(bytes.len())),
+                }));
+            }
+            Value::Tag(2 | 3, _) => {}
+            Value::Tag(1004, inner) => match inner.as_ref() {
+                Value::Text(written) if full_date(written).is_some() => {
+                    self.date(path, written);
+                }
+                _ => {
+                    return Err(RegistrationError::FullDate {
+                        namespace: item.0.clone(),
+                        element: item.1.clone(),
+                    });
+                }
+            },
+            Value::Tag(0, inner) => match inner.as_ref() {
+                Value::Text(written) if tdate(written).is_some() => {
+                    self.date(path, written);
+                }
+                _ => {
+                    return Err(RegistrationError::Tdate {
+                        namespace: item.0.clone(),
+                        element: item.1.clone(),
+                    });
+                }
+            },
+            Value::Tag(_, inner) => self.under(inner, path, item)?,
+            Value::Array(items) => {
+                for (at, inner) in items.iter().enumerate() {
+                    path.push(Node::natural(at));
+                    self.under(inner, path, item)?;
                     drop(path.pop());
                 }
             }
+            Value::Map(pairs) => {
+                for (key, inner) in pairs {
+                    if let Value::Text(name) = key {
+                        path.push(text(name));
+                        self.under(inner, path, item)?;
+                        drop(path.pop());
+                    }
+                }
+            }
+            _ => {}
         }
-        _ => {}
+        Ok(())
     }
 }
 
@@ -199,17 +266,19 @@ fn key_authorizations(mdoc: &StoredMdoc) -> Node<'static> {
 
 fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, RegistrationError> {
     let metadata = merge_metadata::<IssuedAsWritten>(None, &resolved.issued)?;
-    let byte_strings = byte_strings(mdoc);
     let mso = mdoc.mso();
     let device = mso.device_key();
     let validity = mso.validity();
     let seconds = |at: u64| Some(Node::integer(i128::from(at)));
     let cose = |alg: i64| Node::integer(i128::from(alg));
+    let values = values(mdoc)?;
+    let typed = Typed::of(mdoc)?;
     Ok(Node::Object(known_object! {
         "type" => Some(text(mdoc.doc_type().as_str())),
         "metadata" => Some(Node::Object(metadata)),
-        "values" => Some(Node::Object(values(mdoc)?)),
-        "byte_strings" => (!byte_strings.is_empty()).then_some(Node::Array(byte_strings)),
+        "values" => Some(Node::Object(values)),
+        "byte_strings" => (!typed.byte_strings.is_empty()).then_some(Node::Array(typed.byte_strings)),
+        "dates" => (!typed.dates.is_empty()).then_some(Node::Array(typed.dates)),
         "issuer_display" => resolved.issued.issuer_display_member()?,
         "issuer" => resolved.issuer.map(|issuer| text(issuer.as_str())),
         "issuer_alg" => Some(cose(mdoc.issuer_auth().algorithm().value())),

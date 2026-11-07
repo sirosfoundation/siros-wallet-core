@@ -3196,7 +3196,8 @@ siros-matcher       siros-dc-matcher: the core and the plug-ins without resolve,
 | Crate | SIROS crates it names | For |
 | :-- | :-- | :-- |
 | siros-openid4vp | siros-explain; siros-i18n without default features, with `render`, `number` and `list` | the error contract (section 4.13); the renderer and the format modules its own messages call: counts (`:number`) and lists of reasons (`:siros:list`) (section 4.14) |
-| siros-x509, siros-mdoc, siros-qes, siros-webuild, siros-zkp-req | the core; siros-explain | the traits each implements |
+| siros-x509, siros-qes, siros-webuild, siros-zkp-req | the core; siros-explain | the traits each implements |
+| siros-mdoc | the core; siros-explain; siros-i18n with `date` under `resolve` | the traits it implements; an element's `full-date` and `tdate`, which a card's rows hold as typed values and the registration's package holds precomputed (section 4.14) |
 | siros-sdjwt | the core; siros-explain; siros-i18n with `render` | the traits it implements; a type metadata document's `display` as a defined module (section 4.14) |
 | siros-paso | the core; siros-explain; siros-i18n with `number`, `currency` and `date`; siros-x509 under `resolve` | the traits it implements; PaSO View's value types, which render as amounts and dates (section 4.14); an ad-hoc metadata JWT's `x5c` chain, its leaf's key and subject (Proof Metadata §5.3) |
 | siros-ts12 | the core; siros-paso; siros-explain | siros-paso's engine renders TS12's entries (section 4.10.3); the core's `ViewAdditions` gives a credential's `types` (reading 26); the error contract (section 4.13) |
@@ -3286,7 +3287,8 @@ whether or not another crate turns `sealed-signals` on.
   `number`, `currency`, `offset`, `date`, `list`. Each crate turns on the format modules its own
   messages' argument kinds call (section 4.14's kind table): the core `number` and `list`;
   siros-paso `number`, `currency` and `date`, for PaSO View's amounts and dates; siros-ts12 none
-  beyond siros-paso's. siros-sdjwt and siros-mdoc render claim values as texts and turn on none.
+  beyond siros-paso's; siros-mdoc, under `resolve`, `date`, for an element's `full-date` and `tdate`, which the
+  matcher reads as held. siros-sdjwt renders claim values as texts and turns on none.
   No crate of these builds calls `:offset`. The wallet app turns on `load`; the matcher builds
   `render` alone. Its error domain is `i18n`. `render` names sha2 and ct-merkle; `load` adds
   unicode-normalization (NFC at load) and unicode-general-category (a currency symbol's edge).
@@ -3342,14 +3344,15 @@ differ:
 | Build | Registers | Compiles none of | siros-i18n features |
 | :-- | :-- | :-- | :-- |
 | SD-JWT over the DC API, unsigned | siros-sdjwt; `vp_token`; `dc_api`, `dc_api.jwt`; `DcApiProtocols::UNSIGNED` | ciborium, ciborium-io, ciborium-ll, half, zerocopy, zerocopy-derive, coset; p256, elliptic-curve, primeorder, crypto-bigint, ff, group; serde_urlencoded, form_urlencoded, percent-encoding, ryu, fluent-uri `net`; sha3, keccak, blake2, k12, sponge-cursor; uuid; x509-cert, der, der_derive, flagset, spki | `load`, `render`, `number`, `list` |
-| mdoc over the DC API, unsigned | siros-mdoc; `vp_token`; `dc_api`, `dc_api.jwt` | p256, elliptic-curve, primeorder, crypto-bigint, ff, group; serde_urlencoded, form_urlencoded, percent-encoding, ryu, fluent-uri `net`; sha3, keccak, blake2, k12, sponge-cursor; uuid; x509-cert, der, der_derive, flagset, spki | `load`, `render`, `number`, `list` |
+| mdoc over the DC API, unsigned | siros-mdoc; `vp_token`; `dc_api`, `dc_api.jwt` | p256, elliptic-curve, primeorder, crypto-bigint, ff, group; serde_urlencoded, form_urlencoded, percent-encoding, ryu, fluent-uri `net`; sha3, keccak, blake2, k12, sponge-cursor; uuid; x509-cert, der, der_derive, flagset, spki | `load`, `render`, `number`, `list`, `date` |
 | SD-JWT by URI with siros-x509 | siros-sdjwt, siros-x509; `vp_token`; `direct_post.jwt`, `direct_post`; `RequestPost` | ciborium, ciborium-io, ciborium-ll, half, zerocopy, zerocopy-derive, coset; p256, elliptic-curve, primeorder, crypto-bigint, ff, group; sha3, keccak, blake2, k12, sponge-cursor; uuid | `load`, `render`, `number`, `list` |
 | siros-paso with SD-JWT | siros-sdjwt, siros-paso without `sealed-signals`; `vp_token`; `dc_api.jwt`; `Sha2` | ciborium, ciborium-io, ciborium-ll, half, zerocopy, zerocopy-derive, coset; p256, elliptic-curve, primeorder, crypto-bigint, ff, group; serde_urlencoded, form_urlencoded, percent-encoding, ryu, fluent-uri `net`; sha3, keccak, blake2, k12, sponge-cursor | `load`, `render`, `number`, `list`, `currency`, `date` |
-| HAIP | siros-sdjwt, siros-mdoc, siros-x509; `vp_token`; the four core modes; `RequestPost`; `Sha2` | p256, elliptic-curve, primeorder, crypto-bigint, ff, group; sha3, keccak, blake2, k12, sponge-cursor; uuid | `load`, `render`, `number`, `list` |
+| HAIP | siros-sdjwt, siros-mdoc, siros-x509; `vp_token`; the four core modes; `RequestPost`; `Sha2` | p256, elliptic-curve, primeorder, crypto-bigint, ff, group; sha3, keccak, blake2, k12, sponge-cursor; uuid | `load`, `render`, `number`, `list`, `date` |
 | WE BUILD | siros-sdjwt, siros-x509, siros-paso, siros-ts12, siros-webuild; `vp_token`; `direct_post.jwt`, `direct_post`, `dc_api.jwt`; `RequestPost`, `EncryptedRequests`; `Sha2` | ciborium, ciborium-io, ciborium-ll, half, zerocopy, zerocopy-derive, coset; p256, elliptic-curve, primeorder, crypto-bigint, ff, group; sha3, keccak, blake2, k12, sponge-cursor | `load`, `render`, `number`, `list`, `currency`, `date` |
 
 No build compiles `offset`. The matcher's build of each row compiles siros-i18n with `render` in
-place of `load`.
+place of `load`, and without `date` in the mdoc over the DC API and HAIP rows, whose date rows it
+reads as held.
 
 Gates: I25, I39.
 
@@ -3901,7 +3904,9 @@ refused entry with its reason.
   A disclosure may hold claim labels: each enters as the precomputed label of a type `meta`
   allows, or as its path as written. Phase 2's texts
   (consent screens, errors) stay out. The matcher's build links the render halves of the formats
-  these texts use, and no other.
+  these texts use, and no other. A locale entry requires the formats its messages call; a bare
+  value's format is refused at the text that needs it (`RenderError::Format`), so a held text needs
+  no render half.
   Each module the wallet registers declares the messages its request texts draw from as one type
   (siros-explain's `DeclaredModule::Requested`, a `Requested` type naming its module), and a
   `RequestText` is built only from a message of that type, a value, a name, a received text or a
@@ -6148,7 +6153,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | :-- | :-- | :-- | :-- |
 | siros-openid4vp | wallet-rs | `match`, `resolve`, `dc-api`, `uri`, `signed`, `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`, `sri`, `claims` | siros-explain; siros-i18n with `render`, `number`, `list` |
 | siros-x509 | wallet-rs | `test-util` | the core (`signed`); siros-explain |
-| siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain |
+| siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain; siros-i18n (`resolve`: `date`) |
 | siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain; siros-i18n (`render`) |
 | siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n; `resolve`: siros-x509 |
 | siros-ts12 | new (section 4.10.2) | `resolve` | the core (`transaction-data`); siros-paso; siros-explain |
@@ -6363,7 +6368,7 @@ SIROS crate.
 | `IssuerMetadata::merge`, with `auxiliary_data` removed before any merge (D1) | Carried over into the claims kit's metadata merge, which both claims formats' registration calls. |
 | `lookup`, `Locale`, `Localized`, `LocaleError` (D2) | The claims kit's display entry (RFC 4647 Lookup, then filtering, then the entry without a locale) and siros-i18n's `LocaleTag`. |
 | `DisplayCache::card`, `DisplayCache::claim_rows` (D3: the format's display first, OpenID4VCI `credential_metadata` per language after it) | Carried over into the claims kit's merge. |
-| `DisplayValue` (D4) | The claims kit's rows, typed as decision 19 types them. |
+| `DisplayValue` (D4) | The claims kit's rows, typed as decision 19 types them. An mdoc's `full-date` and `tdate` elements (ISO/IEC 18013-5 §7.2.1) are `Value::Date` and `Value::DateTime`: the registration refuses a value under those tags that their forms do not read, and the view's `dates`, `{"path", "date"}` beside `values`, states each one's path. An SD-JWT's JSON strings carry no type and show as written. |
 | `DisplayValue::Bytes`, shown by its length (D5) | Carried over into the claims kit's rows. |
 | `DisplayText`, `text::unsafe_ranges`: the characters of Cc, Cf, Zl, Zp, Co and Cn refused; `LABEL_MAX`, `VALUE_MAX`, `TEMPLATE_MAX`, `CARD_TEXT_MAX` | The rule carries over into the core's `text`: `DisplayText` reads each character's category through unicode-general-category's `get_general_category`. The claims kit reads every metadata text through it, in every language: under the view's `metadata`, `name`, `alt_text` and the format's label as labels and `description` as a value, then the view's `issuer` and a member name standing in for a label. A refused text excludes the credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`); a label of white space alone gives way to the next choice. A claim's value shows as written. siros-paso keeps PaSO's label rule (Proof Metadata §3.3). |
 | `Card`, `CardWording`, `CardText`, `LabelText`, `IssuerTemplate`, `ClaimRow`, `ClaimLabels`, `DescribedLabel` | The consent entry's `Card` and `Row` (section 4.2), and the claims kit's card and rows. |

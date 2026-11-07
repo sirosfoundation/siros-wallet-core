@@ -6,8 +6,10 @@
 //! presentation.
 //!
 //! A credential's view is a JSON object: `{"type", "metadata": {"display", "claims"}, "values",
-//! "issuer"?, "issuer_display"?, "byte_strings"?, ...}`, the metadata in the format's own display
-//! shape, which [`merge_metadata`] writes at registration.
+//! "issuer"?, "issuer_display"?, "byte_strings"?, "dates"?, ...}`, the metadata in the format's own
+//! display shape, which [`merge_metadata`] writes at registration. `byte_strings` holds
+//! `{"path", "length"}` and `dates` holds `{"path", "date"}`, a `full-date` or a `tdate`, for the
+//! strings of `values` that a format's registration knows to be one.
 
 mod display;
 mod merge;
@@ -18,10 +20,11 @@ use siros_explain::{
     AllOf, Count, DefinedKey, DefinedModule, Explained, Keyed, Query as ExplainQuery, Text,
 };
 
-pub use display::format_entry;
 use display::{
-    Described, byte_strings, issuer_display, label_text, metadata, metadata_texts, value_rows,
+    Described, byte_strings, date_of, dates, issuer_display, label_text, metadata, metadata_texts,
+    value_rows,
 };
+pub use display::{format_entry, full_date, tdate};
 pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
@@ -107,15 +110,26 @@ pub enum DisplayItem {
 }
 
 /// What gives a card's texts: the wallet's locales, the defined module the metadata loaded as, and
-/// the view's byte strings.
+/// the view's byte strings and dates.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Display<'d> {
     pub(crate) locales: &'d [LocaleTag],
     pub(crate) module: Option<&'d DefinedModule>,
     pub(crate) byte_strings: &'d [Node<'d>],
+    pub(crate) dates: &'d [Node<'d>],
 }
 
-impl Display<'_> {
+impl<'d> Display<'d> {
+    /// What gives the texts of the credential `view` holds.
+    fn of(view: &'d Node<'d>, locales: &'d [LocaleTag], module: Option<&'d DefinedModule>) -> Self {
+        Self {
+            locales,
+            module,
+            byte_strings: byte_strings(view),
+            dates: dates(view),
+        }
+    }
+
     /// The text of `item`, whose metadata wrote `written`: its message in the defined module, else
     /// as written.
     pub(crate) fn text(self, format: &impl ClaimsFormat, item: DisplayItem, written: &str) -> Text {
@@ -357,11 +371,7 @@ impl<'q> ClaimsQuery<'q> {
                 .map_or(Ok(None), label_text)
                 .map_err(CardError::Text)?,
         );
-        let display = Display {
-            locales: env.priority(),
-            module: None,
-            byte_strings: byte_strings(view),
-        };
+        let display = Display::of(view, env.priority(), None);
         for option in options {
             let items = self
                 .claims
@@ -391,11 +401,7 @@ impl<'q> ClaimsQuery<'q> {
         module: Option<&DefinedModule>,
     ) -> Result<Card, CardError> {
         let locales = env.priority();
-        let display = Display {
-            locales,
-            module,
-            byte_strings: byte_strings(view),
-        };
+        let display = Display::of(view, locales, module);
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
@@ -545,11 +551,24 @@ pub fn vp_formats_refusal(
         })
 }
 
+/// Whether the view's member `name` is absent, or an array of objects each with a `path` array and
+/// what `holds` asks of it.
+fn located(view: &Node<'_>, name: &str, holds: impl Fn(&Node<'_>) -> bool) -> bool {
+    view.get(name).is_none_or(|entries| {
+        entries.as_array().is_some_and(|entries| {
+            entries
+                .iter()
+                .all(|entry| entry.get("path").and_then(Node::as_array).is_some() && holds(entry))
+        })
+    })
+}
+
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,
 /// a `metadata` object whose `display` and `claims`, when present, are arrays, the credential's
 /// `values`, an `issuer` that is absent, null or a string, an `issuer_display`, when present, an
-/// array, and `byte_strings`, when present, an array of objects with a `path` array and a natural
-/// number `length`.
+/// array, `byte_strings`, when present, an array of objects with a `path` array and a natural
+/// number `length`, and `dates`, when present, an array of objects with a `path` array and a `date`
+/// that is a `full-date` or a `tdate`.
 #[derive(Debug, Clone)]
 pub struct ClaimsView<'v> {
     credential: &'v Credential<'v>,
@@ -580,18 +599,13 @@ impl<'v> ClaimsView<'v> {
             && json
                 .get(merge::ISSUER_DISPLAY)
                 .is_none_or(|display| display.as_array().is_some())
-            && json.get("byte_strings").is_none_or(|strings| {
-                strings.as_array().is_some_and(|strings| {
-                    strings.iter().all(|string| {
-                        string.get("path").and_then(Node::as_array).is_some()
-                            && matches!(
-                                string.get("length"),
-                                Some(Node::Number(length))
-                                    if Count::parse(length.text()).is_some()
-                            )
-                    })
-                })
-            });
+            && located(&json, "byte_strings", |string| {
+                matches!(
+                    string.get("length"),
+                    Some(Node::Number(length)) if Count::parse(length.text()).is_some()
+                )
+            })
+            && located(&json, "dates", |date| date_of(date).is_some());
         if !shaped {
             return Err(Fault::new(
                 FAULT,

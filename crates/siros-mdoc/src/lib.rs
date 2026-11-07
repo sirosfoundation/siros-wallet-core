@@ -10,7 +10,8 @@
 //! `issuer_alg` and `issuer_curve`, IssuerAuth's COSE algorithm and key curve; `device_alg` and
 //! `device_curve`, the device key's; and `key_authorizations`, `{"namespaces": [...],
 //! "elements": {namespace: [...]}}`; and `validity`, `not_before` and `not_after` from the MSO's
-//! `validityInfo`. Its `values` hold the issuer-signed data elements by name space.
+//! `validityInfo`. Its `values` hold the issuer-signed data elements by name space; its
+//! `byte_strings` and `dates` state which of their strings hold a byte string or a date.
 //! [`registration::Registered`] builds it from a stored mdoc.
 
 #![forbid(unsafe_code)]

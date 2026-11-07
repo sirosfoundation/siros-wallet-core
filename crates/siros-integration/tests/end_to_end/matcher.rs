@@ -50,7 +50,7 @@ fn request_texts(entry: &ConsentEntry) -> Vec<&Text> {
 }
 
 /// The request matched over `rendering`, its views and display handed to `then`.
-fn shown<T>(
+pub fn shown<T>(
     request: &Request<'_>,
     wallet: &Wallet<'_>,
     env: &Env,

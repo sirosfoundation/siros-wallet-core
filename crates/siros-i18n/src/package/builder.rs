@@ -506,7 +506,6 @@ fn locale_index(form: &LocaleForm, entry: usize) -> LocaleIndex {
         .messages
         .iter()
         .flat_map(|message| message.expressions.iter().map(|e| &e.call))
-        .chain(form.bare.calls())
         .map(|call| call.format.clone())
         .collect();
     formats.sort();

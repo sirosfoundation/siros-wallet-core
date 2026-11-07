@@ -3,6 +3,7 @@
 use rustc_hash::FxHashMap;
 use sha2::{Digest as _, Sha256, Sha384, Sha512};
 use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::claims::kit::tdate;
 
 use super::error::MemberFault;
 use super::item::Read as _;
@@ -236,7 +237,7 @@ impl Validity {
                 .get(member.name())
                 .and_then(|t| t.untag(0))
                 .and_then(Value::as_text)
-                .and_then(tdate)
+                .and_then(instant)
                 .ok_or(ValidityFault::Time(member))
         };
         let signed = time(ValidityTime::Signed)?;
@@ -271,27 +272,18 @@ impl Validity {
     }
 }
 
-/// The instant of a `tdate` (RFC 8949 §3.4.1) of exactly the form `YYYY-MM-DDThh:mm:ssZ` (ISO/IEC
-/// 18013-5, 9.1.2.4), a real second of the years 1970 to 9999.
-fn tdate(text: &str) -> Option<Timestamp> {
-    let b = text.as_bytes();
-    let form = b.len() == 20
-        && b.get(4) == Some(&b'-')
-        && b.get(7) == Some(&b'-')
-        && b.get(10) == Some(&b'T')
-        && b.get(13) == Some(&b':')
-        && b.get(16) == Some(&b':')
-        && b.get(19) == Some(&b'Z');
-    if !form {
+/// The instant of a `tdate` of ISO/IEC 18013-5, 9.1.2.4's form, a second of the years 1970 to 9999.
+fn instant(text: &str) -> Option<Timestamp> {
+    let at = tdate(text)?;
+    let date = at.date();
+    let (year, month) = (u64::from(date.year()), usize::from(date.month()));
+    if year < 1970 {
         return None;
     }
-    let field = |from: usize, to: usize| -> Option<u64> { text.get(from..to)?.parse().ok() };
-    let (year, month, day) = (field(0, 4)?, field(5, 7)?, field(8, 10)?);
-    let (hour, minute, second) = (field(11, 13)?, field(14, 16)?, field(17, 19)?);
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let leap = |y: u64| y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400));
     let lengths: [u64; 12] = [
         31,
-        if leap { 29 } else { 28 },
+        if leap(year) { 29 } else { 28 },
         31,
         30,
         31,
@@ -303,22 +295,13 @@ fn tdate(text: &str) -> Option<Timestamp> {
         30,
         31,
     ];
-    let month_days = *lengths.get(usize::try_from(month.checked_sub(1)?).ok()?)?;
-    if year < 1970 || day == 0 || day > month_days || hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    let years = (1970..year).map(|y| {
-        if y.is_multiple_of(4) && (!y.is_multiple_of(100) || y.is_multiple_of(400)) {
-            366
-        } else {
-            365
-        }
-    });
-    let days = years.sum::<u64>()
-        + lengths
-            .iter()
-            .take(usize::try_from(month - 1).ok()?)
-            .sum::<u64>()
-        + (day - 1);
-    Some(Timestamp(((days * 24 + hour) * 60 + minute) * 60 + second))
+    let days = (1970..year)
+        .map(|y| if leap(y) { 366 } else { 365 })
+        .sum::<u64>()
+        + lengths.iter().take(month - 1).sum::<u64>()
+        + (u64::from(date.day()) - 1);
+    Some(Timestamp(
+        ((days * 24 + u64::from(at.hour())) * 60 + u64::from(at.minute())) * 60
+            + u64::from(at.second()?),
+    ))
 }
