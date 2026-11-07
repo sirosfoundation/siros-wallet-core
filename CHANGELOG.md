@@ -164,8 +164,12 @@ All notable changes to this workspace. The format follows
 - `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
   ASCII has each label lowercased and each label beyond ASCII written `xn--` and its Punycode, with
   no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
-  `HttpsUrl`. A host UTS #46 refuses now reaches the caller's GET and fails there: phase 2's outcome
-  stands.
+  `HttpsUrl`. Two texts with one ASCII form are one URL: one `Resource`, one answer, one key of
+  `with_resource`; `FailedImage::url` and a parsed URL's `NotCompatible::Image` hold that form.
+- A host UTS #46 refuses parses. A PaSO `url` value, a TS12 `payee.website` and a QES document link
+  without a checksum at such a host show its Punycode and take no fetch; they were refused or
+  faulted in phase 1. A PaSO image, a TS12 logo and a checksummed QES document reach the caller's GET
+  and fail there: phase 2's outcome stands.
 - `claims::kit::format_entry` is RFC 4647 Lookup over the priority list, then
   filtering, then the entry without a locale; an array answering none gives no
   entry, and the row or the card takes its next choice. `type_metadata::convert`

@@ -2604,22 +2604,38 @@ private behind `written()` and `ascii()`. `parse(&str) -> Result<Self, NotHttpsU
 
 `ascii()` is what the wallet shows and the caller fetches, in every build, so matcher, wallet and
 auditor render the same bytes (gate I37). PaSO View §3 asks the wallet to show the full URL and
-mitigate homograph confusion with the punycode form. A host UTS #46 would refuse reaches the
-caller's GET: the fetch fails, the caller answers `Fetch::Unfetched`, and phase 2 takes its
-failed-fetch path.
+mitigate homograph confusion with the punycode form. Two texts with one ASCII form are one URL:
+equality and hash read `ascii`, `Resource::distinct` asks one GET for them, and `with_resource`,
+`image::resolve` and `FailedImage::url` key on `ascii()`. `NotCompatible::Image` names `ascii()`
+once the text parses.
 
-Known limit: a host not in NFC or using compatibility characters shows and fetches the Punycode of
-what was written, which still reads `xn--`.
+`parse` holds no UTS #46 rule, so a host UTS #46 would refuse is a URL in phase 1. A PaSO `url`
+value, a TS12 `payee.website` and `payee.logo` and a QES document link parse and show its Punycode.
+What phase 2 fetches (a PaSO image, a TS12 logo, a QES document with a checksum) reaches the
+caller's GET: the fetch fails, the caller answers `Fetch::Unfetched`, and phase 2 takes its
+failed-fetch path. A `url` value, a `payee.website` and a QES link without a checksum take no fetch:
+the wallet shows a link that leads nowhere, as it does for a host DNS does not resolve. A QES link
+faults in phase 1 on `LabelOverflow` and `NotRegName` alone.
+
+Known limits; the wallet shows and fetches each form below:
+
+- A host not in NFC or using compatibility characters shows and fetches the Punycode of what was
+  written, which still reads `xn--`.
+- U+3002 stays inside a label, which splits on U+002E alone: `https://example。com/` gives
+  `xn--examplecom-th3i`, and UTS #46 gives `example.com`.
+- U+00AD stays: `a\u{ad}b` gives `xn--ab-5da`, and UTS #46 gives `ab`.
+- U+212A lowercases to ASCII `k` inside a label beyond ASCII, which writes `xn--k-`.
+- U+13A0 lowercases to U+AB70: `xn--kz9a`, and UTS #46 gives `xn--58d`. A real Cherokee host's fetch
+  fails.
 
 `NotHttpsUrl` is `Iri(ParseError)`, `Whitespace`, `Scheme`, `Host`, `LabelOverflow`, `NotRegName`
 or `Rebuilt(BuildError)`. `encode_str` answers `None` when a label's delta overflows 32 bits
 (RFC 3492 §6.4): `LabelOverflow`. A label past DNS's 63 octets below that overflow builds, and its
 fetch fails. `NotRegName` is `EStr::<IRegName>::new` refusing the host's ASCII form. `parse`
 replaces `shaped(text) -> bool`, and `RemoteImage` holds an `HttpsUrl`.
-`rows` re-exports `NotHttpsUrl`. The 13 `.expect(..)` callers compile as they are. The 5
+`rows` re-exports `NotHttpsUrl`. The 13 `.expect(..)` callers compile as they are. The 4
 Option-shaped uses become `.map_err(|_| bad("not an https URL"))`, which keeps the text the
-differential compares; `.ok().and_then(fetch)` twice; `.ok()` in the integration port; and `.is_err()` in PaSO's
-responses test. The 3 field reads call the accessors. fluent-uri enters with its default
+differential compares; `.ok().and_then(fetch)` twice; and `.ok()` in the integration port. The 3 field reads call the accessors. fluent-uri enters with its default
 features; the flows commits add its `net` feature behind `uri`.
 
 **Outputs that change.** Of the 54 URL literals in wallet-rs and the model's generators, 53 keep
@@ -2869,7 +2885,7 @@ several.
 | `NotRandomId` struct → enum | 3 | 1 |
 | `rust-version` 1.86 → 1.89; uuid in the workspace and, optional behind `resolve`, in the core | 4 | 2 |
 | `HttpsUrl::parse` → `Result<_, NotHttpsUrl>`: the `.expect(..)` callers compile as they are | 13 | 10 |
-| Option-shaped `HttpsUrl::parse` uses rewritten (`.map_err`, `.ok()`, `.is_err()`) | 5 | 5 |
+| Option-shaped `HttpsUrl::parse` uses rewritten (`.map_err`, `.ok()`) | 4 | 4 |
 | `HttpsUrl`'s fields → `written()`, `ascii()` | 3 | 3 |
 | The U+FFFD fixture → `https://\u{301}x.example/l.png` | 1 | 1 |
 | `rows` re-exports `NotHttpsUrl`; fluent-uri in the workspace and the core | 3 | 3 |
@@ -5324,7 +5340,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `NotHttpsUrl` | `https_url` | One variant per https URL rule | Holds: a refusal enum, one variant per rule |
 | `HttpsUrl` | `https_url_splice` | An https IRI with a non-empty host, as written, and its ASCII form spliced at the host (RFC 3987, RFC 3492) | Fixed (check after construction): `shaped` leaves; `parse` alone makes one |
 | `NotHttpsUrl` | `https_url_splice` | One variant per https URL rule | Holds: a refusal enum, one variant per rule |
-| `HttpsUrl` | `inhouse_https_url` | `f718dc3`'s https URL: `https://`, a host part, no whitespace; its ASCII form | Boundary: `f718dc3`'s type, kept verbatim as gate G3's baseline (section 4.9.3); commit 3 removes it, and `https_url`'s lands |
+| `HttpsUrl` | `inhouse_https_url` | `f718dc3`'s https URL: `https://`, a host part, no whitespace; its A-label form | Boundary: `f718dc3`'s type, kept verbatim as gate G3's baseline (section 4.9.3); commit 3 removes it, and `https_url`'s lands |
 | `RandomId` | `random_id` | A version 4 UUID of the RFC 9562 variant, as lowercase hyphenated text (RFC 9562 §5.4) | Holds: private `Uuid`; `const fn from_bytes` sets the version and variant bits; `parse -> Result<_, NotRandomId>` |
 | `NotRandomId` | `random_id` | One variant per UUID text rule | Holds: a refusal enum, one variant per rule |
 | `Signature` | `runtime` | A signature's bytes as the key made them: R and S for ECDSA (RFC 7518 §3.4, RFC 9053 §2.1) | Boundary: the keystore module's output, whose length its algorithm fixes (64, 96 or 132 octets); the core places the bytes and reads none, and the differential's doubles write the frozen model's stand-in texts in their place (I9); private, `new` for the module |
