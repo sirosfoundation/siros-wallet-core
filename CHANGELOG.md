@@ -41,6 +41,12 @@ All notable changes to this workspace. The format follows
   view's `issuer`. A text there is read through `DisplayText`.
 - A byte string shows by its length: `ClaimText::Bytes`, over the mdoc view's
   `byte_strings`.
+- An mdoc's `full-date` (tag 1004) and `tdate` (tag 0) elements show as
+  `Value::Date` and `Value::DateTime`, over the view's `dates`, and siros-mdoc turns
+  on siros-i18n's `date`. `RegistrationError::FullDate` and `Tdate` refuse a value
+  those forms do not read. An MSO's `validityInfo` refuses a `+` in a number of its
+  times.
+- `:siros:date` writes the weekday of January and February of year 0.
 - `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
   C5). `Built::used` and `Built::audience` give the app what it fills a
   `PresentationRecord` with, beside the `vp_token`.

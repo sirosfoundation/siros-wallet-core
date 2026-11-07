@@ -348,7 +348,8 @@ fn each_table_22_curve_reads_with_its_algorithm() {
 }
 
 /// What makes no view: a text of no stored mdoc, metadata of no object, an element whose value has
-/// no JSON form (RFC 8949 §6.1).
+/// no JSON form (RFC 8949 §6.1), a value under a date's tag (ISO/IEC 18013-5 §7.2.1) that its form
+/// does not read.
 #[test]
 fn registration_refusals() {
     let none = Resolved::default();
@@ -375,5 +376,19 @@ fn registration_refusals() {
     assert!(matches!(
         Registered::of(&assemble(&parts), &none),
         Err(RegistrationError::Value(cbor::CborError::Key(_)))
+    ));
+    let dated = |value: Value| {
+        let mut parts = honest();
+        parts.items[0] = item(0, "given_name", value);
+        parts.digests[0].1 = digest(&parts.items[0]);
+        Registered::of(&assemble(&parts), &none)
+    };
+    assert!(matches!(
+        dated(Value::Tag(1004, Box::new(text("2026-02-30")))),
+        Err(RegistrationError::FullDate { .. })
+    ));
+    assert!(matches!(
+        dated(tdate("2026-09-02T10:15:30+01:00")),
+        Err(RegistrationError::Tdate { .. })
     ));
 }

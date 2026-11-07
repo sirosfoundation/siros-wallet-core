@@ -4,7 +4,7 @@ use base64::DecodeError;
 use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::cbor::CborError as Core;
 
-use super::names::{DigestId, NameSpace};
+use super::names::{DigestId, ElementIdentifier, NameSpace};
 
 /// Why a stored credential is no mdoc [`StoredMdoc::parse`](super::StoredMdoc::parse) reads.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -525,6 +525,14 @@ impl IntoArg for DigestId {
 }
 
 impl IntoArg for NameSpace {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl IntoArg for ElementIdentifier {
     type Kind = kind::Raw;
 
     fn arg(&self) -> &str {

@@ -6,10 +6,12 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Value};
-use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
+use siros_openid4vp::claims::kit::{
+    IssuedMetadata, IssuedShape, MergeError, full_date, merge_metadata, tdate,
+};
 use siros_openid4vp::json::{JsonError, Node};
 
-use crate::stored::{MdocError, StoredMdoc};
+use crate::stored::{ElementIdentifier, MdocError, NameSpace, StoredMdoc};
 
 /// What the wallet resolved beside the stored mdoc.
 #[derive(Debug, Clone, Default)]
@@ -50,6 +52,23 @@ pub enum RegistrationError {
         #[from]
         cause: MergeError,
     },
+    /// A value under tag 1004 is no `full-date` (RFC 8943, ISO/IEC 18013-5 §7.2.1).
+    #[error("{namespace}: {element} holds a value under tag 1004 that is no `full-date`")]
+    FullDate {
+        /// The name space.
+        namespace: NameSpace,
+        /// The element identifier.
+        element: ElementIdentifier,
+    },
+    /// A value under tag 0 is no `tdate` of the form `YYYY-MM-DDThh:mm:ssZ` (ISO/IEC 18013-5
+    /// §9.1.2.4).
+    #[error("{namespace}: {element} holds a value under tag 0 that is no `tdate`")]
+    Tdate {
+        /// The name space.
+        namespace: NameSpace,
+        /// The element identifier.
+        element: ElementIdentifier,
+    },
 }
 
 /// OpenID4VCI's display metadata, as an mdoc's view holds it.
@@ -87,9 +106,9 @@ impl Registered {
         })
     }
 
-    /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer_display"?, "issuer"?,
-    /// "issuer_alg", "issuer_curve"?, "device_alg", "device_curve", "key_authorizations",
-    /// "validity"}`.
+    /// The view: `{"type", "metadata", "values", "byte_strings"?, "dates"?, "issuer_display"?,
+    /// "issuer"?, "issuer_alg", "issuer_curve"?, "device_alg", "device_curve",
+    /// "key_authorizations", "validity"}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -121,53 +140,99 @@ fn values(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationError> {
     Ok(Node::object(spaces)?)
 }
 
-/// Each byte string under the items' values, which RFC 8949 §6.1 writes as text in `values`, as
-/// `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
-fn byte_strings(mdoc: &StoredMdoc) -> Result<Vec<Node<'static>>, JsonError> {
-    let mut found = Vec::new();
-    for space in mdoc.name_spaces() {
-        for item in space.items() {
-            let mut path = vec![
-                text(&space.name().to_string()),
-                text(&item.identifier().to_string()),
-            ];
-            bytes_under(item.value(), &mut path, &mut found)?;
-        }
-    }
-    Ok(found)
+/// A located entry of the view: `{"path", name: value}`.
+fn located(
+    path: &[Node<'static>],
+    name: &'static str,
+    value: Node<'static>,
+) -> Result<Node<'static>, JsonError> {
+    Node::object([
+        (Cow::Borrowed("path"), Node::Array(path.to_vec())),
+        (Cow::Borrowed(name), value),
+    ])
 }
 
-fn bytes_under(
-    value: &Value,
-    path: &mut Vec<Node<'static>>,
-    found: &mut Vec<Node<'static>>,
-) -> Result<(), JsonError> {
-    match value {
-        Value::Bytes(bytes) => found.push(Node::object([
-            (Cow::Borrowed("path"), Node::Array(path.clone())),
-            (Cow::Borrowed("length"), Node::natural(bytes.len())),
-        ])?),
-        Value::Tag(2 | 3, _) => {}
-        Value::Tag(_, inner) => bytes_under(inner, path, found)?,
-        Value::Array(items) => {
-            for (at, item) in items.iter().enumerate() {
-                path.push(Node::natural(at));
-                bytes_under(item, path, found)?;
-                drop(path.pop());
+/// What the items' values state that RFC 8949 §6.1 leaves out of the text in `values`.
+#[derive(Default)]
+struct Typed {
+    /// Each byte string as `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
+    byte_strings: Vec<Node<'static>>,
+    /// Each `full-date` and `tdate` as `{"path", "date"}` (ISO/IEC 18013-5 §7.2.1).
+    dates: Vec<Node<'static>>,
+}
+
+impl Typed {
+    /// What the items of `mdoc` state.
+    fn of(mdoc: &StoredMdoc) -> Result<Self, RegistrationError> {
+        let mut typed = Self::default();
+        for space in mdoc.name_spaces() {
+            for item in space.items() {
+                let mut path = vec![
+                    text(&space.name().to_string()),
+                    text(&item.identifier().to_string()),
+                ];
+                typed.under(item.value(), &mut path, (space.name(), item.identifier()))?;
             }
         }
-        Value::Map(pairs) => {
-            for (key, item) in pairs {
-                if let Value::Text(name) = key {
-                    path.push(text(name));
-                    bytes_under(item, path, found)?;
+        Ok(typed)
+    }
+
+    /// Reads `value`, at `path` under the element `item`.
+    fn under(
+        &mut self,
+        value: &Value,
+        path: &mut Vec<Node<'static>>,
+        item: (&NameSpace, &ElementIdentifier),
+    ) -> Result<(), RegistrationError> {
+        match value {
+            Value::Bytes(bytes) => {
+                self.byte_strings
+                    .push(located(path, "length", Node::natural(bytes.len()))?);
+            }
+            Value::Tag(2 | 3, _) => {}
+            Value::Tag(1004, inner) => match inner.as_ref() {
+                Value::Text(written) if full_date(written).is_some() => {
+                    self.dates.push(located(path, "date", text(written))?);
+                }
+                _ => {
+                    return Err(RegistrationError::FullDate {
+                        namespace: item.0.clone(),
+                        element: item.1.clone(),
+                    });
+                }
+            },
+            Value::Tag(0, inner) => match inner.as_ref() {
+                Value::Text(written) if tdate(written).is_some() => {
+                    self.dates.push(located(path, "date", text(written))?);
+                }
+                _ => {
+                    return Err(RegistrationError::Tdate {
+                        namespace: item.0.clone(),
+                        element: item.1.clone(),
+                    });
+                }
+            },
+            Value::Tag(_, inner) => self.under(inner, path, item)?,
+            Value::Array(items) => {
+                for (at, inner) in items.iter().enumerate() {
+                    path.push(Node::natural(at));
+                    self.under(inner, path, item)?;
                     drop(path.pop());
                 }
             }
+            Value::Map(pairs) => {
+                for (key, inner) in pairs {
+                    if let Value::Text(name) = key {
+                        path.push(text(name));
+                        self.under(inner, path, item)?;
+                        drop(path.pop());
+                    }
+                }
+            }
+            _ => {}
         }
-        _ => {}
+        Ok(())
     }
-    Ok(())
 }
 
 /// `{"namespaces", "elements"}` (ISO/IEC 18013-5 §9.1.2.4).
@@ -205,9 +270,15 @@ fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, Reg
         (Cow::Borrowed("metadata"), metadata),
         (Cow::Borrowed("values"), values(mdoc)?),
     ];
-    let byte_strings = byte_strings(mdoc)?;
-    if !byte_strings.is_empty() {
-        members.push((Cow::Borrowed("byte_strings"), Node::Array(byte_strings)));
+    let typed = Typed::of(mdoc)?;
+    if !typed.byte_strings.is_empty() {
+        members.push((
+            Cow::Borrowed("byte_strings"),
+            Node::Array(typed.byte_strings),
+        ));
+    }
+    if !typed.dates.is_empty() {
+        members.push((Cow::Borrowed("dates"), Node::Array(typed.dates)));
     }
     members.extend(resolved.issued.issuer_display_member()?);
     if let Some(issuer) = resolved.issuer {

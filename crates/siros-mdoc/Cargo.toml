@@ -27,6 +27,8 @@ siros-openid4vp = { workspace = true, features = ["claims"] }
 base64 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
+# The format module of an element's `full-date` and `tdate`, which a card's rows hold typed.
+siros-i18n = { workspace = true, features = ["date"] }
 # The stored mdoc's value digests (ISO/IEC 18013-5, 9.1.2.5) and its device signing input.
 sha2 = { workspace = true, optional = true }
 rustc-hash = { workspace = true, optional = true }

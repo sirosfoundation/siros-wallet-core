@@ -180,6 +180,19 @@ fn key_authorizations(view: &Node<'_>) -> Result<Option<Value>, IssueError> {
 /// The view lacks `type`, `values`, `issuer_alg` or `device_curve`, `issuer_alg` is outside
 /// IANA's registry, or a value does not convert.
 pub fn issue(view: &Node<'_>) -> Result<Vec<u8>, IssueError> {
+    issue_as(view, |_, value| Ok(cbor::of_json(value)?))
+}
+
+/// [`issue`] with each element's value as `value_of` writes it from the element's identifier and
+/// its JSON value.
+///
+/// # Errors
+///
+/// [`issue`]'s, and `value_of`'s.
+pub fn issue_as(
+    view: &Node<'_>,
+    value_of: impl Fn(&str, &Node<'_>) -> Result<Value, IssueError>,
+) -> Result<Vec<u8>, IssueError> {
     let doctype = view
         .get("type")
         .and_then(Node::as_str)
@@ -219,7 +232,10 @@ pub fn issue(view: &Node<'_>) -> Result<Vec<u8>, IssueError> {
                     Value::Bytes(random.iter().take(16).copied().collect()),
                 ),
                 (text("elementIdentifier"), text(&element.name)),
-                (text("elementValue"), cbor::of_json(&element.value)?),
+                (
+                    text("elementValue"),
+                    value_of(&element.name, &element.value)?,
+                ),
             ]);
             let tagged = embedded(cbor::encode(&item)?);
             space_digests.push((
