@@ -102,6 +102,27 @@ fn the_request_rules_each_refuse_with_their_code() {
     });
 }
 
+/// T1 to T6 read the entries the profile owns, and T6 the query a TS12 entry names (CS-12 §8.1).
+#[test]
+fn the_rules_stop_at_the_profiles_entries_and_their_query() {
+    let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
+    let other = entry("urn:other:1", r#""sca""#, "", "");
+    with_signed(&parameters(&[&good, &other], ""), |request| {
+        let (own, _) = request.indexed_entries().next().expect("the entry");
+        let refusals = profile().refusals(request, &[own]);
+        assert!(refusals.is_empty(), "{refusals:?}");
+    });
+    let beside = parameters(&[&good], "").replace(
+        r#"{"id":"sca","format":"dc+sd-jwt"}"#,
+        r#"{"id":"sca","format":"dc+sd-jwt"},{"id":"other","format":"dc+sd-jwt","multiple":true}"#,
+    );
+    with_signed(&beside, |request| {
+        assert_eq!(request.queries().len(), 2);
+        let refusals = refused(request);
+        assert!(refusals.is_empty(), "{refusals:?}");
+    });
+}
+
 fn parsed(kind: Ts12Type, payload: &str) -> Result<Ts12Payload, PayloadRefusal> {
     Ts12Payload::parse(kind, &Node::parse(payload).expect("JSON"))
 }
@@ -694,10 +715,14 @@ fn a_held_field_without_claim_metadata_ceases() {
     assert!(labels_of(&refused, "service"), "{refused:?}");
     let bound = bind(&labelled(LOGIN, &["action", "service"]), LOGIN, login).expect("offered");
     assert_eq!(bound.overlay.rows.len(), 2);
-    // The four named fields, held without metadata, stay internal.
+    // The four named fields, held without metadata, stay internal, in each type that lists them.
     let payload = payment("1", r#","date_time":"2026-10-01T12:30:15.123Z""#);
     let bound = bind(&labelled(PAYMENT, &header), PAYMENT, &payload).expect("offered");
     assert!(bound.overlay.rows.is_empty());
+    let payload =
+        r#"{"transaction_id": "t", "date_time": "2026-10-01T12:30:15.123Z", "action": "A"}"#;
+    let bound = bind(&labelled(LOGIN, &["action"]), LOGIN, payload).expect("offered");
+    assert_eq!(bound.overlay.rows.len(), 1);
     // TS12 §3.3.1: level 4 omits the field, labelled or not.
     let hidden = labelled(PAYMENT, &header).replacen(
         r#""claims": ["#,
