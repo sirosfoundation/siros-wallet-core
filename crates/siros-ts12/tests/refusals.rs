@@ -422,66 +422,178 @@ fn the_metadata_each_leaves_the_type_unsupported() {
     );
 }
 
-/// TS12 §3.3.1 over CS-12 §7.2's metadata: an optional field the Relying Party sends, which the
-/// metadata leaves without a level (3: displayed) or labels, ceases; a labelled one shows, and
-/// level 4 hides it.
+/// A type's metadata labelling these fields, each without a level.
+fn labelled(kind: &str, fields: &[&str]) -> String {
+    let claims: Vec<String> = fields
+        .iter()
+        .map(|field| {
+            let steps: Vec<String> = field
+                .split('.')
+                .map(|step| format!(r#""{step}""#))
+                .collect();
+            format!(
+                r#"{{"path": ["payload", {}], "display": [{{"lang": "en", "label": "{field}"}}]}}"#,
+                steps.join(", ")
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"vct": "{BASE}", "category": "urn:eu:europa:ec:eudi:sua:sca",
+           "transaction_data_types": {{"{kind}": {{"schema": "{kind}", "claims": [{}],
+           "ui_labels": {{"affirmative_action_label": [{{"lang": "en", "value": "Yes"}}]}}}}}}}}"#,
+        claims.join(", ")
+    )
+}
+
+/// TS12 §3.3.1 and CS-12 §7.3 item 5: a leaf without claim metadata takes level 3, which displays,
+/// and a parameter name unavailable ceases. Every field of TS12 §4.3.1 and §4.3.2 falls under it
+/// but `transaction_id`, `date_time`, `payee.id` and `currency`, which CS-12 §7.2 and its test bed
+/// send without metadata. The field labelled, its row shows.
 #[test]
-fn a_held_field_without_labels_ceases() {
-    let locales = ["en"];
-    let bind = |own: &str, more: &str| {
-        let payload = format!(
-            r#", "payload": {{"transaction_id": "t", "payee": {{"name": "P", "id": "i"{payee}}}, "currency": "EUR", "amount": 1{rest}}}"#,
-            payee = more.strip_prefix('@').unwrap_or_default(),
-            rest = if more.starts_with('@') { "" } else { more },
-        );
-        bound_entry(own, &entry(PAYMENT, r#""sca""#, ALG, &payload), &locales)
-    };
-    for (more, field) in [
+fn a_held_field_without_claim_metadata_ceases() {
+    const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const LOGIN: &str = "urn:eudi:sca:login_risk_transaction:1";
+    let header = ["amount", "payee.name"];
+    let frequency = "recurrence.frequency";
+    let recurring = |member: &str| format!(r#","recurrence":{{"frequency":"MNTH","{member}}}"#);
+    let mit = |member: &str| recurring(&format!(r#"mit_options":{{"{member}}}"#));
+    let pisp = r#","pisp":{"legal_name":"L","brand_name":"B","domain_name":"d.example"}"#;
+    let logo = format!(r#"@,"logo":"{PNG}""#);
+    let table: [(&str, String, &[&str]); 20] = [
+        ("payee.logo", logo, &[]),
         (
-            r#","recurrence":{"frequency":"MNTH"}"#,
-            "recurrence.frequency",
+            "payee.website",
+            r#"@,"website":"https://payee.example""#.to_owned(),
+            &[],
         ),
         (
-            r#","recurrence":{"frequency":"MNTH","mit_options":{"total_amount":1000000}}"#,
-            "recurrence.frequency",
-        ),
-        (r#","amount_estimated":true"#, "amount_estimated"),
-        (r#","amount_earmarked":true"#, "amount_earmarked"),
-        (r#","sct_inst":true"#, "sct_inst"),
-        (r#","execution_date":"2026-12-01""#, "execution_date"),
-        (
-            r#","pisp":{"legal_name":"L","brand_name":"B","domain_name":"d.example"}"#,
             "pisp.legal_name",
+            pisp.to_owned(),
+            &["pisp.brand_name", "pisp.domain_name"],
         ),
-        (r#"@,"website":"https://payee.example""#, "payee.website"),
-    ] {
+        (
+            "pisp.brand_name",
+            pisp.to_owned(),
+            &["pisp.legal_name", "pisp.domain_name"],
+        ),
+        (
+            "pisp.domain_name",
+            pisp.to_owned(),
+            &["pisp.legal_name", "pisp.brand_name"],
+        ),
+        (
+            "execution_date",
+            r#","execution_date":"2026-12-01""#.to_owned(),
+            &[],
+        ),
+        (
+            "amount_estimated",
+            r#","amount_estimated":true"#.to_owned(),
+            &[],
+        ),
+        (
+            "amount_earmarked",
+            r#","amount_earmarked":true"#.to_owned(),
+            &[],
+        ),
+        ("sct_inst", r#","sct_inst":true"#.to_owned(), &[]),
+        (
+            "recurrence.frequency",
+            r#","recurrence":{"frequency":"MNTH"}"#.to_owned(),
+            &[],
+        ),
+        (
+            "recurrence.start_date",
+            recurring(r#"start_date":"2026-12-01""#),
+            &[frequency],
+        ),
+        (
+            "recurrence.end_date",
+            recurring(r#"end_date":"2027-12-01""#),
+            &[frequency],
+        ),
+        (
+            "recurrence.number",
+            recurring(r#"number":12"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.amount_variable",
+            mit(r#"amount_variable":true"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.min_amount",
+            mit(r#"min_amount":1"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.max_amount",
+            mit(r#"max_amount":2"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.total_amount",
+            mit(r#"total_amount":3"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.initial_amount",
+            mit(r#"initial_amount":4"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.initial_amount_number",
+            mit(r#"initial_amount_number":5"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.apr",
+            mit(r#"apr":6.5"#),
+            &[frequency],
+        ),
+    ];
+    let bind = |own: &str, kind: &str, payload: &str| {
+        let payload = format!(r#", "payload": {payload}"#);
+        bound_entry(own, &entry(kind, r#""sca""#, ALG, &payload), &["en"])
+    };
+    for (field, held, also) in &table {
+        let payload = payment("1", held);
+        let others = [&header[..], also].concat();
         assert_eq!(
-            unsupported(bind(CS12_IBAN, more)),
+            unsupported(bind(&labelled(PAYMENT, &others), PAYMENT, &payload)),
             Ts12Unsupported::Labels {
                 field: FieldPath::parse(field).expect("a field of TS12's tables")
             },
-            "{more}"
+            "{field}"
         );
+        let all = [&others[..], &[field]].concat();
+        let bound = bind(&labelled(PAYMENT, &all), PAYMENT, &payload).expect(field);
+        assert_eq!(bound.overlay.rows.len(), also.len() + 1, "{field}");
     }
-    let recurring = r#","recurrence":{"frequency":"MNTH"}"#;
-    let with_frequency = |level: u8| {
-        CS12_IBAN.replacen(
-            r#""claims": ["#,
-            &format!(
-                r#""claims": [{{"path": ["payload", "recurrence", "frequency"], "visualisation": {level}, "display": [{{"lang": "en", "label": "Frequency"}}]}},"#
-            ),
-            1,
-        )
-    };
-    let rows = |own: &str| bind(own, recurring).expect("offered").overlay.rows.len();
+    // TS12 §4.3.2's optional field; `action` in the rows, as the type has no header.
+    let login = r#"{"transaction_id": "t", "service": "S", "action": "A"}"#;
     assert_eq!(
-        rows(&with_frequency(2)),
-        bind(CS12_IBAN, "").expect("offered").overlay.rows.len() + 1
+        unsupported(bind(&labelled(LOGIN, &["action"]), LOGIN, login)),
+        Ts12Unsupported::Labels {
+            field: FieldPath::parse("service").expect("a field of TS12's tables")
+        }
     );
-    assert_eq!(
-        rows(&with_frequency(4)),
-        bind(CS12_IBAN, "").expect("offered").overlay.rows.len()
+    let bound = bind(&labelled(LOGIN, &["action", "service"]), LOGIN, login).expect("offered");
+    assert_eq!(bound.overlay.rows.len(), 2);
+    // The four named fields, held without metadata, stay internal.
+    let payload = payment("1", r#","date_time":"2026-10-01T12:30:15.123Z""#);
+    let bound = bind(&labelled(PAYMENT, &header), PAYMENT, &payload).expect("offered");
+    assert!(bound.overlay.rows.is_empty());
+    // TS12 §3.3.1: level 4 omits the field, labelled or not.
+    let hidden = labelled(PAYMENT, &header).replacen(
+        r#""claims": ["#,
+        r#""claims": [{"path": ["payload", "sct_inst"], "visualisation": 4},"#,
+        1,
     );
+    let payload = payment("1", r#","sct_inst":true"#);
+    let bound = bind(&hidden, PAYMENT, &payload).expect("offered");
+    assert!(bound.overlay.rows.is_empty());
 }
 
 /// TS12 §3.3.3's 30, 30, 50 and 250 and Proof Metadata §3.3's 60 for a claim's label, in extended
