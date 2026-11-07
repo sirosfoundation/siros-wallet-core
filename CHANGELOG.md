@@ -124,6 +124,9 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `siros-paso`'s label limits are a parameter: `LabelText::parse` takes the limit in place of a
+  `LabelSlot` and `LabelSlot::max` is gone, and `view::convert` takes a `Registered` and
+  `LabelLimits` in place of its type and metadata.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth

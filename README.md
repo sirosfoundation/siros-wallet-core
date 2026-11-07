@@ -82,7 +82,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, IssuerTrust, CoseEncrypt; resolve: siros-x509's x5c   transaction-data, sri; resolve: resolve; sealed-signals: cbor
 ├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
 ├── siros-credman     Credential Manager's entries for the matcher; the entry emission; register: the registration's package   match
-├── siros-ts12        TS12 on PaSO's engine                                 transaction-data
+├── siros-ts12        TS12 on PaSO's engine                                 transaction-data; resolve: resolve
 ├── siros-webuild     WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
 ├── siros-trust       issuer trust at registration                match, resolve
 ├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor
