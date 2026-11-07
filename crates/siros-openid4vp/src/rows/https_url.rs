@@ -6,7 +6,7 @@ use fluent_uri::build::{BuildError, Builder};
 use fluent_uri::component::{Host, Scheme};
 use fluent_uri::pct_enc::EStr;
 use fluent_uri::pct_enc::encoder::IRegName;
-use siros_explain::Explain;
+use siros_explain::{Explain, IntoArg, kind};
 
 use crate::text::python_space;
 
@@ -19,6 +19,15 @@ const HTTPS: &Scheme = Scheme::new_or_panic("https");
 pub struct HttpsUrl {
     written: Iri<String>,
     ascii: Iri<String>,
+}
+
+/// A URL is named by its text as written in a message.
+impl IntoArg for HttpsUrl {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.written.as_str()
+    }
 }
 
 /// Why a text is no https URL the wallet shows or fetches.

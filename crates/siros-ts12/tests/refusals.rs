@@ -818,9 +818,17 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
     assert_eq!(
         composed(&own(&format!(r#""claims_uri": "{elsewhere}""#))),
         Err(ComposeError::Unfetched {
-            uri: elsewhere.to_owned()
+            url: HttpsUrl::parse(elsewhere).expect("a URL")
         })
     );
+    for written in ["5", r#""http://example.com/claims.json""#] {
+        assert_eq!(
+            composed(&own(&format!(r#""claims_uri": {written}"#))),
+            Err(ComposeError::UriForm {
+                member: TwinnedMember::Claims
+            })
+        );
+    }
     assert_eq!(composed("{}"), Err(ComposeError::Types));
 }
 

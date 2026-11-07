@@ -125,11 +125,17 @@ pub enum ComposeError {
         /// The member.
         member: TwinnedMember,
     },
+    /// A `_uri` member that is no https URL (TS12 §4.1.1).
+    #[error("{member}_uri is no https URL")]
+    UriForm {
+        /// The member it stands for.
+        member: TwinnedMember,
+    },
     /// A `_uri` member naming a document the caller did not fetch.
-    #[error("{uri} names a document the caller did not fetch")]
+    #[error("{} names a document the caller did not fetch", .url.written())]
     Unfetched {
-        /// The URI as written.
-        uri: String,
+        /// The URL.
+        url: HttpsUrl,
     },
 }
 
@@ -186,7 +192,7 @@ impl<'d> Ts12Document<'d> {
     /// # Errors
     ///
     /// [`ComposeError`]: `transaction_data_types` breaks its shape, a member stands beside its
-    /// `_uri` twin, or a fetched document is missing.
+    /// `_uri` twin, a `_uri` member is no https URL, or a fetched document is missing.
     pub fn compose(
         own: &Node<'_>,
         fetched: &Keyed<HttpsUrl, FetchedDocument>,
@@ -281,7 +287,7 @@ fn composed_type(
     for twin in [Claims, UiLabels] {
         if let Some(uri) = object.get(twin.uri()) {
             composed.retain(|member| member.name != twin.uri());
-            composed.set(Cow::Borrowed(twin.name()), document_at(uri, fetched)?);
+            composed.set(Cow::Borrowed(twin.name()), document_at(twin, uri, fetched)?);
         }
     }
     Ok(Node::Object(composed))
@@ -289,22 +295,18 @@ fn composed_type(
 
 /// The document a `_uri` member names, as the caller fetched it.
 fn document_at(
+    member: TwinnedMember,
     uri: &Node<'_>,
     fetched: &Keyed<HttpsUrl, FetchedDocument>,
 ) -> Result<Node<'static>, ComposeError> {
-    let unfetched = || ComposeError::Unfetched {
-        uri: uri
-            .as_str()
-            .map_or_else(|| uri.json_compact().to_string(), str::to_owned),
-    };
     let url = uri
         .as_str()
         .and_then(|text| HttpsUrl::parse(text).ok())
-        .ok_or_else(unfetched)?;
+        .ok_or(ComposeError::UriForm { member })?;
     fetched
         .get(&url)
         .map(|document| document.0.clone())
-        .ok_or_else(unfetched)
+        .ok_or(ComposeError::Unfetched { url })
 }
 
 /// One `transaction_data_types` entry under its type key, unread until [`TypeEntry::built_in`].
