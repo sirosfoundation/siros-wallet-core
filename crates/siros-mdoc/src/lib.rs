@@ -57,7 +57,7 @@ pub use device_mac::{DeviceMac, Mac};
 pub use presentation::DeviceAuthRefused;
 #[cfg(feature = "resolve")]
 pub use transcript::{
-    Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
+    Handover, HandoverUri, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
 };
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};

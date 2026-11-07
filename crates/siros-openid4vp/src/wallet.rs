@@ -124,6 +124,42 @@ pub struct Document<'a> {
     pub content: &'a [u8],
 }
 
+/// Declares bytes of any content whose role is their type.
+macro_rules! bytes_value {
+    ($(#[$doc:meta])* $name:ident) => {
+        $(#[$doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub struct $name<'a>(&'a [u8]);
+
+        impl<'a> $name<'a> {
+            /// The value `bytes`.
+            #[must_use]
+            pub const fn new(bytes: &'a [u8]) -> Self {
+                Self(bytes)
+            }
+
+            /// The bytes.
+            #[must_use]
+            pub const fn as_bytes(self) -> &'a [u8] {
+                self.0
+            }
+        }
+    };
+}
+
+bytes_value!(
+    /// A format plug-in's view, in its encoding: what a registration gives [`Credential::new`].
+    ViewBytes
+);
+bytes_value!(
+    /// A document's content, in the plug-in's encoding: what a registration gives [`Document`].
+    DocumentBytes
+);
+bytes_value!(
+    /// One DER certificate of a credential's issuer chain (RFC 5280), which no parser read yet.
+    DerCertificate
+);
+
 /// A credential as the registration holds it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Credential<'a> {

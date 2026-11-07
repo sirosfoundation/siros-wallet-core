@@ -8,8 +8,27 @@ use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError};
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::known_object;
+use siros_openid4vp::wallet::{DocumentBytes, ViewBytes};
 
 use crate::stored::{Curve, MdocError, StoredMdoc};
+
+/// The issuer's name from `x5chain`: any text its certificate states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuerName<'a>(&'a str);
+
+impl<'a> IssuerName<'a> {
+    /// The name `text`.
+    #[must_use]
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The name.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
 
 /// What the wallet resolved beside the stored mdoc.
 #[derive(Debug, Clone, Default)]
@@ -17,7 +36,7 @@ pub struct Resolved<'a> {
     /// The credential's display metadata (OpenID4VCI B.2); `None` when its issuer publishes none.
     pub metadata: Option<Object<'a>>,
     /// The issuer's name from `x5chain`.
-    pub issuer: Option<&'a str>,
+    pub issuer: Option<IssuerName<'a>>,
     /// The curve of `x5chain`'s Document Signer key.
     pub issuer_curve: Option<Curve>,
 }
@@ -71,14 +90,14 @@ impl Registered {
     /// The view: `{"type", "metadata", "values", "issuer"?, "issuer_alg", "issuer_curve"?,
     /// "device_alg"?, "device_curve", "key_authorizations", "validity"}`.
     #[must_use]
-    pub fn view(&self) -> &[u8] {
-        &self.view
+    pub fn view(&self) -> ViewBytes<'_> {
+        ViewBytes::new(&self.view)
     }
 
     /// The document, under [`crate::issuer_signed::DOCUMENT`].
     #[must_use]
-    pub fn document(&self) -> &[u8] {
-        &self.document
+    pub fn document(&self) -> DocumentBytes<'_> {
+        DocumentBytes::new(&self.document)
     }
 }
 
@@ -132,7 +151,7 @@ fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, Reg
         "type" => Some(text(mdoc.doc_type().as_str())),
         "metadata" => Some(Node::Object(metadata)),
         "values" => Some(Node::Object(values(mdoc)?)),
-        "issuer" => resolved.issuer.map(text),
+        "issuer" => resolved.issuer.map(|issuer| text(issuer.as_str())),
         "issuer_alg" => Some(cose(mdoc.issuer_auth().algorithm().value())),
         "issuer_curve" => resolved.issuer_curve.map(|curve| text(curve.name())),
         "device_alg" => device.algorithm().map(|alg| cose(alg.value())),

@@ -346,7 +346,7 @@ fn each_table_22_curve_reads_with_its_algorithm() {
             (name, alg)
         );
         let registered = Registered::of(&data, &Resolved::default()).unwrap();
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         let stated = view
             .get("device_alg")
             .map(|alg| alg.python_compact().to_string());
@@ -371,7 +371,7 @@ fn each_table_22_curve_reads_with_its_algorithm() {
         let stated = mdoc.mso().device_key().algorithm().map(|alg| alg.value());
         assert_eq!(stated, alg, "{label}");
         let registered = Registered::of(&data, &Resolved::default()).unwrap();
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         assert_eq!(view.get("device_alg").is_some(), alg.is_some(), "{label}");
     }
 }

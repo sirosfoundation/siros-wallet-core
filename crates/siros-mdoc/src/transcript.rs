@@ -11,6 +11,7 @@ use siros_openid4vp::json::{Node, quote};
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::AgreeableKey;
 use siros_openid4vp::session::{Session, SessionBinding};
+use siros_openid4vp::uri::ResponseUri;
 
 use crate::FAULT;
 
@@ -45,6 +46,32 @@ impl Thumbprint {
     }
 }
 
+/// A `response_uri` as a handover takes it (B.2.6.1), its text as the request names it. Any text:
+/// the hash input holds the request's bytes, a non-ASCII `response_uri` among them, which
+/// [`ResponseUri`] does not parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HandoverUri<'s>(&'s str);
+
+impl<'s> HandoverUri<'s> {
+    /// The URI `text`.
+    #[must_use]
+    pub const fn new(text: &'s str) -> Self {
+        Self(text)
+    }
+
+    /// The text.
+    #[must_use]
+    pub const fn as_str(self) -> &'s str {
+        self.0
+    }
+}
+
+impl<'s> From<&'s ResponseUri> for HandoverUri<'s> {
+    fn from(uri: &'s ResponseUri) -> Self {
+        Self(uri.as_str())
+    }
+}
+
 /// The handover (B.2.6) of a session, built from its binding facts by [`Handover::of`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handover<'s> {
@@ -66,8 +93,8 @@ pub enum Handover<'s> {
         /// The thumbprint of the key the core sealed to (B.2.6.1: "if the response is
         /// encrypted"); `None` for a plain mode.
         thumbprint: Option<Thumbprint>,
-        /// The `response_uri`, its text as the request names it.
-        response_uri: &'s str,
+        /// The `response_uri`.
+        response_uri: HandoverUri<'s>,
     },
 }
 
@@ -105,7 +132,7 @@ impl<'s> Handover<'s> {
                 client_id,
                 nonce: session.nonce(),
                 thumbprint,
-                response_uri: response_uri.as_str(),
+                response_uri: HandoverUri::from(response_uri),
             },
         })
     }
@@ -153,7 +180,7 @@ impl SessionTranscript {
                     Value::Text(client_id.to_string()),
                     Value::Text(nonce.to_string()),
                     thumbprint(*key),
-                    Value::Text((*response_uri).to_owned()),
+                    Value::Text(response_uri.as_str().to_owned()),
                 ],
             ),
         };

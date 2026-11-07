@@ -244,7 +244,8 @@ pub fn read_mdoc(mdoc: &StoredMdoc) -> Result<Reading, FormError> {
     if auth.algorithm() != CoseAlgorithm::ES256 {
         return Err(FormError::Algorithm(auth.algorithm()));
     }
-    let issuer_signature = Es256Signature::parse(auth.signature()).map_err(FormError::Signature)?;
+    let issuer_signature =
+        Es256Signature::parse(auth.signature().as_bytes()).map_err(FormError::Signature)?;
     let mso = mdoc.mso();
     if mso.digest_algorithm() != DigestAlgorithm::Sha256 {
         return Err(FormError::DigestAlgorithm(mso.digest_algorithm()));

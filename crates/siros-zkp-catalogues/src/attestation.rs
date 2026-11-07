@@ -208,7 +208,7 @@ impl TestedAttestation {
             Ok(Reading::OtherDocType) => return Err(Unusable::OtherDocType),
             Err(e) => return Err(Unusable::Unreadable(Unreadable::Form(e))),
         };
-        let signer = DocumentSigner::parse(document_signer)
+        let signer = DocumentSigner::parse(document_signer.as_bytes())
             .map_err(|e| Unusable::Unreadable(Unreadable::Signer(e)))?;
         let signed = es256_verifies(
             signer.key(),
