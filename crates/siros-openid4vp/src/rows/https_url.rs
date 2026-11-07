@@ -1,6 +1,7 @@
 //! An https URL as the wallet shows and fetches it: an IRI (RFC 3987) over fluent-uri, each
 //! label of a host beyond ASCII in Punycode (RFC 3492).
 
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use fluent_uri::Iri;
@@ -18,10 +19,20 @@ const HTTPS: &Scheme = Scheme::new_or_panic("https");
 /// An https IRI with a host, as written, and its one form in ASCII, which every build shows and a
 /// caller fetches (PaSO View §3 mitigates homograph confusion with the punycode form). Two texts
 /// with one ASCII form are one URL: equality and hash read `ascii`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HttpsUrl {
     written: Iri<String>,
     ascii: Iri<String>,
+}
+
+/// Its two texts: fluent-uri's `Debug` writes every component of each.
+impl fmt::Debug for HttpsUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HttpsUrl")
+            .field("written", &self.written.as_str())
+            .field("ascii", &self.ascii.as_str())
+            .finish()
+    }
 }
 
 impl PartialEq for HttpsUrl {
