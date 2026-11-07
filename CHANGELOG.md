@@ -115,9 +115,10 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
-- `siros-mdoc`: X25519 and X448 are for ECDH only (RFC 9053 §7.1). `DeviceKey::algorithm` is `None` on them without a label 3, the view omits `device_alg`, and such a key authenticates by device MAC alone, or is refused (`DeviceAuthRefused::KeyAgreementOnly`). `deviceauth_alg_values` matches a device MAC by header `alg` 5 and over the whole of OpenID4VP B.2.2's table, the four brainpool rows included.
+- `siros-mdoc`: a device key signs with a `SignatureAlgorithm` alone. X25519 and X448 are for ECDH only (RFC 9053 §7.1), and a label 3 of no signature algorithm restricts any key to something other than signing (RFC 9052 §7.1): `DeviceKey::algorithm` is `None`, the view omits `device_alg`, and the key authenticates by device MAC alone, or is refused (`DeviceAuthRefused::KeyAgreementOnly`). `deviceauth_alg_values` matches a device MAC by header `alg` 5 and over the whole of OpenID4VP B.2.2's table, the four brainpool rows included; a refusal's clause names the identifiers of the credential's keys (`Constraint::also` holds the 5).
 - `siros-mdoc`'s and `siros-sdjwt`'s registration take typed input (`Resolved`) and refuse only what can happen: `RegistrationError::{Json, Metadata}` are gone. `siros-mdoc`'s `NameNotText` variants read `NameSpace`.
-- `siros-wallet-state` refuses a repeated member name and an empty `format`. `PresentationRecord::new` takes `PresentationData` and `Audience`.
+- `siros-mdoc` and `siros-sdjwt` type what their public signatures name: `Registered::{view, document}` return `ViewBytes` and `DocumentBytes`; `CertificateChain` and `SdJwt::x5c` give `DerCertificate`; `IssuerAuth::signature` an `IssuerSignature`; `Resolved::issuer` is an `IssuerName`; `Handover::Redirect::response_uri` a `HandoverUri`; `SdJwt::{issuer_jwt, typ}` return `IssuerJwt` and `JwtType`; `KeyBinding` takes a `KbSignature` from a `KbSigningInput` and assembles an `SdJwtKb`; `RegistrationError::IssuerCurve` names a `ResolvedCurve`.
+- `siros-wallet-state` refuses a repeated member name in every object it reads, a `presentations` entry included. `CredentialEntry::format` is optional: the empty string reads as unknown. `PresentationRecord::new` takes `PresentationData` and `Audience`.
 - `siros-trust`: `Certificate::p256_key` and `p384_key` return `P256Point` and `P384Point`.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
