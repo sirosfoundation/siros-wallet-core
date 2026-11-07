@@ -30,16 +30,26 @@ pub const CS12_USER: &str = include_str!("../data/cs12-sca-user.json");
 /// WE BUILD's test bed's `sca-iban` configuration (nxd-wallet-conformance-backend 179507e).
 pub const TESTBED_IBAN: &str = include_str!("../data/testbed-sca-iban.json");
 
-/// The base type every fixture configures and its credential names.
+/// The base type a fixture's credential names unless it says otherwise.
 pub const BASE: &str = "https://webuildconsortium.eu/sca/sca-iban/1.0";
 
-/// The profile configured for [`BASE`].
+/// The profile configured for CS-12 §7.1 item 2's three base types.
 pub fn profile() -> Ts12Profile {
-    const IBAN: AttestationType = siros_explain::checked!(
-        AttestationType,
-        "https://webuildconsortium.eu/sca/sca-iban/1.0"
-    );
-    Ts12Profile::new(AllOf::one(IBAN))
+    const BASE_TYPES: [AttestationType; 3] = [
+        siros_explain::checked!(
+            AttestationType,
+            "https://webuildconsortium.eu/sca/sca-iban/1.0"
+        ),
+        siros_explain::checked!(
+            AttestationType,
+            "https://webuildconsortium.eu/sca/sca-user/1.0"
+        ),
+        siros_explain::checked!(
+            AttestationType,
+            "https://webuildconsortium.eu/sca/sca-card-dpc/1.0"
+        ),
+    ];
+    Ts12Profile::new(AllOf::new(BASE_TYPES.to_vec()).expect("three types"))
 }
 
 /// The registration document of a type metadata text.
@@ -108,43 +118,41 @@ pub fn with_unsigned<T>(parameters: &str, run: impl FnOnce(&Request<'_>) -> T) -
 
 /// The request's entries bound for a credential holding `document`, whose `types` name [`BASE`].
 pub fn bound(request: &Request<'_>, document: &[u8], env: &Env) -> Result<Bound, NoCandidate> {
-    bound_of(request, document, env, BASE)
+    bound_of(request, document, env, &[BASE])
 }
 
-/// The request's entries bound for a credential holding `document`, of a type.
+/// The request's entries bound for a credential holding `document`, of these types.
 pub fn bound_of(
     request: &Request<'_>,
     document: &[u8],
     env: &Env,
-    kind: &str,
+    kinds: &[&str],
 ) -> Result<Bound, NoCandidate> {
-    let credential = credential(document);
-    let entries: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
-    let additions = ViewTypes::new(vec![
-        CredentialType::parse(Cow::Owned(kind.to_owned())).expect("type"),
-    ]);
-    profile().bind(
-        Binding {
-            request,
-            query: request.queries().first().expect("a query"),
-            credential: &credential,
-            entries: &entries,
-            placement: Some(Placement::Claims),
-            additions: &additions,
-            carriage: Carriage::Carried,
-        },
+    bound_with(
+        request,
+        &credential(document),
         env,
+        kinds,
+        Carriage::Carried,
     )
 }
 
-/// The request's entries bound for a credential holding no document.
-pub fn bound_without_document(
+/// The request's entries bound for a credential of these types, its presentation carrying a
+/// profile's claims or not.
+pub fn bound_with(
     request: &Request<'_>,
     credential: &Credential<'_>,
     env: &Env,
+    kinds: &[&str],
+    carriage: Carriage,
 ) -> Result<Bound, NoCandidate> {
     let entries: Vec<_> = request.indexed_entries().map(|(index, _)| index).collect();
-    let additions = ViewTypes::new(Vec::new());
+    let additions = ViewTypes::new(
+        kinds
+            .iter()
+            .map(|kind| CredentialType::parse(Cow::Owned((*kind).to_owned())).expect("type"))
+            .collect(),
+    );
     profile().bind(
         Binding {
             request,
@@ -153,16 +161,22 @@ pub fn bound_without_document(
             entries: &entries,
             placement: Some(Placement::Claims),
             additions: &additions,
-            carriage: Carriage::Carried,
+            carriage,
         },
         env,
     )
 }
 
-/// An entry of a type bound for the metadata's credential.
+/// An entry bound for the metadata's credential, whose `types` are the metadata's `vct` and
+/// `extends`.
 pub fn bound_entry(own: &str, entry: &str, locales: &[&str]) -> Result<Bound, NoCandidate> {
+    let metadata = Node::parse(own).expect("the metadata");
+    let kinds: Vec<&str> = ["vct", "extends"]
+        .iter()
+        .filter_map(|member| metadata.get(member).and_then(Node::as_str))
+        .collect();
     with_signed(&parameters(&[entry], ""), |request| {
-        bound(request, &document(own), &env(locales))
+        bound_of(request, &document(own), &env(locales), &kinds)
     })
 }
 

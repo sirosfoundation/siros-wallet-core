@@ -25,7 +25,7 @@ const CS12_PAYMENT: &str = r#"{"type": "urn:eudi:sca:payment:1", "credential_ids
 
 const CS12_LOGIN: &str = r#"{"type": "urn:eudi:sca:login_risk_transaction:1",
   "credential_ids": ["sca"], "transaction_data_hashes_alg": ["sha-256"],
-  "payload": {"transaction_id": "3f8a2c71-5d0e-4b1a-8e6f-1c2d3e4f5a6b",
+  "payload": {"transaction_id": "3f8a2c71-9b4d-4e3a-8c5e-7a1b2c3d4e5f",
     "service": "Example Bank Online Banking", "action": "Update postal address"}}"#;
 
 /// The test bed's default payment (`nxd-ts12PaymentUtils.js`).
@@ -61,6 +61,16 @@ fn rows(screen: &Screen, bound: &Bound) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The tag View §4 selected.
+fn selected_tag(bound: &Bound) -> &str {
+    bound
+        .selected
+        .as_ref()
+        .expect("a selected module")
+        .locale()
+        .as_str()
+}
+
 fn pair(label: &str, value: &str) -> (String, String) {
     (label.to_owned(), value.to_owned())
 }
@@ -70,6 +80,7 @@ fn ka21_cs12s_payment_presents_its_header_and_action() {
     let locales = ["en-GB", "en"];
     let bound = bound_entry(CS12_IBAN, CS12_PAYMENT, &locales).expect("offered");
     let screen = screen(CS12_IBAN, Ts12Type::Payment, &locales, &bound);
+    assert_eq!(selected_tag(&bound), "en-GB");
     let header = bound.overlay.header.as_ref().expect("the payment's header");
     assert_eq!(screen.plain(&header.counterparty), "Example Merchant B.V.");
     assert_eq!(screen.plain(&header.amount), "129.95 EUR");
@@ -82,6 +93,7 @@ fn ka22_cs12s_login_presents_its_rows() {
     let locales = ["en-GB", "en"];
     let bound = bound_entry(CS12_USER, CS12_LOGIN, &locales).expect("offered");
     let screen = screen(CS12_USER, Ts12Type::LoginRisk, &locales, &bound);
+    assert_eq!(selected_tag(&bound), "en-GB");
     assert!(bound.overlay.header.is_none());
     assert_eq!(
         rows(&screen, &bound),
@@ -106,6 +118,29 @@ fn ka23_the_test_beds_payment_hides_its_internal_fields() {
     assert_eq!(shown.len(), 1, "{shown:?}");
     assert_eq!(shown[0].0, "Currency");
     assert_eq!(screen.plain(&bound.header.confirm), "Confirm payment");
+}
+
+/// Section 4.10.2's display table: a payment's `amount` and `payee.name` and an action's `action`
+/// show at level 4, TS12 §3.3.1's level that hides (RTS Art. 5(1)(a)).
+#[test]
+fn level_4_leaves_the_fields_a_type_always_shows_on_screen() {
+    let locales = ["en"];
+    let own = TESTBED_IBAN.replace(r#""visualisation": 1"#, r#""visualisation": 4"#);
+    let bound = bound_entry(&own, TESTBED_PAYMENT, &locales).expect("offered");
+    let shown = screen(&own, Ts12Type::Payment, &locales, &bound);
+    let header = bound.overlay.header.as_ref().expect("the payment's header");
+    assert_eq!(shown.plain(&header.counterparty), "Demo Merchant");
+    assert_eq!(shown.plain(&header.amount), "42.50 EUR");
+    let own = CS12_USER.replace(r#""visualisation": 1"#, r#""visualisation": 4"#);
+    let bound = bound_entry(&own, CS12_LOGIN, &locales).expect("offered");
+    let shown = screen(&own, Ts12Type::LoginRisk, &locales, &bound);
+    assert_eq!(
+        rows(&shown, &bound),
+        [
+            pair("Service", "Example Bank Online Banking"),
+            pair("Action", "Update postal address"),
+        ]
+    );
 }
 
 #[test]
@@ -189,8 +224,7 @@ fn i33_the_test_beds_english_reaches_every_list_holding_english() {
         &["en"][..],
     ] {
         let bound = bound_entry(TESTBED_IBAN, TESTBED_PAYMENT, locales).expect("offered");
-        let selected = bound.selected.as_ref().expect("a selected module");
-        assert_eq!(selected.locale().as_str(), locales[0]);
+        assert_eq!(selected_tag(&bound), locales[0]);
         let screen = screen(TESTBED_IBAN, Ts12Type::Payment, locales, &bound);
         assert_eq!(
             screen.plain(&bound.header.confirm),

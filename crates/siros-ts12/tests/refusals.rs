@@ -4,21 +4,25 @@
 mod common;
 
 use common::{
-    BASE, CS12_IBAN, TESTBED_IBAN, bound, bound_of, document, env, parameters, profile,
-    with_signed, with_unsigned,
+    BASE, CS12_IBAN, TESTBED_IBAN, bound, bound_entry, bound_of, bound_with, credential, document,
+    env, parameters, profile, with_signed, with_unsigned,
 };
 use siros_explain::{Entry, Keyed};
+use siros_openid4vp::hash::HashesAlgRule;
 use siros_openid4vp::json::Node;
-use siros_openid4vp::plugins::{NoCandidate, Profile};
+use siros_openid4vp::plugins::{Bound, Carriage, Member, NoCandidate, Profile};
 use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::rows::HttpsUrl;
+use siros_openid4vp::wallet_metadata::Placement;
+use siros_paso::outcome::Outcome;
 use siros_ts12::{
-    ComposeError, DataUrl, Integrity, PayloadRefusal, Ts12Document, Ts12Payload, Ts12Rule,
-    Ts12Type, Ts12Unsupported,
+    ComposeError, DataUrl, Integrity, PayloadRefusal, Ts12Document, Ts12Excluded, Ts12Payload,
+    Ts12Rule, Ts12Type, Ts12Unsupported,
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
+const LOGIN: &str = "urn:eudi:sca:login_risk_transaction:1";
 
 fn entry(kind: &str, ids: &str, alg: &str, payload: &str) -> String {
     format!(r#"{{"type": "{kind}", "credential_ids": [{ids}]{alg}{payload}}}"#)
@@ -50,7 +54,13 @@ fn the_request_rules_each_refuse_with_their_code() {
     let no_payload = entry(PAYMENT, r#""sca""#, ALG, "");
     let two_ids = entry(PAYMENT, r#""sca","sca""#, ALG, GOOD);
     let other = entry("urn:eudi:sca:emandate:1", r#""sca""#, ALG, GOOD);
-    let table: [(&[&str], &str, Ts12Rule, C); 5] = [
+    let alg_string = entry(
+        PAYMENT,
+        r#""sca""#,
+        r#", "transaction_data_hashes_alg": "sha-256""#,
+        GOOD,
+    );
+    let table: [(&[&str], &str, Ts12Rule, C); 6] = [
         (
             &[&no_alg],
             "",
@@ -81,6 +91,15 @@ fn the_request_rules_each_refuse_with_their_code() {
             Ts12Rule::Type {
                 entry: 0,
                 kind: "urn:eudi:sca:emandate:1".to_owned(),
+            },
+            C::INVALID_TRANSACTION_DATA,
+        ),
+        (
+            &[&alg_string],
+            "",
+            Ts12Rule::Hashes {
+                entry: 0,
+                rule: HashesAlgRule::NotArray,
             },
             C::INVALID_TRANSACTION_DATA,
         ),
@@ -123,7 +142,25 @@ fn payment(amount: &str, more: &str) -> String {
 fn the_values_each_refuse_by_their_rule() {
     use PayloadRefusal as R;
     let path = |path: &str| path.to_owned();
-    let table: [(String, R); 8] = [
+    let table: [(String, R); 11] = [
+        (
+            r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
+            R::Required {
+                path: path("currency"),
+            },
+        ),
+        (
+            r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "currency": "eur", "amount": 1}"#.to_owned(),
+            R::Currency {
+                value: "eur".to_owned(),
+            },
+        ),
+        (
+            payment("1", r#","recurrence":{"frequency":"DAILY"}"#),
+            R::Frequency {
+                value: "DAILY".to_owned(),
+            },
+        ),
         (
             payment("10.125", ""),
             R::Digits {
@@ -179,6 +216,51 @@ fn the_values_each_refuse_by_their_rule() {
     }
 }
 
+/// TS12's schemas' `maxLength`s, counted in characters (JSON Schema §6.3.1), and `transaction_id`'s
+/// `minLength`.
+#[test]
+fn the_schemas_lengths_bound_their_strings() {
+    let login = |field: &str, text: &str| {
+        let member = |name: &str, default: &str| {
+            format!(
+                r#""{name}": "{}""#,
+                if field == name { text } else { default }
+            )
+        };
+        format!(
+            "{{{}, {}, {}}}",
+            member("transaction_id", "t"),
+            member("service", "s"),
+            member("action", "a")
+        )
+    };
+    let pay = |_: &str, text: &str| {
+        format!(
+            r#"{{"transaction_id": "{text}", "payee": {{"name": "P", "id": "i"}}, "currency": "EUR", "amount": 1}}"#
+        )
+    };
+    type Written<'a> = &'a dyn Fn(&str, &str) -> String;
+    let table: [(Ts12Type, Written<'_>, &str, usize); 4] = [
+        (Ts12Type::Payment, &pay, "transaction_id", 36),
+        (Ts12Type::LoginRisk, &login, "transaction_id", 36),
+        (Ts12Type::LoginRisk, &login, "service", 100),
+        (Ts12Type::LoginRisk, &login, "action", 140),
+    ];
+    for (kind, written, field, max) in table {
+        let refusal = PayloadRefusal::Length {
+            path: field.to_owned(),
+            max,
+        };
+        let at = |length: usize| parsed(kind, &written(field, &"\u{e9}".repeat(length)));
+        assert!(at(max).is_ok(), "{field} at {max}");
+        assert_eq!(at(max + 1).err(), Some(refusal), "{field} past {max}");
+    }
+    assert!(matches!(
+        parsed(Ts12Type::Payment, &pay("transaction_id", "")),
+        Err(PayloadRefusal::Length { .. })
+    ));
+}
+
 /// TS12 §4.3.1's amounts as the Values table reads them: the exact decimal value as written.
 #[test]
 fn an_amount_takes_its_exact_value_with_its_currencys_digits() {
@@ -205,10 +287,23 @@ fn an_amount_takes_its_exact_value_with_its_currencys_digits() {
     ));
 }
 
-fn unsupported(result: Result<siros_openid4vp::plugins::Bound, NoCandidate>) -> String {
+/// The rule that excludes the credential.
+fn excluded(result: Result<Bound, NoCandidate>) -> Ts12Excluded {
     match result {
-        Err(NoCandidate::Excluded(excluded)) => excluded.rule().to_string(),
+        Err(NoCandidate::Excluded(excluded)) => {
+            let rule: &dyn std::error::Error = excluded.rule();
+            rule.downcast_ref::<Ts12Excluded>()
+                .expect("a TS12 exclusion")
+                .clone()
+        }
         other => panic!("an exclusion: {other:?}"),
+    }
+}
+
+fn unsupported(result: Result<Bound, NoCandidate>) -> Ts12Unsupported {
+    match excluded(result) {
+        Ts12Excluded::Unsupported(unsupported) => unsupported,
+        other => panic!("unsupported: {other:?}"),
     }
 }
 
@@ -237,10 +332,14 @@ fn the_metadata_each_leaves_the_type_unsupported() {
                 .expect("facts"),
         )
         .expect("credential");
-        common::bound_without_document(request, &credential, &locales)
+        bound_with(request, &credential, &locales, &[BASE], Carriage::Carried)
     });
-    assert_eq!(unsupported(none), Ts12Unsupported::NoDocument.to_string());
-    let table: [(String, Ts12Unsupported); 5] = [
+    assert_eq!(unsupported(none), Ts12Unsupported::NoDocument);
+    let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
+    let labels = |field: &str| Ts12Unsupported::Labels {
+        field: field.to_owned(),
+    };
+    let table: [(String, Ts12Unsupported); 8] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
             Ts12Unsupported::Category,
@@ -272,27 +371,178 @@ fn the_metadata_each_leaves_the_type_unsupported() {
                 "\"payload\",\n            \"amount\"",
                 "\"payload\",\n            \"date_time\"",
             ),
-            Ts12Unsupported::Labels {
-                field: "amount".to_owned(),
+            labels("amount"),
+        ),
+        // TS12 §3.3.1: level 1, or no level (3), without the parameter name's labels.
+        (
+            claim(r#"{"path": ["payload", "date_time"], "visualisation": 1}"#),
+            labels("date_time"),
+        ),
+        (
+            claim(r#"{"path": ["payload", "payee", "id"]}"#),
+            labels("payee.id"),
+        ),
+        (
+            claim(r#"{"path": ["payload", "unlisted"], "display": []}"#),
+            Ts12Unsupported::Metadata {
+                at: r#"["payload","unlisted"]"#.to_owned(),
             },
         ),
     ];
     for (own, rule) in table {
-        assert_eq!(unsupported(bind(&own)), rule.to_string());
+        assert_eq!(unsupported(bind(&own)), rule, "{own}");
     }
     let other_type = with_signed(&parameters(&[&good], ""), |request| {
         bound_of(
             request,
             &document(TESTBED_IBAN),
             &locales,
-            "https://example.com/other",
+            &["https://example.com/other"],
         )
     });
-    assert_eq!(
-        unsupported(other_type),
-        Ts12Unsupported::AttestationType.to_string()
+    assert_eq!(unsupported(other_type), Ts12Unsupported::AttestationType);
+    // TS12 §3.3.3: a UI element identifier outside the catalogue is the wallet's to ignore.
+    assert!(
+        bind(&replaced(
+            r#""ui_labels": {"#,
+            r#""ui_labels": {"x_extra": "text","#
+        ))
+        .is_ok()
     );
-    assert_ne!(BASE, "https://example.com/other");
+}
+
+/// TS12 §3.3.1 over CS-12 §7.2's metadata: an optional field the Relying Party sends, which the
+/// metadata leaves without a level (3: displayed) or labels, ceases; a labelled one shows, and
+/// level 4 hides it.
+#[test]
+fn a_held_field_without_labels_ceases() {
+    let locales = ["en"];
+    let bind = |own: &str, more: &str| {
+        let payload = format!(
+            r#", "payload": {{"transaction_id": "t", "payee": {{"name": "P", "id": "i"{payee}}}, "currency": "EUR", "amount": 1{rest}}}"#,
+            payee = more.strip_prefix('@').unwrap_or_default(),
+            rest = if more.starts_with('@') { "" } else { more },
+        );
+        bound_entry(own, &entry(PAYMENT, r#""sca""#, ALG, &payload), &locales)
+    };
+    for (more, field) in [
+        (
+            r#","recurrence":{"frequency":"MNTH"}"#,
+            "recurrence.frequency",
+        ),
+        (
+            r#","recurrence":{"frequency":"MNTH","mit_options":{"total_amount":1000000}}"#,
+            "recurrence.frequency",
+        ),
+        (r#","amount_estimated":true"#, "amount_estimated"),
+        (r#","amount_earmarked":true"#, "amount_earmarked"),
+        (r#","sct_inst":true"#, "sct_inst"),
+        (r#","execution_date":"2026-12-01""#, "execution_date"),
+        (
+            r#","pisp":{"legal_name":"L","brand_name":"B","domain_name":"d.example"}"#,
+            "pisp.legal_name",
+        ),
+        (r#"@,"website":"https://payee.example""#, "payee.website"),
+    ] {
+        assert_eq!(
+            unsupported(bind(CS12_IBAN, more)),
+            Ts12Unsupported::Labels {
+                field: field.to_owned()
+            },
+            "{more}"
+        );
+    }
+    let recurring = r#","recurrence":{"frequency":"MNTH"}"#;
+    let with_frequency = |level: u8| {
+        CS12_IBAN.replacen(
+            r#""claims": ["#,
+            &format!(
+                r#""claims": [{{"path": ["payload", "recurrence", "frequency"], "visualisation": {level}, "display": [{{"lang": "en", "label": "Frequency"}}]}},"#
+            ),
+            1,
+        )
+    };
+    let rows = |own: &str| bind(own, recurring).expect("offered").overlay.rows.len();
+    assert_eq!(
+        rows(&with_frequency(2)),
+        bind(CS12_IBAN, "").expect("offered").overlay.rows.len() + 1
+    );
+    assert_eq!(
+        rows(&with_frequency(4)),
+        bind(CS12_IBAN, "").expect("offered").overlay.rows.len()
+    );
+}
+
+/// TS12 §3.3.3's 30, 30, 50 and 250 and Proof Metadata §3.3's 60 for a claim's label, in extended
+/// grapheme clusters.
+#[test]
+fn the_label_limits_bound_each_label() {
+    let payment = entry(PAYMENT, r#""sca""#, ALG, GOOD);
+    let replaced = |from: &str, to: &str| {
+        assert!(TESTBED_IBAN.contains(from), "{from}");
+        TESTBED_IBAN.replacen(from, to, 1)
+    };
+    let added = |name: &str, text: &str| {
+        replaced(
+            r#""ui_labels": {"#,
+            &format!(r#""ui_labels": {{"{name}": [{{"lang": "en-GB", "value": "{text}"}}],"#),
+        )
+    };
+    type Labelled<'a> = &'a dyn Fn(&str) -> String;
+    let table: [(Labelled<'_>, usize); 5] = [
+        (&|text| replaced("Confirm payment", text), 30),
+        (
+            &|text| replaced(r#""value": "Cancel""#, &format!(r#""value": "{text}""#)),
+            30,
+        ),
+        (&|text| added("transaction_title", text), 50),
+        (&|text| added("security_hint", text), 250),
+        (
+            &|text| replaced(r#""label": "Payee""#, &format!(r#""label": "{text}""#)),
+            60,
+        ),
+    ];
+    for (labelled, max) in table {
+        let at =
+            |length: usize| bound_entry(&labelled(&"e\u{301}".repeat(length)), &payment, &["en"]);
+        assert!(at(max).is_ok(), "{max}: {:?}", at(max).err());
+        assert!(
+            matches!(
+                excluded(at(max + 1)),
+                Ts12Excluded::Rendering(Outcome::Unsupported(_))
+            ),
+            "{:?}",
+            at(max + 1).err()
+        );
+    }
+}
+
+/// TS12 §1.2, §3.6: the binding exists as Key Binding JWT claims alone, so a presentation that
+/// cannot carry them excludes the credential.
+#[test]
+fn ts12s_claims_exist_in_a_key_binding_jwt_alone() {
+    let claims = [
+        "jti",
+        "response_mode",
+        "amr",
+        "transaction_data_hashes",
+        "transaction_data_hashes_alg",
+    ]
+    .map(Member::claim);
+    assert_eq!(profile().members(Placement::Claims), Some(&claims[..]));
+    assert!(profile().members(Placement::NameSpaces).is_none());
+    let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
+    let held = document(TESTBED_IBAN);
+    let result = with_signed(&parameters(&[&good], ""), |request| {
+        bound_with(
+            request,
+            &credential(&held),
+            &env(&["en"]),
+            &[BASE],
+            Carriage::Uncarried,
+        )
+    });
+    assert_eq!(excluded(result), Ts12Excluded::Carriage);
 }
 
 /// TS12 §4.1: a member or its `_uri` twin, the twin replaced by the document fetched.

@@ -1,12 +1,18 @@
 //! The translation of a type's TS12 metadata into PaSO's model (section 4.10.2's display table):
 //! claim paths without `payload`, `visualisation` level 4 internal except the fields a type always
-//! shows, every field the metadata omits internal, value types from TS12's field tables, `lang`
-//! read as PaSO's `locale` under TS12's own meaning of its tags.
+//! shows, value types from TS12's field tables, `lang` read as PaSO's `locale` under TS12's own
+//! meaning of its tags.
+//!
+//! A payload field without labels ceases unless level 4 hides it (TS12 §3.3.1: an unset level is 3,
+//! level 3 displays, labels unavailable cease). WE BUILD's own metadata leaves `transaction_id`,
+//! `date_time`, `payee.id` and `currency` without claim metadata (CS-12 §7.2, its test bed), which
+//! therefore stay internal.
 
 use std::borrow::Cow;
 
 use siros_explain::Explain;
 use siros_openid4vp::json::{JsonError, Node};
+use siros_paso::metadata::UiKey;
 
 use crate::document::{BuiltInEntry, Ts12Type};
 
@@ -38,7 +44,8 @@ pub enum Ts12Unsupported {
     /// `affirmative_action_label` absent.
     #[error("affirmative_action_label is absent")]
     Affirmative,
-    /// A field the type displays at every level without claim metadata holding labels.
+    /// A field TS12 §3.3.1 displays without labels: one the type displays at every level, a claim
+    /// without `display` below level 4, or a payload field the claims metadata omits.
     #[error("{field} has no labels")]
     Labels {
         /// The field.
@@ -53,13 +60,23 @@ pub enum Ts12Unsupported {
     },
 }
 
+/// What the display rules ask of a leaf field.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    /// Displayed at every level, and its labels required.
+    Always,
+    /// Displayed under its claim metadata's level; internal when the claims metadata omits it.
+    Declared,
+    /// Displayed under its claim metadata's level; a payload holding it needs that metadata.
+    WhenHeld,
+}
+
 /// A field of a type's table: its path below `payload`, its PaSO value type (`None` for plain
-/// text), whether it is a leaf, and whether it shows at every level.
+/// text), and for a leaf what the display rules ask of it.
 struct Field {
     path: &'static [&'static str],
     value_type: Option<&'static str>,
-    leaf: bool,
-    always: bool,
+    leaf: Option<Shown>,
 }
 
 impl Field {
@@ -67,8 +84,15 @@ impl Field {
         Self {
             path,
             value_type,
-            leaf: true,
-            always: false,
+            leaf: Some(Shown::WhenHeld),
+        }
+    }
+
+    const fn declared(path: &'static [&'static str], value_type: Option<&'static str>) -> Self {
+        Self {
+            path,
+            value_type,
+            leaf: Some(Shown::Declared),
         }
     }
 
@@ -76,8 +100,7 @@ impl Field {
         Self {
             path,
             value_type,
-            leaf: true,
-            always: true,
+            leaf: Some(Shown::Always),
         }
     }
 
@@ -85,9 +108,12 @@ impl Field {
         Self {
             path,
             value_type: Some("label_only"),
-            leaf: false,
-            always: false,
+            leaf: None,
         }
+    }
+
+    fn shown(&self, shown: Shown) -> bool {
+        self.leaf == Some(shown)
     }
 }
 
@@ -97,11 +123,11 @@ const DATE: Option<&str> = Some("iso_date");
 const DATE_TIME: Option<&str> = Some("iso_date_time");
 
 const PAYMENT_FIELDS: [Field; 30] = [
-    Field::leaf(&["transaction_id"], None),
-    Field::leaf(&["date_time"], DATE_TIME),
+    Field::declared(&["transaction_id"], None),
+    Field::declared(&["date_time"], DATE_TIME),
     Field::object(&["payee"]),
     Field::always(&["payee", "name"], None),
-    Field::leaf(&["payee", "id"], None),
+    Field::declared(&["payee", "id"], None),
     Field::leaf(&["payee", "logo"], Some("image")),
     Field::leaf(&["payee", "website"], Some("url")),
     Field::object(&["pisp"]),
@@ -109,7 +135,7 @@ const PAYMENT_FIELDS: [Field; 30] = [
     Field::leaf(&["pisp", "brand_name"], None),
     Field::leaf(&["pisp", "domain_name"], None),
     Field::leaf(&["execution_date"], DATE),
-    Field::leaf(&["currency"], Some("iso_currency")),
+    Field::declared(&["currency"], Some("iso_currency")),
     Field::always(&["amount"], AMOUNT),
     Field::leaf(&["amount_estimated"], BOOLEAN),
     Field::leaf(&["amount_earmarked"], BOOLEAN),
@@ -133,8 +159,8 @@ const PAYMENT_FIELDS: [Field; 30] = [
 ];
 
 const LOGIN_FIELDS: [Field; 4] = [
-    Field::leaf(&["transaction_id"], None),
-    Field::leaf(&["date_time"], DATE_TIME),
+    Field::declared(&["transaction_id"], None),
+    Field::declared(&["date_time"], DATE_TIME),
     Field::leaf(&["service"], None),
     Field::always(&["action"], None),
 ];
@@ -172,20 +198,21 @@ pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsu
     }
     if let Some(unlabelled) = table
         .iter()
-        .find(|field| field.always && !labelled(field, written))
+        .find(|field| field.shown(Shown::Always) && !labelled(field, written))
     {
         return Err(Ts12Unsupported::Labels {
             field: unlabelled.path.join("."),
         });
     }
     for field in table {
-        if field.leaf && !seen.iter().any(|known| known.path == field.path) {
+        if field.leaf.is_some() && !seen.iter().any(|known| known.path == field.path) {
             claims.push(internal(field.path).map_err(|_| metadata_at(field.path.join(".")))?);
         }
     }
     let labels = catalogue
         .members()
         .iter()
+        .filter(|member| UiKey::of(&member.name).is_some())
         .map(|member| {
             let name: &str = &member.name;
             Ok((
@@ -200,6 +227,34 @@ pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsu
         (Cow::Borrowed("ui_labels"), ui),
     ])
     .map_err(|_| metadata_at("the metadata".to_owned()))
+}
+
+/// TS12 §3.3.1 over the payload: each field it holds that the claims metadata omits needs labels.
+///
+/// # Errors
+///
+/// [`Ts12Unsupported::Labels`]: the first such field in the type's table.
+pub(crate) fn labels_for(
+    entry: &BuiltInEntry<'_>,
+    payload: &Node<'_>,
+) -> Result<(), Ts12Unsupported> {
+    let written = entry.claims().and_then(Node::as_array).unwrap_or(&[]);
+    let omitted = fields(entry.kind()).iter().find(|field| {
+        field.shown(Shown::WhenHeld)
+            && field
+                .path
+                .iter()
+                .try_fold(payload, |node, step| node.get(step))
+                .is_some()
+            && !written
+                .iter()
+                .any(|claim| field_path(claim).is_some_and(|path| path == field.path))
+    });
+    omitted.map_or(Ok(()), |field| {
+        Err(Ts12Unsupported::Labels {
+            field: field.path.join("."),
+        })
+    })
 }
 
 const fn metadata_at(at: String) -> Ts12Unsupported {
@@ -266,7 +321,13 @@ fn translated_claim(
     };
     let display = claim
         .get("display")
-        .filter(|_| level != Some(HIDDEN) || field.always);
+        .filter(|display| display.as_array().is_none_or(|labels| !labels.is_empty()));
+    if display.is_none() && field.leaf.is_some() && level != Some(HIDDEN) {
+        return Err(Ts12Unsupported::Labels {
+            field: field.path.join("."),
+        });
+    }
+    let display = display.filter(|_| level != Some(HIDDEN) || field.shown(Shown::Always));
     let mut out = vec![(Cow::Borrowed("path"), path_node(field.path))];
     if let Some(display) = display {
         let at = field.path.join(".");

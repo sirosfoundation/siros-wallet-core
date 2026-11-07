@@ -92,10 +92,10 @@ pub use document::{
     BuiltInEntry, ComposeError, DOCUMENT, SCA_CATEGORY, Ts12Document, Ts12Type, TypeEntry,
 };
 pub use payload::{DataUrl, Integrity, Logo, PayloadRefusal, Ts12Payload};
-pub use rules::Ts12Rule;
+pub use rules::{Ts12Excluded, Ts12Rule};
 pub use translate::{Ts12Unsupported, paso_metadata};
 
-use crate::rules::Ts12Excluded;
+use crate::translate::labels_for;
 
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "ts12.fault");
 
@@ -341,8 +341,9 @@ pub(crate) fn translate(
             Excluding::from(PayloadRefusal::Required {
                 path: "payload".to_owned(),
             })
-        });
-        let typed = Ts12Payload::parse(built_in.kind(), payload?)?;
+        })?;
+        let typed = Ts12Payload::parse(built_in.kind(), payload)?;
+        labels_for(&built_in, payload)?;
         Ok::<_, Excluding>((built_in.kind(), typed, metadata))
     })();
     match translated {
