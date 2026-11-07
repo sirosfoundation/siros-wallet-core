@@ -19,9 +19,8 @@ use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::metadata::UiKey;
 use siros_paso::outcome::Outcome;
 use siros_ts12::{
-    ComposeError, DataUrl, DateForm, Expected, FetchedDocument, FieldPath, Integrity,
-    PayloadRefusal, Ts12Document, Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported,
-    TwinnedMember,
+    ComposeError, DataUrl, DateForm, Expected, FetchedDocument, Integrity, PayloadRefusal,
+    Ts12Document, Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported, TwinnedMember,
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
@@ -116,83 +115,70 @@ fn payment(amount: &str, more: &str) -> String {
     )
 }
 
+/// A refusal rule as a predicate over the refusal.
+macro_rules! rule {
+    ($($pattern:tt)+) => {
+        |refused| matches!(refused, $($pattern)+)
+    };
+}
+
 #[test]
 fn the_values_each_refuse_by_their_rule() {
     use PayloadRefusal as R;
-    let path = |path: &str| FieldPath::parse(path).expect("a field of TS12's tables");
-    let table: [(String, R); 11] = [
+    let table: [(String, fn(&R) -> bool); 11] = [
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
-            R::Required {
-                path: path("currency"),
-            },
+            rule!(R::Required { path } if path.as_str() == "currency"),
         ),
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "currency": "eur", "amount": 1}"#.to_owned(),
-            R::Currency {
-                value: "eur".to_owned(),
-            },
+            rule!(R::Currency { value } if value == "eur"),
         ),
         (
             payment("1", r#","recurrence":{"frequency":"DAILY"}"#),
-            R::Frequency {
-                value: "DAILY".to_owned(),
-            },
+            rule!(R::Frequency { value } if value == "DAILY"),
         ),
         (
             payment("10.125", ""),
-            R::Digits {
-                path: path("amount"),
-            },
+            rule!(R::Digits { path } if path.as_str() == "amount"),
         ),
         (
             payment("-1", ""),
-            R::Negative {
-                path: path("amount"),
-            },
+            rule!(R::Negative { path } if path.as_str() == "amount"),
         ),
         (
             payment("1", r#","extra":1"#),
-            R::Member {
-                within: path("payload"),
-                name: "extra".to_owned(),
-            },
+            rule!(R::Member { within, name } if within.as_str() == "payload" && name == "extra"),
         ),
         (
             payment("1", r#"@,"nested":1"#),
-            R::Member {
-                within: path("payee"),
-                name: "nested".to_owned(),
-            },
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "nested"),
         ),
         (
             payment(
                 "1",
                 r#","execution_date":"2026-11-01","recurrence":{"frequency":"MNTH"}"#,
             ),
-            R::ExecutionAndRecurrence,
+            rule!(R::ExecutionAndRecurrence),
         ),
         (
             payment("1", r#","execution_date":"2026-11-01T10:00:00Z""#),
-            R::Date {
-                path: path("execution_date"),
-                form: DateForm::Calendar,
-            },
+            rule!(R::Date { path, form: DateForm::Calendar } if path.as_str() == "execution_date"),
         ),
         (
             payment("1", r#"@,"logo":"https://example.com/logo.png""#),
-            R::LogoIntegrity,
+            rule!(R::LogoIntegrity),
         ),
         (
             payment("1", r#","recurrence":{"frequency":"MNTH","number":1.5}"#),
-            R::Kind {
-                path: path("recurrence.number"),
-                kind: Expected::Integer,
-            },
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
         ),
     ];
-    for (payload, rule) in table {
-        assert_eq!(parsed(Ts12Type::Payment, &payload), Err(rule), "{payload}");
+    for (payload, holds) in table {
+        let refused = parsed(Ts12Type::Payment, &payload).expect_err(&payload);
+        assert!(holds(&refused), "{payload}: {refused:?}");
     }
 }
 
@@ -291,6 +277,11 @@ fn unsupported(result: Result<Bound, NoCandidate>) -> Ts12Unsupported {
     }
 }
 
+/// Whether a type is unsupported for this field's labels.
+fn labels_of(refused: &Ts12Unsupported, wanted: &str) -> bool {
+    matches!(refused, Ts12Unsupported::Labels { field } if field.as_str() == wanted)
+}
+
 #[test]
 fn the_metadata_each_leaves_the_type_unsupported() {
     let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
@@ -320,88 +311,79 @@ fn the_metadata_each_leaves_the_type_unsupported() {
     });
     assert_eq!(unsupported(none), Ts12Unsupported::NoDocument);
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
-    let path = |field: &str| FieldPath::parse(field).expect("a field of TS12's tables");
-    let labels = |field: &str| Ts12Unsupported::Labels { field: path(field) };
-    let table: [(String, Ts12Unsupported); 12] = [
+    type Rule = fn(&Ts12Unsupported) -> bool;
+    use Ts12Unsupported as U;
+    let table: [(String, Rule); 12] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
-            Ts12Unsupported::Category,
+            rule!(U::Category),
         ),
         (
             replaced(
                 r#""urn:eudi:sca:payment:1": {"#,
                 r#""urn:eudi:sca:other:1": {"#,
             ),
-            Ts12Unsupported::NotListed {
-                kind: TransactionType::parse(PAYMENT).expect("a type"),
-            },
+            rule!(U::NotListed { kind } if kind.as_str() == PAYMENT),
         ),
         (
             replaced(
                 r#""schema": "urn:eudi:sca:payment:1""#,
                 r#""schema_uri": "https://example.com/schema.json""#,
             ),
-            Ts12Unsupported::Schema {
-                schema: "https://example.com/schema.json".to_owned(),
-            },
+            rule!(U::Schema { schema } if schema == "https://example.com/schema.json"),
         ),
         (
             replaced(r#""schema": "urn:eudi:sca:payment:1","#, ""),
-            Ts12Unsupported::NoSchema,
+            rule!(U::NoSchema),
         ),
         (
             replaced("affirmative_action_label", "other_label"),
-            Ts12Unsupported::Affirmative,
+            rule!(U::Affirmative),
         ),
         (
             replaced(
                 "\"payload\",\n            \"amount\"",
                 "\"payload\",\n            \"date_time\"",
             ),
-            labels("amount"),
+            |refused| labels_of(refused, "amount"),
         ),
         // TS12 §3.3.1: level 1, or no level (3), without the parameter name's labels.
         (
             claim(r#"{"path": ["payload", "date_time"], "visualisation": 1}"#),
-            labels("date_time"),
+            |refused| labels_of(refused, "date_time"),
         ),
         (
             claim(r#"{"path": ["payload", "payee", "id"]}"#),
-            labels("payee.id"),
+            |refused| labels_of(refused, "payee.id"),
         ),
         (
             claim(r#"{"path": ["payload", "unlisted"], "display": []}"#),
-            Ts12Unsupported::ClaimPath {
-                path: r#"["payload","unlisted"]"#.to_owned(),
-            },
+            rule!(U::ClaimPath { path } if path == r#"["payload","unlisted"]"#),
         ),
         // TS12 §3.3.1 lists levels 1 to 4.
         (
             claim(r#"{"path": ["payload", "date_time"], "visualisation": 5}"#),
-            Ts12Unsupported::Level {
-                field: path("date_time"),
-            },
+            rule!(U::Level { field } if field.as_str() == "date_time"),
         ),
         // TS12 §3.3.2: a `display` entry holds `lang` and `label`; §3.3.3: a UI label `lang` and
         // `value`.
         (
             claim(r#"{"path": ["payload", "date_time"], "display": [{"label": "When"}]}"#),
-            Ts12Unsupported::ClaimLabels {
-                field: path("date_time"),
-            },
+            rule!(U::ClaimLabels { field } if field.as_str() == "date_time"),
         ),
         (
             replaced(
                 r#""ui_labels": {"#,
                 r#""ui_labels": {"security_hint": [{"value": "Check"}],"#,
             ),
-            Ts12Unsupported::UiLabels {
-                element: UiKey::SecurityHint,
-            },
+            rule!(U::UiLabels {
+                element: UiKey::SecurityHint
+            }),
         ),
     ];
-    for (own, rule) in table {
-        assert_eq!(unsupported(bind(&own)), rule, "{own}");
+    for (own, holds) in table {
+        let refused = unsupported(bind(&own));
+        assert!(holds(&refused), "{own}: {refused:?}");
     }
     let other_type = with_signed(&parameters(&[&good], ""), |request| {
         bound_of(
@@ -560,25 +542,16 @@ fn a_held_field_without_claim_metadata_ceases() {
     for (field, held, also) in &table {
         let payload = payment("1", held);
         let others = [&header[..], also].concat();
-        assert_eq!(
-            unsupported(bind(&labelled(PAYMENT, &others), PAYMENT, &payload)),
-            Ts12Unsupported::Labels {
-                field: FieldPath::parse(field).expect("a field of TS12's tables")
-            },
-            "{field}"
-        );
+        let refused = unsupported(bind(&labelled(PAYMENT, &others), PAYMENT, &payload));
+        assert!(labels_of(&refused, field), "{field}: {refused:?}");
         let all = [&others[..], &[field]].concat();
         let bound = bind(&labelled(PAYMENT, &all), PAYMENT, &payload).expect(field);
         assert_eq!(bound.overlay.rows.len(), also.len() + 1, "{field}");
     }
     // TS12 §4.3.2's optional field; `action` in the rows, as the type has no header.
     let login = r#"{"transaction_id": "t", "service": "S", "action": "A"}"#;
-    assert_eq!(
-        unsupported(bind(&labelled(LOGIN, &["action"]), LOGIN, login)),
-        Ts12Unsupported::Labels {
-            field: FieldPath::parse("service").expect("a field of TS12's tables")
-        }
-    );
+    let refused = unsupported(bind(&labelled(LOGIN, &["action"]), LOGIN, login));
+    assert!(labels_of(&refused, "service"), "{refused:?}");
     let bound = bind(&labelled(LOGIN, &["action", "service"]), LOGIN, login).expect("offered");
     assert_eq!(bound.overlay.rows.len(), 2);
     // The four named fields, held without metadata, stay internal.

@@ -9,12 +9,6 @@ use siros_explain::{IntoArg, kind};
 pub struct FieldPath(&'static str);
 
 impl FieldPath {
-    /// The member of that dotted path; `None` for a text TS12's tables list nothing under.
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        ALL.iter().copied().find(|field| field.0 == text)
-    }
-
     /// The dotted path.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -50,7 +44,6 @@ impl IntoArg for FieldPath {
 macro_rules! fields {
     ($($name:ident = $path:literal),+ $(,)?) => {
         $(pub(crate) const $name: FieldPath = FieldPath($path);)+
-        const ALL: &[FieldPath] = &[$($name),+];
     };
 }
 
