@@ -87,7 +87,7 @@ fn the_strip_vector_holds_over_both_formats() {
         let merged = node(&case["expected"]["mergedDisplayMetadata"]);
         let stripped = node(&case["expected"]["strippedResponse"]);
         for view in views(Some(&case["issuerCredentialMetadata"]), response) {
-            let written = view.python_compact().to_string();
+            let written = view.json_compact().to_string();
             assert_eq!(written.matches("auxiliary_data").count(), 0, "{case}");
             assert_eq!(written.matches(opening).count(), 0, "{case}");
             assert_eq!(view.get("metadata"), Some(&merged), "{case}");
@@ -107,7 +107,7 @@ fn the_wire_vector_reaches_no_view() {
     for case in cases {
         let response = &case["response"]["credential_metadata"];
         for view in views(None, response) {
-            let written = view.python_compact().to_string();
+            let written = view.json_compact().to_string();
             assert_eq!(written.matches("auxiliary_data").count(), 0, "{case}");
             assert_eq!(written.matches("opening").count(), 0, "{case}");
             for stored in case["expected"]["storedMetadataPerCredential"]
@@ -152,7 +152,7 @@ fn a_delivered_secret_reaches_no_view_at_any_depth() {
     ];
     for (type_metadata, input) in &cases {
         for view in registered(*type_metadata, &|| input.clone()) {
-            let written = view.python_compact().to_string();
+            let written = view.json_compact().to_string();
             assert_eq!(written.matches("auxiliary_data").count(), 0, "{input:?}");
             assert_eq!(written.matches("SECRET").count(), 0, "{input:?}");
         }

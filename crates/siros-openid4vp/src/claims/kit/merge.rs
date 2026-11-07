@@ -310,7 +310,7 @@ fn tag_of(entry: &Node<'_>) -> Result<Option<LocaleTag>, MergeError> {
         return Ok(None);
     };
     let refused = || MergeError::Locale {
-        locale: locale.python_compact().to_string(),
+        locale: locale.json_compact().to_string(),
     };
     let text = locale.as_str().ok_or_else(refused)?;
     LocaleTag::parse(text).map(Some).map_err(|_| refused())
