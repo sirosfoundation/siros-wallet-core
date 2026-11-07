@@ -222,6 +222,30 @@ text_id!(
     "transaction data type prefix",
     non_empty
 );
+impl DocumentKey<'static> {
+    /// The key; `None` for an empty text. A plug-in names its own with `checked!(DocumentKey,
+    /// "...")`.
+    #[must_use]
+    pub const fn new(key: &'static str) -> Option<Self> {
+        if key.is_empty() {
+            None
+        } else {
+            Some(Self(Cow::Borrowed(key)))
+        }
+    }
+}
+impl TypePrefix<'static> {
+    /// The prefix; `None` for an empty text. A profile names its own with `checked!(TypePrefix,
+    /// "...")`.
+    #[must_use]
+    pub const fn new(prefix: &'static str) -> Option<Self> {
+        if prefix.is_empty() {
+            None
+        } else {
+            Some(Self(Cow::Borrowed(prefix)))
+        }
+    }
+}
 impl<'a> AuthorityType<'a> {
     /// The type `text`: §6.1.1 sets no rule on its form.
     pub fn of(text: impl Into<Cow<'a, str>>) -> Self {
