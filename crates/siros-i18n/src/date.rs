@@ -88,7 +88,8 @@ impl Moment {
     fn weekday(date: Date) -> usize {
         const SHIFT: [u32; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
         let month = date.month();
-        let year = u32::from(date.year()) - u32::from(month < 3);
+        // A year 400 later has the same calendar: the year before year 0 stays a natural number.
+        let year = u32::from(date.year()) + 400 - u32::from(month < 3);
         let shift = SHIFT
             .get(usize::from(month).saturating_sub(1))
             .copied()
