@@ -65,7 +65,7 @@ mod rules;
 pub mod translate;
 pub mod view;
 
-use siros_explain::{AllOf, Message, Messages};
+use siros_explain::{AllOf, Keyed, Message, Messages};
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::TypePrefix;
 use siros_openid4vp::json::Node;
@@ -173,14 +173,7 @@ impl AttestationType {
 pub struct Ts12Profile {
     attestation_types: AllOf<AttestationType>,
     bound: ItemBound,
-    pub(crate) resources: Vec<Resource>,
-}
-
-/// What the wallet holds of an https logo.
-#[derive(Debug, Clone)]
-pub(crate) struct Resource {
-    pub(crate) url: HttpsUrl,
-    pub(crate) fetch: Fetch,
+    pub(crate) resources: Keyed<HttpsUrl, Fetch>,
 }
 
 /// What phase 2 finds: a displayed https logo whose fetch or verification failed.
@@ -212,7 +205,7 @@ impl Ts12Profile {
         Self {
             attestation_types,
             bound: ItemBound::LEAST,
-            resources: Vec::new(),
+            resources: Keyed::empty(),
         }
     }
 
@@ -223,13 +216,10 @@ impl Ts12Profile {
         self
     }
 
-    /// The profile knowing what the wallet fetched for an https logo.
+    /// The profile knowing what the wallet fetched for each https logo.
     #[must_use]
-    pub fn with_resource(mut self, url: &HttpsUrl, fetch: Fetch) -> Self {
-        self.resources.push(Resource {
-            url: url.clone(),
-            fetch,
-        });
+    pub fn with_resources(mut self, resources: Keyed<HttpsUrl, Fetch>) -> Self {
+        self.resources = resources;
         self
     }
 
@@ -244,13 +234,14 @@ impl Ts12Profile {
         handle
     }
 
-    /// What the wallet knows of an https logo: the first resource of its URL as written.
+    /// What the wallet knows of an https logo, by its URL as written.
     pub(crate) fn resolution(&self, url: &str) -> Resolution<'_> {
         match self
             .resources
+            .entries()
             .iter()
-            .find(|resource| resource.url.written() == url)
-            .map(|resource| &resource.fetch)
+            .find(|resource| resource.key().written() == url)
+            .map(siros_explain::Entry::value)
         {
             None => Resolution::Unknown,
             Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },

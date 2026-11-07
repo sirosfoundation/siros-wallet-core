@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 
+use siros_explain::Keyed;
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::hash;
@@ -19,7 +20,7 @@ use siros_paso::outcome::NotCompatible;
 
 use crate::document::Ts12Document;
 use crate::payload::{Integrity, Logo};
-use crate::{FAULT, Resource, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
+use crate::{FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
 
 /// The record's one entry.
 fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
@@ -68,13 +69,15 @@ where
     /// The profile knowing the failed logo as a failed fetch: phase 1 then excludes the
     /// credential.
     fn informed(&self, findings: &[&Ts12Finding]) -> Self {
+        let failed = findings.iter().map(|finding| {
+            siros_explain::Entry::new(
+                finding.url.clone(),
+                siros_paso::Fetch::Failed(finding.failure.to_string()),
+            )
+        });
         let mut informed = self.clone();
-        informed
-            .resources
-            .extend(findings.iter().map(|finding| Resource {
-                url: finding.url.clone(),
-                fetch: siros_paso::Fetch::Failed(finding.failure.to_string()),
-            }));
+        informed.resources =
+            Keyed::first_of(self.resources.entries().iter().cloned().chain(failed));
         informed
     }
 
