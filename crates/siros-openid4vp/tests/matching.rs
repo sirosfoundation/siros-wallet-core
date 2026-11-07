@@ -332,6 +332,112 @@ impl<H> ProfileHost<H> for Foreign {
     }
 }
 
+/// The test profile reserving the credential `sca`.
+#[derive(Clone)]
+struct Reserving(TestProfile);
+
+impl Profile for Reserving {
+    type Finding = Stale;
+
+    fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal> {
+        self.0.refusals(request, entries)
+    }
+    fn members(&self, placement: siros_openid4vp::wallet_metadata::Placement) -> Option<&[Member]> {
+        self.0.members(placement)
+    }
+    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
+        self.0.bind(binding, env)
+    }
+    fn reserves(
+        &self,
+        credential: &siros_openid4vp::wallet::Credential<'_>,
+        _additions: &dyn siros_openid4vp::plugins::ViewAdditions,
+    ) -> Result<bool, Fault> {
+        Ok(credential.id.as_str() == "sca")
+    }
+}
+
+impl<H> ProfileHost<H> for Reserving {
+    fn wanted(&self, answered: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
+        ProfileHost::<H>::wanted(&self.0, answered, host)
+    }
+
+    fn informed(&self, findings: &[&Stale]) -> Self {
+        Self(ProfileHost::<H>::informed(&self.0, findings))
+    }
+
+    fn authentication(&self, _: Answered<'_>) -> Result<AuthenticationNeed, Fault> {
+        Ok(AuthenticationNeed::Presence)
+    }
+
+    fn revalidate(&self, fetched: FetchedRecord<'_>, host: &H) -> Result<Option<Stale>, Fault> {
+        self.0.revalidate(fetched, host)
+    }
+
+    fn respond(
+        &self,
+        answered: Answered<'_>,
+        host: &H,
+        authentication: &Authentication,
+    ) -> Result<Members, Fault> {
+        self.0.respond(answered, host, authentication)
+    }
+}
+
+/// CS-12 §7.3 item 7: a credential a profile reserves answers the query the profile's entry names
+/// and is excluded by the profile from the query without an entry, where its peer answers.
+#[test]
+fn a_reserved_credential_answers_only_a_query_its_profile_names() {
+    let entry = common::entry(r#"{"type": "t1", "credential_ids": ["q"]}"#);
+    let text = parameters(
+        r#"{"credentials": [{"id": "q", "format": "test"}, {"id": "r", "format": "test"}]}"#,
+        &format!(r#""transaction_data":["{entry}"]"#),
+    );
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let env = env("en");
+    let held = [
+        Held::answering("sca", &["q", "r"], &["t1"]),
+        Held::answering("other", &["r"], &["t1"]),
+    ];
+    let mut builder = Registry::<TestHost>::builder();
+    siros_testkit::fixtures::openid4vp(&mut builder);
+    builder.format(TestFormat::new().expect("format"));
+    let profile = builder.profile(Reserving(TestProfile::new(Binds::First)));
+    builder.exact(TransactionType::parse("t1").expect("type"), profile);
+    let registry = builder.build().expect("registry");
+    let wallet = Wallet::new(held.iter().map(Held::credential).collect()).expect("wallet");
+    let accepted = Accepted::new(&request, &registry).expect("accepted");
+    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
+        .expect("the test app");
+    let rendering = app.rendering().expect("the rendering");
+    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let of = |id: &str| {
+        let query = request
+            .indexed_queries()
+            .find(|(_, query)| query.id().as_str() == id)
+            .expect("the query")
+            .0;
+        matched
+            .candidates(query)
+            .iter()
+            .map(|candidate| candidate.credential.id.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(of("q"), ["sca"]);
+    assert_eq!(of("r"), ["other"]);
+    let [excluded] = matched.excluded() else {
+        panic!("one exclusion: {:?}", matched.excluded())
+    };
+    assert_eq!(excluded.credential.id.as_str(), "sca");
+    assert_eq!(excluded.by, siros_openid4vp::matching::ExcludedBy::Profile);
+    assert!(
+        (excluded.exclude.rule() as &dyn std::error::Error)
+            .downcast_ref::<siros_openid4vp::matching::ReservedCredential>()
+            .is_some()
+    );
+}
+
 #[test]
 fn a_plug_in_failing_or_breaking_its_contract_fails_phase_1() {
     // q or r, each named by an entry; c answers q and supports the entries' type.

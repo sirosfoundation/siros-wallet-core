@@ -8,6 +8,7 @@ use siros_explain::Explain;
 use siros_openid4vp::claims::{ClaimPath, Step};
 use siros_openid4vp::json::Node;
 
+use crate::labels::LabelLimits;
 use crate::metadata::{
     ClaimMeta, DisplayArray, Displayed, EntryLocale, LabelForm, Localized, Mandatory, Metadata,
     UiKey, UiLabel, ValueType,
@@ -185,7 +186,10 @@ fn own(text: MandateLabel) -> DisplayArray<'static> {
 /// The metadata a Mandate type renders with: the rulebook's claims and labels, and the
 /// `security_hint` of the credential's metadata for the type. Its title and confirm action are the
 /// subtype's and its denial the wallet's, as for a type whose metadata names none.
-pub(crate) fn metadata<'m>(given: &'m Node<'m>) -> Result<Metadata<'m>, Unsupported> {
+pub(crate) fn metadata<'m>(
+    given: &'m Node<'m>,
+    limits: LabelLimits,
+) -> Result<Metadata<'m>, Unsupported> {
     let claims = TABLE
         .iter()
         .map(|row| ClaimMeta {
@@ -202,7 +206,7 @@ pub(crate) fn metadata<'m>(given: &'m Node<'m>) -> Result<Metadata<'m>, Unsuppor
         .collect();
     let mut ui = Vec::new();
     if let Some(hint) = hint(given)? {
-        ui.push(UiLabel::parse(UiKey::SecurityHint, hint)?);
+        ui.push(UiLabel::parse(UiKey::SecurityHint, hint, limits)?);
     }
     Ok(Metadata { claims, ui })
 }

@@ -19,8 +19,9 @@ use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::{Amounts, Choice, Env, RenderOptions, Row, Value};
 use siros_openid4vp::wallet::{Credential, Document, Facts, Holder};
 use siros_paso::Rendered;
+use siros_paso::labels::LabelLimits;
 use siros_paso::outcome::Excluded;
-use siros_paso::render::{TransactionView, ViewRow};
+use siros_paso::render::{Registered, TransactionView, ViewRow};
 use siros_paso::rulebook::PasoType;
 use siros_paso::rules::BindExcluded;
 use siros_paso::value::ValueKind;
@@ -312,8 +313,8 @@ pub fn defined(kind: &str, meta: &str, priority: &[LocaleTag]) -> DefinedForm {
 pub fn converted(kind: &str, meta: &str, priority: &[LocaleTag]) -> Option<DefinedForm> {
     let given = Node::parse(meta).expect("the metadata");
     let main = main_locales().expect("the main module");
-    let kind = PasoType::parse(kind).ok()?;
-    siros_paso::view::convert(&kind, &given, &main, priority).ok()
+    let registered = Registered::of(PasoType::parse(kind).ok()?, &given);
+    siros_paso::view::convert(&registered, LabelLimits::PASO, &main, priority).ok()
 }
 
 /// The test app as the matcher renders a request for an `Env`, and the wallet in phase 2: the

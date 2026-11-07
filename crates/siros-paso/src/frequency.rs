@@ -1,5 +1,4 @@
-//! ISO 20022's frequency codes, PaSO View §3's `frequency` value type (and TS12 §4.3.1's
-//! recurrence).
+//! ISO 20022's frequency codes, PaSO View §3's `frequency` value type.
 
 use siros_explain::Explain;
 

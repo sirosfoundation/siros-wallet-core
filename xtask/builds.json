@@ -519,6 +519,12 @@
           ]
         },
         {
+          "name": "siros-ts12",
+          "features": [
+            "resolve"
+          ]
+        },
+        {
           "name": "siros-webuild",
           "features": []
         },
@@ -577,6 +583,10 @@
           },
           {
             "name": "siros-paso",
+            "features": []
+          },
+          {
+            "name": "siros-ts12",
             "features": []
           },
           {
@@ -662,6 +672,17 @@
       "name": "siros-credman",
       "names": [
         "siros-openid4vp",
+        "siros-i18n",
+        "siros-explain",
+        "siros-explain-derive"
+      ]
+    },
+    {
+      "name": "siros-ts12",
+      "names": [
+        "siros-openid4vp",
+        "siros-paso",
+        "siros-x509",
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive"

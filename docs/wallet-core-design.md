@@ -1745,8 +1745,10 @@ Result<Vec<HttpsUrl>, Fault>` (from the record, the profile's data and the host'
 reading the record can fail), and `ProfileHost::revalidate`
 reads the fetched resources from its `FetchedRecord`.
 siros-paso's images and siros-qes's documents move there. `Profile` gains `fn reserves(&self,
-credential: &Credential<'_>) -> bool` (phase 1): a credential a profile reserves is a candidate
-only for a query one of the profile's own entries names. siros-ts12 reserves an SCA attestation,
+credential: &Credential<'_>, additions: &dyn ViewAdditions) -> Result<bool, Fault>` (phase 1,
+default `Ok(false)`): a credential a profile reserves is a candidate only for a query one of the
+profile's own entries names, and another query excludes it as `ReservedCredential`. A `Fault` is
+wallet data the profile cannot read. siros-ts12 reserves an SCA attestation,
 siros-paso and siros-qes none. `Answered` gains `mode`, the name of the registered mode the
 route answers in: siros-paso's response mode signal reads it there, and so does siros-ts12's
 KB-JWT `response_mode`. `Profile::members(format)` becomes `members(placement)`: a format states
@@ -2988,7 +2990,8 @@ PaSO's rule applies.
 | A field whose claim metadata holds a `display` array, at level 1, 2, 3 or none | Displayed, and seen before confirmation | View §2 |
 | Level 4 | Internal | View §2 |
 | A payment's `amount` and `payee.name`; an action's `action` | Displayed at every level; the payment's two in its header (RTS Art. 5(1)(a)) | Payment rulebook |
-| A field without claim metadata | Internal | View §2 |
+| `transaction_id`, `date_time`, `payee.id`, `currency` without claim metadata (CS-12 §7.2, test bed KA21, KA23) | Internal | View §2 |
+| Another field a payload holds without claim metadata, or a claim below level 4 without `display` (TS12 §3.3.1, CS-12 §7.3 item 5) | The type is unsupported (`Ts12Unsupported::Labels`) | View §2 |
 | Claim labels: `display` entries with `lang`, `label`, `description` | `lang` read as the entry's locale, `label` as its name; `description` unused. TS12 was not written for View §4's Lookup, so its tags convert as TS12 means them: an entry whose array holds no entry under its language's generic tag (the tag without its region and variants, its script kept) is that language's text and converts under the generic tag, the first such entry in the array's order when several regions of one language stand alone. WE BUILD's claim labels tagged `en-GB` beside no `en` are English and convert to `en` | Proof Metadata §3.1 |
 | Locale matching, which TS12 leaves open | View §4 as written over the converted tags: the first tag of the priority list for which every label array matches by RFC 4647 Lookup or its default entry (section 4.14); no tag excludes the credential (§3.3.1: cease) | View §4 |
 | Label lengths in "characters" | §3.3.3's 30, 30, 50 and 250 in extended grapheme clusters; claim labels 60; PaSO's rules on directional and control characters | Proof Metadata §3.3 |
@@ -3004,7 +3007,7 @@ level. `payee.logo#integrity` stands declared beside `payee.logo` (View §3 `ima
 
 | Field | TS12 | PaSO value type |
 | :-- | :-- | :-- |
-| `transaction_id` | string, required | plain |
+| `transaction_id` | string, required, 1 to 36 characters | plain |
 | `date_time` | string | `iso_date_time` |
 | `payee` | object, required | |
 | `payee.name`, `payee.id` | string, required | plain |
@@ -3013,7 +3016,7 @@ level. `payee.logo#integrity` stands declared beside `payee.logo` (View §3 `ima
 | `pisp` | object; its three members required | |
 | `pisp.legal_name`, `pisp.brand_name`, `pisp.domain_name` | string | plain |
 | `execution_date` | string; refused beside `recurrence` | `iso_date` |
-| `currency` | string, required | `iso_currency` |
+| `currency` | string, required, `^[A-Z]{3}$` | `iso_currency` |
 | `amount` | number, required | `iso_currency_amount`, with `currency` |
 | `amount_estimated`, `amount_earmarked`, `sct_inst` | boolean | `boolean` |
 | `recurrence` | object; `frequency` required | |
@@ -3027,8 +3030,9 @@ level. `payee.logo#integrity` stands declared beside `payee.logo` (View §3 `ima
 | `mit_options.apr` | number | plain |
 
 `urn:eudi:sca:login_risk_transaction:1` (TS12 §4.3.2): `transaction_id` (string, required) and
-`service` (string), plain; `date_time` (string), `iso_date_time`; `action` (string, required),
-plain.
+`service` (string, up to 100 characters), plain; `date_time` (string), `iso_date_time`; `action`
+(string, required, up to 140 characters), plain. TS12's schemas state these lengths and patterns,
+and `PayloadRefusal::Length { path, max }` refuses a longer text.
 
 **Values** (TS12 §4.3.1, through PaSO View §3):
 
@@ -3036,6 +3040,10 @@ plain.
 | :-- | :-- |
 | `amount`: "fractional digits as per [ISO4217]", which the schema leaves unchecked | The exact decimal value of the number as written, with at most the currency's minor-unit digits, shown with exactly that many: `42.5` EUR shows 42.50, `10.125` EUR is refused |
 | "Negative amounts are signed by minus", with no meaning for a payment to a payee | Refused: TS12 defines no negative payment |
+| An amount beyond 38 digits | Refused as `PayloadRefusal::Digits`: the exact value's width |
+| A negative or oversized number elsewhere | Refused as `PayloadRefusal::Kind` |
+| `payee.website`, `payee.logo`: a URL other than https | Refused as `PayloadRefusal::Kind` |
+| `payee.logo#integrity` beside a data URL or without a logo | Refused as `PayloadRefusal::Member` |
 | Dates: the prose says an ISO 8601 date, the schema `format: date-time` | ISO 8601 calendar dates (`iso_date`) |
 | `date_time`: ISO 8601 date and time | `iso_date_time`, fractional seconds and `Z` included |
 | `execution_date` "MUST NOT lie in the past" | The Relying Party's rule: TS12 names no clock and no time zone for the wallet |
@@ -3116,12 +3124,17 @@ pub enum Ts12Type { Payment, LoginRisk }
 
 /// A `vct` value a credential's `types` may name, non-empty, fixed with `checked!`.
 pub struct AttestationType(&'static str);
-pub struct Ts12Profile { attestation_types: AllOf<AttestationType>, bound: ItemBound }
+pub struct Ts12Profile { attestation_types: AllOf<AttestationType>, bound: ItemBound,
+                         resources: Vec<(String, Fetch)> }
 
 impl Ts12Profile {
     /// The profile, for credentials whose `types` name one of the attestation types (CS-12 §7.1
     /// item 2: the three base types).
     pub fn new(attestation_types: AllOf<AttestationType>) -> Self;
+    /// View §2's item bound.
+    pub fn with_bound(self, bound: ItemBound) -> Self;
+    /// What phase 2 fetched of an https logo.
+    pub fn with_resource(self, url: &HttpsUrl, fetch: Fetch) -> Self;
     /// Registers the profile under `urn:eudi:sca:`.
     pub fn register(self, builder: &mut RegistryBuilder) -> Result<ProfileHandle, InvalidId>;
 }
@@ -3136,10 +3149,13 @@ impl Profile for Ts12Profile { /* refusals: T1 to T6; members: placement Claims 
 siros-ts12 renders through siros-paso. siros-paso opens three seams and holds no TS12 code:
 
 - `render::Request` becomes public with its fields, and gains `limits: LabelLimits`. Its type,
-  family and metadata become one `Registered`, which only the profile's registry lookup makes.
+  family and metadata become one `Registered`. `Registered::of(PasoType, given)` makes one across
+  the crate boundary, and `PasoType::rendered_by(text, family)`, which `PasoType::parse` calls,
+  names a profile's own identifier.
 - `LabelLimits { claim_name, title, affirmative, denial, hint }`, each a `NonZeroUsize`, replaces
   `LabelSlot::max`'s constants; `LabelLimits::PASO` holds Proof Metadata §3.3's 60, 100, 40, 40
-  and 160.
+  and 160, and `label_limit!` fixes a profile's own. `view::convert(&Registered, LabelLimits, main,
+  priority)` writes a type's module under those limits.
 - `bound(view, attested, entries)` becomes public: a rendering's `Bound`, with what the
   profile's record attests (siros-paso: `display_locale` and `metadata_integrity`; siros-ts12:
   nothing); `entries` is the `BoundEntries` that `BoundEntries::select` took among those offered.
@@ -4698,8 +4714,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `SessionTranscriptBytes` | `plugins` | `#6.24(bstr .cbor SessionTranscript)`, from the session's handover or a held transcript | Holds: private slice; only `SessionTranscript::tagged_bytes` makes one |
 | `SessionTranscriptBytesApi` | `plugins` | Reads the bytes | Holds: the inherent methods of `SessionTranscriptBytes` |
 | `DeviceMac` | `plugins` | A MAC under EMacKey (ISO/IEC 18013-5 §9.1.3.5) | Holds: a trait; the transcript enters as `SessionTranscriptBytes` |
-| `LabelLimits` | `profile` | Label limits in grapheme clusters, each one or more (Proof Metadata §3.3) | Holds: public `NonZeroUsize` fields; a fixed limit by `limit!`, which fails the build at zero |
-| `Registered` | `profile` | A registered transaction type: its identifier, family and metadata | Holds: private; only the profile's registry lookup makes one |
+| `LabelLimits` | `profile` | Label limits in grapheme clusters, each one or more (Proof Metadata §3.3) | Holds: public `NonZeroUsize` fields; a fixed limit by `label_limit!`, which fails the build at zero |
+| `Registered` | `profile` | A registered transaction type: its identifier, family and metadata | Holds: private fields; `of(PasoType, given)` holds the type and its metadata together |
 | `RegisteredApi` | `profile` | The accessors of `Registered` | Holds: the inherent methods of `Registered` |
 | `Request` | `profile` | What a PaSO rendering reads | Fixed (tag in one structure and its data in another): `registered`, a `Registered`, holds the type, its family and its metadata together |
 | `RequestApi` | `profile` | Renders in PaSO Core §7.4.2's order | Holds: the inherent methods of `Request` |
@@ -4715,10 +4731,9 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ComposeError` | `profile` | One variant per composition rule (TS12 §4.1) | Holds: a refusal enum, one variant per rule |
 | `Ts12DocumentApi` | `profile` | Composes the registration document; reads it and its entries | Holds: the inherent methods of `Ts12Document` |
 | `Amount` | `profile` | An exact decimal amount, at most its currency's minor-unit digits | Holds: private `String`; only `Ts12PayloadApi::parse` makes one, beside its currency |
-| `CurrencyCode` | `profile` | An ISO 4217 code of the core's table | Holds: private `String`; only `Ts12PayloadApi::parse` makes one |
+| `CurrencyCode` | `profile` | An ISO 4217 code of the core's table, with its minor-unit digits, which `Amount` reads | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `CalendarDate` | `profile` | An ISO 8601 calendar date | Holds: private `String`; only `Ts12PayloadApi::parse` makes one |
 | `DateTime` | `profile` | An ISO 8601 date-time | Holds: private `String`; only `Ts12PayloadApi::parse` makes one |
-| `FrequencyCode` | `profile` | An ISO 20022 frequency code of TS12 §4.3.1 | Holds: private `String`; only `Ts12PayloadApi::parse` makes one |
 | `Logo` | `profile` | `payee.logo`: a data URL, or an https URL with its SRI | Fixed (string with a grammar): `DataUrl` and `Integrity`, each from its `parse` |
 | `DataUrl` | `profile` | A data URL (RFC 2397) | Holds: private; `parse -> Option` refuses a text outside RFC 2397 |
 | `Integrity` | `profile` | A Subresource Integrity value (W3C SRI §3.5) | Holds: private; `parse -> Option` refuses a text outside the grammar or a digest of another length |
@@ -4727,7 +4742,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Payee` | `profile` | TS12 §4.3.1's `payee` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `Pisp` | `profile` | TS12 §4.3.1's `pisp` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `MitOptions` | `profile` | TS12 §4.3.1's `recurrence.mit_options` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
-| `Recurrence` | `profile` | TS12 §4.3.1's `recurrence` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
+| `Recurrence` | `profile` | TS12 §4.3.1's `recurrence`; its `frequency` is siros-paso's `Frequency` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `Execution` | `profile` | On a date, recurring, or unstated; never both (TS12 §4.3.1) | Holds: an enum whose every variant is a valid state |
 | `Payment` | `profile` | A `urn:eudi:sca:payment:1` payload (TS12 §4.3.1) | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `LoginRisk` | `profile` | A `urn:eudi:sca:login_risk_transaction:1` payload (TS12 §4.3.2) | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
@@ -4735,6 +4750,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `PayloadRefusal` | `profile` | One variant per payload rule (TS12 §4.3, PaSO Core §7.4.2 step 2) | Holds: a refusal enum, one variant per rule |
 | `Ts12PayloadApi` | `profile` | Parses a payload of a type; writes it in PaSO's value forms | Holds: the inherent methods of `Ts12Payload` |
 | `Ts12Unsupported` | `profile` | One variant per rule that makes a type unsupported (TS12 §3.2 step 5, §3.3.1) | Holds: a refusal enum, one variant per rule |
+| `Ts12Rule` | `profile` | The request rules T1 to T6 and B.3.3.1's hash rule, each with its code | Holds: a refusal enum, one variant per rule |
+| `Ts12Excluded` | `profile` | Why phase 1 excludes a credential: the presentation's carriage, an unsupported type, a payload's refusal, the engine's refusal | Holds: an enum a wallet reads the exclusion by |
 | `TranslateApi` | `profile` | A built-in type's metadata in PaSO's form | Fixed (tag in one structure and its data in another): `paso_metadata` takes a `BuiltInEntry`, which holds the type its schema names |
 | `AmrCategory` | `profile` | An `amr` category of TS12 §3.6 | Holds: an enum whose every variant is a category |
 | `AmrApi` | `profile` | The `amr` object of a factor | Holds: a trait; returns an `AmrCategory` |
@@ -6152,7 +6169,7 @@ proving/              the colleague's: the proof backends and the browser presen
 | Crate | From | Features | SIROS crates it names |
 | :-- | :-- | :-- | :-- |
 | siros-openid4vp | wallet-rs | `match`, `resolve`, `dc-api`, `uri`, `signed`, `request-decryption`, `cbor`, `transaction-data`, `sha3`, `blake2`, `k12`, `sri`, `claims` | siros-explain; siros-i18n with `render`, `number`, `list` |
-| siros-x509 | wallet-rs | `test-util` | the core (`signed`); siros-explain |
+| siros-x509 | wallet-rs | none | the core (`signed`); siros-explain |
 | siros-mdoc | wallet-rs | `resolve`, `test-util` | the core (`claims`; `resolve`: `cbor`); siros-explain; siros-i18n (`resolve`: `date`) |
 | siros-sdjwt | wallet-rs | `resolve` | the core (`claims`); siros-explain; siros-i18n (`render`) |
 | siros-paso | wallet-rs | `resolve`, `sealed-signals`, `test-util` | the core (`transaction-data`, `sri`; `sealed-signals`: `cbor`); siros-explain; siros-i18n; `resolve`: siros-x509 |
@@ -6552,7 +6569,7 @@ maps onto the plan's crates:
 | `siros_oid4vp::{Protocol, ResponseMode, AttestationFormat}` | siros-zkp-catalogues `request`, `policy` | The DC API protocols of `arrival`; the accepted mode's `ModeName`; `verifier_info` as received |
 | `siros_oid4vp::{Handover, JwkThumbprint, ec_jwk_thumbprint, Nonce, Origin}` | siros-zkp-catalogues `request_object`, `presenter`, `testing` | The core's `session` handover and thumbprint, siros-mdoc's from section 6's commit 6; `ids::{Nonce, Origin}` |
 | `siros_oid4vp::{SemanticIdentifier, SemanticIdError}` | siros-zkp-catalogues `verifier_id` | siros-zkp-catalogues' own `semantic` module, moved. Its input is `Verifier::facts()`, where the trust service states the access certificate's semantics identifier (ETSI TS 119 475 §5.1.3). |
-| `siros_oid4vp::{Effect, EffectResult, IntakeState, Step, TrustAnswer}` | siros-zkp-catalogues `testing` | The core's `Fetch`, `Envelope::questions`, `Pending::authenticate` and `Decision`, over siros-x509's `test-util` certificates |
+| `siros_oid4vp::{Effect, EffectResult, IntakeState, Step, TrustAnswer}` | siros-zkp-catalogues `testing` | The core's `Fetch`, `Envelope::questions`, `Pending::authenticate` and `Decision`, over `siros_testkit::x509`'s certificates |
 | `siros_mdoc::{Mdoc, MdocError, IssuerSignedItem, ElementIdentifier, DigestAlgorithm, CoseAlgorithm, SigStructure, P256Key, PointError}` | siros-zkp-catalogues `mdoc`, `attestation`, tests | siros-mdoc's stored-mdoc reader (section 10.3) |
 | `siros_mdoc::es256_verifies` | siros-zkp-catalogues `attestation` | ECDSA verification through p256 in siros-zkp-catalogues |
 | `siros_mdoc::{device_signing_input, DeviceNameSpaces, SessionTranscript, MessageDigest}` | siros-zkp-catalogues `prover`, `verify`, `presenter` | siros-mdoc's public device signing input and its `SessionTranscript` |

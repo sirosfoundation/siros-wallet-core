@@ -29,11 +29,12 @@ use siros_openid4vp::json::Node;
 
 use crate::adhoc::Carried;
 use crate::conform::ClaimIndex;
+use crate::labels::LabelLimits;
 use crate::locale::{ArrayKey, chain, lookup, selectable};
 use crate::markdown::{Span, Style, spans};
 use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, ValueType};
 use crate::outcome::Outcome;
-use crate::render::{arrays, rulebook_metadata};
+use crate::render::{Registered, arrays, rulebook_metadata};
 use crate::rulebook::PasoType;
 use crate::template::{Placeholder, placeholders};
 use crate::value::{FormattedKind, ValueKind};
@@ -162,7 +163,8 @@ fn converted<'a, 'r: 'a>(
 ) -> Result<Vec<DefinedForm>, ConvertError> {
     let mut modules: Vec<DefinedForm> = Vec::new();
     for (kind, read) in jwts {
-        match convert(kind, read.metadata(), main, priority) {
+        let registered = Registered::of(kind.clone(), read.metadata());
+        match convert(&registered, LabelLimits::PASO, main, priority) {
             Ok(converted) => {
                 if modules.iter().all(|known| known.id() != converted.id()) {
                     modules.push(converted);
@@ -191,19 +193,20 @@ struct Converting<'a, 'm> {
 }
 
 /// Converts a type's display rules into its defined module for the End-User's priority list, its
-/// typed arguments formatted as the main module's entries `main` format bare values.
+/// typed arguments formatted as the main module's entries `main` format bare values, its labels
+/// held to `limits`.
 ///
 /// # Errors
 ///
 /// [`ConvertError`]: its metadata refuses, a template holds U+FDD0, or a main entry lacks a format
 /// a message calls.
 pub fn convert(
-    kind: &PasoType<'_>,
-    given: &Node<'_>,
+    registered: &Registered<'_>,
+    limits: LabelLimits,
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<DefinedForm, ConvertError> {
-    let (metadata, _) = rulebook_metadata(kind, given)?;
+    let (metadata, _) = rulebook_metadata(registered, limits)?;
     let arrays = arrays(&metadata);
     let mut messages: Vec<Converting<'_, '_>> = Vec::new();
     for (array, entries) in &arrays {
@@ -248,8 +251,11 @@ pub fn convert(
             .iter()
             .map(|message| Entry::new(key(message.array), message.params.clone())),
     );
-    let mut builder =
-        DefinedForm::builder(module_of(given), LanguagePolicy::Understood, declaration);
+    let mut builder = DefinedForm::builder(
+        module_of(registered.given()),
+        LanguagePolicy::Understood,
+        declaration,
+    );
     for tag in selectable(&arrays, priority) {
         let entry =
             lookup(&tag, &tags).and_then(|found| main.iter().find(|entry| entry.locale() == found));

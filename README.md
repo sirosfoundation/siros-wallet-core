@@ -52,6 +52,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-sdjwt` | `dc+sd-jwt`: the issued SD-JWT read into its document and view with validity (`Registered`), its presentation with a compact Key Binding JWT, and a type metadata document's `display` as a defined module |
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` modules; `sealed-signals` seals an mdoc's risk signals with the last |
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
+| `siros-ts12` | TS12's payments and logins under `urn:eudi:sca:`: the registration document, typed payloads, the translation into PaSO's model, the request rules T1 to T6 and the Key Binding JWT's claims, rendered through siros-paso's engine |
 | `siros-webuild` | WE BUILD's CS-02 rules: the Request Object claims CS-02 §8.2 requires (`Cs02Claims`) and the Verifier's error answer of CS-02 §8.3 (`Cs02ErrorAnswer`) |
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher; the matcher's entry emission through the registration's package, and under `register` the registration's package |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the `Facts` the core matches a query's `trusted_authorities` against |
@@ -81,6 +82,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, IssuerTrust, CoseEncrypt; resolve: siros-x509's x5c   transaction-data, sri; resolve: resolve; sealed-signals: cbor
 ├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
 ├── siros-credman     Credential Manager's entries for the matcher; the entry emission; register: the registration's package   match
+├── siros-ts12        TS12 on PaSO's engine                                 transaction-data; resolve: resolve
 ├── siros-webuild     WE BUILD's CS-02 rules: Cs02Claims, Cs02ErrorAnswer   signed, uri
 ├── siros-trust       issuer trust at registration                match, resolve
 ├── siros-zkp-req     zkp_req's protocol layer                    resolve, cbor

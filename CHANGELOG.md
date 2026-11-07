@@ -7,6 +7,15 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-ts12` serves TS12's `urn:eudi:sca:payment:1` and
+  `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
+  payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
+  label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
+- `siros-integration` holds the WE BUILD build beside HAIP's: `x509_hash` alone,
+  `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
+  or `DeviceMac`, over F11 and F12.
+- `siros-paso` opens `render::Request`, `Registered`, `LabelLimits` and `bound` to a second profile.
+- `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
 - `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,
   message sources, and display literals in the shipped crates, in place of
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text
@@ -157,6 +166,9 @@ All notable changes to this workspace. The format follows
 - `siros-mdoc` and `siros-sdjwt` type what their public signatures name: `Registered::{view, document}` return `ViewBytes` and `DocumentBytes`; `CertificateChain` and `SdJwt::x5c` give `DerCertificate`; `IssuerAuth::signature` an `IssuerSignature`; `Resolved::issuer` is an `IssuerName`; `Handover::Redirect::response_uri` a `HandoverUri`; `SdJwt::{issuer_jwt, typ}` return `IssuerJwt` and `JwtType`; `KeyBinding` takes a `KbSignature` from a `KbSigningInput` and assembles an `SdJwtKb`; `RegistrationError::IssuerCurve` names a `ResolvedCurve`.
 - `siros-wallet-state` refuses a repeated member name in every object it reads, a `presentations` entry included. `CredentialEntry::format` is optional: the empty string reads as unknown. `PresentationRecord::new` takes `PresentationData` and `Audience`.
 - `siros-trust`: `Certificate::p256_key` and `p384_key` return `P256Point` and `P384Point`.
+- `siros-paso`'s label limits are a parameter: `LabelText::parse` takes the limit in place of a
+  `LabelSlot` and `LabelSlot::max` is gone, and `view::convert` takes a `Registered` and
+  `LabelLimits` in place of its type and metadata.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth

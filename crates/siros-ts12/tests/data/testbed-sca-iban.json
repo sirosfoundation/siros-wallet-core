@@ -1,0 +1,83 @@
+{
+  "vct": "https://webuildconsortium.eu/sca/sca-iban/1.0",
+  "category": "urn:eu:europa:ec:eudi:sua:sca",
+  "extends": "https://webuildconsortium.eu/sca/1.0",
+  "transaction_data_types": {
+    "urn:eudi:sca:payment:1": {
+      "schema": "urn:eudi:sca:payment:1",
+      "claims": [
+        {
+          "path": [
+            "payload",
+            "transaction_id"
+          ],
+          "visualisation": 4,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Transaction ID",
+              "description": "Unique identifier of the transaction"
+            }
+          ]
+        },
+        {
+          "path": [
+            "payload",
+            "payee",
+            "name"
+          ],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Payee",
+              "description": "Name of the payee"
+            }
+          ]
+        },
+        {
+          "path": [
+            "payload",
+            "currency"
+          ],
+          "visualisation": 2,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Currency",
+              "description": "Payment currency"
+            }
+          ]
+        },
+        {
+          "path": [
+            "payload",
+            "amount"
+          ],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Amount",
+              "description": "Payment amount"
+            }
+          ]
+        }
+      ],
+      "ui_labels": {
+        "affirmative_action_label": [
+          {
+            "lang": "en-GB",
+            "value": "Confirm payment"
+          }
+        ],
+        "denial_action_label": [
+          {
+            "lang": "en-GB",
+            "value": "Cancel"
+          }
+        ]
+      }
+    }
+  }
+}

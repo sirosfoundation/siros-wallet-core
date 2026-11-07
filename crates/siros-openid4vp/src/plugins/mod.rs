@@ -658,4 +658,19 @@ pub trait Profile: Clone + Send + Sync + 'static {
 
     /// The entries of `binding.entries` the credential authorizes, rendered.
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
+
+    /// Whether the profile keeps the credential for its own transactions: a credential a profile
+    /// reserves is a candidate only for a query one of the profile's entries names. `additions`:
+    /// what the registration view gains for it, its types.
+    ///
+    /// # Errors
+    ///
+    /// The profile cannot read the wallet's data.
+    fn reserves(
+        &self,
+        _credential: &Credential<'_>,
+        _additions: &dyn ViewAdditions,
+    ) -> Result<bool, Fault> {
+        Ok(false)
+    }
 }

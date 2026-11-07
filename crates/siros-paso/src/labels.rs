@@ -1,6 +1,8 @@
 //! Proof Metadata §3.3: what every label meets, and the directional rule payload strings meet
 //! too.
 
+use std::num::NonZeroUsize;
+
 use siros_explain::Explain;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -34,30 +36,72 @@ impl Directional {
     }
 }
 
-/// Where a label shows, which sets its maximum length in grapheme clusters.
+/// Where a label shows, which [`LabelLimits`] gives its maximum length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LabelSlot {
-    /// A claim `display` entry's `name`: 60.
+    /// A claim `display` entry's `name`.
     ClaimName,
-    /// `transaction_title`: 100.
+    /// `transaction_title`.
     Title,
-    /// `affirmative_action_label`: 40.
+    /// `affirmative_action_label`.
     Affirmative,
-    /// `denial_action_label`: 40.
+    /// `denial_action_label`.
     Denial,
-    /// `security_hint`: 160.
+    /// `security_hint`.
     Hint,
 }
 
-impl LabelSlot {
-    /// The maximum length in extended grapheme clusters.
+/// A label limit the code fixes, one or more, as a [`NonZeroUsize`]: zero fails the build.
+#[macro_export]
+macro_rules! label_limit {
+    ($limit:literal) => {
+        const {
+            match ::std::num::NonZeroUsize::new($limit) {
+                ::core::option::Option::Some(limit) => limit,
+                #[allow(
+                    clippy::panic,
+                    reason = "a panic in a constant fails the build (E0080)"
+                )]
+                ::core::option::Option::None => ::core::panic!("a label limit is one or more"),
+            }
+        }
+    };
+}
+
+/// A profile's maximum label lengths in extended grapheme clusters, each one or more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LabelLimits {
+    /// A claim `display` entry's `name`.
+    pub claim_name: NonZeroUsize,
+    /// `transaction_title`.
+    pub title: NonZeroUsize,
+    /// `affirmative_action_label`.
+    pub affirmative: NonZeroUsize,
+    /// `denial_action_label`.
+    pub denial: NonZeroUsize,
+    /// `security_hint`.
+    pub hint: NonZeroUsize,
+}
+
+impl LabelLimits {
+    /// Proof Metadata §3.3.
+    pub const PASO: Self = Self {
+        claim_name: label_limit!(60),
+        title: label_limit!(100),
+        affirmative: label_limit!(40),
+        denial: label_limit!(40),
+        hint: label_limit!(160),
+    };
+
+    /// The limit of a slot.
     #[must_use]
-    pub const fn max(self) -> usize {
-        match self {
-            Self::ClaimName => 60,
-            Self::Title => 100,
-            Self::Affirmative | Self::Denial => 40,
-            Self::Hint => 160,
+    pub const fn of(self, slot: LabelSlot) -> NonZeroUsize {
+        match slot {
+            LabelSlot::ClaimName => self.claim_name,
+            LabelSlot::Title => self.title,
+            LabelSlot::Affirmative => self.affirmative,
+            LabelSlot::Denial => self.denial,
+            LabelSlot::Hint => self.hint,
         }
     }
 }
@@ -72,24 +116,24 @@ pub enum LabelViolation {
     /// The directional rule.
     #[error(transparent)]
     Directional(#[from] Directional),
-    /// More extended grapheme clusters than the slot allows.
+    /// More extended grapheme clusters than the limit allows.
     #[error("{clusters} grapheme clusters, more than {max}")]
     TooLong {
         /// The clusters.
         clusters: usize,
-        /// The slot's maximum.
+        /// The limit.
         max: usize,
     },
 }
 
-/// A label's text that meets Proof Metadata §3.3 for its slot.
+/// A label's text that meets Proof Metadata §3.3 under its limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LabelText<'t>(&'t str);
 
 impl<'t> LabelText<'t> {
-    /// The text when it meets the rules for the slot: no control character, the directional
-    /// rule, at most the slot's length in extended grapheme clusters.
-    pub fn parse(text: &'t str, slot: LabelSlot) -> Result<Self, LabelViolation> {
+    /// The text when it meets the rules: no control character, the directional rule, at most
+    /// `limit` extended grapheme clusters.
+    pub fn parse(text: &'t str, limit: NonZeroUsize) -> Result<Self, LabelViolation> {
         if let Some(control) = text
             .chars()
             .find(|c| matches!(u32::from(*c), 0..0x20 | 0x80..0xA0))
@@ -100,10 +144,10 @@ impl<'t> LabelText<'t> {
             return Err(directional.into());
         }
         let clusters = text.graphemes(true).count();
-        if clusters > slot.max() {
+        if clusters > limit.get() {
             return Err(LabelViolation::TooLong {
                 clusters,
-                max: slot.max(),
+                max: limit.get(),
             });
         }
         Ok(Self(text))
