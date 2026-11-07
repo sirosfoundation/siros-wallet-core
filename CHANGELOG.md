@@ -11,6 +11,11 @@ All notable changes to this workspace. The format follows
   `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
   payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
   label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
+- `siros-ts12` types each member and argument: `FieldPath`, `Expected`, `DateForm` and `MaxChars`
+  in `PayloadRefusal`; `TransactionType` and `QueryId` in `Ts12Rule` and `Ts12Unsupported`;
+  `Ts12Unsupported::{NoSchema, ClaimPath, Level, ClaimLabels, UiLabels}` per rule; `FetchedDocument`,
+  `ComposedDocument`, `Category`, `WrittenSchema` and `TwinnedMember` in the document; `AmrMethod`;
+  `Ts12Finding { url, failure }`. `paso_payload` and `paso_metadata` return an `Object`.
 - `siros-integration` holds the WE BUILD build beside HAIP's: `x509_hash` alone,
   `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
   or `DeviceMac`, over F11 and F12.
