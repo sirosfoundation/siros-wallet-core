@@ -22,7 +22,6 @@ use siros_ts12::{
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
-const LOGIN: &str = "urn:eudi:sca:login_risk_transaction:1";
 
 fn entry(kind: &str, ids: &str, alg: &str, payload: &str) -> String {
     format!(r#"{{"type": "{kind}", "credential_ids": [{ids}]{alg}{payload}}}"#)
