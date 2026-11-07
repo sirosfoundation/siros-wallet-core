@@ -17,13 +17,28 @@ name: Conformance (mini-wallet)
 # not-yet-implemented feature with its own tracking issue. A skipped
 # module is absent from the run, not run-and-ignored: the summary
 # records the skip with the reason.
+#
+# The release-tag publish needs CONFORMANCE_DISPATCH_TOKEN (a repo
+# secret): a fine-grained PAT with Contents:read + Actions on
+# siros-conformance, for the repository_dispatch that hands the
+# reports to that repo's publish workflow.
 
 on:
+  # PRs: the results ride the run's artifacts (the Actions tab), NOT
+  # conformance.siros.org - a PR is a conversation, not a release, and
+  # publishing every draft verdict would flood the site and muddy which
+  # reports speak for a release.
   pull_request:
     paths:
       - "crates/**"
       - "conformance/blacklist.json"
       - ".github/workflows/conformance.yml"
+  # Release tags: THE reports publish - conformance.siros.org carries one
+  # report set per release (named for the tag), so a release's conformance
+  # verdict is addressable, linkable from the release notes, and diffable
+  # against the previous release's.
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       conformance-ref:
@@ -37,6 +52,11 @@ on:
 
 permissions:
   contents: read
+  # The publish (release tags only) rides a repository_dispatch to the
+  # conformance repo (its own workflow owns the gh-pages push), so this
+  # repo needs no write scope anywhere: CONFORMANCE_DISPATCH_TOKEN (a
+  # fine-grained PAT with the single dispatch permission on that repo)
+  # carries it.
 
 concurrency:
   group: conformance-${{ github.ref }}
@@ -147,3 +167,24 @@ jobs:
             conformance-repo/conformance-results/
             conformance-repo/test-results/
           if-no-files-found: warn
+
+      # The publish: RELEASE TAGS ONLY, via the conformance repo's own
+      # workflow (repository_dispatch: conformance-wallet - the same path
+      # its scheduled runs use; that repo owns the gh-pages publish, so
+      # this repo needs no write scope there). The site
+      # (conformance.siros.org) carries one report set per release tag -
+      # the release's own conformance verdict, addressable and linkable
+      # from its notes. A PR's results stay in the run's artifacts (the
+      # pull request's Checks tab), never the site: a PR is a
+      # conversation, not a release.
+      - name: Trigger the conformance repo's publish (release tags only)
+        if: github.ref_type == 'tag'
+        working-directory: conformance-repo
+        env:
+          GH_TOKEN: ${{ secrets.CONFORMANCE_DISPATCH_TOKEN }}
+        run: |
+          gh api -X POST \
+            "/repos/sirosfoundation/siros-conformance/dispatches" \
+            -f event=conformance-wallet \
+            -f 'client_payload[run-id]="${GITHUB_REF_NAME}"' \
+            -f 'client_payload[run-url]="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
