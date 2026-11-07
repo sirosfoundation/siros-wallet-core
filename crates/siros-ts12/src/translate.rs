@@ -16,6 +16,13 @@ use siros_openid4vp::known_object;
 use siros_paso::metadata::UiKey;
 
 use crate::document::{BuiltInEntry, Ts12Type};
+use crate::field::{
+    ACTION, AMOUNT, AMOUNT_EARMARKED, AMOUNT_ESTIMATED, AMOUNT_VARIABLE, APR, CURRENCY, DATE_TIME,
+    END_DATE, EXECUTION_DATE, FREQUENCY, FieldPath, INITIAL_AMOUNT, INITIAL_AMOUNT_NUMBER,
+    MAX_AMOUNT, MIN_AMOUNT, MIT_OPTIONS, NUMBER, PAYEE, PAYEE_ID, PAYEE_LOGO, PAYEE_NAME,
+    PAYEE_WEBSITE, PISP, PISP_BRAND_NAME, PISP_DOMAIN_NAME, PISP_LEGAL_NAME, RECURRENCE, SCT_INST,
+    SERVICE, START_DATE, TOTAL_AMOUNT, TRANSACTION_ID,
+};
 
 /// Why a type is unsupported for a credential (TS12 §3.2 step 5, §3.3.1: cease).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -72,98 +79,148 @@ enum Shown {
     WhenHeld,
 }
 
-/// A field of a type's table: its path below `payload`, its PaSO value type (`None` for plain
-/// text), and for a leaf what the display rules ask of it.
+/// A PaSO value type of a leaf field; a field without one is plain text.
+#[derive(Clone, Copy)]
+enum ValueType {
+    Amount,
+    Boolean,
+    Currency,
+    Date,
+    DateTime,
+    Frequency,
+    Image,
+    Url,
+}
+
+impl ValueType {
+    const fn wire(self) -> &'static str {
+        match self {
+            Self::Amount => "iso_currency_amount",
+            Self::Boolean => "boolean",
+            Self::Currency => "iso_currency",
+            Self::Date => "iso_date",
+            Self::DateTime => "iso_date_time",
+            Self::Frequency => "frequency",
+            Self::Image => "image",
+            Self::Url => "url",
+        }
+    }
+}
+
+/// An object of a field table, shown by its label alone, or a leaf under the display rules.
+#[derive(Clone, Copy)]
+enum Role {
+    Object,
+    Leaf {
+        value_type: Option<ValueType>,
+        shown: Shown,
+    },
+}
+
+/// A field of a type's table.
 struct Field {
-    path: &'static [&'static str],
-    value_type: Option<&'static str>,
-    leaf: Option<Shown>,
+    path: FieldPath,
+    role: Role,
 }
 
 impl Field {
-    const fn leaf(path: &'static [&'static str], value_type: Option<&'static str>) -> Self {
+    const fn leaf(path: FieldPath, value_type: Option<ValueType>) -> Self {
+        Self::shown_as(path, value_type, Shown::WhenHeld)
+    }
+
+    const fn declared(path: FieldPath, value_type: Option<ValueType>) -> Self {
+        Self::shown_as(path, value_type, Shown::Declared)
+    }
+
+    const fn always(path: FieldPath, value_type: Option<ValueType>) -> Self {
+        Self::shown_as(path, value_type, Shown::Always)
+    }
+
+    const fn shown_as(path: FieldPath, value_type: Option<ValueType>, shown: Shown) -> Self {
         Self {
             path,
-            value_type,
-            leaf: Some(Shown::WhenHeld),
+            role: Role::Leaf { value_type, shown },
         }
     }
 
-    const fn declared(path: &'static [&'static str], value_type: Option<&'static str>) -> Self {
+    const fn object(path: FieldPath) -> Self {
         Self {
             path,
-            value_type,
-            leaf: Some(Shown::Declared),
+            role: Role::Object,
         }
     }
 
-    const fn always(path: &'static [&'static str], value_type: Option<&'static str>) -> Self {
-        Self {
-            path,
-            value_type,
-            leaf: Some(Shown::Always),
+    const fn is_leaf(&self) -> bool {
+        matches!(self.role, Role::Leaf { .. })
+    }
+
+    fn shown(&self, wanted: Shown) -> bool {
+        matches!(self.role, Role::Leaf { shown, .. } if shown == wanted)
+    }
+
+    /// The value type PaSO's metadata states for the field.
+    const fn value_type(&self) -> Option<&'static str> {
+        match self.role {
+            Role::Object => Some("label_only"),
+            Role::Leaf {
+                value_type: Some(value_type),
+                ..
+            } => Some(value_type.wire()),
+            Role::Leaf {
+                value_type: None, ..
+            } => None,
         }
     }
 
-    const fn object(path: &'static [&'static str]) -> Self {
-        Self {
-            path,
-            value_type: Some("label_only"),
-            leaf: None,
-        }
-    }
-
-    fn shown(&self, shown: Shown) -> bool {
-        self.leaf == Some(shown)
+    /// Whether a claim's path below `payload` is the field's.
+    fn is_at(&self, path: &[&str]) -> bool {
+        self.path.steps().eq(path.iter().copied())
     }
 }
 
-const AMOUNT: Option<&str> = Some("iso_currency_amount");
-const BOOLEAN: Option<&str> = Some("boolean");
-const DATE: Option<&str> = Some("iso_date");
-const DATE_TIME: Option<&str> = Some("iso_date_time");
+const AMOUNT_VALUE: Option<ValueType> = Some(ValueType::Amount);
+const BOOLEAN: Option<ValueType> = Some(ValueType::Boolean);
+const CALENDAR: Option<ValueType> = Some(ValueType::Date);
+const TIMESTAMP: Option<ValueType> = Some(ValueType::DateTime);
 
 const PAYMENT_FIELDS: [Field; 30] = [
-    Field::declared(&["transaction_id"], None),
-    Field::declared(&["date_time"], DATE_TIME),
-    Field::object(&["payee"]),
-    Field::always(&["payee", "name"], None),
-    Field::declared(&["payee", "id"], None),
-    Field::leaf(&["payee", "logo"], Some("image")),
-    Field::leaf(&["payee", "website"], Some("url")),
-    Field::object(&["pisp"]),
-    Field::leaf(&["pisp", "legal_name"], None),
-    Field::leaf(&["pisp", "brand_name"], None),
-    Field::leaf(&["pisp", "domain_name"], None),
-    Field::leaf(&["execution_date"], DATE),
-    Field::declared(&["currency"], Some("iso_currency")),
-    Field::always(&["amount"], AMOUNT),
-    Field::leaf(&["amount_estimated"], BOOLEAN),
-    Field::leaf(&["amount_earmarked"], BOOLEAN),
-    Field::leaf(&["sct_inst"], BOOLEAN),
-    Field::object(&["recurrence"]),
-    Field::leaf(&["recurrence", "start_date"], DATE),
-    Field::leaf(&["recurrence", "end_date"], DATE),
-    Field::leaf(&["recurrence", "number"], None),
-    Field::leaf(&["recurrence", "frequency"], Some("frequency")),
-    Field::object(&["recurrence", "mit_options"]),
-    Field::leaf(&["recurrence", "mit_options", "amount_variable"], BOOLEAN),
-    Field::leaf(&["recurrence", "mit_options", "min_amount"], AMOUNT),
-    Field::leaf(&["recurrence", "mit_options", "max_amount"], AMOUNT),
-    Field::leaf(&["recurrence", "mit_options", "total_amount"], AMOUNT),
-    Field::leaf(&["recurrence", "mit_options", "initial_amount"], AMOUNT),
-    Field::leaf(
-        &["recurrence", "mit_options", "initial_amount_number"],
-        None,
-    ),
-    Field::leaf(&["recurrence", "mit_options", "apr"], None),
+    Field::declared(TRANSACTION_ID, None),
+    Field::declared(DATE_TIME, TIMESTAMP),
+    Field::object(PAYEE),
+    Field::always(PAYEE_NAME, None),
+    Field::declared(PAYEE_ID, None),
+    Field::leaf(PAYEE_LOGO, Some(ValueType::Image)),
+    Field::leaf(PAYEE_WEBSITE, Some(ValueType::Url)),
+    Field::object(PISP),
+    Field::leaf(PISP_LEGAL_NAME, None),
+    Field::leaf(PISP_BRAND_NAME, None),
+    Field::leaf(PISP_DOMAIN_NAME, None),
+    Field::leaf(EXECUTION_DATE, CALENDAR),
+    Field::declared(CURRENCY, Some(ValueType::Currency)),
+    Field::always(AMOUNT, AMOUNT_VALUE),
+    Field::leaf(AMOUNT_ESTIMATED, BOOLEAN),
+    Field::leaf(AMOUNT_EARMARKED, BOOLEAN),
+    Field::leaf(SCT_INST, BOOLEAN),
+    Field::object(RECURRENCE),
+    Field::leaf(START_DATE, CALENDAR),
+    Field::leaf(END_DATE, CALENDAR),
+    Field::leaf(NUMBER, None),
+    Field::leaf(FREQUENCY, Some(ValueType::Frequency)),
+    Field::object(MIT_OPTIONS),
+    Field::leaf(AMOUNT_VARIABLE, BOOLEAN),
+    Field::leaf(MIN_AMOUNT, AMOUNT_VALUE),
+    Field::leaf(MAX_AMOUNT, AMOUNT_VALUE),
+    Field::leaf(TOTAL_AMOUNT, AMOUNT_VALUE),
+    Field::leaf(INITIAL_AMOUNT, AMOUNT_VALUE),
+    Field::leaf(INITIAL_AMOUNT_NUMBER, None),
+    Field::leaf(APR, None),
 ];
 
 const LOGIN_FIELDS: [Field; 4] = [
-    Field::declared(&["transaction_id"], None),
-    Field::declared(&["date_time"], DATE_TIME),
-    Field::leaf(&["service"], None),
-    Field::always(&["action"], None),
+    Field::declared(TRANSACTION_ID, None),
+    Field::declared(DATE_TIME, TIMESTAMP),
+    Field::leaf(SERVICE, None),
+    Field::always(ACTION, None),
 ];
 
 const fn fields(kind: Ts12Type) -> &'static [Field] {
@@ -202,11 +259,11 @@ pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsu
         .find(|field| field.shown(Shown::Always) && !labelled(field, written))
     {
         return Err(Ts12Unsupported::Labels {
-            field: unlabelled.path.join("."),
+            field: unlabelled.path.as_str().to_owned(),
         });
     }
     for field in table {
-        if field.leaf.is_some() && !seen.iter().any(|known| known.path == field.path) {
+        if field.is_leaf() && !seen.iter().any(|known| known.path == field.path) {
             claims.push(internal(field.path));
         }
     }
@@ -243,16 +300,16 @@ pub(crate) fn labels_for(
         field.shown(Shown::WhenHeld)
             && field
                 .path
-                .iter()
+                .steps()
                 .try_fold(payload, |node, step| node.get(step))
                 .is_some()
             && !written
                 .iter()
-                .any(|claim| field_path(claim).is_some_and(|path| path == field.path))
+                .any(|claim| field_path(claim).is_some_and(|path| field.is_at(&path)))
     });
     omitted.map_or(Ok(()), |field| {
         Err(Ts12Unsupported::Labels {
-            field: field.path.join("."),
+            field: field.path.as_str().to_owned(),
         })
     })
 }
@@ -264,7 +321,7 @@ const fn metadata_at(at: String) -> Ts12Unsupported {
 /// Whether the claims metadata holds a `display` array for the field.
 fn labelled(field: &Field, written: &[Node<'_>]) -> bool {
     written.iter().any(|claim| {
-        field_path(claim).is_some_and(|path| path == field.path)
+        field_path(claim).is_some_and(|path| field.is_at(&path))
             && claim
                 .get("display")
                 .and_then(Node::as_array)
@@ -281,15 +338,15 @@ fn field_path<'c>(claim: &'c Node<'_>) -> Option<Vec<&'c str>> {
         .flatten()
 }
 
-fn path_node(path: &[&str]) -> Node<'static> {
+fn path_node(path: FieldPath) -> Node<'static> {
     Node::Array(
-        path.iter()
-            .map(|step| Node::String(Cow::Owned((*step).to_owned())))
+        path.steps()
+            .map(|step| Node::String(Cow::Borrowed(step)))
             .collect(),
     )
 }
 
-fn internal(path: &[&str]) -> Node<'static> {
+fn internal(path: FieldPath) -> Node<'static> {
     Node::Object(known_object! { "path" => Some(path_node(path)) })
 }
 
@@ -307,7 +364,7 @@ fn translated_claim(
     let path = field_path(claim).ok_or_else(refused)?;
     let field = table
         .iter()
-        .find(|field| field.path == path.as_slice())
+        .find(|field| field.is_at(&path))
         .ok_or_else(refused)?;
     let level = match claim.get("visualisation") {
         None => None,
@@ -322,20 +379,19 @@ fn translated_claim(
     let display = claim
         .get("display")
         .filter(|display| display.as_array().is_none_or(|labels| !labels.is_empty()));
-    if display.is_none() && field.leaf.is_some() && level != Some(HIDDEN) {
+    if display.is_none() && field.is_leaf() && level != Some(HIDDEN) {
         return Err(Ts12Unsupported::Labels {
-            field: field.path.join("."),
+            field: field.path.as_str().to_owned(),
         });
     }
     let display = display.filter(|_| level != Some(HIDDEN) || field.shown(Shown::Always));
     let mut out = vec![(Cow::Borrowed("path"), path_node(field.path))];
     if let Some(display) = display {
-        let at = field.path.join(".");
         out.push((
             Cow::Borrowed("display"),
-            translated_array(display, "label", "name", &at)?,
+            translated_array(display, "label", "name", field.path.as_str())?,
         ));
-        if let Some(value_type) = field.value_type {
+        if let Some(value_type) = field.value_type() {
             out.push((
                 Cow::Borrowed("value_type"),
                 Node::String(Cow::Borrowed(value_type)),

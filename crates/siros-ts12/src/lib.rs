@@ -57,6 +57,7 @@
 #[cfg(feature = "resolve")]
 pub mod amr;
 pub mod document;
+pub mod field;
 pub mod payload;
 #[cfg(feature = "resolve")]
 mod phase2;
@@ -91,7 +92,10 @@ pub use amr::{AmrCategory, amr};
 pub use document::{
     BuiltInEntry, ComposeError, DOCUMENT, SCA_CATEGORY, Ts12Document, Ts12Type, TypeEntry,
 };
-pub use payload::{DataUrl, Integrity, Logo, PayloadRefusal, Ts12Payload};
+pub use field::FieldPath;
+pub use payload::{
+    DataUrl, DateForm, Expected, Integrity, Logo, MaxChars, PayloadRefusal, Ts12Payload,
+};
 pub use rules::{Ts12Excluded, Ts12Rule};
 pub use translate::{Ts12Unsupported, paso_metadata};
 
@@ -339,7 +343,7 @@ pub(crate) fn translate(
         let members = entry.members();
         let payload = members.get("payload").ok_or_else(|| {
             Excluding::from(PayloadRefusal::Required {
-                path: "payload".to_owned(),
+                path: field::PAYLOAD,
             })
         })?;
         let typed = Ts12Payload::parse(built_in.kind(), payload)?;
@@ -349,9 +353,7 @@ pub(crate) fn translate(
     match translated {
         Err(excluding) => Ok(Err(excluding)),
         Ok((kind, typed, metadata)) => {
-            let payload = typed
-                .paso_payload()
-                .map_err(|e| Fault::caused(FAULT, detail!("a typed payload"), e))?;
+            let payload = Node::Object(typed.paso_payload());
             Ok(Ok(Translated {
                 kind,
                 #[cfg(feature = "resolve")]

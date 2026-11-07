@@ -17,8 +17,8 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::outcome::Outcome;
 use siros_ts12::{
-    ComposeError, DataUrl, Integrity, PayloadRefusal, Ts12Document, Ts12Excluded, Ts12Payload,
-    Ts12Rule, Ts12Type, Ts12Unsupported,
+    ComposeError, DataUrl, DateForm, Expected, FieldPath, Integrity, PayloadRefusal, Ts12Document,
+    Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported,
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
@@ -140,7 +140,7 @@ fn payment(amount: &str, more: &str) -> String {
 #[test]
 fn the_values_each_refuse_by_their_rule() {
     use PayloadRefusal as R;
-    let path = |path: &str| path.to_owned();
+    let path = |path: &str| FieldPath::parse(path).expect("a field of TS12's tables");
     let table: [(String, R); 11] = [
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
@@ -175,13 +175,15 @@ fn the_values_each_refuse_by_their_rule() {
         (
             payment("1", r#","extra":1"#),
             R::Member {
-                path: path("extra"),
+                within: path("payload"),
+                name: "extra".to_owned(),
             },
         ),
         (
             payment("1", r#"@,"nested":1"#),
             R::Member {
-                path: path("payee.nested"),
+                within: path("payee"),
+                name: "nested".to_owned(),
             },
         ),
         (
@@ -195,7 +197,7 @@ fn the_values_each_refuse_by_their_rule() {
             payment("1", r#","execution_date":"2026-11-01T10:00:00Z""#),
             R::Date {
                 path: path("execution_date"),
-                form: "calendar date",
+                form: DateForm::Calendar,
             },
         ),
         (
@@ -206,7 +208,7 @@ fn the_values_each_refuse_by_their_rule() {
             payment("1", r#","recurrence":{"frequency":"MNTH","number":1.5}"#),
             R::Kind {
                 path: path("recurrence.number"),
-                kind: "integer",
+                kind: Expected::Integer,
             },
         ),
     ];
@@ -246,13 +248,17 @@ fn the_schemas_lengths_bound_their_strings() {
         (Ts12Type::LoginRisk, &login, "action", 140),
     ];
     for (kind, written, field, max) in table {
-        let refusal = PayloadRefusal::Length {
-            path: field.to_owned(),
-            max,
-        };
         let at = |length: usize| parsed(kind, &written(field, &"\u{e9}".repeat(length)));
         assert!(at(max).is_ok(), "{field} at {max}");
-        assert_eq!(at(max + 1).err(), Some(refusal), "{field} past {max}");
+        let refused = at(max + 1);
+        assert!(
+            matches!(
+                &refused,
+                Err(PayloadRefusal::Length { path, max: stated })
+                    if path.as_str() == field && stated.get() == max
+            ),
+            "{field} past {max}: {refused:?}"
+        );
     }
     assert!(matches!(
         parsed(Ts12Type::Payment, &pay("transaction_id", "")),
@@ -277,7 +283,7 @@ fn an_amount_takes_its_exact_value_with_its_currencys_digits() {
             r#"{{"transaction_id": "t", "payee": {{"name": "P", "id": "i"}}, "currency": "{code}", "amount": {written}}}"#
         );
         let read = parsed(Ts12Type::Payment, &payload).expect(written);
-        let paso = read.paso_payload().expect("the payload");
+        let paso = read.paso_payload();
         assert_eq!(paso.get("amount").and_then(Node::as_str), Some(shown));
     }
     assert!(matches!(
