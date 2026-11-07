@@ -11,7 +11,7 @@ use siros_explain::{AllOf, Explain};
 #[cfg(feature = "resolve")]
 use super::{Answered, Fault, FetchedRecord, Members};
 #[cfg(feature = "match")]
-use super::{Binding, Bound, NoCandidate};
+use super::{Binding, Bound, NoCandidate, ViewAdditions};
 use super::{Format, Member, Profile};
 #[cfg(feature = "signed")]
 use crate::authenticate::{HostedPrefix, ObjectRule};
@@ -46,6 +46,8 @@ use crate::scope::{ScopeEntry, ScopeValue, Scopes};
 use crate::uri::EncryptedRequests;
 #[cfg(feature = "uri")]
 use crate::uri::{AnswerReader, RequestPost};
+#[cfg(feature = "match")]
+use crate::wallet::Credential;
 use crate::wallet_metadata::{
     CORE_ANSWER, CORE_METADATA, CORE_PARAMETERS, CORE_RESPONSE, NamePlace, ParameterName, Placement,
 };
@@ -1573,6 +1575,12 @@ pub(crate) trait Catalog {
     fn placed(&self, id: &FormatId<'_>) -> Option<Placed<'_, dyn Format>>;
     fn profile(&self, kind: &TransactionType<'_>) -> Option<ProfileHandle>;
     fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile>;
+    /// The profiles that reserve the credential.
+    fn reserving(
+        &self,
+        credential: &Credential<'_>,
+        additions: &dyn ViewAdditions,
+    ) -> Result<Vec<ProfileHandle>, super::Fault>;
 }
 
 #[cfg(feature = "match")]
@@ -1587,6 +1595,21 @@ impl<H: Build> Catalog for Registry<H> {
 
     fn profile_ref(&self, handle: ProfileHandle) -> Option<&dyn ErasedProfile> {
         Self::profile_ref(self, handle)
+    }
+
+    fn reserving(
+        &self,
+        credential: &Credential<'_>,
+        additions: &dyn ViewAdditions,
+    ) -> Result<Vec<ProfileHandle>, super::Fault> {
+        let mut reserving = Vec::new();
+        for (position, profile) in self.profiles.iter().enumerate() {
+            let profile: &dyn ErasedProfile = profile.upcast();
+            if profile.reserves(credential, additions)? {
+                reserving.push(ProfileHandle(position));
+            }
+        }
+        Ok(reserving)
     }
 }
 
@@ -1632,6 +1655,12 @@ pub trait ErasedProfile: Send + Sync {
     fn members(&self, placement: Placement) -> Option<&[Member]>;
     #[cfg(feature = "match")]
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
+    #[cfg(feature = "match")]
+    fn reserves(
+        &self,
+        credential: &Credential<'_>,
+        additions: &dyn ViewAdditions,
+    ) -> Result<bool, super::Fault>;
 }
 
 impl<P: Profile> ErasedProfile for P {
@@ -1647,6 +1676,15 @@ impl<P: Profile> ErasedProfile for P {
     #[cfg(feature = "match")]
     fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
         Profile::bind(self, binding, env)
+    }
+
+    #[cfg(feature = "match")]
+    fn reserves(
+        &self,
+        credential: &Credential<'_>,
+        additions: &dyn ViewAdditions,
+    ) -> Result<bool, super::Fault> {
+        Profile::reserves(self, credential, additions)
     }
 }
 

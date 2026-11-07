@@ -10,6 +10,7 @@ mod dates;
 mod flows;
 mod matcher;
 mod metadata;
+mod we_build;
 
 use crate::common::HaipHost;
 use base64::Engine;
@@ -89,7 +90,7 @@ fn member(json: &str, name: &str) -> String {
 }
 
 /// An English wallet showing amounts as written.
-fn english() -> Env {
+pub(crate) fn english() -> Env {
     Env::new(
         vec![LocaleTag::parse("en").expect("en")],
         Vec::new(),

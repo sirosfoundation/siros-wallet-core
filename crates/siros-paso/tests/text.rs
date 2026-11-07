@@ -1,12 +1,12 @@
 //! Label text against Proof Metadata §3.3.
 
-use siros_paso::labels::{Directional, LabelSlot, LabelText, LabelViolation};
+use siros_paso::labels::{Directional, LabelLimits, LabelText, LabelViolation};
 
 /// Proof Metadata §3.3 on single labels: the length in clusters, C0 and C1 controls, the
 /// embeddings and overrides, an isolate left open; a closed isolate and white space alone pass.
 #[test]
 fn single_labels_meet_section_3_3_as_it_states() {
-    let claim = LabelSlot::ClaimName;
+    let claim = LabelLimits::PASO.claim_name;
     assert!(LabelText::parse(&"é".repeat(60), claim).is_ok());
     assert!(LabelText::parse(&"e\u{301}".repeat(60), claim).is_ok());
     // U+093F is a SpacingMark: an extended cluster keeps it with its consonant (UAX #29 GB9a).
@@ -40,11 +40,11 @@ fn single_labels_meet_section_3_3_as_it_states() {
     // §3.3 holds no rule on white space.
     assert!(LabelText::parse(" \u{3000}", claim).is_ok());
     assert_eq!(
-        LabelText::parse(&"x".repeat(41), LabelSlot::Affirmative),
+        LabelText::parse(&"x".repeat(41), LabelLimits::PASO.affirmative),
         Err(LabelViolation::TooLong {
             clusters: 41,
             max: 40
         })
     );
-    assert!(LabelText::parse(&"x".repeat(160), LabelSlot::Hint).is_ok());
+    assert!(LabelText::parse(&"x".repeat(160), LabelLimits::PASO.hint).is_ok());
 }

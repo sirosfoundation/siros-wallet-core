@@ -1,0 +1,43 @@
+{
+  "vct": "https://issuer.bank.example/credentials/sca/user/1.0",
+  "name": "Example Bank SCA-User Attestation",
+  "extends": "https://webuildconsortium.eu/sca/sca-user/1.0",
+  "category": "urn:eu:europa:ec:eudi:sua:sca",
+  "transaction_data_types": {
+    "urn:eudi:sca:login_risk_transaction:1": {
+      "schema_uri": "urn:eudi:sca:login_risk_transaction:1",
+      "claims": [
+        {
+          "path": ["payload", "service"],
+          "visualisation": 2,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Service",
+              "description": "Service requesting confirmation"
+            }
+          ]
+        },
+        {
+          "path": ["payload", "action"],
+          "visualisation": 1,
+          "display": [
+            {
+              "lang": "en-GB",
+              "label": "Action",
+              "description": "Action to be confirmed"
+            }
+          ]
+        }
+      ],
+      "ui_labels": {
+        "affirmative_action_label": [
+          { "lang": "en", "value": "Confirm" }
+        ],
+        "denial_action_label": [
+          { "lang": "en", "value": "Cancel" }
+        ]
+      }
+    }
+  }
+}

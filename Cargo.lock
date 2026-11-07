@@ -3414,6 +3414,7 @@ dependencies = [
  "siros-qes",
  "siros-sdjwt",
  "siros-testkit",
+ "siros-ts12",
  "siros-wallet-state",
  "siros-webuild",
  "siros-x509",
@@ -3558,6 +3559,21 @@ dependencies = [
  "siros-openid4vp",
  "thiserror 2.0.21",
  "x509-cert 0.3.0",
+]
+
+[[package]]
+name = "siros-ts12"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "serde_json",
+ "siros-explain",
+ "siros-i18n",
+ "siros-openid4vp",
+ "siros-paso",
+ "siros-sdjwt",
+ "siros-testkit",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

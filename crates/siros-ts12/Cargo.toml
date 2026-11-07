@@ -1,0 +1,35 @@
+[package]
+name = "siros-ts12"
+version = "0.1.0"
+description = "The TS12 transaction data profile for the SIROS wallet core: payments and logins under urn:eudi:sca:, rendered through siros-paso's engine"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["resolve"]
+# Phase 2: the https logo's revalidation, the authentication need and the Key Binding JWT's claims.
+resolve = ["siros-openid4vp/resolve", "siros-paso/resolve"]
+
+[dependencies]
+siros-openid4vp = { workspace = true, features = ["transaction-data"] }
+siros-paso = { path = "../siros-paso", default-features = false }
+siros-explain = { workspace = true }
+# The converted module's types, in `view::convert`'s signature.
+siros-i18n = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+siros-paso = { path = "../siros-paso", features = ["test-util"] }
+siros-openid4vp = { workspace = true, features = ["resolve"] }
+siros-testkit = { workspace = true }
+siros-i18n = { workspace = true, features = ["load"] }
+siros-sdjwt = { workspace = true }
+
+[lints]
+workspace = true

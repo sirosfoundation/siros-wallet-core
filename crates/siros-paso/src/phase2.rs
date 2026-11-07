@@ -155,13 +155,15 @@ use crate::entry::PasoEntry;
 #[cfg(feature = "resolve")]
 use crate::image::{self, Resolution};
 #[cfg(feature = "resolve")]
+use crate::labels::LabelLimits;
+#[cfg(feature = "resolve")]
 use crate::metadata::ValueType;
 #[cfg(feature = "resolve")]
 use crate::outcome::NotCompatible;
 #[cfg(feature = "resolve")]
 use crate::path::{at, select};
 #[cfg(feature = "resolve")]
-use crate::render::{integrity_sibling, rulebook_metadata};
+use crate::render::{Registered, integrity_sibling, rulebook_metadata};
 #[cfg(feature = "resolve")]
 use crate::respond::{Answer, Modules};
 #[cfg(feature = "resolve")]
@@ -267,7 +269,8 @@ struct Pending<'r> {
 #[cfg(feature = "resolve")]
 /// The images phase 2 resolves for the entry, in the metadata's claim order.
 fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>>, Fault> {
-    let (metadata, _) = rulebook_metadata(&read.entry.kind, read.given)
+    let registered = Registered::of(read.entry.kind.clone(), read.given);
+    let (metadata, _) = rulebook_metadata(&registered, LabelLimits::PASO)
         .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's metadata"), e))?;
     let payload = read.entry.payload.node();
     let mut pending = Vec::new();
