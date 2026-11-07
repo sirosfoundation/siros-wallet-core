@@ -397,20 +397,25 @@ impl<const N: usize> FieldNames<N> {
     /// The object of a member per value present, each under the name at its position, in that
     /// order.
     #[must_use]
-    pub fn object<'a>(&self, values: [Option<Node<'a>>; N]) -> Object<'a> {
-        Object(
-            self.0
-                .into_iter()
-                .zip(values)
-                .filter_map(|(name, value)| {
-                    Some(Member {
-                        name: Cow::Borrowed(name),
-                        value: value?,
-                    })
-                })
-                .collect(),
-        )
+    pub fn object<'a>(&self, mut values: [Option<Node<'a>>; N]) -> Object<'a> {
+        members_present(&self.0, &mut values)
     }
+}
+
+/// The object of a member per value present: one body for every `FieldNames<N>`.
+fn members_present<'a>(names: &[&'static str], values: &mut [Option<Node<'a>>]) -> Object<'a> {
+    Object(
+        names
+            .iter()
+            .zip(values)
+            .filter_map(|(name, value)| {
+                Some(Member {
+                    name: Cow::Borrowed(*name),
+                    value: value.take()?,
+                })
+            })
+            .collect(),
+    )
 }
 
 const fn any_repeats(names: &[&str]) -> bool {
