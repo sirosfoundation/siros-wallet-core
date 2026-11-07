@@ -10,7 +10,8 @@ use std::num::NonZeroU32;
 
 use siros_explain::{Count, Decimal, Text, Value as Typed};
 use siros_openid4vp::claims::kit::{
-    CardError, ClaimsQuery, Constraint, VpFormatsMember, format_entry, vp_formats_refusal,
+    CardError, ClaimsQuery, Constraint, IssuedMetadata, IssuedShape, MergeError, VpFormatsMember,
+    format_entry, merge_metadata, vp_formats_refusal,
 };
 use siros_openid4vp::claims::{ArrayIndex, ClaimPath, Claims, ClaimsError, Step};
 use siros_openid4vp::ids::{LocaleTag, QueryId};
@@ -115,19 +116,21 @@ fn the_card_and_its_rows_follow_the_openid4vci_mdoc_example() {
             ["Given Name", "Surname", "birth_date", "organ_donor"]
         )
     );
-    // RFC 4647 basic filtering over the priority list: de selects no entry, ja-JP the card's and
-    // given_name's; family_name has neither, so its first entry.
+    // Over the priority list: de selects no entry, ja-JP the card's and given_name's; family_name
+    // has neither and shows its data element identifier.
     assert_eq!(
         card_in(&["de", "ja-JP"]),
         card(
             "モバイル運転免許証",
-            ["名前", "Surname", "birth_date", "organ_donor"]
+            ["名前", "family_name", "birth_date", "organ_donor"]
         )
     );
 }
 
+/// D2: RFC 4647 §3.4's Lookup over the priority list, then §3.3.1's filtering, then the entry
+/// without a locale.
 #[test]
-fn locale_selection_tries_basic_filtering_then_the_untagged_entry() {
+fn locale_selection_looks_up_filters_then_takes_the_untagged_entry() {
     let entries = r#"[{"locale": "de-DE", "name": "de-DE"}, {"locale": "en", "name": "en"}, {"name": "default"}]"#;
     let entries = Node::parse(entries).expect("entries");
     let pick = |tags: &[LocaleTag]| {
@@ -136,16 +139,68 @@ fn locale_selection_tries_basic_filtering_then_the_untagged_entry() {
             .and_then(Node::as_str)
             .map(str::to_owned)
     };
-    // RFC 4647 §3.3.1 basic filtering: en-US matches no en, de matches de-DE; else the entry
-    // without a locale.
-    assert_eq!(pick(&[tag("en-US")]).as_deref(), Some("default"));
-    assert_eq!(pick(&[tag("en-US"), tag("en")]).as_deref(), Some("en"));
-    assert_eq!(pick(&[tag("de")]).as_deref(), Some("de-DE"));
+    assert_eq!(pick(&[tag("en-US")]).as_deref(), Some("en"), "Lookup cuts");
+    assert_eq!(pick(&[tag("de")]).as_deref(), Some("de-DE"), "filtering");
     assert_eq!(pick(&[tag("fr")]).as_deref(), Some("default"));
     assert_eq!(
         pick(&[tag("fr"), tag("de")]).as_deref(),
         Some("de-DE"),
         "a later locale of the list before the default"
+    );
+    assert_eq!(
+        pick(&[tag("de"), tag("en")]).as_deref(),
+        Some("en"),
+        "Lookup over the whole list before filtering"
+    );
+    let tagged = Node::parse(r#"[{"locale": "ja", "name": "ja"}]"#).expect("entries");
+    let none = format_entry(tagged.as_array().expect("array"), &[tag("en")]);
+    assert_eq!(none, None, "no entry for the language");
+}
+
+/// Each refusal rule of the metadata merge, over a document that breaks it alone.
+#[test]
+fn the_merge_refuses_what_makes_no_view() {
+    struct AsWritten;
+    impl IssuedShape for AsWritten {
+        const LABEL: &'static str = "name";
+    }
+    let node = |text: &str| Some(Node::parse(text).expect("json").into_owned());
+    let issued = |configuration: &str, response: Option<&str>| IssuedMetadata {
+        configuration: node(configuration),
+        response: response.and_then(node),
+        ..IssuedMetadata::default()
+    };
+    let rows: [(IssuedMetadata<'_>, MergeError); 5] = [
+        (issued("[]", None), MergeError::ConfigurationNotObject),
+        (issued("{}", Some("1")), MergeError::ResponseNotObject),
+        (
+            issued(r#"{"auxiliary_data": []}"#, None),
+            MergeError::AuxiliaryDataPublished,
+        ),
+        (
+            issued(r#"{"display": {}}"#, None),
+            MergeError::NotEntries { member: "display" },
+        ),
+        (
+            issued(r#"{"claims": [{"display": []}]}"#, None),
+            MergeError::Path { position: 0 },
+        ),
+    ];
+    for (input, refusal) in rows {
+        assert_eq!(
+            merge_metadata::<AsWritten>(None, &input),
+            Err(refusal),
+            "{input:?}"
+        );
+    }
+    assert!(matches!(
+        merge_metadata::<AsWritten>(None, &issued(r#"{"display": [{"locale": "1 2"}]}"#, None)),
+        Err(MergeError::Locale { .. })
+    ));
+    let format = Node::parse("[]").expect("json");
+    assert_eq!(
+        merge_metadata::<AsWritten>(Some(&format), &IssuedMetadata::default()),
+        Err(MergeError::FormatNotObject)
     );
 }
 

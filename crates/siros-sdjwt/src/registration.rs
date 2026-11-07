@@ -6,7 +6,8 @@ use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_openid4vp::json::Node;
+use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, merge_metadata};
+use siros_openid4vp::json::{self, JsonError, Node};
 use siros_openid4vp::wallet::Holder;
 
 use crate::error::{HolderKeyFault, RegistrationError};
@@ -17,6 +18,10 @@ use crate::type_metadata;
 /// The key of the document a registration holds, and the Issuer-signed JWT's `typ` (SD-JWT VC
 /// §3.2.1).
 pub const DOCUMENT: &str = "dc+sd-jwt";
+
+/// The members of an OpenID4VCI display entry that SD-JWT VC §8.1.1.1 holds under
+/// `rendering.simple`.
+const SIMPLE_RENDERING: [&str; 3] = ["logo", "background_color", "text_color"];
 
 /// The registered claims no disclosure holds, sub-claims included (SD-JWT VC §3.2.2).
 const PERMANENT: [&str; 8] = [
@@ -36,7 +41,10 @@ pub struct Resolved<'a> {
     /// The effective Type Metadata of the credential's type ([`crate::type_metadata`]); `None`
     /// when its issuer publishes none.
     pub metadata: Option<Node<'a>>,
-    /// Whether the wallet loaded the metadata's `display` as a defined module
+    /// What OpenID4VCI states of the credential's display, which follows the Type Metadata per
+    /// language.
+    pub issued: IssuedMetadata<'a>,
+    /// Whether the wallet loaded [`Resolved::view_metadata`]'s `display` as a defined module
     /// ([`type_metadata::convert`]), so the view names it.
     pub display_loaded: bool,
     /// Each type the credential's type extends, nearest first (§6.4).
@@ -44,6 +52,44 @@ pub struct Resolved<'a> {
     /// The curve of the issuer's key: RFC 7518 §3.4 and RFC 9864 fix it for each JWS algorithm but
     /// `EdDSA`, whose key the wallet's x5c resolution read.
     pub issuer_curve: Option<&'a str>,
+}
+
+impl Resolved<'_> {
+    /// The `metadata` member of the view: the Type Metadata with OpenID4VCI's after it per language
+    /// ([`merge_metadata`]), `{}` when neither states any.
+    ///
+    /// # Errors
+    ///
+    /// [`RegistrationError::Metadata`]: the merge's rule they break.
+    pub fn view_metadata(&self) -> Result<Node<'static>, RegistrationError> {
+        Ok(merge_metadata::<TypeMetadataShape>(
+            self.metadata.as_ref(),
+            &self.issued,
+        )?)
+    }
+}
+
+/// OpenID4VCI's display metadata in SD-JWT VC's shape (§8.1.1.1, §8.2).
+struct TypeMetadataShape;
+
+impl IssuedShape for TypeMetadataShape {
+    const LABEL: &'static str = crate::LABEL;
+
+    fn entry(entry: &Node<'static>) -> Result<Node<'static>, JsonError> {
+        let members = entry.as_object().map_or(&[][..], json::Object::members);
+        let (simple, rest): (Vec<_>, Vec<_>) = members
+            .iter()
+            .map(|member| (member.name.clone(), member.value.clone()))
+            .partition(|(name, _)| SIMPLE_RENDERING.contains(&name.as_ref()));
+        if simple.is_empty() {
+            return Ok(entry.clone());
+        }
+        let simple = Node::object([(Cow::Borrowed("simple"), Node::object(simple)?)])?;
+        Node::object(
+            rest.into_iter()
+                .chain([(Cow::Borrowed("rendering"), simple)]),
+        )
+    }
 }
 
 /// An issued SD-JWT as the registration holds it: the view, and the document phase 2 presents
@@ -86,7 +132,7 @@ impl Registered {
     }
 
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
-    /// "key_curve"?, "extends"?, "validity"?, "display_module"?}`.
+    /// "key_curve"?, "extends"?, "validity"?, "issuer_display"?, "display_module"?}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -127,7 +173,11 @@ fn text(value: &str) -> Node<'static> {
 fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, RegistrationError> {
     let claims = sd_jwt.claims();
     let kind = string(claims.get("vct")).ok_or(RegistrationError::Vct)?;
-    let metadata = metadata(resolved.metadata.as_ref())?;
+    let metadata = resolved.view_metadata()?;
+    let stated = resolved.metadata.is_some()
+        || resolved.issued.configuration.is_some()
+        || resolved.issued.response.is_some();
+    let module = (resolved.display_loaded && stated).then(|| type_metadata::module_of(&metadata));
     let mut members: Vec<(Cow<'static, str>, Node<'static>)> = vec![
         ("type".into(), text(kind)),
         ("metadata".into(), metadata),
@@ -152,8 +202,8 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     if let Some(validity) = validity(claims)? {
         members.push(("validity".into(), validity));
     }
-    if let (true, Some(document)) = (resolved.display_loaded, resolved.metadata.as_ref()) {
-        let digest = type_metadata::module_of(document);
+    members.extend(resolved.issued.issuer_display_member()?);
+    if let Some(digest) = module {
         let hex: String = digest
             .digest()
             .bytes()
@@ -170,17 +220,6 @@ fn string(claim: Option<&IssuedClaim>) -> Option<&str> {
         ClaimValue::String(text) => Some(text),
         _ => None,
     }
-}
-
-/// The metadata as a claims view reads it (`{}` when none).
-fn metadata(metadata: Option<&Node<'_>>) -> Result<Node<'static>, RegistrationError> {
-    let Some(metadata) = metadata else {
-        return Node::object([]).map_err(RegistrationError::Json);
-    };
-    if metadata.as_object().is_none() {
-        return Err(RegistrationError::Metadata);
-    }
-    Ok(metadata.clone().into_owned())
 }
 
 /// The curve the JWS algorithm fixes (RFC 7518 §3.4; RFC 8812 §3.1; RFC 9864 §2.2).

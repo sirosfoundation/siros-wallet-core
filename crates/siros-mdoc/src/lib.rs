@@ -82,6 +82,8 @@ use view::MdocMembers;
 /// The Credential Format Identifier.
 const NAME: FormatName = siros_explain::checked!(FormatName, "mso_mdoc");
 const ID: &str = NAME.as_str();
+/// The claim display member holding the label (OpenID4VCI Appendix B.2).
+const LABEL: &str = "name";
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "mdoc.fault");
@@ -210,7 +212,7 @@ impl ClaimsFormat for Mdoc {
 
     /// OpenID4VCI B.2: a claim's display entry holds its `name`.
     fn label_key(&self) -> &'static str {
-        "name"
+        LABEL
     }
 
     fn vp_formats_clause(&self) -> Clause {

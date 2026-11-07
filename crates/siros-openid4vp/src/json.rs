@@ -177,6 +177,12 @@ impl Node<'static> {
     pub fn integer(value: i128) -> Self {
         Node::Number(Number(Cow::Owned(value.to_string())))
     }
+
+    /// A natural number: a length or a position.
+    #[must_use]
+    pub fn natural(value: usize) -> Self {
+        Node::Number(Number(Cow::Owned(value.to_string())))
+    }
 }
 
 impl<'a> Object<'a> {

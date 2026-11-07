@@ -2,9 +2,9 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_openid4vp::claims::kit::ClaimsFormat;
+use siros_openid4vp::claims::kit::{ClaimsFormat, IssuedMetadata, MergeError};
 use siros_openid4vp::claims::{ClaimPath, Concrete};
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{JsonError, Node};
 use siros_openid4vp::wallet::Holder;
 use siros_sdjwt::{HolderKeyFault, Registered, RegistrationError, Resolved, SdJwtVc};
 use siros_testkit::sd_jwt_issuer;
@@ -298,8 +298,29 @@ fn resolved_refusals() {
     };
     assert_eq!(
         Registered::of(&issued, &metadata),
-        Err(RegistrationError::Metadata)
+        Err(RegistrationError::Metadata {
+            cause: MergeError::FormatNotObject
+        })
     );
+    // An OpenID4VCI entry holds a logo for `rendering.simple` beside its own `rendering`.
+    let repeated = Resolved {
+        issued: IssuedMetadata {
+            configuration: Some(
+                Node::parse(r#"{"display": [{"name": "n", "logo": {}, "rendering": {}}]}"#)
+                    .unwrap(),
+            ),
+            ..IssuedMetadata::default()
+        },
+        ..Resolved::default()
+    };
+    assert!(matches!(
+        Registered::of(&issued, &repeated),
+        Err(RegistrationError::Metadata {
+            cause: MergeError::Json {
+                cause: JsonError::DuplicateMember(name)
+            }
+        }) if name == "rendering"
+    ));
 }
 
 /// A view the issuer stand-in writes, with objects and arrays in arrays, registers as it states:

@@ -95,6 +95,8 @@ pub use {
 /// The Credential Format Identifier.
 const NAME: FormatName = siros_explain::checked!(FormatName, "dc+sd-jwt");
 const ID: &str = NAME.as_str();
+/// The claim display member holding the label (SD-JWT VC §8.2).
+const LABEL: &str = "label";
 
 /// The plug-in's domain, as its fault message.
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "sdjwt.fault");
@@ -237,7 +239,7 @@ impl ClaimsFormat for SdJwtVc {
 
     /// SD-JWT VC §8.2: a claim's display entry holds its `label`.
     fn label_key(&self) -> &'static str {
-        "label"
+        LABEL
     }
 
     fn vp_formats_clause(&self) -> Clause {

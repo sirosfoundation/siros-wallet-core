@@ -3,11 +3,13 @@
 //! the effective metadata of §8.5.2 (`data/figure-21-*`, Figure 21).
 
 use siros_i18n::LanguagePolicy;
+use siros_openid4vp::claims::kit::IssuedMetadata;
+use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Shown;
 use siros_openid4vp::request::Item;
-use siros_sdjwt::{SdJwtVc, type_metadata};
+use siros_sdjwt::{Registered, Resolved, SdJwtVc, type_metadata};
 use siros_testkit::fixtures::{Held, env, icon, parameters, request_of, unsigned};
 use siros_testkit::probe::read_parsed;
 use siros_testkit::render::{App, CrateSource, main_locales, main_module, written};
@@ -24,6 +26,25 @@ fn card(
     paths: &[&str],
     locales: &[&'static str],
 ) -> (String, String, Vec<(String, Option<String>)>) {
+    let card = drawn(view, paths, locales);
+    let rows = card
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                as_written(&row.label),
+                row.value.as_ref().and_then(|v| v.text()).map(as_written),
+            )
+        })
+        .collect();
+    (
+        as_written(&card.title),
+        card.icon.reference.as_str().to_owned(),
+        rows,
+    )
+}
+
+fn drawn(view: &str, paths: &[&str], locales: &[&'static str]) -> Card {
     let kind = Node::parse(view).expect("view");
     let kind = kind.get("type").and_then(Node::as_str).expect("type");
     let claims: Vec<String> = paths
@@ -52,7 +73,7 @@ fn card(
                 .collect();
             let env = env(&locales, icons).expect("env");
             let items: Vec<Item> = (0..paths).map(|k| Item::new(k).expect("item")).collect();
-            let card = query
+            query
                 .draw(
                     &held.credential().expect("credential"),
                     Shown {
@@ -61,22 +82,7 @@ fn card(
                     },
                     &env,
                 )
-                .expect("card");
-            let rows = card
-                .rows
-                .iter()
-                .map(|row| {
-                    (
-                        as_written(&row.label),
-                        row.value.as_ref().and_then(|v| v.text()).map(as_written),
-                    )
-                })
-                .collect();
-            (
-                as_written(&card.title),
-                card.icon.reference.as_str().to_owned(),
-                rows,
-            )
+                .expect("card")
         },
     )
     .expect("the query")
@@ -294,4 +300,150 @@ fn a_locale_of_no_tag_is_refused() {
         type_metadata::convert(&document, &[], &[], LanguagePolicy::Any),
         Err(type_metadata::ConvertError::Locale(_))
     ));
+}
+
+/// D3 over the shape of OpenID4VCI 1.0 §12.2.4's example: the Type Metadata's entry first, the configuration's
+/// for a language it does not answer. `en` of the Type Metadata answers `en-US` before the
+/// configuration's `en-US`, and `fr` shows the Type Metadata's alone.
+#[test]
+fn the_format_display_comes_before_openid4vci_per_language() {
+    let parsed = |text: &str| Some(Node::parse(text).expect("json").into_owned());
+    let resolved = |type_metadata: &str| Resolved {
+        metadata: parsed(type_metadata),
+        issued: IssuedMetadata {
+            issuer_display: parsed(r#"[{"name": "Example University", "locale": "fr"}]"#),
+            configuration: parsed(
+                r#"{"display": [
+                    {"name": "IdentityCredential", "locale": "en-US",
+                     "logo": {"uri": "https://betelgeuse.example.com/public/education-logo.png"}},
+                    {"name": "Identitaet", "locale": "de"}],
+                  "claims": [
+                    {"path": ["given_name"], "display": [
+                       {"name": "Given Name", "locale": "en-US"},
+                       {"name": "Vorname", "locale": "de"}]},
+                    {"path": ["family_name"], "display": [{"name": "Surname", "locale": "en-US"}]}]}"#,
+            ),
+            ..IssuedMetadata::default()
+        },
+        ..Resolved::default()
+    };
+    let issued = siros_testkit::sd_jwt_issuer::issue(
+        &Node::parse(
+            r#"{"type": "t", "metadata": {}, "values": {"given_name": "Erika", "family_name": "Mustermann"},
+                "alg": "ES256", "curve": "P-256"}"#,
+        )
+        .expect("view"),
+    )
+    .expect("issued");
+    let view = |type_metadata: &str| {
+        let registered = Registered::of(&issued, &resolved(type_metadata)).expect("registered");
+        String::from_utf8(registered.view().to_vec()).expect("view")
+    };
+    let paths = [r#"["given_name"]"#, r#"["family_name"]"#];
+    let draw = |document: &str, locales: &[&'static str]| {
+        let (title, icon, rows) = card(&view(document), &paths, locales);
+        let labels: Vec<String> = rows.into_iter().map(|(label, _)| label).collect();
+        (title, icon, labels)
+    };
+    let french = r#"{"vct": "t", "display": [{"name": "Identité", "locale": "fr"}],
+        "claims": [{"path": ["given_name"], "display": [{"label": "Prénom", "locale": "fr"}]}]}"#;
+    let english = r#"{"vct": "t", "display": [{"name": "Identity", "locale": "en"}],
+        "claims": [{"path": ["given_name"], "display": [{"label": "Name", "locale": "en"}]}]}"#;
+    let shows =
+        |title: &str, labels: [&str; 2]| (title.to_owned(), labels.map(str::to_owned).to_vec());
+    // A Type Metadata entry stating no name leaves its language to OpenID4VCI's.
+    let nameless = r#"{"vct": "t", "display": [{"locale": "de"}]}"#;
+    let cases = [
+        (
+            nameless,
+            &["de"][..],
+            shows("Identitaet", ["Vorname", "family_name"]),
+        ),
+        (
+            french,
+            &["fr"][..],
+            shows("Identité", ["Prénom", "family_name"]),
+        ),
+        (
+            french,
+            &["en-US"][..],
+            shows("IdentityCredential", ["Given Name", "Surname"]),
+        ),
+        (
+            french,
+            &["de"][..],
+            shows("Identitaet", ["Vorname", "family_name"]),
+        ),
+        (
+            english,
+            &["en-US"][..],
+            shows("Identity", ["Name", "Surname"]),
+        ),
+    ];
+    for (document, locales, expected) in cases {
+        let (title, _, labels) = draw(document, locales);
+        assert_eq!((title, labels), expected, "{locales:?}");
+    }
+    // The OpenID4VCI logo reads through SD-JWT VC's `rendering.simple`.
+    let (_, logo, _) = draw(french, &["en-US"]);
+    assert_eq!(logo, LOGO);
+    // The Credential Issuer's name for the language, else the credential's `iss`, which this
+    // credential does not state.
+    let subtitle = |locales| drawn(&view(french), &paths, locales).subtitle;
+    assert_eq!(
+        subtitle(&["fr"]),
+        Some(siros_explain::Text::Raw("Example University".to_owned()))
+    );
+    assert_eq!(subtitle(&["de"]), None);
+    // A document merged into `metadata` cannot state the Credential Issuer's name.
+    let claiming = r#"{"vct": "t", "issuer_display": [{"name": "Spoof", "locale": "de"}]}"#;
+    assert_eq!(drawn(&view(claiming), &paths, &["de"]).subtitle, None);
+}
+
+/// A translation that covers some claims, under a loaded module: the module's first tag shows what
+/// the kit's rule gives over the wallet's list, here `de` where it answers and `en` where it does
+/// not.
+#[test]
+fn a_partial_translation_shows_the_next_language_of_the_list() {
+    let document = r#"{"display": [{"name": "Card", "locale": "en"}],
+        "claims": [
+          {"path": ["a"], "display": [{"label": "First", "locale": "en"},
+                                      {"label": "Vorname", "locale": "de"}]},
+          {"path": ["b"], "display": [{"label": "Bee", "locale": "en"}]}]}"#;
+    let parsed = Node::parse(document).expect("metadata");
+    let digest = type_metadata::module_of(&parsed);
+    let hex: String = digest
+        .digest()
+        .bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let view = format!(
+        r#"{{"type": "t", "metadata": {document}, "values": {{"a": "x", "b": "y"}}, "display_module": "{hex}"}}"#
+    );
+    let locales = ["de", "en"];
+    let priority: Vec<LocaleTag> = locales
+        .iter()
+        .map(|tag| LocaleTag::parse(tag).expect("tag"))
+        .collect();
+    let main = main_locales().expect("the main module's locales");
+    let form =
+        type_metadata::convert(&parsed, &main, &priority, LanguagePolicy::Any).expect("the module");
+    let crates = CrateSource::openid4vp().load().expect("the crate module");
+    let main_module = main_module().expect("the main module");
+    let app = App::new(&[&main_module, &crates], &[&form]).expect("the package");
+    let rendering = app.rendering().expect("the rendering");
+    let card = drawn(&view, &[r#"["a"]"#, r#"["b"]"#], &locales);
+    let env = env(&locales, Vec::new()).expect("env");
+    let renderer = rendering
+        .renderer(None, Some(digest), None, &env)
+        .expect("no fault")
+        .expect("a language");
+    assert_eq!(renderer.plain(&card.title).expect("title"), "Card");
+    let labels: Vec<String> = card
+        .rows
+        .iter()
+        .map(|row| renderer.plain(&row.label).expect("label"))
+        .collect();
+    assert_eq!(labels, ["Vorname", "Bee"]);
 }

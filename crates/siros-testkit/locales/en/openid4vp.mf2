@@ -1,4 +1,4 @@
-# The test app's English source of the openid4vp module.
+# The test app's English source of the openid4vp module. The number format's options are siros-cldr's.
 @locale en
 @dir ltr
 ---
@@ -13,3 +13,19 @@ yes = Yes
 no = No
 claim = claim
 null = None
+bytes = {$length :integer} bytes
+
+[formats.number]
+zero = 0
+decimal = .
+group = ,
+minus = -
+plus = +
+grouping = 1
+cardinal =
+  one: i = 1 and v = 0
+ordinal =
+  one: n % 10 = 1 and n % 100 != 11
+  two: n % 10 = 2 and n % 100 != 12
+  few: n % 10 = 3 and n % 100 != 13
+pattern = #,##0.###

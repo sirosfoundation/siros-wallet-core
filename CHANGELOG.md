@@ -29,6 +29,18 @@ All notable changes to this workspace. The format follows
   `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every
   metadata text through it, in every language; a text it refuses excludes the
   credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`).
+- `siros-openid4vp`'s `claims::kit::merge_metadata` writes a credential's view
+  `metadata` from the format's display document and `IssuedMetadata`: the
+  format's entries first, OpenID4VCI's `credential_metadata` per language after
+  them, `auxiliary_data` left out at every depth of every input. Both claims
+  formats' registration calls it; `siros-sdjwt`'s `Resolved` gains `issued`,
+  `siros-mdoc`'s `Resolved.metadata` becomes `issued`, and
+  `RegistrationError::Metadata` holds the `MergeError`.
+- A card's subtitle is the name of the Credential Issuer's display entry
+  (`IssuedMetadata::issuer_display`, the view's `issuer_display`), else the
+  view's `issuer`. A text there is read through `DisplayText`.
+- A byte string shows by its length: `ClaimText::Bytes`, over the mdoc view's
+  `byte_strings`.
 - `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
   C5). `Built::used` and `Built::audience` give the app what it fills a
   `PresentationRecord` with, beside the `vp_token`.
@@ -126,6 +138,10 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `claims::kit::format_entry` is RFC 4647 Lookup over the priority list, then
+  filtering, then the entry without a locale; an array answering none gives no
+  entry, and the row or the card takes its next choice. `type_metadata::convert`
+  writes each tag's body by the same rule over that tag and the priority list.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth

@@ -2,11 +2,18 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use siros_explain::{Count, Text};
+use siros_mdoc::Mdoc;
 use siros_mdoc::registration::{Registered, Resolved};
 use siros_mdoc::stored::StoredMdoc;
 use siros_openid4vp::cbor::Value;
 use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::Shown;
+use siros_openid4vp::request::Item;
+use siros_openid4vp::rows::ClaimText;
+use siros_testkit::fixtures::{Held, env, parameters};
+use siros_testkit::probe::read_parsed;
 
 const DEVICE_RESPONSE: &str = include_str!("vectors/annex_d_device_response.hex");
 const NAME_SPACE: &str = "org.iso.18013.5.1";
@@ -71,4 +78,55 @@ fn annex_d_known_answers() {
             .as_deref(),
         Some("1633095002")
     );
+}
+
+/// D5 over the Annex's `portrait`: the item's head `59 0412` states 1042 bytes, which show by
+/// their length; `family_name`, a text, as written.
+#[test]
+fn a_byte_string_shows_by_its_length() {
+    let data = URL_SAFE_NO_PAD.encode(unhex(DEVICE_RESPONSE.trim()));
+    let registered = Registered::of(&data, &Resolved::default()).unwrap();
+    let view = std::str::from_utf8(registered.view()).unwrap().to_owned();
+    let held = Held::new("mdl", "mso_mdoc", view);
+    let text = parameters(
+        r#"{"credentials": [{"id": "mdl", "format": "mso_mdoc",
+            "meta": {"doctype_value": "org.iso.18013.5.1.mDL"},
+            "claims": [{"path": ["org.iso.18013.5.1", "portrait"]},
+                       {"path": ["org.iso.18013.5.1", "family_name"]}]}]}"#,
+        "",
+    );
+    siros_testkit::unsigned_request!(let request = &text);
+    read_parsed(
+        &request,
+        &request.queries()[0],
+        Mdoc::new().unwrap(),
+        move |query| {
+            let items = [Item::new(0).unwrap(), Item::new(1).unwrap()];
+            let card = query
+                .draw(
+                    &held.credential().unwrap(),
+                    Shown {
+                        everyone: &items,
+                        chosen: &[],
+                    },
+                    &env(&["en"], Vec::new()).unwrap(),
+                )
+                .unwrap();
+            let values: Vec<&Text> = card
+                .rows
+                .iter()
+                .filter_map(|row| row.value.as_ref().and_then(|value| value.text()))
+                .collect();
+            assert_eq!(
+                values,
+                [
+                    &Text::of(&ClaimText::Bytes {
+                        length: Count::of(1042)
+                    }),
+                    &Text::Raw("Doe".to_owned()),
+                ]
+            );
+        },
+    )
+    .unwrap();
 }

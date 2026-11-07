@@ -107,7 +107,12 @@ impl CrateModule {
 
 impl siros_explain::Messages for CrateModule {
     fn messages() -> Vec<siros_explain::Message> {
-        [rows::WalletText::messages(), rows::BooleanText::messages()].concat()
+        [
+            rows::WalletText::messages(),
+            rows::ClaimText::messages(),
+            rows::BooleanText::messages(),
+        ]
+        .concat()
     }
 }
 
@@ -132,6 +137,8 @@ impl siros_explain::Messages for CrateMessages {
             claims::ClaimsError::messages,
             #[cfg(feature = "claims")]
             claims::kit::CardError::messages,
+            #[cfg(feature = "claims")]
+            claims::kit::MergeError::messages,
             #[cfg(feature = "claims")]
             claims::kit::KitRule::messages,
             #[cfg(feature = "claims")]

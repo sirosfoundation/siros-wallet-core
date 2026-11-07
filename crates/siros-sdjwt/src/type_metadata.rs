@@ -219,8 +219,10 @@ fn shown<'d, 'a>(document: &'d Node<'a>) -> Vec<Shown<'d, 'a>> {
 
 /// Converts a Type Metadata document's `display` into its defined module, for each tag it names
 /// and each tag of the End-User's `priority` list. Each shown array is one literal message: in a
-/// tag, the text of the entry [`format_entry`] takes, empty when that entry holds none. A locale's
-/// direction is the main module's entry RFC 4647 basic filtering finds for it, in `main`.
+/// tag, the text of the entry [`format_entry`] takes over that tag and then `priority`, as the
+/// claims kit's card reads the array; empty when that entry holds none, where the kit shows no
+/// message. A locale's direction is the main module's entry RFC 4647 basic filtering finds for it,
+/// in `main`.
 /// `policy`: `Platform::language_policy`'s answer, no specification governing this module.
 ///
 /// # Errors
@@ -259,10 +261,13 @@ pub fn convert(
     let main_tags: Vec<&str> = main.iter().map(|entry| entry.locale().as_str()).collect();
     let mut builder = DefinedForm::builder(module_of(document), policy, declaration);
     for tag in tags {
+        let list: Vec<LocaleTag> = std::iter::once(tag.clone())
+            .chain(priority.iter().cloned())
+            .collect();
         let bodies = arrays
             .iter()
             .map(|array| {
-                let text = format_entry(array.entries, std::slice::from_ref(&tag))
+                let text = format_entry(array.entries, &list)
                     .and_then(|entry| entry.get(array.text))
                     .and_then(Node::as_str)
                     .unwrap_or_default();

@@ -5,7 +5,8 @@
 use std::borrow::Cow;
 
 use siros_explain::Explain;
-use siros_openid4vp::cbor::{self, CborError};
+use siros_openid4vp::cbor::{self, CborError, Value};
+use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 use siros_openid4vp::json::{JsonError, Node};
 
 use crate::stored::{MdocError, StoredMdoc};
@@ -13,8 +14,8 @@ use crate::stored::{MdocError, StoredMdoc};
 /// What the wallet resolved beside the stored mdoc.
 #[derive(Debug, Clone, Default)]
 pub struct Resolved<'a> {
-    /// The credential's display metadata (OpenID4VCI B.2); `None` when its issuer publishes none.
-    pub metadata: Option<Node<'a>>,
+    /// What OpenID4VCI states of the credential's display, the format stating none of its own.
+    pub issued: IssuedMetadata<'a>,
     /// The issuer's name from `x5chain`.
     pub issuer: Option<&'a str>,
     /// The curve of `x5chain`'s Document Signer key.
@@ -42,9 +43,20 @@ pub enum RegistrationError {
     /// The view repeats a member name.
     #[error(transparent)]
     Json(#[from] JsonError),
-    /// The metadata is no object.
-    #[error("the display metadata is no object")]
-    Metadata,
+    /// The display metadata breaks a rule of the merge.
+    #[error("the display metadata: {cause}")]
+    Metadata {
+        /// The rule.
+        #[from]
+        cause: MergeError,
+    },
+}
+
+/// OpenID4VCI's display metadata, as an mdoc's view holds it.
+struct IssuedAsWritten;
+
+impl IssuedShape for IssuedAsWritten {
+    const LABEL: &'static str = crate::LABEL;
 }
 
 /// A stored mdoc as the registration holds it: the view, and the IssuerSigned phase 2 presents from.
@@ -75,8 +87,9 @@ impl Registered {
         })
     }
 
-    /// The view: `{"type", "metadata", "values", "issuer"?, "issuer_alg", "issuer_curve"?,
-    /// "device_alg", "device_curve", "key_authorizations", "validity"}`.
+    /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer_display"?, "issuer"?,
+    /// "issuer_alg", "issuer_curve"?, "device_alg", "device_curve", "key_authorizations",
+    /// "validity"}`.
     #[must_use]
     pub fn view(&self) -> &[u8] {
         &self.view
@@ -108,6 +121,55 @@ fn values(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationError> {
     Ok(Node::object(spaces)?)
 }
 
+/// Each byte string under the items' values, which RFC 8949 §6.1 writes as text in `values`, as
+/// `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
+fn byte_strings(mdoc: &StoredMdoc) -> Result<Vec<Node<'static>>, JsonError> {
+    let mut found = Vec::new();
+    for space in mdoc.name_spaces() {
+        for item in space.items() {
+            let mut path = vec![
+                text(&space.name().to_string()),
+                text(&item.identifier().to_string()),
+            ];
+            bytes_under(item.value(), &mut path, &mut found)?;
+        }
+    }
+    Ok(found)
+}
+
+fn bytes_under(
+    value: &Value,
+    path: &mut Vec<Node<'static>>,
+    found: &mut Vec<Node<'static>>,
+) -> Result<(), JsonError> {
+    match value {
+        Value::Bytes(bytes) => found.push(Node::object([
+            (Cow::Borrowed("path"), Node::Array(path.clone())),
+            (Cow::Borrowed("length"), Node::natural(bytes.len())),
+        ])?),
+        Value::Tag(2 | 3, _) => {}
+        Value::Tag(_, inner) => bytes_under(inner, path, found)?,
+        Value::Array(items) => {
+            for (at, item) in items.iter().enumerate() {
+                path.push(Node::natural(at));
+                bytes_under(item, path, found)?;
+                drop(path.pop());
+            }
+        }
+        Value::Map(pairs) => {
+            for (key, item) in pairs {
+                if let Value::Text(name) = key {
+                    path.push(text(name));
+                    bytes_under(item, path, found)?;
+                    drop(path.pop());
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// `{"namespaces", "elements"}` (ISO/IEC 18013-5 §9.1.2.4).
 fn key_authorizations(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationError> {
     let authorizations = mdoc.mso().key_authorizations();
@@ -133,11 +195,7 @@ fn key_authorizations(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationEr
 }
 
 fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, RegistrationError> {
-    let metadata = match &resolved.metadata {
-        None => Node::object([])?,
-        Some(metadata) if metadata.as_object().is_some() => metadata.clone().into_owned(),
-        Some(_) => return Err(RegistrationError::Metadata),
-    };
+    let metadata = merge_metadata::<IssuedAsWritten>(None, &resolved.issued)?;
     let mso = mdoc.mso();
     let device = mso.device_key();
     let validity = mso.validity();
@@ -147,6 +205,11 @@ fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, Reg
         (Cow::Borrowed("metadata"), metadata),
         (Cow::Borrowed("values"), values(mdoc)?),
     ];
+    let byte_strings = byte_strings(mdoc)?;
+    if !byte_strings.is_empty() {
+        members.push((Cow::Borrowed("byte_strings"), Node::Array(byte_strings)));
+    }
+    members.extend(resolved.issued.issuer_display_member()?);
     if let Some(issuer) = resolved.issuer {
         members.push((Cow::Borrowed("issuer"), text(issuer)));
     }

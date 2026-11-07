@@ -6,18 +6,23 @@
 //! presentation.
 //!
 //! A credential's view is a JSON object: `{"type", "metadata": {"display", "claims"}, "values",
-//! "issuer"?, ...}`, the metadata in the format's own display shape.
+//! "issuer"?, "issuer_display"?, "byte_strings"?, ...}`, the metadata in the format's own display
+//! shape, which [`merge_metadata`] writes at registration.
 
 mod display;
+mod merge;
 mod plugin;
 mod rules;
 
 use siros_explain::{
-    AllOf, DefinedKey, DefinedModule, Explained, Keyed, Query as ExplainQuery, Text,
+    AllOf, Count, DefinedKey, DefinedModule, Explained, Keyed, Query as ExplainQuery, Text,
 };
 
 pub use display::format_entry;
-use display::{Described, label_text, metadata, metadata_texts, value_rows};
+use display::{
+    Described, byte_strings, issuer_display, label_text, metadata, metadata_texts, value_rows,
+};
+pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
@@ -101,11 +106,13 @@ pub enum DisplayItem {
     Claim(usize),
 }
 
-/// What gives a card's texts: the wallet's locales, and the defined module the metadata loaded as.
+/// What gives a card's texts: the wallet's locales, the defined module the metadata loaded as, and
+/// the view's byte strings.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Display<'d> {
     pub(crate) locales: &'d [LocaleTag],
     pub(crate) module: Option<&'d DefinedModule>,
+    pub(crate) byte_strings: &'d [Node<'d>],
 }
 
 impl Display<'_> {
@@ -335,6 +342,10 @@ impl<'q> ClaimsQuery<'q> {
         view.get("metadata")
             .map_or(Ok(()), |metadata| metadata_texts(format, metadata))
             .map_err(CardError::Text)?;
+        issuer_display(view)
+            .iter()
+            .try_for_each(|entry| metadata_texts(format, entry))
+            .map_err(CardError::Text)?;
         drop(
             view.get("issuer")
                 .and_then(Node::as_str)
@@ -344,6 +355,7 @@ impl<'q> ClaimsQuery<'q> {
         let display = Display {
             locales: env.priority(),
             module: None,
+            byte_strings: byte_strings(view),
         };
         for option in options {
             let items = self
@@ -357,7 +369,8 @@ impl<'q> ClaimsQuery<'q> {
     }
 
     /// The credential's card: the display entry's name, else the crate module's
-    /// `WalletText::Credential` message; the `issuer` as subtitle, white space alone showing none;
+    /// `WalletText::Credential` message; as subtitle the name of the Credential Issuer's display
+    /// entry, else the `issuer`, white space alone showing none;
     /// the logo resolved at issuance, else the wallet's default icon; the rows of the items shown.
     ///
     /// # Errors
@@ -373,7 +386,11 @@ impl<'q> ClaimsQuery<'q> {
         module: Option<&DefinedModule>,
     ) -> Result<Card, CardError> {
         let locales = env.priority();
-        let display = Display { locales, module };
+        let display = Display {
+            locales,
+            module,
+            byte_strings: byte_strings(view),
+        };
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
@@ -383,11 +400,19 @@ impl<'q> ClaimsQuery<'q> {
             })
             .map_err(CardError::Text)?
             .unwrap_or_else(|| Text::of(&WalletText::Credential));
-        let subtitle = view
-            .get("issuer")
+        let named = format_entry(issuer_display(view), locales)
+            .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
             .map_or(Ok(None), label_text)
             .map_err(CardError::Text)?;
+        let subtitle = match named {
+            Some(name) => Some(name),
+            None => view
+                .get("issuer")
+                .and_then(Node::as_str)
+                .map_or(Ok(None), label_text)
+                .map_err(CardError::Text)?,
+        };
         let icon = env.icon(entry.and_then(|entry| format.logo(entry))).clone();
         let mut rows = self.claim_rows(format, shown.everyone, view, display)?;
         rows.extend(self.claim_rows(format, shown.chosen, view, display)?);
@@ -517,7 +542,9 @@ pub fn vp_formats_refusal(
 
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,
 /// a `metadata` object whose `display` and `claims`, when present, are arrays, the credential's
-/// `values`, and an `issuer` that is absent, null or a string.
+/// `values`, an `issuer` that is absent, null or a string, an `issuer_display`, when present, an
+/// array, and `byte_strings`, when present, an array of objects with a `path` array and a natural
+/// number `length`.
 #[derive(Debug, Clone)]
 pub struct ClaimsView<'v> {
     credential: &'v Credential<'v>,
@@ -544,7 +571,22 @@ impl<'v> ClaimsView<'v> {
             && json.get("values").is_some()
             && json
                 .get("issuer")
-                .is_none_or(|issuer| matches!(issuer, Node::Null | Node::String(_)));
+                .is_none_or(|issuer| matches!(issuer, Node::Null | Node::String(_)))
+            && json
+                .get(merge::ISSUER_DISPLAY)
+                .is_none_or(|display| display.as_array().is_some())
+            && json.get("byte_strings").is_none_or(|strings| {
+                strings.as_array().is_some_and(|strings| {
+                    strings.iter().all(|string| {
+                        string.get("path").and_then(Node::as_array).is_some()
+                            && matches!(
+                                string.get("length"),
+                                Some(Node::Number(length))
+                                    if Count::parse(length.text()).is_some()
+                            )
+                    })
+                })
+            });
         if !shaped {
             return Err(Fault::new(
                 FAULT,
