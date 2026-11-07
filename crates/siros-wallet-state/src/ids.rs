@@ -75,7 +75,7 @@ impl fmt::Display for InstanceId {
 pub struct FormatIdentifier(String);
 
 impl FormatIdentifier {
-    /// The identifier `text`; `None` for the empty string, which names no format.
+    /// The identifier `text`; `None` for the empty string of an unknown one.
     pub(crate) fn known(text: String) -> Option<Self> {
         known(text).map(Self)
     }

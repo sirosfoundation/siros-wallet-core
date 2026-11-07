@@ -74,7 +74,7 @@ pub(crate) fn array(raw: &RawValue) -> Result<Vec<&RawValue>, JsonTextError> {
 /// A credential entry: the eight members of Section 6.0 and its `metadata`.
 pub struct CredentialEntry {
     credential_id: CredentialId,
-    format: FormatIdentifier,
+    format: Option<FormatIdentifier>,
     data: CredentialData,
     key_id: Option<KeyId>,
     instance_id: InstanceId,
@@ -102,9 +102,7 @@ impl CredentialEntry {
         let text = |name: Member| member::<String>(&members, name);
         Ok(Self {
             credential_id: CredentialId::new(member(&members, Member::CredentialId)?),
-            format: FormatIdentifier::known(text(Member::Format)?).ok_or(
-                WalletStateError::CredentialMember(Member::Format, MemberFault::Empty),
-            )?,
+            format: FormatIdentifier::known(text(Member::Format)?),
             data: CredentialData(text(Member::Data)?),
             key_id: KeyId::known(text(Member::Kid)?),
             instance_id: InstanceId::new(member(&members, Member::InstanceId)?),
@@ -123,9 +121,9 @@ impl CredentialEntry {
         self.credential_id
     }
 
-    /// `format`.
-    pub fn format(&self) -> &FormatIdentifier {
-        &self.format
+    /// `format`. `None` when the wallet did not know it.
+    pub fn format(&self) -> Option<&FormatIdentifier> {
+        self.format.as_ref()
     }
 
     /// `data`.

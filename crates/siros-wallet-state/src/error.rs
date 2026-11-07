@@ -11,9 +11,6 @@ pub enum MemberFault {
     /// The member has another type than its rule gives it.
     #[error("the member has another type than its rule gives it")]
     WrongType,
-    /// `format` is the empty string.
-    #[error("`format` is the empty string")]
-    Empty,
 }
 
 /// What serde_json found in text that is no JSON value.
@@ -88,7 +85,7 @@ pub enum WalletStateError {
     /// An entry of `credentials` is not an object.
     CredentialEntry(#[source] JsonTextError),
     /// A member of Section 6.0 of a credential entry breaks its rule. The number members are
-    /// non-negative integers of 64 bits; the others are strings, `format` a non-empty one.
+    /// non-negative integers of 64 bits; the others are strings.
     #[error("{code}: {member}", code = self.code(), member = .0.name())]
     CredentialMember(Member, #[source] MemberFault),
     /// Two credential entries share a `credentialId`.

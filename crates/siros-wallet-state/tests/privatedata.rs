@@ -105,7 +105,7 @@ fn holds(label: &str, text: &str, state: &WalletState, json: &Value) {
             entry.credential_id().to_string(),
             stored["credentialId"].to_string()
         );
-        assert_eq!(entry.format().as_str(), stored["format"]);
+        assert_eq!(entry.format().map(|f| f.as_str()), known("format"));
         assert_eq!(entry.data().as_str(), stored["data"]);
         assert_eq!(entry.key_id().map(|k| k.as_str()), known("kid"));
         assert_eq!(
@@ -185,6 +185,14 @@ fn each_rule_refuses_its_fixture() {
         )
     };
     assert!(WalletState::parse(&state(ENTRY, "", &record(0))).is_ok());
+    // Section 6.0 states no non-empty rule on `format`: an unknown one, as its siblings read.
+    let unknown = state(
+        &ENTRY.replace(r#""format": "dc+sd-jwt""#, r#""format": """#),
+        "",
+        "",
+    );
+    let unknown = WalletState::parse(&unknown).unwrap();
+    assert!(unknown.credentials()[0].format().is_none());
     let rows = [
         ("no JSON".to_owned(), "state_malformed"),
         (
@@ -210,10 +218,6 @@ fn each_rule_refuses_its_fixture() {
             "credential_member_malformed",
         ),
         (
-            state(&ENTRY.replace(r#""format": "dc+sd-jwt""#, r#""format": """#), "", ""),
-            "credential_member_malformed",
-        ),
-        (
             state(&format!("{ENTRY}, {ENTRY}"), "", ""),
             "credential_id_repeated",
         ),
@@ -232,6 +236,10 @@ fn each_rule_refuses_its_fixture() {
             "presentations_malformed",
         ),
         (state("", "", &record(253_402_300_800)), "presentations_malformed"),
+        (
+            state("", "", &record(0).replacen('{', r#"{"x": 1, "x": 2, "#, 1)),
+            "presentations_malformed",
+        ),
     ];
     for (text, code) in rows {
         assert_eq!(
