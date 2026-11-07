@@ -13,7 +13,9 @@ use siros_explain::{
     Date, DateTime, Explain, Fraction, Messages, ModuleId, Offset, Second, Text, Time, Value,
     checked,
 };
-use siros_i18n::{Declaration, LanguagePolicy, Module, Package};
+use siros_i18n::{
+    Declaration, Formats, LIST, LanguagePolicy, Module, NUMBER, Package, RenderError,
+};
 use siros_mdoc::registration::{Registered, Resolved};
 use siros_openid4vp::cbor::{self, Value as Cbor};
 use siros_openid4vp::ids::LocaleTag;
@@ -23,7 +25,9 @@ use siros_openid4vp::rows::{Choice, Env, Row};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, OPTIONS, ORIGIN, parameters};
 use siros_testkit::issuer::{self, DOCUMENT, IssueError};
-use siros_testkit::render::{App, compilers, formats, main_sources, written};
+use siros_testkit::render::{
+    App, CrateSource, compilers, formats, main_module, main_sources, written,
+};
 
 use crate::common::own_modules;
 use crate::matcher::{registered_modules, shown};
@@ -165,6 +169,7 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
         Some(Offset::new(0).expect("UTC")),
     );
     let issued = Date::new(2018, 8, 9).expect("a date");
+    let unheld = Date::new(2000, 1, 1).expect("a date");
     assert_eq!(
         value_of(&rows, "birth_date"),
         &Text::Value(Value::Date(birth))
@@ -219,9 +224,14 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
         assert_eq!(app.plain(&german, text).expect("de"), *de);
     }
 
-    // The registration's package holds the rows' texts, and the matcher reads them.
+    // The registration's package holds the rows' texts, and a matcher without the date module's
+    // render half reads them. A date the package does not hold shows no fallback text.
     let halves = formats().expect("the render halves");
-    let declared: Vec<Module> = own_modules();
+    let matcher_halves = Formats::new(&[&NUMBER, &LIST]).expect("the matcher's render halves");
+    let declared: Vec<Module> = vec![
+        main_module().expect("the main module"),
+        CrateSource::openid4vp().load().expect("the core's module"),
+    ];
     for (env, column) in [(&english, 0), (&german, 1)] {
         let declared_ids: Vec<ModuleId> = declared.iter().map(Module::id).collect();
         let built = shown(&request, &wallet, env, &rendering, |views, _| {
@@ -247,7 +257,7 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
         });
         let matcher = Rendering::new(
             Package::read(built.bytes(), built.root()).expect("the package"),
-            &halves,
+            &matcher_halves,
             &declared_ids,
         )
         .expect("a registration");
@@ -267,6 +277,10 @@ fn an_mdocs_dates_show_as_typed_values_in_every_path() {
                 let want = if column == 0 { en } else { de };
                 assert_eq!(renderer.plain(text).expect("held"), *want);
             }
+            assert_eq!(
+                renderer.plain(&Text::Value(Value::Date(unheld))),
+                Err(RenderError::Format("date".to_owned()))
+            );
             let emission = emit(display, &matcher, env).expect("no fault");
             assert!(emission.refused().is_empty(), "{:?}", emission.refused());
             let drawn = emission.sets().iter().flatten().flatten().any(|emitted| {

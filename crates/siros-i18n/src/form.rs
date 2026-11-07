@@ -195,23 +195,6 @@ impl BareCalls {
             BareKind::List => self.list.as_ref(),
         }
     }
-
-    /// Every format set.
-    #[cfg(feature = "load")]
-    pub(crate) fn calls(&self) -> impl Iterator<Item = &CompiledCall> {
-        [
-            &self.count,
-            &self.decimal,
-            &self.date,
-            &self.time,
-            &self.date_time,
-            &self.amount,
-            &self.currency,
-            &self.list,
-        ]
-        .into_iter()
-        .flatten()
-    }
 }
 
 /// One message, compiled: its identifier, its declaration's parameters, its expressions, and its

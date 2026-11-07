@@ -43,10 +43,13 @@ All notable changes to this workspace. The format follows
   `byte_strings`.
 - An mdoc's `full-date` (tag 1004) and `tdate` (tag 0) elements show as
   `Value::Date` and `Value::DateTime`, over the view's `dates`, and siros-mdoc turns
-  on siros-i18n's `date`. `RegistrationError::FullDate` and `Tdate` refuse a value
+  on siros-i18n's `date` under `resolve`. `RegistrationError::FullDate` and `Tdate` refuse a value
   those forms do not read. An MSO's `validityInfo` refuses a `+` in a number of its
   times.
 - `:siros:date` writes the weekday of January and February of year 0.
+- A package's locale entry lists the formats its messages call. A bare value's format
+  is refused at the text that needs it, so a matcher reads a held date without the
+  date module's render half.
 - `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
   C5). `Built::used` and `Built::audience` give the app what it fills a
   `PresentationRecord` with, beside the `vp_token`.
