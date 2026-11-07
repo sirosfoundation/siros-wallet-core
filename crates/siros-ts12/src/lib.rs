@@ -259,8 +259,8 @@ impl Ts12Profile {
     ) -> Result<Bound, NoCandidate> {
         let node = read_document(binding.credential)?
             .ok_or_else(|| Excluding::from(Ts12Unsupported::NoDocument))?;
-        let document = self
-            .supported(&node, binding.additions)
+        let document = read_registered(&node)?;
+        self.supported(&document, binding.additions)
             .map_err(Excluding::from)?;
         let translated = translate(&document, entry)?;
         let payload = Payload::of(&translated.payload)
@@ -282,20 +282,19 @@ impl Ts12Profile {
         Ok(siros_paso::bound(view, attested, entries)?)
     }
 
-    /// Phase 1's step 2: the document, read once.
-    fn supported<'d>(
+    /// Phase 1's step 2: the document's category and the credential's types.
+    fn supported(
         &self,
-        document: &'d Node<'d>,
+        document: &Ts12Document<'_>,
         additions: &dyn ViewAdditions,
-    ) -> Result<Ts12Document<'d>, Ts12Unsupported> {
-        let read = Ts12Document::read(document).map_err(|_| Ts12Unsupported::NoDocument)?;
-        if read.category() != Category::Sca {
+    ) -> Result<(), Ts12Unsupported> {
+        if document.category() != Category::Sca {
             return Err(Ts12Unsupported::Category);
         }
         if !self.configured(additions) {
             return Err(Ts12Unsupported::AttestationType);
         }
-        Ok(read)
+        Ok(())
     }
 
     /// A configured attestation type is among the credential's types (reading 26).
@@ -319,6 +318,11 @@ pub(crate) fn read_document<'c>(credential: &Credential<'c>) -> Result<Option<No
             Node::parse(text).map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))
         })
         .transpose()
+}
+
+/// The document as [`Ts12Document::compose`] wrote it, whose shape a registration holds.
+pub(crate) fn read_registered<'d>(node: &'d Node<'d>) -> Result<Ts12Document<'d>, Fault> {
+    Ts12Document::read(node).map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))
 }
 
 /// Phase 1's steps 3 to 6: the entry's type under the document's rules, its typed payload and its
@@ -430,7 +434,10 @@ impl Profile for Ts12Profile {
         credential: &Credential<'_>,
         additions: &dyn ViewAdditions,
     ) -> Result<bool, Fault> {
-        Ok(read_document(credential)?
-            .is_some_and(|document| self.supported(&document, additions).is_ok()))
+        let Some(node) = read_document(credential)? else {
+            return Ok(false);
+        };
+        let document = read_registered(&node)?;
+        Ok(self.supported(&document, additions).is_ok())
     }
 }

@@ -401,15 +401,16 @@ fn labels_of(refused: &Ts12Unsupported, wanted: &str) -> bool {
 fn the_metadata_each_leaves_the_type_unsupported() {
     let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
     let locales = env(&["en"]);
-    let bind = |own: &str| {
+    let bind_document = |held: &[u8]| {
         with_signed(&parameters(&[&good], ""), |request| {
-            bound(request, &document(own), &locales)
+            bound(request, held, &locales)
         })
     };
     let replaced = |from: &str, to: &str| {
         assert!(TESTBED_IBAN.contains(from), "{from}");
         TESTBED_IBAN.replace(from, to)
     };
+    let bind = |own: &str| bind_document(&document(own));
     assert!(bind(CS12_IBAN).is_ok(), "the base offers it");
     // No `ts12` document.
     let none = with_signed(&parameters(&[&good], ""), |request| {
@@ -425,6 +426,12 @@ fn the_metadata_each_leaves_the_type_unsupported() {
         bound_with(request, &credential, &locales, &[BASE], Carriage::Carried)
     });
     assert_eq!(unsupported(none), Ts12Unsupported::NoDocument);
+    // A document no composition wrote is the wallet's fault, the type's rules aside.
+    let unreadable = bind_document(b"{}");
+    assert!(
+        matches!(unreadable, Err(NoCandidate::Fault(_))),
+        "{unreadable:?}"
+    );
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
     type Rule = fn(&Ts12Unsupported) -> bool;
     use Ts12Unsupported as U;

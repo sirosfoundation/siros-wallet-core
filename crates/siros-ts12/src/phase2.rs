@@ -18,9 +18,10 @@ use siros_paso::RandomIds;
 use siros_paso::image::{self, Resolution};
 use siros_paso::outcome::NotCompatible;
 
-use crate::document::Ts12Document;
 use crate::payload::{Integrity, Logo};
-use crate::{FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
+use crate::{
+    FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, read_registered, translate,
+};
 
 /// The record's one entry.
 fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
@@ -37,8 +38,7 @@ fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
 fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
     let node = read_document(record.credential())?
         .ok_or_else(|| Fault::new(FAULT, detail!("a bound credential without its document")))?;
-    let document = Ts12Document::read(&node)
-        .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
+    let document = read_registered(&node)?;
     translate(&document, the_entry(record)?)
         .map_err(|_| Fault::new(FAULT, detail!("a bound entry that no longer translates")))
 }
