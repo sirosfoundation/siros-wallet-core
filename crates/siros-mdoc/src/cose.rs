@@ -219,6 +219,7 @@ impl DeviceKeyView {
     }
 
     /// The algorithm; `None` for a key that signs nothing.
+    #[cfg(feature = "resolve")]
     pub(crate) const fn alg(self) -> Option<SignatureAlgorithm> {
         self.alg
     }
