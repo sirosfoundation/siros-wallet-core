@@ -30,6 +30,15 @@ impl IntoArg for HttpsUrl {
     }
 }
 
+/// A boxed URL, for an error's field: named as the URL is.
+impl IntoArg for Box<HttpsUrl> {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.written.as_str()
+    }
+}
+
 /// Why a text is no https URL the wallet shows or fetches.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.https_url")]

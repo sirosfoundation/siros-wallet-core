@@ -135,7 +135,7 @@ pub enum ComposeError {
     #[error("{} names a document the caller did not fetch", .url.written())]
     Unfetched {
         /// The URL.
-        url: HttpsUrl,
+        url: Box<HttpsUrl>,
     },
 }
 
@@ -306,7 +306,7 @@ fn document_at(
     fetched
         .get(&url)
         .map(|document| document.0.clone())
-        .ok_or(ComposeError::Unfetched { url })
+        .ok_or_else(|| ComposeError::Unfetched { url: Box::new(url) })
 }
 
 /// One `transaction_data_types` entry under its type key, unread until [`TypeEntry::built_in`].

@@ -136,7 +136,10 @@ fn payment(amount: &str, more: &str) -> String {
     )
 }
 
-/// A refusal rule as a predicate over the refusal.
+/// A refusal rule: a predicate over the refusal.
+type Rule<T> = fn(&T) -> bool;
+
+/// A refusal rule from its pattern.
 macro_rules! rule {
     ($($pattern:tt)+) => {
         |refused| matches!(refused, $($pattern)+)
@@ -152,7 +155,7 @@ fn the_values_each_refuse_by_their_rule() {
     let apr = |written: &str| {
         format!(r#","recurrence":{{"frequency":"MNTH","mit_options":{{"apr":{written}}}}}"#)
     };
-    let table: [(String, fn(&R) -> bool); 21] = [
+    let table: [(String, Rule<R>); 21] = [
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
             rule!(R::Required { path } if path.as_str() == "currency"),
@@ -454,9 +457,8 @@ fn the_metadata_each_leaves_the_type_unsupported() {
         "{unreadable:?}"
     );
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
-    type Rule = fn(&Ts12Unsupported) -> bool;
     use Ts12Unsupported as U;
-    let table: [(String, Rule); 16] = [
+    let table: [(String, Rule<U>); 16] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
             rule!(U::Category),
@@ -850,7 +852,7 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
     assert_eq!(
         composed(&own(&format!(r#""claims_uri": "{elsewhere}""#))),
         Err(ComposeError::Unfetched {
-            url: HttpsUrl::parse(elsewhere).expect("a URL")
+            url: Box::new(HttpsUrl::parse(elsewhere).expect("a URL"))
         })
     );
     for written in ["5", r#""http://example.com/claims.json""#] {
