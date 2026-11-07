@@ -130,10 +130,7 @@ pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
         let node = Node::parse(text).expect("a TS12 document");
         let document = Ts12Document::read(&node).expect("a TS12 document");
         for kind in [Ts12Type::Payment, Ts12Type::LoginRisk] {
-            let Some(built_in) = document
-                .entry(kind.urn())
-                .and_then(|entry| entry.built_in())
-            else {
+            let Some(built_in) = document.built_in(kind) else {
                 continue;
             };
             let module =

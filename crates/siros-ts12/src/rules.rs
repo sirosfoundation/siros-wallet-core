@@ -106,11 +106,10 @@ pub(crate) fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Ref
         if entry.credential_ids().len() > 1 {
             out.push(Refusal::new(Ts12Rule::CredentialIds { entry: at }));
         }
-        let kind = entry.kind().as_str();
-        if Ts12Type::of(kind).is_none() {
+        if Ts12Type::of(entry.kind()).is_none() {
             out.push(Refusal::new(Ts12Rule::Type {
                 entry: at,
-                kind: kind.to_owned(),
+                kind: entry.kind().as_str().to_owned(),
             }));
         }
         out.extend(

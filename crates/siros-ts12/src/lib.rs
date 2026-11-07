@@ -90,7 +90,8 @@ use siros_paso::{FailedImage, Fetch};
 #[cfg(feature = "resolve")]
 pub use amr::{AmrCategory, amr};
 pub use document::{
-    BuiltInEntry, ComposeError, DOCUMENT, SCA_CATEGORY, Ts12Document, Ts12Type, TypeEntry,
+    BuiltInEntry, Category, ComposeError, ComposedDocument, DOCUMENT, FetchedDocument,
+    Ts12Document, Ts12Type, TwinnedMember, TypeEntry, WrittenSchema,
 };
 pub use field::FieldPath;
 pub use payload::{
@@ -291,7 +292,7 @@ impl Ts12Profile {
         additions: &dyn ViewAdditions,
     ) -> Result<(), Ts12Unsupported> {
         let read = Ts12Document::read(document).map_err(|_| Ts12Unsupported::NoDocument)?;
-        if read.category() != Some(SCA_CATEGORY) {
+        if read.category() != Category::Sca {
             return Err(Ts12Unsupported::Category);
         }
         if !self.configured(additions) {
@@ -331,13 +332,15 @@ pub(crate) fn translate(
 ) -> Result<Result<Translated, Excluding>, Fault> {
     let read = Ts12Document::read(document)
         .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
-    let kind = entry.kind().as_str();
+    let kind = entry.kind();
     let translated = (|| {
         let listed = read.entry(kind).ok_or_else(|| Ts12Unsupported::NotListed {
-            kind: kind.to_owned(),
+            kind: kind.as_str().to_owned(),
         })?;
         let built_in = listed.built_in().ok_or_else(|| Ts12Unsupported::Schema {
-            schema: listed.schema().unwrap_or_default().to_owned(),
+            schema: listed
+                .schema()
+                .map_or_else(String::new, |schema| schema.as_str().to_owned()),
         })?;
         let metadata = paso_metadata(&built_in)?;
         let members = entry.members();

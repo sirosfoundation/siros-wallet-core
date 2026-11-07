@@ -55,7 +55,11 @@ pub fn profile() -> Ts12Profile {
 /// The registration document of a type metadata text.
 pub fn document(own: &str) -> Vec<u8> {
     let node = Node::parse(own).expect("the metadata");
-    Ts12Document::compose(&node, &Keyed::empty()).expect("the document")
+    Ts12Document::compose(&node, &Keyed::empty())
+        .expect("the document")
+        .content()
+        .as_bytes()
+        .to_vec()
 }
 
 /// A credential the wallet registered with a `ts12` document.
@@ -186,10 +190,7 @@ pub fn defined(own: &str, kind: Ts12Type, priority: &[LocaleTag]) -> DefinedForm
     let document = document(own);
     let node = Node::parse(std::str::from_utf8(&document).expect("UTF-8")).expect("the document");
     let read = Ts12Document::read(&node).expect("the document");
-    let built_in = read
-        .entry(kind.urn())
-        .and_then(|entry| entry.built_in())
-        .expect("a built-in type");
+    let built_in = read.built_in(kind).expect("a built-in type");
     view::convert(&built_in, &main, priority).expect("the module")
 }
 

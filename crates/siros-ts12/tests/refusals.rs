@@ -17,8 +17,9 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet_metadata::Placement;
 use siros_paso::outcome::Outcome;
 use siros_ts12::{
-    ComposeError, DataUrl, DateForm, Expected, FieldPath, Integrity, PayloadRefusal, Ts12Document,
-    Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported,
+    ComposeError, DataUrl, DateForm, Expected, FetchedDocument, FieldPath, Integrity,
+    PayloadRefusal, Ts12Document, Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported,
+    TwinnedMember,
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
@@ -561,13 +562,16 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
     };
     let fetched = Keyed::new(vec![Entry::new(
         HttpsUrl::parse(url).expect("a URL"),
-        br#"{"affirmative_action_label": [{"lang": "en", "value": "Pay"}]}"#.to_vec(),
+        FetchedDocument::parse(
+            br#"{"affirmative_action_label": [{"lang": "en", "value": "Pay"}]}"#,
+        )
+        .expect("JSON"),
     )])
     .expect("one URL");
     let composed = |own: &str| {
-        Ts12Document::compose(&Node::parse(own).expect("JSON"), &fetched).map(|bytes| {
-            let text = String::from_utf8(bytes).expect("UTF-8");
-            let node = Node::parse(&text).expect("JSON").into_owned();
+        Ts12Document::compose(&Node::parse(own).expect("JSON"), &fetched).map(|composed| {
+            let text = std::str::from_utf8(composed.content().as_bytes()).expect("UTF-8");
+            let node = Node::parse(text).expect("JSON").into_owned();
             node.get("transaction_data_types")
                 .and_then(|types| types.get(PAYMENT))
                 .and_then(|entry| entry.get("ui_labels"))
@@ -584,7 +588,7 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
             r#""ui_labels": {{}}, "ui_labels_uri": "{url}""#
         ))),
         Err(ComposeError::Both {
-            member: "ui_labels".to_owned()
+            member: TwinnedMember::UiLabels
         })
     );
     let elsewhere = "https://example.com/elsewhere.json";
