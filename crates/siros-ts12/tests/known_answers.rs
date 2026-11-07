@@ -246,18 +246,36 @@ fn i33_the_test_beds_english_reaches_every_list_holding_english() {
 }
 
 /// I33: a tag standing alone answers its language's generic tag, its region and variants dropped
-/// and its script kept (RFC 5646 §2.1), under the list's first tag (RFC 4647 §3.4).
+/// and its script kept, and a grandfathered tag stays whole (RFC 5646 §2.1), under the list's first
+/// tag (RFC 4647 §3.4). A list naming the language alone reaches no entry under a script.
 #[test]
 fn i33_a_tag_standing_alone_answers_its_generic_tag() {
-    for (written, list) in [
-        ("en-GB", "en"),
-        ("zh-Hant-TW", "zh-Hant"),
-        ("zh-Hans-CN", "zh-Hans"),
-        ("de-1996", "de"),
+    for (written, list, answers) in [
+        ("en-GB", "en", true),
+        ("de-1996", "de", true),
+        ("zh-Hant-TW", "zh-Hant", true),
+        ("zh-Hans-CN", "zh-Hans", true),
+        ("zh-Hant-TW", "zh", false),
+        ("art-lojban", "art-lojban", true),
+        ("art-lojban", "art", false),
+        ("en-GB-oed", "en", false),
+        ("sgn-BE-FR", "sgn", false),
     ] {
         let own = TESTBED_IBAN.replace(r#""en-GB""#, &format!(r#""{written}""#));
-        let bound = bound_entry(&own, TESTBED_PAYMENT, &[list]).expect(written);
-        assert_eq!(selected_tag(&bound), list, "{written}");
+        match bound_entry(&own, TESTBED_PAYMENT, &[list]) {
+            Ok(bound) => {
+                assert!(answers, "{written} under {list}");
+                assert_eq!(selected_tag(&bound), list, "{written}");
+            }
+            Err(NoCandidate::Excluded(excluded)) => {
+                let rule: &dyn std::error::Error = excluded.rule();
+                assert!(
+                    !answers && rule.downcast_ref::<Excluded>().is_some(),
+                    "{written} under {list}: {excluded}"
+                );
+            }
+            Err(fault) => panic!("{written} under {list}: {fault:?}"),
+        }
     }
 }
 

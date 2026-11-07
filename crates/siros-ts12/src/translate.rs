@@ -576,9 +576,46 @@ fn generic_tags(tags: &[&str]) -> Vec<String> {
         .collect()
 }
 
+/// RFC 5646 §2.1's grandfathered tags, irregular and regular, whose subtags carry no meaning apart
+/// (§2.2.8).
+const GRANDFATHERED: [&str; 26] = [
+    "en-GB-oed",
+    "i-ami",
+    "i-bnn",
+    "i-default",
+    "i-enochian",
+    "i-hak",
+    "i-klingon",
+    "i-lux",
+    "i-mingo",
+    "i-navajo",
+    "i-pwn",
+    "i-tao",
+    "i-tay",
+    "i-tsu",
+    "sgn-BE-FR",
+    "sgn-BE-NL",
+    "sgn-CH-DE",
+    "art-lojban",
+    "cel-gaulish",
+    "no-bok",
+    "no-nyn",
+    "zh-guoyu",
+    "zh-hakka",
+    "zh-min",
+    "zh-min-nan",
+    "zh-xiang",
+];
+
 /// The tag without its region and variants, its script kept (RFC 5646 §2.1): the language, its
 /// extended language subtags and its script. A grandfathered or private-use tag stays whole.
 fn generic_tag(tag: &str) -> &str {
+    if GRANDFATHERED
+        .iter()
+        .any(|grandfathered| grandfathered.eq_ignore_ascii_case(tag))
+    {
+        return tag;
+    }
     let mut subtags = tag.split('-');
     let Some(language) = subtags.next().filter(|language| language.len() >= 2) else {
         return tag;
