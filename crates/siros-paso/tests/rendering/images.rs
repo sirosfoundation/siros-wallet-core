@@ -298,6 +298,14 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
     for (why, value, want) in cases {
         assert_eq!(image(&value, &PasoProfile::default()), want, "{why}");
     }
+    // View §3: a refused https image names the form the wallet shows.
+    assert!(matches!(
+        siros_paso::image::resolve("https://b\u{fc}cher.example/l.png", None, &|_| {
+            siros_paso::image::Resolution::Unknown
+        }),
+        Err(NotCompatible::Image { url, failure: ImageFailure::NoIntegrity })
+            if url == "https://xn--bcher-kva.example/l.png"
+    ));
     // A fetched image of 512 KiB exactly.
     let url = "https://cdn.example/l.png";
     let content = [png(1, 1), vec![0; 524_288 - 57]].concat();

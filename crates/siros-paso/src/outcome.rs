@@ -192,7 +192,7 @@ pub enum NotCompatible {
     /// step 3).
     #[error("image {url}: {failure}")]
     Image {
-        /// The first 60 characters of the URL.
+        /// The first 60 characters of the URL, in ASCII once it parses as an https URL.
         url: String,
         /// The rule.
         failure: ImageFailure,
