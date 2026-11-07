@@ -32,7 +32,7 @@ impl SdJwt {
                 chosen.add_within(value);
             }
         }
-        let mut text = format!("{}~", self.issuer_jwt());
+        let mut text = format!("{}~", self.issuer_jwt().as_str());
         for disclosure in chosen.order {
             text.push_str(disclosure);
             text.push('~');

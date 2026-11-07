@@ -1,10 +1,37 @@
 //! Why an issued SD-JWT, or a view of one, is refused.
 
+use std::fmt;
+
 use siros_explain::{Explain, IntoArg, kind};
 use siros_openid4vp::json::JsonError;
+use siros_openid4vp::request::Curve;
 
 use crate::alg::{Digest, SigningAlg};
 use crate::tree::DisclosureId;
+
+/// A curve the wallet resolved, as a refusal names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedCurve(String);
+
+impl From<Curve<'_>> for ResolvedCurve {
+    fn from(curve: Curve<'_>) -> Self {
+        Self(curve.as_str().to_owned())
+    }
+}
+
+impl IntoArg for ResolvedCurve {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ResolvedCurve {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 /// A closed set of names, each its own member of an error.
 macro_rules! claim_names {
@@ -377,7 +404,7 @@ pub enum RegistrationError {
         /// The JWS algorithm.
         alg: SigningAlg,
         /// The curve the wallet resolved.
-        curve: String,
+        curve: ResolvedCurve,
     },
 }
 

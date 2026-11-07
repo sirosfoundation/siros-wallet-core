@@ -24,7 +24,7 @@ fn b64(bytes: &[u8]) -> String {
 fn view_of_a3() {
     let compact = issued("a3");
     let registered = Registered::of(&compact, &Resolved::default()).unwrap();
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     let input = json_fixture("a3/processed.json");
     assert_eq!(view.get("type"), input.get("vct"));
     assert_eq!(view.get("issuer"), input.get("iss"));
@@ -50,7 +50,7 @@ fn walk_keeps_issued_positions() {
         decoy("decoy")
     );
     let registered = Registered::of(&compact(&payload, &[&fr]), &Resolved::default()).unwrap();
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     let values = view.get("values").unwrap();
     let format = SdJwtVc::new().unwrap();
     let selected = |path: &str| -> Vec<(usize, String)> {
@@ -82,7 +82,7 @@ fn walk_keeps_issued_positions() {
 fn numbers_stay_as_the_issuer_wrote_them() {
     let payload = r#"{"vct":"t","nbf":1.50,"n":1.10,"m":1E2,"big":1e400}"#;
     let registered = Registered::of(&compact(payload, &[]), &Resolved::default()).unwrap();
-    let text = std::str::from_utf8(registered.view()).unwrap();
+    let text = std::str::from_utf8(registered.view().as_bytes()).unwrap();
     for written in [
         r#""n":1.10"#,
         r#""m":1E2"#,
@@ -263,7 +263,7 @@ fn the_holder_key() {
             format!(r#"{{"jwk":{{"kty":"{kty}","crv":"{crv}","x":"{coordinate}"{y}{alg}}}}}"#);
         let registered = registered(&cnf).unwrap_or_else(|e| panic!("{cnf}: {e}"));
         assert_eq!(registered.holder(), Holder::Bound);
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         assert_eq!(
             view.get("key_alg").and_then(Node::as_str),
             Some(key_alg),
@@ -291,7 +291,7 @@ fn a_curve_the_algorithm_rules_out() {
         Registered::of(&issued, &curve),
         Err(RegistrationError::IssuerCurve {
             alg: SigningAlg::parse("ES256").unwrap(),
-            curve: "P-384".to_owned(),
+            curve: Curve::new("P-384").unwrap().into(),
         })
     );
 }
@@ -304,7 +304,7 @@ fn a_withheld_exp_is_no_exp() {
     let (_, digest) = disclosure(r#"["2GLC42sKQveCfGfryNRN9w","exp",1785000000]"#);
     let payload = format!(r#"{{"vct":"t","_sd":["{digest}"]}}"#);
     let registered = Registered::of(&compact(&payload, &[]), &Resolved::default()).unwrap();
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     assert_eq!(view.get("validity"), None);
 }
 
@@ -338,7 +338,7 @@ fn issued_view_returns() {
             ..Resolved::default()
         };
         let registered = Registered::of(&issued, &resolved).unwrap();
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         assert_eq!(view, Node::parse(&expected).unwrap(), "{validity}");
     }
 }

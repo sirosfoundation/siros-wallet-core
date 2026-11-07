@@ -109,6 +109,43 @@ fn encoded(node: &Node<'_>) -> String {
     URL_SAFE_NO_PAD.encode(node.written_compact())
 }
 
+/// The bytes the keystore signs for a Key Binding JWT: its encoded header and payload, joined by
+/// `.` (RFC 7515 §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KbSigningInput<'a>(&'a [u8]);
+
+impl<'a> KbSigningInput<'a> {
+    /// The bytes.
+    #[must_use]
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0
+    }
+}
+
+/// The signature of a [`KbSigningInput`], as the keystore made it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KbSignature<'a>(&'a [u8]);
+
+impl<'a> KbSignature<'a> {
+    /// The signature `bytes`.
+    #[must_use]
+    pub const fn new(bytes: &'a [u8]) -> Self {
+        Self(bytes)
+    }
+}
+
+/// An SD-JWT+KB in compact form: a presentation and its Key Binding JWT (RFC 9901 §4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SdJwtKb(String);
+
+impl SdJwtKb {
+    /// The compact form.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A presentation and the signing input of the Key Binding JWT bound to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyBinding {
@@ -117,21 +154,20 @@ pub struct KeyBinding {
 }
 
 impl KeyBinding {
-    /// The bytes the keystore signs: the encoded header and payload, joined by `.` (RFC 7515
-    /// §5.1).
+    /// The bytes the keystore signs.
     #[must_use]
-    pub fn signing_input(&self) -> &[u8] {
-        self.signing_input.as_bytes()
+    pub fn signing_input(&self) -> KbSigningInput<'_> {
+        KbSigningInput(self.signing_input.as_bytes())
     }
 
     /// The SD-JWT+KB: the presentation, then the compact Key Binding JWT `signature` completes.
     #[must_use]
-    pub fn assemble(self, signature: &[u8]) -> String {
-        format!(
+    pub fn assemble(self, signature: KbSignature<'_>) -> SdJwtKb {
+        SdJwtKb(format!(
             "{}{}.{}",
             self.presentation,
             self.signing_input,
-            URL_SAFE_NO_PAD.encode(signature)
-        )
+            URL_SAFE_NO_PAD.encode(signature.0)
+        ))
     }
 }

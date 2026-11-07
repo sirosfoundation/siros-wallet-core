@@ -107,7 +107,7 @@ fn rfc9901_examples() {
                 [],
             )
             .unwrap();
-        let input = std::str::from_utf8(binding.signing_input()).unwrap();
+        let input = std::str::from_utf8(binding.signing_input().as_bytes()).unwrap();
         let (our_header, our_payload) = input.split_once('.').unwrap();
         assert_eq!(decoded(our_header), header, "{dir}");
         assert_eq!(decoded(our_payload), payload, "{dir}");

@@ -10,13 +10,13 @@ use siros_openid4vp::ids::CredentialType;
 use siros_openid4vp::json::{self, Node};
 use siros_openid4vp::known_object;
 use siros_openid4vp::request::Curve;
-use siros_openid4vp::wallet::Holder;
+use siros_openid4vp::wallet::{DocumentBytes, Holder, ViewBytes};
 
 use crate::alg::SigningAlg;
 use crate::error::{
     HolderKeyFault, JwkCoordinate, PermanentClaim, RegistrationError, ValidityClaim,
 };
-use crate::sd_jwt::SdJwt;
+use crate::sd_jwt::{JwtType, SdJwt};
 use crate::tree::{ClaimValue, Element, IssuedClaim, Object};
 use crate::type_metadata;
 
@@ -73,7 +73,7 @@ impl Registered {
     /// claims make no view.
     pub fn of(issued: &str, resolved: &Resolved<'_>) -> Result<Self, RegistrationError> {
         let sd_jwt = SdJwt::parse(issued)?;
-        if sd_jwt.typ() != Some(DOCUMENT) {
+        if sd_jwt.typ().map(JwtType::as_str) != Some(DOCUMENT) {
             return Err(RegistrationError::Typ);
         }
         if let Some(claim) = PermanentClaim::ALL
@@ -97,14 +97,14 @@ impl Registered {
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
     /// "key_curve"?, "extends"?, "validity"?, "display_module"?}`.
     #[must_use]
-    pub fn view(&self) -> &[u8] {
-        &self.view
+    pub fn view(&self) -> ViewBytes<'_> {
+        ViewBytes::new(&self.view)
     }
 
     /// The document, under [`DOCUMENT`].
     #[must_use]
-    pub fn document(&self) -> &[u8] {
-        &self.document
+    pub fn document(&self) -> DocumentBytes<'_> {
+        DocumentBytes::new(&self.document)
     }
 
     /// The credential's `Facts::holder`: `cnf` binds it to a key. Phase 2 refuses a credential
@@ -214,7 +214,7 @@ fn issuer_curve<'a>(
     match (fixed_curve(alg.as_str()).and_then(Curve::new), resolved) {
         (Some(fixed), Some(curve)) if fixed != curve => Err(RegistrationError::IssuerCurve {
             alg: alg.clone(),
-            curve: curve.as_str().to_owned(),
+            curve: curve.into(),
         }),
         (Some(fixed), _) => Ok(Some(fixed)),
         (None, curve) => Ok(curve),

@@ -83,12 +83,15 @@ pub use {
     error::{
         DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, JwkCoordinate,
         KeyBindingError, Misplaced, ParseError, PermanentClaim, PresentFault, RegistrationError,
-        ReservedFault, SdAlgFault, SelectError, ValidityClaim, X5cError,
+        ReservedFault, ResolvedCurve, SdAlgFault, SelectError, ValidityClaim, X5cError,
     },
-    key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
+    key_binding::{
+        Audience, Binding, KbNonce, KbSignature, KbSigningInput, KeyBinding, NumericDate,
+        Presentation, SdJwtKb,
+    },
     process::MAX_DEPTH,
     registration::{DOCUMENT, DisplayModule, Registered, Resolved, ResolvedMetadata},
-    sd_jwt::SdJwt,
+    sd_jwt::{IssuerJwt, JwtType, SdJwt},
     tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
 };
 

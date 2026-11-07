@@ -18,7 +18,7 @@ use siros_openid4vp::wallet::{Credential, Holder};
 use crate::FAULT;
 use crate::alg::SigningAlg;
 use crate::error::PresentFault;
-use crate::key_binding::{Audience, Binding, KbNonce, NumericDate};
+use crate::key_binding::{Audience, Binding, KbNonce, KbSignature, NumericDate};
 use crate::registration::DOCUMENT;
 use crate::sd_jwt::SdJwt;
 use crate::view::SdJwtMembers;
@@ -76,9 +76,11 @@ pub(crate) fn present<H: Has<dyn Haip> + Has<dyn Platform>>(
                 .map_err(|e| fault(credential, PresentFault::KeyBinding(e)))?;
             let signature = host
                 .get::<dyn Haip>()
-                .sign(&credential.id, binding.signing_input())?;
+                .sign(&credential.id, binding.signing_input().as_bytes())?;
             Ok(Presentation::text(
-                &binding.assemble(&signature.into_bytes()),
+                binding
+                    .assemble(KbSignature::new(&signature.into_bytes()))
+                    .as_str(),
             ))
         }
     }
