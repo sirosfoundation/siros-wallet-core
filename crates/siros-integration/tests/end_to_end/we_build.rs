@@ -93,8 +93,10 @@ fn held_under(metadata: &str) -> Held {
     )
     .with_issued()
     .expect("the issued SD-JWT");
-    card.documents
-        .push((siros_ts12::DOCUMENT.to_owned(), document));
+    card.documents.push((
+        siros_ts12::DOCUMENT.as_str().to_owned(),
+        document.content().as_bytes().to_vec(),
+    ));
     card
 }
 
@@ -431,12 +433,9 @@ fn a_displayed_https_logo_meets_its_integrity_in_phase_2() {
     let [Finding::Revalidation { finding, .. }] = findings.items() else {
         panic!("{findings:?}")
     };
-    let failed = &finding
-        .data::<Ts12Finding>()
-        .expect("TS12's finding")
-        .failed;
+    let failed = finding.data::<Ts12Finding>().expect("TS12's finding");
     assert_eq!(
-        (failed.url.as_str(), &failed.failure),
+        (failed.url.ascii(), &failed.failure),
         (URL, &ImageFailure::IntegrityMismatch)
     );
     let informed = registry.informed(&[finding]).expect("informed");
@@ -444,6 +443,37 @@ fn a_displayed_https_logo_meets_its_integrity_in_phase_2() {
         let (query, _) = request.indexed_queries().next().expect("the query");
         assert!(matched.candidates(query).is_empty());
     });
+}
+
+/// View §3: phase 2 fetches a displayed logo alone, so a logo at TS12 §3.3.1's level 4 sends nothing
+/// to the payee's host; here its host answers nothing.
+#[test]
+fn a_hidden_https_logo_is_not_fetched() {
+    let registry = we_build_registry().expect("the WE BUILD build");
+    let host = host();
+    let client_id = x509_hash(&leaf());
+    let payment = PAYMENT.replace(
+        r#""id":"NL-KVK-12345678""#,
+        r#""id":"NL-KVK-12345678","logo":"https://payee.example/logo.png","logo#integrity":"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=""#,
+    );
+    let card = held_under(&METADATA.replacen(
+        r#""claims": ["#,
+        r#""claims": [{"path": ["payload", "payee", "logo"], "visualisation": 4},"#,
+        1,
+    ));
+    let payload = dc_api_payload(&payment, &client_id);
+    let data = format!(r#"{{"request":"{}"}}"#, signed(&payload));
+    let received = dc_api_received(&data);
+    let envelope = Envelope::parse(&received, &registry).expect("an envelope");
+    let authenticated = authentic(&envelope, &registry, &requiring_registration(), &host);
+    let answer = answered_from(
+        &authenticated,
+        &card,
+        &Published::default(),
+        &registry,
+        &host,
+    );
+    assert!(answer.is_ok(), "{answer:?}");
 }
 
 /// Section 8.2's tamper: a TS12 entry altered after the Request Object was signed fails A8.

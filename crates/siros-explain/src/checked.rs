@@ -14,20 +14,16 @@
 macro_rules! checked {
     ($type:ty, $text:literal) => {
         const {
-            match <$type>::new($text) {
-                ::core::option::Option::Some(value) => value,
-                #[allow(
-                    clippy::panic,
-                    reason = "a panic in a constant fails the build (E0080)"
-                )]
-                ::core::option::Option::None => {
-                    ::core::panic!(::core::concat!(
-                        ::core::stringify!($type),
-                        " refuses ",
-                        $text
-                    ))
-                }
-            }
+            #[allow(
+                clippy::expect_used,
+                reason = "a panic in a constant fails the build (E0080)"
+            )]
+            let value = <$type>::new($text).expect(::core::concat!(
+                ::core::stringify!($type),
+                " refuses ",
+                $text
+            ));
+            value
         }
     };
 }

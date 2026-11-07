@@ -3,23 +3,25 @@
 
 use std::borrow::Cow;
 
+use siros_explain::Keyed;
 use siros_openid4vp::detail;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::hash;
 use siros_openid4vp::host::{Authentication, AuthenticationNeed, Has, Platform, ProfileHost};
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::plugins::{
     Answered, Fault, FetchedRecord, JsonText, Member, MemberValue, Members,
 };
 use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::HttpsUrl;
-use siros_paso::FailedImage;
 use siros_paso::RandomIds;
 use siros_paso::image::{self, Resolution};
 use siros_paso::outcome::NotCompatible;
 
-use crate::payload::Logo;
-use crate::{FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
+use crate::payload::{Integrity, Logo};
+use crate::{
+    FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, read_registered, translate,
+};
 
 /// The record's one entry.
 fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
@@ -34,26 +36,19 @@ fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
 
 /// The record's entry translated for its credential, which phase 1 bound.
 fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
-    let document = read_document(record.credential())?
+    let node = read_document(record.credential())?
         .ok_or_else(|| Fault::new(FAULT, detail!("a bound credential without its document")))?;
-    translate(&document, the_entry(record)?)?
+    let document = read_registered(&node)?;
+    translate(&document, the_entry(record)?)
         .map_err(|_| Fault::new(FAULT, detail!("a bound entry that no longer translates")))
 }
 
-/// The https logo the metadata displays: its URL as written and its integrity value.
-fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &str)> {
-    let Some(Logo::Https { url, integrity }) = translated.typed.logo() else {
-        return None;
-    };
-    let claims = translated.metadata.get("claims")?.as_array()?;
-    let displayed = claims.iter().any(|claim| {
-        claim.get("display").is_some()
-            && claim
-                .get("path")
-                .and_then(Node::as_array)
-                .is_some_and(|path| path.iter().filter_map(Node::as_str).eq(["payee", "logo"]))
-    });
-    displayed.then_some((url, integrity.as_str()))
+/// The https logo the metadata displays: its URL and its integrity value.
+fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &Integrity)> {
+    match translated.typed.logo() {
+        Some(Logo::Https { url, integrity }) if translated.logo_displayed => Some((url, integrity)),
+        _ => None,
+    }
 }
 
 /// Needs the platform, and `RandomIds` for `jti`.
@@ -74,13 +69,15 @@ where
     /// The profile knowing the failed logo as a failed fetch: phase 1 then excludes the
     /// credential.
     fn informed(&self, findings: &[&Ts12Finding]) -> Self {
-        let mut informed = self.clone();
-        informed.resources.extend(findings.iter().map(|finding| {
-            (
-                finding.failed.url.clone(),
-                siros_paso::Fetch::Failed(finding.failed.failure.to_string()),
+        let failed = findings.iter().map(|finding| {
+            siros_explain::Entry::new(
+                finding.url.clone(),
+                siros_paso::Fetch::Failed(finding.failure.to_string()),
             )
-        }));
+        });
+        let mut informed = self.clone();
+        informed.resources =
+            Keyed::first_of(self.resources.entries().iter().cloned().chain(failed));
         informed
     }
 
@@ -111,14 +108,12 @@ where
             Fetch::Fetched { content, media } => Resolution::Fetched { content, media },
             Fetch::Unfetched => Resolution::Failed("the fetch failed"),
         };
-        let written = Node::String(Cow::Borrowed(integrity));
+        let written = Node::String(Cow::Borrowed(integrity.as_str()));
         match image::resolve(url.written(), Some(&written), &resolution) {
             Ok(_) => Ok(None),
             Err(NotCompatible::Image { failure, .. }) => Ok(Some(Ts12Finding {
-                failed: FailedImage {
-                    url: url.ascii().to_owned(),
-                    failure,
-                },
+                url: url.clone(),
+                failure,
             })),
             Err(other) => Err(Fault::caused(FAULT, detail!("a logo"), other)),
         }
@@ -131,7 +126,7 @@ where
         host: &H,
         authentication: &Authentication,
     ) -> Result<Members, Fault> {
-        let amr = amr_claim(authentication)?;
+        let amr = amr_claim(authentication);
         let mut members = vec![
             (
                 Member::claim("jti"),
@@ -154,19 +149,19 @@ where
 }
 
 /// One object per factor applied, in the order applied.
-fn amr_claim(authentication: &Authentication) -> Result<Node<'static>, Fault> {
-    authentication
-        .factors()
-        .items()
-        .iter()
-        .map(|factor| {
-            let (category, method) = amr(factor);
-            Node::object([(
-                Cow::Borrowed(category.name()),
-                Node::String(Cow::Borrowed(method)),
-            )])
-            .map_err(|e| Fault::caused(FAULT, detail!("an amr object"), e))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Node::Array)
+fn amr_claim(authentication: &Authentication) -> Node<'static> {
+    Node::Array(
+        authentication
+            .factors()
+            .items()
+            .iter()
+            .map(|factor| {
+                let method = amr(factor);
+                Node::Object(Object::single(
+                    Cow::Borrowed(method.category().name()),
+                    Node::String(Cow::Borrowed(method.name())),
+                ))
+            })
+            .collect(),
+    )
 }

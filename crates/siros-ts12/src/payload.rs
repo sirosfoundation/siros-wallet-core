@@ -3,71 +3,196 @@
 //! (PaSO Core §7.4.2 step 2).
 
 use std::borrow::Cow;
+use std::fmt;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use siros_explain::{Currency, Explain};
-use siros_openid4vp::json::{JsonError, Node, Number, Object};
+use siros_explain::{Count, Currency, Explain, IntoArg, kind};
+use siros_openid4vp::json::{Node, Number, Object};
+use siros_openid4vp::known_object;
 use siros_openid4vp::rows::HttpsUrl;
 use siros_paso::frequency::Frequency;
 use siros_paso::value::{FormattedKind, Written, formatted};
 
 use crate::document::Ts12Type;
+use crate::field::{
+    ACTION, AMOUNT, AMOUNT_EARMARKED, AMOUNT_ESTIMATED, AMOUNT_VARIABLE, APR, CURRENCY, DATE_TIME,
+    END_DATE, EXECUTION_DATE, FREQUENCY, FieldPath, INITIAL_AMOUNT, INITIAL_AMOUNT_NUMBER,
+    MAX_AMOUNT, MIN_AMOUNT, MIT_OPTIONS, NUMBER, PAYEE, PAYEE_ID, PAYEE_LOGO, PAYEE_LOGO_INTEGRITY,
+    PAYEE_NAME, PAYEE_WEBSITE, PAYLOAD, PISP, PISP_BRAND_NAME, PISP_DOMAIN_NAME, PISP_LEGAL_NAME,
+    RECURRENCE, SCT_INST, SERVICE, START_DATE, TOTAL_AMOUNT, TRANSACTION_ID,
+};
 
 /// An exact decimal's digits in PaSO's amounts (View §3).
 const MAX_DIGITS: i64 = 38;
 /// The schemas' `transaction_id` `maxLength`.
-const TRANSACTION_ID_MAX: usize = 36;
+const TRANSACTION_ID_MAX: MaxChars = MaxChars(36);
 /// The login schema's `service` `maxLength`.
-const SERVICE_MAX: usize = 100;
+const SERVICE_MAX: MaxChars = MaxChars(100);
 /// The login schema's `action` `maxLength`.
-const ACTION_MAX: usize = 140;
+const ACTION_MAX: MaxChars = MaxChars(140);
+
+/// A schema's `maxLength`, in characters (JSON Schema §6.3.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaxChars(usize);
+
+impl MaxChars {
+    /// The length.
+    #[must_use]
+    pub const fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for MaxChars {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A length is named as a count in a message.
+impl IntoArg for MaxChars {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
+/// The form TS12 lists for a member.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Expected {
+    /// A JSON object.
+    Object,
+    /// A JSON string.
+    String,
+    /// A JSON boolean.
+    Boolean,
+    /// A JSON number.
+    Number,
+    /// A number without fraction or exponent, not negative, within 64 bits.
+    Integer,
+    /// A number not negative, its exact decimal value within 38 digits.
+    Decimal,
+    /// An https URL.
+    HttpsUrl,
+    /// A data URL.
+    DataUrl,
+    /// A data URL or an https URL.
+    DataOrHttpsUrl,
+}
+
+impl Expected {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Object => "object",
+            Self::String => "string",
+            Self::Boolean => "boolean",
+            Self::Number => "number",
+            Self::Integer => "integer",
+            Self::Decimal => "decimal",
+            Self::HttpsUrl => "https URL",
+            Self::DataUrl => "data URL",
+            Self::DataOrHttpsUrl => "data URL or https URL",
+        }
+    }
+}
+
+impl fmt::Display for Expected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A form is named as the code fixes it.
+impl IntoArg for Expected {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
+}
+
+/// The ISO 8601 form a date member takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateForm {
+    /// A calendar date.
+    Calendar,
+    /// A date and time.
+    DateTime,
+}
+
+impl DateForm {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Calendar => "calendar date",
+            Self::DateTime => "date-time",
+        }
+    }
+}
+
+impl fmt::Display for DateForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A form is named as the code fixes it.
+impl IntoArg for DateForm {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
+}
 
 /// Why a payload is refused: the entry is not compatible.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "ts12.payload")]
 pub enum PayloadRefusal {
-    /// A member TS12 does not list, at any depth.
-    #[error("{path}: a member TS12 does not list")]
+    /// A member TS12 does not list in that object, at any depth.
+    #[error("{within}: {name} is a member TS12 does not list")]
     Member {
-        /// The member.
-        path: String,
+        /// The object.
+        within: FieldPath,
+        /// The member's name as written.
+        name: String,
     },
     /// A required member absent.
     #[error("{path} is required")]
     Required {
         /// The member.
-        path: String,
+        path: FieldPath,
     },
-    /// A member of another JSON type than TS12's: its kind names what TS12 lists.
+    /// A member of another form than TS12's.
     #[error("{path} is no {kind}")]
     Kind {
         /// The member.
-        path: String,
+        path: FieldPath,
         /// What TS12 lists.
-        kind: &'static str,
+        kind: Expected,
     },
     /// A string outside the lengths TS12's schema gives its member: at most `max` characters, and
     /// at least one for `transaction_id`.
     #[error("{path} is outside its length, at most {max} characters")]
     Length {
         /// The member.
-        path: String,
+        path: FieldPath,
         /// The schema's `maxLength`.
-        max: usize,
+        max: MaxChars,
     },
     /// An amount with more fractional digits than its currency's minor unit, or beyond an exact
     /// decimal's 38 digits.
     #[error("{path} has more digits than its currency")]
     Digits {
         /// The member.
-        path: String,
+        path: FieldPath,
     },
     /// A negative amount: TS12 defines no negative payment.
     #[error("{path} is negative")]
     Negative {
         /// The member.
-        path: String,
+        path: FieldPath,
     },
     /// `execution_date` beside `recurrence` (TS12 §4.3.1).
     #[error("execution_date beside recurrence")]
@@ -76,9 +201,9 @@ pub enum PayloadRefusal {
     #[error("{path} is no ISO 8601 {form}")]
     Date {
         /// The member.
-        path: String,
-        /// `calendar date` or `date-time`.
-        form: &'static str,
+        path: FieldPath,
+        /// The form TS12 lists.
+        form: DateForm,
     },
     /// An https `payee.logo` without a valid `payee.logo#integrity` (View §3 `image`).
     #[error("payee.logo is an https URL without a valid payee.logo#integrity")]
@@ -183,23 +308,17 @@ fn hash_expression(expression: &str) -> bool {
         .is_ok_and(|digest| digest.len() == octets)
 }
 
-/// An amount, with exactly its currency's minor-unit digits.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Amount(String);
+/// A JSON number's exact decimal value, its sign aside: its digits without leading or trailing
+/// zeros, and how many of the value's digits stand before its point.
+struct Exact {
+    significant: String,
+    point: i64,
+}
 
-impl Amount {
-    /// The exact decimal value of a JSON number as written, with at most `minor` fractional
-    /// digits, and exactly that many in the text.
-    fn parse(number: &Number<'_>, minor: u8, path: &str) -> Result<Self, PayloadRefusal> {
-        let digits = || PayloadRefusal::Digits {
-            path: path.to_owned(),
-        };
-        let text = number.text();
-        if text.starts_with('-') {
-            return Err(PayloadRefusal::Negative {
-                path: path.to_owned(),
-            });
-        }
+impl Exact {
+    /// The value of a number as written; `None` for an exponent beyond 64 bits.
+    fn of(text: &str) -> Option<Self> {
+        let text = text.strip_prefix('-').unwrap_or(text);
         let (mantissa, exponent) = match text.split_once(['e', 'E']) {
             Some((mantissa, exponent)) => (mantissa, Some(exponent)),
             None => (text, None),
@@ -209,46 +328,105 @@ impl Amount {
         let significant = written.trim_start_matches('0');
         let leading = written.len() - significant.len();
         let significant = significant.trim_end_matches('0');
-        let minor_digits = usize::from(minor);
         if significant.is_empty() {
-            return Ok(Self(with_minor("0", "", minor_digits)));
+            return Some(Self {
+                significant: String::new(),
+                point: 0,
+            });
         }
         let exponent: i64 = match exponent {
-            Some(exponent) => exponent.parse().map_err(|_| digits())?,
+            Some(exponent) => exponent.parse().ok()?,
             None => 0,
         };
-        let before = i64::try_from(whole.len()).map_err(|_| digits())?;
-        let leading = i64::try_from(leading).map_err(|_| digits())?;
-        // Where the decimal point falls after `significant`'s first digit's position.
-        let point = before.saturating_add(exponent).saturating_sub(leading);
-        let held = i64::try_from(significant.len()).map_err(|_| digits())?;
-        if held.saturating_sub(point) > i64::from(minor)
-            || point.saturating_add(i64::from(minor)) > MAX_DIGITS
+        let before = i64::try_from(whole.len()).ok()?;
+        let leading = i64::try_from(leading).ok()?;
+        Some(Self {
+            significant: significant.to_owned(),
+            point: before.saturating_add(exponent).saturating_sub(leading),
+        })
+    }
+
+    /// The digits the value holds after its point.
+    fn fraction_digits(&self) -> i64 {
+        i64::try_from(self.significant.len())
+            .unwrap_or(i64::MAX)
+            .saturating_sub(self.point)
+            .max(0)
+    }
+
+    /// The digits before its point and those after, in full; `None` beyond what a text can hold.
+    fn parts(&self) -> Option<(String, String)> {
+        if self.point <= 0 {
+            let zeros = usize::try_from(self.point.checked_neg()?).ok()?;
+            return Some((
+                "0".to_owned(),
+                format!("{}{}", "0".repeat(zeros), self.significant),
+            ));
+        }
+        let at = usize::try_from(self.point).ok()?;
+        if at >= self.significant.len() {
+            let zeros = "0".repeat(at - self.significant.len());
+            return Some((format!("{}{zeros}", self.significant), String::new()));
+        }
+        let (units, cents) = self.significant.split_at_checked(at)?;
+        Some((units.to_owned(), cents.to_owned()))
+    }
+}
+
+/// An amount, with exactly its currency's minor-unit digits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Amount(String);
+
+impl Amount {
+    /// The exact decimal value of a JSON number as written, with at most `minor` fractional
+    /// digits, and exactly that many in the text.
+    fn parse(
+        number: &Number<'_>,
+        minor: MinorDigits,
+        path: FieldPath,
+    ) -> Result<Self, PayloadRefusal> {
+        let digits = || PayloadRefusal::Digits { path };
+        let text = number.text();
+        if text.starts_with('-') {
+            return Err(PayloadRefusal::Negative { path });
+        }
+        let exact = Exact::of(text).ok_or_else(digits)?;
+        if exact.fraction_digits() > i64::from(minor.0)
+            || exact.point.saturating_add(i64::from(minor.0)) > MAX_DIGITS
         {
             return Err(digits());
         }
-        let padded;
-        let (units, cents): (&str, String) = if point <= 0 {
-            let zeros = usize::try_from(-point).map_err(|_| digits())?;
-            ("0", format!("{}{significant}", "0".repeat(zeros)))
-        } else {
-            let at = usize::try_from(point).map_err(|_| digits())?;
-            if at >= significant.len() {
-                padded = format!("{significant}{}", "0".repeat(at - significant.len()));
-                (padded.as_str(), String::new())
-            } else {
-                let units = significant.get(..at).ok_or_else(digits)?;
-                let cents = significant.get(at..).ok_or_else(digits)?;
-                (units, cents.to_owned())
-            }
-        };
-        Ok(Self(with_minor(units, &cents, minor_digits)))
+        let (units, cents) = exact.parts().ok_or_else(digits)?;
+        Ok(Self(with_minor(&units, &cents, usize::from(minor.0))))
     }
 
     /// The amount's number.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// `mit_options.apr`: the exact decimal value of a JSON number, not negative, within 38 digits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Apr(String);
+
+impl Apr {
+    fn parse(number: &Number<'_>) -> Result<Self, PayloadRefusal> {
+        let refused = || PayloadRefusal::Kind {
+            path: APR,
+            kind: Expected::Decimal,
+        };
+        let text = number.text();
+        if text.starts_with('-') {
+            return Err(refused());
+        }
+        let exact = Exact::of(text).ok_or_else(refused)?;
+        if exact.point.max(0).saturating_add(exact.fraction_digits()) > MAX_DIGITS {
+            return Err(refused());
+        }
+        let (units, cents) = exact.parts().ok_or_else(refused)?;
+        Ok(Self(with_minor(&units, &cents, cents.len())))
     }
 }
 
@@ -261,12 +439,28 @@ fn with_minor(units: &str, cents: &str, minor: usize) -> String {
     }
 }
 
-/// An ISO 4217 code of the core's table.
+/// An ISO 4217 code of the core's table, as `^[A-Z]{3}$` (TS12's schema) writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrencyCode {
-    code: String,
-    minor: u8,
+    currency: Currency,
+    minor: MinorDigits,
 }
+
+impl CurrencyCode {
+    /// The alphabetic code.
+    fn code(&self) -> String {
+        self.currency
+            .code()
+            .iter()
+            .copied()
+            .map(char::from)
+            .collect()
+    }
+}
+
+/// A currency's minor-unit digits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MinorDigits(u8);
 
 /// An ISO 8601 calendar date.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,11 +484,53 @@ pub enum Logo {
     },
 }
 
+/// Declares the type of a member whose value holds its role alone.
+macro_rules! role {
+    ($($(#[$doc:meta])* $name:ident($value:ty);)+) => {
+        $(
+            $(#[$doc])*
+            #[derive(Debug, Clone, PartialEq, Eq)]
+            pub struct $name($value);
+        )+
+    };
+}
+
+role! {
+    /// `transaction_id`: one to 36 characters (the schemas' `minLength` and `maxLength`).
+    TransactionId(String);
+    /// `service`: at most 100 characters (the login schema's `maxLength`).
+    Service(String);
+    /// `action`: at most 140 characters (the login schema's `maxLength`).
+    Action(String);
+    /// `payee.name`.
+    PayeeName(String);
+    /// `payee.id`.
+    PayeeId(String);
+    /// `pisp.legal_name`.
+    PispLegalName(String);
+    /// `pisp.brand_name`.
+    PispBrandName(String);
+    /// `pisp.domain_name`.
+    PispDomainName(String);
+    /// `recurrence.number`.
+    RecurrenceNumber(u64);
+    /// `mit_options.initial_amount_number`.
+    InitialAmountNumber(u64);
+    /// `amount_estimated`.
+    AmountEstimated(bool);
+    /// `amount_earmarked`.
+    AmountEarmarked(bool);
+    /// `sct_inst`.
+    SctInst(bool);
+    /// `mit_options.amount_variable`.
+    AmountVariable(bool);
+}
+
 /// `payee`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Payee {
-    name: String,
-    id: String,
+    name: PayeeName,
+    id: PayeeId,
     logo: Option<Logo>,
     website: Option<HttpsUrl>,
 }
@@ -302,21 +538,21 @@ pub struct Payee {
 /// `pisp`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pisp {
-    legal_name: String,
-    brand_name: String,
-    domain_name: String,
+    legal_name: PispLegalName,
+    brand_name: PispBrandName,
+    domain_name: PispDomainName,
 }
 
 /// `recurrence.mit_options`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MitOptions {
-    amount_variable: Option<bool>,
+    amount_variable: Option<AmountVariable>,
     min_amount: Option<Amount>,
     max_amount: Option<Amount>,
     total_amount: Option<Amount>,
     initial_amount: Option<Amount>,
-    initial_amount_number: Option<u64>,
-    apr: Option<String>,
+    initial_amount_number: Option<InitialAmountNumber>,
+    apr: Option<Apr>,
 }
 
 /// `recurrence`.
@@ -324,7 +560,7 @@ pub struct MitOptions {
 pub struct Recurrence {
     start_date: Option<CalendarDate>,
     end_date: Option<CalendarDate>,
-    number: Option<u64>,
+    number: Option<RecurrenceNumber>,
     frequency: Frequency,
     mit_options: Option<MitOptions>,
 }
@@ -343,25 +579,25 @@ pub enum Execution {
 /// A `urn:eudi:sca:payment:1` payload (TS12 §4.3.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Payment {
-    transaction_id: String,
+    transaction_id: TransactionId,
     date_time: Option<DateTime>,
     payee: Payee,
     pisp: Option<Pisp>,
     execution: Execution,
     currency: CurrencyCode,
     amount: Amount,
-    amount_estimated: Option<bool>,
-    amount_earmarked: Option<bool>,
-    sct_inst: Option<bool>,
+    amount_estimated: Option<AmountEstimated>,
+    amount_earmarked: Option<AmountEarmarked>,
+    sct_inst: Option<SctInst>,
 }
 
 /// A `urn:eudi:sca:login_risk_transaction:1` payload (TS12 §4.3.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoginRisk {
-    transaction_id: String,
+    transaction_id: TransactionId,
     date_time: Option<DateTime>,
-    service: Option<String>,
-    action: String,
+    service: Option<Service>,
+    action: Action,
 }
 
 /// A typed payload.
@@ -373,156 +609,154 @@ pub enum Ts12Payload {
     LoginRisk(LoginRisk),
 }
 
-/// An object's members, each read once, closed to a list of names.
+/// An object's members, each read once, closed to a list of fields.
 struct Closed<'n> {
     object: &'n Object<'n>,
-    at: &'static str,
 }
 
 impl<'n> Closed<'n> {
-    fn of(node: &'n Node<'n>, at: &'static str, listed: &[&str]) -> Result<Self, PayloadRefusal> {
-        let object = node.as_object().ok_or_else(|| PayloadRefusal::Kind {
-            path: display_path(at, ""),
-            kind: "object",
+    fn of(node: &'n Node<'n>, at: FieldPath, listed: &[FieldPath]) -> Result<Self, PayloadRefusal> {
+        let object = node.as_object().ok_or(PayloadRefusal::Kind {
+            path: at,
+            kind: Expected::Object,
         })?;
-        if let Some(name) = object.names().find(|name| !listed.contains(name)) {
+        if let Some(name) = object
+            .names()
+            .find(|name| !listed.iter().any(|field| field.name() == *name))
+        {
             return Err(PayloadRefusal::Member {
-                path: display_path(at, name),
+                within: at,
+                name: name.to_owned(),
             });
         }
-        Ok(Self { object, at })
+        Ok(Self { object })
     }
 
-    fn path(&self, name: &str) -> String {
-        display_path(self.at, name)
+    fn get(&self, field: FieldPath) -> Option<&'n Node<'n>> {
+        self.object.get(field.name())
     }
 
-    fn get(&self, name: &str) -> Option<&'n Node<'n>> {
-        self.object.get(name)
+    fn required(&self, field: FieldPath) -> Result<&'n Node<'n>, PayloadRefusal> {
+        self.get(field)
+            .ok_or(PayloadRefusal::Required { path: field })
     }
 
-    fn required(&self, name: &str) -> Result<&'n Node<'n>, PayloadRefusal> {
-        self.get(name).ok_or_else(|| PayloadRefusal::Required {
-            path: self.path(name),
+    fn text_of(field: FieldPath, node: &'n Node<'n>) -> Result<&'n str, PayloadRefusal> {
+        node.as_str().ok_or(PayloadRefusal::Kind {
+            path: field,
+            kind: Expected::String,
         })
     }
 
-    fn kind(&self, name: &str, kind: &'static str) -> PayloadRefusal {
-        PayloadRefusal::Kind {
-            path: self.path(name),
-            kind,
-        }
-    }
-
-    fn text_of(&self, name: &str, node: &'n Node<'n>) -> Result<&'n str, PayloadRefusal> {
-        node.as_str().ok_or_else(|| self.kind(name, "string"))
-    }
-
-    fn text(&self, name: &str) -> Result<Option<&'n str>, PayloadRefusal> {
-        self.get(name)
-            .map(|node| self.text_of(name, node))
+    fn text(&self, field: FieldPath) -> Result<Option<&'n str>, PayloadRefusal> {
+        self.get(field)
+            .map(|node| Self::text_of(field, node))
             .transpose()
     }
 
-    fn required_text(&self, name: &str) -> Result<&'n str, PayloadRefusal> {
-        self.text_of(name, self.required(name)?)
+    fn required_text(&self, field: FieldPath) -> Result<&'n str, PayloadRefusal> {
+        Self::text_of(field, self.required(field)?)
     }
 
-    /// The text within the schema's `maxLength`, counted in characters (JSON Schema §6.3.1).
-    fn bounded(&self, name: &str, text: &str, max: usize) -> Result<String, PayloadRefusal> {
-        if text.chars().count() > max {
-            return Err(PayloadRefusal::Length {
-                path: self.path(name),
-                max,
-            });
-        }
-        Ok(text.to_owned())
-    }
-
-    /// `transaction_id`: one to [`TRANSACTION_ID_MAX`] characters (the schemas' `minLength` and
-    /// `maxLength`).
-    fn transaction_id(&self) -> Result<String, PayloadRefusal> {
-        let id = self.required_text("transaction_id")?;
+    /// `transaction_id`, of the object the field table lists it in.
+    fn transaction_id(&self) -> Result<TransactionId, PayloadRefusal> {
+        let id = self.required_text(TRANSACTION_ID)?;
         if id.is_empty() {
             return Err(PayloadRefusal::Length {
-                path: self.path("transaction_id"),
+                path: TRANSACTION_ID,
                 max: TRANSACTION_ID_MAX,
             });
         }
-        self.bounded("transaction_id", id, TRANSACTION_ID_MAX)
+        bounded(TRANSACTION_ID, id, TRANSACTION_ID_MAX).map(TransactionId)
     }
 
-    fn boolean(&self, name: &str) -> Result<Option<bool>, PayloadRefusal> {
-        match self.get(name) {
+    fn boolean(&self, field: FieldPath) -> Result<Option<bool>, PayloadRefusal> {
+        match self.get(field) {
             None => Ok(None),
             Some(Node::Bool(value)) => Ok(Some(*value)),
-            Some(_) => Err(self.kind(name, "boolean")),
+            Some(_) => Err(PayloadRefusal::Kind {
+                path: field,
+                kind: Expected::Boolean,
+            }),
         }
     }
 
-    fn number(&self, name: &str) -> Result<Option<&'n Number<'n>>, PayloadRefusal> {
-        match self.get(name) {
+    fn number(&self, field: FieldPath) -> Result<Option<&'n Number<'n>>, PayloadRefusal> {
+        match self.get(field) {
             None => Ok(None),
             Some(Node::Number(number)) => Ok(Some(number)),
-            Some(_) => Err(self.kind(name, "number")),
+            Some(_) => Err(PayloadRefusal::Kind {
+                path: field,
+                kind: Expected::Number,
+            }),
         }
     }
 
     /// A number without fraction or exponent, not negative.
-    fn integer(&self, name: &str) -> Result<Option<u64>, PayloadRefusal> {
-        self.number(name)?
+    fn integer(&self, field: FieldPath) -> Result<Option<u64>, PayloadRefusal> {
+        self.number(field)?
             .map(|number| {
-                number
-                    .text()
-                    .parse()
-                    .map_err(|_| self.kind(name, "integer"))
+                number.text().parse().map_err(|_| PayloadRefusal::Kind {
+                    path: field,
+                    kind: Expected::Integer,
+                })
             })
             .transpose()
     }
 
     fn amount(
         &self,
-        name: &str,
+        field: FieldPath,
         currency: &CurrencyCode,
     ) -> Result<Option<Amount>, PayloadRefusal> {
-        self.number(name)?
-            .map(|number| Amount::parse(number, currency.minor, &self.path(name)))
+        self.number(field)?
+            .map(|number| Amount::parse(number, currency.minor, field))
             .transpose()
     }
 
-    fn date(&self, name: &str) -> Result<Option<CalendarDate>, PayloadRefusal> {
-        self.text(name)?
+    fn date(&self, field: FieldPath) -> Result<Option<CalendarDate>, PayloadRefusal> {
+        self.text(field)?
             .map(|text| {
                 formatted(FormattedKind::Date, Written::Text(text))
                     .map(|_| CalendarDate(text.to_owned()))
                     .map_err(|_| PayloadRefusal::Date {
-                        path: self.path(name),
-                        form: "calendar date",
+                        path: field,
+                        form: DateForm::Calendar,
                     })
             })
             .transpose()
     }
 
-    fn date_time(&self, name: &str) -> Result<Option<DateTime>, PayloadRefusal> {
-        self.text(name)?
+    fn date_time(&self, field: FieldPath) -> Result<Option<DateTime>, PayloadRefusal> {
+        self.text(field)?
             .map(|text| {
                 formatted(FormattedKind::DateTime, Written::Text(text))
                     .map(|_| DateTime(text.to_owned()))
                     .map_err(|_| PayloadRefusal::Date {
-                        path: self.path(name),
-                        form: "date-time",
+                        path: field,
+                        form: DateForm::DateTime,
                     })
             })
             .transpose()
     }
 }
 
-fn display_path(at: &str, name: &str) -> String {
-    match (at.is_empty(), name.is_empty()) {
-        (true, _) => name.to_owned(),
-        (false, true) => at.to_owned(),
-        (false, false) => format!("{at}.{name}"),
+/// The text within the schema's `maxLength`, counted in characters (JSON Schema §6.3.1).
+fn bounded(path: FieldPath, text: &str, max: MaxChars) -> Result<String, PayloadRefusal> {
+    if text.chars().count() > max.0 {
+        return Err(PayloadRefusal::Length { path, max });
     }
+    Ok(text.to_owned())
+}
+
+/// A string of PaSO's payload.
+fn text(value: &str) -> Node<'static> {
+    Node::String(Cow::Owned(value.to_owned()))
+}
+
+/// An integer as PaSO's plain value: its decimal text.
+fn integer(value: u64) -> Node<'static> {
+    text(&value.to_string())
 }
 
 impl Ts12Payload {
@@ -540,11 +774,8 @@ impl Ts12Payload {
 
     /// The payload in PaSO's value forms: an amount with its currency as `iso_currency_amount`
     /// text, an integer and `apr` as their decimal text.
-    ///
-    /// # Errors
-    ///
-    /// A member name repeated, which the field tables exclude.
-    pub fn paso_payload(&self) -> Result<Node<'static>, JsonError> {
+    #[must_use]
+    pub fn paso_payload(&self) -> Object<'static> {
         match self {
             Self::Payment(payment) => payment.paso(),
             Self::LoginRisk(login) => login.paso(),
@@ -563,30 +794,26 @@ impl Ts12Payload {
 
 impl LoginRisk {
     fn parse(node: &Node<'_>) -> Result<Self, PayloadRefusal> {
-        let at = Closed::of(
-            node,
-            "",
-            &["transaction_id", "date_time", "service", "action"],
-        )?;
-        let action = at.required_text("action")?;
+        let at = Closed::of(node, PAYLOAD, &[TRANSACTION_ID, DATE_TIME, SERVICE, ACTION])?;
+        let action = at.required_text(ACTION)?;
         Ok(Self {
             transaction_id: at.transaction_id()?,
-            date_time: at.date_time("date_time")?,
+            date_time: at.date_time(DATE_TIME)?,
             service: at
-                .text("service")?
-                .map(|service| at.bounded("service", service, SERVICE_MAX))
+                .text(SERVICE)?
+                .map(|service| bounded(SERVICE, service, SERVICE_MAX).map(Service))
                 .transpose()?,
-            action: at.bounded("action", action, ACTION_MAX)?,
+            action: Action(bounded(ACTION, action, ACTION_MAX)?),
         })
     }
 
-    fn paso(&self) -> Result<Node<'static>, JsonError> {
-        let mut out = Out::default();
-        out.text("transaction_id", &self.transaction_id);
-        out.text_of("date_time", self.date_time.as_ref().map(|d| d.0.as_str()));
-        out.text_of("service", self.service.as_deref());
-        out.text("action", &self.action);
-        out.node()
+    fn paso(&self) -> Object<'static> {
+        known_object! {
+            "transaction_id" => Some(text(&self.transaction_id.0)),
+            "date_time" => self.date_time.as_ref().map(|date| text(&date.0)),
+            "service" => self.service.as_ref().map(|service| text(&service.0)),
+            "action" => Some(text(&self.action.0)),
+        }
     }
 }
 
@@ -594,28 +821,26 @@ impl Payment {
     fn parse(node: &Node<'_>) -> Result<Self, PayloadRefusal> {
         let at = Closed::of(
             node,
-            "",
+            PAYLOAD,
             &[
-                "transaction_id",
-                "date_time",
-                "payee",
-                "pisp",
-                "execution_date",
-                "currency",
-                "amount",
-                "amount_estimated",
-                "amount_earmarked",
-                "sct_inst",
-                "recurrence",
+                TRANSACTION_ID,
+                DATE_TIME,
+                PAYEE,
+                PISP,
+                EXECUTION_DATE,
+                CURRENCY,
+                AMOUNT,
+                AMOUNT_ESTIMATED,
+                AMOUNT_EARMARKED,
+                SCT_INST,
+                RECURRENCE,
             ],
         )?;
-        let currency = currency(at.required_text("currency")?)?;
+        let currency = currency(at.required_text(CURRENCY)?)?;
         let amount = at
-            .amount("amount", &currency)?
-            .ok_or_else(|| PayloadRefusal::Required {
-                path: "amount".to_owned(),
-            })?;
-        let execution = match (at.date("execution_date")?, at.get("recurrence")) {
+            .amount(AMOUNT, &currency)?
+            .ok_or(PayloadRefusal::Required { path: AMOUNT })?;
+        let execution = match (at.date(EXECUTION_DATE)?, at.get(RECURRENCE)) {
             (Some(_), Some(_)) => return Err(PayloadRefusal::ExecutionAndRecurrence),
             (Some(date), None) => Execution::On(date),
             (None, Some(recurrence)) => {
@@ -625,122 +850,137 @@ impl Payment {
         };
         Ok(Self {
             transaction_id: at.transaction_id()?,
-            date_time: at.date_time("date_time")?,
-            payee: Payee::parse(at.required("payee")?)?,
-            pisp: at.get("pisp").map(Pisp::parse).transpose()?,
+            date_time: at.date_time(DATE_TIME)?,
+            payee: Payee::parse(at.required(PAYEE)?)?,
+            pisp: at.get(PISP).map(Pisp::parse).transpose()?,
             execution,
             currency,
             amount,
-            amount_estimated: at.boolean("amount_estimated")?,
-            amount_earmarked: at.boolean("amount_earmarked")?,
-            sct_inst: at.boolean("sct_inst")?,
+            amount_estimated: at.boolean(AMOUNT_ESTIMATED)?.map(AmountEstimated),
+            amount_earmarked: at.boolean(AMOUNT_EARMARKED)?.map(AmountEarmarked),
+            sct_inst: at.boolean(SCT_INST)?.map(SctInst),
         })
     }
 
-    fn paso(&self) -> Result<Node<'static>, JsonError> {
-        let code = &self.currency.code;
-        let mut out = Out::default();
-        out.text("transaction_id", &self.transaction_id);
-        out.text_of("date_time", self.date_time.as_ref().map(|d| d.0.as_str()));
-        out.member("payee", self.payee.paso()?);
-        if let Some(pisp) = &self.pisp {
-            out.member("pisp", pisp.paso()?);
+    fn paso(&self) -> Object<'static> {
+        let code = &self.currency;
+        known_object! {
+            "transaction_id" => Some(text(&self.transaction_id.0)),
+            "date_time" => self.date_time.as_ref().map(|date| text(&date.0)),
+            "payee" => Some(Node::Object(self.payee.paso())),
+            "pisp" => self.pisp.as_ref().map(|pisp| Node::Object(pisp.paso())),
+            "execution_date" => match &self.execution {
+                Execution::On(date) => Some(text(&date.0)),
+                Execution::Unstated | Execution::Recurring(_) => None,
+            },
+            "recurrence" => match &self.execution {
+                Execution::Recurring(recurrence) => Some(Node::Object(recurrence.paso(code))),
+                Execution::Unstated | Execution::On(_) => None,
+            },
+            "currency" => Some(text(&code.code())),
+            "amount" => Some(with_code(&self.amount, code)),
+            "amount_estimated" => self.amount_estimated.as_ref().map(|flag| Node::Bool(flag.0)),
+            "amount_earmarked" => self.amount_earmarked.as_ref().map(|flag| Node::Bool(flag.0)),
+            "sct_inst" => self.sct_inst.as_ref().map(|flag| Node::Bool(flag.0)),
         }
-        match &self.execution {
-            Execution::Unstated => {}
-            Execution::On(date) => out.text("execution_date", &date.0),
-            Execution::Recurring(recurrence) => out.member("recurrence", recurrence.paso(code)?),
-        }
-        out.text("currency", code);
-        out.text("amount", &with_code(&self.amount, code));
-        out.boolean("amount_estimated", self.amount_estimated);
-        out.boolean("amount_earmarked", self.amount_earmarked);
-        out.boolean("sct_inst", self.sct_inst);
-        out.node()
     }
 }
 
-fn with_code(amount: &Amount, code: &str) -> String {
-    format!("{} {code}", amount.as_str())
+/// An amount as `iso_currency_amount` text.
+fn with_code(amount: &Amount, currency: &CurrencyCode) -> Node<'static> {
+    text(&format!("{} {}", amount.as_str(), currency.code()))
 }
 
-/// The code as `^[A-Z]{3}$` (TS12's schema) and the core's table read it.
+/// The code as the core's table reads it, which holds `^[A-Z]{3}$` (TS12's schema).
 fn currency(code: &str) -> Result<CurrencyCode, PayloadRefusal> {
-    let refused = || PayloadRefusal::Currency {
-        value: code.to_owned(),
-    };
-    if code.len() != 3 || !code.bytes().all(|byte| byte.is_ascii_uppercase()) {
-        return Err(refused());
-    }
-    let minor = Currency::from_code(code)
-        .and_then(Currency::minor_units)
-        .ok_or_else(refused)?;
-    Ok(CurrencyCode {
-        code: code.to_owned(),
-        minor,
-    })
+    Currency::from_code(code)
+        .and_then(|currency| {
+            currency.minor_units().map(|minor| CurrencyCode {
+                currency,
+                minor: MinorDigits(minor),
+            })
+        })
+        .ok_or_else(|| PayloadRefusal::Currency {
+            value: code.to_owned(),
+        })
 }
 
 impl Payee {
     fn parse(node: &Node<'_>) -> Result<Self, PayloadRefusal> {
         let at = Closed::of(
             node,
-            "payee",
-            &["name", "id", "logo", "logo#integrity", "website"],
+            PAYEE,
+            &[
+                PAYEE_NAME,
+                PAYEE_ID,
+                PAYEE_LOGO,
+                PAYEE_LOGO_INTEGRITY,
+                PAYEE_WEBSITE,
+            ],
         )?;
         let website = at
-            .text("website")?
-            .map(|website| HttpsUrl::parse(website).map_err(|_| at.kind("website", "https URL")))
+            .text(PAYEE_WEBSITE)?
+            .map(|website| {
+                HttpsUrl::parse(website).map_err(|_| PayloadRefusal::Kind {
+                    path: PAYEE_WEBSITE,
+                    kind: Expected::HttpsUrl,
+                })
+            })
             .transpose()?;
         Ok(Self {
-            name: at.required_text("name")?.to_owned(),
-            id: at.required_text("id")?.to_owned(),
+            name: PayeeName(at.required_text(PAYEE_NAME)?.to_owned()),
+            id: PayeeId(at.required_text(PAYEE_ID)?.to_owned()),
             logo: logo(&at)?,
             website,
         })
     }
 
-    fn paso(&self) -> Result<Node<'static>, JsonError> {
-        let mut out = Out::default();
-        out.text("name", &self.name);
-        out.text("id", &self.id);
-        match &self.logo {
-            None => {}
-            Some(Logo::Data(url)) => out.text("logo", &url.0),
+    fn paso(&self) -> Object<'static> {
+        let (logo, integrity) = match &self.logo {
+            None => (None, None),
+            Some(Logo::Data(url)) => (Some(text(&url.0)), None),
             Some(Logo::Https { url, integrity }) => {
-                out.text("logo", url.written());
-                out.text("logo#integrity", &integrity.0);
+                (Some(text(url.written())), Some(text(&integrity.0)))
             }
+        };
+        known_object! {
+            "name" => Some(text(&self.name.0)),
+            "id" => Some(text(&self.id.0)),
+            "logo" => logo,
+            "logo#integrity" => integrity,
+            "website" => self.website.as_ref().map(|website| text(website.written())),
         }
-        if let Some(website) = &self.website {
-            out.text("website", website.written());
-        }
-        out.node()
     }
 }
 
 /// `payee.logo` with `payee.logo#integrity`, which stands beside an https URL alone.
 fn logo(at: &Closed<'_>) -> Result<Option<Logo>, PayloadRefusal> {
-    let integrity = at.text("logo#integrity")?;
-    let Some(text) = at.text("logo")? else {
+    let stray = || PayloadRefusal::Member {
+        within: PAYEE,
+        name: PAYEE_LOGO_INTEGRITY.name().to_owned(),
+    };
+    let integrity = at.text(PAYEE_LOGO_INTEGRITY)?;
+    let Some(written) = at.text(PAYEE_LOGO)? else {
         return match integrity {
-            Some(_) => Err(PayloadRefusal::Member {
-                path: at.path("logo#integrity"),
-            }),
+            Some(_) => Err(stray()),
             None => Ok(None),
         };
     };
-    if text.starts_with("data:") {
+    if written.starts_with("data:") {
         if integrity.is_some() {
-            return Err(PayloadRefusal::Member {
-                path: at.path("logo#integrity"),
-            });
+            return Err(stray());
         }
-        return DataUrl::parse(text.to_owned())
+        return DataUrl::parse(written.to_owned())
             .map(|url| Some(Logo::Data(url)))
-            .ok_or_else(|| at.kind("logo", "data URL"));
+            .ok_or(PayloadRefusal::Kind {
+                path: PAYEE_LOGO,
+                kind: Expected::DataUrl,
+            });
     }
-    let url = HttpsUrl::parse(text).map_err(|_| at.kind("logo", "data URL or https URL"))?;
+    let url = HttpsUrl::parse(written).map_err(|_| PayloadRefusal::Kind {
+        path: PAYEE_LOGO,
+        kind: Expected::DataOrHttpsUrl,
+    })?;
     let integrity = integrity
         .and_then(|integrity| Integrity::parse(integrity.to_owned()))
         .ok_or(PayloadRefusal::LogoIntegrity)?;
@@ -749,20 +989,24 @@ fn logo(at: &Closed<'_>) -> Result<Option<Logo>, PayloadRefusal> {
 
 impl Pisp {
     fn parse(node: &Node<'_>) -> Result<Self, PayloadRefusal> {
-        let at = Closed::of(node, "pisp", &["legal_name", "brand_name", "domain_name"])?;
+        let at = Closed::of(
+            node,
+            PISP,
+            &[PISP_LEGAL_NAME, PISP_BRAND_NAME, PISP_DOMAIN_NAME],
+        )?;
         Ok(Self {
-            legal_name: at.required_text("legal_name")?.to_owned(),
-            brand_name: at.required_text("brand_name")?.to_owned(),
-            domain_name: at.required_text("domain_name")?.to_owned(),
+            legal_name: PispLegalName(at.required_text(PISP_LEGAL_NAME)?.to_owned()),
+            brand_name: PispBrandName(at.required_text(PISP_BRAND_NAME)?.to_owned()),
+            domain_name: PispDomainName(at.required_text(PISP_DOMAIN_NAME)?.to_owned()),
         })
     }
 
-    fn paso(&self) -> Result<Node<'static>, JsonError> {
-        let mut out = Out::default();
-        out.text("legal_name", &self.legal_name);
-        out.text("brand_name", &self.brand_name);
-        out.text("domain_name", &self.domain_name);
-        out.node()
+    fn paso(&self) -> Object<'static> {
+        known_object! {
+            "legal_name" => Some(text(&self.legal_name.0)),
+            "brand_name" => Some(text(&self.brand_name.0)),
+            "domain_name" => Some(text(&self.domain_name.0)),
+        }
     }
 }
 
@@ -770,40 +1014,35 @@ impl Recurrence {
     fn parse(node: &Node<'_>, currency: &CurrencyCode) -> Result<Self, PayloadRefusal> {
         let at = Closed::of(
             node,
-            "recurrence",
-            &[
-                "start_date",
-                "end_date",
-                "number",
-                "frequency",
-                "mit_options",
-            ],
+            RECURRENCE,
+            &[START_DATE, END_DATE, NUMBER, FREQUENCY, MIT_OPTIONS],
         )?;
-        let frequency = at.required_text("frequency")?;
+        let frequency = at.required_text(FREQUENCY)?;
         Ok(Self {
-            start_date: at.date("start_date")?,
-            end_date: at.date("end_date")?,
-            number: at.integer("number")?,
+            start_date: at.date(START_DATE)?,
+            end_date: at.date(END_DATE)?,
+            number: at.integer(NUMBER)?.map(RecurrenceNumber),
             frequency: Frequency::parse(frequency).ok_or_else(|| PayloadRefusal::Frequency {
                 value: frequency.to_owned(),
             })?,
             mit_options: at
-                .get("mit_options")
+                .get(MIT_OPTIONS)
                 .map(|options| MitOptions::parse(options, currency))
                 .transpose()?,
         })
     }
 
-    fn paso(&self, code: &str) -> Result<Node<'static>, JsonError> {
-        let mut out = Out::default();
-        out.text_of("start_date", self.start_date.as_ref().map(|d| d.0.as_str()));
-        out.text_of("end_date", self.end_date.as_ref().map(|d| d.0.as_str()));
-        out.integer("number", self.number);
-        out.text("frequency", self.frequency.code());
-        if let Some(options) = &self.mit_options {
-            out.member("mit_options", options.paso(code)?);
+    fn paso(&self, currency: &CurrencyCode) -> Object<'static> {
+        known_object! {
+            "start_date" => self.start_date.as_ref().map(|date| text(&date.0)),
+            "end_date" => self.end_date.as_ref().map(|date| text(&date.0)),
+            "number" => self.number.as_ref().map(|number| integer(number.0)),
+            "frequency" => Some(text(self.frequency.code())),
+            "mit_options" => self
+                .mit_options
+                .as_ref()
+                .map(|options| Node::Object(options.paso(currency))),
         }
-        out.node()
     }
 }
 
@@ -811,80 +1050,42 @@ impl MitOptions {
     fn parse(node: &Node<'_>, currency: &CurrencyCode) -> Result<Self, PayloadRefusal> {
         let at = Closed::of(
             node,
-            "recurrence.mit_options",
+            MIT_OPTIONS,
             &[
-                "amount_variable",
-                "min_amount",
-                "max_amount",
-                "total_amount",
-                "initial_amount",
-                "initial_amount_number",
-                "apr",
+                AMOUNT_VARIABLE,
+                MIN_AMOUNT,
+                MAX_AMOUNT,
+                TOTAL_AMOUNT,
+                INITIAL_AMOUNT,
+                INITIAL_AMOUNT_NUMBER,
+                APR,
             ],
         )?;
         Ok(Self {
-            amount_variable: at.boolean("amount_variable")?,
-            min_amount: at.amount("min_amount", currency)?,
-            max_amount: at.amount("max_amount", currency)?,
-            total_amount: at.amount("total_amount", currency)?,
-            initial_amount: at.amount("initial_amount", currency)?,
-            initial_amount_number: at.integer("initial_amount_number")?,
-            apr: at.number("apr")?.map(|apr| apr.text().to_owned()),
+            amount_variable: at.boolean(AMOUNT_VARIABLE)?.map(AmountVariable),
+            min_amount: at.amount(MIN_AMOUNT, currency)?,
+            max_amount: at.amount(MAX_AMOUNT, currency)?,
+            total_amount: at.amount(TOTAL_AMOUNT, currency)?,
+            initial_amount: at.amount(INITIAL_AMOUNT, currency)?,
+            initial_amount_number: at.integer(INITIAL_AMOUNT_NUMBER)?.map(InitialAmountNumber),
+            apr: at.number(APR)?.map(Apr::parse).transpose()?,
         })
     }
 
-    fn paso(&self, code: &str) -> Result<Node<'static>, JsonError> {
-        let mut out = Out::default();
-        out.boolean("amount_variable", self.amount_variable);
-        let amounts = [
-            ("min_amount", &self.min_amount),
-            ("max_amount", &self.max_amount),
-            ("total_amount", &self.total_amount),
-            ("initial_amount", &self.initial_amount),
-        ];
-        for (name, amount) in amounts {
-            if let Some(amount) = amount {
-                out.text(name, &with_code(amount, code));
-            }
+    fn paso(&self, currency: &CurrencyCode) -> Object<'static> {
+        let amount =
+            |amount: &Option<Amount>| amount.as_ref().map(|amount| with_code(amount, currency));
+        known_object! {
+            "amount_variable" => self.amount_variable.as_ref().map(|flag| Node::Bool(flag.0)),
+            "min_amount" => amount(&self.min_amount),
+            "max_amount" => amount(&self.max_amount),
+            "total_amount" => amount(&self.total_amount),
+            "initial_amount" => amount(&self.initial_amount),
+            "initial_amount_number" => self
+                .initial_amount_number
+                .as_ref()
+                .map(|number| integer(number.0)),
+            "apr" => self.apr.as_ref().map(|apr| text(&apr.0)),
         }
-        out.integer("initial_amount_number", self.initial_amount_number);
-        out.text_of("apr", self.apr.as_deref());
-        out.node()
-    }
-}
-
-/// A PaSO payload object under construction, in the field table's order.
-#[derive(Default)]
-struct Out(Vec<(Cow<'static, str>, Node<'static>)>);
-
-impl Out {
-    fn member(&mut self, name: &'static str, value: Node<'static>) {
-        self.0.push((Cow::Borrowed(name), value));
-    }
-
-    fn text(&mut self, name: &'static str, text: &str) {
-        self.member(name, Node::String(Cow::Owned(text.to_owned())));
-    }
-
-    fn text_of(&mut self, name: &'static str, text: Option<&str>) {
-        if let Some(text) = text {
-            self.text(name, text);
-        }
-    }
-
-    fn boolean(&mut self, name: &'static str, value: Option<bool>) {
-        if let Some(value) = value {
-            self.member(name, Node::Bool(value));
-        }
-    }
-
-    fn integer(&mut self, name: &'static str, value: Option<u64>) {
-        if let Some(value) = value {
-            self.text(name, &value.to_string());
-        }
-    }
-
-    fn node(self) -> Result<Node<'static>, JsonError> {
-        Node::object(self.0)
     }
 }

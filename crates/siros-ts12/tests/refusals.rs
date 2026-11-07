@@ -9,16 +9,18 @@ use common::{
 };
 use siros_explain::{Entry, Keyed};
 use siros_openid4vp::hash::HashesAlgRule;
+use siros_openid4vp::ids::{QueryId, TransactionType};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Bound, Carriage, Member, NoCandidate, Profile};
 use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_paso::metadata::UiKey;
 use siros_paso::outcome::Outcome;
 use siros_ts12::{
-    ComposeError, DataUrl, Integrity, PayloadRefusal, Ts12Document, Ts12Excluded, Ts12Payload,
-    Ts12Rule, Ts12Type, Ts12Unsupported,
+    ComposeError, DataUrl, DateForm, Expected, FetchedDocument, Integrity, PayloadRefusal,
+    Ts12Document, Ts12Excluded, Ts12Payload, Ts12Rule, Ts12Type, Ts12Unsupported, TwinnedMember,
 };
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
@@ -59,54 +61,30 @@ fn the_request_rules_each_refuse_with_their_code() {
         r#", "transaction_data_hashes_alg": "sha-256""#,
         GOOD,
     );
-    let table: [(&[&str], &str, Ts12Rule, C); 6] = [
-        (
-            &[&no_alg],
-            "",
-            Ts12Rule::NoHashes { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&no_payload],
-            "",
-            Ts12Rule::NoPayload { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&good, &good],
-            "",
-            Ts12Rule::Second { entry: 1 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&two_ids],
-            "",
-            Ts12Rule::CredentialIds { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&other],
-            "",
-            Ts12Rule::Type {
-                entry: 0,
-                kind: "urn:eudi:sca:emandate:1".to_owned(),
-            },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&alg_string],
-            "",
-            Ts12Rule::Hashes {
-                entry: 0,
-                rule: HashesAlgRule::NotArray,
-            },
-            C::INVALID_TRANSACTION_DATA,
-        ),
+    type Rule = fn(EntryIndex) -> Ts12Rule;
+    let table: [(&[&str], usize, Rule); 6] = [
+        (&[&no_alg], 0, |entry| Ts12Rule::NoHashes { entry }),
+        (&[&no_payload], 0, |entry| Ts12Rule::NoPayload { entry }),
+        (&[&good, &good], 1, |entry| Ts12Rule::Second { entry }),
+        (&[&two_ids], 0, |entry| Ts12Rule::CredentialIds { entry }),
+        (&[&other], 0, |entry| Ts12Rule::Type {
+            entry,
+            kind: TransactionType::parse("urn:eudi:sca:emandate:1").expect("a type"),
+        }),
+        (&[&alg_string], 0, |entry| Ts12Rule::Hashes {
+            entry,
+            rule: HashesAlgRule::NotArray,
+        }),
     ];
-    for (entries, extra, rule, code) in table {
-        with_signed(&parameters(entries, extra), |request| {
+    for (entries, at, rule) in table {
+        with_signed(&parameters(entries, ""), |request| {
+            let (index, _) = request.indexed_entries().nth(at).expect("the entry");
+            let rule = rule(index);
             let refusals = refused(request);
-            assert!(holds(&refusals, code, &rule), "{rule}: {refusals:?}");
+            assert!(
+                holds(&refusals, C::INVALID_TRANSACTION_DATA, &rule),
+                "{rule}: {refusals:?}"
+            );
         });
     }
     with_unsigned(&parameters(&[&good], ""), |request| {
@@ -118,9 +96,30 @@ fn the_request_rules_each_refuse_with_their_code() {
     });
     with_signed(&parameters(&[&good], r#","multiple":true"#), |request| {
         let rule = Ts12Rule::Multiple {
-            query: "sca".to_owned(),
+            query: QueryId::parse("sca").expect("an id"),
         };
         assert!(holds(&refused(request), C::INVALID_REQUEST, &rule));
+    });
+}
+
+/// T1 to T6 read the entries the profile owns, and T6 the query a TS12 entry names (CS-12 §8.1).
+#[test]
+fn the_rules_stop_at_the_profiles_entries_and_their_query() {
+    let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
+    let other = entry("urn:other:1", r#""sca""#, "", "");
+    with_signed(&parameters(&[&good, &other], ""), |request| {
+        let (own, _) = request.indexed_entries().next().expect("the entry");
+        let refusals = profile().refusals(request, &[own]);
+        assert!(refusals.is_empty(), "{refusals:?}");
+    });
+    let beside = parameters(&[&good], "").replace(
+        r#"{"id":"sca","format":"dc+sd-jwt"}"#,
+        r#"{"id":"sca","format":"dc+sd-jwt"},{"id":"other","format":"dc+sd-jwt","multiple":true}"#,
+    );
+    with_signed(&beside, |request| {
+        assert_eq!(request.queries().len(), 2);
+        let refusals = refused(request);
+        assert!(refusals.is_empty(), "{refusals:?}");
     });
 }
 
@@ -137,81 +136,138 @@ fn payment(amount: &str, more: &str) -> String {
     )
 }
 
+/// A refusal rule: a predicate over the refusal.
+type Rule<T> = fn(&T) -> bool;
+
+/// A refusal rule from its pattern.
+macro_rules! rule {
+    ($($pattern:tt)+) => {
+        |refused| matches!(refused, $($pattern)+)
+    };
+}
+
 #[test]
 fn the_values_each_refuse_by_their_rule() {
     use PayloadRefusal as R;
-    let path = |path: &str| path.to_owned();
-    let table: [(String, R); 11] = [
+    const SRI: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let number =
+        |written: &str| format!(r#","recurrence":{{"frequency":"MNTH","number":{written}}}"#);
+    let apr = |written: &str| {
+        format!(r#","recurrence":{{"frequency":"MNTH","mit_options":{{"apr":{written}}}}}"#)
+    };
+    let table: [(String, Rule<R>); 21] = [
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
-            R::Required {
-                path: path("currency"),
-            },
+            rule!(R::Required { path } if path.as_str() == "currency"),
         ),
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "currency": "eur", "amount": 1}"#.to_owned(),
-            R::Currency {
-                value: "eur".to_owned(),
-            },
+            rule!(R::Currency { value } if value == "eur"),
         ),
         (
             payment("1", r#","recurrence":{"frequency":"DAILY"}"#),
-            R::Frequency {
-                value: "DAILY".to_owned(),
-            },
+            rule!(R::Frequency { value } if value == "DAILY"),
         ),
         (
             payment("10.125", ""),
-            R::Digits {
-                path: path("amount"),
-            },
+            rule!(R::Digits { path } if path.as_str() == "amount"),
         ),
         (
             payment("-1", ""),
-            R::Negative {
-                path: path("amount"),
-            },
+            rule!(R::Negative { path } if path.as_str() == "amount"),
         ),
         (
             payment("1", r#","extra":1"#),
-            R::Member {
-                path: path("extra"),
-            },
+            rule!(R::Member { within, name } if within.as_str() == "payload" && name == "extra"),
         ),
         (
             payment("1", r#"@,"nested":1"#),
-            R::Member {
-                path: path("payee.nested"),
-            },
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "nested"),
         ),
         (
             payment(
                 "1",
                 r#","execution_date":"2026-11-01","recurrence":{"frequency":"MNTH"}"#,
             ),
-            R::ExecutionAndRecurrence,
+            rule!(R::ExecutionAndRecurrence),
         ),
         (
             payment("1", r#","execution_date":"2026-11-01T10:00:00Z""#),
-            R::Date {
-                path: path("execution_date"),
-                form: "calendar date",
-            },
+            rule!(R::Date { path, form: DateForm::Calendar } if path.as_str() == "execution_date"),
         ),
         (
             payment("1", r#"@,"logo":"https://example.com/logo.png""#),
-            R::LogoIntegrity,
+            rule!(R::LogoIntegrity),
+        ),
+        // TS12 §4.3.1's `date_time`: a date alone is no date and time.
+        (
+            payment("1", r#","date_time":"2026-11-01""#),
+            rule!(R::Date { path, form: DateForm::DateTime } if path.as_str() == "date_time"),
+        ),
+        // View §3 `image`: `payee.logo#integrity` belongs to an https logo.
+        (
+            payment(
+                "1",
+                &format!(r#"@,"logo":"data:image/png;base64,AAAA","logo#integrity":"{SRI}""#),
+            ),
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "logo#integrity"),
         ),
         (
-            payment("1", r#","recurrence":{"frequency":"MNTH","number":1.5}"#),
-            R::Kind {
-                path: path("recurrence.number"),
-                kind: "integer",
-            },
+            payment("1", &format!(r#"@,"logo#integrity":"{SRI}""#)),
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "logo#integrity"),
+        ),
+        // View §3: `url` and `image` take https alone.
+        (
+            payment("1", r#"@,"website":"http://payee.example""#),
+            rule!(R::Kind { path, kind: Expected::HttpsUrl } if path.as_str() == "payee.website"),
+        ),
+        (
+            payment("1", r#"@,"logo":"http://payee.example/logo.png""#),
+            rule!(
+                R::Kind { path, kind: Expected::DataOrHttpsUrl } if path.as_str() == "payee.logo"
+            ),
+        ),
+        (
+            payment("1", r#"@,"logo":"data:image/png""#),
+            rule!(R::Kind { path, kind: Expected::DataUrl } if path.as_str() == "payee.logo"),
+        ),
+        (
+            payment("1", &number("1.5")),
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        (
+            payment("1", &number("-1")),
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        // 2^64.
+        (
+            payment("1", &number("18446744073709551616")),
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        (
+            payment("1", &apr("-1")),
+            rule!(
+                R::Kind { path, kind: Expected::Decimal }
+                    if path.as_str() == "recurrence.mit_options.apr"
+            ),
+        ),
+        (
+            payment("1", &apr("1e400")),
+            rule!(
+                R::Kind { path, kind: Expected::Decimal }
+                    if path.as_str() == "recurrence.mit_options.apr"
+            ),
         ),
     ];
-    for (payload, rule) in table {
-        assert_eq!(parsed(Ts12Type::Payment, &payload), Err(rule), "{payload}");
+    for (payload, holds) in table {
+        let refused = parsed(Ts12Type::Payment, &payload).expect_err(&payload);
+        assert!(holds(&refused), "{payload}: {refused:?}");
     }
 }
 
@@ -246,13 +302,17 @@ fn the_schemas_lengths_bound_their_strings() {
         (Ts12Type::LoginRisk, &login, "action", 140),
     ];
     for (kind, written, field, max) in table {
-        let refusal = PayloadRefusal::Length {
-            path: field.to_owned(),
-            max,
-        };
         let at = |length: usize| parsed(kind, &written(field, &"\u{e9}".repeat(length)));
         assert!(at(max).is_ok(), "{field} at {max}");
-        assert_eq!(at(max + 1).err(), Some(refusal), "{field} past {max}");
+        let refused = at(max + 1);
+        assert!(
+            matches!(
+                &refused,
+                Err(PayloadRefusal::Length { path, max: stated })
+                    if path.as_str() == field && stated.get() == max
+            ),
+            "{field} past {max}: {refused:?}"
+        );
     }
     assert!(matches!(
         parsed(Ts12Type::Payment, &pay("transaction_id", "")),
@@ -277,13 +337,63 @@ fn an_amount_takes_its_exact_value_with_its_currencys_digits() {
             r#"{{"transaction_id": "t", "payee": {{"name": "P", "id": "i"}}, "currency": "{code}", "amount": {written}}}"#
         );
         let read = parsed(Ts12Type::Payment, &payload).expect(written);
-        let paso = read.paso_payload().expect("the payload");
+        let paso = read.paso_payload();
         assert_eq!(paso.get("amount").and_then(Node::as_str), Some(shown));
+    }
+    // View §3: an exact decimal holds 38 digits, its currency's minor-unit digits among them.
+    for (code, whole) in [("EUR", 36), ("JPY", 38)] {
+        let at = |digits: usize| {
+            let payload = format!(
+                r#"{{"transaction_id": "t", "payee": {{"name": "P", "id": "i"}}, "currency": "{code}", "amount": {}}}"#,
+                "1".repeat(digits)
+            );
+            parsed(Ts12Type::Payment, &payload)
+        };
+        assert!(at(whole).is_ok(), "{code} at {whole} digits");
+        assert!(
+            matches!(at(whole + 1), Err(PayloadRefusal::Digits { .. })),
+            "{code} past {whole} digits"
+        );
     }
     assert!(matches!(
         parsed(Ts12Type::Payment, &payment("1e400", "")),
         Err(PayloadRefusal::Digits { .. })
     ));
+}
+
+/// `apr` is a JSON number (RFC 8259 §6) shown as its decimal value, up to View §3's 38 digits.
+#[test]
+fn an_apr_takes_its_exact_value() {
+    let read = |written: &str| {
+        let payload = payment(
+            "1",
+            &format!(r#","recurrence":{{"frequency":"MNTH","mit_options":{{"apr":{written}}}}}"#),
+        );
+        let paso = parsed(Ts12Type::Payment, &payload)?.paso_payload();
+        let shown = paso
+            .get("recurrence")
+            .and_then(|recurrence| recurrence.get("mit_options"))
+            .and_then(|options| options.get("apr"))
+            .and_then(Node::as_str)
+            .expect("the apr");
+        Ok::<_, PayloadRefusal>(shown.to_owned())
+    };
+    let whole = format!("1{}", "0".repeat(37));
+    let fraction = format!("0.{}", "1".repeat(38));
+    for (written, shown) in [
+        ("6.5", "6.5"),
+        ("6.50", "6.5"),
+        ("0", "0"),
+        ("1e1", "10"),
+        ("1.5E1", "15"),
+        ("125e-2", "1.25"),
+        (&whole, &whole),
+        (&fraction, &fraction),
+    ] {
+        assert_eq!(read(written).as_deref(), Ok(shown), "{written}");
+    }
+    assert!(read(&format!("{whole}0")).is_err());
+    assert!(read(&format!("{fraction}1")).is_err());
 }
 
 /// The rule that excludes the credential.
@@ -306,19 +416,25 @@ fn unsupported(result: Result<Bound, NoCandidate>) -> Ts12Unsupported {
     }
 }
 
+/// Whether a type is unsupported for this field's labels.
+fn labels_of(refused: &Ts12Unsupported, wanted: &str) -> bool {
+    matches!(refused, Ts12Unsupported::Labels { field } if field.as_str() == wanted)
+}
+
 #[test]
 fn the_metadata_each_leaves_the_type_unsupported() {
     let good = entry(PAYMENT, r#""sca""#, ALG, GOOD);
     let locales = env(&["en"]);
-    let bind = |own: &str| {
+    let bind_document = |held: &[u8]| {
         with_signed(&parameters(&[&good], ""), |request| {
-            bound(request, &document(own), &locales)
+            bound(request, held, &locales)
         })
     };
     let replaced = |from: &str, to: &str| {
         assert!(TESTBED_IBAN.contains(from), "{from}");
         TESTBED_IBAN.replace(from, to)
     };
+    let bind = |own: &str| bind_document(&document(own));
     assert!(bind(CS12_IBAN).is_ok(), "the base offers it");
     // No `ts12` document.
     let none = with_signed(&parameters(&[&good], ""), |request| {
@@ -334,62 +450,103 @@ fn the_metadata_each_leaves_the_type_unsupported() {
         bound_with(request, &credential, &locales, &[BASE], Carriage::Carried)
     });
     assert_eq!(unsupported(none), Ts12Unsupported::NoDocument);
+    // A document no composition wrote is the wallet's fault, the type's rules aside.
+    let unreadable = bind_document(b"{}");
+    assert!(
+        matches!(unreadable, Err(NoCandidate::Fault(_))),
+        "{unreadable:?}"
+    );
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
-    let labels = |field: &str| Ts12Unsupported::Labels {
-        field: field.to_owned(),
-    };
-    let table: [(String, Ts12Unsupported); 8] = [
+    use Ts12Unsupported as U;
+    let table: [(String, Rule<U>); 16] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
-            Ts12Unsupported::Category,
+            rule!(U::Category),
         ),
         (
             replaced(
                 r#""urn:eudi:sca:payment:1": {"#,
                 r#""urn:eudi:sca:other:1": {"#,
             ),
-            Ts12Unsupported::NotListed {
-                kind: PAYMENT.to_owned(),
-            },
+            rule!(U::NotListed { kind } if kind.as_str() == PAYMENT),
         ),
         (
             replaced(
                 r#""schema": "urn:eudi:sca:payment:1""#,
                 r#""schema_uri": "https://example.com/schema.json""#,
             ),
-            Ts12Unsupported::Schema {
-                schema: "https://example.com/schema.json".to_owned(),
-            },
+            rule!(U::Schema { schema } if schema == "https://example.com/schema.json"),
+        ),
+        (
+            replaced(r#""schema": "urn:eudi:sca:payment:1","#, ""),
+            rule!(U::NoSchema),
+        ),
+        // TS12 §4.1 writes `schema` as a string.
+        (
+            replaced(
+                r#""schema": "urn:eudi:sca:payment:1""#,
+                r#""schema": {"type": "object"}"#,
+            ),
+            rule!(U::SchemaForm),
         ),
         (
             replaced("affirmative_action_label", "other_label"),
-            Ts12Unsupported::Affirmative,
+            rule!(U::Affirmative),
+        ),
+        // TS12 §3.3.2 writes `claims` as an array, §3.3.3 `ui_labels` as an object.
+        (
+            replaced(r#""claims": ["#, r#""claims": 5, "x_claims": ["#),
+            rule!(U::ClaimsForm),
+        ),
+        (
+            replaced(r#""ui_labels": {"#, r#""ui_labels": 5, "x_ui_labels": {"#),
+            rule!(U::CatalogueForm),
         ),
         (
             replaced(
                 "\"payload\",\n            \"amount\"",
                 "\"payload\",\n            \"date_time\"",
             ),
-            labels("amount"),
+            |refused| labels_of(refused, "amount"),
         ),
         // TS12 §3.3.1: level 1, or no level (3), without the parameter name's labels.
         (
             claim(r#"{"path": ["payload", "date_time"], "visualisation": 1}"#),
-            labels("date_time"),
+            |refused| labels_of(refused, "date_time"),
         ),
         (
             claim(r#"{"path": ["payload", "payee", "id"]}"#),
-            labels("payee.id"),
+            |refused| labels_of(refused, "payee.id"),
         ),
+        (claim(r#"{"visualisation": 1}"#), rule!(U::NoClaimPath)),
         (
             claim(r#"{"path": ["payload", "unlisted"], "display": []}"#),
-            Ts12Unsupported::Metadata {
-                at: r#"["payload","unlisted"]"#.to_owned(),
-            },
+            rule!(U::ClaimPath { path } if path == r#"["payload","unlisted"]"#),
+        ),
+        // TS12 §3.3.1 lists levels 1 to 4.
+        (
+            claim(r#"{"path": ["payload", "date_time"], "visualisation": 5}"#),
+            rule!(U::Level { field } if field.as_str() == "date_time"),
+        ),
+        // TS12 §3.3.2: a `display` entry holds `lang` and `label`; §3.3.3: a UI label `lang` and
+        // `value`.
+        (
+            claim(r#"{"path": ["payload", "date_time"], "display": [{"label": "When"}]}"#),
+            rule!(U::ClaimLabels { field } if field.as_str() == "date_time"),
+        ),
+        (
+            replaced(
+                r#""ui_labels": {"#,
+                r#""ui_labels": {"security_hint": [{"value": "Check"}],"#,
+            ),
+            rule!(U::UiLabels {
+                element: UiKey::SecurityHint
+            }),
         ),
     ];
-    for (own, rule) in table {
-        assert_eq!(unsupported(bind(&own)), rule, "{own}");
+    for (own, holds) in table {
+        let refused = unsupported(bind(&own));
+        assert!(holds(&refused), "{own}: {refused:?}");
     }
     let other_type = with_signed(&parameters(&[&good], ""), |request| {
         bound_of(
@@ -410,66 +567,173 @@ fn the_metadata_each_leaves_the_type_unsupported() {
     );
 }
 
-/// TS12 §3.3.1 over CS-12 §7.2's metadata: an optional field the Relying Party sends, which the
-/// metadata leaves without a level (3: displayed) or labels, ceases; a labelled one shows, and
-/// level 4 hides it.
+/// A type's metadata labelling these fields, each without a level.
+fn labelled(kind: &str, fields: &[&str]) -> String {
+    let claims: Vec<String> = fields
+        .iter()
+        .map(|field| {
+            let steps: Vec<String> = field
+                .split('.')
+                .map(|step| format!(r#""{step}""#))
+                .collect();
+            format!(
+                r#"{{"path": ["payload", {}], "display": [{{"lang": "en", "label": "{field}"}}]}}"#,
+                steps.join(", ")
+            )
+        })
+        .collect();
+    format!(
+        r#"{{"vct": "{BASE}", "category": "urn:eu:europa:ec:eudi:sua:sca",
+           "transaction_data_types": {{"{kind}": {{"schema": "{kind}", "claims": [{}],
+           "ui_labels": {{"affirmative_action_label": [{{"lang": "en", "value": "Yes"}}]}}}}}}}}"#,
+        claims.join(", ")
+    )
+}
+
+/// TS12 §3.3.1 and CS-12 §7.3 item 5: a leaf without claim metadata takes level 3, which displays,
+/// and a parameter name unavailable ceases. Every field of TS12 §4.3.1 and §4.3.2 falls under it
+/// but `transaction_id`, `date_time`, `payee.id` and `currency`, which CS-12 §7.2 and its test bed
+/// send without metadata. The field labelled, its row shows.
 #[test]
-fn a_held_field_without_labels_ceases() {
-    let locales = ["en"];
-    let bind = |own: &str, more: &str| {
-        let payload = format!(
-            r#", "payload": {{"transaction_id": "t", "payee": {{"name": "P", "id": "i"{payee}}}, "currency": "EUR", "amount": 1{rest}}}"#,
-            payee = more.strip_prefix('@').unwrap_or_default(),
-            rest = if more.starts_with('@') { "" } else { more },
-        );
-        bound_entry(own, &entry(PAYMENT, r#""sca""#, ALG, &payload), &locales)
-    };
-    for (more, field) in [
+fn a_held_field_without_claim_metadata_ceases() {
+    const PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const LOGIN: &str = "urn:eudi:sca:login_risk_transaction:1";
+    let header = ["amount", "payee.name"];
+    let frequency = "recurrence.frequency";
+    let recurring = |member: &str| format!(r#","recurrence":{{"frequency":"MNTH","{member}}}"#);
+    let mit = |member: &str| recurring(&format!(r#"mit_options":{{"{member}}}"#));
+    let pisp = r#","pisp":{"legal_name":"L","brand_name":"B","domain_name":"d.example"}"#;
+    let logo = format!(r#"@,"logo":"{PNG}""#);
+    let table: [(&str, String, &[&str]); 20] = [
+        ("payee.logo", logo, &[]),
         (
-            r#","recurrence":{"frequency":"MNTH"}"#,
-            "recurrence.frequency",
+            "payee.website",
+            r#"@,"website":"https://payee.example""#.to_owned(),
+            &[],
         ),
         (
-            r#","recurrence":{"frequency":"MNTH","mit_options":{"total_amount":1000000}}"#,
-            "recurrence.frequency",
-        ),
-        (r#","amount_estimated":true"#, "amount_estimated"),
-        (r#","amount_earmarked":true"#, "amount_earmarked"),
-        (r#","sct_inst":true"#, "sct_inst"),
-        (r#","execution_date":"2026-12-01""#, "execution_date"),
-        (
-            r#","pisp":{"legal_name":"L","brand_name":"B","domain_name":"d.example"}"#,
             "pisp.legal_name",
+            pisp.to_owned(),
+            &["pisp.brand_name", "pisp.domain_name"],
         ),
-        (r#"@,"website":"https://payee.example""#, "payee.website"),
-    ] {
-        assert_eq!(
-            unsupported(bind(CS12_IBAN, more)),
-            Ts12Unsupported::Labels {
-                field: field.to_owned()
-            },
-            "{more}"
-        );
-    }
-    let recurring = r#","recurrence":{"frequency":"MNTH"}"#;
-    let with_frequency = |level: u8| {
-        CS12_IBAN.replacen(
-            r#""claims": ["#,
-            &format!(
-                r#""claims": [{{"path": ["payload", "recurrence", "frequency"], "visualisation": {level}, "display": [{{"lang": "en", "label": "Frequency"}}]}},"#
-            ),
-            1,
-        )
+        (
+            "pisp.brand_name",
+            pisp.to_owned(),
+            &["pisp.legal_name", "pisp.domain_name"],
+        ),
+        (
+            "pisp.domain_name",
+            pisp.to_owned(),
+            &["pisp.legal_name", "pisp.brand_name"],
+        ),
+        (
+            "execution_date",
+            r#","execution_date":"2026-12-01""#.to_owned(),
+            &[],
+        ),
+        (
+            "amount_estimated",
+            r#","amount_estimated":true"#.to_owned(),
+            &[],
+        ),
+        (
+            "amount_earmarked",
+            r#","amount_earmarked":true"#.to_owned(),
+            &[],
+        ),
+        ("sct_inst", r#","sct_inst":true"#.to_owned(), &[]),
+        (
+            "recurrence.frequency",
+            r#","recurrence":{"frequency":"MNTH"}"#.to_owned(),
+            &[],
+        ),
+        (
+            "recurrence.start_date",
+            recurring(r#"start_date":"2026-12-01""#),
+            &[frequency],
+        ),
+        (
+            "recurrence.end_date",
+            recurring(r#"end_date":"2027-12-01""#),
+            &[frequency],
+        ),
+        (
+            "recurrence.number",
+            recurring(r#"number":12"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.amount_variable",
+            mit(r#"amount_variable":true"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.min_amount",
+            mit(r#"min_amount":1"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.max_amount",
+            mit(r#"max_amount":2"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.total_amount",
+            mit(r#"total_amount":3"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.initial_amount",
+            mit(r#"initial_amount":4"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.initial_amount_number",
+            mit(r#"initial_amount_number":5"#),
+            &[frequency],
+        ),
+        (
+            "recurrence.mit_options.apr",
+            mit(r#"apr":6.5"#),
+            &[frequency],
+        ),
+    ];
+    let bind = |own: &str, kind: &str, payload: &str| {
+        let payload = format!(r#", "payload": {payload}"#);
+        bound_entry(own, &entry(kind, r#""sca""#, ALG, &payload), &["en"])
     };
-    let rows = |own: &str| bind(own, recurring).expect("offered").overlay.rows.len();
-    assert_eq!(
-        rows(&with_frequency(2)),
-        bind(CS12_IBAN, "").expect("offered").overlay.rows.len() + 1
+    for (field, held, also) in &table {
+        let payload = payment("1", held);
+        let others = [&header[..], also].concat();
+        let refused = unsupported(bind(&labelled(PAYMENT, &others), PAYMENT, &payload));
+        assert!(labels_of(&refused, field), "{field}: {refused:?}");
+        let all = [&others[..], &[field]].concat();
+        let bound = bind(&labelled(PAYMENT, &all), PAYMENT, &payload).expect(field);
+        assert_eq!(bound.overlay.rows.len(), also.len() + 1, "{field}");
+    }
+    // TS12 §4.3.2's optional field; `action` in the rows, as the type has no header.
+    let login = r#"{"transaction_id": "t", "service": "S", "action": "A"}"#;
+    let refused = unsupported(bind(&labelled(LOGIN, &["action"]), LOGIN, login));
+    assert!(labels_of(&refused, "service"), "{refused:?}");
+    let bound = bind(&labelled(LOGIN, &["action", "service"]), LOGIN, login).expect("offered");
+    assert_eq!(bound.overlay.rows.len(), 2);
+    // The four named fields, held without metadata, stay internal, in each type that lists them.
+    let payload = payment("1", r#","date_time":"2026-10-01T12:30:15.123Z""#);
+    let bound = bind(&labelled(PAYMENT, &header), PAYMENT, &payload).expect("offered");
+    assert!(bound.overlay.rows.is_empty());
+    let payload =
+        r#"{"transaction_id": "t", "date_time": "2026-10-01T12:30:15.123Z", "action": "A"}"#;
+    let bound = bind(&labelled(LOGIN, &["action"]), LOGIN, payload).expect("offered");
+    assert_eq!(bound.overlay.rows.len(), 1);
+    // TS12 §3.3.1: level 4 omits the field, labelled or not.
+    let hidden = labelled(PAYMENT, &header).replacen(
+        r#""claims": ["#,
+        r#""claims": [{"path": ["payload", "sct_inst"], "visualisation": 4},"#,
+        1,
     );
-    assert_eq!(
-        rows(&with_frequency(4)),
-        bind(CS12_IBAN, "").expect("offered").overlay.rows.len()
-    );
+    let payload = payment("1", r#","sct_inst":true"#);
+    let bound = bind(&hidden, PAYMENT, &payload).expect("offered");
+    assert!(bound.overlay.rows.is_empty());
 }
 
 /// TS12 §3.3.3's 30, 30, 50 and 250 and Proof Metadata §3.3's 60 for a claim's label, in extended
@@ -555,13 +819,16 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
     };
     let fetched = Keyed::new(vec![Entry::new(
         HttpsUrl::parse(url).expect("a URL"),
-        br#"{"affirmative_action_label": [{"lang": "en", "value": "Pay"}]}"#.to_vec(),
+        FetchedDocument::parse(
+            br#"{"affirmative_action_label": [{"lang": "en", "value": "Pay"}]}"#,
+        )
+        .expect("JSON"),
     )])
     .expect("one URL");
     let composed = |own: &str| {
-        Ts12Document::compose(&Node::parse(own).expect("JSON"), &fetched).map(|bytes| {
-            let text = String::from_utf8(bytes).expect("UTF-8");
-            let node = Node::parse(&text).expect("JSON").into_owned();
+        Ts12Document::compose(&Node::parse(own).expect("JSON"), &fetched).map(|composed| {
+            let text = std::str::from_utf8(composed.content().as_bytes()).expect("UTF-8");
+            let node = Node::parse(text).expect("JSON").into_owned();
             node.get("transaction_data_types")
                 .and_then(|types| types.get(PAYMENT))
                 .and_then(|entry| entry.get("ui_labels"))
@@ -578,24 +845,49 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
             r#""ui_labels": {{}}, "ui_labels_uri": "{url}""#
         ))),
         Err(ComposeError::Both {
-            member: "ui_labels".to_owned()
+            member: TwinnedMember::UiLabels
         })
     );
     let elsewhere = "https://example.com/elsewhere.json";
     assert_eq!(
         composed(&own(&format!(r#""claims_uri": "{elsewhere}""#))),
         Err(ComposeError::Unfetched {
-            uri: elsewhere.to_owned()
+            url: Box::new(HttpsUrl::parse(elsewhere).expect("a URL"))
         })
     );
+    for written in ["5", r#""http://example.com/claims.json""#] {
+        assert_eq!(
+            composed(&own(&format!(r#""claims_uri": {written}"#))),
+            Err(ComposeError::UriForm {
+                member: TwinnedMember::Claims
+            })
+        );
+    }
     assert_eq!(composed("{}"), Err(ComposeError::Types));
 }
 
+/// RFC 2397's grammar, its own examples among the accepted; W3C SRI's: sha256's digest is 32 octets,
+/// 44 characters of base64.
 #[test]
 fn the_constructors_refuse_outside_their_grammar() {
-    assert_eq!(DataUrl::parse("image/png;base64,AAAA".to_owned()), None);
-    assert!(DataUrl::parse("data:image/png;base64,AAAA".to_owned()).is_some());
-    // W3C SRI: sha256's digest is 32 octets, 44 characters of base64.
+    for (written, holds) in [
+        ("data:,A%20brief%20note", true),
+        ("data:text/plain;charset=iso-8859-7,%be%fg%be", true),
+        ("data:image/gif;base64,R0lGODdh", true),
+        ("image/png;base64,AAAA", false),
+        ("data:image/png;base64", false),
+        ("data:image/png;base64,@@@@", false),
+        ("data:image/png;base64,AAA", false),
+        ("data:image;base64,AAAA", false),
+        ("data:image/png;charset,AAAA", false),
+        ("data:,caf\u{e9}", false),
+    ] {
+        assert_eq!(
+            DataUrl::parse(written.to_owned()).is_some(),
+            holds,
+            "{written}"
+        );
+    }
     let short = format!("sha256-{}", "A".repeat(40));
     assert_eq!(Integrity::parse(short), None);
     let exact = format!("sha256-{}=", "A".repeat(43));

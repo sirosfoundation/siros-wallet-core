@@ -2607,8 +2607,10 @@ private behind `written()` and `ascii()`. `parse(&str) -> Result<Self, NotHttpsU
 auditor render the same bytes (gate I37). PaSO View §3 asks the wallet to show the full URL and
 mitigate homograph confusion with the punycode form. Two texts with one ASCII form are one URL:
 equality and hash read `ascii`, `Resource::distinct` asks one GET for them, and `with_resource`,
-`image::resolve` and `FailedImage::url` key on `ascii()`. `NotCompatible::Image` names `ascii()`
-once the text parses.
+`image::resolve`, `Ts12Profile::resolution` and `FailedImage::url` key on `ascii()`.
+`NotCompatible::Image` names `ascii()` once the text parses, and `IntoArg` names it in a message,
+as `ComposeError::Unfetched` does. `written()` feeds only what the render engine parses again: a
+TS12 payload's `payee.logo` and `payee.website`, and the URL `image::resolve` reads.
 
 `parse` holds no UTS #46 rule, so a host UTS #46 would refuse is a URL in phase 1. A PaSO `url`
 value, a TS12 `payee.website` and `payee.logo` and a QES document link parse and show its Punycode.
@@ -3015,7 +3017,7 @@ PaSO's rule applies.
 | A payment's `amount` and `payee.name`; an action's `action` | Displayed at every level; the payment's two in its header (RTS Art. 5(1)(a)) | Payment rulebook |
 | `transaction_id`, `date_time`, `payee.id`, `currency` without claim metadata (CS-12 §7.2, test bed KA21, KA23) | Internal | View §2 |
 | Another field a payload holds without claim metadata, or a claim below level 4 without `display` (TS12 §3.3.1, CS-12 §7.3 item 5) | The type is unsupported (`Ts12Unsupported::Labels`) | View §2 |
-| Claim labels: `display` entries with `lang`, `label`, `description` | `lang` read as the entry's locale, `label` as its name; `description` unused. TS12 was not written for View §4's Lookup, so its tags convert as TS12 means them: an entry whose array holds no entry under its language's generic tag (the tag without its region and variants, its script kept) is that language's text and converts under the generic tag, the first such entry in the array's order when several regions of one language stand alone. WE BUILD's claim labels tagged `en-GB` beside no `en` are English and convert to `en` | Proof Metadata §3.1 |
+| Claim labels: `display` entries with `lang`, `label`, `description` | `lang` read as the entry's locale, `label` as its name; `description` unused. TS12 was not written for View §4's Lookup, so its tags convert as TS12 means them: an entry whose array holds no entry under its language's generic tag (the tag without its region and variants, its script kept) is that language's text and converts under the generic tag, the first such entry in the array's order when several regions of one language stand alone; a grandfathered tag (RFC 5646 §2.1) stays whole. WE BUILD's claim labels tagged `en-GB` beside no `en` are English and convert to `en` | Proof Metadata §3.1 |
 | Locale matching, which TS12 leaves open | View §4 as written over the converted tags: the first tag of the priority list for which every label array matches by RFC 4647 Lookup or its default entry (section 4.14); no tag excludes the credential (§3.3.1: cease) | View §4 |
 | Label lengths in "characters" | §3.3.3's 30, 30, 50 and 250 in extended grapheme clusters; claim labels 60; PaSO's rules on directional and control characters | Proof Metadata §3.3 |
 | `transaction_title`, `denial_action_label` absent | The wallet's title and denial label (§3.3.3) | Proof Metadata §3.2 |
@@ -3055,7 +3057,9 @@ level. `payee.logo#integrity` stands declared beside `payee.logo` (View §3 `ima
 `urn:eudi:sca:login_risk_transaction:1` (TS12 §4.3.2): `transaction_id` (string, required) and
 `service` (string, up to 100 characters), plain; `date_time` (string), `iso_date_time`; `action`
 (string, required, up to 140 characters), plain. TS12's schemas state these lengths and patterns,
-and `PayloadRefusal::Length { path, max }` refuses a longer text.
+and `PayloadRefusal::Length { path, max }` refuses a longer text. A refusal names a member by
+`FieldPath`, one of the crate's constants for TS12's field tables, and a member those tables do not
+list by `PayloadRefusal::Member { within, name }`.
 
 **Values** (TS12 §4.3.1, through PaSO View §3):
 
@@ -3064,7 +3068,8 @@ and `PayloadRefusal::Length { path, max }` refuses a longer text.
 | `amount`: "fractional digits as per [ISO4217]", which the schema leaves unchecked | The exact decimal value of the number as written, with at most the currency's minor-unit digits, shown with exactly that many: `42.5` EUR shows 42.50, `10.125` EUR is refused |
 | "Negative amounts are signed by minus", with no meaning for a payment to a payee | Refused: TS12 defines no negative payment |
 | An amount beyond 38 digits | Refused as `PayloadRefusal::Digits`: the exact value's width |
-| A negative or oversized number elsewhere | Refused as `PayloadRefusal::Kind` |
+| A negative or oversized number elsewhere | Refused as `PayloadRefusal::Kind`: an integer beyond 64 bits as `Expected::Integer`, an `apr` beyond 38 digits as `Expected::Decimal` |
+| `mit_options.apr`: a number | Its exact decimal value: `6.50` and `1.5e1` show 6.5 and 15 |
 | `payee.website`, `payee.logo`: a URL other than https | Refused as `PayloadRefusal::Kind` |
 | `payee.logo#integrity` beside a data URL or without a logo | Refused as `PayloadRefusal::Member` |
 | Dates: the prose says an ISO 8601 date, the schema `format: date-time` | ISO 8601 calendar dates (`iso_date`) |
@@ -3120,15 +3125,23 @@ The transaction log of TS12 §5.3 is the caller's, optional under CS-12 §7.3 it
 
 ```rust
 /// The key of the TS12 document in a credential's registration.
-pub const DOCUMENT: &str = "ts12";
+pub const DOCUMENT: DocumentKey<'static> = checked!(DocumentKey, "ts12");
 
-pub struct Ts12Document<'d> { category: Option<&'d str>, types: &'d Object<'d> }
-/// A `transaction_data_types` entry; only `Ts12Document::entry` makes one, and only
-/// `TypeEntry::built_in` a `BuiltInEntry`, which `paso_metadata` takes with the type its schema
-/// names.
-pub struct TypeEntry<'d> { built_in: Option<Ts12Type>, claims: Option<&'d Node<'d>>,
-                           ui_labels: Option<&'d Node<'d>> }
-pub struct BuiltInEntry<'d> { kind: Ts12Type, entry: TypeEntry<'d> }
+/// A `claims_uri` or `ui_labels_uri` document the caller fetched, parsed once.
+pub struct FetchedDocument(Node<'static>);
+/// What `compose` writes; `content` gives its `DocumentBytes`.
+pub struct ComposedDocument(Vec<u8>);
+/// `category`: TS12 §3's, or absent or any other.
+pub enum Category { Sca, Other }
+/// `schema`, `claims` or `ui_labels`, in `ComposeError::Both`.
+pub enum TwinnedMember { Schema, Claims, UiLabels }
+
+pub struct Ts12Document<'d> { category: Category, types: &'d Object<'d> }
+/// A `transaction_data_types` entry under its key; `Ts12Document::entry` and `listed` make one.
+pub struct TypeEntry<'d> { kind: Option<Ts12Type>, members: &'d Node<'d> }
+/// An entry whose schema names a built-in type; only `TypeEntry::built_in` makes one, which reads
+/// its `claims` and `ui_labels` under TS12 §3.3 once. `paso_metadata` takes it and refuses nothing.
+pub struct BuiltInEntry<'d> { kind: Ts12Type, metadata: TypeMetadata<'d> }
 /// `payee.logo`'s forms: a data URL (RFC 2397) and an SRI value (W3C SRI §3.5), each made by its
 /// `parse`, which refuses a text outside its grammar.
 pub struct DataUrl(String);
@@ -3137,9 +3150,16 @@ pub struct Integrity(String);
 impl<'d> Ts12Document<'d> {
     /// The document from the credential's own type metadata and the documents its `claims_uri`
     /// and `ui_labels_uri` name, fetched at registration (TS12 §4.1, §4.1.1).
-    pub fn compose(own: &Node<'_>, fetched: &Keyed<HttpsUrl, Vec<u8>>)
-        -> Result<Vec<u8>, ComposeError>;
+    pub fn compose(own: &Node<'_>, fetched: &Keyed<HttpsUrl, FetchedDocument>)
+        -> Result<ComposedDocument, ComposeError>;
     pub fn read(node: &'d Node<'d>) -> Result<Self, ComposeError>;
+    pub fn category(&self) -> Category;
+    pub fn entry(&self, kind: &TransactionType<'_>) -> Option<TypeEntry<'d>>;
+    pub fn listed(&self, kind: Ts12Type) -> Option<TypeEntry<'d>>;
+}
+
+impl<'d> TypeEntry<'d> {
+    pub fn built_in(&self) -> Result<BuiltInEntry<'d>, Ts12Unsupported>;
 }
 
 /// The built-in types served (CS-12 §7.1 item 1).
@@ -3148,7 +3168,9 @@ pub enum Ts12Type { Payment, LoginRisk }
 /// A `vct` value a credential's `types` may name, non-empty, fixed with `checked!`.
 pub struct AttestationType(&'static str);
 pub struct Ts12Profile { attestation_types: AllOf<AttestationType>, bound: ItemBound,
-                         resources: Vec<(String, Fetch)> }
+                         resources: Keyed<HttpsUrl, Fetch> }
+/// What phase 2 finds of a displayed https logo.
+pub struct Ts12Finding { pub url: HttpsUrl, pub failure: ImageFailure }
 
 impl Ts12Profile {
     /// The profile, for credentials whose `types` name one of the attestation types (CS-12 §7.1
@@ -3156,10 +3178,10 @@ impl Ts12Profile {
     pub fn new(attestation_types: AllOf<AttestationType>) -> Self;
     /// View §2's item bound.
     pub fn with_bound(self, bound: ItemBound) -> Self;
-    /// What phase 2 fetched of an https logo.
-    pub fn with_resource(self, url: &HttpsUrl, fetch: Fetch) -> Self;
+    /// What the wallet fetched of each https logo.
+    pub fn with_resources(self, resources: Keyed<HttpsUrl, Fetch>) -> Self;
     /// Registers the profile under `urn:eudi:sca:`.
-    pub fn register(self, builder: &mut RegistryBuilder) -> Result<ProfileHandle, InvalidId>;
+    pub fn register(self, builder: &mut RegistryBuilder) -> ProfileHandle;
 }
 
 impl Profile for Ts12Profile { /* refusals: T1 to T6; members: placement Claims alone; bind:
@@ -4504,7 +4526,7 @@ One mechanism serves each family:
   `SealedCose`.
 - **Types as kinds**: an argument's kind is its value's type (`IntoArg::Kind`).
 
-Counts: 76 rows fixed, 8 boundaries kept with their reason, 705 holding as built.
+Counts: 76 rows fixed, 8 boundaries kept with their reason, 716 holding as built.
 The fixes that close a guarantee hole:
 
 - **Answers from a caller list.** A caller's answers matched by position could give a fetch where
@@ -4747,12 +4769,16 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ViewApi` | `profile` | Converts display rules to a module source; reads a claim value by its value type (View §3) | Holds: a trait; refuses with `NotCompatible` |
 | `Paso` | `profile` | The wallet's version and its risk signals' last measurements (PaSO Core §6.1, Risk Signals §2.3) | Holds: a trait |
 | `Ts12Type` | `profile` | One of the two built-in TS12 types (CS-12 §7.1 item 1) | Holds: an enum whose every variant is a type |
-| `Ts12TypeApi` | `profile` | Reads a type from its URN; its URN and family | Holds: the inherent methods of `Ts12Type`; `of -> Option` |
+| `Ts12TypeApi` | `profile` | Reads a type from its URN; its family | Holds: the inherent methods of `Ts12Type`; `of(&TransactionType) -> Option` |
 | `Ts12Document` | `profile` | The registration's `category` and `transaction_data_types` (TS12 §4.1) | Holds: private fields; `read -> Result<_, ComposeError>` |
-| `TypeEntry` | `profile` | A `transaction_data_types` entry | Fixed (typestate gap): private fields; only `Ts12Document::entry` makes one |
-| `BuiltInEntry` | `profile` | An entry whose schema names a built-in type | Holds: private; only `TypeEntry::built_in` makes one, with that type |
-| `TypeEntryApi` | `profile` | The accessors of `TypeEntry` | Holds: the inherent methods of `TypeEntry` |
+| `TypeEntry` | `profile` | A `transaction_data_types` entry | Fixed (typestate gap): private fields; only `Ts12Document` makes one |
+| `BuiltInEntry` | `profile` | An entry whose schema names a built-in type, its metadata read under TS12 §3.3 | Holds: private; only `TypeEntry::built_in` makes one, with that type |
+| `TypeEntryApi` | `profile` | Reads an entry for its built-in type | Holds: the inherent methods of `TypeEntry` |
 | `ComposeError` | `profile` | One variant per composition rule (TS12 §4.1) | Holds: a refusal enum, one variant per rule |
+| `FetchedDocument` | `profile` | A document fetched for a `_uri` member: JSON with unique member names | Holds: private; `parse -> Result<_, JsonError>` |
+| `ComposedDocument` | `profile` | A registration's `ts12` document | Holds: private; only `Ts12DocumentApi::compose` makes one |
+| `Category` | `profile` | SCA's category, or anything else | Holds: an enum; `Ts12Document::read` makes one |
+| `TwinnedMember` | `profile` | A member TS12 §4.1 lets a type write inline or by a `_uri` twin | Holds: an enum whose every variant is such a member |
 | `Ts12DocumentApi` | `profile` | Composes the registration document; reads it and its entries | Holds: the inherent methods of `Ts12Document` |
 | `Amount` | `profile` | An exact decimal amount, at most its currency's minor-unit digits | Holds: private `String`; only `Ts12PayloadApi::parse` makes one, beside its currency |
 | `CurrencyCode` | `profile` | An ISO 4217 code of the core's table, with its minor-unit digits, which `Amount` reads | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
@@ -4763,6 +4789,8 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `Integrity` | `profile` | A Subresource Integrity value (W3C SRI §3.5) | Holds: private; `parse -> Option` refuses a text outside the grammar or a digest of another length |
 | `DataUrlApi` | `profile` | The parse of `DataUrl` | Holds: the inherent `parse` |
 | `IntegrityApi` | `profile` | The parse of `Integrity` | Holds: the inherent `parse` |
+| `TransactionId`, `Service`, `Action` | `profile` | Their members, within the schemas' lengths | Holds: private; only `Ts12PayloadApi::parse` makes one |
+| `PayeeName`, `PayeeId`, `PispLegalName`, `PispBrandName`, `PispDomainName`, `RecurrenceNumber`, `InitialAmountNumber`, `Apr`, `AmountEstimated`, `AmountEarmarked`, `SctInst`, `AmountVariable` | `profile` | Their members | Holds: private; only `Ts12PayloadApi::parse` makes one |
 | `Payee` | `profile` | TS12 §4.3.1's `payee` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `Pisp` | `profile` | TS12 §4.3.1's `pisp` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `MitOptions` | `profile` | TS12 §4.3.1's `recurrence.mit_options` | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
@@ -4772,13 +4800,18 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `LoginRisk` | `profile` | A `urn:eudi:sca:login_risk_transaction:1` payload (TS12 §4.3.2) | Holds: private fields; only `Ts12PayloadApi::parse` makes one |
 | `Ts12Payload` | `profile` | A payment or a login-risk payload | Holds: an enum of parsed payloads |
 | `PayloadRefusal` | `profile` | One variant per payload rule (TS12 §4.3, PaSO Core §7.4.2 step 2) | Holds: a refusal enum, one variant per rule |
+| `FieldPath` | `profile` | A member of TS12's field tables, or `payload` itself | Holds: private; the crate's constants |
+| `Expected` | `profile` | The form TS12 lists for a member | Holds: an enum whose every variant is a form |
+| `DateForm` | `profile` | A calendar date or a date-time | Holds: an enum whose every variant is a form |
+| `MaxChars` | `profile` | A schema's `maxLength` | Holds: private; the crate's constants |
 | `Ts12PayloadApi` | `profile` | Parses a payload of a type; writes it in PaSO's value forms | Holds: the inherent methods of `Ts12Payload` |
 | `Ts12Unsupported` | `profile` | One variant per rule that makes a type unsupported (TS12 §3.2 step 5, §3.3.1) | Holds: a refusal enum, one variant per rule |
 | `Ts12Rule` | `profile` | The request rules T1 to T6 and B.3.3.1's hash rule, each with its code | Holds: a refusal enum, one variant per rule |
 | `Ts12Excluded` | `profile` | Why phase 1 excludes a credential: the presentation's carriage, an unsupported type, a payload's refusal, the engine's refusal | Holds: an enum a wallet reads the exclusion by |
-| `TranslateApi` | `profile` | A built-in type's metadata in PaSO's form | Fixed (tag in one structure and its data in another): `paso_metadata` takes a `BuiltInEntry`, which holds the type its schema names |
+| `TranslateApi` | `profile` | A built-in type's metadata in PaSO's form | Fixed (tag in one structure and its data in another): `paso_metadata` takes a `BuiltInEntry`, which holds the type its schema names and its parsed metadata |
 | `AmrCategory` | `profile` | An `amr` category of TS12 §3.6 | Holds: an enum whose every variant is a category |
-| `AmrApi` | `profile` | The `amr` object of a factor | Holds: a trait; returns an `AmrCategory` |
+| `AmrMethod` | `profile` | A method of TS12 §3.6, with the category holding it | Holds: an enum; `category()` and `name()` follow from the variant |
+| `AmrApi` | `profile` | The `amr` object of a factor | Holds: a trait; returns an `AmrMethod` |
 | `AttestationType` | `profile` | A `vct` value a credential's `types` may name, non-empty | Holds: private; `const fn new -> Option` refuses an empty text |
 | `Ts12Profile` | `profile` | The attestation types, one or more, and View §2's item bound | Fixed (non-empty `Vec`): `AllOf<AttestationType>` |
 | `Ts12Host` | `profile` | The modules siros-ts12 needs: `Platform` and siros-paso's `RandomIds` | Holds: a trait whose bounds name the modules |
@@ -5017,7 +5050,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `NotSealedCose` | `profile` | One variant per rule: a `COSE_Encrypt`'s CBOR item, its tag 96, its structure, its `enc` | Holds: a refusal enum, one variant per rule |
 | `ObjectRule` | `authenticate` | A rule a profile or a deployment sets on an authenticated Request Object's claims (A14) | Holds: a trait; it reads the claims alone and returns a `Refusal` with its rule's code |
 | `Cs02Claims` | `plugins` | siros-webuild's CS-02 §8.2 rule: `exp` and `aud` present | Holds: a unit struct implementing `ObjectRule` |
-| `ClaimAbsent` | `plugins` | The CS-02 §8.2 claim a Request Object lacks | Holds: a refusal struct over `RequiredClaim`, private, read by `claim()` |
+| `ClaimAbsent` | `plugins` | The CS-02 §8.2 claim a Request Object lacks | Holds: a refusal struct with a private `claim: RequiredClaim`, read by `claim()` |
 | `ClaimAbsentApi` | `plugins` | Reads the claim a `ClaimAbsent` names | Holds: the inherent methods of `ClaimAbsent` |
 | `Cs02ErrorAnswer` | `plugins` | siros-webuild's reader of CS-02 §8.3's `error` and `error_description` | Holds: a unit struct implementing `AnswerReader` |
 | `ErrorAnswerForm` | `plugins` | An error answer outside RFC 6749 §5.2's form | Holds: a refusal struct, one rule |
@@ -5124,7 +5157,7 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ImageHeight` | `rows` | An image's height | Holds: a `u32` in its role |
 | `ImageRef` | `rows` | An embedded image's source, media type and size | Holds: private fields; `new` takes each in its role |
 | `SriMetadata` | `rows` | An `integrity` value | Holds: private text; every text parses, as SRI §3.3.3 lets `sri::matches` judge it |
-| `RemoteImage` | `rows` | A URL to fetch and the digest to check | Holds: private fields; `new` takes a `Shown` URL and an `SriMetadata` |
+| `RemoteImage` | `rows` | A URL to fetch and the digest to check | Holds: private fields; `new` takes an `HttpsUrl` and an `SriMetadata` |
 | `WalletText` | `consent` | The core's display messages for the consent entry | Holds: an enum; each variant is a message the wallet words |
 | `BooleanText` | `plugins` | A boolean's text, the core's request messages | Holds: an enum whose two variants are the texts |
 | `CrateModule` | `lib` | A crate's module: its display messages and the request messages it declares | Holds: a unit struct implementing `Messages` and `DeclaredModule`; each of the core, siros-paso and siros-qes holds one |

@@ -2,6 +2,7 @@
 
 use siros_explain::Explain;
 use siros_openid4vp::hash::{self, HashesAlgRule};
+use siros_openid4vp::ids::{QueryId, TransactionType};
 use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, Refusal, RequestRule};
 use siros_openid4vp::request::{EntryIndex, Multiplicity, Request};
@@ -19,34 +20,34 @@ pub enum Ts12Rule {
     /// T1: an entry without `transaction_data_hashes_alg` (TS12 §4.2).
     #[error("entry {entry}: no transaction_data_hashes_alg")]
     NoHashes {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
     },
     /// T1: an entry without a `payload` object (TS12 §4.2).
     #[error("entry {entry}: no payload object")]
     NoPayload {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
     },
     /// T2: a second TS12 entry (CS-12 §8.1).
     #[error("entry {entry}: a second entry under urn:eudi:sca:")]
     Second {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
     },
     /// T3: `credential_ids` holding more than one id (CS-12 §8.1, §7.3 item 7).
     #[error("entry {entry}: credential_ids holds more than one id")]
     CredentialIds {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
     },
     /// T4: a type other than the two served (CS-12 §7.1 item 1, §7.3 item 10).
     #[error("entry {entry}: {kind} is no type this profile serves")]
     Type {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
         /// The type.
-        kind: String,
+        kind: TransactionType<'static>,
     },
     /// T5: an unsigned request carrying a TS12 entry (CS-12 §7.3 item 3; PaSO Core §3).
     #[error("a TS12 entry in an unsigned request")]
@@ -55,13 +56,13 @@ pub enum Ts12Rule {
     #[error("query {query}: multiple is true on the query a TS12 entry names")]
     Multiple {
         /// The query's id.
-        query: String,
+        query: QueryId<'static>,
     },
     /// OpenID4VP B.3.3.1's rule over the entry's `transaction_data_hashes_alg`.
     #[error("entry {entry}: {rule}")]
     Hashes {
-        /// The entry's position.
-        entry: usize,
+        /// The entry.
+        entry: EntryIndex,
         /// The rule.
         rule: HashesAlgRule,
     },
@@ -91,8 +92,7 @@ pub(crate) fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Ref
     let own = request
         .indexed_entries()
         .filter(|(index, _)| entries.contains(index));
-    for (position, (index, entry)) in own.enumerate() {
-        let at = index.get();
+    for (position, (at, entry)) in own.enumerate() {
         let members = entry.members();
         if position > 0 {
             out.push(Refusal::new(Ts12Rule::Second { entry: at }));
@@ -106,11 +106,10 @@ pub(crate) fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Ref
         if entry.credential_ids().len() > 1 {
             out.push(Refusal::new(Ts12Rule::CredentialIds { entry: at }));
         }
-        let kind = entry.kind().as_str();
-        if Ts12Type::of(kind).is_none() {
+        if Ts12Type::of(entry.kind()).is_none() {
             out.push(Refusal::new(Ts12Rule::Type {
                 entry: at,
-                kind: kind.to_owned(),
+                kind: entry.kind().clone(),
             }));
         }
         out.extend(
@@ -130,7 +129,7 @@ pub(crate) fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Ref
                 })
                 .map(|query| {
                     Refusal::new(Ts12Rule::Multiple {
-                        query: query.id().as_str().to_owned(),
+                        query: query.id().clone().into_owned(),
                     })
                 }),
         );

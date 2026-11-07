@@ -11,6 +11,16 @@ All notable changes to this workspace. The format follows
   `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
   payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
   label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
+- `siros-ts12` types each member and argument: `FieldPath`, `Expected`, `DateForm` and `MaxChars`
+  in `PayloadRefusal`; `TransactionType` and `QueryId` in `Ts12Rule` and `Ts12Unsupported`;
+  `Ts12Unsupported::{NoSchema, SchemaForm, ClaimsForm, NoClaimPath, ClaimPath, Level, ClaimLabels,
+  CatalogueForm, UiLabels}` per rule; `ComposeError::{UriForm, Unfetched}` per rule; `DocumentKey` in
+  `DOCUMENT`; `FetchedDocument`, `ComposedDocument`, `Category` and `TwinnedMember` in the document;
+  `Keyed<HttpsUrl, Fetch>` in `with_resources`; `AmrMethod`; `Ts12Finding { url, failure }`.
+  `TypeEntry::built_in` parses a type's metadata once, and `paso_metadata` returns an `Object`.
+  `mit_options.apr` is an exact decimal within 38 digits, `Expected::Decimal` refusing the rest.
+  `register` returns the `ProfileHandle`.
+- `checked!` takes a type with a destructor; `DocumentKey::new` and `TypePrefix::new` are `const`.
 - `siros-integration` holds the WE BUILD build beside HAIP's: `x509_hash` alone,
   `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
   or `DeviceMac`, over F11 and F12.
@@ -165,7 +175,8 @@ All notable changes to this workspace. The format follows
   ASCII has each label in UTS #46's case and each label beyond ASCII written `xn--` and its Punycode,
   with no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
   `HttpsUrl`. Two texts with one ASCII form are one URL: one `Resource`, one answer, one key of
-  `with_resource`; `FailedImage::url` and a parsed URL's `NotCompatible::Image` hold that form.
+  `with_resource` and `with_resources`; `FailedImage::url` and a parsed URL's
+  `NotCompatible::Image` hold that form, and `IntoArg` names it in a message.
 - A host UTS #46 refuses parses. A PaSO `url` value, a TS12 `payee.website` and a QES document link
   without a checksum at such a host show its Punycode and take no fetch; they were refused or
   faulted in phase 1. A PaSO image, a TS12 logo and a checksummed QES document reach the caller's GET

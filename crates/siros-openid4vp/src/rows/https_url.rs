@@ -8,7 +8,7 @@ use fluent_uri::build::{BuildError, Builder};
 use fluent_uri::component::{Host, Scheme};
 use fluent_uri::pct_enc::EStr;
 use fluent_uri::pct_enc::encoder::IRegName;
-use siros_explain::Explain;
+use siros_explain::{Explain, IntoArg, kind};
 
 use crate::text::python_space;
 
@@ -35,6 +35,24 @@ impl Eq for HttpsUrl {}
 impl Hash for HttpsUrl {
     fn hash<S: Hasher>(&self, state: &mut S) {
         self.ascii.hash(state);
+    }
+}
+
+/// A message names a URL by its ASCII form.
+impl IntoArg for HttpsUrl {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.ascii.as_str()
+    }
+}
+
+/// A boxed URL, for an error's field: named as the URL is.
+impl IntoArg for Box<HttpsUrl> {
+    type Kind = kind::Raw;
+
+    fn arg(&self) -> &str {
+        self.ascii.as_str()
     }
 }
 

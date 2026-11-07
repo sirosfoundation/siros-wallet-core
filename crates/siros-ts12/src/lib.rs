@@ -32,7 +32,7 @@
 //! const IBAN: AttestationType = checked!(AttestationType, "https://example.com/sca-iban");
 //! let mut builder = Registry::<Host>::builder();
 //! builder.hash(Sha2::Sha256);
-//! assert!(Ts12Profile::new(AllOf::one(IBAN)).register(&mut builder).is_ok());
+//! Ts12Profile::new(AllOf::one(IBAN)).register(&mut builder);
 //! assert!(builder.build().is_ok());
 //! ```
 
@@ -57,6 +57,7 @@
 #[cfg(feature = "resolve")]
 pub mod amr;
 pub mod document;
+pub mod field;
 pub mod payload;
 #[cfg(feature = "resolve")]
 mod phase2;
@@ -64,9 +65,9 @@ mod rules;
 pub mod translate;
 pub mod view;
 
-use siros_explain::{AllOf, Message, Messages};
+use siros_explain::{AllOf, Keyed, Message, Messages};
 use siros_openid4vp::detail;
-use siros_openid4vp::ids::{InvalidId, TypePrefix};
+use siros_openid4vp::ids::TypePrefix;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Exclusion, Fault,
@@ -78,20 +79,24 @@ use siros_openid4vp::request::{Entry, EntryIndex, Request};
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_paso::Fetch;
 use siros_paso::entry::Payload;
-use siros_paso::image::Resolution;
+use siros_paso::image::{ImageFailure, Resolution};
 use siros_paso::label_limit;
 use siros_paso::labels::LabelLimits;
 use siros_paso::outcome::Outcome;
 use siros_paso::render::{self, ItemBound, Registered};
-use siros_paso::{FailedImage, Fetch};
 
 #[cfg(feature = "resolve")]
-pub use amr::{AmrCategory, amr};
+pub use amr::{AmrCategory, AmrMethod, amr};
 pub use document::{
-    BuiltInEntry, ComposeError, DOCUMENT, SCA_CATEGORY, Ts12Document, Ts12Type, TypeEntry,
+    BuiltInEntry, Category, ComposeError, ComposedDocument, DOCUMENT, FetchedDocument,
+    Ts12Document, Ts12Type, TwinnedMember, TypeEntry,
 };
-pub use payload::{DataUrl, Integrity, Logo, PayloadRefusal, Ts12Payload};
+pub use field::FieldPath;
+pub use payload::{
+    DataUrl, DateForm, Expected, Integrity, Logo, MaxChars, PayloadRefusal, Ts12Payload,
+};
 pub use rules::{Ts12Excluded, Ts12Rule};
 pub use translate::{Ts12Unsupported, paso_metadata};
 
@@ -100,7 +105,7 @@ use crate::translate::labels_for;
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "ts12.fault");
 
 /// The prefix the profile registers under.
-pub const PREFIX: &str = "urn:eudi:sca:";
+const PREFIX: TypePrefix<'static> = siros_explain::checked!(TypePrefix, "urn:eudi:sca:");
 
 /// TS12 §3.3.3's limits; claim labels under PaSO's (Proof Metadata §3.3).
 pub const LIMITS: LabelLimits = LabelLimits {
@@ -132,7 +137,6 @@ impl Messages for CrateMessages {
             Ts12Unsupported::messages(),
             Ts12Rule::messages(),
             Ts12Excluded::messages(),
-            view::ConvertError::messages(),
         ]
         .into_iter()
         .flatten()
@@ -169,14 +173,16 @@ impl AttestationType {
 pub struct Ts12Profile {
     attestation_types: AllOf<AttestationType>,
     bound: ItemBound,
-    pub(crate) resources: Vec<(String, Fetch)>,
+    pub(crate) resources: Keyed<HttpsUrl, Fetch>,
 }
 
 /// What phase 2 finds: a displayed https logo whose fetch or verification failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ts12Finding {
-    /// The logo.
-    pub failed: FailedImage,
+    /// The logo's URL.
+    pub url: HttpsUrl,
+    /// What failed.
+    pub failure: ImageFailure,
 }
 
 /// A TS12 entry's translation for a credential.
@@ -186,6 +192,9 @@ pub(crate) struct Translated {
     pub(crate) typed: Ts12Payload,
     pub(crate) metadata: Node<'static>,
     pub(crate) payload: Node<'static>,
+    /// Whether a claim displays `payee.logo`.
+    #[cfg(feature = "resolve")]
+    pub(crate) logo_displayed: bool,
 }
 
 impl Ts12Profile {
@@ -196,7 +205,7 @@ impl Ts12Profile {
         Self {
             attestation_types,
             bound: ItemBound::LEAST,
-            resources: Vec::new(),
+            resources: Keyed::empty(),
         }
     }
 
@@ -207,35 +216,36 @@ impl Ts12Profile {
         self
     }
 
-    /// The profile knowing what the wallet fetched for an https logo.
+    /// The profile knowing what the wallet fetched for each https logo.
     #[must_use]
-    pub fn with_resource(mut self, url: &HttpsUrl, fetch: Fetch) -> Self {
-        self.resources.push((url.ascii().to_owned(), fetch));
+    pub fn with_resources(mut self, resources: Keyed<HttpsUrl, Fetch>) -> Self {
+        self.resources = resources;
         self
     }
 
     /// Registers the profile under `urn:eudi:sca:`.
-    ///
-    /// # Errors
-    ///
-    /// [`InvalidId`]: the prefix is no valid type prefix.
-    pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> Result<ProfileHandle, InvalidId>
+    pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> ProfileHandle
     where
         H: Build,
         Self: HostedProfile<H>,
     {
-        let prefix = TypePrefix::parse(PREFIX)?;
         let handle = builder.profile(self);
-        builder.prefix(prefix, handle);
-        Ok(handle)
+        builder.prefix(PREFIX, handle);
+        handle
     }
 
     /// What the wallet knows of an https logo: the first resource of its URL in ASCII.
     pub(crate) fn resolution(&self, url: &str) -> Resolution<'_> {
-        match self.resources.iter().find(|(known, _)| known == url) {
+        match self
+            .resources
+            .entries()
+            .iter()
+            .find(|resource| resource.key().ascii() == url)
+            .map(siros_explain::Entry::value)
+        {
             None => Resolution::Unknown,
-            Some((_, Fetch::Fetched { content, media })) => Resolution::Fetched { content, media },
-            Some((_, Fetch::Failed(reason))) => Resolution::Failed(reason),
+            Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },
+            Some(Fetch::Failed(reason)) => Resolution::Failed(reason),
         }
     }
 
@@ -246,18 +256,13 @@ impl Ts12Profile {
         index: EntryIndex,
         entry: &Entry<'_>,
         env: &Env,
-    ) -> Result<Result<Bound, Excluding>, Fault> {
-        let translated = match read_document(binding.credential)? {
-            None => return Ok(Err(Excluding::from(Ts12Unsupported::NoDocument))),
-            Some(node) => match self.supported(&node, binding.additions) {
-                Ok(()) => translate(&node, entry)?,
-                Err(unsupported) => return Ok(Err(unsupported.into())),
-            },
-        };
-        let translated = match translated {
-            Ok(translated) => translated,
-            Err(excluded) => return Ok(Err(excluded)),
-        };
+    ) -> Result<Bound, NoCandidate> {
+        let node = read_document(binding.credential)?
+            .ok_or_else(|| Excluding::from(Ts12Unsupported::NoDocument))?;
+        let document = read_registered(&node)?;
+        self.supported(&document, binding.additions)
+            .map_err(Excluding::from)?;
+        let translated = translate(&document, entry)?;
         let payload = Payload::of(&translated.payload)
             .ok_or_else(|| Fault::new(FAULT, detail!("a payload that is no object")))?;
         let view = render::Request {
@@ -268,26 +273,22 @@ impl Ts12Profile {
             limits: LIMITS,
             resolve: &|url: &str| self.resolution(url),
         }
-        .render();
-        let view = match view {
-            Ok(view) => view,
-            Err(outcome) => return Ok(Err(outcome.into())),
-        };
+        .render()
+        .map_err(Excluding::from)?;
         let attested = Attested::new(Vec::new())
             .map_err(|e| Fault::caused(FAULT, detail!("the attested display"), e))?;
         let entries = BoundEntries::select(binding.entries, vec![index])
             .map_err(|e| Fault::caused(FAULT, detail!("the bound entry"), e))?;
-        Ok(Ok(siros_paso::bound(view, attested, entries)?))
+        Ok(siros_paso::bound(view, attested, entries)?)
     }
 
-    /// Phase 1's step 2.
+    /// Phase 1's step 2: the document's category and the credential's types.
     fn supported(
         &self,
-        document: &Node<'_>,
+        document: &Ts12Document<'_>,
         additions: &dyn ViewAdditions,
     ) -> Result<(), Ts12Unsupported> {
-        let read = Ts12Document::read(document).map_err(|_| Ts12Unsupported::NoDocument)?;
-        if read.category() != Some(SCA_CATEGORY) {
+        if document.category() != Category::Sca {
             return Err(Ts12Unsupported::Category);
         }
         if !self.configured(additions) {
@@ -310,7 +311,7 @@ impl Ts12Profile {
 /// The document a credential's registration holds; `None` when it holds none.
 pub(crate) fn read_document<'c>(credential: &Credential<'c>) -> Result<Option<Node<'c>>, Fault> {
     credential
-        .document(DOCUMENT)
+        .document(DOCUMENT.as_str())
         .map(|bytes| {
             let text = std::str::from_utf8(bytes)
                 .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
@@ -319,48 +320,38 @@ pub(crate) fn read_document<'c>(credential: &Credential<'c>) -> Result<Option<No
         .transpose()
 }
 
+/// The document as [`Ts12Document::compose`] wrote it, whose shape a registration holds.
+pub(crate) fn read_registered<'d>(node: &'d Node<'d>) -> Result<Ts12Document<'d>, Fault> {
+    Ts12Document::read(node).map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))
+}
+
 /// Phase 1's steps 3 to 6: the entry's type under the document's rules, its typed payload and its
 /// translation into PaSO's model.
 pub(crate) fn translate(
-    document: &Node<'_>,
+    document: &Ts12Document<'_>,
     entry: &Entry<'_>,
-) -> Result<Result<Translated, Excluding>, Fault> {
-    let read = Ts12Document::read(document)
-        .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
-    let kind = entry.kind().as_str();
-    let translated = (|| {
-        let listed = read.entry(kind).ok_or_else(|| Ts12Unsupported::NotListed {
-            kind: kind.to_owned(),
-        })?;
-        let built_in = listed.built_in().ok_or_else(|| Ts12Unsupported::Schema {
-            schema: listed.schema().unwrap_or_default().to_owned(),
-        })?;
-        let metadata = paso_metadata(&built_in)?;
-        let members = entry.members();
-        let payload = members.get("payload").ok_or_else(|| {
-            Excluding::from(PayloadRefusal::Required {
-                path: "payload".to_owned(),
-            })
-        })?;
-        let typed = Ts12Payload::parse(built_in.kind(), payload)?;
-        labels_for(&built_in, payload)?;
-        Ok::<_, Excluding>((built_in.kind(), typed, metadata))
-    })();
-    match translated {
-        Err(excluding) => Ok(Err(excluding)),
-        Ok((kind, typed, metadata)) => {
-            let payload = typed
-                .paso_payload()
-                .map_err(|e| Fault::caused(FAULT, detail!("a typed payload"), e))?;
-            Ok(Ok(Translated {
-                kind,
-                #[cfg(feature = "resolve")]
-                typed,
-                metadata,
-                payload,
-            }))
-        }
-    }
+) -> Result<Translated, Excluding> {
+    let kind = entry.kind();
+    let listed = document
+        .entry(kind)
+        .ok_or_else(|| Ts12Unsupported::NotListed { kind: kind.clone() })?;
+    let built_in = listed.built_in()?;
+    let metadata = Node::Object(paso_metadata(&built_in));
+    let members = entry.members();
+    let payload = members.get("payload").ok_or(PayloadRefusal::Required {
+        path: field::PAYLOAD,
+    })?;
+    let typed = Ts12Payload::parse(built_in.kind(), payload)?;
+    labels_for(&built_in, payload)?;
+    Ok(Translated {
+        kind: built_in.kind(),
+        payload: Node::Object(typed.paso_payload()),
+        #[cfg(feature = "resolve")]
+        typed,
+        metadata,
+        #[cfg(feature = "resolve")]
+        logo_displayed: built_in.metadata().displays(field::PAYEE_LOGO),
+    })
 }
 
 /// What keeps a credential from a TS12 entry: the rule the matcher reports, or View §4's.
@@ -433,10 +424,7 @@ impl Profile for Ts12Profile {
             .request
             .entry(*index)
             .ok_or_else(|| Fault::new(FAULT, detail!("an offered entry the request lacks")))?;
-        match self.bound(&binding, *index, entry, env)? {
-            Ok(bound) => Ok(bound),
-            Err(excluding) => Err(excluding.into()),
-        }
+        self.bound(&binding, *index, entry, env)
     }
 
     /// One SCA attestation per request (CS-12 §7.3 item 7; rb-sca-iban §9): the credentials whose
@@ -446,7 +434,10 @@ impl Profile for Ts12Profile {
         credential: &Credential<'_>,
         additions: &dyn ViewAdditions,
     ) -> Result<bool, Fault> {
-        Ok(read_document(credential)?
-            .is_some_and(|document| self.supported(&document, additions).is_ok()))
+        let Some(node) = read_document(credential)? else {
+            return Ok(false);
+        };
+        let document = read_registered(&node)?;
+        Ok(self.supported(&document, additions).is_ok())
     }
 }

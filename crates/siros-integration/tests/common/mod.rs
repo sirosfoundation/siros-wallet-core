@@ -108,10 +108,7 @@ pub fn we_build_registry() -> Result<Registry<WeBuildHost>, String> {
         .map(drop)
         .map_err(|e| e.to_string())?;
     let types = AllOf::new(WE_BUILD_TYPES.to_vec()).ok_or("the three base types")?;
-    Ts12Profile::new(types)
-        .register(&mut builder)
-        .map(drop)
-        .map_err(|e| e.to_string())?;
+    Ts12Profile::new(types).register(&mut builder);
     builder.object_rule(siros_webuild::Cs02Claims);
     builder.answer_reader(siros_webuild::Cs02ErrorAnswer);
     builder.build().map_err(|e| e.to_string())
@@ -123,19 +120,17 @@ pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
     let main = main_locales().expect("the main module");
     let mut defined: Vec<DefinedForm> = Vec::new();
     for credential in wallet.credentials() {
-        let Some(bytes) = credential.document(siros_ts12::DOCUMENT) else {
+        let Some(bytes) = credential.document(siros_ts12::DOCUMENT.as_str()) else {
             continue;
         };
         let text = std::str::from_utf8(bytes).expect("UTF-8");
         let node = Node::parse(text).expect("a TS12 document");
         let document = Ts12Document::read(&node).expect("a TS12 document");
         for kind in [Ts12Type::Payment, Ts12Type::LoginRisk] {
-            let Some(built_in) = document
-                .entry(kind.urn())
-                .and_then(|entry| entry.built_in())
-            else {
+            let Some(entry) = document.listed(kind) else {
                 continue;
             };
+            let built_in = entry.built_in().expect("a built-in type");
             let module =
                 siros_ts12::view::convert(&built_in, &main, env.priority()).expect("the module");
             if defined.iter().all(|known| known.id() != module.id()) {

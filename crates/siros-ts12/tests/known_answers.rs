@@ -209,7 +209,12 @@ fn ka24_each_factor_answers_a_value_ts12_lists() {
         (inherence(Modality::Unknown, Sensor::External), I, "other"),
     ];
     for (factor, category, method) in table {
-        assert_eq!(amr(&factor), (category, method), "{factor:?}");
+        let read = amr(&factor);
+        assert_eq!(
+            (read.category(), read.name()),
+            (category, method),
+            "{factor:?}"
+        );
     }
 }
 
@@ -240,38 +245,66 @@ fn i33_the_test_beds_english_reaches_every_list_holding_english() {
     assert!(rule.downcast_ref::<Excluded>().is_some(), "{excluded}");
 }
 
-/// I33: regions standing alone: the first of `en-GB` and `en-US` converts to `en`, the second keeps
-/// its tag and answers its own region.
+/// I33: a tag standing alone answers its language's generic tag, its region and variants dropped
+/// and its script kept, and a grandfathered tag stays whole (RFC 5646 §2.1), under the list's first
+/// tag (RFC 4647 §3.4). A list naming the language alone reaches no entry under a script.
 #[test]
-fn i33_the_first_region_alone_converts_and_the_second_keeps_its_tag() {
-    assert_eq!(
-        siros_ts12::translate::generic_tags(&["en-GB", "en-US"]),
-        ["en", "en-US"]
-    );
-    // An entry under the generic tag keeps every other as written; the script stays.
-    assert_eq!(
-        siros_ts12::translate::generic_tags(&["en-GB", "EN"]),
-        ["en-GB", "EN"]
-    );
-    assert_eq!(
-        siros_ts12::translate::generic_tags(&["zh-Hant-TW", "zh-Hans-CN", "de-1996"]),
-        ["zh-Hant", "zh-Hans", "de"]
-    );
-    let own = TESTBED_IBAN.replace(
-        r#""value": "Confirm payment""#,
-        r#""value": "Confirm payment"
-          },
-          {
-            "lang": "en-US",
-            "value": "Approve payment""#,
-    );
-    let locales = |tag: &'static str| {
-        let locales = [tag];
-        let bound = bound_entry(&own, TESTBED_PAYMENT, &locales).expect("offered");
-        let screen = screen(&own, Ts12Type::Payment, &locales, &bound);
-        screen.plain(&bound.header.confirm)
+fn i33_a_tag_standing_alone_answers_its_generic_tag() {
+    for (written, list, answers) in [
+        ("en-GB", "en", true),
+        ("de-1996", "de", true),
+        ("zh-Hant-TW", "zh-Hant", true),
+        ("zh-Hans-CN", "zh-Hans", true),
+        ("zh-Hant-TW", "zh", false),
+        ("art-lojban", "art-lojban", true),
+        ("art-lojban", "art", false),
+        ("en-GB-oed", "en", false),
+        ("sgn-BE-FR", "sgn", false),
+    ] {
+        let own = TESTBED_IBAN.replace(r#""en-GB""#, &format!(r#""{written}""#));
+        match bound_entry(&own, TESTBED_PAYMENT, &[list]) {
+            Ok(bound) => {
+                assert!(answers, "{written} under {list}");
+                assert_eq!(selected_tag(&bound), list, "{written}");
+            }
+            Err(NoCandidate::Excluded(excluded)) => {
+                let rule: &dyn std::error::Error = excluded.rule();
+                assert!(
+                    !answers && rule.downcast_ref::<Excluded>().is_some(),
+                    "{written} under {list}: {excluded}"
+                );
+            }
+            Err(fault) => panic!("{written} under {list}: {fault:?}"),
+        }
+    }
+}
+
+/// I33: of regions standing alone, the first converts and the second keeps its tag and answers its
+/// own region; beside an entry under the generic tag, each keeps its tag.
+#[test]
+fn i33_one_entry_takes_the_generic_tag() {
+    let beside = |tag: &str, text: &str| {
+        TESTBED_IBAN.replace(
+            r#""value": "Confirm payment""#,
+            &format!(
+                r#""value": "Confirm payment"
+              }},
+              {{
+                "lang": "{tag}",
+                "value": "{text}""#
+            ),
+        )
     };
-    assert_eq!(locales("en-GB"), "Confirm payment");
-    assert_eq!(locales("en"), "Confirm payment");
-    assert_eq!(locales("en-US"), "Approve payment");
+    let confirm = |own: &str, tag: &'static str| {
+        let locales = [tag];
+        let bound = bound_entry(own, TESTBED_PAYMENT, &locales).expect("offered");
+        screen(own, Ts12Type::Payment, &locales, &bound).plain(&bound.header.confirm)
+    };
+    let regions = beside("en-US", "Approve payment");
+    assert_eq!(confirm(&regions, "en-GB"), "Confirm payment");
+    assert_eq!(confirm(&regions, "en"), "Confirm payment");
+    assert_eq!(confirm(&regions, "en-US"), "Approve payment");
+    let generic = beside("EN", "Approve payment");
+    assert_eq!(confirm(&generic, "en-GB"), "Confirm payment");
+    assert_eq!(confirm(&generic, "en"), "Approve payment");
 }

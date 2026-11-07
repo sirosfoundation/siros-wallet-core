@@ -3,23 +3,26 @@
 //! (TS12 §4.1, §4.1.1).
 
 use std::borrow::Cow;
+use std::fmt;
 
-use siros_explain::{Explain, Keyed};
+use siros_explain::{Explain, IntoArg, Keyed, kind};
+use siros_openid4vp::ids::{DocumentKey, TransactionType};
 use siros_openid4vp::json::{JsonError, Node, Object};
+use siros_openid4vp::known_object;
 use siros_openid4vp::plugins::JsonText;
 use siros_openid4vp::rows::HttpsUrl;
+use siros_openid4vp::wallet::DocumentBytes;
 use siros_paso::rulebook::{Family, PasoType};
 
+use crate::translate::{Ts12Unsupported, TypeMetadata};
+
 /// The key of the TS12 document in a credential's registration.
-pub const DOCUMENT: &str = "ts12";
+pub const DOCUMENT: DocumentKey<'static> = siros_explain::checked!(DocumentKey, "ts12");
 /// TS12 §3: the category of an SCA attestation.
-pub const SCA_CATEGORY: &str = "urn:eu:europa:ec:eudi:sua:sca";
+const SCA_CATEGORY: &str = "urn:eu:europa:ec:eudi:sua:sca";
 
 const PAYMENT: &str = "urn:eudi:sca:payment:1";
 const LOGIN_RISK: &str = "urn:eudi:sca:login_risk_transaction:1";
-
-/// A member fetched at registration and the member it replaces.
-const FETCHED: [(&str, &str); 2] = [("claims_uri", "claims"), ("ui_labels_uri", "ui_labels")];
 
 /// The built-in types served (CS-12 §7.1 item 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,8 +36,8 @@ pub enum Ts12Type {
 impl Ts12Type {
     /// The type a URN names.
     #[must_use]
-    pub fn of(kind: &str) -> Option<Self> {
-        match kind {
+    pub fn of(kind: &TransactionType<'_>) -> Option<Self> {
+        match kind.as_str() {
             PAYMENT => Some(Self::Payment),
             LOGIN_RISK => Some(Self::LoginRisk),
             _ => None,
@@ -42,8 +45,7 @@ impl Ts12Type {
     }
 
     /// Its URN.
-    #[must_use]
-    pub const fn urn(self) -> &'static str {
+    pub(crate) const fn urn(self) -> &'static str {
         match self {
             Self::Payment => PAYMENT,
             Self::LoginRisk => LOGIN_RISK,
@@ -64,13 +66,56 @@ impl Ts12Type {
     }
 }
 
+/// A member TS12 §4.1 lets a type write inline or by a `_uri` twin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TwinnedMember {
+    /// `schema`, beside `schema_uri`.
+    Schema,
+    /// `claims`, beside `claims_uri`.
+    Claims,
+    /// `ui_labels`, beside `ui_labels_uri`.
+    UiLabels,
+}
+
+impl TwinnedMember {
+    /// The member's name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Schema => "schema",
+            Self::Claims => "claims",
+            Self::UiLabels => "ui_labels",
+        }
+    }
+
+    const fn uri(self) -> &'static str {
+        match self {
+            Self::Schema => "schema_uri",
+            Self::Claims => "claims_uri",
+            Self::UiLabels => "ui_labels_uri",
+        }
+    }
+}
+
+impl fmt::Display for TwinnedMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A member is named as the code fixes it.
+impl IntoArg for TwinnedMember {
+    type Kind = kind::Name;
+
+    fn arg(&self) -> &'static str {
+        self.name()
+    }
+}
+
 /// Type metadata the registration cannot compose, or a document it cannot read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "ts12.compose")]
 pub enum ComposeError {
-    /// No JSON object with unique member names at every level.
-    #[error(transparent)]
-    Json(#[from] JsonError),
     /// `transaction_data_types` absent, or no object of objects.
     #[error("transaction_data_types is absent or no object of objects")]
     Types,
@@ -78,20 +123,64 @@ pub enum ComposeError {
     #[error("{member}: a member and its _uri twin are both present")]
     Both {
         /// The member.
-        member: String,
+        member: TwinnedMember,
+    },
+    /// A `_uri` member that is no https URL (TS12 §4.1.1).
+    #[error("{member}_uri is no https URL")]
+    UriForm {
+        /// The member it stands for.
+        member: TwinnedMember,
     },
     /// A `_uri` member naming a document the caller did not fetch.
-    #[error("{uri} names a document the caller did not fetch")]
+    #[error("{} names a document the caller did not fetch", .url.ascii())]
     Unfetched {
-        /// The URI as written.
-        uri: String,
+        /// The URL.
+        url: Box<HttpsUrl>,
     },
+}
+
+/// A document the caller fetched at registration for a `claims_uri` or `ui_labels_uri`: a JSON
+/// value with unique member names at every level.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FetchedDocument(Node<'static>);
+
+impl FetchedDocument {
+    /// The document these bytes hold.
+    ///
+    /// # Errors
+    ///
+    /// [`JsonError`]: the bytes are no such JSON.
+    pub fn parse(bytes: &[u8]) -> Result<Self, JsonError> {
+        let text = std::str::from_utf8(bytes).map_err(|e| JsonError::Syntax(e.to_string()))?;
+        Ok(Self(Node::parse(text)?.into_owned()))
+    }
+}
+
+/// What [`Ts12Document::compose`] writes: a credential registration's `ts12` document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComposedDocument(Vec<u8>);
+
+impl ComposedDocument {
+    /// The content under the key [`DOCUMENT`].
+    #[must_use]
+    pub fn content(&self) -> DocumentBytes<'_> {
+        DocumentBytes::new(&self.0)
+    }
+}
+
+/// A document's `category`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    /// TS12 §3's category of an SCA attestation.
+    Sca,
+    /// Absent, or any other.
+    Other,
 }
 
 /// A credential's registration document.
 #[derive(Debug, Clone)]
 pub struct Ts12Document<'d> {
-    category: Option<&'d str>,
+    category: Category,
     types: &'d Object<'d>,
 }
 
@@ -103,37 +192,32 @@ impl<'d> Ts12Document<'d> {
     /// # Errors
     ///
     /// [`ComposeError`]: `transaction_data_types` breaks its shape, a member stands beside its
-    /// `_uri` twin, a fetched document is missing or is no JSON.
+    /// `_uri` twin, a `_uri` member is no https URL, or a fetched document is missing.
     pub fn compose(
         own: &Node<'_>,
-        fetched: &Keyed<HttpsUrl, Vec<u8>>,
-    ) -> Result<Vec<u8>, ComposeError> {
+        fetched: &Keyed<HttpsUrl, FetchedDocument>,
+    ) -> Result<ComposedDocument, ComposeError> {
         let types = own
             .get("transaction_data_types")
             .and_then(Node::as_object)
             .ok_or(ComposeError::Types)?;
-        let composed = types
-            .members()
-            .iter()
-            .map(|member| {
-                Ok((
-                    Cow::Owned(member.name.to_string()),
-                    composed_type(&member.value, fetched)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, ComposeError>>()?;
-        let mut document: Vec<(Cow<'static, str>, Node<'static>)> = Vec::new();
-        if let Some(category) = own.get("category") {
-            document.push((Cow::Borrowed("category"), category.clone().into_owned()));
+        let mut composed = types.clone().into_owned();
+        for member in types.members() {
+            composed.set(
+                Cow::Owned(member.name.to_string()),
+                composed_type(&member.value, fetched)?,
+            );
         }
-        document.push((
-            Cow::Borrowed("transaction_data_types"),
-            Node::object(composed)?,
-        ));
-        Ok(JsonText::from(&Node::object(document)?)
-            .as_str()
-            .as_bytes()
-            .to_vec())
+        let document = known_object! {
+            "category" => own.get("category").map(|category| category.clone().into_owned()),
+            "transaction_data_types" => Some(Node::Object(composed)),
+        };
+        Ok(ComposedDocument(
+            JsonText::from(&Node::Object(document))
+                .as_str()
+                .as_bytes()
+                .to_vec(),
+        ))
     }
 
     /// The document a registration holds.
@@ -153,30 +237,35 @@ impl<'d> Ts12Document<'d> {
             })
             .ok_or(ComposeError::Types)?;
         Ok(Self {
-            category: node.get("category").and_then(Node::as_str),
+            category: match node.get("category").and_then(Node::as_str) {
+                Some(SCA_CATEGORY) => Category::Sca,
+                _ => Category::Other,
+            },
             types,
         })
     }
 
     /// `category`.
     #[must_use]
-    pub const fn category(&self) -> Option<&'d str> {
+    pub const fn category(&self) -> Category {
         self.category
     }
 
     /// The entry of a type key.
     #[must_use]
-    pub fn entry(&self, kind: &str) -> Option<TypeEntry<'d>> {
-        let entry = self.types.get(kind)?;
-        let schema = entry
-            .get("schema")
-            .or_else(|| entry.get("schema_uri"))
-            .and_then(Node::as_str);
-        Some(TypeEntry {
-            built_in: Ts12Type::of(kind).filter(|built_in| schema == Some(built_in.urn())),
-            schema,
-            claims: entry.get("claims"),
-            ui_labels: entry.get("ui_labels"),
+    pub fn entry(&self, kind: &TransactionType<'_>) -> Option<TypeEntry<'d>> {
+        self.types.get(kind.as_str()).map(|members| TypeEntry {
+            kind: Ts12Type::of(kind),
+            members,
+        })
+    }
+
+    /// The entry of a built-in type's URN.
+    #[must_use]
+    pub fn listed(&self, kind: Ts12Type) -> Option<TypeEntry<'d>> {
+        self.types.get(kind.urn()).map(|members| TypeEntry {
+            kind: Some(kind),
+            members,
         })
     }
 }
@@ -184,91 +273,88 @@ impl<'d> Ts12Document<'d> {
 /// The type's members with each fetched member replaced by the document it names.
 fn composed_type(
     entry: &Node<'_>,
-    fetched: &Keyed<HttpsUrl, Vec<u8>>,
+    fetched: &Keyed<HttpsUrl, FetchedDocument>,
 ) -> Result<Node<'static>, ComposeError> {
+    use TwinnedMember::{Claims, Schema, UiLabels};
     let object = entry.as_object().ok_or(ComposeError::Types)?;
-    let twice =
-        |twin: &str, member: &str| object.get(twin).is_some() && object.get(member).is_some();
-    if twice("schema_uri", "schema") {
-        return Err(ComposeError::Both {
-            member: "schema".to_owned(),
-        });
+    if let Some(member) = [Schema, Claims, UiLabels]
+        .into_iter()
+        .find(|twin| object.get(twin.uri()).is_some() && object.get(twin.name()).is_some())
+    {
+        return Err(ComposeError::Both { member });
     }
-    if let Some((_, member)) = FETCHED.iter().find(|(uri, member)| twice(uri, member)) {
-        return Err(ComposeError::Both {
-            member: (*member).to_owned(),
-        });
+    let mut composed = object.clone().into_owned();
+    for twin in [Claims, UiLabels] {
+        if let Some(uri) = object.get(twin.uri()) {
+            composed.retain(|member| member.name != twin.uri());
+            composed.set(Cow::Borrowed(twin.name()), document_at(twin, uri, fetched)?);
+        }
     }
-    let members = object
-        .members()
-        .iter()
-        .map(
-            |member| match FETCHED.iter().find(|(uri, _)| *uri == member.name) {
-                Some((_, replaced)) => Ok((
-                    Cow::Borrowed(*replaced),
-                    document_at(&member.value, fetched)?,
-                )),
-                None => Ok((
-                    Cow::Owned(member.name.to_string()),
-                    member.value.clone().into_owned(),
-                )),
-            },
-        )
-        .collect::<Result<Vec<_>, ComposeError>>()?;
-    Ok(Node::object(members)?)
+    Ok(Node::Object(composed))
 }
 
 /// The document a `_uri` member names, as the caller fetched it.
 fn document_at(
+    member: TwinnedMember,
     uri: &Node<'_>,
-    fetched: &Keyed<HttpsUrl, Vec<u8>>,
+    fetched: &Keyed<HttpsUrl, FetchedDocument>,
 ) -> Result<Node<'static>, ComposeError> {
-    let unfetched = || ComposeError::Unfetched {
-        uri: uri
-            .as_str()
-            .map_or_else(|| uri.json_compact().to_string(), str::to_owned),
-    };
     let url = uri
         .as_str()
         .and_then(|text| HttpsUrl::parse(text).ok())
-        .ok_or_else(unfetched)?;
-    let bytes = fetched.get(&url).ok_or_else(unfetched)?;
-    let text = std::str::from_utf8(bytes).map_err(|e| JsonError::Syntax(e.to_string()))?;
-    Ok(Node::parse(text)?.into_owned())
+        .ok_or(ComposeError::UriForm { member })?;
+    fetched
+        .get(&url)
+        .map(|document| document.0.clone())
+        .ok_or_else(|| ComposeError::Unfetched { url: Box::new(url) })
 }
 
-/// One `transaction_data_types` entry: the built-in type its `schema` or `schema_uri` names, its
-/// claims metadata (TS12 §3.3.2) and its UI labels catalogue (TS12 §3.3.3).
+/// One `transaction_data_types` entry under its type key, unread until [`TypeEntry::built_in`].
 #[derive(Debug, Clone, Copy)]
 pub struct TypeEntry<'d> {
-    built_in: Option<Ts12Type>,
-    schema: Option<&'d str>,
-    claims: Option<&'d Node<'d>>,
-    ui_labels: Option<&'d Node<'d>>,
+    kind: Option<Ts12Type>,
+    members: &'d Node<'d>,
 }
 
 impl<'d> TypeEntry<'d> {
-    /// The entry with the built-in type its key and schema both name; `None` for any other schema.
-    #[must_use]
-    pub const fn built_in(&self) -> Option<BuiltInEntry<'d>> {
-        match self.built_in {
-            Some(kind) => Some(BuiltInEntry { kind, entry: *self }),
-            None => None,
-        }
-    }
-
-    /// `schema`, else `schema_uri`.
-    #[must_use]
-    pub const fn schema(&self) -> Option<&'d str> {
-        self.schema
+    /// The entry read for the built-in type its key and its `schema`, else `schema_uri`, both name:
+    /// its claims metadata (TS12 §3.3.2) and its UI labels catalogue (TS12 §3.3.3) checked against
+    /// that type's rules.
+    ///
+    /// # Errors
+    ///
+    /// [`Ts12Unsupported`]: the rule the entry leaves unmet.
+    pub fn built_in(&self) -> Result<BuiltInEntry<'d>, Ts12Unsupported> {
+        let written = self
+            .members
+            .get("schema")
+            .or_else(|| self.members.get("schema_uri"))
+            .ok_or(Ts12Unsupported::NoSchema)?
+            .as_str()
+            .ok_or(Ts12Unsupported::SchemaForm)?;
+        let kind = self
+            .kind
+            .filter(|kind| kind.urn() == written)
+            .ok_or_else(|| Ts12Unsupported::Schema {
+                schema: written.to_owned(),
+            })?;
+        Ok(BuiltInEntry {
+            kind,
+            metadata: TypeMetadata::parse(
+                kind,
+                self.members.get("claims"),
+                self.members.get("ui_labels"),
+            )?,
+        })
     }
 }
 
-/// A `transaction_data_types` entry whose schema names a built-in type.
-#[derive(Debug, Clone, Copy)]
+/// A `transaction_data_types` entry whose schema names a built-in type, its metadata read under
+/// TS12 §3.3.
+#[derive(Debug, Clone)]
 pub struct BuiltInEntry<'d> {
     kind: Ts12Type,
-    entry: TypeEntry<'d>,
+    metadata: TypeMetadata<'d>,
 }
 
 impl<'d> BuiltInEntry<'d> {
@@ -278,15 +364,8 @@ impl<'d> BuiltInEntry<'d> {
         self.kind
     }
 
-    /// Its claims metadata.
-    #[must_use]
-    pub const fn claims(&self) -> Option<&'d Node<'d>> {
-        self.entry.claims
-    }
-
-    /// Its UI labels catalogue.
-    #[must_use]
-    pub const fn ui_labels(&self) -> Option<&'d Node<'d>> {
-        self.entry.ui_labels
+    /// Its metadata.
+    pub(crate) const fn metadata(&self) -> &TypeMetadata<'d> {
+        &self.metadata
     }
 }

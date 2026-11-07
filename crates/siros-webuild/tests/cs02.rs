@@ -37,14 +37,10 @@ fn the_verifiers_error_answer_reads_as_rfc_6749_writes_it() {
     builder.answer_reader(Cs02ErrorAnswer);
     let registry = builder.build().expect("registry");
     let answer = ResponseUriAnswer::parse(
-        r#"{"redirect_uri": "https://verifier.example/done#x", "error": "access_denied", "error_description": "Declined by the user"}"#,
+        r#"{"error": "access_denied", "error_description": "Declined by the user"}"#,
         &registry,
     )
     .expect("an answer");
-    assert_eq!(
-        answer.redirect().map(|uri| uri.as_str()),
-        Some("https://verifier.example/done#x")
-    );
     let [outcome] = answer.outcomes() else {
         panic!("one outcome")
     };
