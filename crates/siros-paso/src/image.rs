@@ -11,7 +11,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{
     HttpsUrl, Image, ImageHeight, ImageMedia, ImageRef, ImageSource, ImageWidth, RemoteImage,
-    Shown, SriMetadata,
+    SriMetadata,
 };
 use siros_openid4vp::sri;
 use siros_openid4vp::text::python_space;
@@ -135,8 +135,7 @@ fn data_url(url: &str) -> Option<(Media, &str)> {
 }
 
 /// The image a payload value names, resolved with what the wallet knows of an https URL, as
-/// written; a pending remote image when it knows nothing. A URL is https by its shape: one whose
-/// host has no A-label form names nothing a fetch reaches, and phase 2 finds its fetch failed.
+/// written; a pending remote image when it knows nothing.
 pub fn resolve<'r>(
     url: &str,
     integrity: Option<&Node<'_>>,
@@ -157,15 +156,15 @@ pub fn resolve<'r>(
             (Cow::Owned(content), media, ImageSource::Data)
         }
         None => {
-            let shown =
-                HttpsUrl::shown(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?;
+            let https =
+                HttpsUrl::parse(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?;
             let integrity = integrity
                 .and_then(Node::as_str)
                 .map(|integrity| SriMetadata::written(integrity.to_owned()))
                 .ok_or_else(|| refuse(ImageFailure::NoIntegrity))?;
             let (content, media) = match resolution(url) {
                 Resolution::Unknown => {
-                    return Ok(Image::Remote(RemoteImage::new(shown, integrity)));
+                    return Ok(Image::Remote(RemoteImage::new(https, integrity)));
                 }
                 Resolution::Failed(reason) => {
                     return Err(refuse(ImageFailure::Fetch(reason.to_owned())));
@@ -175,9 +174,6 @@ pub fn resolve<'r>(
             if content.len() > MAX_BYTES {
                 return Err(refuse(ImageFailure::TooLarge));
             }
-            let Shown::Url(fetched) = shown else {
-                return Err(refuse(ImageFailure::NeitherDataNorHttps));
-            };
             if !sri::matches(content, &integrity) {
                 return Err(refuse(ImageFailure::IntegrityMismatch));
             }
@@ -186,7 +182,7 @@ pub fn resolve<'r>(
             (
                 Cow::Borrowed(content),
                 media,
-                ImageSource::Url(Box::new(fetched)),
+                ImageSource::Url(Box::new(https)),
             )
         }
     };

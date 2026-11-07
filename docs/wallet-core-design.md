@@ -2491,7 +2491,7 @@ give. `sigs/Cargo.toml` pins each new pick with `=`, and
 | `k12.rs` | KangarooTwelve (RFC 9861) | Replaced in this change: k12 0.5.1 (section 4.9.1). |
 | `sri.rs` | W3C Subresource Integrity | Keep: ssri 9.2.0 brings sha-1, xxhash and miette for one short parse. |
 | `AgreeableKey`, `thumbprint` | RFC 7517, RFC 7638 | Keep over the `json` module: each JWK crate tested accepts a repeated member at some level. |
-| `rows::values::HttpsUrl` | a WHATWG URL host (idna) | Replaced in this change: fluent-uri, with idna for the A-label host (section 4.9.3). |
+| `rows::values::HttpsUrl` | a WHATWG URL host (idna) | Replaced in this change: fluent-uri, with idna's Punycode for the host (section 4.9.3). |
 | siros-mdoc `cose.rs`, `device_authentication.rs`, `presentation.rs` | CBOR and COSE stand-ins mirroring the oracle (Python repr, JSON `{"bstr"}`) | Replaced in this change: ISO/IEC 18013-5 CBOR and COSE through ciborium and coset (section 4.9.4). |
 | `tests/hashes_and_handover.rs`, dev-dependency cbor4ii | CBOR | Replaced in this change: ciborium (section 4.9.4, commit 4). |
 | `runtime::RandomId`'s UUID formatting | RFC 9562 | Replaced in this change: uuid 1.29.0 (section 4.9.2). |
@@ -2596,28 +2596,37 @@ private behind `written()` and `ascii()`. `parse(&str) -> Result<Self, NotHttpsU
 2. `Iri::parse` reads RFC 3987.
 3. The scheme equals `https` in fluent-uri's comparison, which ignores case (RFC 3986 §3.1).
 4. The authority's host is non-empty (RFC 9110 §4.2.2).
-5. A registered name with a character beyond ASCII goes through `idna::domain_to_ascii`.
-   fluent-uri's `Builder` rebuilds the IRI around the A-label host from the parsed userinfo,
-   port, path, query and fragment. Any other host keeps the text as written.
+5. A registered name with a character beyond ASCII splits on `.` (U+002E). A label beyond ASCII
+   becomes `xn--` followed by `idna::punycode::encode_str` of the label lowercased by
+   `char::to_lowercase`; an ASCII label is lowercased by `to_ascii_lowercase`. fluent-uri's
+   `Builder` rebuilds the IRI around that host from the parsed userinfo, port, path, query and
+   fragment. Any other host keeps the text as written.
 
-`NotHttpsUrl` is `Iri(ParseError)`, `Whitespace`, `Scheme`, `Host`, `ALabel { written, cause }`
-or `Rebuilt(BuildError)`. `shown(text) -> Result<Shown, NotHttpsUrl>` replaces `shaped(text) ->
-bool`: a `Shown` is the `HttpsUrl` itself, or an `UnreachableUrl` when `parse` fails on `ALabel`
-alone, the IRI the matcher shows as written and never fetches. Only `shown` makes an
-`UnreachableUrl`, so the matcher shows no text that no type holds.
+`ascii()` is what the wallet shows and the caller fetches, in every build, so matcher, wallet and
+auditor render the same bytes (gate I37). PaSO View §3 asks the wallet to show the full URL and
+mitigate homograph confusion with the punycode form. A host UTS #46 would refuse reaches the
+caller's GET: the fetch fails, the caller answers `Fetch::Unfetched`, and phase 2 takes its
+failed-fetch path.
+
+Known limit: a host not in NFC or using compatibility characters shows and fetches the Punycode of
+what was written, which still reads `xn--`.
+
+`NotHttpsUrl` is `Iri(ParseError)`, `Whitespace`, `Scheme`, `Host`, `LabelOverflow`, `NotRegName`
+or `Rebuilt(BuildError)`. `encode_str` answers `None` when a label's delta overflows 32 bits
+(RFC 3492 §6.4): `LabelOverflow`. A label past DNS's 63 octets below that overflow builds, and its
+fetch fails. `NotRegName` is `EStr::<IRegName>::new` refusing the host's ASCII form. `parse`
+replaces `shaped(text) -> bool`, and `RemoteImage` holds an `HttpsUrl`.
 `rows` re-exports `NotHttpsUrl`. The 13 `.expect(..)` callers compile as they are. The 5
 Option-shaped uses become `.map_err(|_| bad("not an https URL"))`, which keeps the text the
-differential compares; `.ok().and_then(fetch)` twice, where a shaped URL without an A-label form
-ends as a failed fetch as today; `.ok()` in the integration port; and `.is_err()` in PaSO's
+differential compares; `.ok().and_then(fetch)` twice; `.ok()` in the integration port; and `.is_err()` in PaSO's
 responses test. The 3 field reads call the accessors. fluent-uri enters with its default
 features; the flows commits add its `net` feature behind `uri`.
 
 **Outputs that change.** Of the 54 URL literals in wallet-rs and the model's generators, 53 keep
-their verdict and A-label text. `https://\u{fffd}.example/l.png` (siros-paso
+their verdict and ASCII text. `https://\u{fffd}.example/l.png` (siros-paso
 `tests/responses.rs:882`) moves: U+FFFD lies outside `ucschar`, so the text is no IRI. That
-test's case, an https URL whose host has no A-label form, moves to
-`https://\u{301}x.example/l.png`: UTS #46 refuses a label that starts with a combining mark, and
-both implementations read the text as shaped without an A-label form. Of 20,000 generated URLs,
+test's case, an https image whose fetch fails, moves to `https://\u{301}x.example/l.png`, a label
+that UTS #46 refuses for starting with a combining mark. Of 20,000 generated URLs,
 13,807 agree. Each of the others falls in a class its tokens name:
 
 | Class | URLs | f718dc3 | fluent-uri |
@@ -2635,10 +2644,9 @@ cases hold. `https://bücher.example/x?q=1` shows `https://xn--bcher-kva.example
 `https://Ü@bücher.example/` shows `https://Ü@xn--bcher-kva.example/`; `http://shop.example`,
 `https://shop.example/a b` and `https://` are refused. The matcher gate is a wasm32-wasip1
 release pair in the matcher's profile (opt-level `s`, fat LTO, one codegen unit, panic abort,
-strip) running phase 1's URL path: `Value::format` of a `url` value and `HttpsUrl::shaped`, the
-parse `shown` keeps; I10 measures the matcher's build again. It
+strip) running phase 1's URL path: `Value::format` of a `url` value and `HttpsUrl::parse`; I10 measures the matcher's build again. It
 measures 297,235 B at f718dc3 and 316,967 B with fluent-uri, +19,732 B, equal over two clean
-builds. fluent-uri's builder accounts for 2,228 B of it. A variant that splices the A-label host
+builds. fluent-uri's builder accounts for 2,228 B of it. A variant that splices the ASCII host
 at fluent-uri's host span and reads the text back with `Iri::parse` measures 314,739 B, and it
 equals the builder variant on 20,054 of 20,054 URLs. `cargo tree` adds borrow-or-share 0.2.4,
 fluent-uri 0.4.1, ref-cast 1.0.27 and ref-cast-impl 1.0.27 to the `match` build.
@@ -4477,11 +4485,11 @@ One mechanism serves each family:
   names, a contribution's members and parameters, a reader's members, a response parameters'
   names, each against the others' and the core's (`NameTwice`, `NameReserved`).
 - **Parsed values at the boundary**: a public JWK the verifying and decrypting modules read
-  (`VerificationKey`, `EphemeralKey`), a format's `ParsedFormats`, `HttpsUrl::shown`'s `Shown`,
+  (`VerificationKey`, `EphemeralKey`), a format's `ParsedFormats`, `HttpsUrl`,
   `SealedCose`.
 - **Types as kinds**: an argument's kind is its value's type (`IntoArg::Kind`).
 
-Counts: 76 rows fixed, 8 boundaries kept with their reason, 692 holding as built.
+Counts: 76 rows fixed, 8 boundaries kept with their reason, 705 holding as built.
 The fixes that close a guarantee hole:
 
 - **Answers from a caller list.** A caller's answers matched by position could give a fetch where
@@ -5092,8 +5100,6 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `ClaimId` | `ids` | A claims query's id (§6.3's charset) | Holds: private text; `parse` refuses a text outside the charset |
 | `KeyId` | `ids` | A `kid` (RFC 7517 §4.5) | Holds: private text; `parse` holds any text |
 | `CredentialType` | `ids` | A credential's type: a `vct` or a docType | Holds: private text; `parse` holds any text |
-| `UnreachableUrl` | `rows` | An https IRI with a host that has no A-label form | Holds: private; only `HttpsUrl::shown` makes one |
-| `Shown` | `rows` | What the matcher shows of a text: a URL it fetches, or an IRI it never fetches | Holds: an enum of checked parts |
 | `Shown` | `credman::emit` | An entry's texts rendered, in its Standard or Payment form | Holds: an enum of boxed forms |
 | `Row` | `rows` | A label, its value and its section; a full-width text holds no value | Holds: public fields of `T`, `Value<T>`, `T`; a card's hold `Text`, an overlay's `RequestText` |
 | `Value` | `rows` | A row's value: an image, or a text | Holds: an enum whose every variant is a value |
@@ -5314,15 +5320,11 @@ code blocks: `HashAlgorithm`, `HashesError`, `MemberValue` and `Item`.
 | `CborError` | `cbor` | One variant per CBOR reading rule (RFC 8949 §5.6.1, §6) | Holds: a refusal enum, one variant per rule |
 | `Hint` | `cbor` | How a byte string becomes text: tags 21 to 23, base64url otherwise (RFC 8949 §3.4.5.2, §6.1) | Holds: a private enum whose every variant is an encoding |
 | `CoseShape` | `cbor` | One variant per COSE reading rule (RFC 9052 §3) | Holds: a refusal enum, one variant per rule |
-| `HttpsUrl` | `https_url` | An https IRI with a non-empty host, as written, and its A-label form (RFC 3987, UTS #46) | Fixed (check after construction): `shaped` leaves; `shown` gives a `Shown`: a fetchable `HttpsUrl`, or an `UnreachableUrl` the matcher shows |
+| `HttpsUrl` | `https_url` | An https IRI with a non-empty host, as written, and its one form in ASCII (RFC 3987, RFC 3492) | Fixed (check after construction): `shaped` leaves; `parse` alone makes one |
 | `NotHttpsUrl` | `https_url` | One variant per https URL rule | Holds: a refusal enum, one variant per rule |
-| `Shown` | `https_url` | What the matcher shows of a text: a URL to fetch, or an IRI to show | Holds: an enum of a checked `HttpsUrl` and a checked `UnreachableUrl` |
-| `UnreachableUrl` | `https_url` | An https IRI with a host that has no A-label form | Holds: private `Iri`; only `HttpsUrl::shown` makes one |
-| `HttpsUrl` | `https_url_splice` | An https IRI with a non-empty host, as written, and its A-label form spliced at the host (RFC 3987, UTS #46) | Fixed (check after construction): `shaped` leaves; `shown` gives a `Shown`, as `https_url`'s |
+| `HttpsUrl` | `https_url_splice` | An https IRI with a non-empty host, as written, and its ASCII form spliced at the host (RFC 3987, RFC 3492) | Fixed (check after construction): `shaped` leaves; `parse` alone makes one |
 | `NotHttpsUrl` | `https_url_splice` | One variant per https URL rule | Holds: a refusal enum, one variant per rule |
-| `Shown` | `https_url_splice` | As `https_url`'s | Holds: an enum of checked values |
-| `UnreachableUrl` | `https_url_splice` | As `https_url`'s | Holds: private `Iri`; only `HttpsUrl::shown` makes one |
-| `HttpsUrl` | `inhouse_https_url` | `f718dc3`'s https URL: `https://`, a host part, no whitespace; its A-label form | Boundary: `f718dc3`'s type, kept verbatim as gate G3's baseline (section 4.9.3); commit 3 removes it, and `https_url`'s lands |
+| `HttpsUrl` | `inhouse_https_url` | `f718dc3`'s https URL: `https://`, a host part, no whitespace; its ASCII form | Boundary: `f718dc3`'s type, kept verbatim as gate G3's baseline (section 4.9.3); commit 3 removes it, and `https_url`'s lands |
 | `RandomId` | `random_id` | A version 4 UUID of the RFC 9562 variant, as lowercase hyphenated text (RFC 9562 §5.4) | Holds: private `Uuid`; `const fn from_bytes` sets the version and variant bits; `parse -> Result<_, NotRandomId>` |
 | `NotRandomId` | `random_id` | One variant per UUID text rule | Holds: a refusal enum, one variant per rule |
 | `Signature` | `runtime` | A signature's bytes as the key made them: R and S for ECDSA (RFC 7518 §3.4, RFC 9053 §2.1) | Boundary: the keystore module's output, whose length its algorithm fixes (64, 96 or 132 octets); the core places the bytes and reads none, and the differential's doubles write the frozen model's stand-in texts in their place (I9); private, `new` for the module |
@@ -5625,7 +5627,7 @@ lists the files). A line can hold one call; a file several.
 | `Authentication { .. }` → `Authentication::new(completed_at, factors)`, the factors an `AllOf` | 6 | 6 |
 | `AgreeableKey` field reads → its accessors; `point()` gives the decoded coordinates | 15 | 8 |
 | `Answered { .. }` constructions → the core's phase 2 alone, the fields private | 11 | 6 |
-| `HttpsUrl::shaped(text)` → `HttpsUrl::shown(text)` | 4 | 4 |
+| `HttpsUrl::shaped(text)` → `HttpsUrl::parse(text)` | 4 | 4 |
 | `thiserror` error types of the shipped crates gain `#[derive(Explain)]` with their `domain` and ids (decision 18) | 39 | 27 |
 | `Refusal::invalid_request(text)`, `Refusal::invalid_transaction_data(text)`, `Refusal { .. }` in the shipped crates → `Refusal::new(rule)`, the rule kept unformatted and its code its own (`RequestRule::code`) | 29 | 10 |
 | `Exclude { reason: String }` → `Exclude::new(rule: impl Explained)` | 10 | 6 |
@@ -5793,7 +5795,7 @@ section 4.5's recourse says.
 | I31 | Rendering is verifiable. | Over the differentials' corpus, the matcher's build and the wallet's build render byte-equal texts from the same `Text` and rendering inputs (the locale a profile selected, the language and its fallback flag, each module's digest, the rendering options, the renderer's version): 0 differences. A module altered after its digest was taken is refused when it loads. Phase 2 refuses a pick whose rendering inputs differ from its own. Siros-testkit's English and German sources render the texts of `f718dc3`'s tables, each difference classed, in one comparison the milestone runs once. |
 | I32 | `Raw` is the last resort. | Every `Text::Raw` construction and every `Explain` field whose argument kind is `Raw` in the shipped crates is classed: a text an issuer or a Verifier wrote outside any module, or a received value without a type. Unclassed: 0. |
 | I33 | One language per presentation where PaSO View §4 allows it (section 4.14). | PaSO's locale, a property over priority lists, display arrays, default entries and discarded template entries, against a selection the test writes from View §4: the first tag whose every array matches by RFC 4647 Lookup or its default entry, the credential excluded with none. Known answers from RFC 4647 §3.4: `de-CH` over `[de]` gives `de`; `en-US` over `[en]` gives `en`; `en` over `[en-GB]` gives none, and the default entry answers. WE BUILD's TS12 example, its `en-GB` claim labels converted to `en`, is presented to `[en-US, en]`, `[en-US]`, `[en-GB]` and `[en]` under the list's first tag, and excluded for `[de]`; an array of `en-GB` and `en-US` labels beside no `en` converts its first to `en` and keeps the second. Replaying `display_locale` by View §4's step 1 over the metadata and the payload gives the consent's entries: 0 differences. The language, a property over priority lists, profile locales, module tag sets and enforcement: the first tag, over the profile's locale, its RFC 4647 truncations and then the list, that every module matches; known answers: `de-CH` selected, modules `de` and `en`, `[de-CH, en]` gives `de`; `fr` selected, modules `de` and `en`, `[fr, en]` gives `en`; with none, an enforcing module excludes the entry, and without one the fallback is a language every module covers, marked in the record; every text of those modules comes from its module's entry for that language. Known answers from RFC 4647 §3.3.1 and the list's rule: `en` over `[en-GB]` gives `en-GB`, over `[en-US, en-GB]` gives `en-US`, over `[en-GB, en]` gives `en`; `en-US` over `[en]`, `en-US` over `[en-GB]` and `en-GB` over `[en]` give none. Over the corpus, the picker's and the consent's languages and PaSO locales are equal: 0 differences. |
-| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside idna's UTS #46 back end (`idna_adapter` with icu_normalizer, icu_properties and the crates they pull in), which section 4.9.3 requires: its unicode-rs back end adds +136,360 bytes to the matcher. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
+| I34 | The shipped crates link no i18n crate (decision 19). | `cargo tree -e normal` of the shipped crates and the matcher lists no rust-mf2, jiff or `iso_currency` crate, and no ICU4X crate outside idna's own dependency `idna_adapter` (with icu_normalizer, icu_properties and the crates they pull in), of which `HttpsUrl`, calling `idna::punycode` alone, links no item. `iso_currency` is siros-explain's build dependency, and the remapped table answers as the crate for all 17,576 three-letter codes: 183 listed with equal letters and minor units, 17,393 refused. |
 | I35 | Dates and times render as ICU4X renders them. | For every locale the wallet ships, the renderer's dates and times at each length, with the options the CLDR tool writes, equal ICU4X 2.4's `DateTimeFormatter` over the same CLDR release, for each day of 2000 to 2030 at 00:00, 09:05, 12:00 and 23:59, and for 4 March and 31 December of every year 0 to 3000 and of 9999: 0 differences. Classed: German `full` dates before year 1000, where CLDR 49's pattern holds the field `Y` and ICU4X writes a literal `Y`. In the per-merge tier (`#[ignore]`). |
 | I36 | Numbers, plural categories, currencies and lists render as ICU4X renders them. | For every locale the wallet ships: plural categories and number texts for the 153 values of the probe (integers, decimals with and without trailing zeros, negatives, large numbers); an amount in every ISO 4217 currency; and- and or-lists of one to five items, the special-case initials included: each, with the options the CLDR tool writes, equal to ICU4X 2.4 over the same CLDR release: 0 differences. Classed: the German cells where CLDR 49 sets a symbol to its code and ICU4X's datagen falls back to root's symbol (PHP's symbol, SYP's narrow symbol, XXX's symbol and narrow symbol). In the per-merge tier (`#[ignore]`). |
 | I37 | The DC API matcher renders only what the request decides (section 4.14). | Over the differentials' corpus: texts the matcher renders per request equal the request-dependent texts of its entries, their disclosures included; the app lays out each entry; no card title, no credential's claim value, and a claim label only inside a disclosure, as its precomputed text; package bytes read per request, over the packages siros-credman's `register::package` writes and the core's match build reads = the entries read plus their audit paths, each audit path 32·⌈log2 n⌉ bytes for n entries; each pre-rendered text equal to the renderer's output for its `Text` and inputs: 0 differences. A change of the language preferences, a module or a credential changes the inputs of the texts it touches. An entry with ad-hoc PaSO metadata (Proof Metadata §5) is offered and rendered by the matcher, its texts equal to the wallet's for the verified JWT: 0 differences; phase 2 refuses it as incompatible when its JWT fails a §5.3 step, one fixture per step. The compiled messages a package holds are those of the texts that depend on the request: their keys, each reached by such a text. |

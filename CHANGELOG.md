@@ -52,7 +52,7 @@ All notable changes to this workspace. The format follows
   view's `issuer`. A text there is read through `DisplayText`.
 - A byte string shows by its length: `ClaimText::Bytes`, over the mdoc view's
   `byte_strings`.
-- General categories come from `icu_properties`, the table `idna`'s back end links, in place of
+- General categories come from `icu_properties`, in place of
   `unicode-general-category`: Unicode 18 in place of 16, so a text may show the 17,810 code points
   assigned since.
 - An mdoc's `full-date` (tag 1004) and `tdate` (tag 0) elements show as
@@ -161,6 +161,11 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
+  ASCII has each label lowercased and each label beyond ASCII written `xn--` and its Punycode, with
+  no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
+  `HttpsUrl`. A host UTS #46 refuses now reaches the caller's GET and fails there: phase 2's outcome
+  stands.
 - `claims::kit::format_entry` is RFC 4647 Lookup over the priority list, then
   filtering, then the entry without a locale; an array answering none gives no
   entry, and the row or the card takes its next choice. `type_metadata::convert`
@@ -441,6 +446,7 @@ All notable changes to this workspace. The format follows
 
 ### Removed
 
+- `rows::Shown`, `UnreachableUrl`, `HttpsUrl::shown`, `NotHttpsUrl::ALabel` and `NoALabel`.
 - `siros-trust`'s `QueryAuthorities`, `Admission`, `Issuer`, `Ground`, `Refusal`,
   `FactRefusal`, `Authority`, `AkiError`, `AuthorityError`, `EntryError::Id` and
   the generic parameter of `Unadmitted`: the core's `Facts::admits` and `Query`

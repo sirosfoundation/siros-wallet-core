@@ -172,7 +172,7 @@ enum Want {
 
 /// PaSO View §3's value kinds: each conforming value parses into the typed value ISO 8601 and
 /// ISO 4217 write, the frequency ISO 20022's code names, the boolean answer, or the text as
-/// written (UTS #46's A-labels for a URL's host); each other is refused.
+/// written (a URL's host in RFC 3492's Punycode); each other is refused.
 #[test]
 fn value_kinds_parse_as_paso_view_section_3_states() {
     use FormattedKind as K;
@@ -288,9 +288,9 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
 }
 
 /// ISO 8601's calendar and clock, RFC 3339 §5.7's leap second at 23:59:60 UTC on a month's last
-/// day (IERS Bulletin C 52 placed one at the end of 2016-12-31), and UTS #46's A-labels.
+/// day (IERS Bulletin C 52 placed one at the end of 2016-12-31), and RFC 3492's Punycode.
 #[test]
-fn calendar_dates_times_and_urls_follow_iso_8601_and_uts_46() {
+fn calendar_dates_times_and_urls_follow_iso_8601_and_rfc_3492() {
     use FormattedKind as K;
     use Written::Text as T;
     let day = |year, month, day| date(year, month, day);

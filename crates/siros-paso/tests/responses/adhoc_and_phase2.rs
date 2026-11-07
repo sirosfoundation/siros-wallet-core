@@ -10,7 +10,7 @@ use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::resolve::{Finding, Outcome as Phase2, Prepared};
 use siros_openid4vp::routing::ChannelKind;
-use siros_openid4vp::rows::{HttpsUrl, Shown};
+use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet::Wallet;
 use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal, Verified};
 use siros_paso::outcome::{NotCompatible, Outcome};
@@ -472,13 +472,9 @@ pub(super) fn phase_2_fetches_the_images_the_matcher_could_not_and_falls_back_wh
         proof(&response)["transaction_data_hash"],
         json!(digest_b64(request.entries()[1].raw()))
     );
-    // An https URL whose host has no A-label form: the matcher shows it pending as any https
-    // image; no fetch reaches it, and phase 2 falls back the same way.
+    // A URL whose fetch fails, as one at a host that UTS #46 refuses does: the matcher shows it
+    // pending, the resource is answered unfetched, and phase 2 falls back.
     let unreachable = "https://\u{301}x.example/l.png";
-    assert!(
-        matches!(HttpsUrl::shown(unreachable), Ok(Shown::Unreachable(_)))
-            && HttpsUrl::parse(unreachable).is_err()
-    );
     let unreachable_v2 = v2.replace(url, unreachable);
     let unreachable_parameters = crate::common::parameters(
         r#"{"credentials": [{"id": "sca_card", "format": "dc+sd-jwt"}]}"#,

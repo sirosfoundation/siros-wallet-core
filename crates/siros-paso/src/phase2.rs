@@ -144,7 +144,7 @@ use siros_openid4vp::plugins::{Answered, Fault, FetchedRecord, Members};
 #[cfg(feature = "resolve")]
 use siros_openid4vp::request::Entry;
 #[cfg(feature = "resolve")]
-use siros_openid4vp::rows::{HttpsUrl, Shown};
+use siros_openid4vp::rows::HttpsUrl;
 
 #[cfg(feature = "resolve")]
 use crate::adhoc::{self, AdhocJwt, Read as AdhocRead};
@@ -259,10 +259,10 @@ fn read<T>(
 
 #[cfg(feature = "resolve")]
 /// An https image of the payload the record's metadata displays and the matcher did not
-/// have: its text as written, the URL a fetch reaches, and its `#integrity` sibling.
+/// have: its text as written, its URL, and its `#integrity` sibling.
 struct Pending<'r> {
     text: &'r str,
-    url: Option<HttpsUrl>,
+    url: HttpsUrl,
     integrity: Option<&'r Node<'r>>,
 }
 
@@ -292,11 +292,8 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
             let (Some(text), Some(Concrete::Key(_))) = (value.as_str(), path.last()) else {
                 continue;
             };
-            let url = match HttpsUrl::shown(text) {
-                Ok(Shown::Url(url)) => Some(url),
-                // A host without an A-label form names nothing a fetch reaches.
-                Ok(Shown::Unreachable(_)) => None,
-                Err(_) => continue,
+            let Ok(url) = HttpsUrl::parse(text) else {
+                continue;
             };
             if !matches!(profile.resolution(text), Resolution::Unknown) {
                 // The matcher had it, verified or failed, and decided with it.
@@ -323,8 +320,8 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
 }
 
 #[cfg(feature = "resolve")]
-/// The URLs of the images phase 2 resolves that a fetch reaches, in the metadata's claim
-/// order; none when the record's ad-hoc metadata JWT fails a step of §5.3 through `modules`,
+/// The URLs of the images phase 2 resolves, in the metadata's claim order; none when the record's
+/// ad-hoc metadata JWT fails a step of §5.3 through `modules`,
 /// which the revalidation then refuses.
 pub(crate) fn wanted(
     profile: &PasoProfile,
@@ -334,7 +331,7 @@ pub(crate) fn wanted(
     Ok(read(record, Reliance::Verify(modules), |read| {
         Ok(pending(profile, &read)?
             .into_iter()
-            .filter_map(|image| image.url)
+            .map(|image| image.url)
             .collect())
     })?
     .unwrap_or_default())
@@ -369,17 +366,12 @@ pub(crate) fn revalidate(
         .then_some(sealer);
         let mut failed = Vec::new();
         for image in pending(profile, &read)? {
-            let fetch = image
-                .url
-                .map(|url| {
-                    resources.fetched(&url).ok_or_else(|| {
-                        Fault::new(FAULT, detail!("an image the profile wanted is unanswered"))
-                    })
-                })
-                .transpose()?;
+            let fetch = resources.fetched(&image.url).ok_or_else(|| {
+                Fault::new(FAULT, detail!("an image the profile wanted is unanswered"))
+            })?;
             let resolution = |_: &str| match fetch {
-                Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },
-                Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
+                Fetch::Fetched { content, media } => Resolution::Fetched { content, media },
+                Fetch::Unfetched => Resolution::Failed("the fetch failed"),
             };
             match image::resolve(image.text, image.integrity, &resolution) {
                 Ok(_) => {}

@@ -163,7 +163,6 @@ impl siros_explain::Messages for CrateMessages {
             rows::NotImageMedia::messages,
             media::NotMediaType::messages,
             rows::NotHttpsUrl::messages,
-            rows::NoALabel::messages,
             #[cfg(feature = "transaction-data")]
             hash::HashesAlgRule::messages,
             arrival::Unreadable::messages,

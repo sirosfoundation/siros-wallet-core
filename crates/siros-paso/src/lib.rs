@@ -634,9 +634,9 @@ where
         + Has<dyn IssuerTrust>
         + MayHave<dyn CoseEncrypt>,
 {
-    /// View §3: the https images the payload displays that the matcher had not fetched and a
-    /// fetch reaches, read from metadata the wallet relies on: none from an ad-hoc metadata JWT
-    /// that fails a step of Proof Metadata §5.3.
+    /// View §3: the https images the payload displays that the matcher had not fetched, read
+    /// from metadata the wallet relies on: none from an ad-hoc metadata JWT that fails a step of
+    /// Proof Metadata §5.3.
     fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         phase2::wanted(self, &record, adhoc::Modules::of(host))
     }

@@ -87,14 +87,14 @@ uuid = { version = "1.29.0", default-features = false }
 hmac = "0.13.0"
 # An informed registry clones the formats it holds as trait objects.
 dyn-clone = "1.0.20"
-# UTS #46 for the A-label form of an internationalised URL host.
+# RFC 3492's Punycode for the labels of an internationalised URL host.
 idna = "1.1.0"
 # RFC 3986 and RFC 3987: URIs and IRIs.
 fluent-uri = "0.4.1"
 # application/x-www-form-urlencoded: the Authorization Request URI's query, the form bodies.
 serde_urlencoded = "=0.7.1"
 # Unicode general categories: the characters a text may show, CommonMark's whitespace and
-# punctuation. The table idna's back end already links.
+# punctuation.
 icu_properties = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
 # RFC 9162's Merkle tree hashes and audit paths over an in-order node array.
 ct-merkle = "0.3.0"
