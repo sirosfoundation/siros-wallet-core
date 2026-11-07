@@ -4,9 +4,8 @@
 use siros_openid4vp::cbor::Value;
 
 use super::item::Read as _;
-use super::signature::SignatureAlgorithm;
 
-use crate::cose::Curve;
+use crate::cose::{Curve, SignatureAlgorithm};
 
 use super::error::DeviceKeyFault;
 

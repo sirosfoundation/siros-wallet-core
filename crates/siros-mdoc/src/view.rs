@@ -7,8 +7,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member};
 
 use crate::FAULT;
-use crate::cose::{Curve, DeviceKeyView, Signer};
-use crate::stored::SignatureAlgorithm;
+use crate::cose::{Curve, DeviceKeyView, SignatureAlgorithm, Signer};
 
 /// The mdoc members of a credential's view, each read when an operation needs it.
 pub(crate) struct MdocMembers<'a, 'v> {

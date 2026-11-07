@@ -69,8 +69,9 @@ impl<'k, M> DeviceAuth<'k, M> {
     /// transaction's evidence must convince parties beyond the Verifier, and the build holds the
     /// device MAC module (`module`). Refused when the MAC is the only one the Verifier lists and
     /// the build holds no device MAC module. `deviceSignature` otherwise, and when the Verifier
-    /// states no `deviceauth_alg_values`; its algorithm is the device key's. A device key that signs nothing authenticates by MAC alone, also where
-    /// the Verifier states no `deviceauth_alg_values`, and is refused where it cannot.
+    /// states no `deviceauth_alg_values`; its algorithm is the device key's. A device key that
+    /// signs nothing authenticates by MAC alone, also where the Verifier states no
+    /// `deviceauth_alg_values`, and is refused where it cannot.
     fn choose(
         device: DeviceKeyView,
         supported: Option<&Node<'_>>,
