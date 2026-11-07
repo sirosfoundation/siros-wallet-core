@@ -29,8 +29,9 @@ const OKP: i64 = 1;
 impl DeviceKey {
     /// `COSE_Key` of a Table 22 curve: `{1: kty, -1: crv, ? 3: alg, ...}`, with the 32-byte `x` and
     /// `y` of a P-256 key. `alg` restricts the key (RFC 9052 §7.1): one of no signature algorithm
-    /// leaves it signing nothing. Without it the curve's signature algorithm holds, and X25519 and
-    /// X448 sign nothing (RFC 9053 §7.1).
+    /// leaves it signing nothing, and a signature algorithm its curve does not make is refused
+    /// ([`SignatureAlgorithm::made_on`]). Without it the curve's signature algorithm holds, and
+    /// X25519 and X448 sign nothing (RFC 9053 §7.1).
     pub(crate) fn read(key: Option<&Value>) -> Result<Self, DeviceKeyFault> {
         let key = key.ok_or(DeviceKeyFault::Absent)?;
         let int = |label: i64| key.get_int(label).and_then(|v| v.as_int());
@@ -57,7 +58,10 @@ impl DeviceKey {
             DevicePoint::Other(curve)
         };
         let alg = match key.get_int(3) {
-            Some(stated) => stated.as_int().and_then(SignatureAlgorithm::parse),
+            Some(stated) => match stated.as_int().and_then(SignatureAlgorithm::parse) {
+                Some(alg) if !alg.made_on(curve) => return Err(DeviceKeyFault::Algorithm),
+                alg => alg,
+            },
             None => signature_algorithm(curve),
         };
         Ok(Self { point, alg })

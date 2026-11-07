@@ -279,6 +279,10 @@ pub enum DeviceKeyFault {
     /// A P-256 key's `x` (label -2) or `y` (label -3) is not a 32-byte string.
     #[error("a P-256 key's `x` (label -2) or `y` (label -3) is not a 32-byte string")]
     Coordinate,
+    /// `alg` (label 3) is a signature algorithm the curve does not make (RFC 9052 §7.1; RFC 9053
+    /// §2.1, §2.2, §7.1; RFC 9864 §2).
+    #[error("`alg` (label 3) is a signature algorithm the curve does not make")]
+    Algorithm,
 }
 
 /// Why a list of names in `keyAuthorizations` is refused.

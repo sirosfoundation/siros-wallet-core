@@ -92,13 +92,13 @@ impl<'k, M> DeviceAuth<'k, M> {
             |id: i64| allowed.is_some_and(|allowed| allowed.contains(&Node::integer(id.into())));
         let reader = reader_key(device, keys);
         let mac = reader
-            .and_then(|_| crate::cose::mac_row(device.curve))
+            .and_then(|_| crate::cose::mac_row(device.curve()))
             .is_some_and(|row| {
                 lists(row)
                     || lists(crate::cose::HMAC_256_256)
-                    || (allowed.is_none() && device.alg.is_none())
+                    || (allowed.is_none() && device.alg().is_none())
             });
-        let signature = device.alg.is_some()
+        let signature = device.alg().is_some()
             && (allowed.is_none() || device.signature_identifiers().into_iter().any(lists));
         Ok(Ok(match (reader, module) {
             (Some(reader), Some(module)) if mac && (!signature || !transaction) => {
@@ -108,7 +108,7 @@ impl<'k, M> DeviceAuth<'k, M> {
                 return Ok(Err(DeviceAuthRefused::NoDeviceMac));
             }
             _ => {
-                let Some(alg) = device.alg else {
+                let Some(alg) = device.alg() else {
                     return Ok(Err(DeviceAuthRefused::KeyAgreementOnly));
                 };
                 Self::Signature(crate::cose::registered(alg))

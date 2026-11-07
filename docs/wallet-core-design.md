@@ -6266,8 +6266,12 @@ reader, so milestone 2 carries the reader over.
 | `names`: `DigestId`, `ElementIdentifier`, `NameSpace` | siros-mdoc's `issuer_signed`. |
 | ISO/IEC 18013-5:2021 Annex D, D.4.1.2: the example DeviceResponse (`tests/vectors/annex_d_device_response.hex`) | Carried over as a known answer. It closes section 4.9.4's open Annex D item. |
 
-`DeviceKey` holds a curve of Table 22 and its algorithm: label 3, else the one Table 22 gives the
-curve. `DeviceKey::p256` gives the point of a P-256 key; the view reads only the curve and the
+`DeviceKey` holds a curve of Table 22 and the signature algorithm the key makes: label 3, else the
+curve's. A label 3 of no signature algorithm leaves the key signing nothing (RFC 9052 §7.1), as
+X25519 and X448 do (RFC 9053 §7.1). A label 3 of a signature algorithm its curve does not make is
+`DeviceKeyFault::Algorithm`: ES256, ES384 and ES512 hold on every EC2 curve (RFC 9053 §2.1), EdDSA on
+Ed25519 and Ed448 (§2.2), and each fully-specified identifier on its own curve (RFC 9864 §2).
+`DeviceKey::p256` gives the point of a P-256 key; the view reads only the curve and the
 algorithm of another. `registration::Registered` builds the view from a stored mdoc, with
 `validityInfo`.
 
