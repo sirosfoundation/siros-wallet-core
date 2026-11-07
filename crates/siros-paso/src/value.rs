@@ -177,7 +177,7 @@ pub enum Breach {
 
 /// A written value of a kind other than an image, parsed, as its text: a typed value for a date,
 /// a time, a date and time, a currency and an amount; the crate module's message for a boolean
-/// and a frequency; the text as written for text and a URL, its host in A-label form; the text of
+/// and a frequency; the text as written for text; a URL's [`HttpsUrl::ascii`]; the text of
 /// `mini_markdown` without its styles, as a text from outside any module holds none.
 ///
 /// # Errors

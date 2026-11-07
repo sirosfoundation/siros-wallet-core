@@ -15,6 +15,8 @@ All notable changes to this workspace. The format follows
   `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
   or `DeviceMac`, over F11 and F12.
 - `siros-paso` opens `render::Request`, `Registered`, `LabelLimits` and `bound` to a second profile.
+  `render::Request` and `image::resolve` take the image resolver as `&dyn Fn(&str) -> Resolution`,
+  so every profile shares one render engine.
 - `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
 - `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,
   message sources, and display literals in the shipped crates, in place of
@@ -50,6 +52,9 @@ All notable changes to this workspace. The format follows
   view's `issuer`. A text there is read through `DisplayText`.
 - A byte string shows by its length: `ClaimText::Bytes`, over the mdoc view's
   `byte_strings`.
+- General categories come from `icu_properties`, in place of
+  `unicode-general-category`: Unicode 18 in place of 16, so a text may show the 17,810 code points
+  assigned since.
 - An mdoc's `full-date` (tag 1004) and `tdate` (tag 0) elements show as
   `Value::Date` and `Value::DateTime`, over the view's `dates`, and siros-mdoc turns
   on siros-i18n's `date` under `resolve`. `RegistrationError::FullDate` and `Tdate` refuse a value
@@ -156,6 +161,15 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
+  ASCII has each label in UTS #46's case and each label beyond ASCII written `xn--` and its Punycode,
+  with no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
+  `HttpsUrl`. Two texts with one ASCII form are one URL: one `Resource`, one answer, one key of
+  `with_resource`; `FailedImage::url` and a parsed URL's `NotCompatible::Image` hold that form.
+- A host UTS #46 refuses parses. A PaSO `url` value, a TS12 `payee.website` and a QES document link
+  without a checksum at such a host show its Punycode and take no fetch; they were refused or
+  faulted in phase 1. A PaSO image, a TS12 logo and a checksummed QES document reach the caller's GET
+  and fail there: phase 2's outcome stands.
 - `claims::kit::format_entry` is RFC 4647 Lookup over the priority list, then
   filtering, then the entry without a locale; an array answering none gives no
   entry, and the row or the card takes its next choice. `type_metadata::convert`
@@ -436,6 +450,7 @@ All notable changes to this workspace. The format follows
 
 ### Removed
 
+- `rows::Shown`, `UnreachableUrl`, `HttpsUrl::shown`, `NotHttpsUrl::ALabel` and `NoALabel`.
 - `siros-trust`'s `QueryAuthorities`, `Admission`, `Issuer`, `Ground`, `Refusal`,
   `FactRefusal`, `Authority`, `AkiError`, `AuthorityError`, `EntryError::Id` and
   the generic parameter of `Unadmitted`: the core's `Facts::admits` and `Query`

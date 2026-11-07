@@ -286,7 +286,7 @@ impl PasoProfile {
     /// The profile with what the wallet knows of a resource; the first said of a URL holds.
     #[must_use]
     pub fn with_resource(mut self, url: HttpsUrl, fetch: Fetch) -> Self {
-        self.resources.push((url.written().to_owned(), fetch));
+        self.resources.push((url.ascii().to_owned(), fetch));
         self
     }
 
@@ -364,7 +364,7 @@ impl PasoProfile {
         Ok(handle)
     }
 
-    /// What the wallet knows of an https image: the first resource of its URL as written.
+    /// What the wallet knows of an https image: the first resource of its URL in ASCII.
     fn resolution(&self, url: &str) -> Resolution<'_> {
         match self.resources.iter().find(|(known, _)| known == url) {
             None => Resolution::Unknown,
@@ -466,7 +466,7 @@ impl PasoProfile {
             env,
             bound: self.bound,
             limits: LabelLimits::PASO,
-            resolve: |url: &str| self.resolution(url),
+            resolve: &|url: &str| self.resolution(url),
         }
         .render()?;
         let signals = Effective::resolve(given, &self.catalogue)?;
@@ -634,9 +634,9 @@ where
         + Has<dyn IssuerTrust>
         + MayHave<dyn CoseEncrypt>,
 {
-    /// View §3: the https images the payload displays that the matcher had not fetched and a
-    /// fetch reaches, read from metadata the wallet relies on: none from an ad-hoc metadata JWT
-    /// that fails a step of Proof Metadata §5.3.
+    /// View §3: the https images the payload displays that the matcher had not fetched, read
+    /// from metadata the wallet relies on: none from an ad-hoc metadata JWT that fails a step of
+    /// Proof Metadata §5.3.
     fn wanted(&self, record: Answered<'_>, host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         phase2::wanted(self, &record, adhoc::Modules::of(host))
     }

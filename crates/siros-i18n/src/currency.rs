@@ -69,8 +69,9 @@ impl FormatRenderer for CurrencyFormat {
 
 #[cfg(feature = "load")]
 mod load {
+    use icu_properties::CodePointMapData;
+    use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
     use siros_explain::Currency;
-    use unicode_general_category::{GeneralCategory, get_general_category};
 
     use super::{AMOUNT, CurrencyFormat, ID, PERCENT};
     use crate::bytes::Writer;
@@ -117,15 +118,8 @@ mod load {
 
     /// Whether a character is a letter (General Category L).
     fn letter(c: Option<char>) -> bool {
-        c.map(get_general_category).is_some_and(|category| {
-            matches!(
-                category,
-                GeneralCategory::UppercaseLetter
-                    | GeneralCategory::LowercaseLetter
-                    | GeneralCategory::TitlecaseLetter
-                    | GeneralCategory::ModifierLetter
-                    | GeneralCategory::OtherLetter
-            )
+        c.is_some_and(|c| {
+            GeneralCategoryGroup::Letter.contains(CodePointMapData::<GeneralCategory>::new().get(c))
         })
     }
 

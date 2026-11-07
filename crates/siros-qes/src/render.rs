@@ -157,7 +157,7 @@ fn document_rows(
     };
     let link = match HttpsUrl::parse(href) {
         Ok(url) => Value::url(&url),
-        Err(e @ NotHttpsUrl::ALabel { .. }) => {
+        Err(e @ (NotHttpsUrl::LabelOverflow | NotHttpsUrl::NotRegName)) => {
             return Err(Fault::caused(FAULT, detail!("QES document {n}: its link"), e).into());
         }
         Err(_) => Value::Text(own(QesText::Embedded)),

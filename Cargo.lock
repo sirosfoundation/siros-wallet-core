@@ -3380,6 +3380,7 @@ dependencies = [
  "icu_list",
  "icu_locale_core",
  "icu_plurals",
+ "icu_properties",
  "icu_time",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
@@ -3388,7 +3389,6 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "thiserror 2.0.21",
- "unicode-general-category",
  "unicode-normalization",
  "writeable",
 ]
@@ -3448,6 +3448,7 @@ dependencies = [
  "coset",
  "dyn-clone",
  "fluent-uri",
+ "icu_properties",
  "idna",
  "jose-rs",
  "k12",
@@ -3463,7 +3464,6 @@ dependencies = [
  "siros-i18n",
  "siros-testkit",
  "thiserror 2.0.21",
- "unicode-general-category",
 ]
 
 [[package]]
@@ -3472,6 +3472,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "hmac 0.13.0",
+ "icu_properties",
  "rand 0.9.5",
  "rand_chacha 0.9.0",
  "rustc-hash",
@@ -3486,7 +3487,6 @@ dependencies = [
  "siros-testkit",
  "siros-x509",
  "thiserror 2.0.21",
- "unicode-general-category",
  "unicode-segmentation",
  "uuid",
 ]
@@ -4110,12 +4110,6 @@ name = "unicase"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
-
-[[package]]
-name = "unicode-general-category"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b993bddc193ae5bd0d623b49ec06ac3e9312875fdae725a975c51db1cc1677f"
 
 [[package]]
 name = "unicode-ident"

@@ -6,10 +6,10 @@
 
 use std::fmt;
 
+use icu_properties::{CodePointMapData, props::GeneralCategory};
 use siros_explain::{
     AllOf, Arg, Args, Explain, Explained, IntoArg, ListKind, Listed, MessageId, kind,
 };
-use unicode_general_category::{GeneralCategory, get_general_category};
 
 use crate::json::Node;
 
@@ -313,7 +313,7 @@ impl fmt::Display for Quoted<'_> {
 /// Python's `str.isprintable` for one character beyond ASCII.
 fn printable(c: char) -> bool {
     !matches!(
-        get_general_category(c),
+        CodePointMapData::<GeneralCategory>::new().get(c),
         GeneralCategory::Control
             | GeneralCategory::Format
             | GeneralCategory::Surrogate

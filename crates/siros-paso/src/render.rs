@@ -192,8 +192,8 @@ impl<'r> Registered<'r> {
 }
 
 /// What a rendering reads.
-#[derive(Debug, Clone)]
-pub struct Request<'r, R> {
+#[derive(Clone)]
+pub struct Request<'r> {
     /// The type, its rulebook and its metadata.
     pub registered: Registered<'r>,
     /// The payload, in PaSO's value forms.
@@ -205,7 +205,7 @@ pub struct Request<'r, R> {
     /// The labels' maximum lengths.
     pub limits: LabelLimits,
     /// What the wallet knows of an https image.
-    pub resolve: R,
+    pub resolve: &'r dyn Fn(&str) -> Resolution<'r>,
 }
 
 /// What an instance's row shows beside its label.
@@ -226,7 +226,7 @@ struct Shown<'p> {
     content: Content,
 }
 
-impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
+impl<'r> Request<'r> {
     /// The rendering of the entry.
     ///
     /// # Errors
@@ -352,7 +352,7 @@ impl<'r, R: Fn(&str) -> Resolution<'r>> Request<'r, R> {
                         Some(path) => at(self.payload.node(), &path)?,
                         None => None,
                     };
-                    Content::Image(image::resolve(url, sibling, &self.resolve)?)
+                    Content::Image(image::resolve(url, sibling, self.resolve)?)
                 }
             };
             out.push(Shown { instance, content });

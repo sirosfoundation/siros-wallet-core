@@ -1,5 +1,7 @@
-//! An https URL as the wallet shows and fetches it: an IRI (RFC 3987) over fluent-uri, with its
-//! internationalised host in A-label form (UTS #46).
+//! An https URL as the wallet shows and fetches it: an IRI (RFC 3987) over fluent-uri, each
+//! label of a host beyond ASCII in Punycode (RFC 3492).
+
+use std::hash::{Hash, Hasher};
 
 use fluent_uri::Iri;
 use fluent_uri::build::{BuildError, Builder};
@@ -13,12 +15,27 @@ use crate::text::python_space;
 /// The `https` scheme, compared without regard to case (RFC 3986 §3.1).
 const HTTPS: &Scheme = Scheme::new_or_panic("https");
 
-/// An https IRI with a host, as written, and its text with an internationalised host in A-label
-/// form (UTS #46).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// An https IRI with a host, as written, and its one form in ASCII, which every build shows and a
+/// caller fetches (PaSO View §3 mitigates homograph confusion with the punycode form). Two texts
+/// with one ASCII form are one URL: equality and hash read `ascii`.
+#[derive(Debug, Clone)]
 pub struct HttpsUrl {
     written: Iri<String>,
     ascii: Iri<String>,
+}
+
+impl PartialEq for HttpsUrl {
+    fn eq(&self, other: &Self) -> bool {
+        self.ascii == other.ascii
+    }
+}
+
+impl Eq for HttpsUrl {}
+
+impl Hash for HttpsUrl {
+    fn hash<S: Hasher>(&self, state: &mut S) {
+        self.ascii.hash(state);
+    }
 }
 
 /// Why a text is no https URL the wallet shows or fetches.
@@ -37,95 +54,46 @@ pub enum NotHttpsUrl {
     /// No authority, or an empty host (RFC 9110 §4.2.2).
     #[error("no host")]
     Host,
-    /// A host without an A-label form.
-    #[error("the host has no A-label form: {cause}")]
-    ALabel {
-        /// The IRI as written.
-        #[explain(skip)]
-        written: Iri<String>,
-        /// Why the host has none.
-        #[source]
-        cause: NoALabel,
-    },
-    /// The IRI with the A-label host does not build.
-    #[error("the A-label form is no IRI: {0}")]
+    /// A host label whose Punycode overflows 32-bit arithmetic (RFC 3492 §6.4).
+    #[error("a host label overflows Punycode")]
+    LabelOverflow,
+    /// The host's ASCII form is no registered name.
+    #[error("the host's ASCII form is no registered name")]
+    NotRegName,
+    /// The IRI with the ASCII host does not build.
+    #[error("the IRI with the ASCII host does not build: {0}")]
     Rebuilt(#[explain(skip)] BuildError),
 }
 
-/// Why a registered name beyond ASCII has no A-label form.
-#[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.a_label")]
-pub enum NoALabel {
-    /// UTS #46 refuses the name.
-    #[error("UTS #46 refuses it: {0}")]
-    Uts46(
-        #[source]
-        #[explain(skip)]
-        idna::Errors,
-    ),
-    /// UTS #46 maps the name to ASCII outside RFC 3987's `ireg-name`, as U+FF5B maps to `{`.
-    #[error("UTS #46 maps it to {0:?}, which is no registered name")]
-    NotRegName(#[explain(name = "host")] String),
-}
-
-/// What the matcher shows of a text: an https URL it shows and fetches, or an https IRI with a
-/// host whose A-label form is missing, which it shows and never fetches.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Shown {
-    /// A URL the wallet shows and fetches.
-    Url(HttpsUrl),
-    /// An IRI the matcher shows as written.
-    Unreachable(UnreachableUrl),
-}
-
-/// An https IRI with a host that has no A-label form (UTS #46): the matcher shows it as written,
-/// and no fetch reaches it. Only [`HttpsUrl::shown`] makes one.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnreachableUrl(Iri<String>);
-
-impl Shown {
-    /// The text as written.
-    #[must_use]
-    pub fn written(&self) -> &str {
-        match self {
-            Self::Url(url) => url.written(),
-            Self::Unreachable(unreachable) => unreachable.written(),
+/// A label of a host beyond ASCII: in ASCII it is lowercased; beyond it, each character takes the
+/// case UTS #46 gives it, and the label is written `xn--` and its Punycode (RFC 3492).
+fn ascii_label(label: &str) -> Result<String, NotHttpsUrl> {
+    if label.is_ascii() {
+        return Ok(label.to_ascii_lowercase());
+    }
+    let mut folded = String::with_capacity(label.len());
+    for c in label.chars() {
+        // Cherokee's case folds to its capitals (Unicode's CaseFolding.txt), the one script that
+        // folds upward: IdnaMappingTable.txt keeps U+13A0..U+13F5 and maps the small letters to them.
+        if matches!(c, '\u{13A0}'..='\u{13FD}' | '\u{AB70}'..='\u{ABBF}') {
+            folded.extend(c.to_uppercase());
+        } else {
+            folded.extend(c.to_lowercase());
         }
     }
-}
-
-impl UnreachableUrl {
-    /// The IRI as written.
-    #[must_use]
-    pub fn written(&self) -> &str {
-        self.0.as_str()
-    }
+    let punycode = idna::punycode::encode_str(&folded).ok_or(NotHttpsUrl::LabelOverflow)?;
+    Ok(format!("xn--{punycode}"))
 }
 
 impl HttpsUrl {
-    /// The text as the matcher shows it: an https URL, or an https IRI with a host whose A-label
-    /// form alone is missing.
-    ///
-    /// # Errors
-    ///
-    /// The text is no https IRI with a host.
-    pub fn shown(text: &str) -> Result<Shown, NotHttpsUrl> {
-        match Self::parse(text) {
-            Ok(url) => Ok(Shown::Url(url)),
-            Err(NotHttpsUrl::ALabel { written, .. }) => {
-                Ok(Shown::Unreachable(UnreachableUrl(written)))
-            }
-            Err(other) => Err(other),
-        }
-    }
-
-    /// An https IRI without whitespace whose host is non-empty and, when it holds characters
-    /// beyond ASCII, has an A-label form.
+    /// An https IRI without whitespace whose host is non-empty. A host wholly in ASCII stays as
+    /// written; a host beyond ASCII becomes [`ascii`](Self::ascii)'s form label by label, split on
+    /// U+002E.
     ///
     /// # Errors
     ///
     /// The text holds whitespace, is no IRI, names another scheme, has no host, or has a host
-    /// without an A-label form.
+    /// label past Punycode's arithmetic.
     pub fn parse(text: &str) -> Result<Self, NotHttpsUrl> {
         if text.chars().any(python_space) {
             return Err(NotHttpsUrl::Whitespace);
@@ -143,17 +111,12 @@ impl HttpsUrl {
                 return Ok(Self { written, ascii });
             }
         };
-        let a_labels = match idna::domain_to_ascii(name) {
-            Ok(a_labels) => a_labels,
-            Err(cause) => {
-                let cause = NoALabel::Uts46(cause);
-                return Err(NotHttpsUrl::ALabel { written, cause });
-            }
-        };
-        let Some(host) = EStr::<IRegName>::new(&a_labels) else {
-            let cause = NoALabel::NotRegName(a_labels);
-            return Err(NotHttpsUrl::ALabel { written, cause });
-        };
+        let labels = name
+            .split('.')
+            .map(ascii_label)
+            .collect::<Result<Vec<_>, _>>()?;
+        let labels = labels.join(".");
+        let host = EStr::<IRegName>::new(&labels).ok_or(NotHttpsUrl::NotRegName)?;
         let ascii = Iri::builder()
             .scheme(written.scheme())
             .authority_with(|b| {
@@ -175,7 +138,7 @@ impl HttpsUrl {
         self.written.as_str()
     }
 
-    /// The URL with its host in A-label form: what the wallet shows and fetches.
+    /// The URL with a host beyond ASCII in Punycode: what the wallet shows and fetches.
     #[must_use]
     pub fn ascii(&self) -> &str {
         self.ascii.as_str()

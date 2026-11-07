@@ -1,9 +1,9 @@
 //! The text rules against their standards' own data: RFC 4647 §3.3.1's basic filtering and the
-//! owner's rule over a priority list, the wallet's configuration, UTS #46's hosts without an
-//! A-label form, the JSON strings and `repr`s CPython writes, and RFC 8259 §6's numbers.
+//! owner's rule over a priority list, the wallet's configuration, RFC 3492's Punycode of a URL
+//! host, the JSON strings and `repr`s CPython writes, and RFC 8259 §6's numbers.
 
 use siros_openid4vp::ids::LocaleTag;
-use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, Shown};
+use siros_openid4vp::rows::{Choice, Env, EnvError, HttpsUrl, NotHttpsUrl};
 use siros_openid4vp::text::{DisplayText, TextError, lookup};
 use siros_testkit::fixtures::OPTIONS;
 
@@ -47,21 +47,73 @@ fn a_configuration_that_cannot_exist_is_refused() {
     );
 }
 
+/// The host of an https URL in ASCII. Each `xn--` label's expected text is CPython's RFC 3492
+/// codec: `python3 -I -c "print('\\u0301x'.encode('punycode'))"`, over the label lowercased.
 #[test]
-fn hosts_without_an_a_label_form_are_unreachable() {
-    for written in [
-        "https://\u{301}x.example/l.png",
-        "https://a\u{ff5b}b.example/",
-        "https://a\u{ff5c}b.example/",
-        "https://a\u{ff02}b.example/",
-        "https://a\u{ff40}b.example/",
+fn a_host_beyond_ascii_writes_each_label_in_punycode() {
+    for (written, ascii) in [
+        (
+            "https://\u{301}x.example/l.png",
+            "https://xn--x-wbb.example/l.png",
+        ),
+        (
+            "https://a\u{ff5b}b.example/",
+            "https://xn--ab-k13n.example/",
+        ),
+        (
+            "https://a\u{ff5c}b.example/",
+            "https://xn--ab-n13n.example/",
+        ),
+        (
+            "https://a\u{ff02}b.example/",
+            "https://xn--ab-xt3n.example/",
+        ),
+        (
+            "https://a\u{ff40}b.example/",
+            "https://xn--ab-8y3n.example/",
+        ),
+        ("https://BÜCHER.EXAMPLE/", "https://xn--bcher-kva.example/"),
+        // UTS #46's IdnaMappingTable.txt keeps U+13A0 and maps U+AB70 to it.
+        ("https://\u{13a0}.example/", "https://xn--58d.example/"),
+        ("https://\u{ab70}.example/", "https://xn--58d.example/"),
+        (
+            "https://user@bücher.example:8443/x",
+            "https://user@xn--bcher-kva.example:8443/x",
+        ),
     ] {
-        let shown = HttpsUrl::shown(written);
-        assert!(
-            matches!(&shown, Ok(Shown::Unreachable(url)) if url.written() == written),
-            "{written}: {shown:?}"
-        );
+        let url = HttpsUrl::parse(written).expect(written);
+        assert_eq!((url.written(), url.ascii()), (written, ascii));
     }
+}
+
+/// A URL has one GET target, so the texts that name it are one key of a set: `Resources::fetched`
+/// answers every mention with one fetch.
+#[test]
+fn texts_with_one_ascii_form_are_one_url() {
+    let url = |text| HttpsUrl::parse(text).expect(text);
+    let urls: rustc_hash::FxHashSet<HttpsUrl> = [
+        url("https://b\u{fc}cher.example/l"),
+        url("https://B\u{dc}CHER.example/l"),
+        url("https://xn--bcher-kva.example/l"),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(urls.len(), 1);
+    assert_ne!(
+        url("https://b\u{fc}cher.example/l"),
+        url("https://bucher.example/l")
+    );
+}
+
+/// RFC 3492 §6.4: an encoder refuses a label whose delta overflows its integers.
+/// `0xEFFFD - 0x80` insertions past 5,000 basic code points exceed 2^32.
+#[test]
+fn a_label_past_punycode_arithmetic_is_refused() {
+    let written = format!("https://{}\u{efffd}.example/", "a".repeat(5000));
+    assert!(matches!(
+        HttpsUrl::parse(&written),
+        Err(NotHttpsUrl::LabelOverflow)
+    ));
 }
 
 /// A CPython 3.12 writer, applied to the value `json.loads` reads from a text.

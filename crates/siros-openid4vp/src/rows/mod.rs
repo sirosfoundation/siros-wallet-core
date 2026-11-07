@@ -11,7 +11,7 @@ pub use env::{
     BooleanText, Choice, ClaimText, Env, EnvError, Icon, IconReference, ImageMedia, NotImageMedia,
     WalletText,
 };
-pub use https_url::{HttpsUrl, NoALabel, NotHttpsUrl, Shown, UnreachableUrl};
+pub use https_url::{HttpsUrl, NotHttpsUrl};
 pub use siros_i18n::{
     Amounts, Bidi, Language, ModuleName, OnRenderError, RENDERER, RenderOptions, RenderingInputs,
     Selected,
@@ -143,18 +143,17 @@ impl SriMetadata {
     }
 }
 
-/// An https image phase 2 fetches and verifies. A URL no fetch reaches ([`Shown::Unreachable`])
-/// fails there.
+/// An https image phase 2 fetches and verifies.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteImage {
-    url: Box<Shown>,
+    url: Box<HttpsUrl>,
     integrity: SriMetadata,
 }
 
 impl RemoteImage {
     /// The image at this URL under this metadata.
     #[must_use]
-    pub fn new(url: Shown, integrity: SriMetadata) -> Self {
+    pub fn new(url: HttpsUrl, integrity: SriMetadata) -> Self {
         Self {
             url: Box::new(url),
             integrity,
@@ -163,7 +162,7 @@ impl RemoteImage {
 
     /// The URL.
     #[must_use]
-    pub const fn url(&self) -> &Shown {
+    pub const fn url(&self) -> &HttpsUrl {
         &self.url
     }
 
@@ -195,7 +194,7 @@ impl<T> Value<T> {
 }
 
 impl Value<RequestText> {
-    /// An https URL, shown as written with its host in A-label form.
+    /// An https URL, shown by its [`HttpsUrl::ascii`].
     #[must_use]
     pub fn url(url: &HttpsUrl) -> Self {
         Self::Text(RequestText::raw(url.ascii().to_owned()))

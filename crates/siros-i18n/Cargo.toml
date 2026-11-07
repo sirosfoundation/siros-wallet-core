@@ -12,10 +12,10 @@ publish = false
 [features]
 default = ["load", "number", "currency", "offset", "date", "list"]
 # The wallet's half: the resource and MessageFormat 2 parsers, the module checks, the compilation,
-# the package builder. unicode-general-category serves the currency module's load half; a load
+# the package builder. icu_properties serves the currency module's load half; a load
 # build without `currency` compiles it unused, as Cargo enables no dependency for two features
 # together.
-load = ["render", "dep:unicode-normalization", "dep:unicode-general-category"]
+load = ["render", "dep:unicode-normalization", "dep:icu_properties"]
 # The matcher's half: the package reader, defined modules' render form, the renderer, and the sinks.
 render = ["dep:sha2", "dep:ct-merkle"]
 # The format modules, each with its load half under `load` and its render half under `render`.
@@ -36,7 +36,7 @@ thiserror = { workspace = true }
 sha2 = { workspace = true, optional = true }
 ct-merkle = { workspace = true, optional = true }
 unicode-normalization = { workspace = true, optional = true }
-unicode-general-category = { workspace = true, optional = true }
+icu_properties = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The tests use both halves whatever the build's features.

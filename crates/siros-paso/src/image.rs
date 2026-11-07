@@ -11,7 +11,7 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::{
     HttpsUrl, Image, ImageHeight, ImageMedia, ImageRef, ImageSource, ImageWidth, RemoteImage,
-    Shown, SriMetadata,
+    SriMetadata,
 };
 use siros_openid4vp::sri;
 use siros_openid4vp::text::python_space;
@@ -134,74 +134,75 @@ fn data_url(url: &str) -> Option<(Media, &str)> {
     (alphabet && padding <= 2).then_some((media, encoded))
 }
 
-/// The image a payload value names, resolved with what the wallet knows of an https URL, as
-/// written; a pending remote image when it knows nothing. A URL is https by its shape: one whose
-/// host has no A-label form names nothing a fetch reaches, and phase 2 finds its fetch failed.
+/// The image a payload value names, resolved with what the wallet knows of an https URL's
+/// [`ascii`](HttpsUrl::ascii) form; a pending remote image when it knows nothing.
 pub fn resolve<'r>(
     url: &str,
     integrity: Option<&Node<'_>>,
-    resolution: impl FnOnce(&str) -> Resolution<'r>,
+    resolution: &dyn Fn(&str) -> Resolution<'r>,
 ) -> Result<Image, NotCompatible> {
-    let refuse = |failure: ImageFailure| NotCompatible::Image {
-        url: url.chars().take(60).collect(),
+    let refuse = |shown: &str, failure: ImageFailure| NotCompatible::Image {
+        url: shown.chars().take(60).collect(),
         failure,
     };
-    let (content, media, source) = match data_url(url) {
+    let (content, media, https) = match data_url(url) {
         Some((media, encoded)) => {
             if encoded.len() > MAX_BYTES {
-                return Err(refuse(ImageFailure::EncodedTooLarge));
+                return Err(refuse(url, ImageFailure::EncodedTooLarge));
             }
             let content = BASE64
                 .decode(encoded)
-                .map_err(|_| refuse(ImageFailure::BadBase64))?;
-            (Cow::Owned(content), media, ImageSource::Data)
+                .map_err(|_| refuse(url, ImageFailure::BadBase64))?;
+            (Cow::Owned(content), media, None)
         }
         None => {
-            let shown =
-                HttpsUrl::shown(url).map_err(|_| refuse(ImageFailure::NeitherDataNorHttps))?;
+            let https =
+                HttpsUrl::parse(url).map_err(|_| refuse(url, ImageFailure::NeitherDataNorHttps))?;
+            let shown = https.ascii();
             let integrity = integrity
                 .and_then(Node::as_str)
                 .map(|integrity| SriMetadata::written(integrity.to_owned()))
-                .ok_or_else(|| refuse(ImageFailure::NoIntegrity))?;
-            let (content, media) = match resolution(url) {
+                .ok_or_else(|| refuse(shown, ImageFailure::NoIntegrity))?;
+            let (content, media) = match resolution(shown) {
                 Resolution::Unknown => {
-                    return Ok(Image::Remote(RemoteImage::new(shown, integrity)));
+                    return Ok(Image::Remote(RemoteImage::new(https, integrity)));
                 }
                 Resolution::Failed(reason) => {
-                    return Err(refuse(ImageFailure::Fetch(reason.to_owned())));
+                    return Err(refuse(shown, ImageFailure::Fetch(reason.to_owned())));
                 }
                 Resolution::Fetched { content, media } => (content, media),
             };
             if content.len() > MAX_BYTES {
-                return Err(refuse(ImageFailure::TooLarge));
+                return Err(refuse(shown, ImageFailure::TooLarge));
             }
-            let Shown::Url(fetched) = shown else {
-                return Err(refuse(ImageFailure::NeitherDataNorHttps));
-            };
             if !sri::matches(content, &integrity) {
-                return Err(refuse(ImageFailure::IntegrityMismatch));
+                return Err(refuse(shown, ImageFailure::IntegrityMismatch));
             }
             let media = Media::of(media.essence())
-                .ok_or_else(|| refuse(ImageFailure::MediaType(media.clone())))?;
-            (
-                Cow::Borrowed(content),
-                media,
-                ImageSource::Url(Box::new(fetched)),
-            )
+                .ok_or_else(|| refuse(shown, ImageFailure::MediaType(media.clone())))?;
+            (Cow::Borrowed(content), media, Some(https))
         }
     };
-    let size = Size::of(&content, media).ok_or_else(|| refuse(ImageFailure::Unreadable))?;
+    let shown = https.as_ref().map_or(url, HttpsUrl::ascii);
+    let size = Size::of(&content, media).ok_or_else(|| refuse(shown, ImageFailure::Unreadable))?;
     if size.width > MAX_PIXELS || size.height > MAX_PIXELS {
-        return Err(refuse(ImageFailure::Oversized {
-            width: size.width,
-            height: size.height,
-        }));
+        return Err(refuse(
+            shown,
+            ImageFailure::Oversized {
+                width: size.width,
+                height: size.height,
+            },
+        ));
     }
+    let unreadable = || refuse(shown, ImageFailure::Unreadable);
+    let width = u32::try_from(size.width).map_err(|_| unreadable())?;
+    let height = u32::try_from(size.height).map_err(|_| unreadable())?;
+    let source = https.map_or(ImageSource::Data, |https| ImageSource::Url(Box::new(https)));
     Ok(Image::Embedded(ImageRef::new(
         source,
         media.image(),
-        ImageWidth::new(u32::try_from(size.width).map_err(|_| refuse(ImageFailure::Unreadable))?),
-        ImageHeight::new(u32::try_from(size.height).map_err(|_| refuse(ImageFailure::Unreadable))?),
+        ImageWidth::new(width),
+        ImageHeight::new(height),
     )))
 }
 

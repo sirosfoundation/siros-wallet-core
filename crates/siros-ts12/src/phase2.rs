@@ -65,7 +65,7 @@ where
     fn wanted(&self, record: Answered<'_>, _host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         let translated = translated_of(&record)?;
         Ok(displayed_https(&translated)
-            .filter(|(url, _)| matches!(self.resolution(url.written()), Resolution::Unknown))
+            .filter(|(url, _)| matches!(self.resolution(url.ascii()), Resolution::Unknown))
             .into_iter()
             .map(|(url, _)| url.clone())
             .collect())
@@ -100,7 +100,7 @@ where
         let Some((url, integrity)) = displayed_https(&translated) else {
             return Ok(None);
         };
-        if !matches!(self.resolution(url.written()), Resolution::Unknown) {
+        if !matches!(self.resolution(url.ascii()), Resolution::Unknown) {
             return Ok(None);
         }
         let fetch = record
@@ -112,11 +112,11 @@ where
             Fetch::Unfetched => Resolution::Failed("the fetch failed"),
         };
         let written = Node::String(Cow::Borrowed(integrity));
-        match image::resolve(url.written(), Some(&written), resolution) {
+        match image::resolve(url.written(), Some(&written), &resolution) {
             Ok(_) => Ok(None),
             Err(NotCompatible::Image { failure, .. }) => Ok(Some(Ts12Finding {
                 failed: FailedImage {
-                    url: url.written().to_owned(),
+                    url: url.ascii().to_owned(),
                     failure,
                 },
             })),

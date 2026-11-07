@@ -326,12 +326,11 @@ fn one_request_per_presentation(own: &[(EntryIndex, &Entry<'_>)]) -> Vec<Refusal
 /// Needs no module.
 impl<H> ProfileHost<H> for QesProfile {
     /// CSC §6.3: each linked document with a checksum the profile does not hold, whose
-    /// `href` is an https URL a fetch reaches.
+    /// `href` is an https URL.
     fn wanted(&self, record: Answered<'_>, _host: &H) -> Result<Vec<HttpsUrl>, Fault> {
         let (_, _, approval) = approval_of(record.request(), record.entries().entries())?;
         Ok(self
             .unheld(&approval)
-            // A link whose host has no A-label form names nothing a fetch reaches.
             .filter_map(|document| HttpsUrl::parse(document.href).ok())
             .collect())
     }

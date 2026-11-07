@@ -33,7 +33,7 @@ siros-i18n = { workspace = true, features = ["number", "currency", "date"] }
 rustc-hash = { workspace = true }
 unicode-segmentation = { workspace = true }
 # CommonMark's whitespace and punctuation, which mini_markdown's emphasis reads.
-unicode-general-category = { workspace = true }
+icu_properties = { workspace = true }
 serde_json = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 # The `x5c` chain of an ad-hoc metadata JWT: its certificates, its leaf's key and subject.
