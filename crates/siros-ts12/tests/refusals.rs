@@ -9,7 +9,7 @@ use common::{
 };
 use siros_explain::{Entry, Keyed};
 use siros_openid4vp::hash::HashesAlgRule;
-use siros_openid4vp::ids::TransactionType;
+use siros_openid4vp::ids::{QueryId, TransactionType};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Bound, Carriage, Member, NoCandidate, Profile};
 use siros_openid4vp::refusal::{ErrorCode, Refusal};
@@ -62,54 +62,30 @@ fn the_request_rules_each_refuse_with_their_code() {
         r#", "transaction_data_hashes_alg": "sha-256""#,
         GOOD,
     );
-    let table: [(&[&str], &str, Ts12Rule, C); 6] = [
-        (
-            &[&no_alg],
-            "",
-            Ts12Rule::NoHashes { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&no_payload],
-            "",
-            Ts12Rule::NoPayload { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&good, &good],
-            "",
-            Ts12Rule::Second { entry: 1 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&two_ids],
-            "",
-            Ts12Rule::CredentialIds { entry: 0 },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&other],
-            "",
-            Ts12Rule::Type {
-                entry: 0,
-                kind: "urn:eudi:sca:emandate:1".to_owned(),
-            },
-            C::INVALID_TRANSACTION_DATA,
-        ),
-        (
-            &[&alg_string],
-            "",
-            Ts12Rule::Hashes {
-                entry: 0,
-                rule: HashesAlgRule::NotArray,
-            },
-            C::INVALID_TRANSACTION_DATA,
-        ),
+    type Rule = fn(EntryIndex) -> Ts12Rule;
+    let table: [(&[&str], usize, Rule); 6] = [
+        (&[&no_alg], 0, |entry| Ts12Rule::NoHashes { entry }),
+        (&[&no_payload], 0, |entry| Ts12Rule::NoPayload { entry }),
+        (&[&good, &good], 1, |entry| Ts12Rule::Second { entry }),
+        (&[&two_ids], 0, |entry| Ts12Rule::CredentialIds { entry }),
+        (&[&other], 0, |entry| Ts12Rule::Type {
+            entry,
+            kind: TransactionType::parse("urn:eudi:sca:emandate:1").expect("a type"),
+        }),
+        (&[&alg_string], 0, |entry| Ts12Rule::Hashes {
+            entry,
+            rule: HashesAlgRule::NotArray,
+        }),
     ];
-    for (entries, extra, rule, code) in table {
-        with_signed(&parameters(entries, extra), |request| {
+    for (entries, at, rule) in table {
+        with_signed(&parameters(entries, ""), |request| {
+            let (index, _) = request.indexed_entries().nth(at).expect("the entry");
+            let rule = rule(index);
             let refusals = refused(request);
-            assert!(holds(&refusals, code, &rule), "{rule}: {refusals:?}");
+            assert!(
+                holds(&refusals, C::INVALID_TRANSACTION_DATA, &rule),
+                "{rule}: {refusals:?}"
+            );
         });
     }
     with_unsigned(&parameters(&[&good], ""), |request| {
@@ -121,7 +97,7 @@ fn the_request_rules_each_refuse_with_their_code() {
     });
     with_signed(&parameters(&[&good], r#","multiple":true"#), |request| {
         let rule = Ts12Rule::Multiple {
-            query: "sca".to_owned(),
+            query: QueryId::parse("sca").expect("an id"),
         };
         assert!(holds(&refused(request), C::INVALID_REQUEST, &rule));
     });
