@@ -15,7 +15,7 @@ pub use ciborium::Value;
 use ciborium::value::Integer;
 use siros_explain::Explain;
 
-use crate::json::{JsonError, Node, Number};
+use crate::json::{Distinct, JsonError, Node, Number};
 pub use crate::plugins::members::Item;
 use read::{DEPTH, Lengths, Reader};
 
@@ -106,6 +106,23 @@ fn read(mut reader: Reader<'_>) -> Result<Value, CborError> {
     }
     distinct_keys(&value)?;
     Ok(value)
+}
+
+/// One value per pair of `pairs`, the map of a value [`decode`] returned, which holds each key once:
+/// `read` names each value after its key alone.
+///
+/// # Errors
+///
+/// The first error of `read`.
+pub fn distinct_map<T, E>(
+    pairs: &[(Value, Value)],
+    mut read: impl FnMut(&Value, &Value) -> Result<T, E>,
+) -> Result<Distinct<T>, E> {
+    pairs
+        .iter()
+        .map(|(key, item)| read(key, item))
+        .collect::<Result<Vec<_>, E>>()
+        .map(Distinct::known)
 }
 
 /// The value's encoding: definite lengths, the shortest heads (RFC 8949 §4.1).

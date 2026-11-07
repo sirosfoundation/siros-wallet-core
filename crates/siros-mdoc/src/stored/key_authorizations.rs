@@ -1,12 +1,12 @@
 //! The elements the device key may sign in `DeviceSigned` (ISO/IEC 18013-5, 9.1.2.4).
 
 use rustc_hash::FxHashSet;
-use siros_openid4vp::cbor::Value;
+use siros_openid4vp::cbor::{self, Value};
 use siros_openid4vp::json::{Distinct, Named};
 
 use super::item::Read as _;
 
-use super::error::{CborError, KeyAuthorizationsFault, NamesFault};
+use super::error::{KeyAuthorizationsFault, NamesFault};
 use super::mso::{non_empty_array, non_empty_map};
 use super::names::{ElementIdentifier, NameSpace};
 
@@ -100,8 +100,7 @@ fn read_data_elements(
     name_spaces: &[NameSpace],
 ) -> Result<Distinct<DataElements>, KeyAuthorizationsFault> {
     let entries = non_empty_map(Some(elements)).map_err(KeyAuthorizationsFault::DataElements)?;
-    let mut data_elements = Vec::with_capacity(entries.len());
-    for (name_space, identifiers) in entries {
+    cbor::distinct_map(entries, |name_space, identifiers| {
         let name_space = NameSpace::new(
             name_space
                 .as_text()
@@ -112,12 +111,11 @@ fn read_data_elements(
         }
         let identifiers = names_once(identifiers, ElementIdentifier::new)
             .map_err(|fault| KeyAuthorizationsFault::Elements(name_space.clone(), fault))?;
-        data_elements.push(DataElements {
+        Ok(DataElements {
             name_space,
             identifiers,
-        });
-    }
-    Distinct::new(data_elements).map_err(|_| KeyAuthorizationsFault::Cbor(CborError::RepeatedKey))
+        })
+    })
 }
 
 /// A non-empty array of text strings, each once, each read by `name`.

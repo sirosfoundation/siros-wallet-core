@@ -11,8 +11,7 @@ use super::item::{Read as _, raw};
 use super::names::DocType;
 
 use super::error::{
-    CborError, DocTypeFault, EnvelopeFault, IssuerAuthFault, ItemFault, ItemMember, MdocError,
-    NameSpacesFault,
+    DocTypeFault, EnvelopeFault, IssuerAuthFault, ItemFault, ItemMember, MdocError, NameSpacesFault,
 };
 use super::issuer_auth::IssuerAuth;
 use super::mso::{Mso, non_empty_array, non_empty_map};
@@ -241,15 +240,13 @@ fn envelope(root: &Value) -> Result<(&Value, Option<&str>), MdocError> {
 fn read_name_spaces(spaces: &Value, mso: &Mso) -> Result<Distinct<IssuerNameSpace>, MdocError> {
     let fault = MdocError::NameSpaces;
     let entries = non_empty_map(Some(spaces)).map_err(|e| fault(NameSpacesFault::Member(e)))?;
-    let mut name_spaces = Vec::with_capacity(entries.len());
-    for (name, items) in entries {
+    cbor::distinct_map(entries, |name, items| {
         let name = NameSpace::new(name.as_text().ok_or(fault(NameSpacesFault::NameSpace))?);
         let items = non_empty_array(Some(items))
             .map_err(|e| fault(NameSpacesFault::Items(name.clone(), e)))?;
         let items = read_items(&name, items, mso)?;
-        name_spaces.push(IssuerNameSpace { name, items });
-    }
-    Distinct::new(name_spaces).map_err(|_| MdocError::Cbor(CborError::RepeatedKey))
+        Ok(IssuerNameSpace { name, items })
+    })
 }
 
 fn read_items(

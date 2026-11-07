@@ -307,13 +307,6 @@ pub enum KeyAuthorizationsFault {
     /// It is not a map.
     #[error("it is not a map")]
     NotMap,
-    /// It is no well-formed CBOR map.
-    #[error("it is no well-formed CBOR map")]
-    Cbor(
-        #[source]
-        #[explain(name = "cause")]
-        CborError,
-    ),
     /// `nameSpaces`.
     #[error("`nameSpaces`")]
     NameSpaces(

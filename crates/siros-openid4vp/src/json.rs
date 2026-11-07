@@ -300,6 +300,13 @@ impl<T> Default for Distinct<T> {
     }
 }
 
+impl<T> Distinct<T> {
+    /// Values whose names a parser already holds distinct.
+    pub(crate) fn known(values: Vec<T>) -> Self {
+        Self(values)
+    }
+}
+
 impl<T: Named> Distinct<T> {
     /// These values in their order.
     ///

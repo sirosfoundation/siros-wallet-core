@@ -179,14 +179,16 @@ fn read_value_digests(
     item: Option<&Value>,
     algorithm: DigestAlgorithm,
 ) -> Result<FxHashMap<NameSpace, FxHashMap<DigestId, ItemDigest>>, ValueDigestsFault> {
-    let name_spaces = non_empty_map(item).map_err(ValueDigestsFault::Member)?;
-    let mut value_digests = FxHashMap::default();
-    for (name_space, digests) in name_spaces {
-        let name_space = NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameSpace)?);
-        let digests = read_digests(&name_space, digests, algorithm)?;
-        drop(value_digests.insert(name_space, digests));
-    }
-    Ok(value_digests)
+    non_empty_map(item)
+        .map_err(ValueDigestsFault::Member)?
+        .iter()
+        .map(|(name_space, digests)| {
+            let name_space =
+                NameSpace::new(name_space.as_text().ok_or(ValueDigestsFault::NameSpace)?);
+            let digests = read_digests(&name_space, digests, algorithm)?;
+            Ok((name_space, digests))
+        })
+        .collect()
 }
 
 /// `{+ DigestID => Digest}` of `name_space`.
@@ -195,27 +197,27 @@ fn read_digests(
     digests: &Value,
     algorithm: DigestAlgorithm,
 ) -> Result<FxHashMap<DigestId, ItemDigest>, ValueDigestsFault> {
-    let digests = non_empty_map(Some(digests))
-        .map_err(|fault| ValueDigestsFault::Digests(name_space.clone(), fault))?;
-    let mut by_id = FxHashMap::default();
-    for (id, digest) in digests {
-        let Some(id) = id.as_unsigned() else {
-            return Err(ValueDigestsFault::DigestId(name_space.clone()));
-        };
-        let id = DigestId::new(id);
-        let digest = digest
-            .bytes()
-            .ok_or_else(|| ValueDigestsFault::Digest(name_space.clone(), id))?;
-        if digest.len() != algorithm.output_len() {
-            return Err(ValueDigestsFault::DigestLength(
-                name_space.clone(),
-                id,
-                digest.len(),
-            ));
-        }
-        drop(by_id.insert(id, ItemDigest(digest.to_vec())));
-    }
-    Ok(by_id)
+    non_empty_map(Some(digests))
+        .map_err(|fault| ValueDigestsFault::Digests(name_space.clone(), fault))?
+        .iter()
+        .map(|(id, digest)| {
+            let id = id
+                .as_unsigned()
+                .ok_or_else(|| ValueDigestsFault::DigestId(name_space.clone()))?;
+            let id = DigestId::new(id);
+            let digest = digest
+                .bytes()
+                .ok_or_else(|| ValueDigestsFault::Digest(name_space.clone(), id))?;
+            if digest.len() != algorithm.output_len() {
+                return Err(ValueDigestsFault::DigestLength(
+                    name_space.clone(),
+                    id,
+                    digest.len(),
+                ));
+            }
+            Ok((id, ItemDigest(digest.to_vec())))
+        })
+        .collect()
 }
 
 /// `validityInfo`: `signed ≤ validFrom < validUntil` (ISO/IEC 18013-5, 9.1.2.4).
