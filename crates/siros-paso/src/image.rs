@@ -134,8 +134,8 @@ fn data_url(url: &str) -> Option<(Media, &str)> {
     (alphabet && padding <= 2).then_some((media, encoded))
 }
 
-/// The image a payload value names, resolved with what the wallet knows of an https URL, as
-/// written; a pending remote image when it knows nothing.
+/// The image a payload value names, resolved with what the wallet knows of an https URL's
+/// [`ascii`](HttpsUrl::ascii) form; a pending remote image when it knows nothing.
 pub fn resolve<'r>(
     url: &str,
     integrity: Option<&Node<'_>>,
@@ -162,7 +162,7 @@ pub fn resolve<'r>(
                 .and_then(Node::as_str)
                 .map(|integrity| SriMetadata::written(integrity.to_owned()))
                 .ok_or_else(|| refuse(ImageFailure::NoIntegrity))?;
-            let (content, media) = match resolution(url) {
+            let (content, media) = match resolution(https.ascii()) {
                 Resolution::Unknown => {
                     return Ok(Image::Remote(RemoteImage::new(https, integrity)));
                 }

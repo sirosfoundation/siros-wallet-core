@@ -286,7 +286,7 @@ impl PasoProfile {
     /// The profile with what the wallet knows of a resource; the first said of a URL holds.
     #[must_use]
     pub fn with_resource(mut self, url: HttpsUrl, fetch: Fetch) -> Self {
-        self.resources.push((url.written().to_owned(), fetch));
+        self.resources.push((url.ascii().to_owned(), fetch));
         self
     }
 
@@ -364,7 +364,7 @@ impl PasoProfile {
         Ok(handle)
     }
 
-    /// What the wallet knows of an https image: the first resource of its URL as written.
+    /// What the wallet knows of an https image: the first resource of its URL in ASCII.
     fn resolution(&self, url: &str) -> Resolution<'_> {
         match self.resources.iter().find(|(known, _)| known == url) {
             None => Resolution::Unknown,

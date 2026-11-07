@@ -501,7 +501,7 @@ pub(super) fn phase_2_fetches_the_images_the_matcher_could_not_and_falls_back_wh
             .iter()
             .map(|f| f.url.as_str())
             .collect::<Vec<_>>(),
-        [unreachable]
+        ["https://xn--x-wbb.example/l.png"]
     );
     let informed = registry.informed(&[finding]).expect("informed");
     let response = answer(

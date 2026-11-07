@@ -1,6 +1,8 @@
 //! An https URL as the wallet shows and fetches it: an IRI (RFC 3987) over fluent-uri, each
 //! label of a host beyond ASCII in Punycode (RFC 3492).
 
+use std::hash::{Hash, Hasher};
+
 use fluent_uri::Iri;
 use fluent_uri::build::{BuildError, Builder};
 use fluent_uri::component::{Host, Scheme};
@@ -14,11 +16,26 @@ use crate::text::python_space;
 const HTTPS: &Scheme = Scheme::new_or_panic("https");
 
 /// An https IRI with a host, as written, and its one form in ASCII, which every build shows and a
-/// caller fetches (PaSO View §3 mitigates homograph confusion with the punycode form).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// caller fetches (PaSO View §3 mitigates homograph confusion with the punycode form). Two texts
+/// with one ASCII form are one URL: equality and hash read `ascii`.
+#[derive(Debug, Clone)]
 pub struct HttpsUrl {
     written: Iri<String>,
     ascii: Iri<String>,
+}
+
+impl PartialEq for HttpsUrl {
+    fn eq(&self, other: &Self) -> bool {
+        self.ascii == other.ascii
+    }
+}
+
+impl Eq for HttpsUrl {}
+
+impl Hash for HttpsUrl {
+    fn hash<S: Hasher>(&self, state: &mut S) {
+        self.ascii.hash(state);
+    }
 }
 
 /// Why a text is no https URL the wallet shows or fetches.

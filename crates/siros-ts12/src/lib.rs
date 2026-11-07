@@ -210,7 +210,7 @@ impl Ts12Profile {
     /// The profile knowing what the wallet fetched for an https logo.
     #[must_use]
     pub fn with_resource(mut self, url: &HttpsUrl, fetch: Fetch) -> Self {
-        self.resources.push((url.written().to_owned(), fetch));
+        self.resources.push((url.ascii().to_owned(), fetch));
         self
     }
 
@@ -230,7 +230,7 @@ impl Ts12Profile {
         Ok(handle)
     }
 
-    /// What the wallet knows of an https logo: the first resource of its URL as written.
+    /// What the wallet knows of an https logo: the first resource of its URL in ASCII.
     pub(crate) fn resolution(&self, url: &str) -> Resolution<'_> {
         match self.resources.iter().find(|(known, _)| known == url) {
             None => Resolution::Unknown,

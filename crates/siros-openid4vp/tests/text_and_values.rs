@@ -83,6 +83,25 @@ fn a_host_beyond_ascii_writes_each_label_in_punycode() {
     }
 }
 
+/// A URL has one GET target, so the texts that name it are one key of a set: `Resources::fetched`
+/// answers every mention with one fetch.
+#[test]
+fn texts_with_one_ascii_form_are_one_url() {
+    let url = |text| HttpsUrl::parse(text).expect(text);
+    let urls: rustc_hash::FxHashSet<HttpsUrl> = [
+        url("https://b\u{fc}cher.example/l"),
+        url("https://B\u{dc}CHER.example/l"),
+        url("https://xn--bcher-kva.example/l"),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(urls.len(), 1);
+    assert_ne!(
+        url("https://b\u{fc}cher.example/l"),
+        url("https://bucher.example/l")
+    );
+}
+
 /// RFC 3492 §6.4: an encoder refuses a label whose delta overflows its integers.
 /// `0xEFFFD - 0x80` insertions past 5,000 basic code points exceed 2^32.
 #[test]

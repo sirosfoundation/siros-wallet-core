@@ -35,7 +35,7 @@ impl Resource {
             .collect()
     }
 
-    /// The URL the caller GETs.
+    /// The URL; the caller GETs its [`ascii`](HttpsUrl::ascii) form.
     #[must_use]
     pub const fn url(&self) -> &HttpsUrl {
         &self.0

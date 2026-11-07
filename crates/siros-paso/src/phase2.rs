@@ -64,7 +64,7 @@ impl std::fmt::Display for OptionalModule {
 /// An https image phase 2 fetched and refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FailedImage {
-    /// The image's URL as the payload writes it.
+    /// The image's URL in ASCII.
     pub url: String,
     /// What failed.
     pub failure: ImageFailure,
@@ -295,7 +295,7 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
             let Ok(url) = HttpsUrl::parse(text) else {
                 continue;
             };
-            if !matches!(profile.resolution(text), Resolution::Unknown) {
+            if !matches!(profile.resolution(url.ascii()), Resolution::Unknown) {
                 // The matcher had it, verified or failed, and decided with it.
                 continue;
             }
@@ -377,7 +377,7 @@ pub(crate) fn revalidate(
                 Ok(_) => {}
                 Err(NotCompatible::Image { failure, .. }) => {
                     failed.push(FailedImage {
-                        url: image.text.to_owned(),
+                        url: image.url.ascii().to_owned(),
                         failure,
                     });
                 }
