@@ -89,14 +89,16 @@ impl IntoArg for RequiredClaim {
 /// A claim CS-02 §8.2 requires that the Request Object lacks. Only [`Cs02Claims`] makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "webuild")]
-#[error("the Request Object holds no {}, which CS-02 §8.2 requires", .0.name())]
-pub struct ClaimAbsent(#[explain(name = "claim")] RequiredClaim);
+#[error("the Request Object holds no {}, which CS-02 §8.2 requires", .claim.name())]
+pub struct ClaimAbsent {
+    claim: RequiredClaim,
+}
 
 impl ClaimAbsent {
     /// The claim.
     #[must_use]
     pub const fn claim(self) -> RequiredClaim {
-        self.0
+        self.claim
     }
 }
 
@@ -113,7 +115,7 @@ impl ObjectRule for Cs02Claims {
         [RequiredClaim::Exp, RequiredClaim::Aud]
             .into_iter()
             .find(|claim| claims.get(claim.name()).is_none())
-            .map(|claim| Refusal::new(ClaimAbsent(claim)))
+            .map(|claim| Refusal::new(ClaimAbsent { claim }))
     }
 }
 
