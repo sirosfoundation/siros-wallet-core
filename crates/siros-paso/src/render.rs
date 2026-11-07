@@ -178,31 +178,10 @@ pub struct Registered<'r> {
 }
 
 impl<'r> Registered<'r> {
-    /// A type the profile keeps under its own identifier, rendered by `family`.
-    #[must_use]
-    pub const fn new(kind: &'r str, family: Family, given: &'r Node<'r>) -> Self {
-        Self {
-            kind: PasoType::rendered_by(kind, family),
-            given,
-        }
-    }
-
-    /// A type under `urn:paso:sca:`.
+    /// The type and its metadata.
     #[must_use]
     pub const fn of(kind: PasoType<'r>, given: &'r Node<'r>) -> Self {
         Self { kind, given }
-    }
-
-    /// The type identifier.
-    #[must_use]
-    pub fn kind(&self) -> &str {
-        self.kind.as_str()
-    }
-
-    /// The rulebook that renders it.
-    #[must_use]
-    pub const fn family(&self) -> Family {
-        self.kind.family()
     }
 
     /// The type's metadata.

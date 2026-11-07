@@ -16,8 +16,8 @@ use crate::modules::CoseEnc;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SealedCose(Vec<u8>);
 
-/// A ciphertext [`CoseEncrypt`] returned that breaks its form's rule: the module broke its
-/// contract.
+/// A ciphertext [`crate::modules::CoseEncrypt`] returned that breaks its form's rule: the module
+/// broke its contract.
 #[derive(Debug, thiserror::Error, Explain)]
 #[explain(domain = "paso.sealed")]
 pub enum NotSealedCose {

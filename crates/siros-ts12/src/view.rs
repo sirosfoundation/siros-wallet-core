@@ -33,7 +33,7 @@ pub fn convert(
     priority: &[LocaleTag],
 ) -> Result<DefinedForm, ConvertError> {
     let metadata = paso_metadata(entry)?;
-    let registered = Registered::new(entry.kind().urn(), entry.kind().family(), &metadata);
+    let registered = Registered::of(entry.kind().paso_type(), &metadata);
     Ok(siros_paso::view::convert(
         &registered,
         LIMITS,

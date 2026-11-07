@@ -8,7 +8,7 @@ use siros_explain::{Explain, Keyed};
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::plugins::JsonText;
 use siros_openid4vp::rows::HttpsUrl;
-use siros_paso::rulebook::Family;
+use siros_paso::rulebook::{Family, PasoType};
 
 /// The key of the TS12 document in a credential's registration.
 pub const DOCUMENT: &str = "ts12";
@@ -50,13 +50,17 @@ impl Ts12Type {
         }
     }
 
-    /// The family siros-paso renders it with.
+    /// The type as siros-paso's engine renders it: a payment by its payment rulebook, an action by
+    /// its view.
     #[must_use]
-    pub const fn family(self) -> Family {
-        match self {
-            Self::Payment => Family::Payment,
-            Self::LoginRisk => Family::View,
-        }
+    pub const fn paso_type(self) -> PasoType<'static> {
+        PasoType::rendered_by(
+            self.urn(),
+            match self {
+                Self::Payment => Family::Payment,
+                Self::LoginRisk => Family::View,
+            },
+        )
     }
 }
 

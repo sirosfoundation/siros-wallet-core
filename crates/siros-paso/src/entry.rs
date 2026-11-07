@@ -66,6 +66,7 @@ pub enum EntryRule {
 #[derive(Debug, Clone)]
 pub(crate) struct PasoEntry<'e> {
     /// The entry as received.
+    #[cfg(feature = "resolve")]
     pub(crate) entry: &'e Entry<'e>,
     /// The type identifier.
     pub(crate) kind: PasoType<'e>,
@@ -92,6 +93,7 @@ impl<'e> PasoEntry<'e> {
             Some(_) => return Err(AdhocFailure::Jws(JwsError::Structure).into()),
         };
         Ok(Self {
+            #[cfg(feature = "resolve")]
             entry,
             kind,
             payload,

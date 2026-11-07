@@ -8,7 +8,7 @@
 //! - TS12 §4.1: the registration document, composed at issuance ([`document`]).
 //! - TS12 §4.3: the typed payloads ([`payload`]).
 //! - TS12 §3.3: the display rules, translated into PaSO's metadata ([`translate`], [`view`]).
-//! - TS12 §3.6: the `amr` claim ([`amr`]).
+//! - TS12 §3.6: the `amr` claim ([`mod@amr`]).
 //!
 //! ```
 //! use siros_explain::{AllOf, checked};
@@ -261,11 +261,7 @@ impl Ts12Profile {
         let payload = Payload::of(&translated.payload)
             .ok_or_else(|| Fault::new(FAULT, detail!("a payload that is no object")))?;
         let view = render::Request {
-            registered: Registered::new(
-                translated.kind.urn(),
-                translated.kind.family(),
-                &translated.metadata,
-            ),
+            registered: Registered::of(translated.kind.paso_type(), &translated.metadata),
             payload,
             env,
             bound: self.bound,

@@ -59,7 +59,7 @@ impl Family {
 }
 
 /// A type identifier with the rulebook that renders it: one under `urn:paso:sca:`
-/// ([`PasoType::parse`]), or one another profile keeps ([`crate::render::Registered::new`]).
+/// ([`PasoType::parse`]), or one another profile keeps ([`PasoType::rendered_by`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasoType<'t> {
     text: Cow<'t, str>,
@@ -80,15 +80,13 @@ impl<'t> PasoType<'t> {
     /// The text is outside `urn:paso:sca:`.
     pub fn parse(text: &'t str) -> Result<Self, NotPasoType> {
         Family::of(text)
-            .map(|family| Self {
-                text: Cow::Borrowed(text),
-                family,
-            })
+            .map(|family| Self::rendered_by(text, family))
             .ok_or_else(|| NotPasoType(text.to_owned()))
     }
 
-    /// A type another profile keeps under its own identifier.
-    pub(crate) const fn rendered_by(text: &'t str, family: Family) -> Self {
+    /// A type under a profile's own identifier, rendered by a family's rulebook.
+    #[must_use]
+    pub const fn rendered_by(text: &'t str, family: Family) -> Self {
         Self {
             text: Cow::Borrowed(text),
             family,
