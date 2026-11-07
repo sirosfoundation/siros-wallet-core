@@ -1,8 +1,8 @@
 //! Text that is safe to show: the character rule and the length of each kind of text a credential's
 //! metadata writes.
 
+use icu_properties::{CodePointMapData, props::GeneralCategory};
 use siros_explain::Explain;
-use unicode_general_category::{GeneralCategory, get_general_category};
 
 /// The most characters of a label, a name, a title or a hint.
 pub const LABEL_MAX: usize = 500;
@@ -96,7 +96,7 @@ impl DisplayText {
 
 fn unsafe_to_show(c: char) -> bool {
     matches!(
-        get_general_category(c),
+        CodePointMapData::<GeneralCategory>::new().get(c),
         GeneralCategory::Control
             | GeneralCategory::Format
             | GeneralCategory::LineSeparator

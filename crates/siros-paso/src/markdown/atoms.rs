@@ -2,35 +2,28 @@
 //! punctuation (CommonMark §2.1), and the constructs that take precedence over emphasis and
 //! render literally in `mini_markdown`.
 
+use icu_properties::CodePointMapData;
+use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
 use siros_openid4vp::text::python_space;
-use unicode_general_category::{GeneralCategory, get_general_category};
 
 /// A Unicode whitespace character, or no character (CommonMark §2.1).
 pub(super) fn space(c: Option<char>) -> bool {
     c.is_none_or(|c| {
-        matches!(c, '\t' | '\n' | '\u{c}' | '\r')
-            || get_general_category(c) == GeneralCategory::SpaceSeparator
+        matches!(c, '\t' | '\n' | '\u{c}' | '\r') || category(c) == GeneralCategory::SpaceSeparator
     })
 }
 
 /// A Unicode punctuation character: general category P or S (CommonMark §2.1).
 pub(super) fn punctuation(c: Option<char>) -> bool {
     c.is_some_and(|c| {
-        matches!(
-            get_general_category(c),
-            GeneralCategory::ConnectorPunctuation
-                | GeneralCategory::DashPunctuation
-                | GeneralCategory::OpenPunctuation
-                | GeneralCategory::ClosePunctuation
-                | GeneralCategory::InitialPunctuation
-                | GeneralCategory::FinalPunctuation
-                | GeneralCategory::OtherPunctuation
-                | GeneralCategory::MathSymbol
-                | GeneralCategory::CurrencySymbol
-                | GeneralCategory::ModifierSymbol
-                | GeneralCategory::OtherSymbol
-        )
+        let category = category(c);
+        GeneralCategoryGroup::Punctuation.contains(category)
+            || GeneralCategoryGroup::Symbol.contains(category)
     })
+}
+
+fn category(c: char) -> GeneralCategory {
+    CodePointMapData::<GeneralCategory>::new().get(c)
 }
 
 /// The end of the construct at `i` that takes precedence over emphasis and renders literally

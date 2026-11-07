@@ -93,8 +93,9 @@ idna = "1.1.0"
 fluent-uri = "0.4.1"
 # application/x-www-form-urlencoded: the Authorization Request URI's query, the form bodies.
 serde_urlencoded = "=0.7.1"
-# CommonMark's whitespace and punctuation are Unicode general categories.
-unicode-general-category = "1.1.0"
+# Unicode general categories: the characters a text may show, CommonMark's whitespace and
+# punctuation. The table idna's back end already links.
+icu_properties = { version = "=2.4.0", default-features = false, features = ["compiled_data"] }
 # RFC 9162's Merkle tree hashes and audit paths over an in-order node array.
 ct-merkle = "0.3.0"
 # UAX #15: MessageFormat 2 compares names and variant keys in NFC.

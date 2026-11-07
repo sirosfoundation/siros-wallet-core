@@ -60,7 +60,7 @@ rustc-hash = { workspace = true }
 dyn-clone = { workspace = true }
 idna = { workspace = true }
 fluent-uri = { workspace = true }
-unicode-general-category = { workspace = true }
+icu_properties = { workspace = true }
 
 [dev-dependencies]
 siros-testkit = { workspace = true }

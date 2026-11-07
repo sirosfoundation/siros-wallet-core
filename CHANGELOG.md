@@ -50,6 +50,9 @@ All notable changes to this workspace. The format follows
   view's `issuer`. A text there is read through `DisplayText`.
 - A byte string shows by its length: `ClaimText::Bytes`, over the mdoc view's
   `byte_strings`.
+- General categories come from `icu_properties`, the table `idna`'s back end links, in place of
+  `unicode-general-category`: Unicode 18 in place of 16, so a text may show the 17,810 code points
+  assigned since.
 - An mdoc's `full-date` (tag 1004) and `tdate` (tag 0) elements show as
   `Value::Date` and `Value::DateTime`, over the view's `dates`, and siros-mdoc turns
   on siros-i18n's `date` under `resolve`. `RegistrationError::FullDate` and `Tdate` refuse a value
