@@ -19,9 +19,10 @@ name: Conformance (mini-wallet)
 # records the skip with the reason.
 #
 # The release-tag publish needs CONFORMANCE_DISPATCH_TOKEN (a repo
-# secret): a fine-grained PAT with Contents:read + Actions on
-# siros-conformance, for the repository_dispatch that hands the
-# reports to that repo's publish workflow.
+# secret): a fine-grained PAT with Actions:write on siros-conformance
+# alone, for the repository_dispatch that hands the reports to that
+# repo's publish workflow. Creation and rotation:
+# docs/conformance-dispatch-token.md.
 
 on:
   # PRs: the results ride the run's artifacts (the Actions tab), NOT
