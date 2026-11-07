@@ -442,8 +442,20 @@ fn with_minor(units: &str, cents: &str, minor: usize) -> String {
 /// An ISO 4217 code of the core's table, as `^[A-Z]{3}$` (TS12's schema) writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrencyCode {
-    code: String,
+    currency: Currency,
     minor: MinorDigits,
+}
+
+impl CurrencyCode {
+    /// The alphabetic code.
+    fn code(&self) -> String {
+        self.currency
+            .code()
+            .iter()
+            .copied()
+            .map(char::from)
+            .collect()
+    }
 }
 
 /// A currency's minor-unit digits.
@@ -865,7 +877,7 @@ impl Payment {
                 Execution::Recurring(recurrence) => Some(Node::Object(recurrence.paso(code))),
                 Execution::Unstated | Execution::On(_) => None,
             },
-            "currency" => Some(text(&code.code)),
+            "currency" => Some(text(&code.code())),
             "amount" => Some(with_code(&self.amount, code)),
             "amount_estimated" => self.amount_estimated.as_ref().map(|flag| Node::Bool(flag.0)),
             "amount_earmarked" => self.amount_earmarked.as_ref().map(|flag| Node::Bool(flag.0)),
@@ -876,20 +888,21 @@ impl Payment {
 
 /// An amount as `iso_currency_amount` text.
 fn with_code(amount: &Amount, currency: &CurrencyCode) -> Node<'static> {
-    text(&format!("{} {}", amount.as_str(), currency.code))
+    text(&format!("{} {}", amount.as_str(), currency.code()))
 }
 
 /// The code as the core's table reads it, which holds `^[A-Z]{3}$` (TS12's schema).
 fn currency(code: &str) -> Result<CurrencyCode, PayloadRefusal> {
-    let minor = Currency::from_code(code)
-        .and_then(Currency::minor_units)
+    Currency::from_code(code)
+        .and_then(|currency| {
+            currency.minor_units().map(|minor| CurrencyCode {
+                currency,
+                minor: MinorDigits(minor),
+            })
+        })
         .ok_or_else(|| PayloadRefusal::Currency {
             value: code.to_owned(),
-        })?;
-    Ok(CurrencyCode {
-        code: code.to_owned(),
-        minor: MinorDigits(minor),
-    })
+        })
 }
 
 impl Payee {
