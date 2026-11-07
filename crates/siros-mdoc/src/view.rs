@@ -8,6 +8,7 @@ use siros_openid4vp::plugins::{Fault, Member};
 
 use crate::FAULT;
 use crate::cose::{Curve, DeviceKeyView, Signer};
+use crate::stored::SignatureAlgorithm;
 
 /// The mdoc members of a credential's view, each read when an operation needs it.
 pub(crate) struct MdocMembers<'a, 'v> {
@@ -68,13 +69,17 @@ impl<'a, 'v> MdocMembers<'a, 'v> {
         })
     }
 
-    /// The device key: `device_curve` and `device_alg`, absent only on a curve kept to ECDH.
+    /// The device key: `device_curve` and `device_alg`, a signature algorithm, absent on a key
+    /// that signs nothing.
     pub(crate) fn device_key(&self) -> Result<DeviceKeyView, Fault> {
         let curve = self.curve("device")?;
-        let alg = self.algorithm("device")?;
-        if alg.is_none() && !curve.only_agrees() {
-            return Err(self.fault("device", "_alg is no COSE algorithm identifier"));
-        }
+        let alg = self
+            .algorithm("device")?
+            .map(|alg| {
+                SignatureAlgorithm::parse(alg)
+                    .ok_or_else(|| self.fault("device", "_alg is no signature algorithm"))
+            })
+            .transpose()?;
         Ok(DeviceKeyView { alg, curve })
     }
 

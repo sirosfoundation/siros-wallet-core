@@ -4,17 +4,17 @@
 use siros_openid4vp::cbor::Value;
 
 use super::item::Read as _;
-use super::signature::CoseAlgorithm;
+use super::signature::SignatureAlgorithm;
 
 use crate::cose::Curve;
 
 use super::error::DeviceKeyFault;
 
-/// The device key: its curve, its stated algorithm, and its point on P-256.
+/// The device key: its curve, the algorithm it signs with, and its point on P-256.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DeviceKey {
     point: DevicePoint,
-    alg: Option<CoseAlgorithm>,
+    alg: Option<SignatureAlgorithm>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,7 +29,9 @@ const OKP: i64 = 1;
 
 impl DeviceKey {
     /// `COSE_Key` of a Table 22 curve: `{1: kty, -1: crv, ? 3: alg, ...}`, with the 32-byte `x` and
-    /// `y` of a P-256 key.
+    /// `y` of a P-256 key. `alg` restricts the key (RFC 9052 §7.1): one of no signature algorithm
+    /// leaves it signing nothing. Without it the curve's signature algorithm holds, and X25519 and
+    /// X448 sign nothing (RFC 9053 §7.1).
     pub(crate) fn read(key: Option<&Value>) -> Result<Self, DeviceKeyFault> {
         let key = key.ok_or(DeviceKeyFault::Absent)?;
         let int = |label: i64| key.get_int(label).and_then(|v| v.as_int());
@@ -55,10 +57,11 @@ impl DeviceKey {
         } else {
             DevicePoint::Other(curve)
         };
-        Ok(Self {
-            point,
-            alg: int(3).map(CoseAlgorithm::new),
-        })
+        let alg = match key.get_int(3) {
+            Some(stated) => stated.as_int().and_then(SignatureAlgorithm::parse),
+            None => signature_algorithm(curve),
+        };
+        Ok(Self { point, alg })
     }
 
     /// The point, on P-256.
@@ -79,19 +82,24 @@ impl DeviceKey {
         }
     }
 
-    /// `alg` (label 3), else the signature algorithm of the curve. `None` on X25519 and X448
-    /// without a label 3: RFC 9053 §7.1 keeps them to ECDH, so such a key authenticates by device
-    /// MAC alone (ISO/IEC 18013-5 §9.1.3.5), whose header holds HMAC 256/256.
+    /// The algorithm the key signs with. `None` for a key that signs nothing, which authenticates
+    /// by device MAC alone (ISO/IEC 18013-5 §9.1.3.5), whose header holds HMAC 256/256.
     #[must_use]
-    pub fn algorithm(&self) -> Option<CoseAlgorithm> {
-        let of_curve = match self.curve() {
-            Curve::P256 | Curve::BrainpoolP256r1 => Some(-7),
-            Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => Some(-35),
-            Curve::P521 | Curve::BrainpoolP512r1 => Some(-36),
-            Curve::Ed25519 | Curve::Ed448 => Some(-8),
-            Curve::X25519 | Curve::X448 => None,
-        };
-        self.alg.or(of_curve.map(CoseAlgorithm::new))
+    pub fn algorithm(&self) -> Option<SignatureAlgorithm> {
+        self.alg
+    }
+}
+
+/// The signature algorithm of a curve; `None` on a curve RFC 9053 §7.1 keeps to ECDH.
+fn signature_algorithm(curve: Curve) -> Option<SignatureAlgorithm> {
+    match curve {
+        Curve::P256 | Curve::BrainpoolP256r1 => Some(SignatureAlgorithm::Es256),
+        Curve::P384 | Curve::BrainpoolP320r1 | Curve::BrainpoolP384r1 => {
+            Some(SignatureAlgorithm::Es384)
+        }
+        Curve::P521 | Curve::BrainpoolP512r1 => Some(SignatureAlgorithm::Es512),
+        Curve::Ed25519 | Curve::Ed448 => Some(SignatureAlgorithm::EdDsa),
+        Curve::X25519 | Curve::X448 => None,
     }
 }
 

@@ -2,6 +2,8 @@
 //! ISO/IEC 18013-5 Table 22, and B.2.4's identifiers of the device MAC per curve. Phase 2 builds
 //! DeviceSignature and DeviceMac over coset.
 
+use crate::stored::SignatureAlgorithm;
+
 /// An elliptic curve a device or issuer key is on (ISO/IEC 18013-5 Table 22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Curve {
@@ -50,11 +52,6 @@ impl Curve {
         Self::ALL.into_iter().find(|curve| curve.name() == name)
     }
 
-    /// Whether RFC 9053 §7.1 keeps the curve to ECDH.
-    pub(crate) const fn only_agrees(self) -> bool {
-        matches!(self, Self::X25519 | Self::X448)
-    }
-
     /// The curve's name: its COSE and JOSE registry name.
     #[must_use]
     pub const fn name(self) -> &'static str {
@@ -98,8 +95,8 @@ pub(crate) fn mac_row(curve: Curve) -> Option<i64> {
 /// A device key as the view states it: the `alg` it signs with, when it signs, and its curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DeviceKeyView {
-    /// The COSE algorithm identifier; `None` for a key that only agrees a MAC key.
-    pub(crate) alg: Option<i64>,
+    /// The algorithm; `None` for a key that signs nothing.
+    pub(crate) alg: Option<SignatureAlgorithm>,
     /// The key's curve.
     pub(crate) curve: Curve,
 }
@@ -109,7 +106,7 @@ impl DeviceKeyView {
     pub(crate) fn signature_identifiers(self) -> Vec<i64> {
         self.alg.map_or_else(Vec::new, |alg| {
             Signer {
-                alg,
+                alg: alg.value(),
                 curve: self.curve,
             }
             .identifiers()
@@ -162,6 +159,26 @@ use siros_openid4vp::cbor::cose::coset::{
 };
 #[cfg(feature = "resolve")]
 use siros_openid4vp::plugins::Fault;
+
+#[cfg(feature = "resolve")]
+/// The registry entry of a device key's algorithm.
+pub(crate) const fn registered(alg: SignatureAlgorithm) -> iana::Algorithm {
+    match alg {
+        SignatureAlgorithm::Es256 => iana::Algorithm::ES256,
+        SignatureAlgorithm::Es384 => iana::Algorithm::ES384,
+        SignatureAlgorithm::Es512 => iana::Algorithm::ES512,
+        SignatureAlgorithm::EdDsa => iana::Algorithm::EdDSA,
+        SignatureAlgorithm::Esp256 => iana::Algorithm::ESP256,
+        SignatureAlgorithm::Esp384 => iana::Algorithm::ESP384,
+        SignatureAlgorithm::Esp512 => iana::Algorithm::ESP512,
+        SignatureAlgorithm::Esb256 => iana::Algorithm::ESB256,
+        SignatureAlgorithm::Esb320 => iana::Algorithm::ESB320,
+        SignatureAlgorithm::Esb384 => iana::Algorithm::ESB384,
+        SignatureAlgorithm::Esb512 => iana::Algorithm::ESB512,
+        SignatureAlgorithm::Ed25519 => iana::Algorithm::Ed25519,
+        SignatureAlgorithm::Ed448 => iana::Algorithm::Ed448,
+    }
+}
 
 #[cfg(feature = "resolve")]
 /// DeviceSignature (ISO/IEC 18013-5 §9.1.3.6): a COSE_Sign1 with the device key's `alg`

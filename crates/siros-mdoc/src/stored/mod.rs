@@ -102,4 +102,4 @@ pub use key_authorizations::{DataElements, KeyAuthorizations};
 pub use mdoc::{IssuerNameSpace, IssuerSignedItem, StoredMdoc};
 pub use mso::{DigestAlgorithm, ItemDigest, Mso, Validity};
 pub use names::{DigestId, DocType, ElementIdentifier, NameSpace};
-pub use signature::{CoseAlgorithm, MessageDigest, SigStructure};
+pub use signature::{CoseAlgorithm, MessageDigest, SigStructure, SignatureAlgorithm};

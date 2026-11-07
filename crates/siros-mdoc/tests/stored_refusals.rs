@@ -352,11 +352,28 @@ fn each_table_22_curve_reads_with_its_algorithm() {
             .map(|alg| alg.python_compact().to_string());
         assert_eq!(stated, alg.map(|alg: i64| alg.to_string()), "{name}");
     }
-    let mut parts = honest();
-    parts.device_key.push((int(3), int(-9)));
-    let mdoc = StoredMdoc::parse(&assemble(&parts)).unwrap();
-    let stated = mdoc.mso().device_key().algorithm().map(|alg| alg.value());
-    assert_eq!(stated, Some(-9));
+    // A label 3 restricts the key (RFC 9052 §7.1). -9 is ESP256 (RFC 9864 §2); -25 and -29 are
+    // ECDH-ES (RFC 9053 §6.3.1), 5 is HMAC 256/256 (§3.1), 1 is A128GCM (§4.1).
+    for (crv, kty, label, alg) in [
+        (1, 2, -9, Some(-9)),
+        (1, 2, -25, None),
+        (1, 2, -29, None),
+        (1, 2, 5, None),
+        (1, 2, 1, None),
+        (4, 1, -25, None),
+    ] {
+        let mut parts = honest();
+        parts.device_key[0].1 = int(kty);
+        parts.device_key[1].1 = int(crv);
+        parts.device_key.push((int(3), int(label)));
+        let data = assemble(&parts);
+        let mdoc = StoredMdoc::parse(&data).unwrap();
+        let stated = mdoc.mso().device_key().algorithm().map(|alg| alg.value());
+        assert_eq!(stated, alg, "{label}");
+        let registered = Registered::of(&data, &Resolved::default()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        assert_eq!(view.get("device_alg").is_some(), alg.is_some(), "{label}");
+    }
 }
 
 /// What makes no view: a text of no stored mdoc, an element whose value has no JSON form (RFC 8949

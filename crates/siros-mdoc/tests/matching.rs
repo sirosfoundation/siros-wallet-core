@@ -526,7 +526,8 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             None,
         ),
     ];
-    for (supported, keys, (issuer_alg, issuer_curve), (device_alg, device_curve), want) in cases {
+    let admits = |supported: &str, keys: &str, issuer: (i64, &str), device: &str, want| {
+        let (issuer_alg, issuer_curve) = issuer;
         let text = parameters(
             r#"{"credentials": [{"id": "q", "format": "mso_mdoc", "meta": {"doctype_value": "t"}}]}"#,
             &format!(
@@ -538,16 +539,51 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             "c",
             "mso_mdoc",
             format!(
-                r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "issuer_alg": {issuer_alg}, "issuer_curve": "{issuer_curve}", "device_alg": {device_alg}, "device_curve": "{device_curve}"}}"#
+                r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "issuer_alg": {issuer_alg}, "issuer_curve": "{issuer_curve}", {device}}}"#
             ),
         );
         let (found, clauses) = matched(&request, &[held]);
         assert_eq!(
             clauses.first().map(String::as_str),
             want,
-            "{supported} {keys} {issuer_curve} {device_curve}"
+            "{supported} {keys} {issuer_curve} {device}"
         );
         assert_eq!(found.is_empty(), want.is_some());
+    };
+    for (supported, keys, issuer, (device_alg, device_curve), want) in cases {
+        let device = format!(r#""device_alg": {device_alg}, "device_curve": "{device_curve}""#);
+        admits(supported, keys, issuer, &device, want);
+    }
+    // A device key that signs nothing matches by its MAC alone (B.2.2's rules 1 and 3).
+    for (supported, keys, device_curve, want) in [
+        (
+            r#"{"deviceauth_alg_values": [-9]}"#,
+            p256,
+            "P-256",
+            Some(clause),
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65537]}"#,
+            p256,
+            "P-256",
+            None,
+        ),
+        (r#"{"deviceauth_alg_values": [5]}"#, p256, "P-256", None),
+        (
+            r#"{"deviceauth_alg_values": [5]}"#,
+            x25519,
+            "P-256",
+            Some(clause),
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65540]}"#,
+            x25519,
+            "X25519",
+            None,
+        ),
+    ] {
+        let device = format!(r#""device_curve": "{device_curve}""#);
+        admits(supported, keys, (-7, "P-256"), &device, want);
     }
 }
 

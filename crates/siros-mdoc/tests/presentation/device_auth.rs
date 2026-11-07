@@ -160,25 +160,31 @@ fn mode(token: &str) -> (String, Option<String>) {
 #[test]
 fn a_key_that_only_agrees_authenticates_by_mac_alone() {
     const X25519: &str = r#"{"kty": "OKP", "crv": "X25519", "kid": "reader-x25519", "x": "AA"}"#;
-    let held = issued(&view(-7, "X25519").replace(r#""device_alg": -7, "#, ""));
+    let signing_nothing =
+        |curve: &str| issued(&view(-7, curve).replace(r#""device_alg": -7, "#, ""));
     let listing = |listed: &str| {
         format!(r#","vp_formats_supported":{{"mso_mdoc":{{"deviceauth_alg_values":{listed}}}}}"#)
     };
-    for (keys, supported, macs) in [
-        (X25519, String::new(), true),
-        (X25519, listing("[-65540]"), true),
-        (X25519, listing("[5]"), true),
-        (P256, String::new(), false),
-    ] {
+    let rows = [
+        ("X25519", X25519, String::new(), Some("reader-x25519")),
+        ("X25519", X25519, listing("[-65540]"), Some("reader-x25519")),
+        ("X25519", X25519, listing("[5]"), Some("reader-x25519")),
+        ("X25519", P256, String::new(), None),
+        // A label 3 of no signature algorithm leaves a P-256 key signing nothing.
+        ("P-256", P256, String::new(), Some("reader-p256")),
+        ("P-256", P384, String::new(), None),
+    ];
+    for (curve, keys, supported, macs) in rows {
+        let held = signing_nothing(curve);
         let metadata = format!(r#"{{"jwks":{{"keys":[{keys}]}}{supported}}}"#);
         let host = MdocHost::default();
         match respond(&host, &metadata, &held) {
-            Ok(response) if macs => assert_eq!(
+            Ok(response) if macs.is_some() => assert_eq!(
                 mode(&response),
-                ("deviceMac".to_owned(), Some("reader-x25519".to_owned())),
+                ("deviceMac".to_owned(), macs.map(str::to_owned)),
                 "{metadata}"
             ),
-            Err(Outcome::Fallback(findings)) if !macs => {
+            Err(Outcome::Fallback(findings)) if macs.is_none() => {
                 let [Finding::Format { finding, .. }] = findings.items() else {
                     panic!("{metadata}: {findings:?}");
                 };

@@ -7,7 +7,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_explain::Explain;
 use siros_openid4vp::cbor::cose::coset::AsCborValue;
-use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
+use siros_openid4vp::cbor::cose::coset::iana;
 use siros_openid4vp::cbor::{self, Value};
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::claims::kit::{Presenting, Revalidating};
@@ -69,8 +69,7 @@ impl<'k, M> DeviceAuth<'k, M> {
     /// transaction's evidence must convince parties beyond the Verifier, and the build holds the
     /// device MAC module (`module`). Refused when the MAC is the only one the Verifier lists and
     /// the build holds no device MAC module. `deviceSignature` otherwise, and when the Verifier
-    /// states no `deviceauth_alg_values`; its algorithm is the device key's, which IANA's COSE
-    /// registry must hold. A device key that signs nothing authenticates by MAC alone, also where
+    /// states no `deviceauth_alg_values`; its algorithm is the device key's. A device key that signs nothing authenticates by MAC alone, also where
     /// the Verifier states no `deviceauth_alg_values`, and is refused where it cannot.
     fn choose(
         device: DeviceKeyView,
@@ -111,15 +110,7 @@ impl<'k, M> DeviceAuth<'k, M> {
                 let Some(alg) = device.alg else {
                     return Ok(Err(DeviceAuthRefused::KeyAgreementOnly));
                 };
-                Self::Signature(iana::Algorithm::from_i64(alg).ok_or_else(|| {
-                    Fault::new(
-                        FAULT,
-                        detail!(
-                            "the device key's algorithm {alg} is no entry of IANA's COSE registry",
-                            alg = alg
-                        ),
-                    )
-                })?)
+                Self::Signature(crate::cose::registered(alg))
             }
         }))
     }

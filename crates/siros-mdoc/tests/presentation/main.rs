@@ -537,13 +537,13 @@ fn what_cannot_be_presented_is_a_fault() {
     let refused = |held: &Held, members| present(QUERY, "{}", held, members, false).err();
     // Each fixture beside the one it changes, which presents.
     assert!(refused(&issued(&good), Vec::new()).is_none());
-    // The device key's algorithm is a COSE identifier of IANA's registry, its curve one of
-    // Table 22.
+    // The device key's algorithm is a signature algorithm (RFC 9053 §2.1, §2.2; -25 is
+    // ECDH-ES + HKDF-256, §6.3.1), its curve one of Table 22.
     for tampered in [
         good.replace("\"device_alg\": -7", "\"device_alg\": \"ES256\""),
         good.replace("\"device_alg\": -7", "\"device_alg\": 12345"),
+        good.replace("\"device_alg\": -7", "\"device_alg\": -25"),
         good.replace("\"device_curve\": \"P-256\"", "\"device_curve\": \"P-999\""),
-        good.replace(", \"device_alg\": -7", ""),
     ] {
         assert!(
             refused(&issued_for(&tampered, &good), Vec::new()).is_some(),
