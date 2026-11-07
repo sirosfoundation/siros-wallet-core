@@ -293,9 +293,6 @@ impl OptionItems {
 pub struct Options(Vec<OptionItems>);
 
 impl Options {
-    /// The options of a query a format holds no option for: phase 1 answers none.
-    pub(crate) const NONE: &'static Self = &Self(Vec::new());
-
     /// The options, in the Verifier's order.
     #[must_use]
     pub const fn new(options: Vec<OptionItems>) -> Self {

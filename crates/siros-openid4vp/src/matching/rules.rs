@@ -7,7 +7,7 @@ use siros_explain::{AllOf, Explain};
 
 use crate::envelope::Channel;
 use crate::plugins::registry::{Catalog, Placed};
-use crate::plugins::{Build, Format, FormatQuery, ProfileHandle, Registry};
+use crate::plugins::{Build, Format, FormatQuery, Options, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
 use crate::routing::{EntryNaming, QueryContext, RoutedMode, VerifierMetadata};
@@ -105,6 +105,9 @@ pub struct Accepted<'q> {
     mode: RoutedMode,
     plans: Vec<Plan<'q>>,
 }
+
+/// The options of a query a format holds no option for: phase 1 answers none.
+const NO_OPTIONS: &Options = &Options::new(Vec::new());
 
 impl<'q> Accepted<'q> {
     /// Runs the rules; refused with every rule the request breaks, in order: C1 to C4, C8, the
@@ -204,12 +207,10 @@ impl<'q> Accepted<'q> {
 
     /// The query's options as its format parsed them; empty for a format without a plug-in.
     #[must_use]
-    pub fn options(&self, query: QueryIndex) -> &crate::plugins::Options {
+    pub fn options(&self, query: QueryIndex) -> &Options {
         self.plan(query)
             .and_then(|plan| plan.formatted.as_ref())
-            .map_or(crate::plugins::Options::NONE, |formatted| {
-                formatted.query.options()
-            })
+            .map_or(NO_OPTIONS, |formatted| formatted.query.options())
     }
 }
 

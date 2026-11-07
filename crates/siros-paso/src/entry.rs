@@ -65,8 +65,6 @@ pub enum EntryRule {
 /// A PaSO entry: its type, its payload, and the ad-hoc metadata JWT it may carry.
 #[derive(Debug, Clone)]
 pub(crate) struct PasoEntry<'e> {
-    /// The entry as received.
-    pub(crate) entry: &'e Entry<'e>,
     /// The type identifier.
     pub(crate) kind: PasoType<'e>,
     /// The payload.
@@ -92,7 +90,6 @@ impl<'e> PasoEntry<'e> {
             Some(_) => return Err(AdhocFailure::Jws(JwsError::Structure).into()),
         };
         Ok(Self {
-            entry,
             kind,
             payload,
             metadata,

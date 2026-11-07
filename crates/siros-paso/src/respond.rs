@@ -10,7 +10,7 @@ use siros_openid4vp::hash::{HashAlgorithm, Sha2};
 use siros_openid4vp::host::{Authentication, Haip, Has, MayHave, Platform, Seconds, Timestamp};
 use siros_openid4vp::json::{Member as JsonMember, Node, Number, Object};
 use siros_openid4vp::plugins::{Attested, Fault, JsonText, MemberValue, Members};
-use siros_openid4vp::request::{ContentEncryption, Request};
+use siros_openid4vp::request::{ContentEncryption, Entry, Request};
 use siros_openid4vp::routing::ModeName;
 use siros_openid4vp::sri;
 use siros_openid4vp::wallet_metadata::Placement;
@@ -20,7 +20,6 @@ use crate::amr;
 #[cfg(feature = "sealed-signals")]
 use crate::cose::SealedCose;
 use crate::document::PasoDocument;
-use crate::entry::PasoEntry;
 use crate::measure::{Paso, Reading};
 #[cfg(feature = "sealed-signals")]
 use crate::modules::CoseEnc;
@@ -160,12 +159,12 @@ impl<'h> Modules<'h> {
     }
 }
 
-/// What answering a record reads: the request, the entry it authorizes, the credential's
-/// document, the signal set of the metadata that rendered the entry, what the record attests,
-/// how the proof places the members, and the response mode the answer goes in.
+/// What answering a record reads: the request, the entry it authorizes as received, the
+/// credential's document, the signal set of the metadata that rendered the entry, what the record
+/// attests, how the proof places the members, and the response mode the answer goes in.
 pub(crate) struct Answer<'a> {
     pub(crate) request: &'a Request<'a>,
-    pub(crate) entry: PasoEntry<'a>,
+    pub(crate) entry: &'a Entry<'a>,
     pub(crate) document: &'a PasoDocument<'a>,
     pub(crate) signals: Effective,
     pub(crate) attested: &'a Attested,
@@ -193,7 +192,7 @@ impl Answer<'_> {
         };
         // Core §6.1: SHA-256 over the entry as received, B.3.3.1's default algorithm.
         let algorithm = Sha2::Sha256;
-        let digest = algorithm.digest(self.entry.entry.raw().as_bytes());
+        let digest = algorithm.digest(self.entry.raw().as_bytes());
         let mut out = vec![
             (
                 sca::member(placement, Sca::Jti),

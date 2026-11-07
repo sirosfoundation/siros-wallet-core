@@ -57,11 +57,16 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --locked --workspace --lib --no-default-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
       - name: No panic outside the tests
         run: python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
+      - name: The documentation builds
+        run: cargo doc --workspace --no-deps --locked --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   builds:
     name: Builds
@@ -157,6 +162,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo check --locked --workspace
       - name: Each crate, with and without its default features
+        env:
+          RUSTFLAGS: -D warnings
         run: |
           set -euo pipefail
           crates=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[].name')

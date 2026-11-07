@@ -83,7 +83,7 @@ impl IntoArg for DocumentAt {
 }
 
 /// A document's number as the approval shows it: its position in `documentInfos`, from 1. Only
-/// [`ApprovalRequest::numbered_documents`] makes one.
+/// this crate makes one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DocumentNumber(NonZeroUsize);
 

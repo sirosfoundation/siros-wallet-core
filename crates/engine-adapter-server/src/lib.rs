@@ -4,8 +4,8 @@
 //! Serves the WMP HTTPS binding (wmp-transport.md §4): `POST /wmp` for
 //! JSON-RPC requests and responses, `GET /wmp/events` for the SSE stream
 //! the engine's notifications flow on. Sessions live in the store the
-//! config names; the flow families (the engine core's S0–S3 work) plug into
-//! the [`EngineHandler`] when they land.
+//! config names; the flow families (the engine core's S0–S3 work) register
+//! on the runtime the [`handler::EngineHandler`] delegates flow methods to.
 
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
@@ -51,7 +51,7 @@ pub struct EngineServer {
     /// flow families (S0–S3) register.
     pub runtime: Arc<engine_core::runtime::FlowRuntime>,
     /// The engine's outbound event log: the peer's notifications land in
-    /// it (the [`OutboxTransport`]), the SSE route replays and streams
+    /// it (the [`outbox::OutboxTransport`]), the SSE route replays and streams
     /// from it, and `wmp.session.resume` counts its missed messages from
     /// it.
     pub outbox: Arc<Outbox>,
