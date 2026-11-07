@@ -55,6 +55,12 @@ jobs:
       # this name (docs/oidf-conformance.md's prerequisite).
       CONFORMANCE_URL: https://localhost.emobix.co.uk:8443/
       MINI_WALLET_URL: http://localhost:3010/
+      # The OIDF suite's release, PINNED (never :latest) — read from
+      # conformance/suite-version (the checked-in single source; the
+      # step below exports it). Compose takes it as
+      # CONFORMANCE_SUITE_TAG for both suite images (server + nginx).
+      # Dependabot proposes the bumps (the release notes ride the PR);
+      # adopt deliberately.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -80,6 +86,16 @@ jobs:
       - name: The suite's TLS host
         run: echo "127.0.0.1 localhost.emobix.co.uk" | sudo tee -a /etc/hosts
 
+      - name: The suite version (pinned, from conformance/suite-version)
+        run: |
+          TAG="$(grep -oE 'release-v[0-9.]+' conformance/suite-version | head -1)"
+          if [ -z "$TAG" ]; then
+            echo "::error::conformance/suite-version carries no release tag"
+            exit 1
+          fi
+          echo "CONFORMANCE_SUITE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "The OIDF conformance suite: $TAG"
+
       - name: The blacklist (module name → reason)
         run: |
           echo "The blacklist:"
@@ -90,7 +106,8 @@ jobs:
         run: |
           npm ci
           npx playwright install chromium --with-deps
-          WALLET_PAGE_DIR="$GITHUB_WORKSPACE/target/wasm-page" \
+          CONFORMANCE_SUITE_TAG="$CONFORMANCE_SUITE_TAG" \
+            WALLET_PAGE_DIR="$GITHUB_WORKSPACE/target/wasm-page" \
             docker compose \
               -f compose/wallet.yml \
               -f compose/mini-wallet.yml \
