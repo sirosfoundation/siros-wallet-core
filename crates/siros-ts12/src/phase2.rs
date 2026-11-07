@@ -13,13 +13,13 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::request::Entry;
 use siros_openid4vp::rows::HttpsUrl;
-use siros_paso::FailedImage;
 use siros_paso::RandomIds;
 use siros_paso::image::{self, Resolution};
 use siros_paso::outcome::NotCompatible;
 
-use crate::payload::Logo;
-use crate::{FAULT, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
+use crate::document::Ts12Document;
+use crate::payload::{Integrity, Logo};
+use crate::{FAULT, Resource, Translated, Ts12Finding, Ts12Profile, amr, read_document, translate};
 
 /// The record's one entry.
 fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
@@ -34,14 +34,16 @@ fn the_entry<'r>(record: &Answered<'r>) -> Result<&'r Entry<'r>, Fault> {
 
 /// The record's entry translated for its credential, which phase 1 bound.
 fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
-    let document = read_document(record.credential())?
+    let node = read_document(record.credential())?
         .ok_or_else(|| Fault::new(FAULT, detail!("a bound credential without its document")))?;
-    translate(&document, the_entry(record)?)?
+    let document = Ts12Document::read(&node)
+        .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
+    translate(&document, the_entry(record)?)
         .map_err(|_| Fault::new(FAULT, detail!("a bound entry that no longer translates")))
 }
 
-/// The https logo the metadata displays: its URL as written and its integrity value.
-fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &str)> {
+/// The https logo the metadata displays: its URL and its integrity value.
+fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &Integrity)> {
     let Some(Logo::Https { url, integrity }) = translated.typed.logo() else {
         return None;
     };
@@ -53,7 +55,7 @@ fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &str)> {
                 .and_then(Node::as_array)
                 .is_some_and(|path| path.iter().filter_map(Node::as_str).eq(["payee", "logo"]))
     });
-    displayed.then_some((url, integrity.as_str()))
+    displayed.then_some((url, integrity))
 }
 
 /// Needs the platform, and `RandomIds` for `jti`.
@@ -75,12 +77,12 @@ where
     /// credential.
     fn informed(&self, findings: &[&Ts12Finding]) -> Self {
         let mut informed = self.clone();
-        informed.resources.extend(findings.iter().map(|finding| {
-            (
-                finding.failed.url.clone(),
-                siros_paso::Fetch::Failed(finding.failed.failure.to_string()),
-            )
-        }));
+        informed
+            .resources
+            .extend(findings.iter().map(|finding| Resource {
+                url: finding.url.clone(),
+                fetch: siros_paso::Fetch::Failed(finding.failure.to_string()),
+            }));
         informed
     }
 
@@ -111,14 +113,12 @@ where
             Fetch::Fetched { content, media } => Resolution::Fetched { content, media },
             Fetch::Unfetched => Resolution::Failed("the fetch failed"),
         };
-        let written = Node::String(Cow::Borrowed(integrity));
+        let written = Node::String(Cow::Borrowed(integrity.as_str()));
         match image::resolve(url.written(), Some(&written), resolution) {
             Ok(_) => Ok(None),
             Err(NotCompatible::Image { failure, .. }) => Ok(Some(Ts12Finding {
-                failed: FailedImage {
-                    url: url.written().to_owned(),
-                    failure,
-                },
+                url: url.clone(),
+                failure,
             })),
             Err(other) => Err(Fault::caused(FAULT, detail!("a logo"), other)),
         }

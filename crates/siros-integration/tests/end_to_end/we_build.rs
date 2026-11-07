@@ -433,12 +433,9 @@ fn a_displayed_https_logo_meets_its_integrity_in_phase_2() {
     let [Finding::Revalidation { finding, .. }] = findings.items() else {
         panic!("{findings:?}")
     };
-    let failed = &finding
-        .data::<Ts12Finding>()
-        .expect("TS12's finding")
-        .failed;
+    let failed = finding.data::<Ts12Finding>().expect("TS12's finding");
     assert_eq!(
-        (failed.url.as_str(), &failed.failure),
+        (failed.url.written(), &failed.failure),
         (URL, &ImageFailure::IntegrityMismatch)
     );
     let informed = registry.informed(&[finding]).expect("informed");
