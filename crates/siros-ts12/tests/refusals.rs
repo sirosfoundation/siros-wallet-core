@@ -125,7 +125,13 @@ macro_rules! rule {
 #[test]
 fn the_values_each_refuse_by_their_rule() {
     use PayloadRefusal as R;
-    let table: [(String, fn(&R) -> bool); 11] = [
+    const SRI: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let number =
+        |written: &str| format!(r#","recurrence":{{"frequency":"MNTH","number":{written}}}"#);
+    let apr = |written: &str| {
+        format!(r#","recurrence":{{"frequency":"MNTH","mit_options":{{"apr":{written}}}}}"#)
+    };
+    let table: [(String, fn(&R) -> bool); 21] = [
         (
             r#"{"transaction_id": "t", "payee": {"name": "P", "id": "i"}, "amount": 1}"#.to_owned(),
             rule!(R::Required { path } if path.as_str() == "currency"),
@@ -169,10 +175,69 @@ fn the_values_each_refuse_by_their_rule() {
             payment("1", r#"@,"logo":"https://example.com/logo.png""#),
             rule!(R::LogoIntegrity),
         ),
+        // TS12 §4.3.1's `date_time`: a date alone is no date and time.
         (
-            payment("1", r#","recurrence":{"frequency":"MNTH","number":1.5}"#),
+            payment("1", r#","date_time":"2026-11-01""#),
+            rule!(R::Date { path, form: DateForm::DateTime } if path.as_str() == "date_time"),
+        ),
+        // View §3 `image`: `payee.logo#integrity` belongs to an https logo.
+        (
+            payment(
+                "1",
+                &format!(r#"@,"logo":"data:image/png;base64,AAAA","logo#integrity":"{SRI}""#),
+            ),
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "logo#integrity"),
+        ),
+        (
+            payment("1", &format!(r#"@,"logo#integrity":"{SRI}""#)),
+            rule!(R::Member { within, name } if within.as_str() == "payee" && name == "logo#integrity"),
+        ),
+        // View §3: `url` and `image` take https alone.
+        (
+            payment("1", r#"@,"website":"http://payee.example""#),
+            rule!(R::Kind { path, kind: Expected::HttpsUrl } if path.as_str() == "payee.website"),
+        ),
+        (
+            payment("1", r#"@,"logo":"http://payee.example/logo.png""#),
+            rule!(
+                R::Kind { path, kind: Expected::DataOrHttpsUrl } if path.as_str() == "payee.logo"
+            ),
+        ),
+        (
+            payment("1", r#"@,"logo":"data:image/png""#),
+            rule!(R::Kind { path, kind: Expected::DataUrl } if path.as_str() == "payee.logo"),
+        ),
+        (
+            payment("1", &number("1.5")),
             rule!(
                 R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        (
+            payment("1", &number("-1")),
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        // 2^64.
+        (
+            payment("1", &number("18446744073709551616")),
+            rule!(
+                R::Kind { path, kind: Expected::Integer } if path.as_str() == "recurrence.number"
+            ),
+        ),
+        (
+            payment("1", &apr("-1")),
+            rule!(
+                R::Kind { path, kind: Expected::Decimal }
+                    if path.as_str() == "recurrence.mit_options.apr"
+            ),
+        ),
+        (
+            payment("1", &apr("1e400")),
+            rule!(
+                R::Kind { path, kind: Expected::Decimal }
+                    if path.as_str() == "recurrence.mit_options.apr"
             ),
         ),
     ];
@@ -251,10 +316,60 @@ fn an_amount_takes_its_exact_value_with_its_currencys_digits() {
         let paso = read.paso_payload();
         assert_eq!(paso.get("amount").and_then(Node::as_str), Some(shown));
     }
+    // View §3: an exact decimal holds 38 digits, its currency's minor-unit digits among them.
+    for (code, whole) in [("EUR", 36), ("JPY", 38)] {
+        let at = |digits: usize| {
+            let payload = format!(
+                r#"{{"transaction_id": "t", "payee": {{"name": "P", "id": "i"}}, "currency": "{code}", "amount": {}}}"#,
+                "1".repeat(digits)
+            );
+            parsed(Ts12Type::Payment, &payload)
+        };
+        assert!(at(whole).is_ok(), "{code} at {whole} digits");
+        assert!(
+            matches!(at(whole + 1), Err(PayloadRefusal::Digits { .. })),
+            "{code} past {whole} digits"
+        );
+    }
     assert!(matches!(
         parsed(Ts12Type::Payment, &payment("1e400", "")),
         Err(PayloadRefusal::Digits { .. })
     ));
+}
+
+/// `apr` is a JSON number (RFC 8259 §6) shown as its decimal value, up to View §3's 38 digits.
+#[test]
+fn an_apr_takes_its_exact_value() {
+    let read = |written: &str| {
+        let payload = payment(
+            "1",
+            &format!(r#","recurrence":{{"frequency":"MNTH","mit_options":{{"apr":{written}}}}}"#),
+        );
+        let paso = parsed(Ts12Type::Payment, &payload)?.paso_payload();
+        let shown = paso
+            .get("recurrence")
+            .and_then(|recurrence| recurrence.get("mit_options"))
+            .and_then(|options| options.get("apr"))
+            .and_then(Node::as_str)
+            .expect("the apr");
+        Ok::<_, PayloadRefusal>(shown.to_owned())
+    };
+    let whole = format!("1{}", "0".repeat(37));
+    let fraction = format!("0.{}", "1".repeat(38));
+    for (written, shown) in [
+        ("6.5", "6.5"),
+        ("6.50", "6.5"),
+        ("0", "0"),
+        ("1e1", "10"),
+        ("1.5E1", "15"),
+        ("125e-2", "1.25"),
+        (&whole, &whole),
+        (&fraction, &fraction),
+    ] {
+        assert_eq!(read(written).as_deref(), Ok(shown), "{written}");
+    }
+    assert!(read(&format!("{whole}0")).is_err());
+    assert!(read(&format!("{fraction}1")).is_err());
 }
 
 /// The rule that excludes the credential.
@@ -691,11 +806,28 @@ fn the_composition_replaces_each_uri_member_or_refuses() {
     assert_eq!(composed("{}"), Err(ComposeError::Types));
 }
 
+/// RFC 2397's grammar, its own examples among the accepted; W3C SRI's: sha256's digest is 32 octets,
+/// 44 characters of base64.
 #[test]
 fn the_constructors_refuse_outside_their_grammar() {
-    assert_eq!(DataUrl::parse("image/png;base64,AAAA".to_owned()), None);
-    assert!(DataUrl::parse("data:image/png;base64,AAAA".to_owned()).is_some());
-    // W3C SRI: sha256's digest is 32 octets, 44 characters of base64.
+    for (written, holds) in [
+        ("data:,A%20brief%20note", true),
+        ("data:text/plain;charset=iso-8859-7,%be%fg%be", true),
+        ("data:image/gif;base64,R0lGODdh", true),
+        ("image/png;base64,AAAA", false),
+        ("data:image/png;base64", false),
+        ("data:image/png;base64,@@@@", false),
+        ("data:image/png;base64,AAA", false),
+        ("data:image;base64,AAAA", false),
+        ("data:image/png;charset,AAAA", false),
+        ("data:,caf\u{e9}", false),
+    ] {
+        assert_eq!(
+            DataUrl::parse(written.to_owned()).is_some(),
+            holds,
+            "{written}"
+        );
+    }
     let short = format!("sha256-{}", "A".repeat(40));
     assert_eq!(Integrity::parse(short), None);
     let exact = format!("sha256-{}=", "A".repeat(43));

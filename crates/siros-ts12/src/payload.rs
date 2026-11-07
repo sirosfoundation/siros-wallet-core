@@ -72,6 +72,8 @@ pub enum Expected {
     Number,
     /// A number without fraction or exponent, not negative, within 64 bits.
     Integer,
+    /// A number not negative, its exact decimal value within 38 digits.
+    Decimal,
     /// An https URL.
     HttpsUrl,
     /// A data URL.
@@ -88,6 +90,7 @@ impl Expected {
             Self::Boolean => "boolean",
             Self::Number => "number",
             Self::Integer => "integer",
+            Self::Decimal => "decimal",
             Self::HttpsUrl => "https URL",
             Self::DataUrl => "data URL",
             Self::DataOrHttpsUrl => "data URL or https URL",
@@ -305,6 +308,71 @@ fn hash_expression(expression: &str) -> bool {
         .is_ok_and(|digest| digest.len() == octets)
 }
 
+/// A JSON number's exact decimal value, its sign aside: its digits without leading or trailing
+/// zeros, and how many of the value's digits stand before its point.
+struct Exact {
+    significant: String,
+    point: i64,
+}
+
+impl Exact {
+    /// The value of a number as written; `None` for an exponent beyond 64 bits.
+    fn of(text: &str) -> Option<Self> {
+        let text = text.strip_prefix('-').unwrap_or(text);
+        let (mantissa, exponent) = match text.split_once(['e', 'E']) {
+            Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+            None => (text, None),
+        };
+        let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+        let written = format!("{whole}{fraction}");
+        let significant = written.trim_start_matches('0');
+        let leading = written.len() - significant.len();
+        let significant = significant.trim_end_matches('0');
+        if significant.is_empty() {
+            return Some(Self {
+                significant: String::new(),
+                point: 0,
+            });
+        }
+        let exponent: i64 = match exponent {
+            Some(exponent) => exponent.parse().ok()?,
+            None => 0,
+        };
+        let before = i64::try_from(whole.len()).ok()?;
+        let leading = i64::try_from(leading).ok()?;
+        Some(Self {
+            significant: significant.to_owned(),
+            point: before.saturating_add(exponent).saturating_sub(leading),
+        })
+    }
+
+    /// The digits the value holds after its point.
+    fn fraction_digits(&self) -> i64 {
+        i64::try_from(self.significant.len())
+            .unwrap_or(i64::MAX)
+            .saturating_sub(self.point)
+            .max(0)
+    }
+
+    /// The digits before its point and those after, in full; `None` beyond what a text can hold.
+    fn parts(&self) -> Option<(String, String)> {
+        if self.point <= 0 {
+            let zeros = usize::try_from(self.point.checked_neg()?).ok()?;
+            return Some((
+                "0".to_owned(),
+                format!("{}{}", "0".repeat(zeros), self.significant),
+            ));
+        }
+        let at = usize::try_from(self.point).ok()?;
+        if at >= self.significant.len() {
+            let zeros = "0".repeat(at - self.significant.len());
+            return Some((format!("{}{zeros}", self.significant), String::new()));
+        }
+        let (units, cents) = self.significant.split_at_checked(at)?;
+        Some((units.to_owned(), cents.to_owned()))
+    }
+}
+
 /// An amount, with exactly its currency's minor-unit digits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Amount(String);
@@ -322,55 +390,43 @@ impl Amount {
         if text.starts_with('-') {
             return Err(PayloadRefusal::Negative { path });
         }
-        let (mantissa, exponent) = match text.split_once(['e', 'E']) {
-            Some((mantissa, exponent)) => (mantissa, Some(exponent)),
-            None => (text, None),
-        };
-        let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
-        let written = format!("{whole}{fraction}");
-        let significant = written.trim_start_matches('0');
-        let leading = written.len() - significant.len();
-        let significant = significant.trim_end_matches('0');
-        let minor_digits = usize::from(minor.0);
-        if significant.is_empty() {
-            return Ok(Self(with_minor("0", "", minor_digits)));
-        }
-        let exponent: i64 = match exponent {
-            Some(exponent) => exponent.parse().map_err(|_| digits())?,
-            None => 0,
-        };
-        let before = i64::try_from(whole.len()).map_err(|_| digits())?;
-        let leading = i64::try_from(leading).map_err(|_| digits())?;
-        // Where the decimal point falls after `significant`'s first digit's position.
-        let point = before.saturating_add(exponent).saturating_sub(leading);
-        let held = i64::try_from(significant.len()).map_err(|_| digits())?;
-        if held.saturating_sub(point) > i64::from(minor.0)
-            || point.saturating_add(i64::from(minor.0)) > MAX_DIGITS
+        let exact = Exact::of(text).ok_or_else(digits)?;
+        if exact.fraction_digits() > i64::from(minor.0)
+            || exact.point.saturating_add(i64::from(minor.0)) > MAX_DIGITS
         {
             return Err(digits());
         }
-        let padded;
-        let (units, cents): (&str, String) = if point <= 0 {
-            let zeros = usize::try_from(-point).map_err(|_| digits())?;
-            ("0", format!("{}{significant}", "0".repeat(zeros)))
-        } else {
-            let at = usize::try_from(point).map_err(|_| digits())?;
-            if at >= significant.len() {
-                padded = format!("{significant}{}", "0".repeat(at - significant.len()));
-                (padded.as_str(), String::new())
-            } else {
-                let units = significant.get(..at).ok_or_else(digits)?;
-                let cents = significant.get(at..).ok_or_else(digits)?;
-                (units, cents.to_owned())
-            }
-        };
-        Ok(Self(with_minor(units, &cents, minor_digits)))
+        let (units, cents) = exact.parts().ok_or_else(digits)?;
+        Ok(Self(with_minor(&units, &cents, usize::from(minor.0))))
     }
 
     /// The amount's number.
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+/// `mit_options.apr`: the exact decimal value of a JSON number, not negative, within 38 digits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Apr(String);
+
+impl Apr {
+    fn parse(number: &Number<'_>) -> Result<Self, PayloadRefusal> {
+        let refused = || PayloadRefusal::Kind {
+            path: APR,
+            kind: Expected::Decimal,
+        };
+        let text = number.text();
+        if text.starts_with('-') {
+            return Err(refused());
+        }
+        let exact = Exact::of(text).ok_or_else(refused)?;
+        if exact.point.max(0).saturating_add(exact.fraction_digits()) > MAX_DIGITS {
+            return Err(refused());
+        }
+        let (units, cents) = exact.parts().ok_or_else(refused)?;
+        Ok(Self(with_minor(&units, &cents, cents.len())))
     }
 }
 
@@ -448,8 +504,6 @@ role! {
     RecurrenceNumber(u64);
     /// `mit_options.initial_amount_number`.
     InitialAmountNumber(u64);
-    /// `mit_options.apr`: the number as written.
-    Apr(String);
     /// `amount_estimated`.
     AmountEstimated(bool);
     /// `amount_earmarked`.
@@ -1001,7 +1055,7 @@ impl MitOptions {
             total_amount: at.amount(TOTAL_AMOUNT, currency)?,
             initial_amount: at.amount(INITIAL_AMOUNT, currency)?,
             initial_amount_number: at.integer(INITIAL_AMOUNT_NUMBER)?.map(InitialAmountNumber),
-            apr: at.number(APR)?.map(|apr| Apr(apr.text().to_owned())),
+            apr: at.number(APR)?.map(Apr::parse).transpose()?,
         })
     }
 
