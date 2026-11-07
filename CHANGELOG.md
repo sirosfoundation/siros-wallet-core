@@ -162,8 +162,8 @@ All notable changes to this workspace. The format follows
 ### Changed
 
 - `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
-  ASCII has each label lowercased and each label beyond ASCII written `xn--` and its Punycode, with
-  no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
+  ASCII has each label in UTS #46's case and each label beyond ASCII written `xn--` and its Punycode,
+  with no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
   `HttpsUrl`. Two texts with one ASCII form are one URL: one `Resource`, one answer, one key of
   `with_resource`; `FailedImage::url` and a parsed URL's `NotCompatible::Image` hold that form.
 - A host UTS #46 refuses parses. A PaSO `url` value, a TS12 `payee.website` and a QES document link

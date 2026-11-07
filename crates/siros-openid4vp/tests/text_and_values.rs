@@ -73,6 +73,9 @@ fn a_host_beyond_ascii_writes_each_label_in_punycode() {
             "https://xn--ab-8y3n.example/",
         ),
         ("https://BÜCHER.EXAMPLE/", "https://xn--bcher-kva.example/"),
+        // UTS #46's IdnaMappingTable.txt keeps U+13A0 and maps U+AB70 to it.
+        ("https://\u{13a0}.example/", "https://xn--58d.example/"),
+        ("https://\u{ab70}.example/", "https://xn--58d.example/"),
         (
             "https://user@bücher.example:8443/x",
             "https://user@xn--bcher-kva.example:8443/x",

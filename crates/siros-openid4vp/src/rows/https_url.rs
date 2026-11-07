@@ -65,14 +65,23 @@ pub enum NotHttpsUrl {
     Rebuilt(#[explain(skip)] BuildError),
 }
 
-/// A label of a host beyond ASCII: in ASCII it is lowercased; beyond it, lowercased per character
-/// and written `xn--` and its Punycode (RFC 3492).
+/// A label of a host beyond ASCII: in ASCII it is lowercased; beyond it, each character takes the
+/// case UTS #46 gives it, and the label is written `xn--` and its Punycode (RFC 3492).
 fn ascii_label(label: &str) -> Result<String, NotHttpsUrl> {
     if label.is_ascii() {
         return Ok(label.to_ascii_lowercase());
     }
-    let lowered: String = label.chars().flat_map(char::to_lowercase).collect();
-    let punycode = idna::punycode::encode_str(&lowered).ok_or(NotHttpsUrl::LabelOverflow)?;
+    let mut folded = String::with_capacity(label.len());
+    for c in label.chars() {
+        // Cherokee's case folds to its capitals (Unicode's CaseFolding.txt), the one script that
+        // folds upward: IdnaMappingTable.txt keeps U+13A0..U+13F5 and maps the small letters to them.
+        if matches!(c, '\u{13A0}'..='\u{13FD}' | '\u{AB70}'..='\u{ABBF}') {
+            folded.extend(c.to_uppercase());
+        } else {
+            folded.extend(c.to_lowercase());
+        }
+    }
+    let punycode = idna::punycode::encode_str(&folded).ok_or(NotHttpsUrl::LabelOverflow)?;
     Ok(format!("xn--{punycode}"))
 }
 

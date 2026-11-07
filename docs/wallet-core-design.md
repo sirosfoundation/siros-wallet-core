@@ -2598,7 +2598,8 @@ private behind `written()` and `ascii()`. `parse(&str) -> Result<Self, NotHttpsU
 4. The authority's host is non-empty (RFC 9110 §4.2.2).
 5. A registered name with a character beyond ASCII splits on `.` (U+002E). A label beyond ASCII
    becomes `xn--` followed by `idna::punycode::encode_str` of the label lowercased by
-   `char::to_lowercase`; an ASCII label is lowercased by `to_ascii_lowercase`. fluent-uri's
+   `char::to_lowercase`, with Cherokee in capitals by `char::to_uppercase`, as UTS #46's mapping
+   table writes it; an ASCII label is lowercased by `to_ascii_lowercase`. fluent-uri's
    `Builder` rebuilds the IRI around that host from the parsed userinfo, port, path, query and
    fragment. Any other host keeps the text as written.
 
@@ -2625,8 +2626,6 @@ Known limits; the wallet shows and fetches each form below:
   `xn--examplecom-th3i`, and UTS #46 gives `example.com`.
 - U+00AD stays: `a\u{ad}b` gives `xn--ab-5da`, and UTS #46 gives `ab`.
 - U+212A lowercases to ASCII `k` inside a label beyond ASCII, which writes `xn--k-`.
-- U+13A0 lowercases to U+AB70: `xn--kz9a`, and UTS #46 gives `xn--58d`. A real Cherokee host's fetch
-  fails.
 
 `NotHttpsUrl` is `Iri(ParseError)`, `Whitespace`, `Scheme`, `Host`, `LabelOverflow`, `NotRegName`
 or `Rebuilt(BuildError)`. `encode_str` answers `None` when a label's delta overflows 32 bits
