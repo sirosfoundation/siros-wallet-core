@@ -1,11 +1,9 @@
 //! The rules the test format and the test profile apply, and the exclusions they give.
 
-use std::borrow::Cow;
-
 use siros_explain::Explain;
 use siros_openid4vp::hash::HashesAlgRule;
 use siros_openid4vp::json::JsonError;
-use siros_openid4vp::plugins::Exclusion;
+use siros_openid4vp::plugins::{Clause, Exclusion};
 use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 
 /// A rule of the test format's queries: `invalid_request`.
@@ -76,8 +74,8 @@ pub enum Excluded {
 }
 
 impl Exclusion for Excluded {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed(match self {
+    fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::Algs { .. } | Self::NoEntry => "test",
             Self::NoAlgorithm => "OpenID4VP B.3.3.1",
         })
@@ -134,8 +132,8 @@ impl TestExclusion {
 }
 
 impl Exclusion for TestExclusion {
-    fn clause(&self) -> Cow<'static, str> {
-        Cow::Borrowed("test")
+    fn clause(&self) -> Clause {
+        Clause::cited("test")
     }
 }
 

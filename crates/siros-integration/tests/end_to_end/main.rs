@@ -82,7 +82,7 @@ fn member(json: &str, name: &str) -> String {
         .expect("JSON")
         .get(name)
         .expect("the member")
-        .python_text()
+        .json_spaced()
         .to_string()
 }
 
@@ -233,7 +233,7 @@ fn read_mdoc(presentation: &Value) -> Value {
     let text = presentation.to_string();
     let written = Node::parse(&text).expect("JSON");
     let read = model_shape(&written, None).expect("a DeviceResponse");
-    serde_json::from_str(&read.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&read.json_compact().to_string()).expect("JSON")
 }
 
 /// An SD-JWT presentation as a Verifier reads it: `{"sd_jwt", "kb_jwt"}`.
@@ -241,7 +241,7 @@ fn read_sd_jwt(presentation: &Value) -> Value {
     let text = presentation.as_str().expect("a string (OpenID4VP §8.1)");
     let read = sd_jwt_reading::read(text).expect("an SD-JWT a Verifier takes");
     let shape = read.shape().expect("the shape");
-    serde_json::from_str(&shape.python_compact().to_string()).expect("JSON")
+    serde_json::from_str(&shape.json_compact().to_string()).expect("JSON")
 }
 
 fn b64url(data: &[u8]) -> String {
@@ -338,7 +338,7 @@ fn english_text(text: &Text) -> String {
     let english = english();
     let app = paso_app(
         PAY,
-        &given.python_compact().to_string(),
+        &given.json_compact().to_string(),
         english.priority(),
         &english.priority()[0],
     );
@@ -451,7 +451,10 @@ fn paso_core_a1_through_an_sd_jwt_card_answers_with_core_a2s_key_binding_jwt() {
         payload["request_integrity"],
         json!(sri(request.request_object().expect("signed").as_bytes()))
     );
-    assert_eq!(payload["wallet_instance_version"], json!(host.paso.version));
+    assert_eq!(
+        payload["wallet_instance_version"],
+        json!(host.paso.version.as_str())
+    );
     // Core §6.1: a fresh jti, the host's first identifier.
     assert_eq!(
         payload["jti"],
@@ -557,7 +560,7 @@ fn paso_core_a1_through_an_mdoc_card_answers_with_core_a3s_device_signed_name_sp
     );
     assert_eq!(
         elements["wallet_instance_version"],
-        json!(host.paso.version)
+        json!(host.paso.version.as_str())
     );
     assert_eq!(
         elements["jti"],

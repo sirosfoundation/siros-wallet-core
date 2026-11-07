@@ -61,7 +61,7 @@ use siros_openid4vp::{
     rows::HttpsUrl,
 };
 
-pub use approval::{DocumentAt, Problem, SignatureQualifier};
+pub use approval::{DocumentAt, DocumentNumber, Problem, SignatureQualifier};
 
 use approval::ApprovalRequest;
 use binding::Encoding;

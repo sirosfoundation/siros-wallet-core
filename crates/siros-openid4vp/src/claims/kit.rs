@@ -27,7 +27,7 @@ use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
 use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
 use crate::json::Node;
-use crate::plugins::{Exclude, Fault, Member, OptionIndex, Shown};
+use crate::plugins::{Clause, Exclude, Fault, Member, OptionIndex, Shown};
 use crate::refusal::{Refusal, ReprList};
 use crate::request::{Item, Query};
 use crate::rows::{Env, Row, WalletText};
@@ -41,8 +41,8 @@ pub trait ClaimsFormat {
     fn id(&self) -> FormatName;
     /// The claim display member holding the label.
     fn label_key(&self) -> &'static str;
-    /// The OpenID4VP appendix of the format.
-    fn appendix(&self) -> &'static str;
+    /// The clause of OpenID4VP's appendix of the format that rules its `vp_formats_supported`.
+    fn vp_formats_clause(&self) -> Clause;
     /// Whether a JSON value is an algorithm identifier of the format's `vp_formats_supported`.
     fn is_algorithm(&self, value: &Node<'_>) -> bool;
     /// The logo URI of a display entry.
@@ -271,7 +271,7 @@ impl<'q> ClaimsQuery<'q> {
                     member: constraint.member,
                     listed: ReprList::json(listed),
                     matched: ReprList::names(&constraint.matched),
-                    appendix: format.appendix(),
+                    clause: format.vp_formats_clause(),
                 }));
             }
         }

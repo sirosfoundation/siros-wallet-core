@@ -393,7 +393,7 @@ pub(crate) fn seal(
         members.push((Cow::Borrowed("zip"), text("DEF".to_owned())));
     }
     let header = Node::object(members).map_err(|_| fault("header"))?;
-    let protected = URL_SAFE_NO_PAD.encode(header.python_compact().to_string());
+    let protected = URL_SAFE_NO_PAD.encode(header.json_compact().to_string());
     let content_key =
         concat_kdf(&ephemeral, &recipient, enc, &[], &[]).ok_or_else(|| fault("content key"))?;
     let compressed;

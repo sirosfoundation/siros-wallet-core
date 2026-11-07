@@ -225,7 +225,7 @@ impl TestTrust {
             .as_ref()
             .and_then(|context| context.get("verifier_info"))
             .is_some_and(|info| {
-                info.python_compact()
+                info.json_compact()
                     .to_string()
                     .contains("registration_cert")
             });

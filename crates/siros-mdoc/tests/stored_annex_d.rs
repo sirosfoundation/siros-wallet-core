@@ -46,7 +46,7 @@ fn annex_d_known_answers() {
     assert_eq!(registered.document(), mdoc.issuer_signed());
     let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
     let text = |name: &str| view.get(name).and_then(Node::as_str);
-    let number = |name: &str| view.get(name).map(|n| n.python_compact().to_string());
+    let number = |name: &str| view.get(name).map(|n| n.json_compact().to_string());
     assert_eq!(text("type"), Some("org.iso.18013.5.1.mDL"));
     let values = view.get("values").unwrap().get(NAME_SPACE).unwrap();
     assert_eq!(
@@ -60,14 +60,14 @@ fn annex_d_known_answers() {
     assert_eq!(
         validity
             .get("not_before")
-            .map(|n| n.python_compact().to_string())
+            .map(|n| n.json_compact().to_string())
             .as_deref(),
         Some("1601559002")
     );
     assert_eq!(
         validity
             .get("not_after")
-            .map(|n| n.python_compact().to_string())
+            .map(|n| n.json_compact().to_string())
             .as_deref(),
         Some("1633095002")
     );

@@ -168,7 +168,7 @@ impl Fields {
                 })
                 .collect(),
             request: request.as_str().expect("a digest").to_owned(),
-            rendering: rendering.python_compact().to_string(),
+            rendering: rendering.json_compact().to_string(),
         }
     }
 

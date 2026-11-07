@@ -11,9 +11,11 @@ use serde_json::value::RawValue;
 use siros_explain::Explain;
 
 mod python;
+mod write;
 
-use python::PythonDouble;
-pub use python::{PythonJson, PythonRepr, quote};
+use python::FiniteDouble;
+pub use python::PythonRepr;
+pub use write::{WrittenJson, quote};
 
 /// Why a text is no JSON with unique member names.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
@@ -271,9 +273,7 @@ impl Number<'_> {
     /// The number Python's `repr` writes for a finite double; `None` for an infinite one or NaN.
     #[must_use]
     pub fn of_double(value: f64) -> Option<Number<'static>> {
-        value
-            .is_finite()
-            .then(|| Number(Cow::Owned(PythonDouble(value).to_string())))
+        FiniteDouble::of(value).map(|finite| Number(Cow::Owned(finite.to_string())))
     }
 
     /// Whether the number is an integer: written without a fraction or an exponent.
@@ -323,6 +323,10 @@ impl PartialEq for Number<'_> {
         }
     }
 }
+
+/// A number's text holds RFC 8259 §6's grammar or `FiniteDouble`'s `repr`, so its double is never
+/// NaN and every number equals itself.
+impl Eq for Number<'_> {}
 
 /// A JSON string borrowed from the text when it holds no escape.
 struct Text<'a>(Cow<'a, str>);

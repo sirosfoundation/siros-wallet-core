@@ -31,8 +31,8 @@ use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{self, B26_KEY, Held, first_selection};
 use siros_testkit::jose::{P256Scalar, VERIFIER_SECRET, Zip, compact_jws, encrypt_to, sign};
 use siros_testkit::prefix::Registration;
+use siros_testkit::x509::{Leaf, certificate, header, point, x5c, x509_hash};
 use siros_testkit::{Published, TestChoice, TestMode, TestTrust};
-use siros_x509::test_util::{Leaf, certificate, header, point, x5c, x509_hash};
 
 use crate::common::{HaipHost, registry};
 

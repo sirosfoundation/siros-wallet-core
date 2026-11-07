@@ -8,7 +8,7 @@ use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use siros_explain::Explain;
 
 use crate::ids::{NamedQueryId, TransactionType};
-use crate::json::Node;
+use crate::json::{Node, Object};
 
 /// base64url without padding: its alphabet only, no `=`, no length of 1 modulo 4; trailing bits
 /// past the last byte are ignored.
@@ -54,7 +54,7 @@ pub enum Malformed {
 pub struct Entry<'a> {
     raw: Cow<'a, str>,
     decoded: String,
-    members: Node<'static>,
+    members: Object<'static>,
     kind: TransactionType<'static>,
     credential_ids: Vec<NamedQueryId<'static>>,
 }
@@ -66,15 +66,16 @@ impl<'a> Entry<'a> {
             .decode(raw.as_bytes())
             .map_err(|_| Malformed::NotBase64Url)?;
         let text = String::from_utf8(bytes).map_err(|_| Malformed::NotUtf8)?;
-        let members = Node::parse(&text)?.into_owned();
-        let object = members.as_object().ok_or(Malformed::NotObject)?;
-        let kind = object
+        let Node::Object(members) = Node::parse(&text)?.into_owned() else {
+            return Err(Malformed::NotObject);
+        };
+        let kind = members
             .get("type")
             .and_then(Node::as_str)
             .map(|kind| TransactionType::parse(kind.to_owned()))
             .ok_or(Malformed::Type)?
             .map_err(|_| Malformed::Type)?;
-        let credential_ids = object
+        let credential_ids = members
             .get("credential_ids")
             .and_then(Node::as_array)
             .filter(|ids| !ids.is_empty())
@@ -110,7 +111,7 @@ impl<'a> Entry<'a> {
 
     /// The decoded object.
     #[must_use]
-    pub fn members(&self) -> &Node<'static> {
+    pub fn members(&self) -> &Object<'static> {
         &self.members
     }
 

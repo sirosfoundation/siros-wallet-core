@@ -5,6 +5,7 @@
 use crate::value::BadValue;
 use siros_explain::Explain;
 use siros_openid4vp::ids::LocaleTag;
+use siros_openid4vp::plugins::Clause;
 use siros_openid4vp::refusal::{QuotedList, ReprItem, ReprOption};
 
 use crate::adhoc::AdhocFailure;
@@ -35,7 +36,7 @@ pub enum Outcome {
 impl Outcome {
     /// The clause that decides it.
     #[must_use]
-    pub fn clause(&self) -> &'static str {
+    pub fn clause(&self) -> Clause {
         match self {
             Self::Unsupported(rule) => rule.clause(),
             Self::NotCompatible(rule) => rule.clause(),
@@ -69,10 +70,10 @@ pub enum Unsupported {
     InvalidPath(#[explain(name = "claim")] ClaimIndex),
     /// Two claims with one path.
     #[error("two claims with path {0}")]
-    PathTwice(#[explain(name = "path")] String),
+    PathTwice(#[explain(name = "path")] ReprItem),
     /// A `value_type` on a claim without `display`.
     #[error("claim {0}: value_type without display")]
-    ValueTypeWithoutDisplay(#[explain(name = "claim")] String),
+    ValueTypeWithoutDisplay(#[explain(name = "claim")] ReprItem),
     /// A display array that is no non-empty array.
     #[error("{}: not a non-empty array", .0.logged())]
     EmptyArray(#[explain(name = "at")] ArrayAt),
@@ -108,12 +109,12 @@ pub enum Unsupported {
     /// A claim label that breaks §3.3 as written.
     #[error("claim {0} label: {1}")]
     ClaimLabel(
-        #[explain(name = "claim")] String,
+        #[explain(name = "claim")] ReprItem,
         #[explain(name = "violation")] LabelViolation,
     ),
     /// A `label_only` claim that is `mandatory` (View §3 `label_only`).
     #[error("claim {0}: label_only and mandatory")]
-    MandatoryLabelOnly(#[explain(name = "claim")] String),
+    MandatoryLabelOnly(#[explain(name = "claim")] ReprItem),
     /// `ui_labels` that is no object.
     #[error("ui_labels is not an object")]
     UiLabelsNotObject,
@@ -134,8 +135,8 @@ pub enum Unsupported {
 impl Unsupported {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        match self {
+    pub const fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::NoPasoMetadata | Self::NotListed(_) => "Core §7.4.2 step 2",
             Self::NoEntry(_) | Self::NoClaims => "Proof Metadata §3",
             Self::TooManyClaims(_)
@@ -153,7 +154,7 @@ impl Unsupported {
             Self::MandatoryLabelOnly(_) => "View §3 label_only",
             Self::NotGeneric(_) => "Generic §1",
             Self::NotMandate(_) => "Mandate §1",
-        }
+        })
     }
 }
 
@@ -166,7 +167,7 @@ pub enum NotCompatible {
     #[error("claim {path}: value_type {written}")]
     ValueType {
         /// The claim's path.
-        path: String,
+        path: ReprItem,
         /// The value type.
         written: ReprOption,
     },
@@ -201,19 +202,19 @@ pub enum NotCompatible {
     #[error("payload {path}: {violation}")]
     PayloadDirectional {
         /// The string's path.
-        path: String,
+        path: ReprItem,
         /// The violation.
         violation: Directional,
     },
     /// A payload field no claim path covers.
     #[error("payload field {0} is not covered by a claim path")]
-    Uncovered(#[explain(name = "field")] String),
+    Uncovered(#[explain(name = "field")] ReprItem),
     /// A mandatory claim the payload lacks.
     #[error("mandatory claim {0} is absent")]
-    MandatoryAbsent(#[explain(name = "claim")] String),
+    MandatoryAbsent(#[explain(name = "claim")] ReprItem),
     /// A template value that is no string (View §3 template).
     #[error("claim {0}: a template value is not a string")]
-    TemplateNotString(#[explain(name = "claim")] String),
+    TemplateNotString(#[explain(name = "claim")] ReprItem),
     /// A placeholder naming an `image`, `label_only` or template claim (View §3 template).
     #[error("placeholder {{{placeholder}}} references a {value_type} claim")]
     ForbiddenReference {
@@ -251,7 +252,7 @@ pub enum NotCompatible {
     },
     /// A field the Payment rulebook requires is absent (Payment §1).
     #[error("required {0} absent")]
-    PaymentRequired(#[explain(name = "member")] String),
+    PaymentRequired(#[explain(name = "member")] ReprItem),
     /// A Generic payload of more than 11 properties (Generic §3).
     #[error("more than 11 payload properties")]
     GenericProperties,
@@ -264,11 +265,11 @@ pub enum NotCompatible {
     /// A Generic embedded payment payload without a field the Payment rulebook requires
     /// (Generic §3.2).
     #[error("payment_payload {0} absent")]
-    GenericPayment(#[explain(name = "member")] String),
+    GenericPayment(#[explain(name = "member")] ReprItem),
     /// A Mandate embedded payment payload without a field the Payment rulebook requires
     /// (Mandate §2.2).
     #[error("payment_payload {0} absent")]
-    MandatePayment(#[explain(name = "member")] String),
+    MandatePayment(#[explain(name = "member")] ReprItem),
     /// `risk_signal_profiles` that is no array of profile identifiers (Risk Signals §3.2).
     #[error("risk_signal_profiles is not an array of profile identifiers")]
     RiskProfiles,
@@ -306,8 +307,8 @@ pub enum NotCompatible {
 impl NotCompatible {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        match self {
+    pub const fn clause(&self) -> Clause {
+        Clause::cited(match self {
             Self::ValueType { .. } | Self::Value { .. } | Self::ImageNotString(_) => "View §3",
             Self::PayloadNotObject => "Core §7.1",
             Self::Mismatch(_) | Self::Uncovered(_) | Self::MandatoryAbsent(_) => {
@@ -334,7 +335,7 @@ impl NotCompatible {
             Self::NoEncryptionKey => "Risk Signals §7.3",
             Self::Lacks(_) => "Risk Signals §7.6",
             Self::Adhoc(_) => "Proof Metadata §5.3",
-        }
+        })
     }
 }
 
@@ -344,7 +345,7 @@ impl NotCompatible {
 pub enum RenderedAt {
     /// A claim's label at a payload path.
     #[error("claim {0} label")]
-    Claim(#[explain(name = "claim")] String),
+    Claim(#[explain(name = "claim")] ReprItem),
     /// A UI label.
     #[error("ui_labels.{0}")]
     Ui(#[explain(name = "key")] UiKey),
@@ -370,7 +371,7 @@ fn quoted(locales: &[LocaleTag]) -> String {
 impl Excluded {
     /// The clause that decides it.
     #[must_use]
-    pub const fn clause(&self) -> &'static str {
-        "View §4"
+    pub const fn clause(&self) -> Clause {
+        Clause::cited("View §4")
     }
 }

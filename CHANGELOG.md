@@ -11,8 +11,19 @@ All notable changes to this workspace. The format follows
   message sources, and display literals in the shipped crates, in place of
   `scripts/check_layout.sh`, and counts I27: an error without `Explain`, a text
   type with `Display`.
+- `cargo xtask layout` refuses, under `feature = "test-util"`, an inherent `impl`
+  of a type outside the gate, any item that makes a value of a type with private
+  fields, and a free `pub fn`, a `pub const` or a `pub static`, and refuses the
+  gate on anything but a whole item. The types the gate declares are the
+  doubles'.
+- `siros-testkit`'s `x509` holds the test certificates and chains; `siros-x509`
+  has no `test-util` feature.
 - `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
+- The JSON writer writes RFC 8259 text: a number goes out as received, so `1e400`
+  stays `1e400` in a response, a wallet metadata text and a metadata digest's input.
+- A PaSO rule's `path`, `claim`, `field` and `member` arguments name a claim path as
+  its JSON array: `null` for a wildcard, an index beyond `usize` by its digits.
 - `siros-openid4vp`'s `text::DisplayText` refuses the characters of Unicode's
   General Categories Cc, Cf, Zl, Zp, Co and Cn and text over `LABEL_MAX`,
   `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every

@@ -39,8 +39,6 @@
 mod chain;
 mod claim;
 mod names;
-#[cfg(feature = "test-util")]
-pub mod test_util;
 
 use siros_explain::{Explain, Explained, Message, Messages};
 use siros_openid4vp::authenticate::{

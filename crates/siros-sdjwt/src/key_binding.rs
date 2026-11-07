@@ -106,7 +106,7 @@ impl Presentation {
 
 /// base64url without padding over the compact JSON of an object, its numbers as written.
 fn encoded(node: &Node<'_>) -> String {
-    URL_SAFE_NO_PAD.encode(node.written_compact())
+    URL_SAFE_NO_PAD.encode(node.json_compact().to_string())
 }
 
 /// A presentation and the signing input of the Key Binding JWT bound to it.

@@ -162,7 +162,7 @@ impl Haip for TestHaip {
         .map_err(|e| Fault::caused(FAULT, detail!("a JWE header"), e))?;
         SealedJwe::parse(format!(
             "{}...{}.",
-            URL_SAFE_NO_PAD.encode(header.python_ascii().to_string()),
+            URL_SAFE_NO_PAD.encode(header.json_ascii().to_string()),
             URL_SAFE_NO_PAD.encode(plaintext)
         ))
         .map_err(|e| Fault::caused(FAULT, detail!("the JWE stand-in"), e))

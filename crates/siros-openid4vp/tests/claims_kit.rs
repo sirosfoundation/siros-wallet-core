@@ -274,7 +274,7 @@ fn an_option_discloses_its_elements_once_in_claim_order() {
             .disclosed(&MDOC, at(option), &view, &written)
             .expect("disclosed")
             .iter()
-            .map(|(path, value)| format!("{path:?}={}", value.python_text()))
+            .map(|(path, value)| format!("{path:?}={}", value.json_spaced()))
             .collect()
     };
     // In the option's order; a claim selecting a disclosed element adds nothing; the element the
@@ -326,7 +326,7 @@ fn claims_path_pointers_follow_section_7() {
             .map_err(|e| format!("component {} fails, found {found}", e.step()))?;
         Ok(selected
             .iter()
-            .map(|(path, value)| format!("{path:?}={}", value.python_text()))
+            .map(|(path, value)| format!("{path:?}={}", value.json_spaced()))
             .collect())
     };
     // §7.1: a string selects a member, an integer an element, null every element.

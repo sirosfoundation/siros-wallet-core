@@ -343,8 +343,9 @@ impl<T: AsRef<str>> fmt::Display for QuotedList<'_, T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprList(Vec<ReprItem>);
 
-/// A received value a rule names: the rule's text writes it as Python writes the value `json`
-/// reads, and its message, which the End-User may read, as its sender wrote it.
+/// A received value a rule names: the rule's text writes it for the logs, in Python's `repr` or as
+/// [`Node::json_spaced`] writes it, and its message, which the End-User may read, as its sender
+/// wrote it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprItem {
     repr: String,
@@ -371,7 +372,7 @@ impl ReprList {
         )
     }
 
-    /// JSON values: strings, and others as Python writes the values `json` reads.
+    /// JSON values: strings as Python's `repr`, others as [`Node::json_spaced`] writes them.
     #[must_use]
     pub fn json(items: &[Node<'_>]) -> Self {
         Self(
@@ -395,7 +396,7 @@ impl ReprList {
             .map(|item| {
                 let name = item
                     .as_str()
-                    .map_or_else(|| item.python_text().to_string(), str::to_owned);
+                    .map_or_else(|| item.json_spaced().to_string(), str::to_owned);
                 (name, item)
             })
             .collect();
@@ -416,10 +417,10 @@ impl ReprItem {
         Self::pair(value.python_repr(), value)
     }
 
-    /// A JSON value the rule's text writes as [`Node::python_text`].
+    /// A JSON value the rule's text writes as [`Node::json_spaced`].
     #[must_use]
     pub fn json(value: &Node<'_>) -> Self {
-        Self::pair(value.python_text(), value)
+        Self::pair(value.json_spaced(), value)
     }
 
     fn pair(repr: impl fmt::Display, value: &Node<'_>) -> Self {

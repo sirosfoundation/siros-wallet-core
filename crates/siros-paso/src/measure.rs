@@ -1,6 +1,8 @@
 //! The PaSO module, which siros-paso requires: the wallet's version (Core §6.1) and its risk
 //! signals' measurements (Risk Signals §2.3), which the app keeps.
 
+use std::borrow::Cow;
+
 use serde_json::value::RawValue;
 use siros_openid4vp::host::{Seconds, Timestamp};
 
@@ -28,20 +30,20 @@ pub enum Reading {
 
 /// The wallet application's version identifier (Core §6.1 `wallet_instance_version`): the text
 /// the application names itself by, which Core gives no grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WalletVersion<'a>(&'a str);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalletVersion<'a>(Cow<'a, str>);
 
 impl<'a> WalletVersion<'a> {
     /// The version the application writes.
     #[must_use]
-    pub const fn new(text: &'a str) -> Self {
-        Self(text)
+    pub fn new(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
     }
 
     /// The text.
     #[must_use]
-    pub const fn as_str(self) -> &'a str {
-        self.0
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
@@ -97,7 +99,7 @@ mod test_util {
         /// The clock measurements age by.
         pub now: Timestamp,
         /// The wallet's version.
-        pub version: String,
+        pub version: WalletVersion<'static>,
         /// The signals the wallet implements.
         pub signals: Vec<Measured>,
     }
@@ -115,7 +117,7 @@ mod test_util {
         pub fn at(now: Timestamp) -> Self {
             Self {
                 now,
-                version: "android:org.siros.wallet:1.0.0".to_owned(),
+                version: WalletVersion::new("android:org.siros.wallet:1.0.0"),
                 signals: Vec::new(),
             }
         }
@@ -123,7 +125,7 @@ mod test_util {
 
     impl Paso for TestPaso {
         fn version(&self) -> WalletVersion<'_> {
-            WalletVersion::new(&self.version)
+            WalletVersion::new(self.version.as_str())
         }
 
         fn measure(

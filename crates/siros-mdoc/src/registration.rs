@@ -70,7 +70,7 @@ impl Registered {
         let mdoc = StoredMdoc::parse(stored).map_err(RegistrationError::Stored)?;
         let view = view(&mdoc, resolved)?;
         Ok(Self {
-            view: view.python_compact().to_string().into_bytes(),
+            view: view.json_compact().to_string().into_bytes(),
             document: mdoc.issuer_signed().to_vec(),
         })
     }

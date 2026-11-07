@@ -79,7 +79,7 @@ impl Registered {
             None => Holder::Unbound,
         };
         Ok(Self {
-            view: view.written_compact().into_bytes(),
+            view: view.json_compact().to_string().into_bytes(),
             document: issued.as_bytes().to_vec(),
             holder,
         })

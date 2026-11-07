@@ -48,7 +48,7 @@ const SLOT: char = '\u{FDD0}';
 /// metadata's compact JSON.
 #[must_use]
 pub fn module_of(given: &Node<'_>) -> DefinedModule {
-    let digest = Sha256::digest(given.python_compact().to_string().as_bytes());
+    let digest = Sha256::digest(given.json_compact().to_string().as_bytes());
     DefinedModule::new(PLUGIN, MetadataDigest::new(digest.into()))
 }
 

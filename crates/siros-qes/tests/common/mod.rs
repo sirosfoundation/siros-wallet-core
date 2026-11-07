@@ -50,8 +50,7 @@ pub fn csc(name: &str) -> String {
     std::fs::read_to_string(path).expect("CSC example")
 }
 
-/// base64url without padding over the JSON as Python's `json.dumps` writes it, as a Verifier
-/// writes an entry.
+/// base64url without padding over the JSON, as a Verifier writes an entry.
 pub fn entry(json: &str) -> String {
     siros_testkit::verifier::encode(json).expect("entry")
 }
@@ -72,7 +71,7 @@ impl Fields {
                 .map(|member| {
                     (
                         member.name.to_string(),
-                        member.value.python_text().to_string(),
+                        member.value.json_spaced().to_string(),
                     )
                 })
                 .collect(),
@@ -122,7 +121,7 @@ pub fn items(json: &str) -> Vec<String> {
         .as_array()
         .expect("an array")
         .iter()
-        .map(|item| item.python_text().to_string())
+        .map(|item| item.json_spaced().to_string())
         .collect()
 }
 

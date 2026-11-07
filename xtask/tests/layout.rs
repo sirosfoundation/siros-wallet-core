@@ -474,6 +474,338 @@ const ROWS: &[Row] = &[
     },
 ];
 
+/// `#[cfg(feature = "test-util")]`, as the rows below write it.
+macro_rules! gate {
+    () => {
+        "#[cfg(feature = \"test-util\")]\n"
+    };
+}
+
+/// One refusal of the test-util rule: its sources, where its one hit stands, the item it names.
+struct Refused {
+    name: &'static str,
+    files: &'static [(&'static str, &'static str)],
+    file: &'static str,
+    line: usize,
+    item: &'static str,
+}
+
+const fn refused(
+    name: &'static str,
+    source: &'static [(&'static str, &'static str)],
+    line: usize,
+    item: &'static str,
+) -> Refused {
+    Refused {
+        name,
+        files: source,
+        file: match source {
+            [(file, _), ..] => file,
+            [] => LIB,
+        },
+        line,
+        item,
+    }
+}
+
+const REFUSED: &[Refused] = &[
+    refused(
+        "an inherent impl of a type outside the gate",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                gate!(),
+                "impl Token {\n",
+                "    pub fn forged() -> Self {\n",
+                "        Self(1)\n",
+                "    }\n",
+                "}\n",
+            ),
+        )],
+        3,
+        "impl Token",
+    ),
+    refused(
+        "a gated associated function",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                "impl Token {\n",
+                "    #[cfg(feature = \"test-util\")]\n",
+                "    pub fn forged() -> Self {\n",
+                "        Self(1)\n",
+                "    }\n",
+                "}\n",
+            ),
+        )],
+        3,
+        "Token::forged",
+    ),
+    refused(
+        "a trait impl on a type with private fields",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                gate!(),
+                "impl Default for Token {\n",
+                "    fn default() -> Self {\n",
+                "        Self(1)\n",
+                "    }\n",
+                "}\n",
+            ),
+        )],
+        3,
+        "impl Default for Token",
+    ),
+    refused(
+        "a pub function that gives a type with private fields",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                "impl Token {\n",
+                "    pub fn new() -> Self {\n",
+                "        Self(0)\n",
+                "    }\n",
+                "}\n",
+                gate!(),
+                "pub fn forged() -> Option<Token> {\n",
+                "    Some(Token::new())\n",
+                "}\n",
+            ),
+        )],
+        8,
+        "forged",
+    ),
+    refused(
+        "a pub const of a type with private fields",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                gate!(),
+                "pub const FORGED: Token = Token(1);\n",
+            ),
+        )],
+        3,
+        "FORGED",
+    ),
+    refused(
+        "a pub function that is no double",
+        &[(
+            LIB,
+            concat!(gate!(), "pub fn chain() -> Vec<u8> {\n    Vec::new()\n}\n"),
+        )],
+        2,
+        "chain",
+    ),
+    refused(
+        "a literal of a type with private fields",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token {\n",
+                "    a: u8,\n",
+                "}\n",
+                gate!(),
+                "fn forged() -> u8 {\n",
+                "    Token { a: 1 }.a\n",
+                "}\n",
+            ),
+        )],
+        6,
+        "forged",
+    ),
+    refused(
+        "a tuple constructor of a type with private fields",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                gate!(),
+                "fn forged() -> u8 {\n",
+                "    Token(1).0\n",
+                "}\n",
+            ),
+        )],
+        4,
+        "forged",
+    ),
+    refused(
+        "a literal in a macro's arguments",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                gate!(),
+                "fn forged() -> Vec<Token> {\n",
+                "    vec![Token(1)]\n",
+                "}\n",
+            ),
+        )],
+        4,
+        "forged",
+    ),
+    refused(
+        "a call of a crate-private constructor",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                "impl Token {\n",
+                "    pub(crate) fn raw() -> Self {\n",
+                "        Self(1)\n",
+                "    }\n",
+                "}\n",
+                gate!(),
+                "fn forged() -> u8 {\n",
+                "    Token::raw().0\n",
+                "}\n",
+            ),
+        )],
+        9,
+        "forged",
+    ),
+    refused(
+        "a call of a crate-private method that makes the value",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                "impl Token {\n",
+                "    pub(crate) fn twin(&self) -> Self {\n",
+                "        Self(self.0)\n",
+                "    }\n",
+                "}\n",
+                gate!(),
+                "fn forged(token: &Token) -> u8 {\n",
+                "    token.twin().0\n",
+                "}\n",
+            ),
+        )],
+        9,
+        "forged",
+    ),
+    refused(
+        "a value in a file a gated mod loads",
+        &[
+            (
+                "crates/siros-a/src/util.rs",
+                "use crate::Token;\nfn forged() -> u8 {\n    Token(1).0\n}\n",
+            ),
+            (
+                LIB,
+                concat!("pub struct Token(u8);\n", gate!(), "mod util;\n"),
+            ),
+        ],
+        3,
+        "forged",
+    ),
+    refused(
+        "a value in a file its inner attribute gates",
+        &[
+            (
+                "crates/siros-a/src/util.rs",
+                concat!(
+                    "#![cfg(feature = \"test-util\")]\n",
+                    "use crate::Token;\n",
+                    "fn forged() -> u8 {\n",
+                    "    Token(1).0\n",
+                    "}\n",
+                ),
+            ),
+            (LIB, "pub struct Token(u8);\nmod util;\n"),
+        ],
+        4,
+        "forged",
+    ),
+    refused(
+        "a gate inside a predicate",
+        &[(
+            LIB,
+            concat!(
+                "pub struct Token(u8);\n",
+                "#[cfg(all(feature = \"x\", any(feature = \"test-util\", feature = \"y\")))]\n",
+                "impl Token {}\n",
+            ),
+        )],
+        3,
+        "impl Token",
+    ),
+    refused(
+        "a re-export of an item outside the gate",
+        &[(
+            LIB,
+            concat!(
+                "mod a {\n",
+                "    pub fn forged() -> u8 {\n",
+                "        1\n",
+                "    }\n",
+                "}\n",
+                gate!(),
+                "pub use a::forged;\n",
+            ),
+        )],
+        7,
+        "use a::forged",
+    ),
+    refused(
+        "a glob re-export",
+        &[(LIB, concat!("mod a {}\n", gate!(), "pub use a::*;\n"))],
+        3,
+        "use a::*",
+    ),
+    refused(
+        "a macro in item position",
+        &[(LIB, concat!(gate!(), "forge!(Token);\n"))],
+        2,
+        "forge!",
+    ),
+    refused(
+        "a gate in a macro's tokens",
+        &[(
+            LIB,
+            concat!(
+                "macro_rules! m {\n",
+                "    () => {\n",
+                "        #[cfg(feature = \"test-util\")]\n",
+                "        impl Token {}\n",
+                "    };\n",
+                "}\n",
+            ),
+        )],
+        1,
+        "m!",
+    ),
+    refused(
+        "a gate on a field",
+        &[(
+            LIB,
+            "pub struct Token {\n    #[cfg(feature = \"test-util\")]\n    pub a: u8,\n}\n",
+        )],
+        2,
+        "Token",
+    ),
+    refused(
+        "a cfg_attr gate",
+        &[(
+            LIB,
+            "#[cfg_attr(feature = \"test-util\", derive(Default))]\npub struct Token(u8);\n",
+        )],
+        1,
+        "Token",
+    ),
+    refused(
+        "a path attribute on a gated module",
+        &[(LIB, concat!(gate!(), "#[path = \"u.rs\"]\nmod util;\n"))],
+        3,
+        "util",
+    ),
+];
+
 /// The forms next to the rules' forms that the rules leave alone.
 const CLEAN: &[(&str, &str)] = &[
     (
@@ -570,8 +902,47 @@ const CLEAN: &[(&str, &str)] = &[
         "#[derive(thiserror::Error)]\nstruct Unshipped;\n",
     ),
     (
-        "crates/siros-openid4vp/src/test_util.rs",
-        "fn f() -> Text {\n    Text::Raw(\"a\".to_owned())\n}\n",
+        "crates/siros-double/src/lib.rs",
+        concat!(
+            "pub trait Ids {\n",
+            "    fn id(&self) -> Id;\n",
+            "}\n",
+            "pub struct Id(u64);\n",
+            "impl Id {\n",
+            "    pub const fn new(value: u64) -> Self {\n",
+            "        Self(value)\n",
+            "    }\n",
+            "}\n",
+            "pub struct Reading {\n",
+            "    pub value: u64,\n",
+            "}\n",
+            gate!(),
+            "mod test_util {\n",
+            "    use super::{Id, Ids, Reading};\n",
+            "    fn next(issued: u64) -> u64 {\n",
+            "        issued + 1\n",
+            "    }\n",
+            "    #[derive(Default)]\n",
+            "    pub struct TestIds {\n",
+            "        issued: u64,\n",
+            "    }\n",
+            "    impl TestIds {\n",
+            "        pub fn after(issued: u64) -> Self {\n",
+            "            Self { issued }\n",
+            "        }\n",
+            "        pub fn reading(&self) -> Reading {\n",
+            "            Reading { value: self.issued }\n",
+            "        }\n",
+            "    }\n",
+            "    impl Ids for TestIds {\n",
+            "        fn id(&self) -> Id {\n",
+            "            Id::new(next(self.issued))\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+            gate!(),
+            "pub use test_util::TestIds;\n",
+        ),
     ),
 ];
 
@@ -596,8 +967,8 @@ fn tree(name: &str, files: &[(&str, &[u8])]) -> PathBuf {
     root
 }
 
-/// The exit status and each hit's `file:line`.
-fn layout(root: &Path) -> (Option<i32>, Vec<String>) {
+/// The exit status and each hit's line of output.
+fn layout_lines(root: &Path) -> (Option<i32>, Vec<String>) {
     let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
         .args(["layout".as_ref(), root.as_os_str()])
         .output()
@@ -606,9 +977,19 @@ fn layout(root: &Path) -> (Option<i32>, Vec<String>) {
     let hits = stdout
         .lines()
         .filter(|line| !line.starts_with("layout hits: "))
-        .map(|line| line.splitn(3, ':').take(2).collect::<Vec<_>>().join(":"))
+        .map(str::to_owned)
         .collect();
     (output.status.code(), hits)
+}
+
+/// The exit status and each hit's `file:line`.
+fn layout(root: &Path) -> (Option<i32>, Vec<String>) {
+    let (code, lines) = layout_lines(root);
+    let hits = lines
+        .iter()
+        .map(|line| line.splitn(3, ':').take(2).collect::<Vec<_>>().join(":"))
+        .collect();
+    (code, hits)
 }
 
 #[test]
@@ -627,6 +1008,26 @@ fn each_form_is_a_hit_at_its_file_and_line() {
         let want = (Some(1), vec![format!("{}:{}", row.file, row.line)]);
         if got != want {
             wrong.push(format!("{}: {got:?}, expected {want:?}", row.name));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// A parse error or an unread file gives another rule at the same place: each row's hit names the
+/// test-util rule and the item.
+#[test]
+fn each_test_util_refusal_names_its_item_at_its_place() {
+    let mut wrong = Vec::new();
+    for row in REFUSED {
+        let files: Vec<(&str, &[u8])> = row
+            .files
+            .iter()
+            .map(|(file, source)| (*file, source.as_bytes()))
+            .collect();
+        let (code, lines) = layout_lines(&tree(row.name, &files));
+        let want = format!("{}:{}: test-util: `{}`: ", row.file, row.line, row.item);
+        if code != Some(1) || lines.len() != 1 || !lines.iter().all(|l| l.starts_with(&want)) {
+            wrong.push(format!("{}: {code:?} {lines:?}, expected {want}", row.name));
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));

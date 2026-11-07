@@ -58,7 +58,7 @@ impl HaipHost {
             random_ids: TestRandomIds::default(),
             issuer_trust: TestIssuerTrust {
                 roots: vec![
-                    RootCertificate::parse(&siros_x509::test_util::root()).expect("a certificate"),
+                    RootCertificate::parse(&siros_testkit::x509::root()).expect("a certificate"),
                 ],
             },
         }
@@ -155,7 +155,7 @@ pub fn wallet_app(wallet: &Wallet<'_>, request: &Request<'_>, env: &Env, host: &
         metadata.extend(
             document
                 .types()
-                .map(|(kind, meta)| (kind.to_string(), meta.python_compact().to_string())),
+                .map(|(kind, meta)| (kind.to_string(), meta.json_compact().to_string())),
         );
     }
     let modules = own_modules();

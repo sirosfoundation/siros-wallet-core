@@ -3,6 +3,7 @@
 //! members).
 
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use siros_explain::{Count, Explain, IntoArg, kind};
 use siros_openid4vp::json::{Node, Object};
@@ -25,9 +26,6 @@ const KNOWN: [&str; 7] = [
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "qes.problem")]
 pub enum Problem {
-    /// The entry is no JSON object, which OpenID4VP §5.1 refuses first.
-    #[error("the entry is not a JSON object")]
-    NotAnObject,
     /// A member the type does not define.
     #[error("unknown member {0}")]
     UnknownMember(#[explain(name = "member")] String),
@@ -77,6 +75,33 @@ impl fmt::Display for DocumentAt {
 }
 
 impl IntoArg for DocumentAt {
+    type Kind = kind::Count;
+
+    fn arg(&self) -> Count {
+        self.0.arg()
+    }
+}
+
+/// A document's number as the approval shows it: its position in `documentInfos`, from 1. Only
+/// [`ApprovalRequest::numbered_documents`] makes one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentNumber(NonZeroUsize);
+
+impl DocumentNumber {
+    /// The number.
+    #[must_use]
+    pub const fn get(self) -> NonZeroUsize {
+        self.0
+    }
+}
+
+impl fmt::Display for DocumentNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl IntoArg for DocumentNumber {
     type Kind = kind::Count;
 
     fn arg(&self) -> Count {
@@ -278,10 +303,7 @@ impl<'e> ApprovalRequest<'e> {
     /// The entry's request, or every rule it breaks in the rules' order: unknown members in
     /// member order, `numSignatures`, `signatureQualifier`, `hashAlgorithmOID`, `documentInfos`
     /// document by document, `locations`.
-    pub(crate) fn parse(entry: &'e Node<'_>) -> Result<Self, Vec<Problem>> {
-        let object = entry
-            .as_object()
-            .ok_or_else(|| vec![Problem::NotAnObject])?;
+    pub(crate) fn parse(object: &'e Object<'_>) -> Result<Self, Vec<Problem>> {
         let mut problems = Problems(
             object
                 .names()
@@ -312,6 +334,15 @@ impl<'e> ApprovalRequest<'e> {
             }
             _ => Err(problems.0),
         }
+    }
+
+    /// `documentInfos` in array order, each with its number.
+    pub(crate) fn numbered_documents(
+        &self,
+    ) -> impl Iterator<Item = (DocumentNumber, &DocumentInfo<'e>)> {
+        std::iter::successors(Some(NonZeroUsize::MIN), |n| n.checked_add(1))
+            .map(DocumentNumber)
+            .zip(&self.documents)
     }
 }
 
