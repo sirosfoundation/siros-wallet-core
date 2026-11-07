@@ -186,7 +186,7 @@ pub struct AsMetadata {
     /// Whether the AS requires PAR (RFC 9126
     /// `require_pushed_authorization_requests`): no non-PAR /authorize
     /// path exists, so a PAR failure has no fallback.
-    #[serde(default)]
+    #[serde(default, alias = "require_pushed_authorization_requests")]
     pub require_par: bool,
     /// The token endpoint's client authentication methods
     /// (`token_endpoint_auth_methods_supported`). `private_key_jwt`
