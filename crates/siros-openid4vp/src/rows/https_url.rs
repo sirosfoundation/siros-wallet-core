@@ -83,6 +83,19 @@ pub enum NotHttpsUrl {
     Rebuilt(#[explain(skip)] BuildError),
 }
 
+/// The capital of a Cherokee letter, the case UTS #46 writes: Cherokee's case folds upward
+/// (Unicode's CaseFolding.txt), and IdnaMappingTable.txt keeps U+13A0..U+13F5 and maps the small
+/// letters to them. `None` for any other character.
+fn cherokee_capital(c: char) -> Option<char> {
+    let c = u32::from(c);
+    match c {
+        0x13A0..=0x13F5 => char::from_u32(c),
+        0x13F8..=0x13FD => char::from_u32(c - 8),
+        0xAB70..=0xABBF => char::from_u32(c - 0x97D0),
+        _ => None,
+    }
+}
+
 /// A label of a host beyond ASCII: in ASCII it is lowercased; beyond it, each character takes the
 /// case UTS #46 gives it, and the label is written `xn--` and its Punycode (RFC 3492).
 fn ascii_label(label: &str) -> Result<String, NotHttpsUrl> {
@@ -91,12 +104,9 @@ fn ascii_label(label: &str) -> Result<String, NotHttpsUrl> {
     }
     let mut folded = String::with_capacity(label.len());
     for c in label.chars() {
-        // Cherokee's case folds to its capitals (Unicode's CaseFolding.txt), the one script that
-        // folds upward: IdnaMappingTable.txt keeps U+13A0..U+13F5 and maps the small letters to them.
-        if matches!(c, '\u{13A0}'..='\u{13FD}' | '\u{AB70}'..='\u{ABBF}') {
-            folded.extend(c.to_uppercase());
-        } else {
-            folded.extend(c.to_lowercase());
+        match cherokee_capital(c) {
+            Some(capital) => folded.push(capital),
+            None => folded.extend(c.to_lowercase()),
         }
     }
     let punycode = idna::punycode::encode_str(&folded).ok_or(NotHttpsUrl::LabelOverflow)?;

@@ -2598,8 +2598,8 @@ private behind `written()` and `ascii()`. `parse(&str) -> Result<Self, NotHttpsU
 4. The authority's host is non-empty (RFC 9110 §4.2.2).
 5. A registered name with a character beyond ASCII splits on `.` (U+002E). A label beyond ASCII
    becomes `xn--` followed by `idna::punycode::encode_str` of the label lowercased by
-   `char::to_lowercase`, with Cherokee in capitals by `char::to_uppercase`, as UTS #46's mapping
-   table writes it; an ASCII label is lowercased by `to_ascii_lowercase`. fluent-uri's
+   `char::to_lowercase`, with Cherokee in capitals, as UTS #46's mapping table writes it; an ASCII
+   label is lowercased by `to_ascii_lowercase`. fluent-uri's
    `Builder` rebuilds the IRI around that host from the parsed userinfo, port, path, query and
    fragment. Any other host keeps the text as written.
 
