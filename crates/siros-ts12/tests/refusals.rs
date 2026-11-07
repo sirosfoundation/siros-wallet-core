@@ -428,7 +428,7 @@ fn the_metadata_each_leaves_the_type_unsupported() {
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
     type Rule = fn(&Ts12Unsupported) -> bool;
     use Ts12Unsupported as U;
-    let table: [(String, Rule); 12] = [
+    let table: [(String, Rule); 16] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
             rule!(U::Category),
@@ -451,9 +451,26 @@ fn the_metadata_each_leaves_the_type_unsupported() {
             replaced(r#""schema": "urn:eudi:sca:payment:1","#, ""),
             rule!(U::NoSchema),
         ),
+        // TS12 §4.1 writes `schema` as a string.
+        (
+            replaced(
+                r#""schema": "urn:eudi:sca:payment:1""#,
+                r#""schema": {"type": "object"}"#,
+            ),
+            rule!(U::SchemaForm),
+        ),
         (
             replaced("affirmative_action_label", "other_label"),
             rule!(U::Affirmative),
+        ),
+        // TS12 §3.3.2 writes `claims` as an array, §3.3.3 `ui_labels` as an object.
+        (
+            replaced(r#""claims": ["#, r#""claims": 5, "x_claims": ["#),
+            rule!(U::ClaimsForm),
+        ),
+        (
+            replaced(r#""ui_labels": {"#, r#""ui_labels": 5, "x_ui_labels": {"#),
+            rule!(U::CatalogueForm),
         ),
         (
             replaced(
@@ -471,6 +488,7 @@ fn the_metadata_each_leaves_the_type_unsupported() {
             claim(r#"{"path": ["payload", "payee", "id"]}"#),
             |refused| labels_of(refused, "payee.id"),
         ),
+        (claim(r#"{"visualisation": 1}"#), rule!(U::NoClaimPath)),
         (
             claim(r#"{"path": ["payload", "unlisted"], "display": []}"#),
             rule!(U::ClaimPath { path } if path == r#"["payload","unlisted"]"#),

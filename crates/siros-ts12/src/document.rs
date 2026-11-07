@@ -14,6 +14,8 @@ use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet::DocumentBytes;
 use siros_paso::rulebook::{Family, PasoType};
 
+use crate::translate::{Ts12Unsupported, TypeMetadata};
+
 /// The key of the TS12 document in a credential's registration.
 pub const DOCUMENT: DocumentKey<'static> = siros_explain::checked!(DocumentKey, "ts12");
 /// TS12 §3: the category of an SCA attestation.
@@ -169,18 +171,6 @@ pub enum Category {
     Other,
 }
 
-/// A `schema` or `schema_uri` as an entry writes it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WrittenSchema<'d>(&'d str);
-
-impl<'d> WrittenSchema<'d> {
-    /// The text.
-    #[must_use]
-    pub const fn as_str(self) -> &'d str {
-        self.0
-    }
-}
-
 /// A credential's registration document.
 #[derive(Debug, Clone)]
 pub struct Ts12Document<'d> {
@@ -258,26 +248,18 @@ impl<'d> Ts12Document<'d> {
     /// The entry of a type key.
     #[must_use]
     pub fn entry(&self, kind: &TransactionType<'_>) -> Option<TypeEntry<'d>> {
-        self.listed(kind.as_str(), Ts12Type::of(kind))
+        self.types.get(kind.as_str()).map(|members| TypeEntry {
+            kind: Ts12Type::of(kind),
+            members,
+        })
     }
 
-    /// The entry of a built-in type's URN, when its schema names that type.
+    /// The entry of a built-in type's URN.
     #[must_use]
-    pub fn built_in(&self, kind: Ts12Type) -> Option<BuiltInEntry<'d>> {
-        self.listed(kind.urn(), Some(kind))?.built_in()
-    }
-
-    fn listed(&self, key: &str, built_in: Option<Ts12Type>) -> Option<TypeEntry<'d>> {
-        let entry = self.types.get(key)?;
-        let schema = entry
-            .get("schema")
-            .or_else(|| entry.get("schema_uri"))
-            .and_then(Node::as_str);
-        Some(TypeEntry {
-            built_in: built_in.filter(|built_in| schema == Some(built_in.urn())),
-            schema: schema.map(WrittenSchema),
-            claims: entry.get("claims"),
-            ui_labels: entry.get("ui_labels"),
+    pub fn listed(&self, kind: Ts12Type) -> Option<TypeEntry<'d>> {
+        self.types.get(kind.urn()).map(|members| TypeEntry {
+            kind: Some(kind),
+            members,
         })
     }
 }
@@ -325,38 +307,52 @@ fn document_at(
         .ok_or_else(unfetched)
 }
 
-/// One `transaction_data_types` entry: the built-in type its `schema` or `schema_uri` names, its
-/// claims metadata (TS12 §3.3.2) and its UI labels catalogue (TS12 §3.3.3).
+/// One `transaction_data_types` entry under its type key, unread until [`TypeEntry::built_in`].
 #[derive(Debug, Clone, Copy)]
 pub struct TypeEntry<'d> {
-    built_in: Option<Ts12Type>,
-    schema: Option<WrittenSchema<'d>>,
-    claims: Option<&'d Node<'d>>,
-    ui_labels: Option<&'d Node<'d>>,
+    kind: Option<Ts12Type>,
+    members: &'d Node<'d>,
 }
 
 impl<'d> TypeEntry<'d> {
-    /// The entry with the built-in type its key and schema both name; `None` for any other schema.
-    #[must_use]
-    pub const fn built_in(&self) -> Option<BuiltInEntry<'d>> {
-        match self.built_in {
-            Some(kind) => Some(BuiltInEntry { kind, entry: *self }),
-            None => None,
-        }
-    }
-
-    /// `schema`, else `schema_uri`.
-    #[must_use]
-    pub const fn schema(&self) -> Option<WrittenSchema<'d>> {
-        self.schema
+    /// The entry read for the built-in type its key and its `schema`, else `schema_uri`, both name:
+    /// its claims metadata (TS12 §3.3.2) and its UI labels catalogue (TS12 §3.3.3) checked against
+    /// that type's rules.
+    ///
+    /// # Errors
+    ///
+    /// [`Ts12Unsupported`]: the rule the entry leaves unmet.
+    pub fn built_in(&self) -> Result<BuiltInEntry<'d>, Ts12Unsupported> {
+        let written = self
+            .members
+            .get("schema")
+            .or_else(|| self.members.get("schema_uri"))
+            .ok_or(Ts12Unsupported::NoSchema)?
+            .as_str()
+            .ok_or(Ts12Unsupported::SchemaForm)?;
+        let kind = self
+            .kind
+            .filter(|kind| kind.urn() == written)
+            .ok_or_else(|| Ts12Unsupported::Schema {
+                schema: written.to_owned(),
+            })?;
+        Ok(BuiltInEntry {
+            kind,
+            metadata: TypeMetadata::parse(
+                kind,
+                self.members.get("claims"),
+                self.members.get("ui_labels"),
+            )?,
+        })
     }
 }
 
-/// A `transaction_data_types` entry whose schema names a built-in type.
-#[derive(Debug, Clone, Copy)]
+/// A `transaction_data_types` entry whose schema names a built-in type, its metadata read under
+/// TS12 §3.3.
+#[derive(Debug, Clone)]
 pub struct BuiltInEntry<'d> {
     kind: Ts12Type,
-    entry: TypeEntry<'d>,
+    metadata: TypeMetadata<'d>,
 }
 
 impl<'d> BuiltInEntry<'d> {
@@ -366,15 +362,8 @@ impl<'d> BuiltInEntry<'d> {
         self.kind
     }
 
-    /// Its claims metadata.
-    #[must_use]
-    pub const fn claims(&self) -> Option<&'d Node<'d>> {
-        self.entry.claims
-    }
-
-    /// Its UI labels catalogue.
-    #[must_use]
-    pub const fn ui_labels(&self) -> Option<&'d Node<'d>> {
-        self.entry.ui_labels
+    /// Its metadata.
+    pub(crate) const fn metadata(&self) -> &TypeMetadata<'d> {
+        &self.metadata
     }
 }

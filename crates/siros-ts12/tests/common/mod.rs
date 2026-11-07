@@ -190,7 +190,11 @@ pub fn defined(own: &str, kind: Ts12Type, priority: &[LocaleTag]) -> DefinedForm
     let document = document(own);
     let node = Node::parse(std::str::from_utf8(&document).expect("UTF-8")).expect("the document");
     let read = Ts12Document::read(&node).expect("the document");
-    let built_in = read.built_in(kind).expect("a built-in type");
+    let built_in = read
+        .listed(kind)
+        .expect("a listed type")
+        .built_in()
+        .expect("a built-in type");
     view::convert(&built_in, &main, priority).expect("the module")
 }
 

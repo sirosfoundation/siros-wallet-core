@@ -91,7 +91,7 @@ use siros_paso::render::{self, ItemBound, Registered};
 pub use amr::{AmrCategory, AmrMethod, amr};
 pub use document::{
     BuiltInEntry, Category, ComposeError, ComposedDocument, DOCUMENT, FetchedDocument,
-    Ts12Document, Ts12Type, TwinnedMember, TypeEntry, WrittenSchema,
+    Ts12Document, Ts12Type, TwinnedMember, TypeEntry,
 };
 pub use field::FieldPath;
 pub use payload::{
@@ -137,7 +137,6 @@ impl Messages for CrateMessages {
             Ts12Unsupported::messages(),
             Ts12Rule::messages(),
             Ts12Excluded::messages(),
-            view::ConvertError::messages(),
         ]
         .into_iter()
         .flatten()
@@ -200,6 +199,9 @@ pub(crate) struct Translated {
     pub(crate) typed: Ts12Payload,
     pub(crate) metadata: Node<'static>,
     pub(crate) payload: Node<'static>,
+    /// Whether a claim displays `payee.logo`.
+    #[cfg(feature = "resolve")]
+    pub(crate) logo_displayed: bool,
 }
 
 impl Ts12Profile {
@@ -338,13 +340,8 @@ pub(crate) fn translate(
     let listed = document
         .entry(kind)
         .ok_or_else(|| Ts12Unsupported::NotListed { kind: kind.clone() })?;
-    let built_in = listed.built_in().ok_or_else(|| match listed.schema() {
-        None => Ts12Unsupported::NoSchema,
-        Some(schema) => Ts12Unsupported::Schema {
-            schema: schema.as_str().to_owned(),
-        },
-    })?;
-    let metadata = Node::Object(paso_metadata(&built_in)?);
+    let built_in = listed.built_in()?;
+    let metadata = Node::Object(paso_metadata(&built_in));
     let members = entry.members();
     let payload = members.get("payload").ok_or(PayloadRefusal::Required {
         path: field::PAYLOAD,
@@ -357,6 +354,8 @@ pub(crate) fn translate(
         #[cfg(feature = "resolve")]
         typed,
         metadata,
+        #[cfg(feature = "resolve")]
+        logo_displayed: built_in.metadata().displays(field::PAYEE_LOGO),
     })
 }
 

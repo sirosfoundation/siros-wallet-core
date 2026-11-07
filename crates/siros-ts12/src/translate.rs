@@ -47,6 +47,9 @@ pub enum Ts12Unsupported {
     /// An entry with neither `schema` nor `schema_uri`.
     #[error("the type's entry names no schema")]
     NoSchema,
+    /// A `schema` or `schema_uri` that is no string (TS12 §4.1).
+    #[error("the type's schema is no string")]
+    SchemaForm,
     /// A schema naming no built-in type: an issuer's JSON Schema.
     #[error("{schema}: the schema names no built-in type")]
     Schema {
@@ -63,10 +66,16 @@ pub enum Ts12Unsupported {
         /// The field.
         field: FieldPath,
     },
+    /// `claims` that is no array (TS12 §3.3.2).
+    #[error("claims is no array")]
+    ClaimsForm,
+    /// A claim without a `path` (TS12 §3.3.2).
+    #[error("a claim holds no path")]
+    NoClaimPath,
     /// A claim whose `path` falls outside the type's field table.
     #[error("{path}: no claim path of the type's field table")]
     ClaimPath {
-        /// The path as written; the claim itself when it holds none.
+        /// The path as written, in compact JSON.
         path: String,
     },
     /// A `visualisation` outside TS12 §3.3.1's 1 to 4.
@@ -81,6 +90,9 @@ pub enum Ts12Unsupported {
         /// The field.
         field: FieldPath,
     },
+    /// `ui_labels` that is no object (TS12 §3.3.3).
+    #[error("ui_labels is no object")]
+    CatalogueForm,
     /// A UI label entry without its `lang` and `value` as strings (TS12 §3.3.3).
     #[error("{element}: a UI label entry outside TS12's form")]
     UiLabels {
@@ -90,7 +102,7 @@ pub enum Ts12Unsupported {
 }
 
 /// What the display rules ask of a leaf field.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shown {
     /// Displayed at every level, and its labels required.
     Always,
@@ -101,7 +113,7 @@ enum Shown {
 }
 
 /// A PaSO value type of a leaf field; a field without one is plain text.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum ValueType {
     Amount,
     Boolean,
@@ -129,7 +141,7 @@ impl ValueType {
 }
 
 /// An object of a field table, shown by its label alone, or a leaf under the display rules.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum Role {
     Object,
     Leaf {
@@ -139,6 +151,7 @@ enum Role {
 }
 
 /// A field of a type's table.
+#[derive(Debug)]
 struct Field {
     path: FieldPath,
     role: Role,
@@ -272,60 +285,178 @@ impl Level {
     }
 }
 
-/// The type's metadata in PaSO's form, in the claims metadata's order, each field it omits
-/// appended internal.
-///
-/// # Errors
-///
-/// [`Ts12Unsupported`]: the rule of TS12 §3.3 the metadata leaves unmet.
-pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Object<'static>, Ts12Unsupported> {
-    let catalogue = entry
-        .ui_labels()
-        .and_then(Node::as_object)
-        .filter(|labels| labels.get(UiKey::AffirmativeActionLabel.name()).is_some())
-        .ok_or(Ts12Unsupported::Affirmative)?;
-    let table = fields(entry.kind());
-    let written = entry.claims().and_then(Node::as_array).unwrap_or(&[]);
-    let mut seen: Vec<&'static Field> = Vec::new();
-    let mut claims = Vec::with_capacity(table.len());
-    for claim in written {
-        let (field, translated) = translated_claim(claim, table)?;
-        seen.push(field);
-        claims.push(translated);
-    }
-    if let Some(unlabelled) = table
-        .iter()
-        .find(|field| field.shown(Shown::Always) && !labelled(field, written))
-    {
-        return Err(Ts12Unsupported::Labels {
-            field: unlabelled.path,
-        });
-    }
-    for field in table {
-        if field.is_leaf() && !seen.iter().any(|known| known.path == field.path) {
-            claims.push(internal(field.path));
+/// A label with its tag as TS12 means it.
+#[derive(Debug, Clone)]
+struct Label<'d> {
+    tag: String,
+    text: &'d str,
+}
+
+/// A claim of the claims metadata: a field of the type's table, and the labels TS12 §3.3.1 displays
+/// it under; `None` for a field that stays internal.
+#[derive(Debug, Clone)]
+struct Claim<'d> {
+    field: &'static Field,
+    labels: Option<Vec<Label<'d>>>,
+}
+
+/// The UI labels catalogue: the elements PaSO reads, `affirmative_action_label` required.
+#[derive(Debug, Clone)]
+struct Catalogue<'d> {
+    title: Option<Vec<Label<'d>>>,
+    affirmative: Vec<Label<'d>>,
+    denial: Option<Vec<Label<'d>>>,
+    hint: Option<Vec<Label<'d>>>,
+}
+
+/// A built-in type's metadata under TS12 §3.3.
+#[derive(Debug, Clone)]
+pub(crate) struct TypeMetadata<'d> {
+    table: &'static [Field],
+    claims: Vec<Claim<'d>>,
+    catalogue: Catalogue<'d>,
+}
+
+impl<'d> TypeMetadata<'d> {
+    /// The metadata an entry writes for a type.
+    pub(crate) fn parse(
+        kind: Ts12Type,
+        claims: Option<&'d Node<'d>>,
+        ui_labels: Option<&'d Node<'d>>,
+    ) -> Result<Self, Ts12Unsupported> {
+        let catalogue = ui_labels
+            .map(|labels| labels.as_object().ok_or(Ts12Unsupported::CatalogueForm))
+            .transpose()?
+            .ok_or(Ts12Unsupported::Affirmative)?;
+        let affirmative = catalogue
+            .get(UiKey::AffirmativeActionLabel.name())
+            .ok_or(Ts12Unsupported::Affirmative)?;
+        let written = claims
+            .map(|claims| claims.as_array().ok_or(Ts12Unsupported::ClaimsForm))
+            .transpose()?
+            .unwrap_or(&[]);
+        let table = fields(kind);
+        let claims = written
+            .iter()
+            .map(|claim| Claim::parse(claim, table))
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(unlabelled) = table.iter().find(|field| {
+            field.shown(Shown::Always) && !claims.iter().any(|claim| claim.displays(field.path))
+        }) {
+            return Err(Ts12Unsupported::Labels {
+                field: unlabelled.path,
+            });
         }
+        let ui_label = |element: UiKey, labels: &'d Node<'d>| {
+            read_labels(labels, "value", || Ts12Unsupported::UiLabels { element })
+        };
+        let optional = |element: UiKey| {
+            catalogue
+                .get(element.name())
+                .map(|labels| ui_label(element, labels))
+                .transpose()
+        };
+        Ok(Self {
+            table,
+            claims,
+            catalogue: Catalogue {
+                title: optional(UiKey::TransactionTitle)?,
+                affirmative: ui_label(UiKey::AffirmativeActionLabel, affirmative)?,
+                denial: optional(UiKey::DenialActionLabel)?,
+                hint: optional(UiKey::SecurityHint)?,
+            },
+        })
     }
-    let ui_label = |element: UiKey| {
-        catalogue
-            .get(element.name())
-            .map(|labels| {
-                translated_array(labels, "value", ui_entry, || Ts12Unsupported::UiLabels {
-                    element,
+
+    /// Whether a claim displays the field.
+    #[cfg(feature = "resolve")]
+    pub(crate) fn displays(&self, field: FieldPath) -> bool {
+        self.claims.iter().any(|claim| claim.displays(field))
+    }
+}
+
+impl<'d> Claim<'d> {
+    fn parse(claim: &'d Node<'d>, table: &'static [Field]) -> Result<Self, Ts12Unsupported> {
+        let written = claim.get("path").ok_or(Ts12Unsupported::NoClaimPath)?;
+        let field = field_path(written)
+            .and_then(|path| table.iter().find(|field| field.is_at(&path)))
+            .ok_or_else(|| Ts12Unsupported::ClaimPath {
+                path: written.json_compact().to_string(),
+            })?;
+        let level = Level::of(claim, field.path)?;
+        let display = claim
+            .get("display")
+            .filter(|display| display.as_array().is_none_or(|labels| !labels.is_empty()));
+        if display.is_none() && field.is_leaf() && level != Level::Hidden {
+            return Err(Ts12Unsupported::Labels { field: field.path });
+        }
+        let labels = display
+            .filter(|_| level != Level::Hidden || field.shown(Shown::Always))
+            .map(|display| {
+                read_labels(display, "label", || Ts12Unsupported::ClaimLabels {
+                    field: field.path,
                 })
             })
-            .transpose()
-    };
+            .transpose()?;
+        Ok(Self { field, labels })
+    }
+
+    fn displays(&self, field: FieldPath) -> bool {
+        self.field.path == field && self.labels.is_some()
+    }
+
+    /// The claim in PaSO's form.
+    fn paso(&self) -> Node<'static> {
+        let display = self
+            .labels
+            .as_deref()
+            .map(|labels| label_nodes(labels, claim_entry));
+        let value_type = display
+            .as_ref()
+            .and(self.field.value_type())
+            .map(|value_type| Node::String(Cow::Borrowed(value_type)));
+        Node::Object(known_object! {
+            "path" => Some(path_node(self.field.path)),
+            "display" => display,
+            "value_type" => value_type,
+        })
+    }
+}
+
+/// The type's metadata in PaSO's form, in the claims metadata's order, each field it omits
+/// appended internal.
+#[must_use]
+pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Object<'static> {
+    let metadata = entry.metadata();
+    let omitted = metadata
+        .table
+        .iter()
+        .filter(|field| {
+            field.is_leaf()
+                && !metadata
+                    .claims
+                    .iter()
+                    .any(|claim| claim.field.path == field.path)
+        })
+        .map(|field| internal(field.path));
+    let claims = metadata
+        .claims
+        .iter()
+        .map(Claim::paso)
+        .chain(omitted)
+        .collect();
+    let catalogue = &metadata.catalogue;
+    let ui_label = |labels: &[Label<'_>]| label_nodes(labels, ui_entry);
     let ui = known_object! {
-        "transaction_title" => ui_label(UiKey::TransactionTitle)?,
-        "affirmative_action_label" => ui_label(UiKey::AffirmativeActionLabel)?,
-        "denial_action_label" => ui_label(UiKey::DenialActionLabel)?,
-        "security_hint" => ui_label(UiKey::SecurityHint)?,
+        "transaction_title" => catalogue.title.as_deref().map(ui_label),
+        "affirmative_action_label" => Some(ui_label(&catalogue.affirmative)),
+        "denial_action_label" => catalogue.denial.as_deref().map(ui_label),
+        "security_hint" => catalogue.hint.as_deref().map(ui_label),
     };
-    Ok(known_object! {
+    known_object! {
         "claims" => Some(Node::Array(claims)),
         "ui_labels" => Some(Node::Object(ui)),
-    })
+    }
 }
 
 /// TS12 §3.3.1 over the payload: each field it holds that the claims metadata omits needs labels.
@@ -337,38 +468,27 @@ pub(crate) fn labels_for(
     entry: &BuiltInEntry<'_>,
     payload: &Node<'_>,
 ) -> Result<(), Ts12Unsupported> {
-    let written = entry.claims().and_then(Node::as_array).unwrap_or(&[]);
-    let omitted = fields(entry.kind()).iter().find(|field| {
+    let metadata = entry.metadata();
+    let omitted = metadata.table.iter().find(|field| {
         field.shown(Shown::WhenHeld)
             && field
                 .path
                 .steps()
                 .try_fold(payload, |node, step| node.get(step))
                 .is_some()
-            && !written
+            && !metadata
+                .claims
                 .iter()
-                .any(|claim| field_path(claim).is_some_and(|path| field.is_at(&path)))
+                .any(|claim| claim.field.path == field.path)
     });
     omitted.map_or(Ok(()), |field| {
         Err(Ts12Unsupported::Labels { field: field.path })
     })
 }
 
-/// Whether the claims metadata holds a `display` array for the field.
-fn labelled(field: &Field, written: &[Node<'_>]) -> bool {
-    written.iter().any(|claim| {
-        field_path(claim).is_some_and(|path| field.is_at(&path))
-            && claim
-                .get("display")
-                .and_then(Node::as_array)
-                .is_some_and(|display| !display.is_empty())
-    })
-}
-
 /// A claim's path below `payload`; `None` for a path elsewhere or of another form.
-fn field_path<'c>(claim: &'c Node<'_>) -> Option<Vec<&'c str>> {
-    let path = claim.get("path")?.as_array()?;
-    let (first, rest) = path.split_first()?;
+fn field_path<'c>(path: &'c Node<'_>) -> Option<Vec<&'c str>> {
+    let (first, rest) = path.as_array()?.split_first()?;
     (first.as_str() == Some("payload"))
         .then(|| rest.iter().map(Node::as_str).collect())
         .flatten()
@@ -386,51 +506,6 @@ fn internal(path: FieldPath) -> Node<'static> {
     Node::Object(known_object! { "path" => Some(path_node(path)) })
 }
 
-fn translated_claim(
-    claim: &Node<'_>,
-    table: &'static [Field],
-) -> Result<(&'static Field, Node<'static>), Ts12Unsupported> {
-    let outside = || Ts12Unsupported::ClaimPath {
-        path: claim
-            .get("path")
-            .unwrap_or(claim)
-            .json_compact()
-            .to_string(),
-    };
-    let path = field_path(claim).ok_or_else(outside)?;
-    let field = table
-        .iter()
-        .find(|field| field.is_at(&path))
-        .ok_or_else(outside)?;
-    let level = Level::of(claim, field.path)?;
-    let display = claim
-        .get("display")
-        .filter(|display| display.as_array().is_none_or(|labels| !labels.is_empty()));
-    if display.is_none() && field.is_leaf() && level != Level::Hidden {
-        return Err(Ts12Unsupported::Labels { field: field.path });
-    }
-    let display = display
-        .filter(|_| level != Level::Hidden || field.shown(Shown::Always))
-        .map(|display| {
-            translated_array(display, "label", claim_entry, || {
-                Ts12Unsupported::ClaimLabels { field: field.path }
-            })
-        })
-        .transpose()?;
-    let value_type = display
-        .as_ref()
-        .and(field.value_type())
-        .map(|value_type| Node::String(Cow::Borrowed(value_type)));
-    Ok((
-        field,
-        Node::Object(known_object! {
-            "path" => Some(path_node(field.path)),
-            "display" => display,
-            "value_type" => value_type,
-        }),
-    ))
-}
-
 /// A claim's label in PaSO's form.
 fn claim_entry(locale: Node<'static>, label: Node<'static>) -> Object<'static> {
     known_object! { "locale" => Some(locale), "name" => Some(label) }
@@ -441,14 +516,31 @@ fn ui_entry(locale: Node<'static>, label: Node<'static>) -> Object<'static> {
     known_object! { "locale" => Some(locale), "value" => Some(label) }
 }
 
-/// A label array with `lang` read as `locale`, its tags as TS12 means them, and the member `text`
-/// read as `entry` writes it; other members, `description` among them, unused.
-fn translated_array(
-    array: &Node<'_>,
-    text: &str,
+/// Labels in PaSO's form, as `entry` writes each.
+fn label_nodes(
+    labels: &[Label<'_>],
     entry: fn(Node<'static>, Node<'static>) -> Object<'static>,
+) -> Node<'static> {
+    Node::Array(
+        labels
+            .iter()
+            .map(|label| {
+                Node::Object(entry(
+                    Node::String(Cow::Owned(label.tag.clone())),
+                    Node::String(Cow::Owned(label.text.to_owned())),
+                ))
+            })
+            .collect(),
+    )
+}
+
+/// A label array with `lang` read as a tag as TS12 means it and the member `text` as its text; other
+/// members, `description` among them, unused.
+fn read_labels<'d>(
+    array: &'d Node<'d>,
+    text: &str,
     refused: impl Fn() -> Ts12Unsupported,
-) -> Result<Node<'static>, Ts12Unsupported> {
+) -> Result<Vec<Label<'d>>, Ts12Unsupported> {
     let items = array.as_array().ok_or_else(&refused)?;
     let tags = items
         .iter()
@@ -459,14 +551,10 @@ fn translated_array(
         .iter()
         .zip(generic_tags(&tags))
         .map(|(item, tag)| {
-            let label = item.get(text).and_then(Node::as_str).ok_or_else(&refused)?;
-            Ok(Node::Object(entry(
-                Node::String(Cow::Owned(tag)),
-                Node::String(Cow::Owned(label.to_owned())),
-            )))
+            let text = item.get(text).and_then(Node::as_str).ok_or_else(&refused)?;
+            Ok(Label { tag, text })
         })
-        .collect::<Result<Vec<_>, _>>()
-        .map(Node::Array)
+        .collect()
 }
 
 /// Each tag as TS12 means it: a tag whose language's generic tag no entry holds takes that generic

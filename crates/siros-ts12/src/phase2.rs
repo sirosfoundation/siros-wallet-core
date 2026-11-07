@@ -44,18 +44,10 @@ fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
 
 /// The https logo the metadata displays: its URL and its integrity value.
 fn displayed_https(translated: &Translated) -> Option<(&HttpsUrl, &Integrity)> {
-    let Some(Logo::Https { url, integrity }) = translated.typed.logo() else {
-        return None;
-    };
-    let claims = translated.metadata.get("claims")?.as_array()?;
-    let displayed = claims.iter().any(|claim| {
-        claim.get("display").is_some()
-            && claim
-                .get("path")
-                .and_then(Node::as_array)
-                .is_some_and(|path| path.iter().filter_map(Node::as_str).eq(["payee", "logo"]))
-    });
-    displayed.then_some((url, integrity))
+    match translated.typed.logo() {
+        Some(Logo::Https { url, integrity }) if translated.logo_displayed => Some((url, integrity)),
+        _ => None,
+    }
 }
 
 /// Needs the platform, and `RandomIds` for `jti`.
