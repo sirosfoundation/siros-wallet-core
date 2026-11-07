@@ -5,8 +5,8 @@
 //! - `tests/properties`: the reference model's dressed-run properties (check_props.py
 //!   `check_dressed`) over seeded random requests and wallets dressed with the real plug-ins.
 //! - `tests/end_to_end`: one path per configuration, and every flow of the design, F1 to F13, to
-//!   its `Delivery` or `Reply` over the HAIP build (`flows`), and the WE BUILD build's own (`we_build`), each built from a
-//!   specification's own example.
+//!   its `Delivery` or `Reply` over the HAIP build (`flows`), and the WE BUILD build's own
+//!   (`we_build`), each built from a specification's own example.
 //! - `tests/messages.rs`: one identifier names one message across the crates.
 
 #![forbid(unsafe_code)]

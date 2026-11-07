@@ -713,8 +713,8 @@ fn f9_a_request_refused_before_authentication_replies_plain_on_its_route() {
     assert_eq!(posted(&delivery)[0].1, "invalid_request_object");
 }
 
-/// F10: a link or QR code under the WE BUILD build: `x509_hash`, `verifier_info` to the trust
-/// service, which requires its registration certificate, CS-02 §8.2's `exp` and `aud`
+/// F10: a link or QR code over the HAIP registry with siros-webuild's rule and reader: `x509_hash`,
+/// `verifier_info` to the trust service, which requires its registration certificate, CS-02 §8.2's `exp` and `aud`
 /// (siros-webuild's `Cs02Claims`), an encrypted Request Object; the Verifier's error answer read
 /// by siros-webuild's `Cs02ErrorAnswer` (CS-02 §8.3).
 #[test]
@@ -765,7 +765,7 @@ fn f10_a_we_build_request_by_uri_answers_and_reads_the_verifiers_error() {
     assert!(answer.redirect().is_some());
 }
 
-/// F11, F12: an SCA transaction under the WE BUILD build, by URI (`direct_post.jwt`) and over the
+/// F11, F12: an SCA transaction over the HAIP registry, by URI (`direct_post.jwt`) and over the
 /// DC API (signed, `dc_api.jwt`): PaSO Core A.1's payment, strongly authenticated (PSD2 Art.
 /// 4(30): factors of two categories), its Key Binding JWT holding the transaction's hash (PaSO
 /// Core §6.1), its `aud` the full Client Identifier by URI and the Origin over the DC API
