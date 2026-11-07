@@ -13,9 +13,14 @@ All notable changes to this workspace. The format follows
   label limits, and the Key Binding JWT's `jti`, `response_mode`, `amr` and hashes.
 - `siros-ts12` types each member and argument: `FieldPath`, `Expected`, `DateForm` and `MaxChars`
   in `PayloadRefusal`; `TransactionType` and `QueryId` in `Ts12Rule` and `Ts12Unsupported`;
-  `Ts12Unsupported::{NoSchema, ClaimPath, Level, ClaimLabels, UiLabels}` per rule; `FetchedDocument`,
-  `ComposedDocument`, `Category`, `WrittenSchema` and `TwinnedMember` in the document; `AmrMethod`;
-  `Ts12Finding { url, failure }`. `paso_payload` and `paso_metadata` return an `Object`.
+  `Ts12Unsupported::{NoSchema, SchemaForm, ClaimsForm, NoClaimPath, ClaimPath, Level, ClaimLabels,
+  CatalogueForm, UiLabels}` per rule; `ComposeError::{UriForm, Unfetched}` per rule; `DocumentKey` in
+  `DOCUMENT`; `FetchedDocument`, `ComposedDocument`, `Category` and `TwinnedMember` in the document;
+  `Keyed<HttpsUrl, Fetch>` in `with_resources`; `AmrMethod`; `Ts12Finding { url, failure }`.
+  `TypeEntry::built_in` parses a type's metadata once, and `paso_metadata` returns an `Object`.
+  `mit_options.apr` is an exact decimal within 38 digits, `Expected::Decimal` refusing the rest.
+  `register` returns the `ProfileHandle`.
+- `checked!` takes a type with a destructor; `DocumentKey::new` and `TypePrefix::new` are `const`.
 - `siros-integration` holds the WE BUILD build beside HAIP's: `x509_hash` alone,
   `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
   or `DeviceMac`, over F11 and F12.
