@@ -338,6 +338,7 @@ mod tests {
         IssuerMetadata {
             nonce_endpoint: None,
             deferred_credential_endpoint: None,
+        batch_credential_issuance: None,
             credential_endpoint: String::new(),
             token_endpoint: String::new(),
             notification_endpoint: String::new(),

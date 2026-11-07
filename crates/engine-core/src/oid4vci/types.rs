@@ -95,6 +95,15 @@ impl MetadataType {
     }
 }
 
+/// Batch credential issuance configuration (OID4VCI §E.1), as the
+/// issuer advertises it: the `batch_size` member.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchCredentialIssuance {
+    /// How many credentials one credential request returns.
+    #[serde(default)]
+    pub batch_size: i64,
+}
+
 /// The parsed issuer metadata document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssuerMetadata {
@@ -127,6 +136,21 @@ pub struct IssuerMetadata {
     /// issuance, preferred over the constructed fallback path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deferred_credential_endpoint: Option<String>,
+    /// Batch credential issuance (OID4VCI §E.1): `batch_size`, the
+    /// number of credentials one request returns. The engine asks the
+    /// host for `batch_size` proofs (one per credential for the `jwt`
+    /// proof type; a single `attestation` proof covers the whole
+    /// batch) and sends `proofs: {jwt: [n proofs]}` — the suite's
+    /// batch-credential-issuance module requires exactly this (found
+    /// driving it: "The wallet only sent one proof in the credential
+    /// request, so batch issuance behavior cannot be evaluated").
+    /// Absent or ≤1 means 1 — no batch.
+    #[serde(
+        default,
+        alias = "batch_credential_issuance",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub batch_credential_issuance: Option<BatchCredentialIssuance>,
     /// The signed metadata JWT, when the document was served as a JWT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_metadata: Option<String>,
