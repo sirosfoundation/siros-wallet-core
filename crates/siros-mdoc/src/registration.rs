@@ -6,8 +6,8 @@ use std::borrow::Cow;
 
 use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError};
-use siros_openid4vp::field_names;
 use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::known_object;
 
 use crate::stored::{Curve, MdocError, StoredMdoc};
 
@@ -112,10 +112,10 @@ fn key_authorizations(mdoc: &StoredMdoc) -> Node<'static> {
             .map(|space| space.as_str())
             .collect(),
     );
-    Node::Object(
-        field_names!["namespaces", "elements"]
-            .object([Some(namespaces), Some(Node::Object(elements))]),
-    )
+    Node::Object(known_object! {
+        "namespaces" => Some(namespaces),
+        "elements" => Some(Node::Object(elements)),
+    })
 }
 
 fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, RegistrationError> {
@@ -128,35 +128,19 @@ fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, Reg
     let validity = mso.validity();
     let seconds = |at: u64| Some(Node::integer(i128::from(at)));
     let cose = |alg: i64| Node::integer(i128::from(alg));
-    Ok(Node::Object(
-        field_names![
-            "type",
-            "metadata",
-            "values",
-            "issuer",
-            "issuer_alg",
-            "issuer_curve",
-            "device_alg",
-            "device_curve",
-            "key_authorizations",
-            "validity",
-        ]
-        .object([
-            Some(text(mdoc.doc_type().as_str())),
-            Some(Node::Object(metadata)),
-            Some(Node::Object(values(mdoc)?)),
-            resolved.issuer.map(text),
-            Some(cose(mdoc.issuer_auth().algorithm().value())),
-            resolved.issuer_curve.map(|curve| text(curve.name())),
-            device.algorithm().map(|alg| cose(alg.value())),
-            Some(text(device.curve().name())),
-            Some(key_authorizations(mdoc)),
-            Some(Node::Object(
-                field_names!["not_before", "not_after"].object([
-                    seconds(validity.valid_from().0),
-                    seconds(validity.valid_until().0),
-                ]),
-            )),
-        ]),
-    ))
+    Ok(Node::Object(known_object! {
+        "type" => Some(text(mdoc.doc_type().as_str())),
+        "metadata" => Some(Node::Object(metadata)),
+        "values" => Some(Node::Object(values(mdoc)?)),
+        "issuer" => resolved.issuer.map(text),
+        "issuer_alg" => Some(cose(mdoc.issuer_auth().algorithm().value())),
+        "issuer_curve" => resolved.issuer_curve.map(|curve| text(curve.name())),
+        "device_alg" => device.algorithm().map(|alg| cose(alg.value())),
+        "device_curve" => Some(text(device.curve().name())),
+        "key_authorizations" => Some(key_authorizations(mdoc)),
+        "validity" => Some(Node::Object(known_object! {
+            "not_before" => seconds(validity.valid_from().0),
+            "not_after" => seconds(validity.valid_until().0),
+        })),
+    }))
 }

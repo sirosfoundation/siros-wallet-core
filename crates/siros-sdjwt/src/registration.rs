@@ -6,9 +6,9 @@ use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_openid4vp::field_names;
 use siros_openid4vp::ids::CredentialType;
 use siros_openid4vp::json::{self, Node};
+use siros_openid4vp::known_object;
 use siros_openid4vp::request::Curve;
 use siros_openid4vp::wallet::Holder;
 
@@ -171,34 +171,19 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
         .map_or_else(json::Object::default, |metadata| {
             metadata.document.clone().into_owned()
         });
-    Ok(Node::Object(
-        field_names![
-            "type",
-            "metadata",
-            "values",
-            "issuer",
-            "alg",
-            "curve",
-            "key_alg",
-            "key_curve",
-            "extends",
-            "validity",
-            "display_module",
-        ]
-        .object([
-            Some(text(kind)),
-            Some(Node::Object(metadata)),
-            Some(sd_jwt.values()),
-            issuer.map(text),
-            Some(text(sd_jwt.signing_alg().as_str())),
-            curve.map(|curve| text(curve.as_str())),
-            key_alg.map(text),
-            key_curve.map(text),
-            extends,
-            validity(claims)?,
-            display_module,
-        ]),
-    ))
+    Ok(Node::Object(known_object! {
+        "type" => Some(text(kind)),
+        "metadata" => Some(Node::Object(metadata)),
+        "values" => Some(sd_jwt.values()),
+        "issuer" => issuer.map(text),
+        "alg" => Some(text(sd_jwt.signing_alg().as_str())),
+        "curve" => curve.map(|curve| text(curve.as_str())),
+        "key_alg" => key_alg.map(text),
+        "key_curve" => key_curve.map(text),
+        "extends" => extends,
+        "validity" => validity(claims)?,
+        "display_module" => display_module,
+    }))
 }
 
 fn string(claim: Option<&IssuedClaim>) -> Option<&str> {
@@ -335,7 +320,8 @@ fn validity(claims: &Object) -> Result<Option<Node<'static>>, RegistrationError>
     if not_before.is_none() && not_after.is_none() {
         return Ok(None);
     }
-    Ok(Some(Node::Object(
-        field_names!["not_before", "not_after"].object([not_before, not_after]),
-    )))
+    Ok(Some(Node::Object(known_object! {
+        "not_before" => not_before,
+        "not_after" => not_after,
+    })))
 }

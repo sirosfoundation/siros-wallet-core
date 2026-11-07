@@ -363,7 +363,8 @@ impl<T: Named> Distinct<T> {
     }
 }
 
-/// Member names the build checked distinct: `field_names!` makes one.
+/// Member names the build checked distinct: `known_object!` makes one, each name beside its value.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
 pub struct FieldNames<const N: usize>([&'static str; N]);
 
@@ -418,10 +419,11 @@ const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
     }
 }
 
-/// The [`FieldNames`](crate::json::FieldNames) of these literals: a repeated name fails the build.
+/// The [`Object`](crate::json::Object) of a member per value present, in the written order, from
+/// `"name" => Option<Node>` rows: a repeated name fails the build.
 #[macro_export]
-macro_rules! field_names {
-    ($($name:literal),+ $(,)?) => {
+macro_rules! known_object {
+    ($($name:literal => $value:expr),+ $(,)?) => {
         const {
             match $crate::json::FieldNames::new([$($name),+]) {
                 ::core::option::Option::Some(names) => names,
@@ -434,9 +436,9 @@ macro_rules! field_names {
                 }
             }
         }
+        .object([$($value),+])
     };
 }
-
 impl Number<'_> {
     /// The number, owning its text.
     #[must_use]
