@@ -1,0 +1,5 @@
+{
+  "_comment": "The OIDF conformance module blacklist (see .github/workflows/conformance.yml): keys are the suite's test module names (the plan's modules[].testModule), values the reason for the skip. A skipped module is absent from the run, not run-and-ignored. Remove entries as the engine lands the work they tracked.",
+  "oid4vci-1_0-wallet-test-plan": {},
+  "oid4vp-1final-wallet-test-plan": {}
+}

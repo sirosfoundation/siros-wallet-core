@@ -1,0 +1,132 @@
+name: Conformance (mini-wallet)
+
+# The OpenID Foundation suites against the raw engine — the wasm
+# mini-wallet (docs/oidf-conformance.md): the issuance plan
+# (oid4vci-1_0-wallet-test-plan) and the presentation plan
+# (oid4vp-1final-wallet-test-plan), driven by the conformance repo's
+# Playwright specs over the suite's own HTTP surface. No
+# wallet-frontend, no wallet-backend, no phone: the page's engine
+# answers the suites by its traffic alone.
+#
+# PRs only (not pushes to main) — the suite run costs minutes the
+# merge queue does not need twice; the nightly/weekly cadence and the
+# workflow_dispatch path cover main.
+#
+# The blacklist (conformance/blacklist.json) skips modules the engine
+# repo has chosen to ignore — a known upstream-suite quirk, a
+# not-yet-implemented feature with its own tracking issue. A skipped
+# module is absent from the run, not run-and-ignored: the summary
+# records the skip with the reason.
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "conformance/blacklist.json"
+      - ".github/workflows/conformance.yml"
+  workflow_dispatch:
+    inputs:
+      conformance-ref:
+        description: "The conformance repo ref to run (default: main)"
+        required: false
+        default: "main"
+      suites:
+        description: "Which suites (vci, vp, or both)"
+        required: false
+        default: "both"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  conformance:
+    name: OIDF conformance (vci + vp)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # The suite's TLS host — the suite validates callbacks against
+      # this name (docs/oidf-conformance.md's prerequisite).
+      CONFORMANCE_URL: https://localhost.emobix.co.uk:8443/
+      MINI_WALLET_URL: http://localhost:3010/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Checkout the conformance repo (pinned ref)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: sirosfoundation/siros-conformance
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.conformance-ref || 'main' }}
+          path: conformance-repo
+
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install wasm-pack
+        run: curl -sSLf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Build the mini-wallet page
+        run: make wasm-page
+
+      - name: The suite's TLS host
+        run: echo "127.0.0.1 localhost.emobix.co.uk" | sudo tee -a /etc/hosts
+
+      - name: The blacklist (module name → reason)
+        run: |
+          echo "The blacklist:"
+          cat conformance/blacklist.json
+
+      - name: Bring up the mini-wallet stack
+        working-directory: conformance-repo
+        run: |
+          npm ci
+          npx playwright install chromium --with-deps
+          WALLET_PAGE_DIR="$GITHUB_WORKSPACE/target/wasm-page" \
+            docker compose \
+              -f compose/wallet.yml \
+              -f compose/mini-wallet.yml \
+              -f compose/go-trust.yml \
+              -f compose/vc-services.yml \
+              -f compose/conformance-suite.yml \
+              up -d --remove-orphans
+          # The suite's server takes its time on first boot (the Mongo seed,
+          # the Spring context); the nginx 302 is the readiness signal.
+          for i in $(seq 1 60); do
+            if curl -sk -o /dev/null -w '%{http_code}' "${CONFORMANCE_URL%/}/" | grep -q 302; then
+              echo "The suite is up (attempt $i)"
+              break
+            fi
+            sleep 5
+          done
+          curl -sk -o /dev/null "${CONFORMANCE_URL%/}/" || true
+
+      - name: Run the VCI suite (issuance)
+        working-directory: conformance-repo
+        run: |
+          export CONFORMANCE_BLACKLIST="$(cat "$GITHUB_WORKSPACE/conformance/blacklist.json" 2>/dev/null || echo '{}')"
+          NODE_TLS_REJECT_UNAUTHORIZED=0 npx playwright test specs/conformance/mini-wallet.spec.ts
+
+      - name: Run the VP suite (presentation)
+        working-directory: conformance-repo
+        run: |
+          export CONFORMANCE_BLACKLIST="$(cat "$GITHUB_WORKSPACE/conformance/blacklist.json" 2>/dev/null || echo '{}')"
+          NODE_TLS_REJECT_UNAUTHORIZED=0 npx playwright test specs/conformance/mini-wallet-vp.spec.ts
+
+      - name: The results, as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results
+          path: |
+            conformance-repo/conformance-results/
+            conformance-repo/test-results/
+          if-no-files-found: warn
