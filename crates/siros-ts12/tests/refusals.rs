@@ -9,12 +9,14 @@ use common::{
 };
 use siros_explain::{Entry, Keyed};
 use siros_openid4vp::hash::HashesAlgRule;
+use siros_openid4vp::ids::TransactionType;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Bound, Carriage, Member, NoCandidate, Profile};
 use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::{EntryIndex, Request};
 use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_paso::metadata::UiKey;
 use siros_paso::outcome::Outcome;
 use siros_ts12::{
     ComposeError, DataUrl, DateForm, Expected, FetchedDocument, FieldPath, Integrity,
@@ -342,10 +344,9 @@ fn the_metadata_each_leaves_the_type_unsupported() {
     });
     assert_eq!(unsupported(none), Ts12Unsupported::NoDocument);
     let claim = |claim: &str| replaced(r#""claims": ["#, &format!(r#""claims": [{claim},"#));
-    let labels = |field: &str| Ts12Unsupported::Labels {
-        field: field.to_owned(),
-    };
-    let table: [(String, Ts12Unsupported); 8] = [
+    let path = |field: &str| FieldPath::parse(field).expect("a field of TS12's tables");
+    let labels = |field: &str| Ts12Unsupported::Labels { field: path(field) };
+    let table: [(String, Ts12Unsupported); 12] = [
         (
             replaced(r#""category": "urn:eu:europa:ec:eudi:sua:sca","#, ""),
             Ts12Unsupported::Category,
@@ -356,7 +357,7 @@ fn the_metadata_each_leaves_the_type_unsupported() {
                 r#""urn:eudi:sca:other:1": {"#,
             ),
             Ts12Unsupported::NotListed {
-                kind: PAYMENT.to_owned(),
+                kind: TransactionType::parse(PAYMENT).expect("a type"),
             },
         ),
         (
@@ -367,6 +368,10 @@ fn the_metadata_each_leaves_the_type_unsupported() {
             Ts12Unsupported::Schema {
                 schema: "https://example.com/schema.json".to_owned(),
             },
+        ),
+        (
+            replaced(r#""schema": "urn:eudi:sca:payment:1","#, ""),
+            Ts12Unsupported::NoSchema,
         ),
         (
             replaced("affirmative_action_label", "other_label"),
@@ -390,8 +395,32 @@ fn the_metadata_each_leaves_the_type_unsupported() {
         ),
         (
             claim(r#"{"path": ["payload", "unlisted"], "display": []}"#),
-            Ts12Unsupported::Metadata {
-                at: r#"["payload","unlisted"]"#.to_owned(),
+            Ts12Unsupported::ClaimPath {
+                path: r#"["payload","unlisted"]"#.to_owned(),
+            },
+        ),
+        // TS12 §3.3.1 lists levels 1 to 4.
+        (
+            claim(r#"{"path": ["payload", "date_time"], "visualisation": 5}"#),
+            Ts12Unsupported::Level {
+                field: path("date_time"),
+            },
+        ),
+        // TS12 §3.3.2: a `display` entry holds `lang` and `label`; §3.3.3: a UI label `lang` and
+        // `value`.
+        (
+            claim(r#"{"path": ["payload", "date_time"], "display": [{"label": "When"}]}"#),
+            Ts12Unsupported::ClaimLabels {
+                field: path("date_time"),
+            },
+        ),
+        (
+            replaced(
+                r#""ui_labels": {"#,
+                r#""ui_labels": {"security_hint": [{"value": "Check"}],"#,
+            ),
+            Ts12Unsupported::UiLabels {
+                element: UiKey::SecurityHint,
             },
         ),
     ];
@@ -453,7 +482,7 @@ fn a_held_field_without_labels_ceases() {
         assert_eq!(
             unsupported(bind(CS12_IBAN, more)),
             Ts12Unsupported::Labels {
-                field: field.to_owned()
+                field: FieldPath::parse(field).expect("a field of TS12's tables")
             },
             "{more}"
         );

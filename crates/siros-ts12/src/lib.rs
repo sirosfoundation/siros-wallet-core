@@ -334,15 +334,16 @@ pub(crate) fn translate(
         .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;
     let kind = entry.kind();
     let translated = (|| {
-        let listed = read.entry(kind).ok_or_else(|| Ts12Unsupported::NotListed {
-            kind: kind.as_str().to_owned(),
+        let listed = read
+            .entry(kind)
+            .ok_or_else(|| Ts12Unsupported::NotListed { kind: kind.clone() })?;
+        let built_in = listed.built_in().ok_or_else(|| match listed.schema() {
+            None => Ts12Unsupported::NoSchema,
+            Some(schema) => Ts12Unsupported::Schema {
+                schema: schema.as_str().to_owned(),
+            },
         })?;
-        let built_in = listed.built_in().ok_or_else(|| Ts12Unsupported::Schema {
-            schema: listed
-                .schema()
-                .map_or_else(String::new, |schema| schema.as_str().to_owned()),
-        })?;
-        let metadata = paso_metadata(&built_in)?;
+        let metadata = Node::Object(paso_metadata(&built_in)?);
         let members = entry.members();
         let payload = members.get("payload").ok_or_else(|| {
             Excluding::from(PayloadRefusal::Required {

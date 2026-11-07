@@ -3,6 +3,7 @@
 
 use siros_explain::Explain;
 use siros_i18n::{DefinedForm, LocaleTag, MainLocale};
+use siros_openid4vp::json::Node;
 use siros_paso::render::Registered;
 
 use crate::LIMITS;
@@ -32,7 +33,7 @@ pub fn convert(
     main: &[MainLocale],
     priority: &[LocaleTag],
 ) -> Result<DefinedForm, ConvertError> {
-    let metadata = paso_metadata(entry)?;
+    let metadata = Node::Object(paso_metadata(entry)?);
     let registered = Registered::of(entry.kind().paso_type(), &metadata);
     Ok(siros_paso::view::convert(
         &registered,

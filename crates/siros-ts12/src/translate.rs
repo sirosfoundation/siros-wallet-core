@@ -11,7 +11,8 @@
 use std::borrow::Cow;
 
 use siros_explain::Explain;
-use siros_openid4vp::json::Node;
+use siros_openid4vp::ids::TransactionType;
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::known_object;
 use siros_paso::metadata::UiKey;
 
@@ -41,12 +42,15 @@ pub enum Ts12Unsupported {
     #[error("{kind} is no key of the credential's transaction_data_types")]
     NotListed {
         /// The entry's type.
-        kind: String,
+        kind: TransactionType<'static>,
     },
-    /// A schema naming no built-in type: an issuer's JSON Schema, or none.
+    /// An entry with neither `schema` nor `schema_uri`.
+    #[error("the type's entry names no schema")]
+    NoSchema,
+    /// A schema naming no built-in type: an issuer's JSON Schema.
     #[error("{schema}: the schema names no built-in type")]
     Schema {
-        /// The schema as written; empty when absent.
+        /// The schema as written.
         schema: String,
     },
     /// `affirmative_action_label` absent.
@@ -57,14 +61,31 @@ pub enum Ts12Unsupported {
     #[error("{field} has no labels")]
     Labels {
         /// The field.
-        field: String,
+        field: FieldPath,
     },
-    /// Claim metadata or UI labels outside TS12's: a path outside the type's field table, a level
-    /// outside 1 to 4, or a display entry without its `lang` and text as strings.
-    #[error("{at}: metadata outside TS12's form")]
-    Metadata {
-        /// The claim's path as written, or the UI element.
-        at: String,
+    /// A claim whose `path` falls outside the type's field table.
+    #[error("{path}: no claim path of the type's field table")]
+    ClaimPath {
+        /// The path as written; the claim itself when it holds none.
+        path: String,
+    },
+    /// A `visualisation` outside TS12 §3.3.1's 1 to 4.
+    #[error("{field}: a level outside 1 to 4")]
+    Level {
+        /// The field.
+        field: FieldPath,
+    },
+    /// A claim's `display` entry without its `lang` and `label` as strings (TS12 §3.3.2).
+    #[error("{field}: a display entry outside TS12's form")]
+    ClaimLabels {
+        /// The field.
+        field: FieldPath,
+    },
+    /// A UI label entry without its `lang` and `value` as strings (TS12 §3.3.3).
+    #[error("{element}: a UI label entry outside TS12's form")]
+    UiLabels {
+        /// The UI element.
+        element: UiKey,
     },
 }
 
@@ -230,8 +251,26 @@ const fn fields(kind: Ts12Type) -> &'static [Field] {
     }
 }
 
-/// The level TS12 §3.3.1 hides.
-const HIDDEN: u64 = 4;
+/// What a claim's `visualisation` asks (TS12 §3.3.1): levels 1 to 3, or none, display; 4 hides.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Level {
+    Displayed,
+    Hidden,
+}
+
+impl Level {
+    fn of(claim: &Node<'_>, field: FieldPath) -> Result<Self, Ts12Unsupported> {
+        match claim.get("visualisation") {
+            None => Ok(Self::Displayed),
+            Some(Node::Number(level)) => match level.as_u64() {
+                Some(1..=3) => Ok(Self::Displayed),
+                Some(4) => Ok(Self::Hidden),
+                _ => Err(Ts12Unsupported::Level { field }),
+            },
+            Some(_) => Err(Ts12Unsupported::Level { field }),
+        }
+    }
+}
 
 /// The type's metadata in PaSO's form, in the claims metadata's order, each field it omits
 /// appended internal.
@@ -239,11 +278,11 @@ const HIDDEN: u64 = 4;
 /// # Errors
 ///
 /// [`Ts12Unsupported`]: the rule of TS12 §3.3 the metadata leaves unmet.
-pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsupported> {
+pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Object<'static>, Ts12Unsupported> {
     let catalogue = entry
         .ui_labels()
         .and_then(Node::as_object)
-        .filter(|labels| labels.get("affirmative_action_label").is_some())
+        .filter(|labels| labels.get(UiKey::AffirmativeActionLabel.name()).is_some())
         .ok_or(Ts12Unsupported::Affirmative)?;
     let table = fields(entry.kind());
     let written = entry.claims().and_then(Node::as_array).unwrap_or(&[]);
@@ -259,7 +298,7 @@ pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsu
         .find(|field| field.shown(Shown::Always) && !labelled(field, written))
     {
         return Err(Ts12Unsupported::Labels {
-            field: unlabelled.path.as_str().to_owned(),
+            field: unlabelled.path,
         });
     }
     for field in table {
@@ -267,23 +306,26 @@ pub fn paso_metadata(entry: &BuiltInEntry<'_>) -> Result<Node<'static>, Ts12Unsu
             claims.push(internal(field.path));
         }
     }
-    let labels = catalogue
-        .members()
-        .iter()
-        .filter(|member| UiKey::of(&member.name).is_some())
-        .map(|member| {
-            let name: &str = &member.name;
-            Ok((
-                Cow::Owned(name.to_owned()),
-                translated_array(&member.value, "value", "value", name)?,
-            ))
-        })
-        .collect::<Result<Vec<_>, Ts12Unsupported>>()?;
-    let ui = Node::object(labels).map_err(|_| metadata_at("ui_labels".to_owned()))?;
-    Ok(Node::Object(known_object! {
+    let ui_label = |element: UiKey| {
+        catalogue
+            .get(element.name())
+            .map(|labels| {
+                translated_array(labels, "value", ui_entry, || Ts12Unsupported::UiLabels {
+                    element,
+                })
+            })
+            .transpose()
+    };
+    let ui = known_object! {
+        "transaction_title" => ui_label(UiKey::TransactionTitle)?,
+        "affirmative_action_label" => ui_label(UiKey::AffirmativeActionLabel)?,
+        "denial_action_label" => ui_label(UiKey::DenialActionLabel)?,
+        "security_hint" => ui_label(UiKey::SecurityHint)?,
+    };
+    Ok(known_object! {
         "claims" => Some(Node::Array(claims)),
-        "ui_labels" => Some(ui),
-    }))
+        "ui_labels" => Some(Node::Object(ui)),
+    })
 }
 
 /// TS12 §3.3.1 over the payload: each field it holds that the claims metadata omits needs labels.
@@ -308,14 +350,8 @@ pub(crate) fn labels_for(
                 .any(|claim| field_path(claim).is_some_and(|path| field.is_at(&path)))
     });
     omitted.map_or(Ok(()), |field| {
-        Err(Ts12Unsupported::Labels {
-            field: field.path.as_str().to_owned(),
-        })
+        Err(Ts12Unsupported::Labels { field: field.path })
     })
-}
-
-const fn metadata_at(at: String) -> Ts12Unsupported {
-    Ts12Unsupported::Metadata { at }
 }
 
 /// Whether the claims metadata holds a `display` array for the field.
@@ -354,82 +390,80 @@ fn translated_claim(
     claim: &Node<'_>,
     table: &'static [Field],
 ) -> Result<(&'static Field, Node<'static>), Ts12Unsupported> {
-    let refused = || {
-        metadata_at(
-            claim
-                .get("path")
-                .map_or_else(String::new, |path| path.json_compact().to_string()),
-        )
+    let outside = || Ts12Unsupported::ClaimPath {
+        path: claim
+            .get("path")
+            .unwrap_or(claim)
+            .json_compact()
+            .to_string(),
     };
-    let path = field_path(claim).ok_or_else(refused)?;
+    let path = field_path(claim).ok_or_else(outside)?;
     let field = table
         .iter()
         .find(|field| field.is_at(&path))
-        .ok_or_else(refused)?;
-    let level = match claim.get("visualisation") {
-        None => None,
-        Some(Node::Number(level)) => Some(
-            level
-                .as_u64()
-                .filter(|level| (1..=HIDDEN).contains(level))
-                .ok_or_else(refused)?,
-        ),
-        Some(_) => return Err(refused()),
-    };
+        .ok_or_else(outside)?;
+    let level = Level::of(claim, field.path)?;
     let display = claim
         .get("display")
         .filter(|display| display.as_array().is_none_or(|labels| !labels.is_empty()));
-    if display.is_none() && field.is_leaf() && level != Some(HIDDEN) {
-        return Err(Ts12Unsupported::Labels {
-            field: field.path.as_str().to_owned(),
-        });
+    if display.is_none() && field.is_leaf() && level != Level::Hidden {
+        return Err(Ts12Unsupported::Labels { field: field.path });
     }
-    let display = display.filter(|_| level != Some(HIDDEN) || field.shown(Shown::Always));
-    let mut out = vec![(Cow::Borrowed("path"), path_node(field.path))];
-    if let Some(display) = display {
-        out.push((
-            Cow::Borrowed("display"),
-            translated_array(display, "label", "name", field.path.as_str())?,
-        ));
-        if let Some(value_type) = field.value_type() {
-            out.push((
-                Cow::Borrowed("value_type"),
-                Node::String(Cow::Borrowed(value_type)),
-            ));
-        }
-    }
-    let translated = Node::object(out).map_err(|_| refused())?;
-    Ok((field, translated))
+    let display = display
+        .filter(|_| level != Level::Hidden || field.shown(Shown::Always))
+        .map(|display| {
+            translated_array(display, "label", claim_entry, || {
+                Ts12Unsupported::ClaimLabels { field: field.path }
+            })
+        })
+        .transpose()?;
+    let value_type = display
+        .as_ref()
+        .and(field.value_type())
+        .map(|value_type| Node::String(Cow::Borrowed(value_type)));
+    Ok((
+        field,
+        Node::Object(known_object! {
+            "path" => Some(path_node(field.path)),
+            "display" => display,
+            "value_type" => value_type,
+        }),
+    ))
 }
 
-/// A label array with `lang` read as `locale`, its tags as TS12 means them, and `text` read as
-/// `paso`'s member; other members, `description` among them, unused.
+/// A claim's label in PaSO's form.
+fn claim_entry(locale: Node<'static>, label: Node<'static>) -> Object<'static> {
+    known_object! { "locale" => Some(locale), "name" => Some(label) }
+}
+
+/// A UI element's label in PaSO's form.
+fn ui_entry(locale: Node<'static>, label: Node<'static>) -> Object<'static> {
+    known_object! { "locale" => Some(locale), "value" => Some(label) }
+}
+
+/// A label array with `lang` read as `locale`, its tags as TS12 means them, and the member `text`
+/// read as `entry` writes it; other members, `description` among them, unused.
 fn translated_array(
     array: &Node<'_>,
     text: &str,
-    paso: &'static str,
-    at: &str,
+    entry: fn(Node<'static>, Node<'static>) -> Object<'static>,
+    refused: impl Fn() -> Ts12Unsupported,
 ) -> Result<Node<'static>, Ts12Unsupported> {
-    let refused = || metadata_at(at.to_owned());
-    let items = array.as_array().ok_or_else(refused)?;
+    let items = array.as_array().ok_or_else(&refused)?;
     let tags = items
         .iter()
         .map(|item| item.get("lang").and_then(Node::as_str))
         .collect::<Option<Vec<_>>>()
-        .ok_or_else(refused)?;
+        .ok_or_else(&refused)?;
     items
         .iter()
         .zip(generic_tags(&tags))
         .map(|(item, tag)| {
-            let label = item.get(text).and_then(Node::as_str).ok_or_else(refused)?;
-            Node::object([
-                (Cow::Borrowed("locale"), Node::String(Cow::Owned(tag))),
-                (
-                    Cow::Borrowed(paso),
-                    Node::String(Cow::Owned(label.to_owned())),
-                ),
-            ])
-            .map_err(|_| refused())
+            let label = item.get(text).and_then(Node::as_str).ok_or_else(&refused)?;
+            Ok(Node::Object(entry(
+                Node::String(Cow::Owned(tag)),
+                Node::String(Cow::Owned(label.to_owned())),
+            )))
         })
         .collect::<Result<Vec<_>, _>>()
         .map(Node::Array)
@@ -438,8 +472,7 @@ fn translated_array(
 /// Each tag as TS12 means it: a tag whose language's generic tag no entry holds takes that generic
 /// tag, the first in order when several regions of one language stand alone. PaSO's Lookup then
 /// reaches the entry from any list naming the language.
-#[must_use]
-pub fn generic_tags(tags: &[&str]) -> Vec<String> {
+fn generic_tags(tags: &[&str]) -> Vec<String> {
     let mut held: Vec<String> = tags.iter().map(|tag| tag.to_ascii_lowercase()).collect();
     tags.iter()
         .map(|tag| {
