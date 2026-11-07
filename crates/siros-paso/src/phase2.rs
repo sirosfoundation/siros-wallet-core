@@ -381,7 +381,7 @@ pub(crate) fn revalidate(
                 Some(Fetch::Fetched { content, media }) => Resolution::Fetched { content, media },
                 Some(Fetch::Unfetched) | None => Resolution::Failed("the fetch failed"),
             };
-            match image::resolve(image.text, image.integrity, resolution) {
+            match image::resolve(image.text, image.integrity, &resolution) {
                 Ok(_) => {}
                 Err(NotCompatible::Image { failure, .. }) => {
                     failed.push(FailedImage {

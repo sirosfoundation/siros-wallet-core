@@ -266,7 +266,7 @@ impl Ts12Profile {
             env,
             bound: self.bound,
             limits: LIMITS,
-            resolve: |url: &str| self.resolution(url),
+            resolve: &|url: &str| self.resolution(url),
         }
         .render();
         let view = match view {

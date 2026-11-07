@@ -112,7 +112,7 @@ where
             Fetch::Unfetched => Resolution::Failed("the fetch failed"),
         };
         let written = Node::String(Cow::Borrowed(integrity));
-        match image::resolve(url.written(), Some(&written), resolution) {
+        match image::resolve(url.written(), Some(&written), &resolution) {
             Ok(_) => Ok(None),
             Err(NotCompatible::Image { failure, .. }) => Ok(Some(Ts12Finding {
                 failed: FailedImage {

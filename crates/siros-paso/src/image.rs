@@ -140,7 +140,7 @@ fn data_url(url: &str) -> Option<(Media, &str)> {
 pub fn resolve<'r>(
     url: &str,
     integrity: Option<&Node<'_>>,
-    resolution: impl FnOnce(&str) -> Resolution<'r>,
+    resolution: &dyn Fn(&str) -> Resolution<'r>,
 ) -> Result<Image, NotCompatible> {
     let refuse = |failure: ImageFailure| NotCompatible::Image {
         url: url.chars().take(60).collect(),

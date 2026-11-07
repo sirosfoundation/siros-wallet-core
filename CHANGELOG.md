@@ -15,6 +15,8 @@ All notable changes to this workspace. The format follows
   `DcApiProtocols::SIGNED`, siros-paso and siros-ts12, CS-02's rules, a host without `CoseEncrypt`
   or `DeviceMac`, over F11 and F12.
 - `siros-paso` opens `render::Request`, `Registered`, `LabelLimits` and `bound` to a second profile.
+  `render::Request` and `image::resolve` take the image resolver as `&dyn Fn(&str) -> Resolution`,
+  so every profile shares one render engine.
 - `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
 - `cargo xtask layout` reads the sources' syntax trees for test code under `src/`,
   message sources, and display literals in the shipped crates, in place of

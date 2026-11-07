@@ -3148,8 +3148,9 @@ impl Profile for Ts12Profile { /* refusals: T1 to T6; members: placement Claims 
 
 siros-ts12 renders through siros-paso. siros-paso opens three seams and holds no TS12 code:
 
-- `render::Request` becomes public with its fields, and gains `limits: LabelLimits`. Its type,
-  family and metadata become one `Registered`. `Registered::of(PasoType, given)` makes one across
+- `render::Request` becomes public with its fields, and gains `limits: LabelLimits`. Its `resolve`
+  is `&dyn Fn(&str) -> Resolution<'r>`, as `image::resolve`'s argument is: every profile shares one
+  engine in a build. Its type, family and metadata become one `Registered`. `Registered::of(PasoType, given)` makes one across
   the crate boundary, and `PasoType::rendered_by(text, family)`, which `PasoType::parse` calls,
   names a profile's own identifier.
 - `LabelLimits { claim_name, title, affirmative, denial, hint }`, each a `NonZeroUsize`, replaces

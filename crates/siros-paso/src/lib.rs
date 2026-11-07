@@ -466,7 +466,7 @@ impl PasoProfile {
             env,
             bound: self.bound,
             limits: LabelLimits::PASO,
-            resolve: |url: &str| self.resolution(url),
+            resolve: &|url: &str| self.resolution(url),
         }
         .render()?;
         let signals = Effective::resolve(given, &self.catalogue)?;
