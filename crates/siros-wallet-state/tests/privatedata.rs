@@ -105,7 +105,7 @@ fn holds(label: &str, text: &str, state: &WalletState, json: &Value) {
             entry.credential_id().to_string(),
             stored["credentialId"].to_string()
         );
-        assert_eq!(entry.format().as_str(), stored["format"]);
+        assert_eq!(entry.format().map(|f| f.as_str()), known("format"));
         assert_eq!(entry.data().as_str(), stored["data"]);
         assert_eq!(entry.key_id().map(|k| k.as_str()), known("kid"));
         assert_eq!(
@@ -158,4 +158,107 @@ fn holds(label: &str, text: &str, state: &WalletState, json: &Value) {
         .collect();
     let key_ids: Vec<&str> = state.key_ids().iter().map(|k| k.as_str()).collect();
     assert_eq!(key_ids, kids, "{label}");
+}
+
+const ENTRY: &str = r#"{"credentialId": 1, "format": "dc+sd-jwt", "data": "", "kid": "",
+    "instanceId": 0, "batchId": 1, "credentialIssuerIdentifier": "",
+    "credentialConfigurationId": ""}"#;
+
+/// `S` of `credentials`, `keypairs` and `presentations`.
+fn state(credentials: &str, keypairs: &str, presentations: &str) -> String {
+    format!(
+        r#"{{"schemaVersion": 4, "credentials": [{credentials}], "keypairs": [{keypairs}], "presentations": [{presentations}]}}"#
+    )
+}
+
+/// One fixture per rule of Section 6 and of JSON objects with unique member names.
+#[test]
+fn each_rule_refuses_its_fixture() {
+    let entry = |edit: &str| ENTRY.replacen(r#""credentialId": 1"#, edit, 1);
+    let metadata = |entries: &str| {
+        let members = format!(r#""metadata": [{entries}], "credentialId": 1"#);
+        state(&entry(&members), "", "")
+    };
+    let record = |seconds: i64| {
+        format!(
+            r#"{{"presentationId": 1, "transactionId": 1, "data": "", "usedCredentialIds": [], "presentationTimestampSeconds": {seconds}, "audience": ""}}"#
+        )
+    };
+    assert!(WalletState::parse(&state(ENTRY, "", &record(0))).is_ok());
+    // Section 6.0 states no non-empty rule on `format`: an unknown one, as its siblings read.
+    let unknown = state(
+        &ENTRY.replace(r#""format": "dc+sd-jwt""#, r#""format": """#),
+        "",
+        "",
+    );
+    let unknown = WalletState::parse(&unknown).unwrap();
+    assert!(unknown.credentials()[0].format().is_none());
+    let rows = [
+        ("no JSON".to_owned(), "state_malformed"),
+        (
+            r#"{"schemaVersion": 4, "schemaVersion": 3, "credentials": [], "keypairs": [], "presentations": []}"#
+                .to_owned(),
+            "state_malformed",
+        ),
+        (
+            r#"{"credentials": [], "keypairs": [], "presentations": []}"#.to_owned(),
+            "schema_version_unsupported",
+        ),
+        (
+            r#"{"schemaVersion": 4, "keypairs": [], "presentations": []}"#.to_owned(),
+            "credentials_malformed",
+        ),
+        (state("1", "", ""), "credential_entry_malformed"),
+        (
+            state(&entry(r#""credentialId": 1, "credentialId": 2"#), "", ""),
+            "credential_entry_malformed",
+        ),
+        (
+            state(&entry(r#""credentialId": "1""#), "", ""),
+            "credential_member_malformed",
+        ),
+        (
+            state(&format!("{ENTRY}, {ENTRY}"), "", ""),
+            "credential_id_repeated",
+        ),
+        (metadata(r#"{"type": "", "value": 1}"#), "metadata_malformed"),
+        (metadata(r#"{"type": "t"}"#), "metadata_malformed"),
+        (
+            metadata(r#"{"type": "t", "type": "u", "value": 1}"#),
+            "metadata_malformed",
+        ),
+        (
+            r#"{"schemaVersion": 4, "credentials": [], "presentations": []}"#.to_owned(),
+            "keypairs_malformed",
+        ),
+        (
+            r#"{"schemaVersion": 4, "credentials": [], "keypairs": []}"#.to_owned(),
+            "presentations_malformed",
+        ),
+        (state("", "", &record(253_402_300_800)), "presentations_malformed"),
+        (
+            state("", "", &record(0).replacen('{', r#"{"x": 1, "x": 2, "#, 1)),
+            "presentations_malformed",
+        ),
+    ];
+    for (text, code) in rows {
+        assert_eq!(
+            WalletState::parse(&text).map(|_| ()).map_err(|e| e.code()),
+            Err(code),
+            "{text}"
+        );
+    }
+}
+
+/// Section 6 keeps every `S.keypairs[]` entry a reader cannot parse; those name no key.
+#[test]
+fn a_keypair_entry_the_reader_cannot_parse_names_no_key() {
+    let text = state(
+        "",
+        r#"1, {"kid": "a", "kid": "b"}, {"kid": 2}, {"kid": "k"}"#,
+        "",
+    );
+    let state = WalletState::parse(&text).unwrap();
+    let key_ids: Vec<&str> = state.key_ids().iter().map(|k| k.as_str()).collect();
+    assert_eq!(key_ids, ["k"]);
 }

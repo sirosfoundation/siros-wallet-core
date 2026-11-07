@@ -154,6 +154,52 @@ fn mode(token: &str) -> (String, Option<String>) {
     device_auth(&read(presentation))
 }
 
+/// RFC 9053 §7.1 keeps X25519 to ECDH, so the key signs nothing: the document carries a device MAC
+/// (ISO/IEC 18013-5 §9.1.3.5) where a Verifier key on its curve agrees one and the Verifier's list
+/// allows it, and no device authentication otherwise.
+#[test]
+fn a_key_that_only_agrees_authenticates_by_mac_alone() {
+    const X25519: &str = r#"{"kty": "OKP", "crv": "X25519", "kid": "reader-x25519", "x": "AA"}"#;
+    let signing_nothing =
+        |curve: &str| issued(&view(-7, curve).replace(r#""device_alg": -7, "#, ""));
+    let listing = |listed: &str| {
+        format!(r#","vp_formats_supported":{{"mso_mdoc":{{"deviceauth_alg_values":{listed}}}}}"#)
+    };
+    let rows = [
+        ("X25519", X25519, String::new(), Some("reader-x25519")),
+        ("X25519", X25519, listing("[-65540]"), Some("reader-x25519")),
+        ("X25519", X25519, listing("[5]"), Some("reader-x25519")),
+        ("X25519", P256, String::new(), None),
+        // A label 3 of no signature algorithm leaves a P-256 key signing nothing.
+        ("P-256", P256, String::new(), Some("reader-p256")),
+        ("P-256", P384, String::new(), None),
+    ];
+    for (curve, keys, supported, macs) in rows {
+        let held = signing_nothing(curve);
+        let metadata = format!(r#"{{"jwks":{{"keys":[{keys}]}}{supported}}}"#);
+        let host = MdocHost::default();
+        match respond(&host, &metadata, &held) {
+            Ok(response) if macs.is_some() => assert_eq!(
+                mode(&response),
+                ("deviceMac".to_owned(), macs.map(str::to_owned)),
+                "{metadata}"
+            ),
+            Err(Outcome::Fallback(findings)) if macs.is_none() => {
+                let [Finding::Format { finding, .. }] = findings.items() else {
+                    panic!("{metadata}: {findings:?}");
+                };
+                let finding: &dyn Any = finding.as_ref();
+                assert_eq!(
+                    finding.downcast_ref::<DeviceAuthRefused>(),
+                    Some(&DeviceAuthRefused::KeyAgreementOnly),
+                    "{metadata}"
+                );
+            }
+            other => panic!("{metadata}: {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn a_build_without_the_device_mac_signs_where_the_verifier_lists_a_signature_and_falls_back_otherwise()
  {

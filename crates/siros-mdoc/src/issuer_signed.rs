@@ -7,6 +7,8 @@ use siros_openid4vp::cbor::cose::{CoseShape, read_sign1};
 use siros_openid4vp::cbor::{self, CborError, Value, embedded};
 use siros_openid4vp::json::Node;
 
+use crate::stored::{DocType, ElementIdentifier, NameSpace};
+
 /// The document key under which a registration holds its IssuerSigned.
 pub const DOCUMENT: &str = "mso_mdoc";
 
@@ -14,14 +16,14 @@ pub const DOCUMENT: &str = "mso_mdoc";
 #[derive(Debug, Clone, PartialEq)]
 struct IssuedItem {
     bytes: Vec<u8>,
-    identifier: String,
+    identifier: ElementIdentifier,
     value: Value,
 }
 
 /// A name space's items as issued.
 #[derive(Debug, Clone, PartialEq)]
 struct IssuedNameSpace {
-    name: String,
+    name: NameSpace,
     items: Vec<IssuedItem>,
 }
 
@@ -31,16 +33,16 @@ struct IssuedNameSpace {
 pub struct IssuerSigned {
     namespaces: Vec<IssuedNameSpace>,
     issuer_auth: CoseSign1,
-    doctype: String,
+    doctype: DocType,
 }
 
 /// An issuer-signed data element a presentation discloses, with the value the view shows.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Disclosed<'a> {
     /// The name space.
-    pub namespace: &'a str,
+    pub namespace: NameSpace,
     /// The data element identifier.
-    pub element: &'a str,
+    pub element: ElementIdentifier,
     /// The value the view shows, which the End-User consented to.
     pub shown: &'a Node<'a>,
 }
@@ -77,25 +79,25 @@ pub enum IssuedError {
     #[error("{namespace}: {element} issued twice")]
     Twice {
         /// The name space.
-        namespace: String,
+        namespace: NameSpace,
         /// The element identifier.
-        element: String,
+        element: ElementIdentifier,
     },
     /// The view discloses an element the issuer did not sign.
     #[error("{namespace}: {element} was not issued")]
     Missing {
         /// The name space.
-        namespace: String,
+        namespace: NameSpace,
         /// The element identifier.
-        element: String,
+        element: ElementIdentifier,
     },
     /// The issued value differs from the view's: the End-User consented to another value.
     #[error("{namespace}: {element}'s issued value is not the view's")]
     Differs {
         /// The name space.
-        namespace: String,
+        namespace: NameSpace,
         /// The element identifier.
-        element: String,
+        element: ElementIdentifier,
     },
 }
 
@@ -150,7 +152,7 @@ impl IssuedItem {
         match (digest_id, random, identifier, value) {
             (true, true, Some(identifier), Some(value)) => Ok(Self {
                 bytes,
-                identifier,
+                identifier: ElementIdentifier::new(&identifier),
                 value,
             }),
             _ => Err(shape("an IssuerSignedItem without its four members")),
@@ -161,7 +163,7 @@ impl IssuedItem {
 impl IssuedNameSpace {
     /// A name space's items, each element identifier once.
     fn read(name: Value, items: Value) -> Result<Self, IssuedError> {
-        let name = text(name, "a name space that is no text")?;
+        let name = NameSpace::new(&text(name, "a name space that is no text")?);
         let Value::Array(items) = items else {
             return Err(shape("a name space's items that are no array"));
         };
@@ -186,7 +188,7 @@ impl IssuedNameSpace {
 
 /// The MSO's `docType`: IssuerAuth's payload is an embedded item holding the MobileSecurityObject
 /// map.
-fn mso_doctype(issuer_auth: &CoseSign1) -> Result<String, IssuedError> {
+fn mso_doctype(issuer_auth: &CoseSign1) -> Result<DocType, IssuedError> {
     let payload = issuer_auth
         .payload
         .as_deref()
@@ -198,7 +200,9 @@ fn mso_doctype(issuer_auth: &CoseSign1) -> Result<String, IssuedError> {
     members
         .into_iter()
         .find_map(|(key, value)| match (key, value) {
-            (Value::Text(key), Value::Text(doctype)) if key == "docType" => Some(doctype),
+            (Value::Text(key), Value::Text(doctype)) if key == "docType" => {
+                Some(DocType::new(&doctype))
+            }
             _ => None,
         })
         .ok_or_else(|| shape("an MSO without a docType text"))
@@ -239,7 +243,7 @@ impl IssuerSigned {
 
     /// The MSO's `docType` (ISO/IEC 18013-5 §9.1.2.4).
     #[must_use]
-    pub fn doctype(&self) -> &str {
+    pub fn doctype(&self) -> &DocType {
         &self.doctype
     }
 
@@ -249,8 +253,8 @@ impl IssuerSigned {
     pub fn disclose(&self, disclosed: &[Disclosed<'_>]) -> Result<Value, IssuedError> {
         let mut spaces: Vec<(Value, Value)> = Vec::new();
         for shown in disclosed {
-            let named = |error: fn(String, String) -> IssuedError| {
-                error(shown.namespace.to_owned(), shown.element.to_owned())
+            let named = |error: fn(NameSpace, ElementIdentifier) -> IssuedError| {
+                error(shown.namespace.clone(), shown.element.clone())
             };
             let item = self
                 .namespaces
@@ -271,7 +275,7 @@ impl IssuerSigned {
                     element,
                 }));
             }
-            let key = Value::Text(shown.namespace.to_owned());
+            let key = Value::Text(shown.namespace.as_str().to_owned());
             let tagged = embedded(item.bytes.clone());
             match spaces.iter_mut().find(|(name, _)| *name == key) {
                 Some((_, Value::Array(items))) => items.push(tagged),

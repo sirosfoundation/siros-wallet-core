@@ -1,10 +1,38 @@
 //! A presentation record: an entry of `S.presentations`, and the record the core returns for
 //! the host to append as a `new_presentation` event (privatedata 3.1, Section 6; H5).
 
+use crate::entry::{object, Members};
 use crate::error::{JsonTextError, PresentationsFault, WalletStateError};
 use crate::ids::{CredentialId, PresentationId, TransactionId};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::de::{DeserializeOwned, Error as _};
+use serde::{Serialize, Serializer};
 use serde_json::value::RawValue;
+
+/// `data`: the presentation as sent, the `vp_token` of an OpenID4VP response.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct PresentationData(String);
+
+impl PresentationData {
+    /// The presentation `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+}
+
+/// `audience`: whom the presentation was sent to.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct Audience(String);
+
+impl Audience {
+    /// The audience `text`.
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self(text)
+    }
+}
 
 /// The members of `new_presentation`. It serialises to them, with
 /// `presentationTimestampSeconds` in seconds since 1970-01-01T00:00:00Z.
@@ -13,14 +41,14 @@ use serde_json::value::RawValue;
 pub struct PresentationRecord {
     presentation_id: PresentationId,
     transaction_id: TransactionId,
-    data: String,
+    data: PresentationData,
     used_credential_ids: Vec<CredentialId>,
     #[serde(
         rename = "presentationTimestampSeconds",
         serialize_with = "unix_seconds"
     )]
     timestamp: Timestamp,
-    audience: String,
+    audience: Audience,
 }
 
 impl PresentationRecord {
@@ -29,10 +57,10 @@ impl PresentationRecord {
     pub fn new(
         presentation_id: PresentationId,
         transaction_id: TransactionId,
-        data: String,
+        data: PresentationData,
         used_credential_ids: Vec<CredentialId>,
         timestamp: Timestamp,
-        audience: String,
+        audience: Audience,
     ) -> Self {
         Self {
             presentation_id,
@@ -51,35 +79,39 @@ impl PresentationRecord {
 
     /// The entry of `S.presentations` that `raw` holds.
     pub(crate) fn parse(raw: &RawValue) -> Result<Self, WalletStateError> {
-        let fault = WalletStateError::Presentations;
-        let stored: Stored = serde_json::from_str(raw.get())
-            .map_err(|error| fault(PresentationsFault::Record(JsonTextError::of(&error))))?;
+        let members = object(raw).map_err(record)?;
+        let seconds: i64 = field(&members, "presentationTimestampSeconds")?;
+        let used_credential_ids: Vec<u64> = field(&members, "usedCredentialIds")?;
         Ok(Self {
-            presentation_id: PresentationId::new(stored.presentation_id),
-            transaction_id: TransactionId::new(stored.transaction_id),
-            data: stored.data,
-            used_credential_ids: stored
-                .used_credential_ids
+            presentation_id: PresentationId::new(field(&members, "presentationId")?),
+            transaction_id: TransactionId::new(field(&members, "transactionId")?),
+            data: PresentationData(field(&members, "data")?),
+            used_credential_ids: used_credential_ids
                 .into_iter()
                 .map(CredentialId::new)
                 .collect(),
-            timestamp: Timestamp::from_unix(stored.presentation_timestamp_seconds)
-                .ok_or(fault(PresentationsFault::Timestamp))?,
-            audience: stored.audience,
+            timestamp: Timestamp::from_unix(seconds).ok_or(WalletStateError::Presentations(
+                PresentationsFault::Timestamp,
+            ))?,
+            audience: Audience(field(&members, "audience")?),
         })
     }
 }
 
-/// An entry of `S.presentations`, as `wallet-frontend` writes it.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Stored {
-    presentation_id: u64,
-    transaction_id: u64,
-    data: String,
-    used_credential_ids: Vec<u64>,
-    presentation_timestamp_seconds: i64,
-    audience: String,
+/// The refusal of a record's text.
+fn record(error: JsonTextError) -> WalletStateError {
+    WalletStateError::Presentations(PresentationsFault::Record(error))
+}
+
+/// The member `name` of a record, as a `T`.
+fn field<T: DeserializeOwned>(
+    members: &Members<'_>,
+    name: &'static str,
+) -> Result<T, WalletStateError> {
+    let raw = members
+        .get(name)
+        .ok_or_else(|| record(JsonTextError::of(&serde_json::Error::missing_field(name))))?;
+    serde_json::from_str(raw.get()).map_err(|error| record(JsonTextError::of(&error)))
 }
 
 fn unix_seconds<S: Serializer>(time: &Timestamp, serializer: S) -> Result<S::Ok, S::Error> {

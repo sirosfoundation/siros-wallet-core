@@ -6,50 +6,54 @@
 use std::borrow::Cow;
 
 use siros_explain::{IntoArg, Kind};
-use siros_openid4vp::json::{JsonError, Node, Number};
+use siros_openid4vp::json::{self, Distinct, Named, Node, Number, RepeatedName};
 
 use crate::alg::Digest;
 use crate::process::ELLIPSIS;
 
 /// A JSON object of the processed payload: its permanently disclosed members in issued order,
 /// then the members its disclosures add, in the order of its `_sd` digests.
-#[derive(Default)]
 pub struct Object {
-    members: Vec<Member>,
+    members: Distinct<Member>,
 }
 
-struct Member {
-    name: String,
-    claim: IssuedClaim,
+/// A member of an [`Object`].
+pub(crate) struct Member {
+    pub(crate) name: String,
+    pub(crate) claim: IssuedClaim,
+}
+
+impl Named for Member {
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl Object {
-    pub(crate) fn push(&mut self, name: String, claim: IssuedClaim) {
-        self.members.push(Member { name, claim });
+    /// The object of these members.
+    pub(crate) fn new(members: Vec<Member>) -> Result<Self, RepeatedName> {
+        Ok(Self {
+            members: Distinct::new(members)?,
+        })
     }
 
     /// The member named `name`.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&IssuedClaim> {
-        self.members
-            .iter()
-            .find(|m| m.name == name)
-            .map(|m| &m.claim)
+        self.members.get(name).map(|m| &m.claim)
     }
 
     /// The members, each with its name.
     pub fn members(&self) -> impl ExactSizeIterator<Item = (&str, &IssuedClaim)> + '_ {
-        self.members.iter().map(|m| (m.name.as_str(), &m.claim))
+        self.members
+            .as_slice()
+            .iter()
+            .map(|m| (m.name.as_str(), &m.claim))
     }
 
     /// The object as JSON, each withheld position an `{"...": digest}` element.
-    pub(crate) fn node(&self) -> Result<Node<'static>, JsonError> {
-        Node::object(
-            self.members
-                .iter()
-                .map(|m| Ok((Cow::Owned(m.name.clone()), m.claim.value.node()?)))
-                .collect::<Result<Vec<_>, JsonError>>()?,
-        )
+    pub(crate) fn node(&self) -> Node<'static> {
+        Node::Object(self.members.object(|m| m.claim.value.node()))
     }
 }
 
@@ -94,8 +98,8 @@ pub enum ClaimValue {
 }
 
 impl ClaimValue {
-    fn node(&self) -> Result<Node<'static>, JsonError> {
-        Ok(match self {
+    fn node(&self) -> Node<'static> {
+        match self {
             Self::Null => Node::Null,
             Self::Bool(value) => Node::Bool(*value),
             Self::Number(number) => Node::Number(number.clone()),
@@ -105,15 +109,15 @@ impl ClaimValue {
                     .iter()
                     .map(|element| match element {
                         Element::Present(claim) => claim.value.node(),
-                        Element::Withheld(digest) => Node::object([(
+                        Element::Withheld(digest) => Node::Object(json::Object::single(
                             Cow::Borrowed(ELLIPSIS),
                             Node::String(Cow::Owned(digest.as_str().to_owned())),
-                        )]),
+                        )),
                     })
-                    .collect::<Result<_, _>>()?,
+                    .collect(),
             ),
-            Self::Object(object) => object.node()?,
-        })
+            Self::Object(object) => object.node(),
+        }
     }
 }
 

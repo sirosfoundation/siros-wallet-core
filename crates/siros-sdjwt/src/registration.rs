@@ -7,11 +7,17 @@ use std::borrow::Cow;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, merge_metadata};
+use siros_openid4vp::ids::CredentialType;
 use siros_openid4vp::json::{self, JsonError, Node};
-use siros_openid4vp::wallet::Holder;
+use siros_openid4vp::known_object;
+use siros_openid4vp::request::Curve;
+use siros_openid4vp::wallet::{DocumentBytes, Holder, ViewBytes};
 
-use crate::error::{HolderKeyFault, RegistrationError};
-use crate::sd_jwt::SdJwt;
+use crate::alg::SigningAlg;
+use crate::error::{
+    HolderKeyFault, JwkCoordinate, PermanentClaim, RegistrationError, ValidityClaim,
+};
+use crate::sd_jwt::{JwtType, SdJwt};
 use crate::tree::{ClaimValue, Element, IssuedClaim, Object};
 use crate::type_metadata;
 
@@ -23,35 +29,33 @@ pub const DOCUMENT: &str = "dc+sd-jwt";
 /// `rendering.simple`.
 const SIMPLE_RENDERING: [&str; 3] = ["logo", "background_color", "text_color"];
 
-/// The registered claims no disclosure holds, sub-claims included (SD-JWT VC §3.2.2).
-const PERMANENT: [&str; 8] = [
-    "iss",
-    "nbf",
-    "exp",
-    "cnf",
-    "vct",
-    "vct#integrity",
-    "aka_vcts",
-    "status",
-];
+/// Whether the wallet loaded the `display` of [`Resolved::view_metadata`]'s document as a defined
+/// module ([`type_metadata::convert`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DisplayModule {
+    /// It did, so the view names the module when something states metadata.
+    Loaded,
+    /// It did not.
+    #[default]
+    NotLoaded,
+}
 
 /// What the wallet resolved beside the issued SD-JWT.
 #[derive(Debug, Clone, Default)]
 pub struct Resolved<'a> {
     /// The effective Type Metadata of the credential's type ([`crate::type_metadata`]); `None`
     /// when its issuer publishes none.
-    pub metadata: Option<Node<'a>>,
+    pub metadata: Option<json::Object<'a>>,
     /// What OpenID4VCI states of the credential's display, which follows the Type Metadata per
     /// language.
     pub issued: IssuedMetadata<'a>,
-    /// Whether the wallet loaded [`Resolved::view_metadata`]'s `display` as a defined module
-    /// ([`type_metadata::convert`]), so the view names it.
-    pub display_loaded: bool,
+    /// Whether the view names [`Resolved::view_metadata`]'s `display` as a defined module.
+    pub display: DisplayModule,
     /// Each type the credential's type extends, nearest first (§6.4).
-    pub extends: Vec<&'a str>,
+    pub extends: Vec<CredentialType<'a>>,
     /// The curve of the issuer's key: RFC 7518 §3.4 and RFC 9864 fix it for each JWS algorithm but
     /// `EdDSA`, whose key the wallet's x5c resolution read.
-    pub issuer_curve: Option<&'a str>,
+    pub issuer_curve: Option<Curve<'a>>,
 }
 
 impl Resolved<'_> {
@@ -61,7 +65,7 @@ impl Resolved<'_> {
     /// # Errors
     ///
     /// [`RegistrationError::Metadata`]: the merge's rule they break.
-    pub fn view_metadata(&self) -> Result<Node<'static>, RegistrationError> {
+    pub fn view_metadata(&self) -> Result<json::Object<'static>, RegistrationError> {
         Ok(merge_metadata::<TypeMetadataShape>(
             self.metadata.as_ref(),
             &self.issued,
@@ -110,12 +114,12 @@ impl Registered {
     /// claims make no view.
     pub fn of(issued: &str, resolved: &Resolved<'_>) -> Result<Self, RegistrationError> {
         let sd_jwt = SdJwt::parse(issued)?;
-        if sd_jwt.typ() != Some(DOCUMENT) {
+        if sd_jwt.typ().map(JwtType::as_str) != Some(DOCUMENT) {
             return Err(RegistrationError::Typ);
         }
-        if let Some(claim) = PERMANENT
+        if let Some(claim) = PermanentClaim::ALL
             .into_iter()
-            .find(|claim| sd_jwt.claims().get(claim).is_some_and(disclosed))
+            .find(|claim| sd_jwt.claims().get(claim.name()).is_some_and(disclosed))
         {
             return Err(RegistrationError::SelectivelyDisclosed(claim));
         }
@@ -134,14 +138,14 @@ impl Registered {
     /// The view: `{"type", "metadata", "values", "issuer"?, "alg", "curve"?, "key_alg"?,
     /// "key_curve"?, "extends"?, "validity"?, "issuer_display"?, "display_module"?}`.
     #[must_use]
-    pub fn view(&self) -> &[u8] {
-        &self.view
+    pub fn view(&self) -> ViewBytes<'_> {
+        ViewBytes::new(&self.view)
     }
 
     /// The document, under [`DOCUMENT`].
     #[must_use]
-    pub fn document(&self) -> &[u8] {
-        &self.document
+    pub fn document(&self) -> DocumentBytes<'_> {
+        DocumentBytes::new(&self.document)
     }
 
     /// The credential's `Facts::holder`: `cnf` binds it to a key. Phase 2 refuses a credential
@@ -177,42 +181,45 @@ fn view(sd_jwt: &SdJwt, resolved: &Resolved<'_>) -> Result<Node<'static>, Regist
     let stated = resolved.metadata.is_some()
         || resolved.issued.configuration.is_some()
         || resolved.issued.response.is_some();
-    let module = (resolved.display_loaded && stated).then(|| type_metadata::module_of(&metadata));
-    let mut members: Vec<(Cow<'static, str>, Node<'static>)> = vec![
-        ("type".into(), text(kind)),
-        ("metadata".into(), metadata),
-        ("values".into(), sd_jwt.values()?),
-    ];
-    if let Some(iss) = claims.get("iss") {
-        let iss = string(Some(iss)).ok_or(RegistrationError::Iss)?;
-        members.push(("issuer".into(), text(iss)));
-    }
-    members.push(("alg".into(), text(sd_jwt.signing_alg())));
-    if let Some(curve) = issuer_curve(sd_jwt.signing_alg(), resolved.issuer_curve)? {
-        members.push(("curve".into(), text(curve)));
-    }
-    if let Some((alg, curve)) = holder_key(claims)? {
-        members.push(("key_alg".into(), text(alg)));
-        members.push(("key_curve".into(), text(curve)));
-    }
-    if !resolved.extends.is_empty() {
-        let extends = resolved.extends.iter().map(|kind| text(kind)).collect();
-        members.push(("extends".into(), Node::Array(extends)));
-    }
-    if let Some(validity) = validity(claims)? {
-        members.push(("validity".into(), validity));
-    }
-    members.extend(resolved.issued.issuer_display_member()?);
-    if let Some(digest) = module {
+    let display_module = (resolved.display == DisplayModule::Loaded && stated).then(|| {
+        let digest = type_metadata::module_of(&metadata);
         let hex: String = digest
             .digest()
             .bytes()
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        members.push(("display_module".into(), text(&hex)));
-    }
-    Ok(Node::object(members)?)
+        text(&hex)
+    });
+    let issuer = match claims.get("iss") {
+        None => None,
+        Some(iss) => Some(string(Some(iss)).ok_or(RegistrationError::Iss)?),
+    };
+    let curve = issuer_curve(sd_jwt.signing_alg(), resolved.issuer_curve)?;
+    let (key_alg, key_curve) = holder_key(claims)?.unzip();
+    let extends = (!resolved.extends.is_empty()).then(|| {
+        Node::Array(
+            resolved
+                .extends
+                .iter()
+                .map(|kind| text(kind.as_str()))
+                .collect(),
+        )
+    });
+    Ok(Node::Object(known_object! {
+        "type" => Some(text(kind)),
+        "metadata" => Some(Node::Object(metadata)),
+        "values" => Some(sd_jwt.values()),
+        "issuer" => issuer.map(text),
+        "alg" => Some(text(sd_jwt.signing_alg().as_str())),
+        "curve" => curve.map(|curve| text(curve.as_str())),
+        "key_alg" => key_alg.map(text),
+        "key_curve" => key_curve.map(text),
+        "extends" => extends,
+        "validity" => validity(claims)?,
+        "issuer_display" => resolved.issued.issuer_display_member()?,
+        "display_module" => display_module,
+    }))
 }
 
 fn string(claim: Option<&IssuedClaim>) -> Option<&str> {
@@ -237,13 +244,13 @@ fn fixed_curve(alg: &str) -> Option<&'static str> {
 
 /// The curve of the issuer's key: the one its algorithm fixes, else the one the wallet resolved.
 fn issuer_curve<'a>(
-    alg: &str,
-    resolved: Option<&'a str>,
-) -> Result<Option<&'a str>, RegistrationError> {
-    match (fixed_curve(alg), resolved) {
+    alg: &SigningAlg,
+    resolved: Option<Curve<'a>>,
+) -> Result<Option<Curve<'a>>, RegistrationError> {
+    match (fixed_curve(alg.as_str()).and_then(Curve::new), resolved) {
         (Some(fixed), Some(curve)) if fixed != curve => Err(RegistrationError::IssuerCurve {
-            alg: alg.to_owned(),
-            curve: curve.to_owned(),
+            alg: alg.clone(),
+            curve: curve.into(),
         }),
         (Some(fixed), _) => Ok(Some(fixed)),
         (None, curve) => Ok(curve),
@@ -254,7 +261,7 @@ fn issuer_curve<'a>(
 /// JWS algorithm (RFC 7518 §3.4, §6.2.1.2; RFC 8037 §2, §3.1; RFC 8812 §3.1).
 struct KeyShape {
     kty: &'static str,
-    coordinates: &'static [&'static str],
+    coordinates: &'static [JwkCoordinate],
     size: usize,
     alg: &'static str,
 }
@@ -264,13 +271,13 @@ impl KeyShape {
     fn of(curve: &str) -> Option<Self> {
         let elliptic = |size, alg| Self {
             kty: "EC",
-            coordinates: &["x", "y"],
+            coordinates: &[JwkCoordinate::X, JwkCoordinate::Y],
             size,
             alg,
         };
         let edwards = |size| Self {
             kty: "OKP",
-            coordinates: &["x"],
+            coordinates: &[JwkCoordinate::X],
             size,
             alg: "EdDSA",
         };
@@ -315,9 +322,9 @@ fn holder_key(claims: &Object) -> Result<Option<(&str, &str)>, HolderKeyFault> {
     if let Some(name) = shape
         .coordinates
         .iter()
-        .find(|name| !shape.holds(string(jwk.get(name))))
+        .find(|coordinate| !shape.holds(string(jwk.get(coordinate.name()))))
     {
-        return Err(HolderKeyFault::Coordinate(name));
+        return Err(HolderKeyFault::Coordinate(*name));
     }
     let alg = match jwk.get("alg") {
         None => shape.alg,
@@ -329,24 +336,28 @@ fn holder_key(claims: &Object) -> Result<Option<(&str, &str)>, HolderKeyFault> {
 }
 
 /// `{"not_before": nbf, "not_after": exp}`, each a NumericDate as the issuer wrote it (SD-JWT VC
-/// §3.2.2.2, RFC 7519 §2), which a finite double holds; `None` when the issuer states neither.
+/// §3.2.2.2, RFC 7519 §2), which a finite double holds. `None` when the processed payload states
+/// neither: SD-JWT VC makes both optional, and RFC 9901 §9.7 leaves which validity claims a
+/// credential needs to the operating environment's rules, which the wallet applies with
+/// `Platform::usable` (§7.1, step 6). A digest with no disclosure hides no claim this view could
+/// report: a decoy (§4.2.5) reads the same, and [`PermanentClaim`] refuses `exp` and `nbf` once
+/// they are disclosed.
 fn validity(claims: &Object) -> Result<Option<Node<'static>>, RegistrationError> {
-    let date = |name: &'static str| -> Result<Option<Node<'static>>, RegistrationError> {
-        match claims.get(name).map(IssuedClaim::value) {
+    let date = |claim: ValidityClaim| -> Result<Option<Node<'static>>, RegistrationError> {
+        match claims.get(claim.name()).map(IssuedClaim::value) {
             None => Ok(None),
             Some(ClaimValue::Number(number)) if number.to_double().is_some_and(f64::is_finite) => {
                 Ok(Some(Node::Number(number.clone())))
             }
-            Some(_) => Err(RegistrationError::Validity(name)),
+            Some(_) => Err(RegistrationError::Validity(claim)),
         }
     };
-    let members: Vec<(Cow<'static, str>, Node<'static>)> =
-        [("not_before", date("nbf")?), ("not_after", date("exp")?)]
-            .into_iter()
-            .filter_map(|(name, value)| Some((Cow::Borrowed(name), value?)))
-            .collect();
-    if members.is_empty() {
+    let (not_before, not_after) = (date(ValidityClaim::Nbf)?, date(ValidityClaim::Exp)?);
+    if not_before.is_none() && not_after.is_none() {
         return Ok(None);
     }
-    Ok(Some(Node::object(members)?))
+    Ok(Some(Node::Object(known_object! {
+        "not_before" => not_before,
+        "not_after" => not_after,
+    })))
 }

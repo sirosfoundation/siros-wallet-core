@@ -16,8 +16,6 @@ const AUXILIARY_DATA: &str = "auxiliary_data";
 /// `metadata` can state.
 pub(super) const ISSUER_DISPLAY: &str = "issuer_display";
 
-type Members = Vec<(Cow<'static, str>, Node<'static>)>;
-
 /// What OpenID4VCI states of a credential's display, as the wallet received it.
 #[derive(Debug, Clone, Default)]
 pub struct IssuedMetadata<'a> {
@@ -25,28 +23,24 @@ pub struct IssuedMetadata<'a> {
     /// of its entry for the wallet's locales before the view's `issuer`.
     pub issuer_display: Option<Node<'a>>,
     /// The `credential_metadata` of the credential's configuration (§12.2.4).
-    pub configuration: Option<Node<'a>>,
+    pub configuration: Option<Object<'a>>,
     /// The Credential Response's `credential_metadata`.
-    pub response: Option<Node<'a>>,
+    pub response: Option<Object<'a>>,
 }
 
 impl IssuedMetadata<'_> {
-    /// The view's member holding [`IssuedMetadata::issuer_display`]; `None` when absent.
+    /// The value of the view's `issuer_display` member, [`IssuedMetadata::issuer_display`] without
+    /// secrets; `None` when absent.
     ///
     /// # Errors
     ///
     /// [`MergeError`]: the display is no array of objects tagged with language tags.
-    pub fn issuer_display_member(
-        &self,
-    ) -> Result<Option<(Cow<'static, str>, Node<'static>)>, MergeError> {
+    pub fn issuer_display_member(&self) -> Result<Option<Node<'static>>, MergeError> {
         let Some(display) = &self.issuer_display else {
             return Ok(None);
         };
         tagged_entries(display)?;
-        Ok(Some((
-            Cow::Borrowed(ISSUER_DISPLAY),
-            without_secrets(display)?,
-        )))
+        Ok(Some(without_secrets(display)))
     }
 }
 
@@ -69,15 +63,6 @@ pub trait IssuedShape {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 #[explain(domain = "openid4vp.claims_kit.merge")]
 pub enum MergeError {
-    /// The format's display document is no object.
-    #[error("the format's display metadata is no object")]
-    FormatNotObject,
-    /// The configuration's `credential_metadata` is no object.
-    #[error("the configuration's credential_metadata is no object")]
-    ConfigurationNotObject,
-    /// The Credential Response's `credential_metadata` is no object.
-    #[error("the Credential Response's credential_metadata is no object")]
-    ResponseNotObject,
     /// The configuration's `credential_metadata` publishes delivered secrets.
     #[error("the configuration's credential_metadata holds auxiliary_data")]
     AuxiliaryDataPublished,
@@ -118,104 +103,74 @@ pub enum MergeError {
 ///
 /// [`MergeError`]: the first rule the inputs break.
 pub fn merge_metadata<S: IssuedShape>(
-    format: Option<&Node<'_>>,
+    format: Option<&Object<'_>>,
     issued: &IssuedMetadata<'_>,
-) -> Result<Node<'static>, MergeError> {
-    let format = format
-        .map(|document| {
-            let document = document.as_object().ok_or(MergeError::FormatNotObject)?;
-            Ok::<_, MergeError>(members_without_secrets(document)?)
-        })
-        .transpose()?;
-    let credential = issued_members::<S>(issued)?;
-    let members = match (format, credential) {
-        (None, None) => Members::new(),
+) -> Result<Object<'static>, MergeError> {
+    let format = format.map(object_without_secrets);
+    match (format, issued_object::<S>(issued)?) {
+        (None, None) => Ok(Object::default()),
         (Some(one), None) | (None, Some(one)) => {
-            check(&Node::object(one.clone())?)?;
-            one
+            check(&one)?;
+            Ok(one)
         }
         (Some(format), Some(credential)) => {
-            let (format, credential) = (Node::object(format)?, Node::object(credential)?);
             check(&format)?;
             check(&credential)?;
-            combined(&format, &credential, S::LABEL)?
+            combined(&format, &credential, S::LABEL)
         }
-    };
-    Ok(Node::object(members)?)
-}
-
-/// `node` with each object member named [`AUXILIARY_DATA`] left out, at every depth.
-fn without_secrets(node: &Node<'_>) -> Result<Node<'static>, JsonError> {
-    match node {
-        Node::Object(object) => Node::object(members_without_secrets(object)?),
-        Node::Array(items) => items
-            .iter()
-            .map(without_secrets)
-            .collect::<Result<Vec<_>, _>>()
-            .map(Node::Array),
-        scalar => Ok(scalar.clone().into_owned()),
     }
 }
 
-fn members_without_secrets(object: &Object<'_>) -> Result<Members, JsonError> {
-    object
-        .members()
-        .iter()
-        .filter(|member| member.name != AUXILIARY_DATA)
-        .map(|member| {
-            Ok((
+/// `node` with each object member named [`AUXILIARY_DATA`] left out, at every depth.
+fn without_secrets(node: &Node<'_>) -> Node<'static> {
+    match node {
+        Node::Object(object) => Node::Object(object_without_secrets(object)),
+        Node::Array(items) => Node::Array(items.iter().map(without_secrets).collect()),
+        scalar => scalar.clone().into_owned(),
+    }
+}
+
+fn object_without_secrets(object: &Object<'_>) -> Object<'static> {
+    let mut kept = Object::default();
+    for member in object.members() {
+        if member.name != AUXILIARY_DATA {
+            kept.set(
                 Cow::Owned(member.name.to_string()),
-                without_secrets(&member.value)?,
-            ))
-        })
-        .collect()
+                without_secrets(&member.value),
+            );
+        }
+    }
+    kept
 }
 
 /// The configuration's members with the response's over them, in the format's shape; `None` when
 /// OpenID4VCI states neither.
-fn issued_members<S: IssuedShape>(
+fn issued_object<S: IssuedShape>(
     issued: &IssuedMetadata<'_>,
-) -> Result<Option<Members>, MergeError> {
-    let configuration = issued
-        .configuration
-        .as_ref()
-        .map(|metadata| {
-            metadata
-                .as_object()
-                .ok_or(MergeError::ConfigurationNotObject)
-        })
-        .transpose()?;
-    let response = issued
-        .response
-        .as_ref()
-        .map(|metadata| metadata.as_object().ok_or(MergeError::ResponseNotObject))
-        .transpose()?;
+) -> Result<Option<Object<'static>>, MergeError> {
+    let (configuration, response) = (issued.configuration.as_ref(), issued.response.as_ref());
     if configuration.is_some_and(|metadata| metadata.get(AUXILIARY_DATA).is_some()) {
         return Err(MergeError::AuxiliaryDataPublished);
     }
     if configuration.is_none() && response.is_none() {
         return Ok(None);
     }
-    let mut members = configuration.map_or_else(|| Ok(Members::new()), members_without_secrets)?;
-    let stated = response.map_or_else(|| Ok(Members::new()), members_without_secrets)?;
-    for (name, value) in stated {
-        match members.iter_mut().find(|(held, _)| *held == name) {
-            Some(held) => held.1 = value,
-            None => members.push((name, value)),
+    let mut merged = configuration.map_or_else(Object::default, object_without_secrets);
+    if let Some(response) = response {
+        for member in object_without_secrets(response).members() {
+            merged.set(member.name.clone(), member.value.clone());
         }
     }
-    members
-        .into_iter()
-        .map(|(name, value)| {
-            let value = match name.as_ref() {
-                "display" => each_object(&value, S::entry)?,
-                "claims" => each_object(&value, claim_in_shape::<S>)?,
-                _ => value,
-            };
-            Ok((name, value))
-        })
-        .collect::<Result<Members, MergeError>>()
-        .map(Some)
+    let mut shaped = Object::default();
+    for member in merged.members() {
+        let value = match member.name.as_ref() {
+            "display" => each_object(&member.value, S::entry)?,
+            "claims" => each_object(&member.value, claim_in_shape::<S>)?,
+            _ => member.value.clone(),
+        };
+        shaped.set(member.name.clone(), value);
+    }
+    Ok(Some(shaped))
 }
 
 /// An array with `shape` applied to each object; any other value as it stands, which [`check`]
@@ -275,7 +230,7 @@ fn renamed(entry: &Node<'static>, label: &'static str) -> Result<Node<'static>, 
 
 /// The arrays the kit and a merge read: `display` and each claim's a list of objects tagged with
 /// language tags, each claim with a pointer.
-fn check(document: &Node<'_>) -> Result<(), MergeError> {
+fn check(document: &Object<'_>) -> Result<(), MergeError> {
     document.get("display").map_or(Ok(()), tagged_entries)?;
     let Some(claims) = document.get("claims") else {
         return Ok(());
@@ -321,21 +276,19 @@ fn path_of<'n>(claim: &'n Node<'_>) -> Option<ClaimPath<'n>> {
 }
 
 /// The format's document with OpenID4VCI's after it, both read by [`check`].
-fn combined(format: &Node<'_>, issued: &Node<'_>, label: &str) -> Result<Members, MergeError> {
-    let list = |document: &'_ Node<'_>, name: &str| -> Vec<Node<'static>> {
+fn combined(
+    format: &Object<'static>,
+    issued: &Object<'static>,
+    label: &str,
+) -> Result<Object<'static>, MergeError> {
+    fn list(document: &Object<'static>, name: &str) -> Vec<Node<'static>> {
         document
             .get(name)
             .and_then(Node::as_array)
-            .map_or_else(Vec::new, |items| {
-                items.iter().map(|item| item.clone().into_owned()).collect()
-            })
-    };
-    let (shared, stated) = (
-        format.as_object().map_or(&[][..], Object::members),
-        issued.as_object().map_or(&[][..], Object::members),
-    );
-    let mut members = Members::new();
-    for member in shared {
+            .map_or_else(Vec::new, <[Node<'static>]>::to_vec)
+    }
+    let mut merged = Object::default();
+    for member in format.members() {
         let value = match member.name.as_ref() {
             "display" => Node::Array(per_language(
                 &list(format, "display"),
@@ -347,19 +300,16 @@ fn combined(format: &Node<'_>, issued: &Node<'_>, label: &str) -> Result<Members
                 &list(issued, "claims"),
                 label,
             )?),
-            _ => member.value.clone().into_owned(),
+            _ => member.value.clone(),
         };
-        members.push((Cow::Owned(member.name.to_string()), value));
+        merged.set(member.name.clone(), value);
     }
-    for member in stated {
+    for member in issued.members() {
         if format.get(&member.name).is_none() {
-            members.push((
-                Cow::Owned(member.name.to_string()),
-                member.value.clone().into_owned(),
-            ));
+            merged.set(member.name.clone(), member.value.clone());
         }
     }
-    Ok(members)
+    Ok(merged)
 }
 
 /// The format's claims, each with the display of OpenID4VCI's claim of the same pointer after its
@@ -397,25 +347,21 @@ fn one_claim(
             .map_or_else(Vec::new, <[Node<'static>]>::to_vec)
     };
     let merged = per_language(&display(claim), &display(other), label)?;
-    let mut members: Members = claim
-        .as_object()
-        .map_or(&[][..], Object::members)
-        .iter()
-        .filter(|member| member.name != "display")
-        .map(|member| (member.name.clone(), member.value.clone()))
-        .collect();
-    members.extend(
-        other
-            .as_object()
-            .map_or(&[][..], Object::members)
-            .iter()
-            .filter(|member| member.name != "display" && claim.get(&member.name).is_none())
-            .map(|member| (member.name.clone(), member.value.clone())),
-    );
-    if !merged.is_empty() {
-        members.push((Cow::Borrowed("display"), Node::Array(merged)));
+    let mut members = Object::default();
+    for member in claim.as_object().map_or(&[][..], Object::members) {
+        if member.name != "display" {
+            members.set(member.name.clone(), member.value.clone());
+        }
     }
-    Ok(Node::object(members)?)
+    for member in other.as_object().map_or(&[][..], Object::members) {
+        if member.name != "display" && claim.get(&member.name).is_none() {
+            members.set(member.name.clone(), member.value.clone());
+        }
+    }
+    if !merged.is_empty() {
+        members.set(Cow::Borrowed("display"), Node::Array(merged));
+    }
+    Ok(Node::Object(members))
 }
 
 /// The format's entries stating `text`, then the OpenID4VCI entries of a language those do not

@@ -4176,7 +4176,7 @@ pub struct DateTime { date: Date, clock: Clock, offset: Option<Offset> }
   (`ConvertError`), and each tag's typed arguments format as the main module's entry RFC 4647 Lookup
   finds for the tag (`MainLocale`). PaSO View's display types, value types, templates and
   `mini_markdown` parser sit in siros-paso; the core holds no PaSO token (I6). siros-sdjwt loads a
-  type metadata document's `display` as a module of the same form (`Resolved::display_loaded`, a
+  type metadata document's `display` as a module of the same form (`Resolved::display`, a
   registration's opt-in), which the claims kit's `ClaimsFormat::display_module` names and
   `FormatQuery::card_module` hands the rendering.
 
@@ -6242,7 +6242,7 @@ credential whose fact and document disagree. `SigningAlg` holds the `alg` of the
 and of the Key Binding JWT: `none` and the MAC algorithms make no value.
 
 The view's `display_module` names a type metadata document the wallet loaded
-(`Resolved::display_loaded`). `ClaimsFormat::display_module`, `FormatQuery::card_module` and
+(`Resolved::display`). `ClaimsFormat::display_module`, `FormatQuery::card_module` and
 `EntryView::card_module` carry it to `Rendering::renderer`. `ClaimsFormat::withheld` names an array
 element that holds no value, `{"...": digest}` here, which a claims path walks past at its position.
 

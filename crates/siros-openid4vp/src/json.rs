@@ -218,6 +218,19 @@ impl<'a> Object<'a> {
         }
     }
 
+    /// The member of that name takes `value`, in its place; a new name comes last.
+    pub fn set(&mut self, name: Cow<'a, str>, value: Node<'a>) {
+        match self.0.iter_mut().find(|member| member.name == name) {
+            Some(member) => member.value = value,
+            None => self.0.push(Member { name, value }),
+        }
+    }
+
+    /// The object without the members `keep` refuses.
+    pub fn retain(&mut self, mut keep: impl FnMut(&Member<'a>) -> bool) {
+        self.0.retain(|member| keep(member));
+    }
+
     /// The object, owning its names, strings and number texts.
     #[must_use]
     pub fn into_owned(self) -> Object<'static> {
@@ -253,9 +266,21 @@ impl<'a> Object<'a> {
     }
 }
 
+/// What a [`Distinct`] tells its values apart by.
+pub trait Named {
+    /// The name.
+    fn name(&self) -> &str;
+}
+
+impl Named for Member<'_> {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 /// The first repeated name in code point order, which is the order of the UTF-8 bytes.
-fn first_repeated<'m>(members: &'m [Member<'_>]) -> Option<&'m str> {
-    let mut names: Vec<&str> = members.iter().map(|member| member.name.as_ref()).collect();
+fn first_repeated<T: Named>(values: &[T]) -> Option<&str> {
+    let mut names: Vec<&str> = values.iter().map(T::name).collect();
     names.sort_unstable();
     names.windows(2).find_map(|pair| match pair {
         [a, b] if a == b => Some(*a),
@@ -263,6 +288,173 @@ fn first_repeated<'m>(members: &'m [Member<'_>]) -> Option<&'m str> {
     })
 }
 
+/// A name a [`Distinct`] was given twice.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[explain(domain = "openid4vp.json", id = "repeated_name")]
+#[error("the name {name} repeats")]
+pub struct RepeatedName {
+    /// The name.
+    pub name: String,
+}
+
+/// Values of distinct names, in their order. Each writes an [`Object`] member without a second
+/// check of its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Distinct<T>(Vec<T>);
+
+impl<T> Default for Distinct<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl<T> Distinct<T> {
+    /// Values whose names a parser already holds distinct.
+    #[cfg(feature = "cbor")]
+    pub(crate) fn known(values: Vec<T>) -> Self {
+        Self(values)
+    }
+}
+
+impl<T: Named> Distinct<T> {
+    /// These values in their order.
+    ///
+    /// # Errors
+    ///
+    /// [`RepeatedName`]: the first repeated name in code point order.
+    pub fn new(values: Vec<T>) -> Result<Self, RepeatedName> {
+        match first_repeated(&values) {
+            Some(name) => Err(RepeatedName {
+                name: name.to_owned(),
+            }),
+            None => Ok(Self(values)),
+        }
+    }
+
+    /// The values in their order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[T] {
+        &self.0
+    }
+
+    /// The value of that name.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&T> {
+        self.0.iter().find(|value| value.name() == name)
+    }
+
+    /// The object of a member per value, under the value's name.
+    #[must_use]
+    pub fn object<'a>(&self, mut value: impl FnMut(&T) -> Node<'a>) -> Object<'a> {
+        Object(
+            self.0
+                .iter()
+                .map(|item| Member {
+                    name: Cow::Owned(item.name().to_owned()),
+                    value: value(item),
+                })
+                .collect(),
+        )
+    }
+
+    /// The object of a member per value, under the value's name.
+    ///
+    /// # Errors
+    ///
+    /// The first error of `value`.
+    pub fn try_object<'a, E>(
+        &self,
+        mut value: impl FnMut(&T) -> Result<Node<'a>, E>,
+    ) -> Result<Object<'a>, E> {
+        self.0
+            .iter()
+            .map(|item| {
+                Ok(Member {
+                    name: Cow::Owned(item.name().to_owned()),
+                    value: value(item)?,
+                })
+            })
+            .collect::<Result<Vec<_>, E>>()
+            .map(Object)
+    }
+}
+
+/// Member names the build checked distinct: `known_object!` makes one, each name beside its value.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy)]
+pub struct FieldNames<const N: usize>([&'static str; N]);
+
+impl<const N: usize> FieldNames<N> {
+    /// These names; `None` when one repeats.
+    #[must_use]
+    pub const fn new(names: [&'static str; N]) -> Option<Self> {
+        if any_repeats(&names) {
+            return None;
+        }
+        Some(Self(names))
+    }
+
+    /// The object of a member per value present, each under the name at its position, in that
+    /// order.
+    #[must_use]
+    pub fn object<'a>(&self, values: [Option<Node<'a>>; N]) -> Object<'a> {
+        Object(
+            self.0
+                .into_iter()
+                .zip(values)
+                .filter_map(|(name, value)| {
+                    Some(Member {
+                        name: Cow::Borrowed(name),
+                        value: value?,
+                    })
+                })
+                .collect(),
+        )
+    }
+}
+
+const fn any_repeats(names: &[&str]) -> bool {
+    match names {
+        [] => false,
+        [first, rest @ ..] => holds(rest, first.as_bytes()) || any_repeats(rest),
+    }
+}
+
+const fn holds(names: &[&str], name: &[u8]) -> bool {
+    match names {
+        [] => false,
+        [first, rest @ ..] => same_bytes(first.as_bytes(), name) || holds(rest, name),
+    }
+}
+
+const fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    match (a, b) {
+        ([], []) => true,
+        ([x, a @ ..], [y, b @ ..]) => *x == *y && same_bytes(a, b),
+        _ => false,
+    }
+}
+
+/// The [`Object`](crate::json::Object) of a member per value present, in the written order, from
+/// `"name" => Option<Node>` rows: a repeated name fails the build.
+#[macro_export]
+macro_rules! known_object {
+    ($($name:literal => $value:expr),+ $(,)?) => {
+        const {
+            match $crate::json::FieldNames::new([$($name),+]) {
+                ::core::option::Option::Some(names) => names,
+                #[allow(
+                    clippy::panic,
+                    reason = "a panic in a constant fails the build (E0080)"
+                )]
+                ::core::option::Option::None => {
+                    ::core::panic!("a member name repeats")
+                }
+            }
+        }
+        .object([$($value),+])
+    };
+}
 impl Number<'_> {
     /// The number, owning its text.
     #[must_use]

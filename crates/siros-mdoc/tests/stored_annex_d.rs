@@ -50,8 +50,7 @@ fn annex_d_known_answers() {
 
     // The registration's view: the Annex's type, values, signer, key and validity.
     let registered = Registered::of(&data, &Resolved::default()).unwrap();
-    assert_eq!(registered.document(), mdoc.issuer_signed());
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     let text = |name: &str| view.get(name).and_then(Node::as_str);
     let number = |name: &str| view.get(name).map(|n| n.json_compact().to_string());
     assert_eq!(text("type"), Some("org.iso.18013.5.1.mDL"));
@@ -86,7 +85,9 @@ fn annex_d_known_answers() {
 fn a_byte_string_shows_by_its_length() {
     let data = URL_SAFE_NO_PAD.encode(unhex(DEVICE_RESPONSE.trim()));
     let registered = Registered::of(&data, &Resolved::default()).unwrap();
-    let view = std::str::from_utf8(registered.view()).unwrap().to_owned();
+    let view = std::str::from_utf8(registered.view().as_bytes())
+        .unwrap()
+        .to_owned();
     let held = Held::new("mdl", "mso_mdoc", view);
     let text = parameters(
         r#"{"credentials": [{"id": "mdl", "format": "mso_mdoc",

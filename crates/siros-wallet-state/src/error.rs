@@ -19,7 +19,8 @@ pub enum JsonTextFault {
     /// Text that breaks the JSON syntax.
     #[error("text that breaks the JSON syntax")]
     Syntax,
-    /// A value of another type than its member's, or a number beyond a 64-bit float.
+    /// A value of another type than its member's, a number beyond a 64-bit float, or a member
+    /// name an object repeats.
     #[error("a value of another type than its member's")]
     Value,
     /// The text ends inside a value.

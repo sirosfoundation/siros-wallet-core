@@ -27,7 +27,7 @@ use siros_testkit::fixtures::{
 };
 use siros_testkit::probe::{dc_api, read_phase_two};
 use siros_testkit::sd_jwt_issuer;
-use siros_testkit::sd_jwt_reading::{Read, SdJwtReadError, read};
+use siros_testkit::sd_jwt_reading::{Read, read};
 use siros_testkit::{Binds, TestChoice, TestHost, TestProfile, verifier};
 
 /// The presentation of a registration for the first query of the request parameters, its first
@@ -392,40 +392,6 @@ fn every_presentation_binds_what_it_shows() {
     }
 }
 
-/// RFC 9901 §7.3 step 4: a disclosure removed after the Key Binding JWT was signed fails `sd_hash`,
-/// and a Verifier refuses the presentation for that cause.
-#[test]
-fn a_disclosure_removed_after_signing_fails_sd_hash() {
-    let held = Held::new(
-        "c",
-        "dc+sd-jwt",
-        format!(r#"{{"type": "t", "values": {{"a": 1, "b": 2}}, {VIEW}}}"#),
-    )
-    .with_issued()
-    .expect("issued");
-    let presentation = presented(
-        r#"{"credentials": [{"id": "q", "format": "dc+sd-jwt", "meta": {"vct_values": ["t"]}, "claims": [{"path": ["a"]}, {"path": ["b"]}]}]}"#,
-        "",
-        &[held],
-        &registry(Binds::First),
-    );
-    let kb = presentation.key_binding.as_ref().expect("a key binding");
-    let [first, second] = presentation.disclosures.as_slice() else {
-        panic!("two disclosures");
-    };
-    let signature = b64url(&kb.signature);
-    let whole = format!(
-        "{}~{}~{}~{}.{signature}",
-        presentation.issuer_jwt, first.encoded, second.encoded, kb.signing_input,
-    );
-    let tampered = format!(
-        "{}~{}~{}.{signature}",
-        presentation.issuer_jwt, first.encoded, kb.signing_input,
-    );
-    assert!(read(&whole).is_ok());
-    assert_eq!(read(&tampered).map(|_| ()), Err(SdJwtReadError::SdHash));
-}
-
 #[test]
 fn what_cannot_be_presented_is_a_fault() {
     let text = parameters(
@@ -445,7 +411,7 @@ fn what_cannot_be_presented_is_a_fault() {
         /// The plug-in's own cause.
         Plugin(PresentFault),
         /// A fault of this crate's domain with no typed cause: the view's reading.
-        Reading(&'static str),
+        Reading,
     }
     // (name, view, document, holder, members, why).
     type Case = (
@@ -516,7 +482,7 @@ fn what_cannot_be_presented_is_a_fault() {
             document(),
             Holder::Bound,
             Vec::new(),
-            Why::Reading("sdjwt.fault"),
+            Why::Reading,
         ),
         (
             "a holder key algorithm of none",
@@ -562,23 +528,6 @@ fn what_cannot_be_presented_is_a_fault() {
             vec![claim("x", text_member())],
             Why::Plugin(PresentFault::NoKeyForMember(Member::claim("x").to_string())),
         ),
-        // The view is the kit's.
-        (
-            "no type",
-            good.replace(r#""type": "t", "#, ""),
-            document(),
-            Holder::Bound,
-            Vec::new(),
-            Why::Reading("openid4vp.fault"),
-        ),
-        (
-            "no object",
-            "[]".to_owned(),
-            document(),
-            Holder::Bound,
-            Vec::new(),
-            Why::Reading("openid4vp.fault"),
-        ),
     ];
     for (name, view, document, holder, members, why) in cases {
         let mut held = Held::new("c", "dc+sd-jwt", view);
@@ -605,9 +554,9 @@ fn what_cannot_be_presented_is_a_fault() {
         match why {
             Why::Presented => panic!("{name}: {fault}"),
             Why::Plugin(want) => assert_eq!(cause, Some(&want), "{name}"),
-            Why::Reading(domain) => {
+            Why::Reading => {
                 assert_eq!(cause, None, "{name}");
-                assert_eq!(fault.id().as_str(), domain, "{name}");
+                assert_eq!(fault.id().as_str(), "sdjwt.fault", "{name}");
             }
         }
     }

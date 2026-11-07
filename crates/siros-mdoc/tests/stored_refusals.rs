@@ -315,40 +315,70 @@ fn each_rule_refuses_its_fixture() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// ISO/IEC 18013-5 Table 22's curves, by their COSE labels and key types (RFC 9053 §7.1), with the
-/// algorithm the table gives each; a stated `alg` (label 3) comes first.
+/// The curves of ISO/IEC 18013-5 Table 22, by their labels and key types in RFC 9053 §7.1 and
+/// IANA's COSE Elliptic Curves registry, with the signature algorithm of Multipaz's `EcCurve`
+/// (RFC 9053 §2.1 and §2.2 for the NIST and Edwards curves). X25519 and X448 are for ECDH only
+/// (RFC 9053 §7.1), so they sign with nothing. A stated `alg` (label 3) comes first.
 #[test]
 fn each_table_22_curve_reads_with_its_algorithm() {
-    // (crv, kty, name, alg).
+    // (crv, kty, name, signature alg).
     let rows = [
-        (1, 2, "P-256", -7),
-        (2, 2, "P-384", -35),
-        (3, 2, "P-521", -36),
-        (4, 1, "X25519", -25),
-        (5, 1, "X448", -25),
-        (6, 1, "Ed25519", -8),
-        (7, 1, "Ed448", -8),
-        (256, 2, "brainpoolP256r1", -7),
-        (257, 2, "brainpoolP320r1", -35),
-        (258, 2, "brainpoolP384r1", -35),
-        (259, 2, "brainpoolP512r1", -36),
+        (1, 2, "P-256", Some(-7)),
+        (2, 2, "P-384", Some(-35)),
+        (3, 2, "P-521", Some(-36)),
+        (4, 1, "X25519", None),
+        (5, 1, "X448", None),
+        (6, 1, "Ed25519", Some(-8)),
+        (7, 1, "Ed448", Some(-8)),
+        (256, 2, "brainpoolP256r1", Some(-7)),
+        (257, 2, "brainpoolP320r1", Some(-35)),
+        (258, 2, "brainpoolP384r1", Some(-35)),
+        (259, 2, "brainpoolP512r1", Some(-36)),
     ];
     for (crv, kty, name, alg) in rows {
         let mut parts = honest();
         parts.device_key[0].1 = int(kty);
         parts.device_key[1].1 = int(crv);
-        let mdoc = StoredMdoc::parse(&assemble(&parts)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let data = assemble(&parts);
+        let mdoc = StoredMdoc::parse(&data).unwrap_or_else(|e| panic!("{name}: {e}"));
         let key = mdoc.mso().device_key();
-        assert_eq!((key.curve(), key.algorithm().value()), (name, alg));
+        assert_eq!(
+            (key.curve().name(), key.algorithm().map(|a| a.value())),
+            (name, alg)
+        );
+        let registered = Registered::of(&data, &Resolved::default()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
+        let stated = view
+            .get("device_alg")
+            .map(|alg| alg.json_compact().to_string());
+        assert_eq!(stated, alg.map(|alg: i64| alg.to_string()), "{name}");
     }
-    let mut parts = honest();
-    parts.device_key.push((int(3), int(-9)));
-    let mdoc = StoredMdoc::parse(&assemble(&parts)).unwrap();
-    assert_eq!(mdoc.mso().device_key().algorithm().value(), -9);
+    // A label 3 restricts the key (RFC 9052 §7.1). -9 is ESP256 (RFC 9864 §2); -25 and -29 are
+    // ECDH-ES (RFC 9053 §6.3.1), 5 is HMAC 256/256 (§3.1), 1 is A128GCM (§4.1).
+    for (crv, kty, label, alg) in [
+        (1, 2, -9, Some(-9)),
+        (1, 2, -25, None),
+        (1, 2, -29, None),
+        (1, 2, 5, None),
+        (1, 2, 1, None),
+        (4, 1, -25, None),
+    ] {
+        let mut parts = honest();
+        parts.device_key[0].1 = int(kty);
+        parts.device_key[1].1 = int(crv);
+        parts.device_key.push((int(3), int(label)));
+        let data = assemble(&parts);
+        let mdoc = StoredMdoc::parse(&data).unwrap();
+        let stated = mdoc.mso().device_key().algorithm().map(|alg| alg.value());
+        assert_eq!(stated, alg, "{label}");
+        let registered = Registered::of(&data, &Resolved::default()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
+        assert_eq!(view.get("device_alg").is_some(), alg.is_some(), "{label}");
+    }
 }
 
-/// What makes no view: a text of no stored mdoc, metadata of no object, an element whose value has
-/// no JSON form (RFC 8949 §6.1).
+/// What makes no view: a text of no stored mdoc, an element whose value has no JSON form (RFC 8949
+/// §6.1).
 #[test]
 fn registration_refusals() {
     let none = Resolved::default();
@@ -356,17 +386,20 @@ fn registration_refusals() {
         Registered::of("not base64url!", &none),
         Err(RegistrationError::Stored(MdocError::Encoding(_)))
     ));
-    let metadata = Resolved {
+    let published = Resolved {
         issued: IssuedMetadata {
-            configuration: Some(Node::parse("[]").unwrap()),
+            configuration: Node::parse(r#"{"auxiliary_data": []}"#)
+                .unwrap()
+                .as_object()
+                .cloned(),
             ..IssuedMetadata::default()
         },
         ..Resolved::default()
     };
     assert!(matches!(
-        Registered::of(&assemble(&honest()), &metadata),
+        Registered::of(&assemble(&honest()), &published),
         Err(RegistrationError::Metadata {
-            cause: MergeError::ConfigurationNotObject
+            cause: MergeError::AuxiliaryDataPublished
         })
     ));
     let mut parts = honest();

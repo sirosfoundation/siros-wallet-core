@@ -6,7 +6,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
 use siros_mdoc::registration as mdoc;
 use siros_openid4vp::claims::kit::IssuedMetadata;
-use siros_openid4vp::json::Node;
+use siros_openid4vp::json::{Node, Object};
 use siros_testkit::{issuer, sd_jwt_issuer};
 
 const VECTORS: &str = include_str!("../../../siros-wallet-state/tests/privatedata/vectors.jsonl");
@@ -23,11 +23,15 @@ fn node(value: &Value) -> Node<'static> {
     Node::parse(&value.to_string()).expect("json").into_owned()
 }
 
+fn object(value: &Value) -> Object<'static> {
+    node(value).as_object().cloned().expect("an object")
+}
+
 /// The view of each format's registration over the configuration's and the response's metadata.
 fn views(configuration: Option<&Value>, response: &Value) -> [Node<'static>; 2] {
     registered(None, &|| IssuedMetadata {
-        configuration: configuration.map(node),
-        response: Some(node(response)),
+        configuration: configuration.map(object),
+        response: Some(object(response)),
         ..IssuedMetadata::default()
     })
 }
@@ -49,7 +53,7 @@ fn registered(
     let sd_jwt = siros_sdjwt::Registered::of(
         &compact,
         &siros_sdjwt::Resolved {
-            metadata: type_metadata.map(node),
+            metadata: type_metadata.map(object),
             issued: issued(),
             ..siros_sdjwt::Resolved::default()
         },
@@ -67,8 +71,8 @@ fn registered(
         },
     )
     .expect("registered");
-    [sd_jwt.view().to_vec(), mdoc.view().to_vec()].map(|view| {
-        Node::parse(std::str::from_utf8(&view).expect("UTF-8"))
+    [sd_jwt.view().as_bytes(), mdoc.view().as_bytes()].map(|view| {
+        Node::parse(std::str::from_utf8(view).expect("UTF-8"))
             .expect("view")
             .into_owned()
     })
@@ -142,12 +146,12 @@ fn a_delivered_secret_reaches_no_view_at_any_depth() {
         (Some(&claims), IssuedMetadata::default()),
         (Some(&member), IssuedMetadata::default()),
         (None, issued(Some(&json!([entry])), None, None)),
-        (None, issued(None, Some(node(&display)), None)),
-        (None, issued(None, Some(node(&member)), None)),
-        (None, issued(None, None, Some(node(&claims)))),
+        (None, issued(None, Some(object(&display)), None)),
+        (None, issued(None, Some(object(&member)), None)),
+        (None, issued(None, None, Some(object(&claims)))),
         (
             Some(&display),
-            issued(None, Some(node(&claims)), Some(node(&member))),
+            issued(None, Some(object(&claims)), Some(object(&member))),
         ),
     ];
     for (type_metadata, input) in &cases {

@@ -24,6 +24,18 @@ impl CoseAlgorithm {
     }
 }
 
+/// `issuerAuth`'s signature, in the form its COSE algorithm defines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IssuerSignature<'a>(pub(super) &'a [u8]);
+
+impl<'a> IssuerSignature<'a> {
+    /// The signature's bytes.
+    #[must_use]
+    pub const fn as_bytes(self) -> &'a [u8] {
+        self.0
+    }
+}
+
 /// A COSE `Sig_structure`: the bytes a `COSE_Sign1` signature covers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SigStructure(Vec<u8>);

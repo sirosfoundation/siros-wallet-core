@@ -2,11 +2,9 @@
 //! ISO/IEC 18013-5 Table 22, and B.2.4's identifiers of the device MAC per curve. Phase 2 builds
 //! DeviceSignature and DeviceMac over coset.
 
-use siros_openid4vp::request::Curve as Agreed;
-
 /// An elliptic curve a device or issuer key is on (ISO/IEC 18013-5 Table 22).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Curve {
+pub enum Curve {
     /// P-256.
     P256,
     /// P-384.
@@ -46,13 +44,15 @@ impl Curve {
         Self::BrainpoolP512r1,
     ];
 
-    /// The curve of a name.
-    pub(crate) fn parse(name: &str) -> Option<Self> {
+    /// The curve of a name; `None` for a name outside Table 22.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|curve| curve.name() == name)
     }
 
-    /// The curve's name.
-    pub(crate) const fn name(self) -> &'static str {
+    /// The curve's name: its COSE and JOSE registry name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
         match self {
             Self::P256 => "P-256",
             Self::P384 => "P-384",
@@ -69,16 +69,124 @@ impl Curve {
     }
 }
 
-/// B.2.4: the identifier of HMAC 256/256 with its key agreed by ECDH (ISO/IEC 18013-5 §9.1.3.5)
-/// on the reader key's curve; `None` for a curve B.2.4's table does not name.
-pub(crate) fn mac(curve: Agreed<'_>) -> Option<i64> {
-    match curve.as_str() {
-        "P-256" => Some(-65537),
-        "P-384" => Some(-65538),
-        "P-521" => Some(-65539),
-        "X25519" => Some(-65540),
-        "X448" => Some(-65541),
-        _ => None,
+/// A signature algorithm a device key states: the polymorphic ECDSA and EdDSA identifiers (RFC 9053
+/// §2.1, §2.2) and their fully-specified forms on the curves of ISO/IEC 18013-5 Table 22 (RFC 9864
+/// §2). An identifier outside them, an ECDH one for instance, restricts its key to something other
+/// than signing (RFC 9052 §7.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SignatureAlgorithm {
+    /// ES256.
+    Es256,
+    /// ES384.
+    Es384,
+    /// ES512.
+    Es512,
+    /// EdDSA.
+    EdDsa,
+    /// ESP256.
+    Esp256,
+    /// ESP384.
+    Esp384,
+    /// ESP512.
+    Esp512,
+    /// ESB256.
+    Esb256,
+    /// ESB320.
+    Esb320,
+    /// ESB384.
+    Esb384,
+    /// ESB512.
+    Esb512,
+    /// Ed25519.
+    Ed25519,
+    /// Ed448.
+    Ed448,
+}
+
+impl SignatureAlgorithm {
+    const ALL: [Self; 13] = [
+        Self::Es256,
+        Self::Es384,
+        Self::Es512,
+        Self::EdDsa,
+        Self::Esp256,
+        Self::Esp384,
+        Self::Esp512,
+        Self::Esb256,
+        Self::Esb320,
+        Self::Esb384,
+        Self::Esb512,
+        Self::Ed25519,
+        Self::Ed448,
+    ];
+
+    /// The algorithm of a COSE identifier; `None` for an identifier of anything else.
+    #[must_use]
+    pub fn parse(value: i64) -> Option<Self> {
+        Self::ALL.into_iter().find(|alg| alg.value() == value)
+    }
+
+    /// The COSE identifier.
+    #[must_use]
+    pub const fn value(self) -> i64 {
+        match self {
+            Self::Es256 => -7,
+            Self::Es384 => -35,
+            Self::Es512 => -36,
+            Self::EdDsa => -8,
+            Self::Esp256 => -9,
+            Self::Esp384 => -51,
+            Self::Esp512 => -52,
+            Self::Esb256 => -265,
+            Self::Esb320 => -266,
+            Self::Esb384 => -267,
+            Self::Esb512 => -268,
+            Self::Ed25519 => -19,
+            Self::Ed448 => -53,
+        }
+    }
+}
+
+/// The `alg` of a DeviceMac's COSE header: HMAC 256/256 (RFC 9053 §3.1; ISO/IEC 18013-5 §9.1.3.5),
+/// which B.2.2's rule 1 lists.
+pub(crate) const HMAC_256_256: i64 = 5;
+
+/// B.2.2's Table 2: the identifier of a device MAC on the device key's curve; `None` for a curve no
+/// ECDH agrees a key on.
+pub(crate) fn mac_row(curve: Curve) -> Option<i64> {
+    match curve {
+        Curve::P256 => Some(-65537),
+        Curve::P384 => Some(-65538),
+        Curve::P521 => Some(-65539),
+        Curve::X25519 => Some(-65540),
+        Curve::X448 => Some(-65541),
+        Curve::BrainpoolP256r1 => Some(-65542),
+        Curve::BrainpoolP320r1 => Some(-65543),
+        Curve::BrainpoolP384r1 => Some(-65544),
+        Curve::BrainpoolP512r1 => Some(-65545),
+        Curve::Ed25519 | Curve::Ed448 => None,
+    }
+}
+
+/// A device key as the view states it: the `alg` it signs with, when it signs, and its curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeviceKeyView {
+    /// The algorithm; `None` for a key that signs nothing.
+    pub(crate) alg: Option<SignatureAlgorithm>,
+    /// The key's curve.
+    pub(crate) curve: Curve,
+}
+
+impl DeviceKeyView {
+    /// The identifiers a device signature matches; none for a key that signs nothing.
+    pub(crate) fn signature_identifiers(self) -> Vec<i64> {
+        self.alg.map_or_else(Vec::new, |alg| {
+            Signer {
+                alg: alg.value(),
+                curve: self.curve,
+            }
+            .identifiers()
+        })
     }
 }
 
@@ -127,6 +235,26 @@ use siros_openid4vp::cbor::cose::coset::{
 };
 #[cfg(feature = "resolve")]
 use siros_openid4vp::plugins::Fault;
+
+#[cfg(feature = "resolve")]
+/// The registry entry of a device key's algorithm.
+pub(crate) const fn registered(alg: SignatureAlgorithm) -> iana::Algorithm {
+    match alg {
+        SignatureAlgorithm::Es256 => iana::Algorithm::ES256,
+        SignatureAlgorithm::Es384 => iana::Algorithm::ES384,
+        SignatureAlgorithm::Es512 => iana::Algorithm::ES512,
+        SignatureAlgorithm::EdDsa => iana::Algorithm::EdDSA,
+        SignatureAlgorithm::Esp256 => iana::Algorithm::ESP256,
+        SignatureAlgorithm::Esp384 => iana::Algorithm::ESP384,
+        SignatureAlgorithm::Esp512 => iana::Algorithm::ESP512,
+        SignatureAlgorithm::Esb256 => iana::Algorithm::ESB256,
+        SignatureAlgorithm::Esb320 => iana::Algorithm::ESB320,
+        SignatureAlgorithm::Esb384 => iana::Algorithm::ESB384,
+        SignatureAlgorithm::Esb512 => iana::Algorithm::ESB512,
+        SignatureAlgorithm::Ed25519 => iana::Algorithm::Ed25519,
+        SignatureAlgorithm::Ed448 => iana::Algorithm::Ed448,
+    }
+}
 
 #[cfg(feature = "resolve")]
 /// DeviceSignature (ISO/IEC 18013-5 §9.1.3.6): a COSE_Sign1 with the device key's `alg`

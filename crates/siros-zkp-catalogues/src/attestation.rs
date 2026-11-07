@@ -69,8 +69,8 @@ impl DocumentSigner {
         let point = certificate
             .p256_key()
             .ok_or(DocumentSignerError::Key(KeyError::NotP256))?;
-        let key =
-            P256Key::from_sec1(point).map_err(|e| DocumentSignerError::Key(KeyError::Point(e)))?;
+        let key = P256Key::from_sec1(point.as_bytes())
+            .map_err(|e| DocumentSignerError::Key(KeyError::Point(e)))?;
         Ok(Self { certificate, key })
     }
 
@@ -208,7 +208,7 @@ impl TestedAttestation {
             Ok(Reading::OtherDocType) => return Err(Unusable::OtherDocType),
             Err(e) => return Err(Unusable::Unreadable(Unreadable::Form(e))),
         };
-        let signer = DocumentSigner::parse(document_signer)
+        let signer = DocumentSigner::parse(document_signer.as_bytes())
             .map_err(|e| Unusable::Unreadable(Unreadable::Signer(e)))?;
         let signed = es256_verifies(
             signer.key(),

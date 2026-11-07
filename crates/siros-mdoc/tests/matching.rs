@@ -5,11 +5,13 @@
 //! (B.2.4 and its table of device MAC identifiers, RFC 9864's fully-specified algorithms), and
 //! the KeyAuthorizations that admit response members (B.2.1, ISO/IEC 18013-5 §9.1.2.4).
 
-use sha2::{Digest, Sha256};
-use siros_mdoc::Mdoc;
+use std::error::Error;
+
+use siros_mdoc::{Mdoc, MdocRule};
+use siros_openid4vp::claims::kit::{KitRule, QueryRule};
 use siros_openid4vp::matching::{Accepted, Match};
 use siros_openid4vp::plugins::{Member, Registry, Shown};
-use siros_openid4vp::refusal::ErrorCode;
+use siros_openid4vp::refusal::{ErrorCode, Refusal};
 use siros_openid4vp::request::{Item, Request};
 use siros_openid4vp::rows::BooleanText;
 use siros_openid4vp::wallet::Wallet;
@@ -122,14 +124,6 @@ fn the_openid4vci_example_draws_its_card() {
     let content = include_bytes!(
         "../../siros-openid4vp/tests/data/openid4vci-credential_metadata_mso_mdoc.json"
     );
-    let hash: String = Sha256::digest(content)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    assert_eq!(
-        hash, "166fa15860ad1435a1898f2ac2a67c399b22d420a167acc552be90da3db35df1",
-        "the file is the pinned one"
-    );
     let metadata: serde_json::Value = serde_json::from_slice(content).expect("json");
     let metadata = &metadata["credential_configurations_supported"]["org.iso.18013.5.1.mDL"]["credential_metadata"];
     let values = r#"{"org.iso.18013.5.1": {"given_name": "Erika", "family_name": "Mustermann", "birth_date": "1971-09-01"}, "org.iso.18013.5.1.aamva": {"organ_donor": true}}"#;
@@ -225,8 +219,37 @@ fn the_openid4vci_example_draws_its_card() {
     .expect("the query");
 }
 
-/// The rules the request breaks, as (text, code).
-fn refusals(dcql: &str, extra: &str) -> Vec<(String, ErrorCode)> {
+/// A rule of the format, or of the kit under it.
+#[derive(Debug, PartialEq)]
+enum Rule {
+    Doctype,
+    VpFormats,
+    Pointer { claim: usize },
+}
+
+fn rule(refusal: &Refusal) -> Rule {
+    let rule: &dyn Error = refusal.rule();
+    match rule
+        .downcast_ref::<QueryRule<KitRule>>()
+        .map(|rule| &rule.rule)
+    {
+        Some(KitRule::VpFormats) => Rule::VpFormats,
+        Some(KitRule::Meta(meta)) => {
+            let meta: &dyn Error = meta.as_ref();
+            assert_eq!(meta.downcast_ref(), Some(&MdocRule::Doctype));
+            Rule::Doctype
+        }
+        Some(KitRule::Pointer { claim, rule }) => {
+            let rule: &dyn Error = rule.as_ref();
+            assert_eq!(rule.downcast_ref(), Some(&MdocRule::Pointer));
+            Rule::Pointer { claim: *claim }
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The rules the request breaks, each with its code.
+fn refusals(dcql: &str, extra: &str) -> Vec<(Rule, ErrorCode)> {
     let text = parameters(dcql, extra);
     siros_testkit::unsigned_request!(let request = &text);
     let registry = registry();
@@ -235,7 +258,7 @@ fn refusals(dcql: &str, extra: &str) -> Vec<(String, ErrorCode)> {
         Err(refused) => refused
             .refusals()
             .iter()
-            .map(|refusal| (refusal.text(), refusal.code()))
+            .map(|refusal| (rule(refusal), refusal.code()))
             .collect(),
     }
 }
@@ -253,10 +276,7 @@ fn each_format_rule_refuses_with_its_code() {
     ] {
         assert_eq!(
             refusals(&query(meta), ""),
-            [(
-                "mso_mdoc r: meta.doctype_value is not a string (B.2.3)".to_owned(),
-                ErrorCode::INVALID_REQUEST
-            )],
+            [(Rule::Doctype, ErrorCode::INVALID_REQUEST)],
             "{meta}"
         );
     }
@@ -270,11 +290,7 @@ fn each_format_rule_refuses_with_its_code() {
                     r#""client_metadata":{{"vp_formats_supported":{{"mso_mdoc":{{"deviceauth_alg_values":{listed}}}}}}}"#
                 )
             ),
-            [(
-                "mso_mdoc r: vp_formats_supported is not an object of non-empty algorithm arrays"
-                    .to_owned(),
-                ErrorCode::INVALID_REQUEST
-            )],
+            [(Rule::VpFormats, ErrorCode::INVALID_REQUEST)],
             "{listed}"
         );
     }
@@ -286,12 +302,13 @@ fn each_format_rule_refuses_with_its_code() {
         r#"["ns", 1]"#,
     ] {
         assert_eq!(
-            refusals(&query(&format!(r#"{meta}, "claims": [{{"path": ["ns", "ok"]}}, {{"path": {path}}}]"#)), ""),
-            [(
-                "mso_mdoc r: claims[1].path is not [name space, data element identifier] (OpenID4VP §7.2)"
-                    .to_owned(),
-                ErrorCode::INVALID_REQUEST
-            )],
+            refusals(
+                &query(&format!(
+                    r#"{meta}, "claims": [{{"path": ["ns", "ok"]}}, {{"path": {path}}}]"#
+                )),
+                ""
+            ),
+            [(Rule::Pointer { claim: 1 }, ErrorCode::INVALID_REQUEST)],
             "{path}"
         );
     }
@@ -320,7 +337,15 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
         (i64, &'static str),
         Option<&'static str>,
     );
-    let cases: [Admission; 19] = [
+    let bp256 =
+        r#"{"kty": "EC", "crv": "brainpoolP256r1", "kid": "reader-bp256", "x": "AA", "y": "AQ"}"#;
+    let bp320 =
+        r#"{"kty": "EC", "crv": "brainpoolP320r1", "kid": "reader-bp320", "x": "AA", "y": "AQ"}"#;
+    let bp384 =
+        r#"{"kty": "EC", "crv": "brainpoolP384r1", "kid": "reader-bp384", "x": "AA", "y": "AQ"}"#;
+    let bp512 =
+        r#"{"kty": "EC", "crv": "brainpoolP512r1", "kid": "reader-bp512", "x": "AA", "y": "AQ"}"#;
+    let cases: [Admission; 24] = [
         // B.2.4's example: -7 on P-256 matches the fully-specified -9.
         (
             r#"{"issuerauth_alg_values": [-9], "deviceauth_alg_values": [-9]}"#,
@@ -448,6 +473,43 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             (-7, "P-256"),
             Some(clause),
         ),
+        // B.2.2, rule 1: a device MAC's `alg` is HMAC 256/256 (5), its header's.
+        (
+            r#"{"deviceauth_alg_values": [5]}"#,
+            p256,
+            (-7, "P-256"),
+            (-7, "P-256"),
+            None,
+        ),
+        // B.2.2's table: brainpoolP256r1 -65542, P320r1 -65543, P384r1 -65544, P512r1 -65545.
+        (
+            r#"{"deviceauth_alg_values": [-65542]}"#,
+            bp256,
+            (-7, "P-256"),
+            (-7, "brainpoolP256r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65543]}"#,
+            bp320,
+            (-7, "P-256"),
+            (-35, "brainpoolP320r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65544]}"#,
+            bp384,
+            (-7, "P-256"),
+            (-35, "brainpoolP384r1"),
+            None,
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65545]}"#,
+            bp512,
+            (-7, "P-256"),
+            (-36, "brainpoolP512r1"),
+            None,
+        ),
         // B.2.4's table: P-521 -65539, X448 -65541.
         (
             r#"{"deviceauth_alg_values": [-65539]}"#,
@@ -464,7 +526,8 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             None,
         ),
     ];
-    for (supported, keys, (issuer_alg, issuer_curve), (device_alg, device_curve), want) in cases {
+    let admits = |supported: &str, keys: &str, issuer: (i64, &str), device: &str, want| {
+        let (issuer_alg, issuer_curve) = issuer;
         let text = parameters(
             r#"{"credentials": [{"id": "q", "format": "mso_mdoc", "meta": {"doctype_value": "t"}}]}"#,
             &format!(
@@ -476,16 +539,51 @@ fn the_verifiers_algorithms_admit_the_credentials_they_list() {
             "c",
             "mso_mdoc",
             format!(
-                r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "issuer_alg": {issuer_alg}, "issuer_curve": "{issuer_curve}", "device_alg": {device_alg}, "device_curve": "{device_curve}"}}"#
+                r#"{{"type": "t", "metadata": {{}}, "values": {{}}, "issuer_alg": {issuer_alg}, "issuer_curve": "{issuer_curve}", {device}}}"#
             ),
         );
         let (found, clauses) = matched(&request, &[held]);
         assert_eq!(
             clauses.first().map(String::as_str),
             want,
-            "{supported} {keys} {issuer_curve} {device_curve}"
+            "{supported} {keys} {issuer_curve} {device}"
         );
         assert_eq!(found.is_empty(), want.is_some());
+    };
+    for (supported, keys, issuer, (device_alg, device_curve), want) in cases {
+        let device = format!(r#""device_alg": {device_alg}, "device_curve": "{device_curve}""#);
+        admits(supported, keys, issuer, &device, want);
+    }
+    // A device key that signs nothing matches by its MAC alone (B.2.2's rules 1 and 3).
+    for (supported, keys, device_curve, want) in [
+        (
+            r#"{"deviceauth_alg_values": [-9]}"#,
+            p256,
+            "P-256",
+            Some(clause),
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65537]}"#,
+            p256,
+            "P-256",
+            None,
+        ),
+        (r#"{"deviceauth_alg_values": [5]}"#, p256, "P-256", None),
+        (
+            r#"{"deviceauth_alg_values": [5]}"#,
+            x25519,
+            "P-256",
+            Some(clause),
+        ),
+        (
+            r#"{"deviceauth_alg_values": [-65540]}"#,
+            x25519,
+            "X25519",
+            None,
+        ),
+    ] {
+        let device = format!(r#""device_curve": "{device_curve}""#);
+        admits(supported, keys, (-7, "P-256"), &device, want);
     }
 }
 

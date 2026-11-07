@@ -35,6 +35,30 @@ impl DistinguishedName {
     }
 }
 
+/// The SEC 1 encoding of a certificate's P-256 key: a point of the curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct P256Point<'c>(&'c [u8]);
+
+impl<'c> P256Point<'c> {
+    /// The encoding.
+    #[must_use]
+    pub fn as_bytes(self) -> &'c [u8] {
+        self.0
+    }
+}
+
+/// The SEC 1 encoding of a certificate's P-384 key: a point of the curve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct P384Point<'c>(&'c [u8]);
+
+impl<'c> P384Point<'c> {
+    /// The encoding.
+    #[must_use]
+    pub fn as_bytes(self) -> &'c [u8] {
+        self.0
+    }
+}
+
 /// A DER X.509 certificate.
 #[derive(Debug, Clone)]
 pub struct Certificate {
@@ -290,20 +314,20 @@ impl Certificate {
         self.issuer == self.subject
     }
 
-    /// The SEC 1 encoding of the subject's key, when it is a P-256 key.
+    /// The subject's key, when it is a P-256 key.
     #[must_use]
-    pub fn p256_key(&self) -> Option<&[u8]> {
+    pub fn p256_key(&self) -> Option<P256Point<'_>> {
         match &self.key {
-            SubjectKey::P256(_, sec1) => Some(sec1),
+            SubjectKey::P256(_, sec1) => Some(P256Point(sec1)),
             SubjectKey::P384(..) | SubjectKey::Other => None,
         }
     }
 
-    /// The SEC 1 encoding of the subject's key, when it is a P-384 key.
+    /// The subject's key, when it is a P-384 key.
     #[must_use]
-    pub fn p384_key(&self) -> Option<&[u8]> {
+    pub fn p384_key(&self) -> Option<P384Point<'_>> {
         match &self.key {
-            SubjectKey::P384(_, sec1) => Some(sec1),
+            SubjectKey::P384(_, sec1) => Some(P384Point(sec1)),
             SubjectKey::P256(..) | SubjectKey::Other => None,
         }
     }

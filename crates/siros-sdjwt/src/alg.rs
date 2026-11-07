@@ -62,6 +62,14 @@ impl SigningAlg {
     }
 }
 
+impl IntoArg for SigningAlg {
+    type Kind = <String as IntoArg>::Kind;
+
+    fn arg(&self) -> <Self::Kind as Kind>::Of<'_> {
+        self.0.arg()
+    }
+}
+
 impl HashAlg {
     /// The algorithm of the case-sensitive Hash Name String `name`.
     pub(crate) fn from_name(name: &str) -> Option<Self> {

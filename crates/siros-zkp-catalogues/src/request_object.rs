@@ -3,7 +3,7 @@
 //! confidentiality"), and the session it gives.
 
 use serde_json::Value;
-use siros_mdoc::{Handover, SessionTranscript, Thumbprint};
+use siros_mdoc::{Handover, HandoverUri, SessionTranscript, Thumbprint};
 use siros_openid4vp::cbor::CborError;
 use siros_openid4vp::ids::{ClientId, Nonce, Origin};
 use siros_openid4vp::json::Node;
@@ -173,7 +173,7 @@ impl CheckedRequest {
                 client_id: &self.client_id,
                 nonce: &self.nonce,
                 thumbprint: Some(jwk_thumbprint),
-                response_uri: uri,
+                response_uri: HandoverUri::new(uri),
             },
         };
         SessionTranscript::of(&handover).map_err(HandoverError::Cbor)

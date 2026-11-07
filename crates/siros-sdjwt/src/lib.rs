@@ -64,7 +64,7 @@ use siros_openid4vp::claims::kit::{
     self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, DisplayItem, VpFormatsMember,
 };
 use siros_openid4vp::claims::{Claim, ClaimPath};
-use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
+use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId, QueryId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Carriage, Clause, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
@@ -81,14 +81,17 @@ use view::SdJwtMembers;
 pub use {
     alg::{Digest, SigningAlg},
     error::{
-        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, KeyBindingError,
-        Misplaced, ParseError, PresentFault, RegistrationError, ReservedFault, SdAlgFault,
-        SelectError, X5cError,
+        DisclosureFault, EncodedJsonFault, HolderKeyFault, IssuerJwtFault, JwkCoordinate,
+        KeyBindingError, Misplaced, ParseError, PermanentClaim, PresentFault, RegistrationError,
+        ReservedFault, ResolvedCurve, SdAlgFault, SelectError, ValidityClaim, X5cError,
     },
-    key_binding::{Audience, Binding, KbNonce, KeyBinding, NumericDate, Presentation},
+    key_binding::{
+        Audience, Binding, KbNonce, KbSignature, KbSigningInput, KeyBinding, NumericDate,
+        Presentation, SdJwtKb,
+    },
     process::MAX_DEPTH,
-    registration::{DOCUMENT, Registered, Resolved},
-    sd_jwt::SdJwt,
+    registration::{DOCUMENT, DisplayModule, Registered, Resolved},
+    sd_jwt::{IssuerJwt, JwtType, SdJwt},
     tree::{ClaimValue, Disclosure, DisclosureId, Element, IssuedClaim, Object},
 };
 
@@ -116,7 +119,7 @@ pub enum SdJwtRule {
 #[error("dc+sd-jwt {query}: transaction data on a query without holder binding (B.3.3)")]
 pub struct HolderBindingWaived {
     /// The query's id.
-    pub query: String,
+    pub query: QueryId<'static>,
 }
 
 impl RequestRule for HolderBindingWaived {
@@ -367,7 +370,7 @@ impl ClaimsPlugin for SdJwtVc {
     fn rules(&self, query: &Query<'_>, naming: EntryNaming) -> Vec<Refusal> {
         if naming == EntryNaming::Named && query.holder_binding() == HolderBinding::Waived {
             vec![Refusal::new(HolderBindingWaived {
-                query: query.id().to_string(),
+                query: query.id().clone().into_owned(),
             })]
         } else {
             Vec::new()
@@ -385,11 +388,13 @@ impl ClaimsPlugin for SdJwtVc {
         let mut constraints = vec![Constraint {
             member: VpFormatsMember::new("sd-jwt_alg_values"),
             matched: members.issuer()?.identifiers(),
+            also: Vec::new(),
         }];
         if view.credential().facts.holder == Holder::Bound {
             constraints.push(Constraint {
                 member: VpFormatsMember::new("kb-jwt_alg_values"),
                 matched: members.holder()?.identifiers(),
+                also: Vec::new(),
             });
         }
         Ok(constraints)

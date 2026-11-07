@@ -164,25 +164,25 @@ fn the_merge_refuses_what_makes_no_view() {
     impl IssuedShape for AsWritten {
         const LABEL: &'static str = "name";
     }
-    let node = |text: &str| Some(Node::parse(text).expect("json").into_owned());
-    let issued = |configuration: &str, response: Option<&str>| IssuedMetadata {
-        configuration: node(configuration),
-        response: response.and_then(node),
+    let object = |text: &str| {
+        let node = Node::parse(text).expect("json").into_owned();
+        node.as_object().cloned().expect("an object")
+    };
+    let issued = |configuration: &str| IssuedMetadata {
+        configuration: Some(object(configuration)),
         ..IssuedMetadata::default()
     };
-    let rows: [(IssuedMetadata<'_>, MergeError); 5] = [
-        (issued("[]", None), MergeError::ConfigurationNotObject),
-        (issued("{}", Some("1")), MergeError::ResponseNotObject),
+    let rows: [(IssuedMetadata<'_>, MergeError); 3] = [
         (
-            issued(r#"{"auxiliary_data": []}"#, None),
+            issued(r#"{"auxiliary_data": []}"#),
             MergeError::AuxiliaryDataPublished,
         ),
         (
-            issued(r#"{"display": {}}"#, None),
+            issued(r#"{"display": {}}"#),
             MergeError::NotEntries { member: "display" },
         ),
         (
-            issued(r#"{"claims": [{"display": []}]}"#, None),
+            issued(r#"{"claims": [{"display": []}]}"#),
             MergeError::Path { position: 0 },
         ),
     ];
@@ -194,14 +194,9 @@ fn the_merge_refuses_what_makes_no_view() {
         );
     }
     assert!(matches!(
-        merge_metadata::<AsWritten>(None, &issued(r#"{"display": [{"locale": "1 2"}]}"#, None)),
+        merge_metadata::<AsWritten>(None, &issued(r#"{"display": [{"locale": "1 2"}]}"#)),
         Err(MergeError::Locale { .. })
     ));
-    let format = Node::parse("[]").expect("json");
-    assert_eq!(
-        merge_metadata::<AsWritten>(Some(&format), &IssuedMetadata::default()),
-        Err(MergeError::FormatNotObject)
-    );
 }
 
 #[test]
@@ -279,6 +274,7 @@ fn vp_formats_supported_admits_by_each_member_it_states() {
     let constraints = [Constraint {
         member: VpFormatsMember::new("sd-jwt_alg_values"),
         matched: vec![es256],
+        also: Vec::new(),
     }];
     // A member the Verifier states must list an identifier the presentation can match; a member
     // it leaves out, or no value at all, constrains nothing.

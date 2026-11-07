@@ -52,7 +52,7 @@ pub use admitted::{AdmittedIssuer, Unadmitted};
 pub use authority::{KeyIdentifier, KeyIdentifierError, StoreAuthority, StoreType};
 pub use certificate::{
     Certificate, CertificateError, DistinguishedName, IssuanceRefusal, KeyIdentifierFault,
-    NameField, PublicKeyFault,
+    NameField, P256Point, P384Point, PublicKeyFault,
 };
 pub use chain::{ChainError, IssuerChain};
 pub use extensions::{CertSigning, CertificateRole, PathLength};

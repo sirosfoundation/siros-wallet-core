@@ -48,5 +48,5 @@ pub use ids::{
     IssuerIdentifier, KeyId, PresentationId, TransactionId,
 };
 pub use instance::Instance;
-pub use presentation::{PresentationRecord, Timestamp};
+pub use presentation::{Audience, PresentationData, PresentationRecord, Timestamp};
 pub use state::WalletState;

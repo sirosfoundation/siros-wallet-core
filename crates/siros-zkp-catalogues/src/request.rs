@@ -1,7 +1,7 @@
 //! An authenticated request that meets the nym_auth policy (N2; nym_auth catalogue, "Binding",
 //! "Response confidentiality" and "Verifier identity").
 
-use siros_mdoc::{Handover, SessionTranscript, Thumbprint};
+use siros_mdoc::{Handover, HandoverUri, SessionTranscript, Thumbprint};
 use siros_openid4vp::arrival::ReceivedForm;
 use siros_openid4vp::authenticate::{Authenticated, BoundEndpoint};
 use siros_openid4vp::ids::Nonce;
@@ -107,7 +107,7 @@ fn transcript(request: &Authenticated<'_>) -> Result<SessionTranscript, RequestR
             client_id: request.client().ok_or(policy(PolicyRule::Unsigned))?,
             nonce: &nonce,
             thumbprint,
-            response_uri: uri.as_str(),
+            response_uri: HandoverUri::from(uri),
         },
         (ReceivedForm::Uri { .. }, BoundEndpoint::DcApi) => {
             return Err(policy(PolicyRule::ResponseUriMissing));

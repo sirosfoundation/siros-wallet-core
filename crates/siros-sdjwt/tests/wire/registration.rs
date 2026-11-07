@@ -5,8 +5,12 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use siros_openid4vp::claims::kit::{ClaimsFormat, IssuedMetadata, MergeError};
 use siros_openid4vp::claims::{ClaimPath, Concrete};
 use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::request::Curve;
 use siros_openid4vp::wallet::Holder;
-use siros_sdjwt::{HolderKeyFault, Registered, RegistrationError, Resolved, SdJwtVc};
+use siros_sdjwt::{
+    HolderKeyFault, JwkCoordinate, PermanentClaim, Registered, RegistrationError, Resolved,
+    SdJwtVc, SigningAlg, ValidityClaim,
+};
 use siros_testkit::sd_jwt_issuer;
 
 use crate::common::{compact, compact_under, decoy, disclosure, issued, json_fixture};
@@ -20,8 +24,7 @@ fn b64(bytes: &[u8]) -> String {
 fn view_of_a3() {
     let compact = issued("a3");
     let registered = Registered::of(&compact, &Resolved::default()).unwrap();
-    assert_eq!(registered.document(), compact.as_bytes());
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     let input = json_fixture("a3/processed.json");
     assert_eq!(view.get("type"), input.get("vct"));
     assert_eq!(view.get("issuer"), input.get("iss"));
@@ -47,7 +50,7 @@ fn walk_keeps_issued_positions() {
         decoy("decoy")
     );
     let registered = Registered::of(&compact(&payload, &[&fr]), &Resolved::default()).unwrap();
-    let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
     let values = view.get("values").unwrap();
     let format = SdJwtVc::new().unwrap();
     let selected = |path: &str| -> Vec<(usize, String)> {
@@ -79,7 +82,7 @@ fn walk_keeps_issued_positions() {
 fn numbers_stay_as_the_issuer_wrote_them() {
     let payload = r#"{"vct":"t","nbf":1.50,"n":1.10,"m":1E2,"big":1e400}"#;
     let registered = Registered::of(&compact(payload, &[]), &Resolved::default()).unwrap();
-    let text = std::str::from_utf8(registered.view()).unwrap();
+    let text = std::str::from_utf8(registered.view().as_bytes()).unwrap();
     for written in [
         r#""n":1.10"#,
         r#""m":1E2"#,
@@ -104,12 +107,12 @@ fn refusals() {
         (
             "an exp of a string",
             r#"{"vct":"t","exp":"soon"}"#,
-            RegistrationError::Validity("exp"),
+            RegistrationError::Validity(ValidityClaim::Exp),
         ),
         (
             "an exp beyond the double range",
             r#"{"vct":"t","exp":1e400}"#,
-            RegistrationError::Validity("exp"),
+            RegistrationError::Validity(ValidityClaim::Exp),
         ),
     ];
     for (case, payload, cause) in rows {
@@ -125,22 +128,22 @@ fn refusals() {
 /// credential; §3.2.1: its `typ` is `dc+sd-jwt`.
 #[test]
 fn sd_jwt_vc_refusals() {
-    for claim in [
-        "iss",
-        "nbf",
-        "exp",
-        "cnf",
-        "vct",
-        "vct#integrity",
-        "aka_vcts",
-        "status",
+    for (claim, permanent) in [
+        ("iss", PermanentClaim::Iss),
+        ("nbf", PermanentClaim::Nbf),
+        ("exp", PermanentClaim::Exp),
+        ("cnf", PermanentClaim::Cnf),
+        ("vct", PermanentClaim::Vct),
+        ("vct#integrity", PermanentClaim::VctIntegrity),
+        ("aka_vcts", PermanentClaim::AkaVcts),
+        ("status", PermanentClaim::Status),
     ] {
         let (revealing, digest) = disclosure(&format!(r#"["2GLC42sKQveCfGfryNRN9w","{claim}",1]"#));
         let vct = if claim == "vct" { "" } else { r#""vct":"t","# };
         let payload = format!(r#"{{{vct}"_sd":["{digest}"]}}"#);
         assert_eq!(
             Registered::of(&compact(&payload, &[&revealing]), &Resolved::default()).map(|_| ()),
-            Err(RegistrationError::SelectivelyDisclosed(claim)),
+            Err(RegistrationError::SelectivelyDisclosed(permanent)),
             "{claim}"
         );
     }
@@ -148,7 +151,7 @@ fn sd_jwt_vc_refusals() {
     let payload = format!(r#"{{"vct":"t","cnf":{{"_sd":["{digest}"]}}}}"#);
     assert_eq!(
         Registered::of(&compact(&payload, &[&key]), &Resolved::default()),
-        Err(RegistrationError::SelectivelyDisclosed("cnf")),
+        Err(RegistrationError::SelectivelyDisclosed(PermanentClaim::Cnf)),
     );
     for header in [r#"{"alg":"ES256"}"#, r#"{"alg":"ES256","typ":"JWT"}"#] {
         assert_eq!(
@@ -205,7 +208,7 @@ fn the_holder_key() {
         (
             "no y",
             format!(r#"{{"jwk":{{"kty":"EC","crv":"P-256","x":"{x}"}}}}"#),
-            HolderKeyFault::Coordinate("y"),
+            HolderKeyFault::Coordinate(JwkCoordinate::Y),
         ),
         (
             "an x of a P-384 size on P-256",
@@ -213,7 +216,7 @@ fn the_holder_key() {
                 r#"{{"jwk":{{"kty":"EC","crv":"P-256","x":"{}","y":"{y}"}}}}"#,
                 b64(&[1; 48])
             ),
-            HolderKeyFault::Coordinate("x"),
+            HolderKeyFault::Coordinate(JwkCoordinate::X),
         ),
         (
             "alg none",
@@ -260,7 +263,7 @@ fn the_holder_key() {
             format!(r#"{{"jwk":{{"kty":"{kty}","crv":"{crv}","x":"{coordinate}"{y}{alg}}}}}"#);
         let registered = registered(&cnf).unwrap_or_else(|e| panic!("{cnf}: {e}"));
         assert_eq!(registered.holder(), Holder::Bound);
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         assert_eq!(
             view.get("key_alg").and_then(Node::as_str),
             Some(key_alg),
@@ -276,39 +279,30 @@ fn the_holder_key() {
     assert_eq!(keyless.holder(), Holder::Unbound);
 }
 
-/// What the wallet resolved makes no view: a curve the JWS algorithm rules out (RFC 7518 §3.4), and
-/// metadata of no object.
+/// A curve the JWS algorithm rules out makes no view (RFC 7518 §3.4).
 #[test]
-fn resolved_refusals() {
+fn a_curve_the_algorithm_rules_out() {
     let issued = compact(r#"{"vct":"t"}"#, &[]);
     let curve = Resolved {
-        issuer_curve: Some("P-384"),
+        issuer_curve: Curve::new("P-384"),
         ..Resolved::default()
     };
     assert_eq!(
         Registered::of(&issued, &curve),
         Err(RegistrationError::IssuerCurve {
-            alg: "ES256".to_owned(),
-            curve: "P-384".to_owned(),
-        })
-    );
-    let metadata = Resolved {
-        metadata: Some(Node::parse("[]").unwrap()),
-        ..Resolved::default()
-    };
-    assert_eq!(
-        Registered::of(&issued, &metadata),
-        Err(RegistrationError::Metadata {
-            cause: MergeError::FormatNotObject
+            alg: SigningAlg::parse("ES256").unwrap(),
+            curve: Curve::new("P-384").unwrap().into(),
         })
     );
     // An OpenID4VCI entry holds a logo for `rendering.simple` beside its own `rendering`.
     let repeated = Resolved {
         issued: IssuedMetadata {
-            configuration: Some(
-                Node::parse(r#"{"display": [{"name": "n", "logo": {}, "rendering": {}}]}"#)
-                    .unwrap(),
-            ),
+            configuration: Node::parse(
+                r#"{"display": [{"name": "n", "logo": {}, "rendering": {}}]}"#,
+            )
+            .unwrap()
+            .as_object()
+            .cloned(),
             ..IssuedMetadata::default()
         },
         ..Resolved::default()
@@ -321,6 +315,18 @@ fn resolved_refusals() {
             }
         }) if name == "rendering"
     ));
+}
+
+/// RFC 9901 §7.1 step 6 checks `exp` "in the processed payload, if present". A digest whose
+/// disclosure the credential lacks reads as a decoy (§4.2.5), so a withheld `exp` leaves a view
+/// stating no validity for the operating environment's rules to judge (§9.7).
+#[test]
+fn a_withheld_exp_is_no_exp() {
+    let (_, digest) = disclosure(r#"["2GLC42sKQveCfGfryNRN9w","exp",1785000000]"#);
+    let payload = format!(r#"{{"vct":"t","_sd":["{digest}"]}}"#);
+    let registered = Registered::of(&compact(&payload, &[]), &Resolved::default()).unwrap();
+    let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
+    assert_eq!(view.get("validity"), None);
 }
 
 /// A view the issuer stand-in writes, with objects and arrays in arrays, registers as it states:
@@ -349,11 +355,11 @@ fn issued_view_returns() {
         );
         let issued = sd_jwt_issuer::issue(&Node::parse(&written).unwrap()).unwrap();
         let resolved = Resolved {
-            issuer_curve: Some("Ed25519"),
+            issuer_curve: Curve::new("Ed25519"),
             ..Resolved::default()
         };
         let registered = Registered::of(&issued, &resolved).unwrap();
-        let view = Node::parse(std::str::from_utf8(registered.view()).unwrap()).unwrap();
+        let view = Node::parse(std::str::from_utf8(registered.view().as_bytes()).unwrap()).unwrap();
         assert_eq!(view, Node::parse(&expected).unwrap(), "{validity}");
     }
 }

@@ -23,6 +23,7 @@ use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::Query;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
+use siros_openid4vp::wallet::DerCertificate;
 use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_trust::{AdmittedIssuer, IssuerChain, TrustStore, Unadmitted};
 use siros_x509::X509SanDns;
@@ -169,7 +170,11 @@ pub fn read_query<R>(query: &Value, with: impl FnOnce(&Query<'_>) -> R) -> Resul
 /// empty trust store, at `now`.
 fn admitted(query: &Value, mdoc: &StoredMdoc, now: DateTime) -> Result<AdmittedIssuer, Unadmitted> {
     let x5chain = mdoc.issuer_auth().x5chain();
-    let chain = IssuerChain::parse(x5chain.first(), x5chain.certificates().skip(1)).unwrap();
+    let chain = IssuerChain::parse(
+        x5chain.first().as_bytes(),
+        x5chain.certificates().skip(1).map(DerCertificate::as_bytes),
+    )
+    .unwrap();
     read_query(query, |query| {
         AdmittedIssuer::resolve(
             query,

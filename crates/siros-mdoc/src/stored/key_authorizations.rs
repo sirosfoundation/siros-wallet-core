@@ -1,7 +1,8 @@
 //! The elements the device key may sign in `DeviceSigned` (ISO/IEC 18013-5, 9.1.2.4).
 
 use rustc_hash::FxHashSet;
-use siros_openid4vp::cbor::Value;
+use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::json::{Distinct, Named};
 
 use super::item::Read as _;
 
@@ -14,7 +15,34 @@ use super::names::{ElementIdentifier, NameSpace};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyAuthorizations {
     name_spaces: Vec<NameSpace>,
-    data_elements: Vec<(NameSpace, Vec<ElementIdentifier>)>,
+    data_elements: Distinct<DataElements>,
+}
+
+/// The elements of one namespace the device key may sign.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataElements {
+    name_space: NameSpace,
+    identifiers: Vec<ElementIdentifier>,
+}
+
+impl DataElements {
+    /// The namespace.
+    #[must_use]
+    pub fn name_space(&self) -> &NameSpace {
+        &self.name_space
+    }
+
+    /// Its element identifiers, each once.
+    #[must_use]
+    pub fn identifiers(&self) -> &[ElementIdentifier] {
+        &self.identifiers
+    }
+}
+
+impl Named for DataElements {
+    fn name(&self) -> &str {
+        self.name_space.as_str()
+    }
 }
 
 impl KeyAuthorizations {
@@ -35,7 +63,7 @@ impl KeyAuthorizations {
         };
         let data_elements = match item.get("dataElements") {
             Some(elements) => read_data_elements(elements, &name_spaces)?,
-            None => Vec::new(),
+            None => Distinct::default(),
         };
         Ok(Self {
             name_spaces,
@@ -49,8 +77,8 @@ impl KeyAuthorizations {
         self.name_spaces.contains(name_space)
             || self
                 .data_elements
-                .iter()
-                .any(|(space, identifiers)| space == name_space && identifiers.contains(identifier))
+                .get(name_space.as_str())
+                .is_some_and(|elements| elements.identifiers.contains(identifier))
     }
 
     /// The namespaces authorized whole.
@@ -61,7 +89,7 @@ impl KeyAuthorizations {
 
     /// The elements authorized, per namespace.
     #[must_use]
-    pub fn data_elements(&self) -> &[(NameSpace, Vec<ElementIdentifier>)] {
+    pub fn data_elements(&self) -> &Distinct<DataElements> {
         &self.data_elements
     }
 }
@@ -70,27 +98,24 @@ impl KeyAuthorizations {
 fn read_data_elements(
     elements: &Value,
     name_spaces: &[NameSpace],
-) -> Result<Vec<(NameSpace, Vec<ElementIdentifier>)>, KeyAuthorizationsFault> {
+) -> Result<Distinct<DataElements>, KeyAuthorizationsFault> {
     let entries = non_empty_map(Some(elements)).map_err(KeyAuthorizationsFault::DataElements)?;
-    let mut data_elements: Vec<(NameSpace, Vec<ElementIdentifier>)> =
-        Vec::with_capacity(entries.len());
-    for (name_space, identifiers) in entries {
+    cbor::distinct_map(entries, |name_space, identifiers| {
         let name_space = NameSpace::new(
             name_space
                 .as_text()
-                .ok_or(KeyAuthorizationsFault::NameNotText)?,
+                .ok_or(KeyAuthorizationsFault::NameSpace)?,
         );
         if name_spaces.contains(&name_space) {
             return Err(KeyAuthorizationsFault::Overlap(name_space));
         }
         let identifiers = names_once(identifiers, ElementIdentifier::new)
             .map_err(|fault| KeyAuthorizationsFault::Elements(name_space.clone(), fault))?;
-        if data_elements.iter().any(|(known, _)| *known == name_space) {
-            return Err(KeyAuthorizationsFault::RepeatedNameSpace(name_space));
-        }
-        data_elements.push((name_space, identifiers));
-    }
-    Ok(data_elements)
+        Ok(DataElements {
+            name_space,
+            identifiers,
+        })
+    })
 }
 
 /// A non-empty array of text strings, each once, each read by `name`.

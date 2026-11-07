@@ -1,12 +1,13 @@
 //! `issuerAuth`: the issuer's `COSE_Sign1` over the MSO (ISO/IEC 18013-5, 9.1.2.4).
 
 use siros_openid4vp::cbor::{self, Value};
+use siros_openid4vp::wallet::DerCertificate;
 
 use super::error::{ArrayIndex, MemberFault};
 use super::item::{Read as _, raw};
 
 use super::error::{AlgorithmFault, IssuerAuthFault, MdocError};
-use super::signature::{CoseAlgorithm, SigStructure};
+use super::signature::{CoseAlgorithm, IssuerSignature, SigStructure};
 
 /// The COSE label of `alg` (RFC 9052, Section 3.1).
 const ALG: i64 = 1;
@@ -87,8 +88,8 @@ impl IssuerAuth {
 
     /// The signature, in the form [`IssuerAuth::algorithm`] defines.
     #[must_use]
-    pub fn signature(&self) -> &[u8] {
-        &self.signature
+    pub fn signature(&self) -> IssuerSignature<'_> {
+        IssuerSignature(&self.signature)
     }
 }
 
@@ -124,18 +125,20 @@ pub struct CertificateChain {
 impl CertificateChain {
     /// The chain of `first` and `rest` after it.
     #[must_use]
-    pub fn new(first: Vec<u8>, rest: Vec<Vec<u8>>) -> Self {
+    pub(crate) fn new(first: Vec<u8>, rest: Vec<Vec<u8>>) -> Self {
         Self { first, rest }
     }
 
     /// The signer's certificate.
     #[must_use]
-    pub fn first(&self) -> &[u8] {
-        &self.first
+    pub fn first(&self) -> DerCertificate<'_> {
+        DerCertificate::new(&self.first)
     }
 
     /// Every certificate, the signer's first.
-    pub fn certificates(&self) -> impl Iterator<Item = &[u8]> {
-        std::iter::once(self.first.as_slice()).chain(self.rest.iter().map(Vec::as_slice))
+    pub fn certificates(&self) -> impl Iterator<Item = DerCertificate<'_>> {
+        std::iter::once(self.first.as_slice())
+            .chain(self.rest.iter().map(Vec::as_slice))
+            .map(DerCertificate::new)
     }
 }

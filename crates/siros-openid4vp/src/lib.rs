@@ -133,6 +133,7 @@ impl siros_explain::Messages for CrateMessages {
             text::TextError::messages,
             wallet::RegistrationError::messages,
             json::JsonError::messages,
+            json::RepeatedName::messages,
             claims::PathError::messages,
             claims::ClaimsError::messages,
             #[cfg(feature = "claims")]

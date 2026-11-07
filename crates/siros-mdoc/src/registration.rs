@@ -7,9 +7,29 @@ use std::borrow::Cow;
 use siros_explain::Explain;
 use siros_openid4vp::cbor::{self, CborError, Value};
 use siros_openid4vp::claims::kit::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
-use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::json::{Node, Object};
+use siros_openid4vp::known_object;
+use siros_openid4vp::wallet::{DocumentBytes, ViewBytes};
 
-use crate::stored::{MdocError, StoredMdoc};
+use crate::stored::{Curve, MdocError, StoredMdoc};
+
+/// The issuer's name from `x5chain`: any text its certificate states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuerName<'a>(&'a str);
+
+impl<'a> IssuerName<'a> {
+    /// The name `text`.
+    #[must_use]
+    pub const fn new(text: &'a str) -> Self {
+        Self(text)
+    }
+
+    /// The name.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
 
 /// What the wallet resolved beside the stored mdoc.
 #[derive(Debug, Clone, Default)]
@@ -17,9 +37,9 @@ pub struct Resolved<'a> {
     /// What OpenID4VCI states of the credential's display, the format stating none of its own.
     pub issued: IssuedMetadata<'a>,
     /// The issuer's name from `x5chain`.
-    pub issuer: Option<&'a str>,
+    pub issuer: Option<IssuerName<'a>>,
     /// The curve of `x5chain`'s Document Signer key.
-    pub issuer_curve: Option<&'a str>,
+    pub issuer_curve: Option<Curve>,
 }
 
 /// Why a stored mdoc makes no view.
@@ -40,9 +60,6 @@ pub enum RegistrationError {
         #[explain(name = "cause")]
         CborError,
     ),
-    /// The view repeats a member name.
-    #[error(transparent)]
-    Json(#[from] JsonError),
     /// The display metadata breaks a rule of the merge.
     #[error("the display metadata: {cause}")]
     Metadata {
@@ -70,8 +87,6 @@ fn text(value: &str) -> Node<'static> {
     Node::String(Cow::Owned(value.to_owned()))
 }
 
-type Members = Vec<(Cow<'static, str>, Node<'static>)>;
-
 impl Registered {
     /// The registration of the base64url mdoc `stored`.
     ///
@@ -88,42 +103,33 @@ impl Registered {
     }
 
     /// The view: `{"type", "metadata", "values", "byte_strings"?, "issuer_display"?, "issuer"?,
-    /// "issuer_alg", "issuer_curve"?, "device_alg", "device_curve", "key_authorizations",
+    /// "issuer_alg", "issuer_curve"?, "device_alg"?, "device_curve", "key_authorizations",
     /// "validity"}`.
     #[must_use]
-    pub fn view(&self) -> &[u8] {
-        &self.view
+    pub fn view(&self) -> ViewBytes<'_> {
+        ViewBytes::new(&self.view)
     }
 
     /// The document, under [`crate::issuer_signed::DOCUMENT`].
     #[must_use]
-    pub fn document(&self) -> &[u8] {
-        &self.document
+    pub fn document(&self) -> DocumentBytes<'_> {
+        DocumentBytes::new(&self.document)
     }
 }
 
 /// `{name space: {element: value}}`, values by RFC 8949 §6.1.
-fn values(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationError> {
-    let mut spaces: Members = Vec::with_capacity(mdoc.name_spaces().len());
-    for space in mdoc.name_spaces() {
-        let mut elements: Members = Vec::with_capacity(space.items().len());
-        for item in space.items() {
-            elements.push((
-                Cow::Owned(item.identifier().to_string()),
-                cbor::to_json(item.value())?,
-            ));
-        }
-        spaces.push((
-            Cow::Owned(space.name().to_string()),
-            Node::object(elements)?,
-        ));
-    }
-    Ok(Node::object(spaces)?)
+fn values(mdoc: &StoredMdoc) -> Result<Object<'static>, CborError> {
+    mdoc.distinct_name_spaces().try_object(|space| {
+        space
+            .distinct_items()
+            .try_object(|item| cbor::to_json(item.value()))
+            .map(Node::Object)
+    })
 }
 
 /// Each byte string under the items' values, which RFC 8949 §6.1 writes as text in `values`, as
 /// `{"path", "length"}`. A bignum (tags 2 and 3) is a number.
-fn byte_strings(mdoc: &StoredMdoc) -> Result<Vec<Node<'static>>, JsonError> {
+fn byte_strings(mdoc: &StoredMdoc) -> Vec<Node<'static>> {
     let mut found = Vec::new();
     for space in mdoc.name_spaces() {
         for item in space.items() {
@@ -131,28 +137,24 @@ fn byte_strings(mdoc: &StoredMdoc) -> Result<Vec<Node<'static>>, JsonError> {
                 text(&space.name().to_string()),
                 text(&item.identifier().to_string()),
             ];
-            bytes_under(item.value(), &mut path, &mut found)?;
+            bytes_under(item.value(), &mut path, &mut found);
         }
     }
-    Ok(found)
+    found
 }
 
-fn bytes_under(
-    value: &Value,
-    path: &mut Vec<Node<'static>>,
-    found: &mut Vec<Node<'static>>,
-) -> Result<(), JsonError> {
+fn bytes_under(value: &Value, path: &mut Vec<Node<'static>>, found: &mut Vec<Node<'static>>) {
     match value {
-        Value::Bytes(bytes) => found.push(Node::object([
-            (Cow::Borrowed("path"), Node::Array(path.clone())),
-            (Cow::Borrowed("length"), Node::natural(bytes.len())),
-        ])?),
+        Value::Bytes(bytes) => found.push(Node::Object(known_object! {
+            "path" => Some(Node::Array(path.clone())),
+            "length" => Some(Node::natural(bytes.len())),
+        })),
         Value::Tag(2 | 3, _) => {}
-        Value::Tag(_, inner) => bytes_under(inner, path, found)?,
+        Value::Tag(_, inner) => bytes_under(inner, path, found),
         Value::Array(items) => {
             for (at, item) in items.iter().enumerate() {
                 path.push(Node::natural(at));
-                bytes_under(item, path, found)?;
+                bytes_under(item, path, found);
                 drop(path.pop());
             }
         }
@@ -160,87 +162,64 @@ fn bytes_under(
             for (key, item) in pairs {
                 if let Value::Text(name) = key {
                     path.push(text(name));
-                    bytes_under(item, path, found)?;
+                    bytes_under(item, path, found);
                     drop(path.pop());
                 }
             }
         }
         _ => {}
     }
-    Ok(())
 }
 
 /// `{"namespaces", "elements"}` (ISO/IEC 18013-5 §9.1.2.4).
-fn key_authorizations(mdoc: &StoredMdoc) -> Result<Node<'static>, RegistrationError> {
+fn key_authorizations(mdoc: &StoredMdoc) -> Node<'static> {
     let authorizations = mdoc.mso().key_authorizations();
-    let elements: Members = authorizations
-        .data_elements()
-        .iter()
-        .map(|(space, identifiers)| {
-            (
-                Cow::Owned(space.to_string()),
-                Node::Array(identifiers.iter().map(|id| text(id.as_str())).collect()),
-            )
-        })
-        .collect();
-    let namespaces = authorizations
-        .name_spaces()
-        .iter()
-        .map(|space| text(space.as_str()))
-        .collect();
-    Ok(Node::object([
-        (Cow::Borrowed("namespaces"), Node::Array(namespaces)),
-        (Cow::Borrowed("elements"), Node::object(elements)?),
-    ])?)
+    let names = |names: Vec<&str>| Node::Array(names.into_iter().map(text).collect());
+    let elements = authorizations.data_elements().object(|elements| {
+        names(
+            elements
+                .identifiers()
+                .iter()
+                .map(|id| id.as_str())
+                .collect(),
+        )
+    });
+    let namespaces = names(
+        authorizations
+            .name_spaces()
+            .iter()
+            .map(|space| space.as_str())
+            .collect(),
+    );
+    Node::Object(known_object! {
+        "namespaces" => Some(namespaces),
+        "elements" => Some(Node::Object(elements)),
+    })
 }
 
 fn view(mdoc: &StoredMdoc, resolved: &Resolved<'_>) -> Result<Node<'static>, RegistrationError> {
     let metadata = merge_metadata::<IssuedAsWritten>(None, &resolved.issued)?;
+    let byte_strings = byte_strings(mdoc);
     let mso = mdoc.mso();
     let device = mso.device_key();
     let validity = mso.validity();
-    let seconds = |at: u64| Node::integer(i128::from(at));
-    let mut members: Members = vec![
-        (Cow::Borrowed("type"), text(mdoc.doc_type().as_str())),
-        (Cow::Borrowed("metadata"), metadata),
-        (Cow::Borrowed("values"), values(mdoc)?),
-    ];
-    let byte_strings = byte_strings(mdoc)?;
-    if !byte_strings.is_empty() {
-        members.push((Cow::Borrowed("byte_strings"), Node::Array(byte_strings)));
-    }
-    members.extend(resolved.issued.issuer_display_member()?);
-    if let Some(issuer) = resolved.issuer {
-        members.push((Cow::Borrowed("issuer"), text(issuer)));
-    }
-    members.push((
-        Cow::Borrowed("issuer_alg"),
-        Node::integer(i128::from(mdoc.issuer_auth().algorithm().value())),
-    ));
-    if let Some(curve) = resolved.issuer_curve {
-        members.push((Cow::Borrowed("issuer_curve"), text(curve)));
-    }
-    members.push((
-        Cow::Borrowed("device_alg"),
-        Node::integer(i128::from(device.algorithm().value())),
-    ));
-    members.push((Cow::Borrowed("device_curve"), text(device.curve())));
-    members.push((
-        Cow::Borrowed("key_authorizations"),
-        key_authorizations(mdoc)?,
-    ));
-    members.push((
-        Cow::Borrowed("validity"),
-        Node::object([
-            (
-                Cow::Borrowed("not_before"),
-                seconds(validity.valid_from().0),
-            ),
-            (
-                Cow::Borrowed("not_after"),
-                seconds(validity.valid_until().0),
-            ),
-        ])?,
-    ));
-    Ok(Node::object(members)?)
+    let seconds = |at: u64| Some(Node::integer(i128::from(at)));
+    let cose = |alg: i64| Node::integer(i128::from(alg));
+    Ok(Node::Object(known_object! {
+        "type" => Some(text(mdoc.doc_type().as_str())),
+        "metadata" => Some(Node::Object(metadata)),
+        "values" => Some(Node::Object(values(mdoc)?)),
+        "byte_strings" => (!byte_strings.is_empty()).then_some(Node::Array(byte_strings)),
+        "issuer_display" => resolved.issued.issuer_display_member()?,
+        "issuer" => resolved.issuer.map(|issuer| text(issuer.as_str())),
+        "issuer_alg" => Some(cose(mdoc.issuer_auth().algorithm().value())),
+        "issuer_curve" => resolved.issuer_curve.map(|curve| text(curve.name())),
+        "device_alg" => device.algorithm().map(|alg| cose(alg.value())),
+        "device_curve" => Some(text(device.curve().name())),
+        "key_authorizations" => Some(key_authorizations(mdoc)),
+        "validity" => Some(Node::Object(known_object! {
+            "not_before" => seconds(validity.valid_from().0),
+            "not_after" => seconds(validity.valid_until().0),
+        })),
+    }))
 }

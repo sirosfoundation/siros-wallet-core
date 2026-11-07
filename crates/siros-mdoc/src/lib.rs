@@ -57,7 +57,7 @@ pub use device_mac::{DeviceMac, Mac};
 pub use presentation::DeviceAuthRefused;
 #[cfg(feature = "resolve")]
 pub use transcript::{
-    Handover, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
+    Handover, HandoverUri, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
 };
 
 use siros_explain::{AllOf, Explain, Explained, Message, Messages};
@@ -76,7 +76,7 @@ use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
 
-use cose::Signer;
+use cose::DeviceKeyView;
 use view::MdocMembers;
 
 /// The Credential Format Identifier.
@@ -281,8 +281,8 @@ impl ClaimsPlugin for Mdoc {
     }
 
     /// B.2.4: IssuerAuth's algorithm under `issuerauth_alg_values`; the device key's signature
-    /// algorithm under `deviceauth_alg_values`, with the device MAC's identifier for the device
-    /// key's curve when a Verifier key on that curve lets the wallet agree the MAC key.
+    /// algorithm under `deviceauth_alg_values`, with the device MAC's identifiers (B.2.2's rules 1
+    /// and 3) when a Verifier key on the device key's curve lets the wallet agree the MAC key.
     fn algorithms<'v>(
         &self,
         view: &ClaimsView<'v>,
@@ -290,17 +290,25 @@ impl ClaimsPlugin for Mdoc {
     ) -> Result<Vec<Constraint<'v>>, Fault> {
         let members = MdocMembers::of(view);
         let device = members.device_key()?;
-        let mac = reader_key(device, keys).and_then(|reader| cose::mac(reader.curve()));
+        let mac = reader_key(device, keys).and_then(|_| cose::mac_row(device.curve));
         let identifiers =
             |ids: Vec<i64>| ids.into_iter().map(|id| Node::integer(id.into())).collect();
         Ok(vec![
             Constraint {
                 member: VpFormatsMember::new("issuerauth_alg_values"),
                 matched: identifiers(members.issuer_auth()?.identifiers()),
+                also: Vec::new(),
             },
             Constraint {
                 member: VpFormatsMember::new("deviceauth_alg_values"),
-                matched: identifiers(device.identifiers().into_iter().chain(mac).collect()),
+                matched: identifiers(
+                    device
+                        .signature_identifiers()
+                        .into_iter()
+                        .chain(mac)
+                        .collect(),
+                ),
+                also: identifiers(mac.map(|_| cose::HMAC_256_256).into_iter().collect()),
             },
         ])
     }
@@ -372,7 +380,7 @@ where
 /// wallet needs to make a presentation, here to agree the device MAC key (ISO/IEC 18013-5
 /// §9.1.3.5).
 fn reader_key<'k>(
-    device: Signer,
+    device: DeviceKeyView,
     keys: impl IntoIterator<Item = &'k AgreeableKey<'k>>,
 ) -> Option<&'k AgreeableKey<'k>> {
     keys.into_iter()

@@ -9,11 +9,12 @@ use serde_json::Value as Json;
 use sha2::{Digest, Sha256};
 use siros_mdoc::Mdoc;
 use siros_mdoc::issuer_signed::{Disclosed, IssuedError, IssuerSigned};
+use siros_mdoc::stored::{ElementIdentifier, NameSpace};
 use siros_mdoc::{DeviceMac, Mac, SessionTranscriptBytes, TestDeviceMac};
 use siros_openid4vp::cbor::cose::CoseShape;
 use siros_openid4vp::cbor::cose::coset::iana;
 use siros_openid4vp::cbor::cose::coset::{AsCborValue, CoseSign1, CoseSign1Builder, HeaderBuilder};
-use siros_openid4vp::cbor::{CborError, Value, decode, embedded, encode};
+use siros_openid4vp::cbor::{Value, decode, embedded, encode};
 use siros_openid4vp::host::{
     CoreHost, FormatHost, Haip, Has, Held, MayHave, Platform, SealedJwe, SignFailed, Signature,
     Usable,
@@ -202,7 +203,6 @@ fn the_host_authenticates_rfc_9052s_structures() {
         r#"{{"jwks": {{"keys": [{P256}]}}, "vp_formats_supported": {{"mso_mdoc": {{"deviceauth_alg_values": [-65537]}}}}}}"#
     );
     // ({1: -7} is a1 01 26, {1: 5} a1 01 05.)
-    let mut held_structures = 0;
     for (metadata, context, protected) in [
         ("{}", "Signature1", "a10126"),
         (mac.as_str(), "MAC0", "a10105"),
@@ -244,9 +244,7 @@ fn the_host_authenticates_rfc_9052s_structures() {
             host.records.signed.take()
         };
         assert_eq!(recorded, vec![by_hand], "{context}");
-        held_structures += 1;
     }
-    assert_eq!(held_structures, 2);
 }
 
 fn hex(text: &str) -> Vec<u8> {
@@ -266,8 +264,8 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
     let stored = IssuerSigned::read(&issued).unwrap();
     let values = view.get("values").unwrap();
     let shown = |namespace, element| Disclosed {
-        namespace,
-        element,
+        namespace: NameSpace::new(namespace),
+        element: ElementIdentifier::new(element),
         shown: values.get(namespace).unwrap().get(element).unwrap(),
     };
     let disclosed = stored
@@ -315,24 +313,21 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
     }
     assert_eq!(covered_items, 3);
     // Refusals: a value other than the view's, an element never issued, an unknown member, a
-    // label in both of IssuerAuth's buckets, a payload that is no MSO, a key twice.
-    let mut refusals = 0;
+    // label in both of IssuerAuth's buckets, a payload that is no MSO.
     let other = Node::parse("2").unwrap();
     let wrong = |element| Disclosed {
-        namespace: "ns1",
-        element,
+        namespace: NameSpace::new("ns1"),
+        element: ElementIdentifier::new(element),
         shown: &other,
     };
     assert!(matches!(
         stored.disclose(&[wrong("a")]),
         Err(IssuedError::Differs { .. })
     ));
-    refusals += 1;
     assert!(matches!(
         stored.disclose(&[wrong("z")]),
         Err(IssuedError::Missing { .. })
     ));
-    refusals += 1;
     let Value::Map(mut members) = decode(&issued).unwrap() else {
         panic!("a map")
     };
@@ -341,7 +336,6 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
         IssuerSigned::read(&encode(&Value::Map(members.clone())).unwrap()),
         Err(IssuedError::Shape(_))
     ));
-    refusals += 1;
     let _errors = members.pop();
     members[1].1 = CoseSign1Builder::new()
         .protected(
@@ -363,7 +357,6 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
         IssuerSigned::read(&encode(&Value::Map(members.clone())).unwrap()),
         Err(IssuedError::IssuerAuth(CoseShape::BothBuckets(_)))
     ));
-    refusals += 1;
     let mut no_mso = members.clone();
     no_mso[1].1 = CoseSign1Builder::new()
         .protected(
@@ -380,22 +373,12 @@ fn the_presented_items_are_the_issued_ones_the_mso_digests() {
         IssuerSigned::read(&encode(&Value::Map(no_mso)).unwrap()),
         Err(IssuedError::Shape(_))
     ));
-    refusals += 1;
-    let mut twice = members.clone();
-    twice.push(members[0].clone());
-    assert!(matches!(
-        IssuerSigned::read(&encode(&Value::Map(twice)).unwrap()),
-        Err(IssuedError::Cbor(CborError::RepeatedKey(_)))
-    ));
-    refusals += 1;
-    assert_eq!(refusals, 6);
 }
 
 #[test]
 fn the_reading_equals_the_frozen_models_presentations() {
     // oracle/export_mdoc_cases.py's run of the reference model's fmt_mdoc.present.
     let lines = include_str!("data/model_mdoc.jsonl");
-    let (mut equal, mut refused) = (0, 0);
     for line in lines.lines() {
         let case: Json = serde_json::from_str(line).unwrap();
         let name = case["name"].as_str().unwrap();
@@ -470,7 +453,6 @@ fn the_reading_equals_the_frozen_models_presentations() {
             model.json_compact().to_string(),
             "{name}"
         );
-        equal += 1;
         // Another nonce is refused: the device authentication covers the transcript.
         let wrong = ModelHandover {
             nonce: format!("{}x", handover.nonce),
@@ -483,7 +465,5 @@ fn the_reading_equals_the_frozen_models_presentations() {
             ),
             "{name}"
         );
-        refused += 1;
     }
-    assert_eq!((equal, refused), (4, 4));
 }

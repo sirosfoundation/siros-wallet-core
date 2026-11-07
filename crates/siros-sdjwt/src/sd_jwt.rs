@@ -3,7 +3,8 @@
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use rustc_hash::FxHashMap;
-use siros_openid4vp::json::{JsonError, Node};
+use siros_openid4vp::json::Node;
+use siros_openid4vp::wallet::DerCertificate;
 
 use crate::alg::{HashAlg, SigningAlg};
 use crate::error::{
@@ -11,6 +12,30 @@ use crate::error::{
 };
 use crate::process::{self, Content, Pending};
 use crate::tree::{DisclosureId, Object};
+
+/// The Issuer-signed JWT of an SD-JWT: a JWS in compact serialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuerJwt<'a>(&'a str);
+
+impl<'a> IssuerJwt<'a> {
+    /// The compact serialization.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
+
+/// The Issuer-signed JWT's `typ` header parameter (RFC 7515 §4.1.9), any text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JwtType<'a>(&'a str);
+
+impl<'a> JwtType<'a> {
+    /// The text.
+    #[must_use]
+    pub const fn as_str(self) -> &'a str {
+        self.0
+    }
+}
 
 /// An issued SD-JWT whose disclosures all hang in its Issuer-signed payload: its digests are
 /// unique, every disclosure is referenced, no reserved claim name is used, and `_sd_alg` names a
@@ -90,38 +115,37 @@ impl SdJwt {
 
     /// The processed payload as JSON, each withheld array position an `{"...": digest}` element:
     /// what a claims path pointer walks with [`crate::SdJwtVc`]'s `withheld`.
-    ///
-    /// # Errors
-    ///
-    /// [`JsonError`]: never for a parsed credential, whose object members are unique.
-    pub fn values(&self) -> Result<Node<'static>, JsonError> {
+    #[must_use]
+    pub fn values(&self) -> Node<'static> {
         self.claims.node()
     }
 
-    /// The Issuer-signed JWT, a JWS in compact serialization.
+    /// The Issuer-signed JWT.
     #[must_use]
-    pub fn issuer_jwt(&self) -> &str {
-        &self.issuer_jwt
+    pub fn issuer_jwt(&self) -> IssuerJwt<'_> {
+        IssuerJwt(&self.issuer_jwt)
     }
 
     /// The certificates of the Issuer-signed JWT's `x5c` header parameter in DER, the signer's
     /// first; `None` when the issuer sent none.
     #[must_use]
-    pub fn x5c(&self) -> Option<&[Vec<u8>]> {
-        self.x5c.as_deref()
+    pub fn x5c(&self) -> Option<impl ExactSizeIterator<Item = DerCertificate<'_>>> {
+        self.x5c
+            .as_ref()
+            .map(|chain| chain.iter().map(|der| DerCertificate::new(der)))
     }
 
     /// The JWS algorithm of the Issuer-signed JWT.
     #[must_use]
-    pub fn signing_alg(&self) -> &str {
-        self.signing_alg.as_str()
+    pub fn signing_alg(&self) -> &SigningAlg {
+        &self.signing_alg
     }
 
     /// The Issuer-signed JWT's `typ` header parameter (RFC 7515 §4.1.9); `None` when it holds no
     /// string.
     #[must_use]
-    pub fn typ(&self) -> Option<&str> {
-        self.typ.as_deref()
+    pub fn typ(&self) -> Option<JwtType<'_>> {
+        self.typ.as_deref().map(JwtType)
     }
 }
 
