@@ -32,7 +32,7 @@
 //! const IBAN: AttestationType = checked!(AttestationType, "https://example.com/sca-iban");
 //! let mut builder = Registry::<Host>::builder();
 //! builder.hash(Sha2::Sha256);
-//! assert!(Ts12Profile::new(AllOf::one(IBAN)).register(&mut builder).is_ok());
+//! Ts12Profile::new(AllOf::one(IBAN)).register(&mut builder);
 //! assert!(builder.build().is_ok());
 //! ```
 
@@ -67,7 +67,7 @@ pub mod view;
 
 use siros_explain::{AllOf, Message, Messages};
 use siros_openid4vp::detail;
-use siros_openid4vp::ids::{InvalidId, TypePrefix};
+use siros_openid4vp::ids::TypePrefix;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
     Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Exclusion, Fault,
@@ -105,7 +105,7 @@ use crate::translate::labels_for;
 pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "ts12.fault");
 
 /// The prefix the profile registers under.
-const PREFIX: &str = "urn:eudi:sca:";
+const PREFIX: TypePrefix<'static> = siros_explain::checked!(TypePrefix, "urn:eudi:sca:");
 
 /// TS12 §3.3.3's limits; claim labels under PaSO's (Proof Metadata §3.3).
 pub const LIMITS: LabelLimits = LabelLimits {
@@ -232,19 +232,14 @@ impl Ts12Profile {
     }
 
     /// Registers the profile under `urn:eudi:sca:`.
-    ///
-    /// # Errors
-    ///
-    /// [`InvalidId`]: the prefix is no valid type prefix.
-    pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> Result<ProfileHandle, InvalidId>
+    pub fn register<H>(self, builder: &mut RegistryBuilder<H>) -> ProfileHandle
     where
         H: Build,
         Self: HostedProfile<H>,
     {
-        let prefix = TypePrefix::parse(PREFIX)?;
         let handle = builder.profile(self);
-        builder.prefix(prefix, handle);
-        Ok(handle)
+        builder.prefix(PREFIX, handle);
+        handle
     }
 
     /// What the wallet knows of an https logo: the first resource of its URL as written.
@@ -324,7 +319,7 @@ impl Ts12Profile {
 /// The document a credential's registration holds; `None` when it holds none.
 pub(crate) fn read_document<'c>(credential: &Credential<'c>) -> Result<Option<Node<'c>>, Fault> {
     credential
-        .document(DOCUMENT)
+        .document(DOCUMENT.as_str())
         .map(|bytes| {
             let text = std::str::from_utf8(bytes)
                 .map_err(|e| Fault::caused(FAULT, detail!("the TS12 document"), e))?;

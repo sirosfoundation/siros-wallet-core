@@ -94,7 +94,7 @@ fn held_under(metadata: &str) -> Held {
     .with_issued()
     .expect("the issued SD-JWT");
     card.documents.push((
-        siros_ts12::DOCUMENT.to_owned(),
+        siros_ts12::DOCUMENT.as_str().to_owned(),
         document.content().as_bytes().to_vec(),
     ));
     card

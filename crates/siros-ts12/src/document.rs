@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use siros_explain::{Explain, IntoArg, Keyed, kind};
-use siros_openid4vp::ids::TransactionType;
+use siros_openid4vp::ids::{DocumentKey, TransactionType};
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::known_object;
 use siros_openid4vp::plugins::JsonText;
@@ -15,7 +15,7 @@ use siros_openid4vp::wallet::DocumentBytes;
 use siros_paso::rulebook::{Family, PasoType};
 
 /// The key of the TS12 document in a credential's registration.
-pub const DOCUMENT: &str = "ts12";
+pub const DOCUMENT: DocumentKey<'static> = siros_explain::checked!(DocumentKey, "ts12");
 /// TS12 §3: the category of an SCA attestation.
 const SCA_CATEGORY: &str = "urn:eu:europa:ec:eudi:sua:sca";
 

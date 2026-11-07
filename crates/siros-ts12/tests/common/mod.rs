@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use siros_explain::{AllOf, Keyed, ModuleId, Text};
 use siros_i18n::{DefinedForm, Selected};
-use siros_openid4vp::ids::{CredentialId, CredentialType, DocumentKey, FormatId, LocaleTag};
+use siros_openid4vp::ids::{CredentialId, CredentialType, FormatId, LocaleTag};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Binding, Bound, Carriage, NoCandidate, Profile, ViewTypes};
 use siros_openid4vp::request::Request;
@@ -69,7 +69,7 @@ pub fn credential(document: &[u8]) -> Credential<'_> {
         FormatId::parse("dc+sd-jwt").expect("format"),
         br#"{"answers":["q"],"alg":"A"}"#,
         vec![Document {
-            key: DocumentKey::parse("ts12").expect("key"),
+            key: siros_ts12::DOCUMENT,
             content: document,
         }],
         Facts::new(Holder::Bound, Vec::new()).expect("facts"),

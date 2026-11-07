@@ -108,10 +108,7 @@ pub fn we_build_registry() -> Result<Registry<WeBuildHost>, String> {
         .map(drop)
         .map_err(|e| e.to_string())?;
     let types = AllOf::new(WE_BUILD_TYPES.to_vec()).ok_or("the three base types")?;
-    Ts12Profile::new(types)
-        .register(&mut builder)
-        .map(drop)
-        .map_err(|e| e.to_string())?;
+    Ts12Profile::new(types).register(&mut builder);
     builder.object_rule(siros_webuild::Cs02Claims);
     builder.answer_reader(siros_webuild::Cs02ErrorAnswer);
     builder.build().map_err(|e| e.to_string())
@@ -123,7 +120,7 @@ pub fn we_build_app(wallet: &Wallet<'_>, env: &Env) -> App {
     let main = main_locales().expect("the main module");
     let mut defined: Vec<DefinedForm> = Vec::new();
     for credential in wallet.credentials() {
-        let Some(bytes) = credential.document(siros_ts12::DOCUMENT) else {
+        let Some(bytes) = credential.document(siros_ts12::DOCUMENT.as_str()) else {
             continue;
         };
         let text = std::str::from_utf8(bytes).expect("UTF-8");
