@@ -696,18 +696,22 @@ impl Host for MiniHost {
         // kid is the RFC 7638 thumbprint; the sign asks that follow name
         // it, and this host signs with the very key it handed out.
         if params.fresh {
-            let key = jose_rs::jwk::generate_ec("P-256")
-                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let key =
+                jose_rs::jwk::generate_ec("P-256").map_err(|e| HostError::Cannot(e.to_string()))?;
             let kid = jose_rs::jwk::thumbprint::thumbprint_sha256(&key)
                 .map_err(|e| HostError::Cannot(e.to_string()))?;
-            let signer = p256_signer(&key)
-                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let signer = p256_signer(&key).map_err(|e| HostError::Cannot(e.to_string()))?;
             let mut public = key.to_public_jwk();
             public.kid = Some(kid.clone());
-            let text = public.to_json().map_err(|e| HostError::Cannot(e.to_string()))?;
+            let text = public
+                .to_json()
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
             let jwk: serde_json::Value =
                 serde_json::from_str(&text).map_err(|e| HostError::Cannot(e.to_string()))?;
-            self.fresh_signers.lock().map_err(|_| HostError::Cannot("the fresh-key table is poisoned".to_owned()))?.insert(kid, signer);
+            self.fresh_signers
+                .lock()
+                .map_err(|_| HostError::Cannot("the fresh-key table is poisoned".to_owned()))?
+                .insert(kid, signer);
             return Ok(engine_ports::SigningKeyResult { jwk });
         }
         let jwk = if use_client {

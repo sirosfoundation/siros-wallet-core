@@ -275,7 +275,11 @@ pub async fn request_credential(
             })
             .await
             .map_err(|err| CredentialError::Proofs(err.to_string()))?;
-        proofs.push(format!("{}.{}", proof_tbs, base64url(&sign_result.signature)));
+        proofs.push(format!(
+            "{}.{}",
+            proof_tbs,
+            base64url(&sign_result.signature)
+        ));
     }
 
     // Build the credential request body. OID4VCI 1.0 §7.5: `proofs` is
@@ -807,7 +811,7 @@ mod tests {
         IssuerMetadata {
             nonce_endpoint: None,
             deferred_credential_endpoint: None,
-        batch_credential_issuance: None,
+            batch_credential_issuance: None,
             credential_endpoint: String::new(),
             token_endpoint: String::new(),
             notification_endpoint: String::new(),
