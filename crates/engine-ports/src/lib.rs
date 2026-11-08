@@ -219,6 +219,15 @@ pub struct SigningKeyParams {
     /// it — a renewal's reissuance kid; the device key when unnamed.
     #[serde(default)]
     pub key_id: Option<String>,
+    /// Whether the host must answer with a FRESH key (generated for
+    /// this ask, never returned before): the OID4VCI batch rule —
+    /// each credential in a batch binds to its own key so verifiers
+    /// cannot link them (SDJWT-10.1, the suite's
+    /// VCIEnsureProofKeysAreDistinct). Default false — the named (or
+    /// default) key, the historic shape; a host that does not
+    /// implement freshness keeps answering its named key.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 /// The public JWK answer. Keys always live in the app; the engine

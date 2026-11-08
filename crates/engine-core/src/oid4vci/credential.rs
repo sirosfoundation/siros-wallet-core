@@ -223,7 +223,7 @@ pub async fn request_credential(
         .map(|batch| batch.batch_size.max(1) as usize)
         .unwrap_or(1);
     let mut proofs: Vec<String> = Vec::with_capacity(batch_size);
-    for _ in 0..batch_size {
+    for i in 0..batch_size {
         let mut proof_header = serde_json::json!({
             "typ": "openid4vci-proof+jwt",
             "alg": "ES256",
@@ -232,6 +232,15 @@ pub async fn request_credential(
             .request_signing_key(engine_ports::SigningKeyParams {
                 flow_id: flow_id.to_owned(),
                 key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
+                // The batch rule: every proof in a batch binds to a FRESH key — a
+                // second proof over the same key links the credentials to each
+                // other (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct;
+                // found driving the batch module: "Two proofs in the credential
+                // request prove possession of the same key"). A renewal keeps
+                // ITS named key on the first proof (the reissuance kid is the
+                // key the credential must bind to) — a fresh batch's every
+                // proof is fresh.
+                fresh: !(i == 0 && aux.and_then(|aux| aux.reissuance_kid).is_some()),
             })
             .await
         {

@@ -669,6 +669,18 @@ impl Host for MiniHost {
                     Some(kid) => id == kid,
                     None => id == engine_core::oid4vci::token::CLIENT_AUTH_KEY_ID,
                 });
+        // A FRESH key ask (the OID4VCI batch rule): generate one for this
+        // ask alone — each credential in a batch binds to its own key
+        // (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct).
+        if params.fresh {
+            let key = jose_rs::jwk::generate_ec("P-256")
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let text = key.to_public_jwk().to_json().map_err(|e| HostError::Cannot(e.to_string()))?;
+            return Ok(engine_ports::SigningKeyResult {
+                jwk: serde_json::from_str(&text)
+                    .map_err(|e| HostError::Cannot(e.to_string()))?,
+            });
+        }
         let jwk = if use_client {
             self.client_key.clone().ok_or_else(|| {
                 HostError::Cannot("the mini host carries no client key".to_owned())
