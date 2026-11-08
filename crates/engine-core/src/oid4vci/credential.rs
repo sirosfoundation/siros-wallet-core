@@ -228,25 +228,37 @@ pub async fn request_credential(
             "typ": "openid4vci-proof+jwt",
             "alg": "ES256",
         });
+        // The batch rule (batch_size > 1): every proof in a batch binds to
+        // a FRESH key — two proofs over the same key link the credentials
+        // to each other (SDJWT-10.1, the suite's
+        // VCIEnsureProofKeysAreDistinct: "Two proofs in the credential
+        // request prove possession of the same key; each credential in a
+        // batch must be bound to a fresh key so verifiers cannot link
+        // them"). A single proof (batch_size 1 — every ordinary issuance
+        // runs this loop too) keeps the flow's device key; a batch
+        // renewal's first proof keeps its named reissuance kid — THE key
+        // the credential must bind to.
+        let fresh = batch_size > 1 && !(i == 0 && aux.and_then(|aux| aux.reissuance_kid).is_some());
+        // The kid of the key the proof header carries — a fresh key's
+        // answer names it; thread it into the sign ask so the host signs
+        // with the very key it handed over.
+        let mut answer_kid: Option<String> = None;
         if let Ok(answer) = host
             .request_signing_key(engine_ports::SigningKeyParams {
                 flow_id: flow_id.to_owned(),
                 key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
-                // The batch rule: every proof in a batch binds to a FRESH key — a
-                // second proof over the same key links the credentials to each
-                // other (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct;
-                // found driving the batch module: "Two proofs in the credential
-                // request prove possession of the same key"). A renewal keeps
-                // ITS named key on the first proof (the reissuance kid is the
-                // key the credential must bind to) — a fresh batch's every
-                // proof is fresh.
-                fresh: !(i == 0 && aux.and_then(|aux| aux.reissuance_kid).is_some()),
+                fresh,
             })
             .await
         {
             if let Some(header) = proof_header.as_object_mut() {
                 header.insert("jwk".to_owned(), public_jwk_for_header(&answer.jwk));
             }
+            answer_kid = answer
+                .jwk
+                .get("kid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
         }
         let proof_tbs = format!(
             "{}.{}",
@@ -257,7 +269,8 @@ pub async fn request_credential(
             .request_sign(engine_ports::SignParams {
                 flow_id: flow_id.to_owned(),
                 to_sign: proof_tbs.as_bytes().to_vec(),
-                key_id: aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned),
+                key_id: answer_kid
+                    .or_else(|| aux.and_then(|aux| aux.reissuance_kid).map(str::to_owned)),
                 algorithm: "ES256".to_owned(),
             })
             .await

@@ -449,6 +449,14 @@ pub struct MiniHost {
     /// The page's authorization callback: `(url) => Promise<void>` —
     /// navigate, and the suite's AS redirects back to the page.
     open_authorization: Option<js_sys::Function>,
+    /// The fresh batch keys this host has handed out (kid → signer).
+    /// A fresh-key ask generates a key for that ask alone (the OID4VCI
+    /// batch rule — each credential in a batch binds to its own key,
+    /// SDJWT-10.1); the sign asks that follow must reach the very key
+    /// the proof header carries, so the host keeps them by kid. The
+    /// Host port hands out `&self`, so the map sits in a RefCell —
+    /// the wasm page is single-threaded.
+    fresh_signers: std::sync::Mutex<std::collections::HashMap<String, Signer>>,
 }
 
 impl MiniHost {
@@ -513,6 +521,7 @@ impl MiniHost {
             client_key,
             tx_code,
             open_authorization,
+            fresh_signers: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -629,8 +638,20 @@ impl Host for MiniHost {
     async fn request_sign(&self, params: SignParams) -> Result<SignResult, HostError> {
         // The key id routes: the engine asks for the registered kid
         // (or the conventional client-auth name) when the client
-        // assertion needs the client key; anything else is the device
-        // key (the OID4VCI proof).
+        // assertion needs the client key; a fresh batch key's kid
+        // reaches the key the proof header carries; anything else is
+        // the device key (the OID4VCI proof).
+        if let Some(id) = params.key_id.as_deref() {
+            if let Ok(table) = self.fresh_signers.lock() {
+                if let Some(signer) = table.get(id) {
+                    let signature =
+                        kryptering::Signer::sign(signer, &params.to_sign).map_err(|e| {
+                            HostError::Cannot(format!("the fresh key does not sign: {e}"))
+                        })?;
+                    return Ok(SignResult { signature });
+                }
+            }
+        }
         let use_client =
             params
                 .key_id
@@ -671,15 +692,23 @@ impl Host for MiniHost {
                 });
         // A FRESH key ask (the OID4VCI batch rule): generate one for this
         // ask alone — each credential in a batch binds to its own key
-        // (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct).
+        // (SDJWT-10.1, the suite's VCIEnsureProofKeysAreDistinct). The
+        // kid is the RFC 7638 thumbprint; the sign asks that follow name
+        // it, and this host signs with the very key it handed out.
         if params.fresh {
             let key = jose_rs::jwk::generate_ec("P-256")
                 .map_err(|e| HostError::Cannot(e.to_string()))?;
-            let text = key.to_public_jwk().to_json().map_err(|e| HostError::Cannot(e.to_string()))?;
-            return Ok(engine_ports::SigningKeyResult {
-                jwk: serde_json::from_str(&text)
-                    .map_err(|e| HostError::Cannot(e.to_string()))?,
-            });
+            let kid = jose_rs::jwk::thumbprint::thumbprint_sha256(&key)
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let signer = p256_signer(&key)
+                .map_err(|e| HostError::Cannot(e.to_string()))?;
+            let mut public = key.to_public_jwk();
+            public.kid = Some(kid.clone());
+            let text = public.to_json().map_err(|e| HostError::Cannot(e.to_string()))?;
+            let jwk: serde_json::Value =
+                serde_json::from_str(&text).map_err(|e| HostError::Cannot(e.to_string()))?;
+            self.fresh_signers.lock().map_err(|_| HostError::Cannot("the fresh-key table is poisoned".to_owned()))?.insert(kid, signer);
+            return Ok(engine_ports::SigningKeyResult { jwk });
         }
         let jwk = if use_client {
             self.client_key.clone().ok_or_else(|| {
