@@ -1,5 +1,22 @@
 //! The authenticated identity a session is bound to.
 
+/// How a deployment keys session ownership: per user, or per tenant
+/// (engine-parity.md §8, W10's tenant-bound remote principal).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PrincipalMode {
+    /// The session's owner key is `tenant/subject` — the historic shape:
+    /// every deployment whose tokens name a stable user subject.
+    #[default]
+    User,
+    /// The session's owner key is the tenant — the privacy-preserving
+    /// remote deployment whose tokens carry a **rotating pseudonym**
+    /// `sub` (engine-parity.md §8 G1/G3): keying the session by the
+    /// subject would strand it at the mint, so the tenant owns the
+    /// session and the resumption token (single-use, rotated on every
+    /// resume) is the per-session security.
+    Tenant,
+}
+
 /// The authenticated identity a session is bound to.
 ///
 /// It is established by the transport or the embedding application — never
@@ -8,11 +25,19 @@
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Principal {
     /// Identifies the authenticated user or client. Required for the
-    /// principal to own anything.
+    /// principal to own anything. In [`PrincipalMode::Tenant`] this is the
+    /// token's pseudonym subject (engine-parity.md §8 G3): authenticated,
+    /// but not an ownership key.
     pub subject: String,
     /// Scopes [`Principal::subject`] in multi-tenant deployments. May be
-    /// empty.
+    /// empty. In [`PrincipalMode::Tenant`] this is the ownership key — a
+    /// principal without one owns nothing.
     pub tenant: String,
+    /// The deployment's ownership mode, stamped by the transport that
+    /// built the principal (the adapter server's
+    /// `ENGINE_PRINCIPAL_MODE`). Default [`PrincipalMode::User`]: the
+    /// historic shape.
+    pub mode: PrincipalMode,
     /// The token's `jti`: the token's identifier, for revocation and
     /// cut-off checks (#319's `User.AuthInvalidBefore` gate consults it).
     /// Empty when the transport carries no token identity.
@@ -82,6 +107,7 @@ impl Principal {
             tac: tac.into(),
             iat,
             auth_invalid_before,
+            mode: PrincipalMode::User,
         }
     }
 
@@ -90,15 +116,41 @@ impl Principal {
     /// Tenant and subject are percent-escaped, so distinct principals never
     /// share a key. A principal without a subject has an empty key: it owns
     /// nothing, and [`Principal::is_authenticated`] reports it as anonymous.
+    ///
+    /// In [`PrincipalMode::Tenant`] (engine-parity.md §8 G1) the key is the
+    /// **tenant** alone: the subject is a rotating pseudonym, so keying by
+    /// it would strand the session at the token's mint — a different
+    /// pseudonym must reach the session the previous one created. The
+    /// escaped tenant never collides with a user-mode `tenant/subject` key,
+    /// which always carries an unescaped separator.
     pub fn key(&self) -> String {
-        if self.subject.is_empty() {
-            return String::new();
+        match self.mode {
+            PrincipalMode::User => {
+                if self.subject.is_empty() {
+                    return String::new();
+                }
+                format!(
+                    "{}/{}",
+                    path_escape(&self.tenant),
+                    path_escape(&self.subject)
+                )
+            }
+            PrincipalMode::Tenant => {
+                if self.tenant.is_empty() {
+                    return String::new();
+                }
+                path_escape(&self.tenant)
+            }
         }
-        format!(
-            "{}/{}",
-            path_escape(&self.tenant),
-            path_escape(&self.subject)
-        )
+    }
+
+    /// Puts the principal in a deployment's ownership mode
+    /// (engine-parity.md §8): the transport stamps it from its
+    /// configuration when it builds the principal from the token.
+    #[must_use]
+    pub fn in_mode(mut self, mode: PrincipalMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// Whether the principal can own a session: a subject is present, so it

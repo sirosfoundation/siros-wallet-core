@@ -58,6 +58,13 @@ pub struct Config {
     /// capability the session create advertises, core §10.3; default 16,
     /// the wasm dispatcher's bound).
     pub max_concurrent_flows: i64,
+    /// How the deployment keys session ownership
+    /// (`ENGINE_PRINCIPAL_MODE`, engine-parity.md §8): `user` — the
+    /// historic shape, sessions owned by `tenant/subject` — or
+    /// `tenant` — W10's tenant-bound remote principal, where the token's
+    /// `sub` is a rotating pseudonym and the tenant owns the session.
+    /// Default `user`.
+    pub principal_mode: wmp_core::principal::PrincipalMode,
 }
 
 impl Default for Config {
@@ -75,6 +82,7 @@ impl Default for Config {
             allow_plaintext: false,
             metadata_type: "prefer-signed".to_owned(),
             max_concurrent_flows: 16,
+            principal_mode: wmp_core::principal::PrincipalMode::User,
         }
     }
 }
@@ -159,6 +167,17 @@ impl Config {
             if let Ok(parsed) = value.trim().parse() {
                 config.max_concurrent_flows = parsed;
             }
+        }
+        if let Some(value) = text("ENGINE_PRINCIPAL_MODE") {
+            // `user` (the default, the historic shape) or `tenant` (W10's
+            // tenant-bound remote principal, engine-parity.md §8). An
+            // unrecognised value is the default, like the rest of the
+            // container's variables: a misconfigured scaler's pod still
+            // starts, on the safe historic mode.
+            config.principal_mode = match value.trim().to_ascii_lowercase().as_str() {
+                "tenant" => wmp_core::principal::PrincipalMode::Tenant,
+                _ => wmp_core::principal::PrincipalMode::User,
+            };
         }
         config
     }

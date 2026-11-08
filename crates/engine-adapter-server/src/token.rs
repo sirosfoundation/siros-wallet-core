@@ -79,6 +79,37 @@ impl RevocationChecker for NoRevocation {
     }
 }
 
+/// The engine's per-token revocation list (engine-parity.md §8 G2): a
+/// `jti` pushed here refuses every later bearer of that token — the
+/// cheap per-token revocation the tenant-bound deployment pairs with
+/// its short-TTL tokens, since a tenant-scoped token otherwise lives
+/// out its TTL unrevokeable. Checked on every bearer validation.
+///
+/// In-memory: the standalone engine's deployment shape. The backend
+/// adapter replaces it with its own store-backed checker.
+#[derive(Default)]
+pub struct JtiBlacklist {
+    revoked: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+impl JtiBlacklist {
+    /// Revokes the token identified by `jti`.
+    pub fn revoke(&self, jti: &str) {
+        if let Ok(mut revoked) = self.revoked.lock() {
+            revoked.insert(jti.to_owned());
+        }
+    }
+}
+
+impl RevocationChecker for JtiBlacklist {
+    fn is_revoked(&self, jti: &str) -> bool {
+        self.revoked
+            .lock()
+            .map(|revoked| revoked.contains(jti))
+            .unwrap_or(false)
+    }
+}
+
 /// The JWKS cache: fetches the AS's keys on a timer, and serves them
 /// without a network hop between refreshes. The refresh is synchronous
 /// (the adapter's HTTP client): a slow JWKS endpoint blocks the caller
@@ -337,6 +368,16 @@ pub trait TokenGate: Send + Sync {
     /// before it are stale. `None` when the user has no cut-off (or the
     /// gate has no backend to ask).
     fn auth_invalid_before(&self, subject: &str, tenant: &str) -> Option<i64>;
+
+    /// The tenant-wide cut-off (engine-parity.md §8 G2): in tenant mode
+    /// the subject is a rotating pseudonym with no store identity, so
+    /// the gate keys the **tenant** — every token of the tenant issued
+    /// before the cut-off is stale. `None` when the gate has no
+    /// tenant cut-off (the per-user gate's default: the backend
+    /// adapter's user store has no tenant answer).
+    fn tenant_auth_invalid_before(&self, _tenant: &str) -> Option<i64> {
+        None
+    }
 }
 
 /// No lifecycle backend: the standalone engine's default gate. Only the
@@ -391,11 +432,18 @@ pub fn principal_token_is_stale(
             return true;
         }
     }
-    // The store-backed check: the gate's live answer.
-    match (
-        principal.iat,
-        gate.auth_invalid_before(&principal.subject, &principal.tenant),
-    ) {
+    // The store-backed check: the gate's live answer. In tenant mode
+    // (engine-parity.md §8 G2) the subject is a rotating pseudonym with
+    // no store identity, so the gate keys the tenant.
+    let live = match principal.mode {
+        wmp_core::principal::PrincipalMode::User => {
+            gate.auth_invalid_before(&principal.subject, &principal.tenant)
+        }
+        wmp_core::principal::PrincipalMode::Tenant => {
+            gate.tenant_auth_invalid_before(&principal.tenant)
+        }
+    };
+    match (principal.iat, live) {
         (Some(iat), Some(before)) => iat < before,
         _ => false,
     }
