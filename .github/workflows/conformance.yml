@@ -18,11 +18,14 @@ name: Conformance (mini-wallet)
 # module is absent from the run, not run-and-ignored: the summary
 # records the skip with the reason.
 #
-# The release-tag publish needs CONFORMANCE_DISPATCH_TOKEN (a repo
-# secret): a fine-grained PAT with Actions:write on siros-conformance
-# alone, for the repository_dispatch that hands the reports to that
-# repo's publish workflow. Creation and rotation:
-# docs/conformance-dispatch-token.md.
+# The release-tag publish needs NO cross-repo secret: this repo's own
+# workflow uploads the certification ZIPs and the run summaries to the
+# release (github.token — no expiry, nothing to rotate), and the
+# conformance repo's publish-releases.yml PULLS them from the public
+# release assets on its daily check (or immediately, via its
+# workflow_dispatch). The earlier repository_dispatch design needed a
+# fine-grained PAT whose 90-day expiry would silently break the publish
+# each quarter — dropped for exactly that.
 
 on:
   # PRs: the results ride the run's artifacts (the Actions tab), NOT
@@ -53,13 +56,11 @@ on:
 
 permissions:
   # Read everywhere; write ONLY on the release tags (the certification
-  # ZIPs upload to the release, and the tag-triggered dispatch).
-  contents: ${{ github.ref_type == 'tag' && 'write' || 'read' }}
-  # The publish (release tags only) rides a repository_dispatch to the
-  # conformance repo (its own workflow owns the gh-pages push), so this
-  # repo needs no write scope anywhere: CONFORMANCE_DISPATCH_TOKEN (a
-  # fine-grained PAT with the single dispatch permission on that repo)
-  # carries it.
+  # ZIPs and the run summaries upload to the release). The
+  # conformance.siros.org publish is the conformance repo's own pull
+  # workflow (publish-releases.yml) reading these public assets — this
+  # repo hands nothing over, so it holds no cross-repo credential at
+  # all, and nothing here ever expires.
 
 concurrency:
   group: conformance-${{ github.ref }}
@@ -178,32 +179,18 @@ jobs:
       # submission's exact format, ready for the self-certification request
       # (the signed declaration and the fee are the submitter's - a human's
       # - the automation gets everything else to the door).
-      - name: The certification-package ZIPs, on the release
+      # The release's conformance verdict, on the release: the
+      # certification-package ZIPs (the submission's exact form) plus the
+      # run summaries (the per-variant module indexes) - github.token
+      # carries the upload, and the conformance repo's pull workflow
+      # (publish-releases.yml) reads these public assets on its daily
+      # check and publishes the set to conformance.siros.org, named for
+      # the tag. No cross-repo secret, nothing to rotate.
+      - name: The certification ZIPs and run summaries, on the release
         if: github.ref_type == 'tag'
         working-directory: conformance-repo
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ls conformance-results/*.zip 2>/dev/null || { echo "No exported plan ZIPs"; exit 0; }
-          gh release upload "${GITHUB_REF_NAME}" conformance-results/*.zip --clobber
-
-      # The publish: RELEASE TAGS ONLY, via the conformance repo's own
-      # workflow (repository_dispatch: conformance-wallet - the same path
-      # its scheduled runs use; that repo owns the gh-pages publish, so
-      # this repo needs no write scope there). The site
-      # (conformance.siros.org) carries one report set per release tag -
-      # the release's own conformance verdict, addressable and linkable
-      # from its notes. A PR's results stay in the run's artifacts (the
-      # pull request's Checks tab), never the site: a PR is a
-      # conversation, not a release.
-      - name: Trigger the conformance repo's publish (release tags only)
-        if: github.ref_type == 'tag'
-        working-directory: conformance-repo
-        env:
-          GH_TOKEN: ${{ secrets.CONFORMANCE_DISPATCH_TOKEN }}
-        run: |
-          gh api -X POST \
-            "/repos/sirosfoundation/siros-conformance/dispatches" \
-            -f event=conformance-wallet \
-            -f 'client_payload[run-id]="${GITHUB_REF_NAME}"' \
-            -f 'client_payload[run-url]="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          ls conformance-results/*.zip conformance-results/*-summary.json 2>/dev/null || { echo "No exported plan ZIPs or summaries"; exit 0; }
+          gh release upload "${GITHUB_REF_NAME}" conformance-results/*.zip conformance-results/*-summary.json --clobber
