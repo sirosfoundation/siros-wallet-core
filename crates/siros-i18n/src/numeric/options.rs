@@ -3,6 +3,8 @@
 //! steps of `:integer` and `:offset`, and the digit options after ECMA-402's
 //! SetNumberFormatDigitOptions.
 
+use std::num::NonZeroU32;
+
 use crate::format::{CallTexts, Function as Called};
 use crate::numeric::decimal::RoundingMode;
 use crate::numeric::pattern::{Grouping, Pattern};
@@ -353,7 +355,7 @@ impl<'a> Resolved<'a> {
         let min_integer = self.size("minimumIntegerDigits")?.unwrap_or(1);
         let increment = match self.checked("roundingIncrement")? {
             Some(text) => text.parse().map_err(|_| option("roundingIncrement"))?,
-            None => 1u16,
+            None => NonZeroU32::MIN,
         };
         let (mnsd, mxsd) = (
             self.size("minimumSignificantDigits")?,
@@ -391,7 +393,7 @@ impl<'a> Resolved<'a> {
                 significant,
             },
         };
-        if increment != 1 {
+        if increment != NonZeroU32::MIN {
             let fraction_only = matches!(rounding, Rounding::Fraction { .. });
             let fixed = fraction.0 == fraction.1 && fraction.0 != Fraction::Given;
             if !fraction_only || !fixed {

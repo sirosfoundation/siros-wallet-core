@@ -3,9 +3,13 @@
 
 use std::cmp::Ordering;
 use std::num::{NonZeroU32, NonZeroU64};
-use std::ops::{Div, Rem};
+use std::ops::{Div, RangeInclusive, Rem};
 
 use crate::mf2::number::NumberLiteral;
+
+/// The powers of ten a written digit may stand at: ICU4X's `fixed_decimal` limit, `i16`'s
+/// range. A literal past it would write a text of up to its exponent's value in digits.
+const POWERS: RangeInclusive<i64> = i16::MIN as i64..=i16::MAX as i64;
 
 /// A rounding mode (MF2's `roundingMode`, after ECMA-402's).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,7 +149,7 @@ impl Num {
     }
 
     /// The value a `number-literal` writes (MF2 spec/functions/number.md); `None` for another
-    /// text or an exponent past ±10^9.
+    /// text or a written digit at a power of ten outside [`POWERS`].
     pub(crate) fn literal(text: &str) -> Option<Self> {
         Given::literal(text).map(|given| given.value)
     }
@@ -202,7 +206,7 @@ impl Num {
     }
 
     /// The value rounded to a multiple of `increment` × 10^`magnitude` by `mode`.
-    pub(crate) fn round(&self, magnitude: i64, increment: u32, mode: RoundingMode) -> Self {
+    pub(crate) fn round(&self, magnitude: i64, increment: NonZeroU32, mode: RoundingMode) -> Self {
         if self.digits.is_empty() {
             return self.clone();
         }
@@ -226,7 +230,11 @@ impl Num {
         } else {
             quotient
         };
-        Self::new(self.negative, multiply(&quotient, increment), magnitude)
+        Self::new(
+            self.negative,
+            multiply(&quotient, increment.get()),
+            magnitude,
+        )
     }
 
     /// Its digits with `min_fraction` fraction digits or more, the integer part one digit or
@@ -260,21 +268,23 @@ pub(crate) struct Given {
 
 impl Given {
     /// The number a `number-literal` writes (MF2 spec/functions/number.md); `None` for another
-    /// text or an exponent past ±10^9.
+    /// text or a written digit at a power of ten outside [`POWERS`].
     pub(crate) fn literal(text: &str) -> Option<Self> {
         let literal = NumberLiteral::parse(text)?;
         let shift: i64 = match literal.exponent {
             None => 0,
             Some((negative, power)) => {
-                if power.len() > 9 {
-                    return None;
-                }
                 let power: i64 = power.parse().ok()?;
                 if negative { -power } else { power }
             }
         };
+        let count = |digits: &str| i64::try_from(digits.len()).ok();
+        let top = shift.checked_add(count(literal.whole)? - 1)?;
+        let exponent = shift.checked_sub(count(literal.fraction)?)?;
+        if !POWERS.contains(&top) || !POWERS.contains(&exponent) {
+            return None;
+        }
         let all = literal.whole.bytes().chain(literal.fraction.bytes());
-        let exponent = shift - literal.fraction.len() as i64;
         Some(Self {
             value: Num::new(literal.negative, all.map(|b| b - b'0').collect(), exponent),
             scale: u32::try_from((-exponent).max(0)).ok()?,
@@ -295,7 +305,7 @@ impl Given {
     #[cfg(feature = "number")]
     pub(crate) fn integer(&self, mode: RoundingMode) -> Self {
         Self {
-            value: self.value.round(0, 1, mode),
+            value: self.value.round(0, NonZeroU32::MIN, mode),
             scale: 0,
         }
     }
@@ -318,9 +328,9 @@ impl Given {
 }
 
 /// How `remainder` + 0.`zeros``rest`, in units of 1, compares to half of `increment`.
-fn half_compare(remainder: u32, increment: u32, zeros: usize, rest: &[u8]) -> Ordering {
+fn half_compare(remainder: u32, increment: NonZeroU32, zeros: usize, rest: &[u8]) -> Ordering {
     let twice = u64::from(remainder) * 2;
-    let increment = u64::from(increment);
+    let increment = u64::from(increment.get());
     if rest.is_empty() {
         return twice.cmp(&increment);
     }
@@ -385,9 +395,9 @@ fn subtract(a: &[u8], b: &[u8]) -> Vec<u8> {
     difference
 }
 
-/// The quotient and remainder of a digit string divided by `divisor`, one or more.
-fn divide(digits: &[u8], divisor: u32) -> (Vec<u8>, u32) {
-    let divisor = NonZeroU64::from(NonZeroU32::new(divisor).unwrap_or(NonZeroU32::MIN));
+/// The quotient and remainder of a digit string divided by `divisor`.
+fn divide(digits: &[u8], divisor: NonZeroU32) -> (Vec<u8>, u32) {
+    let divisor = NonZeroU64::from(divisor);
     let mut remainder = 0u64;
     let quotient = digits
         .iter()

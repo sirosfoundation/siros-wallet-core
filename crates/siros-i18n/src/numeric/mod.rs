@@ -14,6 +14,8 @@ pub(crate) mod plural;
 #[cfg(any(feature = "number", feature = "offset"))]
 pub(crate) use language::{PLAIN, Plain};
 
+use std::num::NonZeroU32;
+
 use crate::error::Refusal;
 use crate::format::{Argument, CallSpec, CallTexts, Chain, Direction, Failure, OptionValue, Root};
 use decimal::{Fixed, Given, Num, RoundingMode};
@@ -79,7 +81,7 @@ pub(crate) enum Rounding {
     Fraction {
         min: Fraction,
         max: Fraction,
-        increment: u16,
+        increment: NonZeroU32,
     },
     /// To significant digits.
     Significant { min: u8, max: u8 },
@@ -463,7 +465,7 @@ impl Compiled {
                 return currency.amount(&form, &given);
             }
             language => {
-                let fixed = form.rounded(&form.value(given), (0, 1));
+                let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
                 let pattern = language.pattern(form.resolved.formatter);
                 form.write(&fixed, pattern, &numbers.symbols, "", &mut out);
             }
@@ -484,7 +486,7 @@ impl Selecting {
         keys: &'k [String],
     ) -> Result<Vec<&'k str>, Failure> {
         let (given, form) = self.compiled.resolve(argument)?;
-        let fixed = form.rounded(&form.value(given), (0, 1));
+        let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
         let numbers = self.compiled.language.numbers();
         let category = match self.selection {
             Selection::Exact => None,
@@ -525,7 +527,7 @@ impl Form<'_> {
 
     /// The number rounded by the digit options; `currency` the currency's fraction digits and
     /// rounding increment.
-    pub(crate) fn rounded(&self, given: &Given, currency: (u8, u16)) -> Fixed {
+    pub(crate) fn rounded(&self, given: &Given, currency: (u8, NonZeroU32)) -> Fixed {
         let digits = self.digits;
         let (value, scale) = (given.value(), given.scale());
         let count = |f: Fraction| match f {
@@ -541,17 +543,21 @@ impl Form<'_> {
         };
         let increment = |f: Fraction| match f {
             Fraction::Currency => currency.1,
-            Fraction::Digits(_) | Fraction::Given => 1,
+            Fraction::Digits(_) | Fraction::Given => NonZeroU32::MIN,
         };
-        let fixed = |min: Fraction, max: Fraction, inc: u16| {
-            let inc = if inc == 1 { increment(max) } else { inc };
+        let fixed = |min: Fraction, max: Fraction, inc: NonZeroU32| {
+            let inc = if inc == NonZeroU32::MIN {
+                increment(max)
+            } else {
+                inc
+            };
             let (min, max) = bounds(min, max);
-            let rounded = value.round(-i64::from(max), u32::from(inc), digits.mode);
+            let rounded = value.round(-i64::from(max), inc, digits.mode);
             (-i64::from(max), rounded.fixed(min))
         };
         let significant = |min: u8, max: u8| {
             let magnitude = value.magnitude().unwrap_or(0);
-            let rounded = value.round(magnitude - i64::from(max) + 1, 1, digits.mode);
+            let rounded = value.round(magnitude - i64::from(max) + 1, NonZeroU32::MIN, digits.mode);
             let after = rounded.magnitude().unwrap_or(0);
             let min_fraction = (i64::from(min) - 1 - after).max(0);
             let min_fraction = u32::try_from(min_fraction).unwrap_or(0);
@@ -568,7 +574,7 @@ impl Form<'_> {
                 fraction,
                 significant: s,
             } => {
-                let (fm, f) = fixed(fraction.0, fraction.1, 1);
+                let (fm, f) = fixed(fraction.0, fraction.1, NonZeroU32::MIN);
                 let (sm, s) = significant(s.0, s.1);
                 if sm <= fm { s } else { f }
             }
@@ -576,7 +582,7 @@ impl Form<'_> {
                 fraction,
                 significant: s,
             } => {
-                let (fm, f) = fixed(fraction.0, fraction.1, 1);
+                let (fm, f) = fixed(fraction.0, fraction.1, NonZeroU32::MIN);
                 let (sm, s) = significant(s.0, s.1);
                 if sm <= fm { f } else { s }
             }

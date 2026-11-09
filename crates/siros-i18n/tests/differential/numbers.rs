@@ -8,6 +8,7 @@ use icu_experimental::dimension::currency::formatter::CurrencyFormatter;
 use icu_locale_core::Locale;
 use icu_locale_core::preferences::extensions::unicode::keywords::CurrencyType;
 use icu_plurals::{PluralCategory, PluralRules};
+use siros_i18n::ResolveError;
 use siros_syntax::Currency;
 use writeable::Writeable as _;
 
@@ -133,6 +134,43 @@ fn plural_categories_and_number_texts_equal_icu4x() {
         }
     }
     differences.assert_none("numbers");
+}
+
+/// An argument's literal bounds the text it formats: ICU4X refuses a digit whose power of ten
+/// passes `i16`, and the context refuses the operand where ICU4X does and formats it as ICU4X
+/// does inside. An argument such as `1e999999999` would otherwise write a billion digits.
+#[test]
+fn literal_bounds_equal_icu4x() {
+    let context = context("en", MESSAGES);
+    let locale: Locale = "en".parse().expect("a locale");
+    let numbers =
+        DecimalFormatter::try_new((&locale).into(), Default::default()).expect("a formatter");
+    let texts = [
+        "1e32767",
+        "1e32768",
+        "12e32766",
+        "12e32767",
+        "1e-32768",
+        "1e-32769",
+        "0.1e-32767",
+        "0.1e-32768",
+        "1e999999999",
+    ];
+    for text in texts {
+        match (
+            Fixed::try_from_str(text),
+            context.resolve(&Probe::Number { n: text }),
+        ) {
+            (Ok(fixed), Ok(ours)) => {
+                let theirs = numbers.format(&fixed).write_to_string().into_owned();
+                assert_eq!(ours.to_string(), theirs, "{text}");
+            }
+            (Err(_), Err(ResolveError::Operand { function, .. })) => {
+                assert_eq!(function, "number", "{text}");
+            }
+            (theirs, ours) => panic!("{text}: ICU4X {:?}, ours {:?}", theirs.is_ok(), ours),
+        }
+    }
 }
 
 /// The code of every currency ISO 4217's table lists.

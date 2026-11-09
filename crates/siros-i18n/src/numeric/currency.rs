@@ -2,6 +2,8 @@
 //! and fraction digits and the percent pattern of `:percent`, and an amount formatted with them
 //! (Unicode TR35 Part 3, "Currencies"; CLDR's `alphaNextToNumber` patterns as ICU4X selects them).
 
+use std::num::NonZeroU32;
+
 use icu_properties::CodePointMapData;
 use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
 use siros_syntax::Currency;
@@ -91,7 +93,7 @@ struct Name {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Fractions {
     digits: u8,
-    increment: u16,
+    increment: NonZeroU32,
 }
 
 /// The patterns that place a number and its currency's name, by plural category: `{0}` the
@@ -236,8 +238,8 @@ fn fractions(text: &str) -> Option<(Fractions, Vec<(Currency, Fractions)>)> {
         let mut words = rest.split(' ');
         let digits = words.next()?.parse().ok().filter(|d: &u8| *d <= 20)?;
         let increment = match words.next() {
-            Some(word) => word.parse().ok().filter(|i: &u16| *i > 0)?,
-            None => 1,
+            Some(word) => word.parse().ok()?,
+            None => NonZeroU32::MIN,
         };
         words
             .next()
