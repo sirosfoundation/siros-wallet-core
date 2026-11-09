@@ -57,9 +57,10 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-credman` | Android Credential Manager's Standard and Payment entries of the core's consent entries, and each set's delegation (A9, K4), for the matcher; the matcher's entry emission through the registration's package, and under `register` the registration's package |
 | `siros-trust` | Issuer trust at registration: the trust store, issuer chains, the `Facts` the core matches a query's `trusted_authorities` against |
 | `siros-wallet-state` | The decrypted wallet state of the private data container, and the instance of a batch a presentation uses |
-| `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
+| `siros-i18n` | Messages and their wording: a `Context` of MessageFormat 2 modules in one locale resolves a `Message`, an error or a statement, into styled text |
 | `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
+| `siros-i18n-derive` | `#[derive(Message)]` for statements |
 | `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
 | `siros-testkit` | The core's test doubles |
 | `siros-integration` | The HAIP and WE BUILD builds end to end: every flow of the design, F1 to F13 |
@@ -70,15 +71,13 @@ Each mechanism of the core is a feature, which the crates that use it turn on;
 a build compiles what it registers. The right column names the core's features
 each crate turns on: those it always turns on, then `feature: core features`
 for each of its own features that turns more on. The core turns on siros-i18n's
-`render`, `number` and `list`, siros-paso its `number`, `currency` and `date`,
-siros-credman its `render`, and siros-credman's `register` its `load`; the app
-turns on `load`.
+`number`, and siros-paso its `number`, `currency` and `date`.
 
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
 ├── siros-x509        x509_hash, x509_san_dns                     signed
 ├── siros-mdoc        mso_mdoc; B.2.6's handover; module DeviceMac; the stored mdoc's reading and registration   claims; resolve: resolve, cbor
-├── siros-sdjwt       dc+sd-jwt; the issued SD-JWT's registration and presentation; siros-i18n: render   claims; resolve: resolve
+├── siros-sdjwt       dc+sd-jwt; the issued SD-JWT's registration and presentation   claims; resolve: resolve
 ├── siros-paso        PaSO's transaction data; modules Paso, RandomIds, IssuerTrust, CoseEncrypt; resolve: siros-x509's x5c   transaction-data, sri; resolve: resolve; sealed-signals: cbor
 ├── siros-qes         CSC's QES transaction data                  sri; resolve: resolve; sha3: its SHA-3 approval hashes
 ├── siros-credman     Credential Manager's entries for the matcher; the entry emission; register: the registration's package   match
@@ -89,10 +88,11 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
 ├── siros-testkit     the core's test doubles                     resolve, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
-siros-i18n            the i18n engine                             load | render | number | currency | offset | date | list
+siros-i18n            messages and their wording                  number | currency | offset | date | derive | check
 siros-cldr            CLDR format options for siros-i18n modules
 siros-explain         the message contract
 siros-explain-derive  #[derive(Explain)]
+siros-i18n-derive     #[derive(Message)]
 siros-wallet-state    the decrypted wallet state
 xtask                 the repository's build gates: cargo xtask builds, cargo xtask alone
 ```

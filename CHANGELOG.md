@@ -7,6 +7,9 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
+- `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the crate's scope and
+  its named fields as arguments. A repeated id fails the build; under `check` each id registers a
+  row for `Context::check`.
 - `siros-ts12` serves TS12's `urn:eudi:sca:payment:1` and
   `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
   payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's
@@ -171,6 +174,17 @@ All notable changes to this workspace. The format follows
 
 ### Changed
 
+- `siros-i18n` resolves a `Message`, each siros-explain error and each derived statement, through a
+  `Context`: the modules of one locale, each one resource file loaded whole. `resolve` returns a
+  `Text` of spans styled by the wording's markup, and refuses with `ResolveError`. Every argument is
+  text: `:string` writes it as given, `:number` and `:integer` parse an MF2 number literal whose
+  digits stand within ICU4X's powers of ten, `:currency` takes its `currency` option from a literal
+  or an argument, and the date functions parse siros-syntax's ISO 8601 forms. `escape` writes a text
+  as a resource value that resolves to it. `Context::check`, under `check`, refuses a row no module
+  words, a wording that reads a key its row lacks, and an id two rows share. The features are
+  `number`, `currency`, `offset`, `date`, `derive` and `check`.
+- `siros-cldr` takes `Currency` from siros-syntax, and its errors derive `Explain` under the scope
+  `cldr`.
 - `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
   ASCII has each label in UTS #46's case and each label beyond ASCII written `xn--` and its Punycode,
   with no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
@@ -461,6 +475,12 @@ All notable changes to this workspace. The format follows
 
 ### Removed
 
+- `siros-i18n`'s packages, with sha2 and ct-merkle; defined forms; the screen's language
+  selection; module declarations; `:siros:list` and `[formats.list]`; implicit functions and bare
+  values; `LanguagePolicy`, `Language`, `Selected`, `RenderOptions`, `Amounts`, `OnRenderError`,
+  `RendererVersion`, `ModuleDigest`, `RenderingInputs`, `Renderer`, `Formatted`, `Sink` and the
+  public format registries; the registration types; the features `load`, `render` and `list`.
+- `siros-cldr`'s `[formats.list]` section and standalone currency names.
 - `rows::Shown`, `UnreachableUrl`, `HttpsUrl::shown`, `NotHttpsUrl::ALabel` and `NoALabel`.
 - `siros-trust`'s `QueryAuthorities`, `Admission`, `Issuer`, `Ground`, `Refusal`,
   `FactRefusal`, `Authority`, `AkiError`, `AuthorityError`, `EntryError::Id` and
