@@ -195,4 +195,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls conformance-results/*.zip conformance-results/*-summary.json 2>/dev/null || { echo "No exported plan ZIPs or summaries"; exit 0; }
+          # The release object is created by release.yml's final job (it
+          # carries the XCFramework/AAR/bindings); this run's suites take
+          # the longer path, but the creation can race this upload anyway -
+          # wait for it, bounded: a release that never appears is a red
+          # release.yml run, visible there.
+          for _ in $(seq 1 30); do
+            gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 && break
+            echo "waiting for the release object…"
+            sleep 60
+          done
           gh release upload "${GITHUB_REF_NAME}" conformance-results/*.zip conformance-results/*-summary.json --clobber
