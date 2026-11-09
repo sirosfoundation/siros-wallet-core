@@ -3349,6 +3349,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "siros-derive-internals"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
+
+[[package]]
 name = "siros-explain"
 version = "0.1.0"
 dependencies = [
@@ -3364,6 +3373,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "siros-derive-internals",
  "siros-explain",
  "syn 3.0.9",
  "thiserror 2.0.21",
@@ -3402,6 +3412,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "siros-derive-internals",
  "siros-explain",
  "siros-i18n",
  "syn 3.0.9",

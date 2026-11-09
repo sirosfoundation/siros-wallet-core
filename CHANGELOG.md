@@ -10,6 +10,8 @@ All notable changes to this workspace. The format follows
 - `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the crate's scope and
   its named fields as arguments. A repeated id fails the build; under `check` each id registers a
   row for `Context::check`.
+- `siros-derive-internals`: the field rules `#[derive(Explain)]` and `#[derive(Message)]` share,
+  which siros-explain-derive and siros-i18n-derive call through its `Derive` trait.
 - `siros-ts12` serves TS12's `urn:eudi:sca:payment:1` and
   `urn:eudi:sca:login_risk_transaction:1`: `Ts12Document::compose` at registration, the typed
   payloads, T1 to T6, `Profile::reserves`, the rendering through siros-paso's engine under TS12's

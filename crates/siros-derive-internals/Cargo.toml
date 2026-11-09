@@ -1,0 +1,18 @@
+[package]
+name = "siros-derive-internals"
+version = "0.1.0"
+description = "The field rules siros-explain-derive and siros-i18n-derive share"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
+
+[lints]
+workspace = true

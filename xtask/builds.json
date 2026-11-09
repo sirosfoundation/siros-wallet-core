@@ -577,7 +577,8 @@
       "names": [
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -586,7 +587,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -595,7 +597,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -604,7 +607,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -614,7 +618,8 @@
         "siros-x509",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -623,7 +628,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -632,7 +638,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -643,7 +650,8 @@
         "siros-x509",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -652,7 +660,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -661,7 +670,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -670,7 +680,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
@@ -679,21 +690,31 @@
         "siros-explain",
         "siros-explain-derive",
         "siros-syntax",
-        "siros-i18n-derive"
+        "siros-i18n-derive",
+        "siros-derive-internals"
       ]
     },
     {
       "name": "siros-i18n-derive",
-      "names": []
+      "names": [
+        "siros-derive-internals"
+      ]
     },
     {
       "name": "siros-explain",
       "names": [
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {
       "name": "siros-explain-derive",
+      "names": [
+        "siros-derive-internals"
+      ]
+    },
+    {
+      "name": "siros-derive-internals",
       "names": []
     },
     {
@@ -701,7 +722,8 @@
       "names": [
         "siros-explain",
         "siros-explain-derive",
-        "siros-syntax"
+        "siros-syntax",
+        "siros-derive-internals"
       ]
     },
     {
@@ -714,7 +736,8 @@
         "siros-openid4vp",
         "siros-i18n",
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-derive-internals"
       ]
     },
     {

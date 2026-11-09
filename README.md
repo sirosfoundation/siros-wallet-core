@@ -61,6 +61,7 @@ operation. `docs/wallet-core-design.md` is the contract of these crates.
 | `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
 | `siros-i18n-derive` | `#[derive(Message)]` for statements |
+| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
 | `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
 | `siros-testkit` | The core's test doubles |
 | `siros-integration` | The HAIP and WE BUILD builds end to end: every flow of the design, F1 to F13 |
@@ -93,6 +94,7 @@ siros-cldr            CLDR format options for siros-i18n modules
 siros-explain         the message contract
 siros-explain-derive  #[derive(Explain)]
 siros-i18n-derive     #[derive(Message)]
+siros-derive-internals the derives' shared field rules
 siros-wallet-state    the decrypted wallet state
 xtask                 the repository's build gates: cargo xtask builds, cargo xtask alone
 ```
