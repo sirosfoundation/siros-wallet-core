@@ -234,6 +234,11 @@ jobs:
       # The release this verdict belongs to: the re-trigger's named tag,
       # else this run's own ref name (the pushed tag).
       TARGET_REF: ${{ inputs.tag || github.ref_name }}
+      # gh without a checkout: the job needs no source, but gh itself
+      # resolves the repo from a .git directory it does not have -
+      # GH_REPO pins it (found re-triggering v0.2.0: every gh call
+      # failed "not a git repository", the wait loop spun empty).
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: The suites' results, from the artifacts
         uses: actions/download-artifact@v4
