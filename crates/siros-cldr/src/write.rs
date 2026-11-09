@@ -1,10 +1,9 @@
 //! The resource the tool writes: its head with the language's locale and direction, and one
 //! `[formats.<format>]` section per format module, each option a value of the resource format.
 
-use siros_explain::Currency;
+use siros_syntax::Currency;
 
 use crate::cldr::{Cldr, CldrError, File};
-use crate::special::{Conjunction, special};
 
 /// The text being written.
 struct Out {
@@ -97,8 +96,6 @@ pub(crate) fn resource(cldr: &Cldr, release: &str) -> Result<String, CldrError> 
     currency(cldr, &numbers, &mut out)?;
     out.section("date");
     date(cldr, &numbers, &mut out)?;
-    out.section("list");
-    list(cldr, &mut out)?;
     Ok(out.text)
 }
 
@@ -192,9 +189,9 @@ impl Numbers {
     }
 }
 
-/// The ISO 4217 code of a CLDR currency key, when ISO 4217's table lists it.
-fn listed(code: &str) -> Option<Currency> {
-    Currency::from_code(code)
+/// Whether ISO 4217's table lists a CLDR currency key.
+fn listed(code: &str) -> bool {
+    Currency::parse(code).is_ok()
 }
 
 fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> {
@@ -260,7 +257,7 @@ fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrErr
         let line = format!("{}{increment}", get("_digits"));
         match code.as_str() {
             "DEFAULT" => default.push(format!("default {line}")),
-            code if listed(code).is_some() => digits.push(format!("{code} {line}")),
+            code if listed(code) => digits.push(format!("{code} {line}")),
             _ => {}
         }
     }
@@ -270,7 +267,7 @@ fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrErr
     let currencies = file.object(&["main", language, "numbers", "currencies"])?;
     let (mut symbols, mut narrow, mut names) = (Vec::new(), Vec::new(), Vec::new());
     for (code, entry) in currencies {
-        if listed(code).is_none() {
+        if !listed(code) {
             continue;
         }
         let get = |key: &str| entry.get(key).and_then(|v| v.as_str());
@@ -282,9 +279,6 @@ fn currency(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrErr
             .filter(|s| s != code)
         {
             narrow.push(format!("{code} {symbol}"));
-        }
-        if let Some(display) = get("displayName") {
-            names.push(format!("{code} display {display}"));
         }
         for keyword in ["zero", "one", "two", "few", "many", "other"] {
             if let Some(name) = get(&format!("displayName-count-{keyword}")) {
@@ -366,33 +360,4 @@ fn date(cldr: &Cldr, numbers: &Numbers, out: &mut Out) -> Result<(), CldrError> 
         file.text(&at(&["dateTimeFormats", "availableFormats", "Gy"]))?,
     )?;
     out.lines("eras", &names(&["eras", "eraAbbr"], &["0", "1"])?)
-}
-
-fn list(cldr: &Cldr, out: &mut Out) -> Result<(), CldrError> {
-    let language = cldr.language.as_str();
-    let file = cldr.main("cldr-misc-full", "listPatterns.json")?;
-    for (kind, key, conjunction) in [
-        ("and", "listPattern-type-standard", Conjunction::And),
-        ("or", "listPattern-type-or", Conjunction::Or),
-    ] {
-        let at =
-            |part: &'static str| -> [&str; 5] { ["main", language, "listPatterns", key, part] };
-        for (name, part) in [
-            ("start", "start"),
-            ("middle", "middle"),
-            ("end", "end"),
-            ("pair", "2"),
-        ] {
-            out.option(&format!("{kind}-{name}"), file.text(&at(part))?)?;
-        }
-        let end = file.text(&at("end"))?;
-        match special(language, conjunction, end) {
-            Some(case) => out.lines(
-                &format!("{kind}-special"),
-                &[case.condition, case.pattern.to_owned()],
-            )?,
-            None => out.option(&format!("{kind}-special"), "")?,
-        }
-    }
-    Ok(())
 }

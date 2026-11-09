@@ -28,7 +28,7 @@ serde_json = { workspace = true }
 siros-paso = { path = "../siros-paso", features = ["test-util"] }
 siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-testkit = { workspace = true }
-siros-i18n = { workspace = true, features = ["load"] }
+siros-i18n = { workspace = true }
 siros-sdjwt = { workspace = true }
 
 [lints]

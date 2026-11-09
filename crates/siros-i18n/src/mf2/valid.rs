@@ -1,46 +1,52 @@
 //! MF2's data model rules (spec/syntax.md, spec/errors.md "Data Model Errors"): what makes a
 //! well-formed message valid.
 
-use crate::error::Validity;
+use crate::error::SyntaxRule;
 
 use super::ast::{
     Body, Declaration, Expression, Function, Key, Message, Operand, Opt, Part, Pattern,
 };
 
-/// The first data model rule the message breaks.
-pub(crate) fn check(message: &Message) -> Result<(), Validity> {
-    declarations(&message.declarations)?;
+/// The first data model rule the message `id` breaks.
+pub(crate) fn check(id: &str, message: &Message) -> Result<(), SyntaxRule> {
+    let id = || id.to_owned();
+    declarations(&message.declarations)
+        .map_err(|variable| SyntaxRule::DuplicateDeclaration { id: id(), variable })?;
+    let repeated = |option| SyntaxRule::DuplicateOptionName { id: id(), option };
     for declaration in &message.declarations {
         match declaration {
-            Declaration::Input { function, .. } => {
-                function.iter().try_for_each(|f| options(&f.options))?
+            Declaration::Input { function, .. } => function
+                .iter()
+                .try_for_each(|f| options(&f.options))
+                .map_err(repeated)?,
+            Declaration::Local { expression, .. } => {
+                expression_options(expression).map_err(repeated)?;
             }
-            Declaration::Local { expression, .. } => expression_options(expression)?,
         }
     }
     match &message.body {
-        Body::Pattern(pattern) => pattern_options(pattern),
+        Body::Pattern(pattern) => pattern_options(pattern).map_err(repeated),
         Body::Matcher {
             selectors,
             variants,
         } => {
-            for variant in variants {
-                if variant.keys.len() != selectors.len() {
-                    return Err(Validity::VariantKeyMismatch);
-                }
+            if variants.iter().any(|v| v.keys.len() != selectors.len()) {
+                return Err(SyntaxRule::VariantKeyMismatch { id: id() });
             }
             if !variants
                 .iter()
                 .any(|v| v.keys.iter().all(|key| *key == Key::CatchAll))
             {
-                return Err(Validity::MissingFallbackVariant);
+                return Err(SyntaxRule::MissingFallbackVariant { id: id() });
             }
-            for selector in selectors {
-                if !annotated(&message.declarations, selector) {
-                    return Err(Validity::MissingSelectorAnnotation {
-                        variable: selector.clone(),
-                    });
-                }
+            if let Some(selector) = selectors
+                .iter()
+                .find(|selector| !annotated(&message.declarations, selector))
+            {
+                return Err(SyntaxRule::MissingSelectorAnnotation {
+                    id: id(),
+                    variable: selector.clone(),
+                });
             }
             for (index, variant) in variants.iter().enumerate() {
                 if variants
@@ -48,19 +54,20 @@ pub(crate) fn check(message: &Message) -> Result<(), Validity> {
                     .take(index)
                     .any(|earlier| earlier.keys == variant.keys)
                 {
-                    return Err(Validity::DuplicateVariant);
+                    return Err(SyntaxRule::DuplicateVariant { id: id() });
                 }
             }
             variants
                 .iter()
                 .try_for_each(|variant| pattern_options(&variant.pattern))
+                .map_err(repeated)
         }
     }
 }
 
 /// Duplicate Declaration: a declaration binds no variable a previous declaration names, and none
-/// its own expression or function names.
-fn declarations(declarations: &[Declaration]) -> Result<(), Validity> {
+/// its own expression or function names. The error is the variable.
+fn declarations(declarations: &[Declaration]) -> Result<(), String> {
     let mut named: Vec<&str> = Vec::new();
     for declaration in declarations {
         let (bound, mut own) = match declaration {
@@ -78,9 +85,7 @@ fn declarations(declarations: &[Declaration]) -> Result<(), Validity> {
             }
         };
         if named.contains(&bound) || own.contains(&bound) {
-            return Err(Validity::DuplicateDeclaration {
-                variable: bound.to_owned(),
-            });
+            return Err(bound.to_owned());
         }
         named.push(bound);
         named.append(&mut own);
@@ -139,8 +144,8 @@ fn annotated(declarations: &[Declaration], variable: &str) -> bool {
     false
 }
 
-/// Duplicate Option Name, over a pattern's expressions and markup.
-fn pattern_options(pattern: &Pattern) -> Result<(), Validity> {
+/// Duplicate Option Name, over a pattern's expressions and markup. The error is the option.
+fn pattern_options(pattern: &Pattern) -> Result<(), String> {
     pattern.iter().try_for_each(|part| match part {
         Part::Text(_) => Ok(()),
         Part::Expression(expression) => expression_options(expression),
@@ -148,23 +153,21 @@ fn pattern_options(pattern: &Pattern) -> Result<(), Validity> {
     })
 }
 
-fn expression_options(expression: &Expression) -> Result<(), Validity> {
+fn expression_options(expression: &Expression) -> Result<(), String> {
     expression
         .parts()
         .1
         .map_or(Ok(()), |function| options(&function.options))
 }
 
-fn options(options: &[Opt]) -> Result<(), Validity> {
+fn options(options: &[Opt]) -> Result<(), String> {
     for (index, option) in options.iter().enumerate() {
         if options
             .iter()
             .take(index)
             .any(|earlier| earlier.name == option.name)
         {
-            return Err(Validity::DuplicateOptionName {
-                option: option.name.clone(),
-            });
+            return Err(option.name.clone());
         }
     }
     Ok(())

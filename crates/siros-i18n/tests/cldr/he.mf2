@@ -245,358 +245,191 @@ narrow =
   ZAR R
   ZMW ZK
 names =
-  AED display דירהם של איחוד הנסיכויות הערביות
   AED other דירהם של איחוד הנסיכויות הערביות
-  AFN display אפגני אפגני
   AFN other אפגני אפגני
-  ALL display לק אלבני
   ALL other לק אלבני
-  AMD display דראם ארמני
   AMD other דראם ארמני
-  AOA display קואנזה אנגולי
   AOA other קואנזה אנגולי
-  ARS display פסו ארגנטינאי
   ARS other פסו ארגנטינאי
-  AUD display דולר אוסטרלי
   AUD other דולר אוסטרלי
-  AWG display פלורין של ארובה
   AWG other פלורין של ארובה
-  AZN display מאנאט אזרבייג׳ני
   AZN other מאנאט אזרבייג׳ני
-  BAM display מארק סחיר של בוסניה והרצגובינה
   BAM other מארק סחיר של בוסניה והרצגובינה
-  BBD display דולר ברבדיאני
   BBD other דולר ברבדיאני
-  BDT display טאקה בנגלדשי
   BDT other טאקה בנגלדשי
-  BGN display לב בולגרי
   BGN other לב בולגרי
-  BHD display דינר בחרייני
   BHD other דינר בחרייני
-  BIF display פרנק בורונדי
   BIF other פרנק בורונדי
-  BMD display דולר ברמודה
   BMD other דולר ברמודה
-  BND display דולר ברוניי
   BND other דולר ברוניי
-  BOB display בוליביאנו
   BOB other בוליביאנו
-  BRL display ריאל ברזילאי
   BRL other ריאל ברזילאי
-  BSD display דולר בהאמי
   BSD other דולר בהאמי
-  BTN display נגולטרום בהוטני
   BTN other נגולטרום בהוטני
-  BWP display פולה בוטסואני
   BWP other פולה בוטסואני
-  BYN display רובל בלרוסי
   BYN other רובל בלרוסי
-  BZD display דולר בליזי
   BZD other דולר בליזי
-  CAD display דולר קנדי
   CAD other דולר קנדי
-  CDF display פרנק קונגולזי
   CDF other פרנק קונגולזי
-  CHF display פרנק שוויצרי
   CHF other פרנק שוויצרי
-  CLP display פסו צ׳ילאני
   CLP other פסו צ׳ילאני
-  CNY display יואן סיני
   CNY other יואן סיני
-  COP display פסו קולומביאני
   COP other פסו קולומביאני
-  CRC display קולון קוסטה־ריקני
   CRC other קולון קוסטה־ריקני
-  CUC display פסו קובני להמרה
   CUC other פסו קובני להמרה
-  CUP display פסו קובני
   CUP other פסו קובני
-  CVE display אסקודו כף ורדה
   CVE other אסקודו כף ורדה
-  CZK display קורונה צ׳כית
   CZK other קורונה צ׳כית
-  DJF display פרנק ג׳יבוטי
   DJF other פרנק ג׳יבוטי
-  DKK display כתר דני
   DKK other כתר דני
-  DOP display פסו דומיניקני
   DOP other פסו דומיניקני
-  DZD display דינר אלג׳ירי
   DZD other דינר אלג׳ירי
-  EGP display לירה מצרית
   EGP other לירה מצרית
-  ERN display נאקפה אריתראי
   ERN other נאקפה אריתראי
-  ETB display ביר אתיופי
   ETB other ביר אתיופי
-  EUR display אירו
   EUR other אירו
-  FJD display דולר פיג׳י
   FJD other דולר פיג׳י
-  FKP display לירה של איי פוקלנד
   FKP other לירה של איי פוקלנד
-  GBP display לירה שטרלינג
   GBP other לירה שטרלינג
-  GEL display לארי גאורגי
   GEL other לארי גאורגי
-  GHS display סדי גאני
   GHS other סדי גאני
-  GIP display פאונד גיברלטר
   GIP other פאונד גיברלטר
-  GMD display דלסי גמבי
   GMD other דלסי גמבי
-  GNF display פרנק גינאי
   GNF other פרנק גינאי
-  GTQ display קצאל גואטמלי
   GTQ other קצאל גואטמלי
-  GYD display דולר גיאני
   GYD other דולר גיאני
-  HKD display דולר הונג קונגי
   HKD other דולר הונג קונגי
-  HNL display למפירה הונדורי
   HNL other למפירה הונדורי
-  HRK display קונה קרואטי
   HRK other קונה קרואטי
-  HTG display גורד האיטי
   HTG other גורד האיטי
-  HUF display פורינט הונגרי
   HUF other פורינט הונגרי
-  IDR display רופיה אינדונזית
   IDR one רופיה אינדונזית
   IDR two רופיות אינדונזיות
   IDR other רופיות אינדונזיות
-  ILS display שקל חדש
   ILS one שקל חדש
   ILS two שקלים חדשים
   ILS other שקלים חדשים
-  INR display רופי הודי
   INR other רופי הודי
-  IQD display דינר עיראקי
   IQD other דינר עיראקי
-  IRR display ריאל איראני
   IRR other ריאל איראני
-  ISK display כתר איסלנדי
   ISK other כתר איסלנדי
-  JMD display דולר ג׳מייקני
   JMD other דולר ג׳מייקני
-  JOD display דינר ירדני
   JOD other דינר ירדני
-  JPY display ין יפני
   JPY other ין יפני
-  KES display שילינג קנייתי
   KES other שילינג קנייתי
-  KGS display סום קירגיזי
   KGS other סום קירגיזי
-  KHR display ריל קמבודי
   KHR other ריל קמבודי
-  KMF display פרנק קומורואי
   KMF other פרנק קומורואי
-  KPW display וון צפון קוריאני
   KPW other וון צפון קוריאני
-  KRW display וון דרום קוריאני
   KRW other וון דרום קוריאני
-  KWD display דינר כוויתי
   KWD other דינר כוויתי
-  KYD display דולר קיימני
   KYD other דולר קיימני
-  KZT display טנגה קזחסטני
   KZT other טנגה קזחסטני
-  LAK display קיפ לאי
   LAK other קיפ לאי
-  LBP display לירה לבנונית
   LBP one לירה לבנונית
   LBP two לירות לבנוניות
   LBP other לירות לבנוניות
-  LKR display רופי סרי לנקי
   LKR other רופי סרי לנקי
-  LRD display דולר ליברי
   LRD other דולר ליברי
-  LSL display לוטי לסותי
   LSL other לוטי לסותי
-  LYD display דינר לובי
   LYD other דינר לובי
-  MAD display דירהם מרוקאי
   MAD other דירהם מרוקאי
-  MDL display לאו מולדובני
   MDL other לאו מולדובני
-  MGA display אריארי מלגשי
   MGA other אריארי מלגשי
-  MKD display דינר מקדוני
   MKD other דינר מקדוני
-  MMK display קיאט מיאנמרי
   MMK other קיאט מיאנמרי
-  MNT display טוגרוג מונגולי
   MNT other טוגרוג מונגולי
-  MOP display פטקה של מקאו
   MOP other פטקה של מקאו
-  MRU display אואוגויה מאוריטני
   MRU other אואוגויה מאוריטני
-  MUR display רופי מאוריציני
   MUR other רופי מאוריציני
-  MVR display רופיה מלדיבית
   MVR one רופיה מלדיבית
   MVR two רופיות מלדיביות
   MVR other רופיות מלדיביות
-  MWK display קואצ׳ה מלאווי
   MWK other קואצ׳ה מלאווי
-  MXN display פסו מקסיקני
   MXN other פסו מקסיקני
-  MXV display יחידת השקעות מקסיקנית
   MXV one יחידת השקעות מקסיקנית
   MXV two יחידות השקעות מקסיקניות
   MXV other יחידות השקעות מקסיקניות
-  MYR display רינגיט מלזי
   MYR other רינגיט מלזי
-  MZN display מטיקל מוזמביני
   MZN other מטיקל מוזמביני
-  NAD display דולר נמיבי
   NAD other דולר נמיבי
-  NGN display נאירה ניגרי
   NGN other נאירה ניגרי
-  NIO display קורדובה ניקרגואה
   NIO other קורדובה ניקרגואה
-  NOK display כתר נורווגי
   NOK other כתר נורווגי
-  NPR display רופי נפאלי
   NPR other רופי נפאלי
-  NZD display דולר ניו זילנדי
   NZD other דולר ניו זילנדי
-  OMR display ריאל עומאני
   OMR other ריאל עומאני
-  PAB display בלבואה פנמי
   PAB other בלבואה פנמי
-  PEN display סול פרואני
   PEN other סול פרואני
-  PGK display קינה של פפואה גינאה החדשה
   PGK other קינה של פפואה גינאה החדשה
-  PHP display פסו פיליפיני
   PHP other פסו פיליפיני
-  PKR display רופי פקיסטני
   PKR other רופי פקיסטני
-  PLN display זלוטי פולני
   PLN other זלוטי פולני
-  PYG display גוארני פרגוואי
   PYG other גוארני פרגוואי
-  QAR display ריאל קטארי
   QAR other ריאל קטארי
-  RON display לאו רומני
   RON other לאו רומני
-  RSD display דינר סרבי
   RSD other דינר סרבי
-  RUB display רובל רוסי
   RUB other רובל רוסי
-  RWF display פרנק רואנדי
   RWF other פרנק רואנדי
-  SAR display ריאל סעודי
   SAR other ריאל סעודי
-  SBD display דולר איי שלמה
   SBD other דולר איי שלמה
-  SCR display רופי סיישלי
   SCR other רופי סיישלי
-  SDG display לירה סודנית
   SDG other לירה סודנית
-  SEK display כתר שוודי
   SEK other כתר שוודי
-  SGD display דולר סינגפורי
   SGD other דולר סינגפורי
-  SHP display פאונד סנט הלני
   SHP other פאונד סנט הלני
-  SLE display ליאון סיירה לאוני
   SLE other ליאון סיירה לאוני
-  SLL display ליאון סיירה לאוני - 1964-2022
   SLL other ליאון סיירה לאוני - 1964-2022
-  SOS display שילינג סומלי
   SOS other שילינג סומלי
-  SRD display דולר סורינאמי
   SRD other דולר סורינאמי
-  SSP display לירה דרום-סודנית
   SSP other לירה דרום-סודנית
-  STN display דוברה של סאו טומה ופרינסיפה
   STN other דוברה של סאו טומה ופרינסיפה
-  SVC display קולון סלבדורי
   SVC one קולון סלבדורי
   SVC two קולונים סלבדוריים
   SVC many קולון סלבדורי
   SVC other קולונים סלבדוריים
-  SYP display לירה סורית
   SYP one לירה סורית
   SYP two לירות סוריות
   SYP other לירות סוריות
-  SZL display לילנגני סווזילנדי
   SZL other לילנגני סווזילנדי
-  THB display בהט תאילנדי
   THB other בהט תאילנדי
-  TJS display סומוני טג׳קיסטני
   TJS other סומוני טג׳קיסטני
-  TMT display מאנאט טורקמני
   TMT other מאנאט טורקמני
-  TND display דינר טוניסאי
   TND other דינר טוניסאי
-  TOP display פאנגה טונגי
   TOP other פאנגה טונגי
-  TRY display לירה טורקית חדשה
   TRY one לירה טורקית חדשה
   TRY two לירות טורקיות
   TRY other לירות טורקיות
-  TTD display דולר טרינידדי
   TTD other דולר טרינידדי
-  TWD display דולר טייוואני חדש
   TWD other דולר טייוואני חדש
-  TZS display שילינג טנזני
   TZS other שילינג טנזני
-  UAH display הריבנה אוקראיני
   UAH other הריבנה אוקראיני
-  UGX display שילינג אוגנדי
   UGX other שילינג אוגנדי
-  USD display דולר אמריקאי
   USD other דולר אמריקאי
-  USN display דולר אמריקאי (היום הבא)
   USN other דולר אמריקאי (היום הבא)
-  UYU display פסו אורוגוואי
   UYU other פסו אורוגוואי
-  UZS display סום אוזבקי
   UZS other סום אוזבקי
-  VES display בוליבר ונצואלי
   VES other בוליבר ונצואלי
-  VND display דונג וייטנאמי
   VND other דונג וייטנאמי
-  VUV display ואטו של ונואטו
   VUV other ואטו של ונואטו
-  WST display טאלה סמואי
   WST other טאלה סמואי
-  XAF display פרנק CFA מרכז אפריקני
   XAF other פרנק CFA מרכז אפריקני
-  XAG display כסף
   XAG other כסף
-  XAU display זהב
   XAU other זהב
-  XCD display דולר מזרח קריבי
   XCD other דולר מזרח קריבי
-  XCG display גילדר של הקריביים
   XCG other גילדר של הקריביים
-  XDR display זכויות משיכה מיוחדות
   XDR other זכויות משיכה מיוחדות
-  XOF display פרנק CFA מערב אפריקני
   XOF other פרנק CFA מערב אפריקני
-  XPD display פלדיום
   XPD other פלדיום
-  XPF display פרנק פולינזיה הצרפתית
   XPF other פרנק פולינזיה הצרפתית
-  XPT display פלטינה
   XPT other פלטינה
-  XTS display סימון למטרות בדיקה
   XTS other סימון למטרות בדיקה
-  XXX display מטבע שאינו ידוע
   XXX one (מטבע שאינו ידוע)
   XXX two (מטבע שאינו ידוע)
   XXX other (מטבע שאינו ידוע)
-  YER display ריאל תימני
   YER other ריאל תימני
-  ZAR display ראנד דרום אפריקאי
   ZAR other ראנד דרום אפריקאי
-  ZMW display קוואצ׳ה זמבי
   ZMW other קוואצ׳ה זמבי
-  ZWG display זהב של זימבבואה
   ZWG other זהב של זימבבואה
 
 [formats.date]
@@ -664,17 +497,3 @@ year-era = y G
 eras =
   לפנה״ס
   לספירה
-
-[formats.list]
-and-start = {0}, {1}
-and-middle = {0}, {1}
-and-end = {0} ו{1}
-and-pair = {0} ו{1}
-and-special =
-  ^[^֑-ׇא-תׯ-״יִ-זּטּ-לּמּנּ-סּףּ-פּצּ-ﭏ]
-  {0} ו‑{1}
-or-start = {0}, {1}
-or-middle = {0}, {1}
-or-end = {0} או {1}
-or-pair = {0} או {1}
-or-special =

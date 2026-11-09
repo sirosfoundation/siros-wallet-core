@@ -45,7 +45,7 @@ siros-paso = { path = ".", features = ["test-util", "sealed-signals"] }
 siros-openid4vp = { workspace = true, features = ["resolve"] }
 siros-testkit = { workspace = true }
 # The test app's loader, which loads the modules metadata converts to.
-siros-i18n = { workspace = true, features = ["load"] }
+siros-i18n = { workspace = true }
 # The placements the tests' credentials take from their formats' plug-ins.
 siros-mdoc = { workspace = true }
 siros-sdjwt = { workspace = true }

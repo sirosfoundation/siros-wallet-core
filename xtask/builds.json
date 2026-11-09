@@ -18,9 +18,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -58,10 +56,7 @@
         {
           "name": "siros-i18n",
           "features": [
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -91,9 +86,7 @@
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -117,9 +110,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -151,10 +142,7 @@
           "name": "siros-i18n",
           "features": [
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -185,9 +173,7 @@
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -214,9 +200,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -244,10 +228,7 @@
         {
           "name": "siros-i18n",
           "features": [
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -276,9 +257,7 @@
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -309,9 +288,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -345,10 +322,7 @@
           "features": [
             "currency",
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -384,9 +358,7 @@
             "features": [
               "currency",
               "date",
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -421,9 +393,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -445,10 +415,7 @@
           "name": "siros-i18n",
           "features": [
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -482,9 +449,7 @@
           {
             "name": "siros-i18n",
             "features": [
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -530,9 +495,7 @@
         },
         {
           "name": "siros-i18n",
-          "features": [
-            "load"
-          ]
+          "features": []
         }
       ],
       "forbid": [
@@ -561,10 +524,7 @@
           "features": [
             "currency",
             "date",
-            "list",
-            "load",
-            "number",
-            "render"
+            "number"
           ]
         }
       ],
@@ -604,9 +564,7 @@
             "features": [
               "currency",
               "date",
-              "list",
-              "number",
-              "render"
+              "number"
             ]
           }
         ]
@@ -719,8 +677,14 @@
       "name": "siros-i18n",
       "names": [
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive"
       ]
+    },
+    {
+      "name": "siros-i18n-derive",
+      "names": []
     },
     {
       "name": "siros-explain",
@@ -736,7 +700,8 @@
       "name": "siros-cldr",
       "names": [
         "siros-explain",
-        "siros-explain-derive"
+        "siros-explain-derive",
+        "siros-syntax"
       ]
     },
     {

@@ -44,7 +44,7 @@ pub(crate) struct Variant {
 }
 
 /// A variant key.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Key {
     /// A literal, in NFC.
     Literal(String),

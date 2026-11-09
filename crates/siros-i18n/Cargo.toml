@@ -1,7 +1,7 @@
 [package]
 name = "siros-i18n"
 version = "0.1.0"
-description = "The wallet core's i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules"
+description = "The wallet core's messages and their wording: MessageFormat 2 resources resolved into styled text"
 edition = "2024"
 license.workspace = true
 repository.workspace = true
@@ -10,44 +10,42 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = ["load", "number", "currency", "offset", "date", "list"]
-# The wallet's half: the resource and MessageFormat 2 parsers, the module checks, the compilation,
-# the package builder. icu_properties serves the currency module's load half; a load
-# build without `currency` compiles it unused, as Cargo enables no dependency for two features
-# together.
-load = ["render", "dep:unicode-normalization", "dep:icu_properties"]
-# The matcher's half: the package reader, defined modules' render form, the renderer, and the sinks.
-render = ["dep:sha2", "dep:ct-merkle"]
-# The format modules, each with its load half under `load` and its render half under `render`.
+default = ["number", "currency", "offset", "date", "derive"]
 # `:number` and `:integer`.
-number = ["render"]
-# `:currency` and `:percent`.
-currency = ["render"]
+number = []
+# `:currency` and `:percent`. icu_properties gives the letters that decide a currency symbol's
+# spacing.
+currency = ["dep:siros-syntax", "dep:icu_properties"]
 # `:offset`.
-offset = ["render"]
+offset = []
 # `:siros:date`, `:siros:time` and `:siros:datetime`.
-date = ["render"]
-# `:siros:list`.
-list = ["render"]
+date = ["dep:siros-syntax"]
+# `#[derive(Message)]`.
+derive = ["dep:siros-i18n-derive"]
+# Test builds only: `Context::check`, every derived statement's row, and MF2's test functions.
+check = ["siros-explain/check", "dep:inventory"]
 
 [dependencies]
 siros-explain = { workspace = true }
+siros-syntax = { workspace = true, optional = true }
+siros-i18n-derive = { workspace = true, optional = true }
 thiserror = { workspace = true }
-sha2 = { workspace = true, optional = true }
-ct-merkle = { workspace = true, optional = true }
-unicode-normalization = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
+unicode-normalization = { workspace = true }
 icu_properties = { workspace = true, optional = true }
+inventory = { workspace = true, optional = true }
 
 [dev-dependencies]
-# The tests use both halves whatever the build's features.
-siros-i18n = { path = ".", features = ["load"] }
+# The tests derive statements and check wordings whatever the build's features.
+siros-i18n = { path = ".", features = ["derive", "check"] }
+siros-syntax = { workspace = true }
+thiserror = { workspace = true }
 serde_json = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 # The differential tests' oracle: ICU4X 2.4 over its compiled CLDR 49.0.0 data.
 icu_plurals = { workspace = true }
 icu_decimal = { workspace = true }
-icu_list = { workspace = true }
 icu_datetime = { workspace = true }
 icu_calendar = { workspace = true }
 icu_time = { workspace = true }
@@ -55,6 +53,26 @@ icu_locale_core = { workspace = true }
 icu_experimental = { workspace = true }
 fixed_decimal = { workspace = true }
 writeable = { workspace = true }
+
+# The message-format-wg suite calls the numeric functions.
+[[test]]
+name = "conformance"
+required-features = ["number", "currency", "offset"]
+
+# The ICU4X differential calls `:number`, `:currency` and the date functions.
+[[test]]
+name = "differential"
+required-features = ["number", "currency", "date"]
+
+# The refusal fixtures call `:number` and `:currency`.
+[[test]]
+name = "engine"
+required-features = ["number", "currency"]
+
+# siros-syntax, whose rows the gate counts, links under `date`.
+[[test]]
+name = "check"
+required-features = ["date"]
 
 [lints]
 workspace = true

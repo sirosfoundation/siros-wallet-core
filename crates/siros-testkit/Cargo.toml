@@ -30,7 +30,7 @@ hmac = { workspace = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
 # The test app's loader and renderer, with the format modules its main module defines.
-siros-i18n = { workspace = true, features = ["load", "number", "currency", "date", "list"] }
+siros-i18n = { workspace = true, features = ["number", "currency", "date"] }
 p256 = { workspace = true, features = ["ecdsa", "ecdh"] }
 aes-gcm = { workspace = true }
 miniz_oxide = { workspace = true }

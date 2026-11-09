@@ -1,10 +1,6 @@
 //! CLDR number patterns (Unicode TR35 Part 3, "Number Patterns"): the affixes around a number,
 //! its grouping sizes, and its default digit counts.
 
-use crate::bytes::Reader;
-#[cfg(feature = "load")]
-use crate::bytes::Writer;
-use crate::error::RenderError;
 use crate::numeric::decimal::Fixed;
 
 /// A part of a prefix or a suffix.
@@ -172,47 +168,8 @@ impl Pattern {
             || (left > primary && secondary > 0 && (left - primary).is_multiple_of(secondary))
     }
 
-    /// Writes the pattern.
-    #[cfg(feature = "load")]
-    pub(crate) fn write_to(&self, writer: &mut Writer) {
-        affixes_to(&self.positive, writer);
-        writer.flag(self.negative.is_some());
-        if let Some(negative) = &self.negative {
-            affixes_to(negative, writer);
-        }
-        for size in [
-            self.primary,
-            self.secondary,
-            self.min_integer,
-            self.min_fraction,
-            self.max_fraction,
-        ] {
-            writer.byte(size);
-        }
-    }
-
-    /// Reads a pattern.
-    pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, RenderError> {
-        let positive = affixes_from(reader)?;
-        let negative = if reader.flag()? {
-            Some(affixes_from(reader)?)
-        } else {
-            None
-        };
-        Ok(Self {
-            positive,
-            negative,
-            primary: reader.byte()?,
-            secondary: reader.byte()?,
-            min_integer: reader.byte()?,
-            min_fraction: reader.byte()?,
-            max_fraction: reader.byte()?,
-        })
-    }
-
     /// The pattern a module writes; `None` for a text outside the grammar this engine formats:
     /// no exponent, no significant-digit pattern, no padding.
-    #[cfg(feature = "load")]
     pub(crate) fn parse(text: &str) -> Option<Self> {
         let mut subpatterns = split_unquoted(text, ';');
         let positive = subpatterns.next()?;
@@ -243,47 +200,7 @@ fn affix(parts: &[Affix], symbols: &Symbols, currency: &str, out: &mut String) {
     }
 }
 
-#[cfg(feature = "load")]
-fn affixes_to(affixes: &Affixes, writer: &mut Writer) {
-    for parts in [&affixes.prefix, &affixes.suffix] {
-        writer.count(parts.len());
-        for part in parts {
-            match part {
-                Affix::Text(text) => {
-                    writer.byte(0);
-                    writer.text(text);
-                }
-                Affix::Minus => writer.byte(1),
-                Affix::Plus => writer.byte(2),
-                Affix::Percent => writer.byte(3),
-                Affix::Currency => writer.byte(4),
-            }
-        }
-    }
-}
-
-fn affixes_from(reader: &mut Reader<'_>) -> Result<Affixes, RenderError> {
-    let mut read = || -> Result<Vec<Affix>, RenderError> {
-        (0..reader.count()?)
-            .map(|_| {
-                Ok(match reader.byte()? {
-                    0 => Affix::Text(reader.text()?.to_owned()),
-                    1 => Affix::Minus,
-                    2 => Affix::Plus,
-                    3 => Affix::Percent,
-                    4 => Affix::Currency,
-                    _ => return Err(reader.malformed()),
-                })
-            })
-            .collect()
-    };
-    let prefix = read()?;
-    let suffix = read()?;
-    Ok(Affixes { prefix, suffix })
-}
-
 /// The pieces of `text` between unquoted `separator`s.
-#[cfg(feature = "load")]
 fn split_unquoted(text: &str, separator: char) -> impl Iterator<Item = &str> {
     let mut quoted = false;
     text.split(move |c| {
@@ -295,7 +212,6 @@ fn split_unquoted(text: &str, separator: char) -> impl Iterator<Item = &str> {
 }
 
 /// A subpattern's prefix, its number part, and its suffix.
-#[cfg(feature = "load")]
 fn parts(text: &str) -> Option<(Vec<Affix>, &str, Vec<Affix>)> {
     let mut quoted = false;
     let mut start = None;
@@ -324,7 +240,6 @@ fn parts(text: &str) -> Option<(Vec<Affix>, &str, Vec<Affix>)> {
 }
 
 /// The parts of a prefix or suffix: quoted text literal, `''` an apostrophe.
-#[cfg(feature = "load")]
 fn affix_parts(text: &str) -> Option<Vec<Affix>> {
     let mut parts: Vec<Affix> = Vec::new();
     let mut literal = String::new();
@@ -374,7 +289,6 @@ fn affix_parts(text: &str) -> Option<Vec<Affix>> {
 
 /// The number part: grouping sizes from its integer part's `,`, digit counts from its `0` and
 /// `#`.
-#[cfg(feature = "load")]
 fn numbers(body: &str) -> Option<Pattern> {
     let (integer, fraction) = match body.split_once('.') {
         Some((integer, fraction)) => (integer, fraction),

@@ -12,13 +12,13 @@ publish = false
 [features]
 # The registration writer's part: the package of the modules with the texts no request changes
 # precomputed, through siros-i18n's loader.
-register = ["siros-i18n/load"]
+register = []
 
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }
 siros-explain = { workspace = true }
 # The matcher's renderer, which the entry emission renders each text through.
-siros-i18n = { workspace = true, features = ["render"] }
+siros-i18n = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

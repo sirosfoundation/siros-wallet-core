@@ -6,10 +6,10 @@ use serde_json::Value;
 
 /// Why the tool writes nothing.
 #[derive(Debug, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "cldr")]
 pub(crate) enum CldrError {
     /// A file does not read.
     #[error("{path} does not read: {cause}")]
+    #[explain(id = "read")]
     Read {
         /// The file.
         path: String,
@@ -18,6 +18,7 @@ pub(crate) enum CldrError {
     },
     /// A file is no JSON.
     #[error("{path} is no JSON: {cause}")]
+    #[explain(id = "json")]
     Json {
         /// The file.
         path: String,
@@ -26,6 +27,7 @@ pub(crate) enum CldrError {
     },
     /// A package of the directory is of another CLDR release.
     #[error("{package} is of CLDR {found}, and the tool reads {wanted}")]
+    #[explain(id = "release")]
     Release {
         /// The package.
         package: &'static str,
@@ -36,6 +38,7 @@ pub(crate) enum CldrError {
     },
     /// A value the tool reads is absent or no text.
     #[error("{path} lacks the text at {at}")]
+    #[explain(id = "missing")]
     Missing {
         /// The file.
         path: String,
@@ -44,6 +47,7 @@ pub(crate) enum CldrError {
     },
     /// A text holds a character the resource format cannot carry.
     #[error("the text {text} holds a backslash or a line break")]
+    #[explain(id = "unwritable")]
     Unwritable {
         /// The text.
         text: String,

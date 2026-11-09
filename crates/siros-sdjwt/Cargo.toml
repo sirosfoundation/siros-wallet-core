@@ -19,7 +19,7 @@ siros-openid4vp = { workspace = true, features = ["claims"] }
 base64 = { workspace = true, optional = true }
 rustc-hash = { workspace = true, optional = true }
 sha2 = { workspace = true }
-siros-i18n = { workspace = true, features = ["render"] }
+siros-i18n = { workspace = true }
 thiserror = { workspace = true }
 siros-explain = { workspace = true }
 

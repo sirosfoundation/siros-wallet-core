@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::{Div, Rem};
 
-use siros_explain::{Count, Decimal};
+use crate::mf2::number::NumberLiteral;
 
 /// A rounding mode (MF2's `roundingMode`, after ECMA-402's).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,8 +31,8 @@ pub(crate) enum RoundingMode {
 }
 
 impl RoundingMode {
-    /// Every mode, in the order of their codes.
-    pub(crate) const ALL: [Self; 9] = [
+    /// Every mode, in the order of their names.
+    const ALL: [Self; 9] = [
         Self::Ceil,
         Self::Floor,
         Self::Expand,
@@ -45,7 +45,6 @@ impl RoundingMode {
     ];
 
     /// The mode MF2's option value names.
-    #[cfg(feature = "load")]
     pub(crate) fn named(name: &str) -> Option<Self> {
         let names = [
             "ceil",
@@ -62,20 +61,6 @@ impl RoundingMode {
             .iter()
             .zip(Self::ALL)
             .find_map(|(&n, mode)| (n == name).then_some(mode))
-    }
-
-    /// Its code in a compiled placeholder.
-    #[cfg(feature = "load")]
-    pub(crate) fn code(self) -> u8 {
-        Self::ALL
-            .iter()
-            .position(|&mode| mode == self)
-            .map_or(0, |at| at as u8)
-    }
-
-    /// The mode of a code.
-    pub(crate) fn of_code(code: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(code)).copied()
     }
 
     /// Whether a value of this sign, `exact` or not, whose remainder compares to half a unit as
@@ -137,10 +122,9 @@ impl Num {
     /// The decimal of `negative`, `digits` and `exponent`, normalized.
     fn new(negative: bool, digits: Vec<u8>, mut exponent: i64) -> Self {
         let mut digits: Vec<u8> = digits.into_iter().skip_while(|&d| d == 0).collect();
-        while digits.last() == Some(&0) {
-            let _zero = digits.pop();
-            exponent += 1;
-        }
+        let zeros = digits.iter().rev().take_while(|&&d| d == 0).count();
+        digits.truncate(digits.len() - zeros);
+        exponent += zeros as i64;
         if digits.is_empty() {
             exponent = 0;
         }
@@ -164,21 +148,6 @@ impl Num {
     /// text or an exponent past ±10^9.
     pub(crate) fn literal(text: &str) -> Option<Self> {
         Given::literal(text).map(|given| given.value)
-    }
-
-    /// A count's value.
-    pub(crate) fn count(count: &Count) -> Self {
-        Self::new(false, count.digits().bytes().map(|b| b - b'0').collect(), 0)
-    }
-
-    /// A decimal's value.
-    pub(crate) fn decimal(decimal: Decimal) -> Self {
-        let digits = decimal.units().unsigned_abs().to_string();
-        Self::new(
-            decimal.units() < 0,
-            digits.bytes().map(|b| b - b'0').collect(),
-            -i64::from(decimal.scale()),
-        )
     }
 
     /// The value times 10^`power`.
@@ -293,59 +262,23 @@ impl Given {
     /// The number a `number-literal` writes (MF2 spec/functions/number.md); `None` for another
     /// text or an exponent past ±10^9.
     pub(crate) fn literal(text: &str) -> Option<Self> {
-        let (negative, rest) = match text.strip_prefix('-') {
-            Some(rest) => (true, rest),
-            None => (false, text),
-        };
-        let mantissa_end = rest.find(['e', 'E']).unwrap_or(rest.len());
-        let (mantissa, exponent) = (rest.get(..mantissa_end)?, rest.get(mantissa_end..)?);
-        let (whole, fraction) = match mantissa.split_once('.') {
-            Some((whole, fraction)) => (whole, Some(fraction)),
-            None => (mantissa, None),
-        };
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        if !digits(whole) || (whole.len() > 1 && whole.starts_with('0')) {
-            return None;
-        }
-        if fraction.is_some_and(|f| !digits(f)) {
-            return None;
-        }
-        let shift: i64 = match exponent.get(1..) {
+        let literal = NumberLiteral::parse(text)?;
+        let shift: i64 = match literal.exponent {
             None => 0,
-            Some(power) => {
-                let (sign, power) = match power.strip_prefix('-') {
-                    Some(power) => (-1, power),
-                    None => (1, power.strip_prefix('+').unwrap_or(power)),
-                };
-                if !digits(power) || power.len() > 9 {
+            Some((negative, power)) => {
+                if power.len() > 9 {
                     return None;
                 }
-                sign * power.parse::<i64>().ok()?
+                let power: i64 = power.parse().ok()?;
+                if negative { -power } else { power }
             }
         };
-        let fraction = fraction.unwrap_or_default();
-        let all = whole.bytes().chain(fraction.bytes()).map(|b| b - b'0');
-        let exponent = shift - fraction.len() as i64;
+        let all = literal.whole.bytes().chain(literal.fraction.bytes());
+        let exponent = shift - literal.fraction.len() as i64;
         Some(Self {
-            value: Num::new(negative, all.collect(), exponent),
+            value: Num::new(literal.negative, all.map(|b| b - b'0').collect(), exponent),
             scale: u32::try_from((-exponent).max(0)).ok()?,
         })
-    }
-
-    /// A count, written without fraction digits.
-    pub(crate) fn count(count: &Count) -> Self {
-        Self {
-            value: Num::count(count),
-            scale: 0,
-        }
-    }
-
-    /// A decimal, written with its scale.
-    pub(crate) fn decimal(decimal: Decimal) -> Self {
-        Self {
-            value: Num::decimal(decimal),
-            scale: u32::from(decimal.scale()),
-        }
     }
 
     /// Its value.
@@ -359,6 +292,7 @@ impl Given {
     }
 
     /// The value rounded to an integer by `mode`, written without fraction digits.
+    #[cfg(feature = "number")]
     pub(crate) fn integer(&self, mode: RoundingMode) -> Self {
         Self {
             value: self.value.round(0, 1, mode),

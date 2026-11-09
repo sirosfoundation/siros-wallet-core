@@ -1,14 +1,9 @@
 //! CLDR plural rules (Unicode TR35 Part 3, "Language Plural Rules"): parsed from a module's text
-//! when it loads, written into a compiled placeholder, and evaluated on a formatted number's
-//! operands when it renders.
+//! when it loads, and evaluated on a formatted number's operands when a message resolves.
 
 use std::num::{NonZeroU64, NonZeroU128};
 use std::ops::Rem;
 
-use crate::bytes::Reader;
-#[cfg(feature = "load")]
-use crate::bytes::Writer;
-use crate::error::RenderError;
 use crate::numeric::decimal::Fixed;
 
 /// A plural category.
@@ -48,15 +43,6 @@ impl Category {
     pub(crate) fn of_keyword(keyword: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.keyword() == keyword)
     }
-
-    fn of_code(code: u8) -> Option<Self> {
-        Self::ALL.get(usize::from(code)).copied()
-    }
-
-    #[cfg(feature = "load")]
-    fn code(self) -> u8 {
-        self as u8
-    }
 }
 
 /// A plural operand.
@@ -92,7 +78,6 @@ impl Operand {
         Self::E,
     ];
 
-    #[cfg(feature = "load")]
     fn named(name: &str) -> Option<Self> {
         let names = ["n", "i", "v", "w", "f", "t", "c", "e"];
         names
@@ -185,70 +170,21 @@ impl<'a> Operands<'a> {
     }
 }
 
-/// Reads compiled plural rules and gives a number's category.
-pub(crate) fn category(
-    reader: &mut Reader<'_>,
-    operands: &Operands<'_>,
-) -> Result<Category, RenderError> {
-    let mut chosen = None;
-    for _ in 0..reader.count()? {
-        let keyword = Category::of_code(reader.byte()?).ok_or(reader.malformed())?;
-        let mut any = false;
-        for _ in 0..reader.count()? {
-            let mut all = true;
-            for _ in 0..reader.count()? {
-                all &= relation(reader, operands)?;
-            }
-            any |= all;
-        }
-        if any && chosen.is_none() {
-            chosen = Some(keyword);
-        }
-    }
-    Ok(chosen.unwrap_or(Category::Other))
-}
-
-/// Reads one relation and evaluates it.
-fn relation(reader: &mut Reader<'_>, operands: &Operands<'_>) -> Result<bool, RenderError> {
-    let head = reader.byte()?;
-    let operand = Operand::ALL
-        .get(usize::from(head & 0x0f))
-        .copied()
-        .ok_or(reader.malformed())?;
-    let (negated, within) = (head & 0x10 != 0, head & 0x20 != 0);
-    let modulus = reader.number()?;
-    let mut value = operands.value(operand);
-    if let Some(modulus) = NonZeroU64::new(modulus) {
-        value = value.modulo(modulus);
-    }
-    let mut matched = false;
-    for _ in 0..reader.count()? {
-        let (low, high) = (reader.number()?, reader.number()?);
-        matched |= if within {
-            value.within(low, high)
-        } else {
-            value.among(low, high)
-        };
-    }
-    Ok(matched != negated)
-}
-
 /// Rules as a module writes them: one `<keyword>: <condition>` per line, samples after `@`
 /// ignored.
-#[cfg(feature = "load")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rules {
     rules: Vec<Rule>,
 }
 
-#[cfg(feature = "load")]
+/// A category's rule: a disjunction of conjunctions of relations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Rule {
     category: Category,
     condition: Vec<Vec<Relation>>,
 }
 
-#[cfg(feature = "load")]
+/// A relation: an operand, modulo `modulus` when it is nonzero, in or within the ranges, or not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Relation {
     operand: Operand,
@@ -258,8 +194,38 @@ struct Relation {
     ranges: Vec<(u64, u64)>,
 }
 
-#[cfg(feature = "load")]
+impl Relation {
+    /// Whether the operands satisfy it.
+    fn holds(&self, operands: &Operands<'_>) -> bool {
+        let mut value = operands.value(self.operand);
+        if let Some(modulus) = NonZeroU64::new(self.modulus) {
+            value = value.modulo(modulus);
+        }
+        let matched = self.ranges.iter().any(|&(low, high)| {
+            if self.within {
+                value.within(low, high)
+            } else {
+                value.among(low, high)
+            }
+        });
+        matched != self.negated
+    }
+}
+
 impl Rules {
+    /// The category of a formatted number: the first rule's whose condition holds, `other` when
+    /// none does.
+    pub(crate) fn category(&self, operands: &Operands<'_>) -> Category {
+        self.rules
+            .iter()
+            .find(|rule| {
+                rule.condition
+                    .iter()
+                    .any(|and| and.iter().all(|relation| relation.holds(operands)))
+            })
+            .map_or(Category::Other, |rule| rule.category)
+    }
+
     /// The rules a text writes; `None` for a text outside the grammar, a keyword given twice, or
     /// a rule for `other`.
     pub(crate) fn parse(text: &str) -> Option<Self> {
@@ -278,34 +244,9 @@ impl Rules {
         }
         Some(Self { rules })
     }
-
-    /// Writes the rules.
-    pub(crate) fn write(&self, writer: &mut Writer) {
-        writer.count(self.rules.len());
-        for rule in &self.rules {
-            writer.byte(rule.category.code());
-            writer.count(rule.condition.len());
-            for and in &rule.condition {
-                writer.count(and.len());
-                for relation in and {
-                    let head = relation.operand as u8
-                        | if relation.negated { 0x10 } else { 0 }
-                        | if relation.within { 0x20 } else { 0 };
-                    writer.byte(head);
-                    writer.number(relation.modulus);
-                    writer.count(relation.ranges.len());
-                    for &(low, high) in &relation.ranges {
-                        writer.number(low);
-                        writer.number(high);
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// `condition = and_condition ('or' and_condition)*`.
-#[cfg(feature = "load")]
 fn or_condition(text: &str) -> Option<Vec<Vec<Relation>>> {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.is_empty() {
@@ -318,7 +259,6 @@ fn or_condition(text: &str) -> Option<Vec<Vec<Relation>>> {
 }
 
 /// `relation = expr ('is' 'not'? | 'not'? 'in' | 'not'? 'within' | '=' | '!=') range_list`.
-#[cfg(feature = "load")]
 fn relation_of(words: &[&str]) -> Option<Relation> {
     let (&operand, rest) = words.split_first()?;
     let operand = Operand::named(operand)?;

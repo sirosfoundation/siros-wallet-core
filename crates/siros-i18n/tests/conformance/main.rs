@@ -2,25 +2,20 @@
 //! (github.com/unicode-org/message-format-wg, `test/tests`), its syntax, data model, pattern
 //! selection, fallback, bidi and `u:` options suites and its function suites of the stable
 //! functions (`:string`, `:number`, `:integer`, `:offset`, `:currency`, `:percent`), copied into
-//! `tests/mf2` under the Unicode License beside them. A module in a test's locale takes the CLDR
-//! tool's format sections for its language.
+//! `tests/mf2` under the Unicode License beside them.
 //!
-//! Each test's message is the one message of a module in the test's locale, loaded and rendered
-//! as plain text. A test with errors passes when the loader or the renderer refuses the message
-//! with one of the test's error types: the engine shows no fallback value. A test without errors
-//! passes when the rendered text equals `exp`, or renders when it has none. A test skips only
-//! under an entry of [`skips::SKIPS`], which names its reason.
-//!
-//! Each message that loads renders through three packages, one holding its text
-//! precomputed, one holding its key compiled and one compiled from the live module, with 0
-//! differences; each package built twice, and read back and written again, gives the same
-//! bytes.
+//! Each test's message is the one message of a module in the test's locale, after the module
+//! of the CLDR tool's format sections for its language, and resolves over the test's params,
+//! each given as text: a JSON string as it is, a JSON number as written. A test with errors
+//! passes when the context refuses the message, at load or at resolution, with one of the test's
+//! error types: the context shows no fallback value. A test without errors passes when the
+//! resolved text equals `exp`, or resolves when it has none. A test skips only under an entry of
+//! [`skips::SKIPS`], which names its reason.
 
 #[path = "../support/cldr.rs"]
 mod cldr;
 mod harness;
 mod skips;
-mod test_function;
 
 use harness::{Outcome, run};
 
@@ -45,7 +40,6 @@ const SUITES: [&str; 13] = [
 fn the_suite_passes() {
     let mut used = vec![0usize; skips::SKIPS.len()];
     let mut failures = Vec::new();
-    let mut packaged = 0;
     for suite in SUITES {
         let path = format!("{}/tests/mf2/{suite}", env!("CARGO_MANIFEST_DIR"));
         let text = std::fs::read_to_string(&path).expect("the suite");
@@ -68,10 +62,7 @@ fn the_suite_passes() {
                 continue;
             }
             match run(&defaults, test) {
-                Outcome::Pass { packaged: through } => {
-                    passed += 1;
-                    packaged += usize::from(through);
-                }
+                Outcome::Pass => passed += 1,
                 Outcome::Fail(detail) => {
                     failed += 1;
                     failures.push(format!("{suite} {src:?}: {detail}"));
@@ -83,7 +74,6 @@ fn the_suite_passes() {
             tests.len()
         );
     }
-    println!("{packaged} passing texts rendered through three packages each, 0 differences");
     let stale: Vec<_> = skips::SKIPS
         .iter()
         .zip(&used)

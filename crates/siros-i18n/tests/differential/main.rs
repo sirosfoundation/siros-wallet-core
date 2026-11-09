@@ -1,56 +1,31 @@
-//! The format modules with the CLDR tool's options render as ICU4X 2.4 renders over
-//! its compiled data of the same CLDR release, 49.0.0, for the test app's languages, en and de:
-//! plural categories and number texts, amounts in every ISO 4217 currency, and- and
-//! or-lists, and dates and times at every length. Spanish and Hebrew add the list patterns'
-//! special cases.
+//! The functions with the CLDR tool's options format as ICU4X 2.4 formats over its compiled data
+//! of the same CLDR release, 49.0.0, for the test app's languages, en and de: plural categories
+//! and number texts, amounts in every ISO 4217 currency, and dates and times at every length.
 
 #[path = "../support/cldr.rs"]
 mod cldr;
 mod dates;
-mod lists;
 mod numbers;
 
-use siros_explain::{Explain, Messages, ModuleId, Text};
-use siros_i18n::{
-    Amounts, Bidi, BuiltPackage, Declaration, Formats, LocaleTag, OnRenderError, Package,
-    PackageBuilder, RenderOptions, Renderer, Screen,
-};
+use siros_i18n::{Bidi, Context, Message};
+
+siros_i18n::scope!("probe");
 
 /// The test app's languages.
 pub const LANGUAGES: [&str; 2] = ["en", "de"];
 
-/// A package of a main module of `messages` in `language`, its declaration `M`'s, with every
-/// format's options.
-pub fn module<M: Messages>(language: &str, messages: &str) -> BuiltPackage {
-    let declaration = Declaration::new(M::messages()).expect("a declaration");
-    let compilers = cldr::compilers(&[]);
-    let module = cldr::load(ModuleId::Main, &declaration, language, messages, &compilers)
-        .expect("the module loads");
-    let tag = LocaleTag::parse(language).expect("a tag");
-    let mut builder = PackageBuilder::new(vec![tag]).expect("a builder");
-    builder.module(&module, None).expect("the module");
-    builder.finish()
+/// A context of `language` with the tool's formats and a module of `messages`, without bidi
+/// isolation.
+pub fn context(language: &str, messages: &str) -> Context {
+    cldr::context(language, Bidi::None, messages).expect("the modules load")
 }
 
-/// The renderer of a package's main module in its language, without bidi isolation.
-pub fn renderer<'m>(built: &'m BuiltPackage, language: &str, formats: &'m Formats) -> Renderer<'m> {
-    let package = Package::read(built.bytes(), built.root()).expect("a package");
-    let screen = Screen::new(&package, vec![ModuleId::Main]).expect("a screen");
-    let tag = LocaleTag::parse(language).expect("a tag");
-    let located = screen.locale(&[tag], &[]).expect("the language");
-    let options = RenderOptions {
-        amounts: Amounts::Formatted,
-        bidi: Bidi::None,
-        on_error: OnRenderError::NoEntry,
-    };
-    located.renderer(formats, options).expect("a renderer")
-}
-
-/// A message rendered as plain text.
-pub fn plain(renderer: &Renderer<'_>, message: &dyn Explain) -> String {
-    renderer
-        .plain(&Text::of(message))
-        .expect("the text renders")
+/// A message resolved as plain text.
+pub fn plain(context: &Context, message: &dyn Message) -> String {
+    context
+        .resolve(message)
+        .expect("the message resolves")
+        .to_string()
 }
 
 /// Counts differences, printing the first few of each check.
