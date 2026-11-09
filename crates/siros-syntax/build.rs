@@ -1,4 +1,4 @@
-//! Remaps iso_currency's ISO 4217 table into what the matcher reads: one row per currency, its
+//! Remaps iso_currency's ISO 4217 table into the rows `Currency` reads: one row per currency, its
 //! alphabetic code packed in 15 bits (5 per letter) as two big-endian bytes, then its minor units
 //! (255: none listed), the rows ascending by code.
 

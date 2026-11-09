@@ -3,8 +3,11 @@
 use siros_explain::Explain;
 
 /// A text that is no literal of the type `of`: `at` is the offset of the first byte that leaves the
-/// literal form, the text's length when the text ends early. A value outside its type's range is
-/// refused at the first byte of its field: `2026-02-30` at the day, `24:00` at the hour.
+/// literal form, the text's length when the text ends early. A field whose value the type refuses
+/// is refused at its first byte: the day of `2026-02-30`, the hour of `24:00`, the sign of `-0` and
+/// of `+00:00`, the first letter of a code ISO 4217 does not list, the seconds of a leap second
+/// RFC 3339 places elsewhere. A number past its type's range is refused at the digit that passes
+/// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
 #[error("no {of} literal: the text leaves the form at byte {at}")]
 #[explain(id = "malformed")]

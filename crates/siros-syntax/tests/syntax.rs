@@ -9,7 +9,7 @@ use siros_syntax::{
 
 /// A value of one of the crate's literal types.
 #[derive(Debug, PartialEq)]
-enum Value {
+enum Literal {
     Count(Count),
     Decimal(Decimal),
     Currency(Currency),
@@ -21,7 +21,7 @@ enum Value {
     DateTime(DateTime),
 }
 
-impl Value {
+impl Literal {
     /// Its type's name, which a refusal gives.
     fn of(&self) -> &'static str {
         match self {
@@ -54,17 +54,17 @@ impl Value {
 }
 
 /// `text` parsed as a literal of the type `of`.
-fn parse(of: &str, text: &str) -> Result<Value, Malformed> {
+fn parse(of: &str, text: &str) -> Result<Literal, Malformed> {
     match of {
-        "Count" => Count::parse(text).map(Value::Count),
-        "Decimal" => Decimal::parse(text).map(Value::Decimal),
-        "Currency" => Currency::parse(text).map(Value::Currency),
-        "Amount" => Amount::parse(text).map(Value::Amount),
-        "Date" => Date::parse(text).map(Value::Date),
-        "Time" => Time::parse(text).map(Value::Time),
-        "Offset" => Offset::parse(text).map(Value::Offset),
-        "OffsetTime" => OffsetTime::parse(text).map(Value::OffsetTime),
-        "DateTime" => DateTime::parse(text).map(Value::DateTime),
+        "Count" => Count::parse(text).map(Literal::Count),
+        "Decimal" => Decimal::parse(text).map(Literal::Decimal),
+        "Currency" => Currency::parse(text).map(Literal::Currency),
+        "Amount" => Amount::parse(text).map(Literal::Amount),
+        "Date" => Date::parse(text).map(Literal::Date),
+        "Time" => Time::parse(text).map(Literal::Time),
+        "Offset" => Offset::parse(text).map(Literal::Offset),
+        "OffsetTime" => OffsetTime::parse(text).map(Literal::OffsetTime),
+        "DateTime" => DateTime::parse(text).map(Literal::DateTime),
         _ => panic!("no literal type {of}"),
     }
 }
@@ -97,73 +97,73 @@ fn offset(minutes: i16) -> Offset {
 #[test]
 fn a_value_is_its_literal() {
     let writes = [
-        ("0", Value::Count(Count::of(0))),
-        ("1234", Value::Count(Count::of(1234))),
-        ("18446744073709551615", Value::Count(Count::of(u64::MAX))),
-        ("0", Value::Decimal(decimal(0, 0))),
-        ("0.00", Value::Decimal(decimal(0, 2))),
-        ("1234.5", Value::Decimal(decimal(12345, 1))),
-        ("42.50", Value::Decimal(decimal(4250, 2))),
-        ("-0.05", Value::Decimal(decimal(-5, 2))),
+        ("0", Literal::Count(Count::of(0))),
+        ("1234", Literal::Count(Count::of(1234))),
+        ("18446744073709551615", Literal::Count(Count::of(u64::MAX))),
+        ("0", Literal::Decimal(decimal(0, 0))),
+        ("0.00", Literal::Decimal(decimal(0, 2))),
+        ("1234.5", Literal::Decimal(decimal(12345, 1))),
+        ("42.50", Literal::Decimal(decimal(4250, 2))),
+        ("-0.05", Literal::Decimal(decimal(-5, 2))),
         (
             "170141183460469231731687303715884105727",
-            Value::Decimal(decimal(i128::MAX, 0)),
+            Literal::Decimal(decimal(i128::MAX, 0)),
         ),
         (
             "-170141183460469231731687303715884105728",
-            Value::Decimal(decimal(i128::MIN, 0)),
+            Literal::Decimal(decimal(i128::MIN, 0)),
         ),
         (
             "-1.70141183460469231731687303715884105728",
-            Value::Decimal(decimal(i128::MIN, 38)),
+            Literal::Decimal(decimal(i128::MIN, 38)),
         ),
-        ("EUR", Value::Currency(currency("EUR"))),
+        ("EUR", Literal::Currency(currency("EUR"))),
         (
             "42.50 EUR",
-            Value::Amount(Amount::new(decimal(4250, 2), currency("EUR"))),
+            Literal::Amount(Amount::new(decimal(4250, 2), currency("EUR"))),
         ),
         (
             "-3 JPY",
-            Value::Amount(Amount::new(decimal(-3, 0), currency("JPY"))),
+            Literal::Amount(Amount::new(decimal(-3, 0), currency("JPY"))),
         ),
-        ("2026-09-02", Value::Date(date(2026, 9, 2))),
-        ("0000-01-01", Value::Date(date(0, 1, 1))),
-        ("9999-12-31", Value::Date(date(9999, 12, 31))),
-        ("2024-02-29", Value::Date(date(2024, 2, 29))),
-        ("2000-02-29", Value::Date(date(2000, 2, 29))),
-        ("00:00", Value::Time(time(0, 0, None))),
-        ("23:59:59", Value::Time(time(23, 59, Some((59, 0, 0))))),
+        ("2026-09-02", Literal::Date(date(2026, 9, 2))),
+        ("0000-01-01", Literal::Date(date(0, 1, 1))),
+        ("9999-12-31", Literal::Date(date(9999, 12, 31))),
+        ("2024-02-29", Literal::Date(date(2024, 2, 29))),
+        ("2000-02-29", Literal::Date(date(2000, 2, 29))),
+        ("00:00", Literal::Time(time(0, 0, None))),
+        ("23:59:59", Literal::Time(time(23, 59, Some((59, 0, 0))))),
         (
             "12:30:15.5",
-            Value::Time(time(12, 30, Some((15, 500_000_000, 1)))),
+            Literal::Time(time(12, 30, Some((15, 500_000_000, 1)))),
         ),
-        ("12:30:00.000", Value::Time(time(12, 30, Some((0, 0, 3))))),
+        ("12:30:00.000", Literal::Time(time(12, 30, Some((0, 0, 3))))),
         (
             "12:30:15.123456789",
-            Value::Time(time(12, 30, Some((15, 123_456_789, 9)))),
+            Literal::Time(time(12, 30, Some((15, 123_456_789, 9)))),
         ),
-        ("Z", Value::Offset(offset(0))),
-        ("+05:30", Value::Offset(offset(330))),
-        ("-00:01", Value::Offset(offset(-1))),
-        ("-23:59", Value::Offset(offset(-1439))),
+        ("Z", Literal::Offset(offset(0))),
+        ("+05:30", Literal::Offset(offset(330))),
+        ("-00:01", Literal::Offset(offset(-1))),
+        ("-23:59", Literal::Offset(offset(-1439))),
         (
             "12:30",
-            Value::OffsetTime(OffsetTime::new(time(12, 30, None), None)),
+            Literal::OffsetTime(OffsetTime::new(time(12, 30, None), None)),
         ),
         (
             "12:30:15.5+02:00",
-            Value::OffsetTime(OffsetTime::new(
+            Literal::OffsetTime(OffsetTime::new(
                 time(12, 30, Some((15, 500_000_000, 1))),
                 Some(offset(120)),
             )),
         ),
         (
             "2026-09-02T12:30",
-            Value::DateTime(DateTime::new(date(2026, 9, 2), time(12, 30, None), None)),
+            Literal::DateTime(DateTime::new(date(2026, 9, 2), time(12, 30, None), None)),
         ),
         (
             "2026-09-02T12:30:15.5Z",
-            Value::DateTime(DateTime::new(
+            Literal::DateTime(DateTime::new(
                 date(2026, 9, 2),
                 time(12, 30, Some((15, 500_000_000, 1))),
                 Some(offset(0)),
@@ -171,14 +171,14 @@ fn a_value_is_its_literal() {
         ),
         (
             "1990-12-31T15:59:60-08:00",
-            Value::DateTime(
+            Literal::DateTime(
                 DateTime::leap(date(1990, 12, 31), 15, 59, Fraction::NONE, offset(-480))
                     .expect("RFC 3339 §5.8"),
             ),
         ),
         (
             "1990-12-31T23:59:60.25Z",
-            Value::DateTime(
+            Literal::DateTime(
                 DateTime::leap(
                     date(1990, 12, 31),
                     23,
@@ -273,7 +273,8 @@ fn a_value_is_its_literal() {
 
 /// `parse` takes back what `Display` writes, over every offset, every minute of the day, the
 /// extreme units at every scale, and every candidate date of years around the Gregorian rules:
-/// a date `Date::new` refuses is refused at its month or its day.
+/// a date `Date::new` refuses is refused at its month or its day. No date holds a year that four
+/// digits cannot write.
 #[test]
 fn every_value_parses_back() {
     for minutes in -1439..=1439 {
@@ -296,6 +297,7 @@ fn every_value_parses_back() {
             assert_eq!(Decimal::parse(&value.to_string()), Ok(value));
         }
     }
+    assert_eq!(Date::new(10_000, 1, 1), None, "a year past four digits");
     for year in [0, 1, 1900, 2000, 2023, 2024, 9999] {
         for month in 0..=13 {
             for day in 0..=32 {
@@ -320,6 +322,8 @@ fn a_leap_second_stands_where_rfc_3339_places_it() {
         ((1990, 12, 31), 15, 59, -480, true),
         ((1972, 6, 30), 23, 59, 0, true),
         ((1991, 1, 1), 0, 59, 60, true),
+        ((0, 1, 1), 0, 0, 1, true),
+        ((1990, 12, 30), 0, 59, 60, false),
         ((1990, 12, 30), 23, 59, 0, false),
         ((1990, 12, 31), 23, 58, 0, false),
         ((1990, 12, 31), 23, 59, 60, false),

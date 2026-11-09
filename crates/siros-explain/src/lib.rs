@@ -1,14 +1,14 @@
-//! An error the wallet words. [`Explain`] gives an error's stable identifier and its named
-//! arguments; the wallet's MessageFormat 2 wording (siros-i18n's `Context`) resolves the pair into
-//! the End-User's text. The error's `Display` is its English line for logs.
+//! Errors the wallet words. [`Explain`] gives an error's stable id and its named arguments; the
+//! wallet's MessageFormat 2 wording (siros-i18n's `Context`) resolves them into the End-User's
+//! text. An error's `Display` is its English line for logs.
 //!
-//! Each crate that derives `Explain` names its scope once, at its root, with [`scope!`]. Its error
-//! ids are `err.<scope>.<id>`. `#[derive(Explain)]` (feature `derive`) writes the trait beside
-//! `#[derive(thiserror::Error)]`: a named field is an argument under its name, and a cause or a
-//! skipped field is none. An id given twice in one crate fails the build. With the feature `check`,
-//! each derived id registers a `check::Row` for the wallet's completeness test.
+//! A crate that derives `Explain` sets its scope once, at its root, with [`scope!`]: its error ids
+//! are `err.<scope>.<id>`. `#[derive(Explain)]` (feature `derive`) writes the trait beside
+//! `#[derive(thiserror::Error)]`: each named field is an argument under its name, by its
+//! `Display`, and causes and skipped fields are left out. An id given twice in one crate fails the
+//! build.
 //!
-//! ```
+//! ```standalone_crate
 //! use siros_explain::Explain;
 //!
 //! siros_explain::scope!("ts12");
@@ -99,8 +99,8 @@ impl Explain for Box<dyn Explain> {
     }
 }
 
-/// Names the crate's scope, once, at the root of each crate that derives `Explain` (or siros-i18n's
-/// `Message`): its error ids are `err.<scope>.<id>`, its statement ids `<scope>.<id>`. The derives
+/// Sets the crate's scope, once, at the root of each crate that derives `Explain` or siros-i18n's
+/// statements: its error ids are `err.<scope>.<id>`, its statement ids `<scope>.<id>`. The derives
 /// read the scope through the crate-private `crate::__siros_scope!`, so a crate without it fails to
 /// build at its first derive.
 #[macro_export]

@@ -138,54 +138,6 @@ impl Date {
     const fn last(self) -> bool {
         self.day == self.month.days(self.year)
     }
-
-    /// The day before; `None` before year 0.
-    const fn before(self) -> Option<Self> {
-        if self.day > 1 {
-            return Some(Self {
-                day: self.day - 1,
-                ..self
-            });
-        }
-        match Month::of(self.month.number() - 1) {
-            Some(month) => Some(Self {
-                month,
-                day: month.days(self.year),
-                ..self
-            }),
-            None => match self.year.checked_sub(1) {
-                Some(year) => Some(Self {
-                    year,
-                    month: Month::December,
-                    day: 31,
-                }),
-                None => None,
-            },
-        }
-    }
-
-    /// The day after; `None` after year 9999.
-    const fn after(self) -> Option<Self> {
-        if !self.last() {
-            return Some(Self {
-                day: self.day + 1,
-                ..self
-            });
-        }
-        match Month::of(self.month.number() + 1) {
-            Some(month) => Some(Self {
-                month,
-                day: 1,
-                ..self
-            }),
-            None if self.year < Self::LAST_YEAR => Some(Self {
-                year: self.year + 1,
-                month: Month::January,
-                day: 1,
-            }),
-            None => None,
-        }
-    }
 }
 
 /// Its literal: `2026-09-02`.
@@ -628,26 +580,25 @@ impl DateTime {
         if hour > 23 || minute > 59 {
             return None;
         }
-        let utc = hour as i32 * 60 + minute as i32 - offset.0 as i32;
-        let day = if utc < 0 {
-            date.before()
-        } else if utc >= 1440 {
-            date.after()
-        } else {
-            Some(date)
+        // The UTC minute runs from -1439 to 2878 of `date`: 23:59 UTC is 1439 on `date`, or -1 on
+        // the day before, which is its month's last when `date` is a 1st.
+        let stands = match hour as i32 * 60 + minute as i32 - offset.0 as i32 {
+            1439 => date.last(),
+            -1 => date.day == 1,
+            _ => false,
         };
-        match day {
-            Some(day) if utc.rem_euclid(1440) == 1439 && day.last() => Some(Self {
-                date,
-                clock: Clock::Leap {
-                    hour,
-                    minute,
-                    fraction,
-                },
-                offset: Some(offset),
-            }),
-            _ => None,
+        if !stands {
+            return None;
         }
+        Some(Self {
+            date,
+            clock: Clock::Leap {
+                hour,
+                minute,
+                fraction,
+            },
+            offset: Some(offset),
+        })
     }
 
     /// The date.

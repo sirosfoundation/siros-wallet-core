@@ -38,7 +38,7 @@ use syn::{
 ///   field's.
 /// - A named field is an argument under its name (`r#` dropped). A field marked `#[source]`,
 ///   `#[from]`, `#[backtrace]` or `#[explain(skip)]`, or named `source`, is no argument. A tuple
-///   field is one of these.
+///   field must be one of these.
 /// - An argument's value is its `Display`. A field whose type is spelled `Option<T>` gives its
 ///   value when `Some`, and `""` when `None`.
 /// - An id names one error of its crate: a second use fails the build (E0428).
@@ -606,7 +606,10 @@ fn marker(id: &LitStr) -> Tokens {
     let name = Ident::new(&name, id.span());
     quote_spanned! {id.span()=>
         #[doc(hidden)]
-        #[allow(non_local_definitions)]
+        #[allow(
+            non_local_definitions,
+            reason = "an error a function body defines holds its id there"
+        )]
         #[macro_export]
         macro_rules! #name {
             () => {};
