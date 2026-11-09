@@ -38,9 +38,10 @@ on:
       - "conformance/blacklist.json"
       - ".github/workflows/conformance.yml"
   # Release tags: THE reports publish - conformance.siros.org carries one
-  # report set per release (named for the tag), so a release's conformance
-  # verdict is addressable, linkable from the release notes, and diffable
-  # against the previous release's.
+  # report set per release (keyed <core>/<tag> in the releases
+  # collection), so a release's conformance verdict is addressable,
+  # linkable from the release notes, and diffable against the previous
+  # release's.
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -184,8 +185,9 @@ jobs:
       # run summaries (the per-variant module indexes) - github.token
       # carries the upload, and the conformance repo's pull workflow
       # (publish-releases.yml) reads these public assets on its daily
-      # check and publishes the set to conformance.siros.org, named for
-      # the tag. No cross-repo secret, nothing to rotate.
+      # check and publishes the set to conformance.siros.org under
+      # releases/wallet-core/<tag>/. No cross-repo secret, nothing to
+      # rotate.
       - name: The certification ZIPs and run summaries, on the release
         if: github.ref_type == 'tag'
         working-directory: conformance-repo
