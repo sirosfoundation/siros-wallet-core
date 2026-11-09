@@ -46,6 +46,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
+      tag:
+        description: "RE-TRIGGER on a release tag (e.g. v0.2.0): check out THAT tag's source, run the suites against it, and upload its verdict to that tag's release. Empty = a normal dispatch (this ref's source, nothing uploaded)."
+        required: false
+        default: ""
       conformance-ref:
         description: "The conformance repo ref to run (default: main)"
         required: false
@@ -54,6 +58,20 @@ on:
         description: "Which suites (vci, vp, or both)"
         required: false
         default: "both"
+
+# The `tag` re-trigger path (workflow_dispatch + tag input): a tag whose
+# push-run died before its suites ran has no recovery through the tag itself
+# (a dispatch against the tag ref runs THAT TAG'S workflow copy - v0.2.0's
+# predates the permissions fix and can never dispatch). The re-trigger runs
+# THIS workflow (main's, maintained), checks out the named tag's source, and
+# treats it exactly as the tag's own push-run would: suites, then the verdict
+# uploaded to that tag's release (the daily pull re-publishes the site set).
+# The semantics are honest: the tag's ENGINE, judged by today's HARNESS.
+#
+# A dispatch WITHOUT the tag input stays an experiment: the suites run, the
+# release job does not fire (github.ref_type == 'tag' alone is not enough -
+# a manual run against a tag ref would otherwise masquerade as the release
+# record, with an overridden harness pin).
 
 permissions:
   # The default both jobs start from: read-only. The suites job needs
@@ -88,7 +106,12 @@ jobs:
       # Dependabot proposes the bumps (the release notes ride the PR);
       # adopt deliberately.
     steps:
+      # The wallet-core source under test: the `tag` re-trigger input's
+      # tag when set, else this run's own triggering ref (the PR merge, the
+      # tag push, the dispatched branch).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Checkout the conformance repo (pinned ref)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -196,15 +219,22 @@ jobs:
   # unused).
   release:
     name: The verdict, on the release (release tags only)
-    if: github.ref_type == 'tag'
+    # The release record: a TAG PUSH (github.ref_type == 'tag' alone is
+    # NOT enough - a manual dispatch against a tag ref would otherwise
+    # masquerade as the release record, with an overridden harness pin),
+    # OR the explicit `tag` re-trigger (the recovery path: the named
+    # tag's verdict, rebuilt by today's workflow).
+    if: (github.event_name == 'push' && github.ref_type == 'tag') || inputs.tag != ''
     needs: conformance
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: write # the certification ZIPs + summaries upload (this job only)
+    env:
+      # The release this verdict belongs to: the re-trigger's named tag,
+      # else this run's own ref name (the pushed tag).
+      TARGET_REF: ${{ inputs.tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@3d3c42e5aacd8b4c3fd9ee0f4b1b4b9f3b3d1f3e # v7
-
       - name: The suites' results, from the artifacts
         uses: actions/download-artifact@v4
         with:
@@ -222,10 +252,10 @@ jobs:
           # wait for it, bounded: a release that never appears is a red
           # release.yml run, visible there.
           for _ in $(seq 1 30); do
-            gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 && break
+            gh release view "${TARGET_REF}" >/dev/null 2>&1 && break
             echo "waiting for the release object..."
             sleep 60
           done
-          gh release upload "${GITHUB_REF_NAME}" \
+          gh release upload "${TARGET_REF}" \
             results/conformance-results/*.zip \
             results/conformance-results/*-summary.json --clobber
