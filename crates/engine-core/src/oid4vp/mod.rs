@@ -204,6 +204,16 @@ impl FlowHandler for Oid4vpFlow {
                 auth_req.dcql_query.as_ref(),
                 &match_result.selections,
             );
+            // The refusal step the app observes on either channel.
+            let _ = ctx
+                .progress(
+                    "no_matching_credential",
+                    &serde_json::json!({
+                        "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
+                        "unsatisfied": unsatisfied,
+                    }),
+                )
+                .await;
             if !unsatisfied.is_empty() || auth_req.dcql_query.is_some() {
                 // The Digital Credentials API channel: the error
                 // returns through the browser like the success answer —
@@ -238,15 +248,6 @@ impl FlowHandler for Oid4vpFlow {
                 )
                 .await;
             }
-            let _ = ctx
-                .progress(
-                    "no_matching_credential",
-                    &serde_json::json!({
-                        "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
-                        "unsatisfied": unsatisfied,
-                    }),
-                )
-                .await;
             let _ = ctx
                 .complete(&serde_json::json!({ "matched": false, "refused": true }))
                 .await;
