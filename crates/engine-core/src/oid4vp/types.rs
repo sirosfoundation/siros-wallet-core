@@ -19,6 +19,13 @@ pub enum ResponseMode {
     Fragment,
     /// `query` — a redirect with the response in the query.
     Query,
+    /// `dc_api` — the W3C Digital Credentials API: the response returns
+    /// through the browser to the verifier's page, no HTTP POST from
+    /// the wallet (OpenID4VP 1.0 §8.4).
+    DcApi,
+    /// `dc_api.jwt` — the Digital Credentials API with the JWE-encrypted
+    /// response.
+    DcApiJwt,
 }
 
 impl ResponseMode {
@@ -28,6 +35,8 @@ impl ResponseMode {
             "direct_post.jwt" => Self::DirectPostJwt,
             "fragment" => Self::Fragment,
             "query" => Self::Query,
+            "dc_api" => Self::DcApi,
+            "dc_api.jwt" => Self::DcApiJwt,
             _ => Self::DirectPost,
         }
     }
@@ -39,7 +48,15 @@ impl ResponseMode {
             Self::DirectPostJwt => "direct_post.jwt",
             Self::Fragment => "fragment",
             Self::Query => "query",
+            Self::DcApi => "dc_api",
+            Self::DcApiJwt => "dc_api.jwt",
         }
+    }
+
+    /// Whether the response returns through the Digital Credentials API
+    /// — the wallet never POSTs it; the host hands it to the browser.
+    pub fn is_dc_api(&self) -> bool {
+        matches!(self, Self::DcApi | Self::DcApiJwt)
     }
 }
 
@@ -82,6 +99,12 @@ pub struct AuthorizationRequest {
     /// The verifier's JWK, for direct_post.jwt encryption.
     #[serde(default)]
     pub verifier_jwk: Option<serde_json::Value>,
+    /// The request's `expected_origins` (OpenID4VP 1.0 §5.1): the
+    /// verifier page's origins the Digital Credentials API request is
+    /// bound to — the dc_api KB-JWT's `aud` and the mdoc DCAPIHandover
+    /// origin. Empty for the redirect response modes.
+    #[serde(default)]
+    pub expected_origins: Vec<String>,
     /// The scope, when the request uses scope instead of dcql_query.
     #[serde(default)]
     pub scope: String,
@@ -197,6 +220,14 @@ pub enum RequestError {
     /// The signed request object's signature does not verify.
     #[error("oid4vp: the request object's signature does not verify")]
     RequestObjectSignature,
+    /// A `dc_api`/`dc_api.jwt` request named a `response_uri` or
+    /// `redirect_uri` (OpenID4VP 1.0 §8.4: the response returns through
+    /// the browser, never a wallet-side POST).
+    #[error("oid4vp: response_mode {mode:?} forbids a response_uri")]
+    UnexpectedResponseUri {
+        /// The mode the request named.
+        mode: String,
+    },
 }
 
 // ─── Transaction Data (OpenID4VP §5.1) ────────────────────────────────────

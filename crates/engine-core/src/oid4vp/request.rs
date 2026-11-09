@@ -441,9 +441,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
-    // The response endpoint: response_uri, or redirect_uri as the fallback.
-    if response_uri.is_empty() && redirect_uri.is_empty() {
+    // The response endpoint: response_uri, or redirect_uri as the
+    // fallback — the Digital Credentials API channel names neither;
+    // the response returns through the browser instead.
+    if response_uri.is_empty() && redirect_uri.is_empty() && !response_mode.is_dc_api() {
         return Err(RequestError::NotRecognized);
+    }
+
+    // The dc_api channel forbids both URIs (OpenID4VP 1.0 §8.4: the
+    // response never POSTs back from the wallet).
+    if response_mode.is_dc_api() && (!response_uri.is_empty() || !redirect_uri.is_empty()) {
+        return Err(RequestError::UnexpectedResponseUri {
+            mode: response_mode_str.to_owned(),
+        });
     }
 
     // The direct_post channel requires a response_uri and forbids a
@@ -504,6 +514,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
+    // The expected_origins (OpenID4VP 1.0 §5.1): the Digital
+    // Credentials API channel's origin binding.
+    let expected_origins: Vec<String> = obj
+        .get("expected_origins")
+        .and_then(|v| v.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(AuthorizationRequest {
         client_id,
         client_id_scheme: inferred_scheme,
@@ -518,6 +541,7 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         client_metadata,
         client_metadata_uri,
         verifier_jwk,
+        expected_origins,
         scope,
         // The trust evaluation's inputs: the parser's caller fills them
         // when the request is JWT-secured (parse_request_object).

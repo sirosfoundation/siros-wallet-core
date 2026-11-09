@@ -215,6 +215,7 @@ fn jarm_request() -> AuthorizationRequest {
         request_jwt: None,
         x5c: None,
         attestation_jwt: None,
+        expected_origins: Vec::new(),
     }
 }
 

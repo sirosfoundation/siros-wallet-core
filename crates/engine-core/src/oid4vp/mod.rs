@@ -354,6 +354,13 @@ impl FlowHandler for Oid4vpFlow {
                 verifier_session_id: trust::query_param(&outer_request_uri, "sessionId")
                     .unwrap_or_default(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
+                // The Digital Credentials API channel's origin: the
+                // request's first expected_origin (empty otherwise).
+                origin: auth_req
+                    .expected_origins
+                    .first()
+                    .cloned()
+                    .unwrap_or_default(),
                 // The transport's selection handle, unchanged (WMP
                 // OpenID4x 3.2.3.1): the answer's correlation rides
                 // back so the transport's ask matches its answer.
@@ -410,6 +417,64 @@ impl FlowHandler for Oid4vpFlow {
                 &serde_json::json!({ "message": "submitting the presentation" }),
             )
             .await;
+
+        // The Digital Credentials API channel (OpenID4VP 1.0 §8.4): the
+        // response never POSTs back from the wallet — the host hands it
+        // to the browser (the API's promise), and the verifier's page
+        // receives it. `dc_api` answers with the plain response
+        // object; `dc_api.jwt` with the JWE-encrypted one.
+        if auth_req.response_mode.is_dc_api() {
+            let dc_api_response = match auth_req.response_mode {
+                types::ResponseMode::DcApiJwt => {
+                    let jwe = jarm::build_dc_api_jwe_response(
+                        &auth_req,
+                        &vp_token,
+                        ctx.clock().now_unix(),
+                    )
+                    .map_err(|err| flow_error(err.to_string()))?;
+                    serde_json::json!({ "response": jwe })
+                }
+                _ => {
+                    let mut response = serde_json::Map::new();
+                    response.insert(
+                        "vp_token".to_owned(),
+                        serde_json::Value::String(vp_token.clone()),
+                    );
+                    if !auth_req.state.is_empty() {
+                        response.insert(
+                            "state".to_owned(),
+                            serde_json::Value::String(auth_req.state.clone()),
+                        );
+                    }
+                    serde_json::Value::Object(response)
+                }
+            };
+            let _ = ctx
+                .progress(
+                    "response_returned",
+                    &serde_json::json!({ "channel": auth_req.response_mode.as_str() }),
+                )
+                .await;
+            let _ = ctx
+                .complete(&serde_json::json!({
+                    "presented": true,
+                    "credential_ids": match_result
+                        .selections
+                        .iter()
+                        .map(|s| s.credential_id.clone())
+                        .collect::<Vec<_>>(),
+                    // The DigitalCredential's data the host returns
+                    // through the browser API; the harness hands it to
+                    // the verifier page's submit URL.
+                    "dc_api_response": dc_api_response,
+                }))
+                .await;
+            return Ok(FlowStartResult {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: params.flow_id.clone(),
+                flow_type: params.flow_type.clone(),
+            });
+        }
 
         // Submit the response per the request's response mode. The
         // Clock port supplies the JARM `iat`/`exp`.

@@ -84,6 +84,7 @@ fn did_request(client_id: &str, request_jwt: Option<String>) -> AuthorizationReq
         request_jwt,
         x5c: None,
         attestation_jwt: None,
+        expected_origins: Vec::new(),
     }
 }
 

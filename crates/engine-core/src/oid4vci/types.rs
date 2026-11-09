@@ -154,6 +154,17 @@ pub struct IssuerMetadata {
     /// The signed metadata JWT, when the document was served as a JWT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signed_metadata: Option<String>,
+    /// The signed envelope's signer key material (go-wallet-backend #540's
+    /// class): when the document was served as `application/jwt`, the JWS
+    /// header's `x5c` chain (RFC 7515 §4.1.6) or its `jwk` — the material
+    /// a chain-deciding PDP reads. A JWT-served document's payload has no
+    /// `signed_metadata` member of its own and may carry no `jwks` either,
+    /// so without this the trust evaluation would send the PDP empty key
+    /// material and a chain-deciding PDP could never answer for the
+    /// issuer. Extracted at parse time; used by the trust evaluation only
+    /// when the payload's own members carry nothing (the body wins).
+    #[serde(default, skip_serializing)]
+    pub envelope_key_material: Option<Vec<u8>>,
     /// Whether the document was served in the signed form.
     #[serde(default, skip_serializing)]
     pub is_signed: bool,
