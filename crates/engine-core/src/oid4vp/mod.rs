@@ -205,6 +205,27 @@ impl FlowHandler for Oid4vpFlow {
                 &match_result.selections,
             );
             if !unsatisfied.is_empty() || auth_req.dcql_query.is_some() {
+                // The Digital Credentials API channel: the error
+                // returns through the browser like the success answer —
+                // the completion carries the DigitalCredential's error
+                // data the host hands to the verifier page (§8.4).
+                if auth_req.response_mode.is_dc_api() {
+                    let _ = ctx
+                        .complete(&serde_json::json!({
+                            "matched": false,
+                            "refused": true,
+                            "dc_api_response": {
+                                "error": "access_denied",
+                                "error_description": "The wallet did not fulfil the request",
+                            },
+                        }))
+                        .await;
+                    return Ok(FlowStartResult {
+                        wmp: wmp_core::types::Metadata::default(),
+                        flow_id: params.flow_id.clone(),
+                        flow_type: params.flow_type.clone(),
+                    });
+                }
                 let _ = response::submit_error_response(
                     ctx.http().as_ref(),
                     &auth_req,
@@ -307,7 +328,26 @@ impl FlowHandler for Oid4vpFlow {
             .map_err(|err| flow_error(err.to_string()))?;
 
         if !consent.consented {
-            // The decline: a plain form POST, never encrypted (P0.6).
+            // The decline: the Digital Credentials API channel answers
+            // through the browser (the error data rides the
+            // completion, §8.4); the redirect channel's is a plain
+            // form POST, never encrypted (P0.6).
+            if auth_req.response_mode.is_dc_api() {
+                let _ = ctx
+                    .complete(&serde_json::json!({
+                        "declined": true,
+                        "dc_api_response": {
+                            "error": "access_denied",
+                            "error_description": "The wallet did not fulfil the request",
+                        },
+                    }))
+                    .await;
+                return Ok(FlowStartResult {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: params.flow_id.clone(),
+                    flow_type: params.flow_type.clone(),
+                });
+            }
             let _ = response::submit_error_response(
                 ctx.http().as_ref(),
                 &auth_req,
@@ -354,13 +394,10 @@ impl FlowHandler for Oid4vpFlow {
                 verifier_session_id: trust::query_param(&outer_request_uri, "sessionId")
                     .unwrap_or_default(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
-                // The Digital Credentials API channel's origin: the
-                // request's first expected_origin (empty otherwise).
-                origin: auth_req
-                    .expected_origins
-                    .first()
-                    .cloned()
-                    .unwrap_or_default(),
+                // The Digital Credentials API channel's actual origin:
+                // the transport's caller, validated against the
+                // expected_origins at the parse (empty otherwise).
+                origin: auth_req.dc_api_origin.clone(),
                 // The transport's selection handle, unchanged (WMP
                 // OpenID4x 3.2.3.1): the answer's correlation rides
                 // back so the transport's ask matches its answer.
@@ -570,6 +607,26 @@ async fn refuse_verifier(
     auth_req: &types::AuthorizationRequest,
     error_code: &str,
 ) -> Result<FlowStartResult, HandlerError> {
+    // The Digital Credentials API channel: the error returns through
+    // the browser (the error data rides the completion, §8.4) — no
+    // HTTP POST from the wallet.
+    if auth_req.response_mode.is_dc_api() {
+        let _ = ctx
+            .complete(&serde_json::json!({
+                "declined": true,
+                "dc_api_response": {
+                    "error": error_code,
+                    "error_description": "The wallet did not fulfil the request",
+                },
+            }))
+            .await;
+        return Ok(FlowStartResult {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: ctx.flow_id.clone(),
+            flow_type: ctx.flow_type.clone(),
+        });
+    }
+
     let redirect = response::submit_error_response(
         ctx.http().as_ref(),
         auth_req,

@@ -39,6 +39,9 @@ fn dispatcher(script: serde_json::Value) -> Dispatcher {
             }
             true
         }),
+        // The host tests drop the outgoing notifications (the legacy
+        // behaviour the page had before the JS forwarder).
+        None,
     )
     .expect("the dispatcher builds")
 }

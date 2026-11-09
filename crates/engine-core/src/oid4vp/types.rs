@@ -105,6 +105,12 @@ pub struct AuthorizationRequest {
     /// origin. Empty for the redirect response modes.
     #[serde(default)]
     pub expected_origins: Vec<String>,
+    /// The actual origin the transport named (the Digital Credentials
+    /// API's caller): the parser validates it against the expected
+    /// origins and the presentation binds to it. Empty for the
+    /// redirect response modes.
+    #[serde(default)]
+    pub dc_api_origin: String,
     /// The scope, when the request uses scope instead of dcql_query.
     #[serde(default)]
     pub scope: String,
@@ -228,6 +234,10 @@ pub enum RequestError {
         /// The mode the request named.
         mode: String,
     },
+    /// The Digital Credentials API request's actual origin is not one
+    /// the request's expected_origins named (OpenID4VP 1.0 §8.4).
+    #[error("oid4vp: the origin is not in expected_origins")]
+    OriginMismatch,
 }
 
 // ─── Transaction Data (OpenID4VP §5.1) ────────────────────────────────────

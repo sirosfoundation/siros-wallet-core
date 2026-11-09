@@ -91,6 +91,7 @@ fn test_request(client_id: &str) -> AuthorizationRequest {
         x5c: None,
         attestation_jwt: None,
         expected_origins: Vec::new(),
+        dc_api_origin: String::new(),
     }
 }
 

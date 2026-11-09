@@ -90,6 +90,8 @@ async fn the_issued_mdl_verifies_under_the_issuer_key() {
             verifier_jwk_thumbprint: String::new(),
             verifier_session_id: String::new(),
             transaction_data: Vec::new(),
+            // The redirect channel: no expected origin.
+            origin: String::new(),
             // The mini host has no transport handle.
             selection_handle: None,
         })
