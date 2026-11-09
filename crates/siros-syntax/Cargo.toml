@@ -1,0 +1,26 @@
+[package]
+name = "siros-syntax"
+version = "0.1.0"
+description = "Counts, decimals, amounts, ISO 4217 currencies, ISO 8601 dates and times in their literal forms; keyed and non-empty lists"
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+siros-explain = { workspace = true }
+thiserror = { workspace = true }
+
+[build-dependencies]
+# The ISO 4217 table, which the build script remaps; the crate is not linked.
+iso_currency = { workspace = true }
+
+[dev-dependencies]
+iso_currency = { workspace = true }
+# tests/check.rs reads the rows this crate's derives register.
+siros-explain = { workspace = true, features = ["check"] }
+
+[lints]
+workspace = true

@@ -1,52 +1,44 @@
-//! Texts as messages. Every text a crate produces for the End-User, an error or a statement,
-//! implements [`Explain`]: a stable identifier, which its crate's module keys its message by, and
-//! named arguments, which the messages interpolate. An argument is an i18n query (a nested
-//! message), a typed [`Value`] the renderer formats in the display locale, a name the code fixes,
-//! and as a last resort a raw text from the outside.
+//! An error the wallet words. [`Explain`] gives an error's stable identifier and its named
+//! arguments; the wallet's MessageFormat 2 wording (siros-i18n's `Context`) resolves the pair into
+//! the End-User's text. The error's `Display` is its English line for logs.
 //!
-//! Nothing is formatted before a text is displayed. A message travels as its own value: an error
-//! boxed as [`Explained`] across a plug-in boundary, and as a [`Text`] where it is stored. A type's
-//! [`Messages`] declare its module's keys and each argument's [`ArgKind`], against which the
-//! module's messages in every locale are checked when they load. An error's `Display` stays the
-//! English text, written when a log line or a Verifier's error response is.
-//!
-//! A value's kind is its type's: [`IntoArg::Kind`] fixes what the value gives, and only
-//! [`Arg::of`] makes an argument. A value without [`IntoArg`] cannot be one, so a secret never
-//! reaches a message. A message's argument names are [`Names`], which refuse a repeated name when
-//! the crate builds. A message that names another message holds it as one argument, whose own
-//! arguments stay in its own query.
-//!
-//! The crate imposes the trait alone: a type keeps its own shape, and `#[derive(Explain)]`
-//! (feature `derive`) writes the implementation, for an error beside `#[derive(thiserror::Error)]`
-//! as miette's `Diagnostic` does, and for a text type alone.
+//! Each crate that derives `Explain` names its scope once, at its root, with [`scope!`]. Its error
+//! ids are `err.<scope>.<id>`. `#[derive(Explain)]` (feature `derive`) writes the trait beside
+//! `#[derive(thiserror::Error)]`: a named field is an argument under its name, and a cause or a
+//! skipped field is none. An id given twice in one crate fails the build. With the feature `check`,
+//! each derived id registers a `check::Row` for the wallet's completeness test.
 //!
 //! ```
-//! use siros_explain::{ArgValue, Count, Explain, Value};
+//! use siros_explain::Explain;
+//!
+//! siros_explain::scope!("ts12");
 //!
 //! #[derive(Debug, thiserror::Error, Explain)]
-//! #[explain(domain = "openid4vp.routing")]
-//! pub enum RoutingRule {
-//!     #[error("P1 response_type is absent")]
-//!     #[explain(id = "p1_absent")]
-//!     ResponseTypeAbsent,
-//!     #[error("C5 response_mode {mode} is no mode the wallet answers in on this channel")]
-//!     #[explain(id = "c5")]
-//!     Mode { mode: String },
-//!     #[error("P6 state holds a character outside URL-safe ASCII at {0}")]
-//!     #[explain(id = "p6")]
-//!     State(#[explain(name = "at")] usize),
+//! enum Refused {
+//!     #[error("the amount {amount} {currency} exceeds the limit")]
+//!     #[explain(id = "over_limit")]
+//!     OverLimit {
+//!         amount: u64,
+//!         currency: &'static str,
+//!         #[source]
+//!         cause: std::fmt::Error,
+//!     },
 //! }
 //!
-//! let rule = RoutingRule::Mode { mode: "fragment".to_owned() };
-//! assert_eq!(rule.id().as_str(), "openid4vp.routing.c5");
-//! let args = rule.args();
-//! let [named] = args.as_slice() else { panic!("one argument") };
-//! assert_eq!((named.name().as_str(), named.arg().value()), ("mode", &ArgValue::Raw("fragment")));
-//! let args = RoutingRule::State(7).args();
-//! let [named] = args.as_slice() else { panic!("one argument") };
-//! let seven = ArgValue::Value(Value::Count(Count::of(7)));
-//! assert_eq!((named.name().as_str(), named.arg().value()), ("at", &seven));
+//! fn main() {
+//!     let refused = Refused::OverLimit { amount: 1200, currency: "EUR", cause: std::fmt::Error };
+//!     let mut args = Vec::new();
+//!     refused.args(&mut |key, value| args.push((key, value.to_string())));
+//!     assert_eq!(refused.id(), "err.ts12.over_limit");
+//!     assert_eq!(args, [("amount", "1200".to_owned()), ("currency", "EUR".to_owned())]);
+//! }
 //! ```
+//!
+//! # Features
+//!
+//! - `derive` (default): `#[derive(Explain)]`.
+//! - `check`: `check::rows()`, one `check::Row` per derived id of every crate the binary links.
+//!   Test builds turn it on; a build without it holds no row.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -66,27 +58,93 @@
     clippy::disallowed_methods
 )]
 
-mod arg;
-mod calendar;
-mod checked;
-mod into_arg;
-mod iso4217;
-mod keyed;
-pub mod kind;
-mod list;
-mod message;
-mod requested;
-mod text;
-mod value;
+#[cfg(feature = "check")]
+pub mod check;
 
-pub use arg::{Arg, ArgKind, ArgName, ArgValue, Args, IntoArg, Kind, Named, Names, Presence};
-pub use calendar::{Date, DateTime, Fraction, Offset, OffsetTime, Second, Time};
-pub use iso4217::Currency;
-pub use keyed::{Entry, Keyed, Repeated};
-pub use list::{AllOf, AnyOf, ListKind, Listed};
-pub use message::{Domain, Explain, Explained, Message, MessageId, Messages, Param, ParamKind};
-pub use requested::{DeclaredModule, RequestText, Requested};
+use core::fmt::Display;
+use std::error::Error;
+
 #[cfg(feature = "derive")]
 pub use siros_explain_derive::Explain;
-pub use text::{DefinedKey, DefinedModule, Key, MetadataDigest, ModuleId, ParamName, Query, Text};
-pub use value::{Amount, Count, Decimal, Value};
+
+/// An error with a stable identifier and named arguments, which the wallet's wording resolves into
+/// the End-User's text.
+///
+/// # Implementing
+///
+/// Derive it beside `#[derive(thiserror::Error)]`. A hand-written impl forwards to the error it
+/// wraps, as the one for `Box<dyn Explain>` does.
+pub trait Explain: Error + Send + Sync + 'static {
+    /// `err.<scope>.<id>`: stable across releases; a changed meaning takes a new id.
+    fn id(&self) -> &'static str;
+    /// Gives `arg` each argument: its key and its value.
+    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn Display));
+}
+
+/// A plug-in's error crosses the boundary boxed: its source is the boxed error's.
+impl Error for Box<dyn Explain> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        (**self).source()
+    }
+}
+
+/// The boxed error's id and arguments.
+impl Explain for Box<dyn Explain> {
+    fn id(&self) -> &'static str {
+        (**self).id()
+    }
+
+    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn Display)) {
+        (**self).args(arg);
+    }
+}
+
+/// Names the crate's scope, once, at the root of each crate that derives `Explain` (or siros-i18n's
+/// `Message`): its error ids are `err.<scope>.<id>`, its statement ids `<scope>.<id>`. The derives
+/// read the scope through the crate-private `crate::__siros_scope!`, so a crate without it fails to
+/// build at its first derive.
+#[macro_export]
+macro_rules! scope {
+    ($scope:literal) => {
+        #[doc(hidden)]
+        #[allow(
+            unused_macros,
+            reason = "a crate's derives may all sit behind its features"
+        )]
+        macro_rules! __siros_scope {
+            (err $id:literal) => {
+                ::core::concat!("err.", $scope, ".", $id)
+            };
+            (msg $id:literal) => {
+                ::core::concat!($scope, ".", $id)
+            };
+        }
+        #[doc(hidden)]
+        #[allow(
+            unused_imports,
+            reason = "a crate's derives may all sit behind its features"
+        )]
+        pub(crate) use __siros_scope;
+    };
+}
+
+/// One row of [`check::rows`]: the derive's expansion registers one per id. It expands to nothing
+/// in a build without `check`, so a deriving crate follows this crate's feature.
+#[doc(hidden)]
+#[cfg(feature = "check")]
+#[macro_export]
+macro_rules! __row {
+    ($id:expr, [$($key:literal),* $(,)?]) => {
+        $crate::check::__inventory::submit! {
+            $crate::check::Row { id: $id, keys: &[$($key),*] }
+        }
+    };
+}
+
+/// One row of `check::rows`: nothing in a build without `check`.
+#[doc(hidden)]
+#[cfg(not(feature = "check"))]
+#[macro_export]
+macro_rules! __row {
+    ($($row:tt)*) => {};
+}

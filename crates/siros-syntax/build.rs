@@ -1,5 +1,6 @@
-//! Remaps iso_currency's ISO 4217 table into what the matcher reads: each alphabetic code packed
-//! in 15 bits (5 per letter), ascending, and its minor units (255: none listed).
+//! Remaps iso_currency's ISO 4217 table into what the matcher reads: one row per currency, its
+//! alphabetic code packed in 15 bits (5 per letter) as two big-endian bytes, then its minor units
+//! (255: none listed), the rows ascending by code.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -50,18 +51,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     rows.sort_unstable();
-    let codes: Vec<u16> = rows.iter().map(|row| row.packed).collect();
-    let minor: Vec<u8> = rows.iter().map(|row| row.minor).collect();
+    let rows: Vec<[u8; 3]> = rows
+        .iter()
+        .map(|row| {
+            let [high, low] = row.packed.to_be_bytes();
+            [high, low, row.minor]
+        })
+        .collect();
     let mut out = String::new();
     writeln!(
         out,
-        "pub(crate) const CODES: [u16; {}] = {codes:?};",
-        codes.len()
-    )?;
-    writeln!(
-        out,
-        "pub(crate) const MINOR: [u8; {}] = {minor:?};",
-        minor.len()
+        "pub(crate) const CURRENCIES: [[u8; 3]; {}] = {rows:?};",
+        rows.len()
     )?;
     let path = std::path::Path::new(&std::env::var("OUT_DIR")?).join("iso4217.rs");
     std::fs::write(path, out)?;

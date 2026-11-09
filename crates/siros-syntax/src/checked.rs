@@ -5,10 +5,26 @@
 /// compiler's, so nothing runs at run time.
 ///
 /// ```
-/// use siros_explain::{checked, MessageId};
+/// use siros_syntax::checked;
 ///
-/// const CANCELLED: MessageId = checked!(MessageId, "openid4vp.host.cancelled");
-/// assert_eq!(CANCELLED.as_str(), "openid4vp.host.cancelled");
+/// /// A text of lowercase ASCII letters.
+/// struct Lower(&'static str);
+///
+/// impl Lower {
+///     const fn new(text: &'static str) -> Option<Self> {
+///         let mut rest = text.as_bytes();
+///         while let [first, tail @ ..] = rest {
+///             if !first.is_ascii_lowercase() {
+///                 return None;
+///             }
+///             rest = tail;
+///         }
+///         Some(Self(text))
+///     }
+/// }
+///
+/// const CANCELLED: Lower = checked!(Lower, "cancelled");
+/// assert_eq!(CANCELLED.0, "cancelled");
 /// ```
 #[macro_export]
 macro_rules! checked {
