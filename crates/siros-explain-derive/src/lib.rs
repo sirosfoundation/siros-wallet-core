@@ -154,6 +154,34 @@ use syn::{
 /// # fn main() {}
 /// ```
 ///
+/// ```compile_fail
+/// siros_explain::scope!("doc");
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[error("the value holds {length} bytes")]
+/// #[explain(id = "too_long", hidden)]
+/// struct TooLong {
+///     length: usize,
+///     #[explain(skip)]
+///     limit: usize,
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// siros_explain::scope!("doc");
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[error("the value holds {length} bytes")]
+/// #[explain(id = "too_long")]
+/// struct TooLong {
+///     length: usize,
+///     #[explain(skip, skip)]
+///     limit: usize,
+/// }
+/// # fn main() {}
+/// ```
+///
 /// Each variant takes an `id` or is transparent, never both; the enum takes none, and a
 /// transparent variant's field takes no `#[explain]`:
 ///
@@ -249,6 +277,26 @@ use syn::{
 ///     Revoked,
 ///     #[error(transparent)]
 ///     Expired(#[from] #[explain(skip)] Expired),
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// siros_explain::scope!("doc");
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[error("the credential expired")]
+/// #[explain(id = "expired")]
+/// struct Expired;
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[explain(hidden)]
+/// enum Refused {
+///     #[error("the credential is revoked")]
+///     #[explain(id = "revoked")]
+///     Revoked,
+///     #[error(transparent)]
+///     Expired(#[from] Expired),
 /// }
 /// # fn main() {}
 /// ```

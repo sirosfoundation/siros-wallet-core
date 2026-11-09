@@ -70,5 +70,7 @@ expand::<Note>(&input)?;
   `Derive::bounds`, then each argument's bound, and `Derive::methods` given the `id` and `args`
   match bodies.
 
-The tests of siros-explain and siros-i18n, and the doc examples of the derive crates, reach each
-rule.
+The tests of siros-explain and siros-i18n, and the doc examples of the derive crates, reach every
+rule except two: the `std::option::Option<T>` and `core::option::Option<T>`
+spellings, and a zero-variant enum. siros-explain-derive refuses a transparent error with other than
+one field; thiserror's derive refuses the same input, so no example isolates that refusal.

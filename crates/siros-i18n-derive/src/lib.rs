@@ -135,6 +135,32 @@ use syn::{Attribute, DeriveInput, Error, Fields, Ident, Result, parse_macro_inpu
 /// # fn main() {}
 /// ```
 ///
+/// ```compile_fail
+/// siros_i18n::scope!("doc");
+///
+/// #[derive(siros_i18n::Message)]
+/// #[message(id = "asks", hidden)]
+/// struct Asks {
+///     name: String,
+///     #[message(skip)]
+///     index: usize,
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// siros_i18n::scope!("doc");
+///
+/// #[derive(siros_i18n::Message)]
+/// #[message(id = "asks")]
+/// struct Asks {
+///     name: String,
+///     #[message(skip, skip)]
+///     index: usize,
+/// }
+/// # fn main() {}
+/// ```
+///
 /// Each variant takes an `id`, and the enum takes none:
 ///
 /// ```standalone_crate
@@ -167,6 +193,20 @@ use syn::{Attribute, DeriveInput, Error, Fields, Ident, Result, parse_macro_inpu
 ///
 /// #[derive(siros_i18n::Message)]
 /// #[message(id = "choice")]
+/// enum Choice {
+///     #[message(id = "share")]
+///     Share { count: usize },
+///     #[message(id = "deny")]
+///     Deny,
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// siros_i18n::scope!("doc");
+///
+/// #[derive(siros_i18n::Message)]
+/// #[message(hidden)]
 /// enum Choice {
 ///     #[message(id = "share")]
 ///     Share { count: usize },
