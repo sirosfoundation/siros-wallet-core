@@ -7,9 +7,9 @@ use std::fmt;
 use crate::iso4217::Currency;
 use crate::malformed::{Malformed, Reader, parse};
 
-/// A count: a natural number of any length, such as a size, an index, or an age of nym_auth's
-/// `age = 1*DIGIT`. A `u64` when it fits, else its decimal digits, so each number has one form.
-/// Its literal is its digits: `0`, or a digit other than `0` and then digits.
+/// A count: a natural number of any length, such as a size, an index or an age. A `u64` when it
+/// fits, else its decimal digits, so each number has one form. Its literal is its digits: `0`, or
+/// a digit other than `0` and then digits.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Count(Digits);
 
