@@ -9,6 +9,8 @@
 //! a `jti` pushed to the engine's blacklist refuses every later bearer
 //! of that token.
 
+#![allow(clippy::disallowed_types)]
+
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -57,9 +59,9 @@ fn access_token(
     tenant: &str,
     jti: &str,
     tac: &str,
-    iat: i64,
-    auth_invalid_before: Option<i64>,
+    lifecycle: (i64, Option<i64>),
 ) -> String {
+    let (iat, auth_invalid_before) = lifecycle;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() + 3600)
@@ -193,8 +195,7 @@ async fn a_fresh_tenant_token_passes_the_flow_start_gate() {
         "acme",
         "jti-1",
         "ri",
-        now,
-        None,
+        (now, None),
     );
     let reply = post_flow_start(&server, &token, "test.unregistered").await;
     assert_eq!(
@@ -220,8 +221,7 @@ async fn a_stale_tenant_token_starts_no_flow() {
         "acme",
         "jti-2",
         "ri",
-        1000,
-        Some(2000),
+        (1000, Some(2000)),
     );
     let reply = post_flow_start(&server, &token, "test.unregistered").await;
     assert_eq!(
@@ -257,8 +257,7 @@ async fn a_pseudonym_rotation_passes_the_flow_start_gate() {
         "acme",
         "jti-3a",
         "ri",
-        now,
-        None,
+        (now, None),
     );
     let second = access_token(
         &private,
@@ -267,8 +266,7 @@ async fn a_pseudonym_rotation_passes_the_flow_start_gate() {
         "acme",
         "jti-3b",
         "ri",
-        now,
-        None,
+        (now, None),
     );
     for token in [&first, &second] {
         let reply = post_flow_start(&server, token, "test.unregistered").await;
@@ -299,8 +297,7 @@ async fn a_revoked_jti_starts_no_flow() {
         "acme",
         "jti-revoked",
         "ri",
-        now,
-        None,
+        (now, None),
     );
 
     let before = post_flow_start(&server, &token, "test.unregistered").await;
@@ -338,8 +335,7 @@ async fn user_mode_gate_is_unchanged() {
         "acme",
         "jti-user-1",
         "ri",
-        now,
-        None,
+        (now, None),
     );
     let reply = post_flow_start(&server, &token, "test.unregistered").await;
     assert_eq!(
@@ -355,8 +351,7 @@ async fn user_mode_gate_is_unchanged() {
         "acme",
         "jti-user-2",
         "ri",
-        1000,
-        Some(2000),
+        (1000, Some(2000)),
     );
     let reply = post_flow_start(&server, &stale, "test.unregistered").await;
     assert_eq!(

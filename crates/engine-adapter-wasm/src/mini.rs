@@ -456,7 +456,7 @@ pub struct MiniHost {
     /// the proof header carries, so the host keeps them by kid. The
     /// Host port hands out `&self`, so the map sits in a RefCell —
     /// the wasm page is single-threaded.
-    fresh_signers: std::sync::Mutex<std::collections::HashMap<String, Signer>>,
+    fresh_signers: std::sync::Mutex<rustc_hash::FxHashMap<String, Signer>>,
 }
 
 impl MiniHost {
@@ -521,7 +521,7 @@ impl MiniHost {
             client_key,
             tx_code,
             open_authorization,
-            fresh_signers: std::sync::Mutex::new(std::collections::HashMap::new()),
+            fresh_signers: std::sync::Mutex::new(rustc_hash::FxHashMap::default()),
         })
     }
 

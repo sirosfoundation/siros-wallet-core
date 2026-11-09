@@ -24,6 +24,11 @@
         clippy::disallowed_methods
     )
 )]
+// The clippy disallowed-types rule (std HashMap/HashSet, the WASI
+// random_get seed) is matcher.wasm's: this server crate never links into
+// it (a native tokio process, WASI-capable), and jose-rs's Claims.extra
+// is a std HashMap - the tests' token mint fills one. Allowed here.
+#![allow(clippy::disallowed_types)]
 
 pub mod config;
 pub mod handler;

@@ -89,7 +89,7 @@ impl RevocationChecker for NoRevocation {
 /// adapter replaces it with its own store-backed checker.
 #[derive(Default)]
 pub struct JtiBlacklist {
-    revoked: std::sync::Mutex<std::collections::HashSet<String>>,
+    revoked: std::sync::Mutex<rustc_hash::FxHashSet<String>>,
 }
 
 impl JtiBlacklist {
