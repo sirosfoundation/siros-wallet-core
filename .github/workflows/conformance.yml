@@ -74,7 +74,7 @@ env:
 jobs:
   conformance:
     name: OIDF conformance (vci + vp)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       # The suite's TLS host — the suite validates callbacks against
@@ -198,7 +198,7 @@ jobs:
     name: The verdict, on the release (release tags only)
     if: github.ref_type == 'tag'
     needs: conformance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: write # the certification ZIPs + summaries upload (this job only)
