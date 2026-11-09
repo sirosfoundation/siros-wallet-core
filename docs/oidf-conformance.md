@@ -124,11 +124,10 @@ Three pieces; the ports were built for exactly this:
    changes; the sub-flows are answered, the protocol is the engine's.
 3. **The one real gap: `request_vp`.** The OID4VP wallet plans need a
    real VP the suite can verify, and VP construction is host-side by
-   design. The presentation crates (`siros-sdjwt`, `siros-mdoc`,
-   `siros-presentation` — pure Rust, already in the workspace) build
-   those; they are not yet exposed through the wasm adapter. Wiring them
-   is the only substantive new work, and it is work the real SDK needs
-   anyway.
+   design. The mini host builds them itself: the PID's SD-JWT
+   presentation with its KB-JWT (RFC 9901 §4), and the mDL's
+   DeviceResponse (ISO/IEC 18013-5, 8.3.2.1.2.2) signed over the
+   OpenID4VPHandover's session transcript (OpenID4VP B.2.6.1).
 
 ## The phases
 
@@ -136,10 +135,9 @@ Three pieces; the ports were built for exactly this:
   both grants, proofs, deferred, notification — all engine-side already;
   the mini host only signs. Objective evidence for the entire issuance
   half, fast.
-- **Phase 2 — the OID4VP wallet plans.** The presentation crates land in
-  the wasm adapter as the VP builder; the suite issues test credentials
-  to the mini-wallet through Phase 1's path, then verifies what it
-  presents.
+- **Phase 2 — the OID4VP wallet plans.** The mini host builds the VPs;
+  the suite issues test credentials to the mini-wallet through Phase 1's
+  path, then verifies what it presents.
 - **Phase 3 — the Phase B milestone.** Both agreed plans green; the
   go-observed hard sunset can fire; the runs (plan links, suite
   versions) are recorded as `oidf`-provenance vectors, promoting the
