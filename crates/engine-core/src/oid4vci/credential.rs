@@ -819,6 +819,7 @@ mod tests {
             authorization_servers: Vec::new(),
             credential_configurations: serde_json::json!({}),
             signed_metadata: None,
+            envelope_key_material: None,
             is_signed: false,
             raw: Vec::new(),
         }

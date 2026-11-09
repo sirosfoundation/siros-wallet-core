@@ -594,17 +594,34 @@ impl MiniHost {
                 })?;
             thumbprint = siros_codec::cbor::Value::Bytes(digest);
         }
-        let info = siros_codec::cbor::Value::Array(vec![
-            siros_codec::cbor::Value::text(&params.audience),
-            siros_codec::cbor::Value::text(&params.nonce),
-            thumbprint,
-            siros_codec::cbor::Value::text(&params.response_uri),
-        ]);
+        // The Digital Credentials API channel (B.2.6.2): the
+        // OpenID4VPDCAPIHandover covers [origin, nonce, jwkThumbprint]
+        // — the origin the request's expected_origins named.
+        let (handover_name, info) = if params.origin.is_empty() {
+            (
+                "OpenID4VPHandover",
+                siros_codec::cbor::Value::Array(vec![
+                    siros_codec::cbor::Value::text(&params.audience),
+                    siros_codec::cbor::Value::text(&params.nonce),
+                    thumbprint,
+                    siros_codec::cbor::Value::text(&params.response_uri),
+                ]),
+            )
+        } else {
+            (
+                "OpenID4VPDCAPIHandover",
+                siros_codec::cbor::Value::Array(vec![
+                    siros_codec::cbor::Value::text(&params.origin),
+                    siros_codec::cbor::Value::text(&params.nonce),
+                    thumbprint,
+                ]),
+            )
+        };
         let handover_digest =
             kryptering::digest::digest(kryptering::HashAlgorithm::Sha256, info.encode().as_slice())
                 .map_err(|err| HostError::Cannot(format!("the handover digest: {err}")))?;
         let handover = siros_codec::cbor::Value::Array(vec![
-            siros_codec::cbor::Value::text("OpenID4VPHandover"),
+            siros_codec::cbor::Value::text(handover_name),
             siros_codec::cbor::Value::Bytes(handover_digest),
         ]);
         // SessionTranscript = [null, null, Handover] (B.2.6).
@@ -804,7 +821,20 @@ impl Host for MiniHost {
             .ok_or_else(|| HostError::Cannot("the clock is out of range".to_owned()))?;
         let iat = siros_sdjwt::NumericDate::of(time)
             .map_err(|err| HostError::Cannot(format!("the iat is out of range: {err}")))?;
-        let audience = siros_sdjwt::Audience::new(&params.audience);
+        // The KB-JWT's `aud`: on the Digital Credentials API channel
+        // the origin in its HAIP-7.3.2 serialization — `origin:` + the
+        // expected origin URL (the suite's CheckAudInBindingJwtDcApi)
+        // — and the client_id on the redirect channel.
+        let dc_api_origin = if params.origin.is_empty() {
+            String::new()
+        } else {
+            format!("origin:{}", params.origin)
+        };
+        let audience = siros_sdjwt::Audience::new(if dc_api_origin.is_empty() {
+            params.audience.as_str()
+        } else {
+            dc_api_origin.as_str()
+        });
         let nonce = siros_sdjwt::KbNonce::new(&params.nonce);
 
         let mut tokens = Vec::new();

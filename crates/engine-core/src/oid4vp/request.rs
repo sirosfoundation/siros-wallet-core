@@ -40,24 +40,51 @@ pub async fn parse_request(
         None => params.clone(),
     };
 
-    // Check for a `request_uri` (by reference).
-    if let Some(uri) = params.get("request_uri").and_then(|v| v.as_str()) {
-        if !uri.is_empty() {
-            return fetch_request_object(http, uri).await;
-        }
-    }
+    // The Digital Credentials API channel's actual origin (the
+    // browser's caller — the transport supplies it, W3C Digital
+    // Credentials API §5.1): the flow start's params carry it beside
+    // the request, and the dc_api binding checks it against the
+    // request's expected_origins below.
+    let dc_api_origin = params
+        .get("origin")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_owned();
 
-    // Check for a `request` (the request object by value).
-    if let Some(request_jwt) = params.get("request").and_then(|v| v.as_str()) {
-        return parse_request_object(request_jwt);
-    }
+    // By reference, by value, or the params are the request itself.
+    // The signed form validates its own scheme requirements inside
+    // (with the leaf's DER and the attestation); the params form is
+    // checked here (§5: x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the
+    // attestation — refused, not only in the signed form).
+    let mut request = if let Some(uri) = params
+        .get("request_uri")
+        .and_then(|v| v.as_str())
+        .filter(|uri| !uri.is_empty())
+    {
+        fetch_request_object(http, uri).await?
+    } else if let Some(request_jwt) = params.get("request").and_then(|v| v.as_str()) {
+        parse_request_object(request_jwt)?
+    } else {
+        let request = parse_request_value(&params)?;
+        validate_scheme_requirements(&request, None, None, "")?;
+        request
+    };
 
-    // The params are the request itself (by value).
-    let request = parse_request_value(&params)?;
-    // The scheme requirements the params form cannot satisfy (§5:
-    // x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the attestation) are
-    // refused here, not only in the signed form.
-    validate_scheme_requirements(&request, None, None, "")?;
+    // The dc_api origin binding (OpenID4VP 1.0 §8.4): the actual
+    // origin must be one the request's expected_origins named.
+    if request.response_mode.is_dc_api()
+        && !request.expected_origins.is_empty()
+        && !request
+            .expected_origins
+            .iter()
+            .any(|expected| expected == &dc_api_origin)
+    {
+        return Err(RequestError::OriginMismatch);
+    }
+    // The actual origin rides the request for the KB-JWT's `aud` and
+    // the mdoc DCAPIHandover.
+    request.dc_api_origin = dc_api_origin;
+
     Ok(request)
 }
 
@@ -441,9 +468,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
-    // The response endpoint: response_uri, or redirect_uri as the fallback.
-    if response_uri.is_empty() && redirect_uri.is_empty() {
+    // The response endpoint: response_uri, or redirect_uri as the
+    // fallback — the Digital Credentials API channel names neither;
+    // the response returns through the browser instead.
+    if response_uri.is_empty() && redirect_uri.is_empty() && !response_mode.is_dc_api() {
         return Err(RequestError::NotRecognized);
+    }
+
+    // The dc_api channel forbids both URIs (OpenID4VP 1.0 §8.4: the
+    // response never POSTs back from the wallet).
+    if response_mode.is_dc_api() && (!response_uri.is_empty() || !redirect_uri.is_empty()) {
+        return Err(RequestError::UnexpectedResponseUri {
+            mode: response_mode_str.to_owned(),
+        });
     }
 
     // The direct_post channel requires a response_uri and forbids a
@@ -504,6 +541,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
+    // The expected_origins (OpenID4VP 1.0 §5.1): the Digital
+    // Credentials API channel's origin binding.
+    let expected_origins: Vec<String> = obj
+        .get("expected_origins")
+        .and_then(|v| v.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(AuthorizationRequest {
         client_id,
         client_id_scheme: inferred_scheme,
@@ -518,6 +568,8 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         client_metadata,
         client_metadata_uri,
         verifier_jwk,
+        expected_origins,
+        dc_api_origin: String::new(),
         scope,
         // The trust evaluation's inputs: the parser's caller fills them
         // when the request is JWT-secured (parse_request_object).

@@ -134,6 +134,16 @@ pub(crate) fn extract_key_material(metadata: &IssuerMetadata) -> Vec<u8> {
         }
     }
 
+    // The signed envelope's signer material (go-wallet-backend #540): a
+    // JWT-served document's payload has no `signed_metadata` member and
+    // may carry no `jwks` either — the JWS header's x5c/jwk is the
+    // chain a chain-deciding PDP needs. The payload's own members win
+    // when they exist (the Go fix's exact shape: the resolver's signer
+    // material is used only when the body extraction returns nothing).
+    if let Some(material) = &metadata.envelope_key_material {
+        return material.clone();
+    }
+
     Vec::new()
 }
 
@@ -199,6 +209,7 @@ mod tests {
                 }
             }),
             signed_metadata: None,
+            envelope_key_material: None,
             is_signed: false,
             raw: Vec::new(),
         }

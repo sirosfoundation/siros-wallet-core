@@ -82,12 +82,36 @@ number, ≤90-day nextUpdate) served by the harness nginx with the
 RFC 2585 §4.2 content type. The wire is pinned by
 `vp.oidf.mdoc.basic.001` (provenance `oidf`, plan `OzBNWDaDeiAn7`).
 
-**Remaining:** the dc_api response modes (the W3C Digital Credentials
-API browser flow). The runs are published on the Pages site under
-`runs/mini-wallet-phase1-2026-11-04`,
+**The Digital Credentials API channel (2026-11-09)** — the W3C DC API
+response modes (OpenID4VP 1.0 §8.4), the last piece: the haip plan's
+`x509_hash` / `request_uri_signed` / `dc_api.jwt` module group (19
+modules, eudi_pid on the HAIP profile) green — 11 PASSED, the eight
+negatives REVIEW (the wallet refuses each for the right reason; the
+browser API's promise rejection posts to the module's submit URL, then
+the tester's error-screen placeholder). The channel's engine side:
+the response never POSTs back — the flow completes with the
+DigitalCredential's data (the plain response object for `dc_api`, the
+JWE for `dc_api.jwt`), the error answers ride the same completion, and
+the caller's actual origin (the transport's input, validated against
+the request's `expected_origins`) binds the KB-JWT's `aud`
+(`origin:` + the URL, HAIP-7.3.2) and the mdoc
+OpenID4VPDCAPIHandover (B.2.6.2). The wasm adapter forwards the
+engine's `wmp.flow.complete` notifications to the page's
+`onNotification` callback — the flow results the resolved start answer
+alone never carried. The harness plays the browser: the response data
+hands to the module's browser API submit URL exactly as the suite's
+own page does.
+
+Every module group of every agreed plan now passes through the
+mini-wallet: OID4VCI (both grants, both issuance modes) and OID4VP
+(both redirect response modes, the HAIP profile, the iso_mdl format,
+and the Digital Credentials API channel). The runs are published on
+the Pages site under `runs/mini-wallet-phase1-2026-11-04`,
 `runs/mini-wallet-vp-phase2-2026-11-04`,
-`runs/mini-wallet-authcode-2026-11-05` and
-`runs/mini-wallet-vp-haip-2026-11-05`.
+`runs/mini-wallet-authcode-2026-11-05`,
+`runs/mini-wallet-vp-haip-2026-11-05`,
+`runs/mini-wallet-vp-mdoc-2026-11-05` and
+`runs/mini-wallet-vp-dcapi-2026-11-09`.
 
 ## The goal
 

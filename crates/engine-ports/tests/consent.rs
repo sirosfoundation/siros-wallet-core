@@ -136,6 +136,7 @@ fn the_handle_rides_the_wire_as_an_absent_member_when_there_is_none() {
         verifier_jwk_thumbprint: String::new(),
         verifier_session_id: String::new(),
         transaction_data: Vec::new(),
+        origin: String::new(),
         selection_handle: answer.handle,
     };
     let wire: serde_json::Value = serde_json::to_value(&params).expect("the ask serialises");
