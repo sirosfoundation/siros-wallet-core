@@ -12,8 +12,8 @@ use siros_explain::Explain;
 #[error("no {of} literal: the text leaves the form at byte {at}")]
 #[explain(id = "malformed")]
 pub struct Malformed {
-    /// The type the text is no literal of: `Count`, `Decimal`, `Currency`, `Amount`, `Date`,
-    /// `Time`, `Offset`, `OffsetTime` or `DateTime`.
+    /// The type the text is no literal of: `Count`, `Digits`, `Decimal`, `Currency`, `Amount`,
+    /// `Date`, `Time`, `Offset`, `OffsetTime` or `DateTime`.
     pub of: &'static str,
     /// The byte offset where the text leaves the form.
     pub at: usize,
