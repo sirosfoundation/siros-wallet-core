@@ -2,6 +2,7 @@
 //! rules, which every numeric section defines, and the `[formats.number]` and `[formats.offset]`
 //! sections, which add the decimal pattern.
 
+use crate::digit::Numerals;
 use crate::error::FormatRule;
 use crate::format::{Direction, Options};
 #[cfg(any(feature = "number", feature = "offset"))]
@@ -25,13 +26,6 @@ pub(crate) fn symbol(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// A digit zero: one character, nine characters after which are digits too.
-fn zero(text: &str) -> Option<char> {
-    let mut chars = text.chars();
-    let zero = chars.next()?;
-    (chars.next().is_none() && char::from_u32(u32::from(zero) + 9).is_some()).then_some(zero)
-}
-
 impl Numbers {
     /// The options of a section, `percent` its percent sign.
     ///
@@ -41,7 +35,7 @@ impl Numbers {
     pub(crate) fn parse(options: Options<'_>, percent: String) -> Result<Self, FormatRule> {
         Ok(Self {
             symbols: Symbols {
-                zero: options.parse("zero", zero)?,
+                numerals: options.parse("zero", Numerals::parse)?,
                 decimal: options.parse("decimal", symbol)?,
                 group: options.parse("group", symbol)?,
                 minus: options.parse("minus", symbol)?,

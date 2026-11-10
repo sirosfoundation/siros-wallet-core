@@ -38,6 +38,10 @@ fn each_load_rule_refuses_its_fixture() {
             syntax(3, SyntaxRule::Line),
         ),
         (
+            Context::new().module("@locale en\n---\nhello = a\n  b\u{7}c\n"),
+            syntax(4, SyntaxRule::Line),
+        ),
+        (
             Context::new().module("@locale en\n---\nhello = Hel\\qlo\n"),
             syntax(3, SyntaxRule::Escape),
         ),

@@ -5,7 +5,7 @@ pub(crate) mod ast;
     feature = "number",
     feature = "currency",
     feature = "offset",
-    feature = "check"
+    feature = "conformance"
 ))]
 pub(crate) mod number;
 pub(crate) mod parse;

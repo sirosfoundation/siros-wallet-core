@@ -145,11 +145,11 @@ pub(crate) struct Resolved<'a> {
 
 /// `digit-size-option = "0" / (("1"-"9") [DIGIT])`.
 fn digit_size(text: &str) -> Option<u8> {
-    let valid = matches!(
-        text.as_bytes(),
-        [b'0'] | [b'1'..=b'9'] | [b'1'..=b'9', b'0'..=b'9']
-    );
-    valid.then(|| text.parse().ok()).flatten()
+    match *text.as_bytes() {
+        [units @ b'0'..=b'9'] => Some(units - b'0'),
+        [tens @ b'1'..=b'9', units @ b'0'..=b'9'] => Some((tens - b'0') * 10 + (units - b'0')),
+        _ => None,
+    }
 }
 
 /// Whether an option's value is one its function takes.
@@ -237,8 +237,12 @@ impl<'a> Resolved<'a> {
             return Err(option("select"));
         }
         if function == Function::Offset {
-            let size = |name| self.get(name).and_then(digit_size).map(i64::from);
-            let step = match (size("add"), size("subtract")) {
+            let size = |name: &str| {
+                self.get(name)
+                    .map(|text| digit_size(text).map(i64::from).ok_or_else(|| option(name)))
+                    .transpose()
+            };
+            let step = match (size("add")?, size("subtract")?) {
                 (Some(add), None) => add,
                 (None, Some(subtract)) => -subtract,
                 (Some(_), Some(_)) => return Err(option("subtract")),
@@ -302,7 +306,9 @@ impl<'a> Resolved<'a> {
     }
 
     fn size(&self, name: &str) -> Result<Option<u8>, Refused> {
-        Ok(self.checked(name)?.and_then(digit_size))
+        self.checked(name)?
+            .map(|text| digit_size(text).ok_or_else(|| option(name)))
+            .transpose()
     }
 
     /// `signDisplay`.
@@ -324,7 +330,8 @@ impl<'a> Resolved<'a> {
             None | Some("auto") => Grouping::From(locale),
             Some("always") => Grouping::From(1),
             Some("min2") => Grouping::From(2),
-            Some(_) => Grouping::Never,
+            Some("never") => Grouping::Never,
+            Some(_) => return Err(option("useGrouping")),
         })
     }
 
@@ -334,7 +341,8 @@ impl<'a> Resolved<'a> {
             (Function::Currency, _) => None,
             (Function::Percent, _) | (_, None | Some("plural")) => Some(Selection::Plural),
             (_, Some("ordinal")) => Some(Selection::Ordinal),
-            (_, Some(_)) => Some(Selection::Exact),
+            (_, Some("exact")) => Some(Selection::Exact),
+            (_, Some(_)) => return Err(option("select")),
         })
     }
 
@@ -388,10 +396,11 @@ impl<'a> Resolved<'a> {
                 fraction,
                 significant,
             },
-            Some(_) => Rounding::Less {
+            Some("lessPrecision") => Rounding::Less {
                 fraction,
                 significant,
             },
+            Some(_) => return Err(option("roundingPriority")),
         };
         if increment != NonZeroU32::MIN {
             let fraction_only = matches!(rounding, Rounding::Fraction { .. });

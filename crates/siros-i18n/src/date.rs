@@ -8,6 +8,7 @@
 
 use siros_syntax::{Date, DateTime, Offset, OffsetTime};
 
+use crate::digit::Numerals;
 use crate::error::{FormatRule, Refusal};
 use crate::format::{Argument, Chain, Direction, Failure, Function, OptionValue, Options, Root};
 
@@ -157,11 +158,11 @@ enum Field {
 impl Field {
     /// The field `width` letters `letter` write; `None` for a letter or width the engine does
     /// not format.
-    fn of(letter: char, width: usize) -> Option<Self> {
-        let narrow = u8::try_from(width).ok().filter(|w| (1..=2).contains(w));
+    fn of(letter: char, width: u8) -> Option<Self> {
+        let narrow = (1..=2).contains(&width).then_some(width);
         Some(match (letter, width) {
             ('G', 1..=3) => Self::Era,
-            ('y', _) => Self::Year(u8::try_from(width).ok()?),
+            ('y', _) => Self::Year(width),
             ('M', 3) => Self::MonthAbbreviated,
             ('M', 4) => Self::MonthWide,
             ('M', _) => Self::Month(narrow?),
@@ -174,7 +175,7 @@ impl Field {
             ('k', _) => Self::Hour(Cycle::H24, narrow?),
             ('m', _) => Self::Minute(narrow?),
             ('s', _) => Self::Second(narrow?),
-            ('S', 1..=9) => Self::Fraction(u8::try_from(width).ok()?),
+            ('S', 1..=9) => Self::Fraction(width),
             ('a', 1..=3) => Self::Period,
             ('z', 1..=3) | ('O', 1) => Self::Zone { long: false },
             ('z' | 'O', 4) => Self::Zone { long: true },
@@ -281,7 +282,7 @@ impl Names {
 /// every length, no zone.
 #[derive(Debug, Clone)]
 pub(crate) struct Parsed {
-    zero: char,
+    numerals: Numerals,
     direction: Direction,
     date: Lengths<Field>,
     time: Lengths<Field>,
@@ -298,8 +299,9 @@ pub(crate) struct Parsed {
 }
 
 /// A TR35 pattern: letters `A-Za-z` are fields, `'…'` quotes literal text, `''` an apostrophe.
-/// `field` reads each field and its width.
-fn items<F>(text: &str, field: impl Fn(char, usize) -> Option<F>) -> Option<Pattern<F>> {
+/// `field` reads each field and its width. `None` for a field `field` refuses or wider than 255
+/// letters, and for an unclosed quote.
+fn items<F>(text: &str, field: impl Fn(char, u8) -> Option<F>) -> Option<Pattern<F>> {
     let mut items = Vec::new();
     let mut literal = String::new();
     let mut chars = text.chars().peekable();
@@ -314,9 +316,9 @@ fn items<F>(text: &str, field: impl Fn(char, usize) -> Option<F>) -> Option<Patt
         } else if quoted || !c.is_ascii_alphabetic() {
             literal.push(c);
         } else {
-            let mut width = 1;
+            let mut width: u8 = 1;
             while chars.next_if_eq(&c).is_some() {
-                width += 1;
+                width = width.checked_add(1)?;
             }
             let read = field(c, width)?;
             if !literal.is_empty() {
@@ -347,16 +349,15 @@ fn fields<F: Copy>(pattern: &Pattern<F>) -> impl Iterator<Item = F> + '_ {
 fn glue(text: &str) -> Option<Pattern<Glue>> {
     let mut items = Vec::new();
     let mut rest = text;
-    while let Some(at) = rest.find('{') {
-        let (before, mark) = rest.split_at_checked(at)?;
+    while let Some((before, mark)) = rest.split_once('{') {
         items.extend(self::items(before, |_, _| None::<Glue>)?);
-        let field = match mark.get(..3)? {
-            "{0}" => Glue::Time,
-            "{1}" => Glue::Date,
-            _ => return None,
+        let (field, after) = match (mark.strip_prefix("0}"), mark.strip_prefix("1}")) {
+            (Some(after), _) => (Glue::Time, after),
+            (None, Some(after)) => (Glue::Date, after),
+            (None, None) => return None,
         };
         items.push(Item::Field(field));
-        rest = mark.get(3..)?;
+        rest = after;
     }
     items.extend(self::items(rest, |_, _| None::<Glue>)?);
     let count = |wanted: Glue| fields(&items).filter(|field| *field == wanted).count();
@@ -366,7 +367,7 @@ fn glue(text: &str) -> Option<Pattern<Glue>> {
 /// A year with its era (CLDR's `Gy` skeleton): one `y` and one `G`, the rest literal.
 fn year_era(text: &str) -> Option<Pattern<EraField>> {
     let items = items(text, |c, width| match (c, width) {
-        ('y', _) => u8::try_from(width).ok().map(EraField::Year),
+        ('y', _) => Some(EraField::Year(width)),
         ('G', 1..=3) => Some(EraField::Era),
         _ => None,
     })?;
@@ -426,13 +427,6 @@ fn gmt(text: &str) -> Option<(String, String)> {
     (!after.contains("{0}")).then(|| (before.to_owned(), after.to_owned()))
 }
 
-/// A digit zero: one character, nine characters after which are digits too.
-fn zero(text: &str) -> Option<char> {
-    let mut chars = text.chars();
-    let zero = chars.next()?;
-    (chars.next().is_none() && char::from_u32(u32::from(zero) + 9).is_some()).then_some(zero)
-}
-
 impl Parsed {
     /// The section's options.
     ///
@@ -451,7 +445,7 @@ impl Parsed {
         let glued = |name| options.parse(name, glue);
         let names = |name, count| options.parse(name, |text| Names::parse(text, count));
         Ok(Self {
-            zero: options.parse("zero", zero)?,
+            numerals: options.parse("zero", Numerals::parse)?,
             direction: options.direction,
             date: Lengths {
                 short: date("date-short")?,
@@ -693,15 +687,6 @@ impl Compiled {
 }
 
 impl Parsed {
-    fn digits(&self, value: u32, width: u8, out: &mut String) {
-        let text = format!("{value:0>width$}", width = usize::from(width));
-        let zero = u32::from(self.zero);
-        out.extend(
-            text.bytes()
-                .map(|b| char::from_u32(zero + u32::from(b - b'0')).unwrap_or(self.zero)),
-        );
-    }
-
     /// The time at `length`: a time without an offset at `long` and `full` as at `medium`.
     fn time(&self, length: Length, moment: &Moment, out: &mut String) -> Result<(), Failure> {
         let length = match (moment.offset, length) {
@@ -723,12 +708,12 @@ impl Parsed {
         let (before, after) = &self.gmt;
         out.push_str(before);
         out.push_str(&format.before);
-        self.digits(hours, if long { 2 } else { 1 }, out);
+        self.numerals.write(hours, if long { 2 } else { 1 }, out);
         if let Some(between) = &format.minutes
             && (long || rest != 0)
         {
             out.push_str(between);
-            self.digits(rest, 2, out);
+            self.numerals.write(rest, 2, out);
         }
         out.push_str(&format.after);
         out.push_str(after);
@@ -760,21 +745,22 @@ impl Parsed {
                     match item {
                         Item::Text(text) => out.push_str(text),
                         Item::Field(EraField::Year(width)) => {
-                            self.digits(in_era(year).1, *width, out);
+                            self.numerals.write(in_era(year).1, *width, out);
                         }
                         Item::Field(EraField::Era) => out.push_str(self.eras.at(in_era(year).0)?),
                     }
                 }
             }
             (Ambiguity::EraAndCentury, true) => {
-                self.digits(in_era(year).1, if width == 2 { 1 } else { width }, out);
+                self.numerals
+                    .write(in_era(year).1, if width == 2 { 1 } else { width }, out);
             }
             (Ambiguity::Unambiguous, _) if width == 2 => {
-                self.digits(u32::from(year) % 100, 2, out);
+                self.numerals.write(u32::from(year) % 100, 2, out);
             }
-            (Ambiguity::Century, _) if width == 2 => self.digits(u32::from(year), 1, out),
+            (Ambiguity::Century, _) if width == 2 => self.numerals.write(u32::from(year), 1, out),
             (Ambiguity::Unambiguous | Ambiguity::Century, _) => {
-                self.digits(u32::from(year), width, out);
+                self.numerals.write(u32::from(year), width, out);
             }
         }
         Ok(())
@@ -792,10 +778,10 @@ impl Parsed {
         match field {
             Field::Era => out.push_str(self.eras.at(in_era(date()?.year()).0)?),
             Field::Year(width) => self.year(date()?.year(), width, shows_era, out)?,
-            Field::Month(width) => self.digits(u32::from(date()?.month()), width, out),
+            Field::Month(width) => self.numerals.write(u32::from(date()?.month()), width, out),
             Field::MonthAbbreviated => out.push_str(self.months_abbreviated.at(month()?)?),
             Field::MonthWide => out.push_str(self.months_wide.at(month()?)?),
-            Field::Day(width) => self.digits(u32::from(date()?.day()), width, out),
+            Field::Day(width) => self.numerals.write(u32::from(date()?.day()), width, out),
             Field::WeekdayAbbreviated => out.push_str(self.days_abbreviated.at(weekday(date()?))?),
             Field::WeekdayWide => out.push_str(self.days_wide.at(weekday(date()?))?),
             Field::Hour(cycle, width) => {
@@ -806,13 +792,13 @@ impl Parsed {
                     Cycle::H11 => hour % 12,
                     Cycle::H24 => (hour + 23) % 24 + 1,
                 };
-                self.digits(u32::from(shown), width, out);
+                self.numerals.write(u32::from(shown), width, out);
             }
-            Field::Minute(width) => self.digits(u32::from(moment.minute), width, out),
-            Field::Second(width) => self.digits(u32::from(moment.second), width, out),
+            Field::Minute(width) => self.numerals.write(u32::from(moment.minute), width, out),
+            Field::Second(width) => self.numerals.write(u32::from(moment.second), width, out),
             Field::Fraction(width) => {
                 let shown = moment.nanos / 10u32.pow(9 - u32::from(width));
-                self.digits(shown, width, out);
+                self.numerals.write(shown, width, out);
             }
             Field::Period => out.push_str(self.periods.at(usize::from(moment.hour >= 12))?),
             Field::Zone { long } => {

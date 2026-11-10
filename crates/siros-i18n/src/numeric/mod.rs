@@ -16,6 +16,7 @@ pub(crate) use language::{PLAIN, Plain};
 
 use std::num::NonZeroU32;
 
+use crate::digit::{Digit, Numerals};
 use crate::error::Refusal;
 use crate::format::{Argument, CallSpec, CallTexts, Chain, Direction, Failure, OptionValue, Root};
 use decimal::{Fixed, Given, Num, RoundingMode};
@@ -370,7 +371,8 @@ fn structure(chain: &Chain) -> Result<Option<Selection>, Refused> {
         (Function::Currency, _) => None,
         (Function::Percent, _) | (_, None | Some("plural")) => Some(Selection::Plural),
         (_, Some("ordinal")) => Some(Selection::Ordinal),
-        (_, Some(_)) => Some(Selection::Exact),
+        (_, Some("exact")) => Some(Selection::Exact),
+        (_, Some(_)) => return Err(option("select")),
     })
 }
 
@@ -553,15 +555,17 @@ impl Form<'_> {
             };
             let (min, max) = bounds(min, max);
             let rounded = value.round(-i64::from(max), inc, digits.mode);
-            (-i64::from(max), rounded.fixed(min))
+            (-i64::from(max), rounded.fixed(-i64::from(min)))
         };
+        // Zero's magnitude is 0: ECMA-402 ToRawPrecision (16.5.7), step 2.b.
         let significant = |min: u8, max: u8| {
             let magnitude = value.magnitude().unwrap_or(0);
             let rounded = value.round(magnitude - i64::from(max) + 1, NonZeroU32::MIN, digits.mode);
             let after = rounded.magnitude().unwrap_or(0);
-            let min_fraction = (i64::from(min) - 1 - after).max(0);
-            let min_fraction = u32::try_from(min_fraction).unwrap_or(0);
-            (after - i64::from(max) + 1, rounded.fixed(min_fraction))
+            (
+                after - i64::from(max) + 1,
+                rounded.fixed(after + 1 - i64::from(min)),
+            )
         };
         let mut result = match digits.rounding {
             Rounding::Fraction {
@@ -592,7 +596,7 @@ impl Form<'_> {
         }
         let pad = usize::from(digits.min_integer).saturating_sub(result.int.len());
         if pad > 0 {
-            let mut int = vec![0; pad];
+            let mut int = vec![Digit::Zero; pad];
             int.append(&mut result.int);
             result.int = int;
         }
@@ -614,7 +618,7 @@ impl Form<'_> {
 
     /// The number's serialization for exact keys.
     fn serial(&self, fixed: &Fixed) -> String {
-        let digit = |d: &u8| char::from(b'0' + d);
+        let digit = |d: &Digit| Numerals::ASCII.digit(*d);
         let int: String = fixed.int.iter().map(digit).collect();
         if self.integer_keys && fixed.is_integer() {
             let int = int.trim_start_matches('0');

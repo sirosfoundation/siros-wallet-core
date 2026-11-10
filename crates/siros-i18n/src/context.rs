@@ -91,8 +91,11 @@ impl Args {
 
     /// The text of the argument `key`.
     fn get(&self, key: &str) -> Option<&str> {
-        let at = self.0.binary_search_by(|(k, _)| k.as_str().cmp(key)).ok()?;
-        self.0.get(at).map(|(_, text)| text.as_str())
+        let at = self.0.partition_point(|(k, _)| k.as_str() < key);
+        self.0
+            .get(at)
+            .filter(|(k, _)| k == key)
+            .map(|(_, text)| text.as_str())
     }
 }
 
@@ -238,8 +241,7 @@ impl Context {
     fn find(&self, id: &str) -> Option<&Worded> {
         let at = self
             .messages
-            .binary_search_by(|worded| worded.id.as_str().cmp(id))
-            .ok()?;
-        self.messages.get(at)
+            .partition_point(|worded| worded.id.as_str() < id);
+        self.messages.get(at).filter(|worded| worded.id == id)
     }
 }

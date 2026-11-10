@@ -87,7 +87,7 @@ struct Called {
         feature = "currency",
         feature = "offset",
         feature = "date",
-        feature = "check"
+        feature = "conformance"
     ))]
     innermost: Function,
     #[cfg(any(
@@ -109,7 +109,8 @@ impl Called {
                 feature = "currency",
                 feature = "offset",
                 feature = "date",
-                feature = "check"
+                feature = "check",
+                feature = "conformance"
             )),
             expect(unused_variables, reason = "a build of `:string` alone reads no call")
         )]
@@ -121,7 +122,7 @@ impl Called {
                 feature = "currency",
                 feature = "offset",
                 feature = "date",
-                feature = "check"
+                feature = "conformance"
             ))]
             innermost: chain
                 .inner
@@ -147,7 +148,7 @@ impl Called {
                 feature = "currency",
                 feature = "offset",
                 feature = "date",
-                feature = "check"
+                feature = "conformance"
             ))]
             Failure::Operand => ResolveError::Operand {
                 id: id.to_owned(),

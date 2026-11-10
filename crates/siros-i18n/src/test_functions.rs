@@ -1,6 +1,6 @@
 //! MF2's test functions `:test:function`, `:test:select` and `:test:format`
 //! (message-format-wg `test/README.md`, "Test Functions"), which the conformance suite calls.
-//! Builds with `check` compile them in; shipping builds leave them out.
+//! Builds with `conformance` compile them in.
 //!
 //! Each takes a number literal, from the message or an argument, and the literal options
 //! `decimalPlaces` (`0` or `1`) and `fails` (`never`, `always`, `format` or `select`), which a

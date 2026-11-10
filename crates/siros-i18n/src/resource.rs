@@ -53,19 +53,21 @@ enum Section {
 /// Parses the resource `text`.
 pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
     let refuse = |line: usize, rule: SyntaxRule| LoadError::Syntax { line, rule };
-    let lines: Vec<&str> = text.split('\n').collect();
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect();
+    if let Some(at) = lines.iter().position(|line| !line.chars().all(allowed)) {
+        return Err(refuse(at + 1, SyntaxRule::Line));
+    }
     let mut locale: Option<LocaleTag> = None;
     let mut direction: Option<Direction> = None;
     let mut place = Place::Head;
     let mut messages = Vec::new();
     let mut formats: Vec<FormatSection> = Vec::new();
     let mut at = 0;
-    while let Some(&raw) = lines.get(at) {
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
+    while let Some(&line) = lines.get(at) {
         let number = at + 1;
-        if !line.chars().all(allowed) {
-            return Err(refuse(number, SyntaxRule::Line));
-        }
         at += 1;
         if line.trim_matches(is_ws).is_empty() || line.starts_with('#') {
             continue;
@@ -82,7 +84,7 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
         }
         if let Some(rest) = line.strip_prefix('@') {
             let (name, value, next) =
-                metadata(&lines, at, rest).ok_or(refuse(number, SyntaxRule::Line))?;
+                metadata(&lines, at, rest).map_err(|rule| refuse(number, rule))?;
             at = next;
             let value = value.map_err(|rule| refuse(number, rule))?;
             match (&place, name.as_str()) {
@@ -185,20 +187,19 @@ fn head(rest: &str) -> Result<Section, SyntaxRule> {
     )
 }
 
-/// A metadata line after its `@`: its name, its value, and the line after it.
+/// A metadata line after its `@` (`id-part [ws value]`): its name, its value, and the line after
+/// it.
 fn metadata(
     lines: &[&str],
     next: usize,
     rest: &str,
-) -> Option<(String, Result<String, SyntaxRule>, usize)> {
-    let end = rest.find(|c: char| is_ws(c)).unwrap_or(rest.len());
-    let (name, after) = (rest.get(..end)?, rest.get(end..)?);
-    let (name, left) = part(name).ok()?;
-    if !left.is_empty() {
-        return None;
+) -> Result<(String, Result<String, SyntaxRule>, usize), SyntaxRule> {
+    let (name, after) = part(rest)?;
+    if !after.is_empty() && !after.starts_with(is_ws) {
+        return Err(SyntaxRule::Line);
     }
     let (value, next) = value(lines, next, after);
-    Some((name, value, next))
+    Ok((name, value, next))
 }
 
 /// An id at the start of `text`: its parts joined by `.`, and the text after it.
@@ -222,34 +223,30 @@ fn id(text: &str) -> Result<(String, &str), SyntaxRule> {
 /// One id part: `1*(id-char / "-")`, its escapes resolved.
 fn part(text: &str) -> Result<(String, &str), SyntaxRule> {
     let mut out = String::new();
-    let mut chars = text.char_indices().peekable();
-    while let Some((_, c)) = chars.next_if(|&(_, c)| c == '\\' || id_safe(c) || c == '-') {
-        if c == '\\' {
-            let escaped = chars.next().ok_or(SyntaxRule::Escape)?.1;
-            match escape(escaped, &mut chars)? {
-                Some(c) => out.push(c),
-                None if symbol(escaped) => out.push(escaped),
-                None => return Err(SyntaxRule::Escape),
+    let mut chars = text.chars();
+    loop {
+        let rest = chars.as_str();
+        match chars.next() {
+            Some('\\') => {
+                let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
+                match escape(escaped, &mut chars)? {
+                    Some(c) => out.push(c),
+                    None if symbol(escaped) => out.push(escaped),
+                    None => return Err(SyntaxRule::Escape),
+                }
             }
-        } else {
-            out.push(c);
+            Some(c) if id_safe(c) || c == '-' => out.push(c),
+            Some(_) | None if out.is_empty() => return Err(SyntaxRule::Line),
+            Some(_) | None => return Ok((out, rest)),
         }
     }
-    if out.is_empty() {
-        return Err(SyntaxRule::Line);
-    }
-    let rest = chars
-        .peek()
-        .map_or("", |&(at, _)| text.get(at..).unwrap_or_default());
-    Ok((out, rest))
 }
 
-/// One character of a value: escaped, and so kept from trimming, or as written.
+/// One character of a value's line: escaped, and so kept from trimming, or as written.
 #[derive(Clone, Copy)]
 enum Char {
     Escaped(char),
     Written(char),
-    Break,
 }
 
 /// A value from `first`, the rest of its first line, through its continuation lines: each line
@@ -257,20 +254,15 @@ enum Char {
 /// `\|` and `\}` pass through intact. Returns the line after it.
 fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, SyntaxRule>, usize) {
     let mut text = first.to_owned();
-    let mut end = next;
-    while let Some(&raw) = lines.get(end) {
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
+    let mut blank = 0;
+    for &line in lines.iter().skip(next) {
         if line.trim_matches(is_ws).is_empty() {
-            end += 1;
+            blank += 1;
         } else if line.starts_with(is_ws) {
-            for empty in lines.get(next..end).unwrap_or_default() {
-                text.push('\n');
-                text.push_str(empty.strip_suffix('\r').unwrap_or(empty));
-            }
-            text.push('\n');
+            text.extend(std::iter::repeat_n('\n', blank + 1));
             text.push_str(line);
-            end += 1;
-            next = end;
+            next += blank + 1;
+            blank = 0;
         } else {
             break;
         }
@@ -280,65 +272,62 @@ fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, Syntax
 
 /// The value's text, its escapes resolved and its lines trimmed.
 fn resolve(text: &str) -> Result<String, SyntaxRule> {
-    let mut chars = text.char_indices().peekable();
-    let mut out: Vec<Char> = Vec::new();
-    while let Some((_, c)) = chars.next() {
+    let mut chars = text.chars().peekable();
+    let mut lines: Vec<Vec<Char>> = Vec::new();
+    let mut line: Vec<Char> = Vec::new();
+    while let Some(c) = chars.next() {
         match c {
-            '\n' => out.push(Char::Break),
+            '\n' => lines.push(std::mem::take(&mut line)),
             '\\' => {
-                let escaped = chars.next().ok_or(SyntaxRule::Escape)?.1;
+                let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
                 if matches!(escaped, '\\' | '{' | '|' | '}') {
-                    out.extend([Char::Escaped('\\'), Char::Escaped(escaped)]);
+                    line.extend([Char::Escaped('\\'), Char::Escaped(escaped)]);
                 } else if escaped == '\n' {
-                    while chars.next_if(|&(_, c)| is_ws(c)).is_some() {}
+                    while chars.next_if(|&c| is_ws(c)).is_some() {}
                 } else {
-                    out.push(Char::Escaped(
+                    line.push(Char::Escaped(
                         escape(escaped, &mut chars)?.ok_or(SyntaxRule::Escape)?,
                     ));
                 }
             }
-            c => out.push(Char::Written(c)),
+            c => line.push(Char::Written(c)),
         }
     }
-    let lines: Vec<&[Char]> = out
-        .split(|c| matches!(c, Char::Break))
-        .map(|line| {
-            let blank = |c: &Char| matches!(c, Char::Written(c) if is_ws(*c));
-            let start = line.iter().position(|c| !blank(c)).unwrap_or(line.len());
-            let end = line
-                .iter()
-                .rposition(|c| !blank(c))
-                .map_or(start, |end| end + 1);
-            line.get(start..end).unwrap_or_default()
-        })
-        .collect();
-    let first = lines
-        .iter()
-        .position(|line| !line.is_empty())
-        .unwrap_or(lines.len());
-    let last = lines
-        .iter()
-        .rposition(|line| !line.is_empty())
-        .map_or(first, |last| last + 1);
-    let kept = lines.get(first..last).unwrap_or_default();
+    lines.push(line);
+    let blank = |c: &Char| matches!(c, Char::Written(c) if is_ws(*c));
+    let lines: Vec<&[Char]> = lines.iter().map(|line| trim(line, blank)).collect();
     let mut value = String::new();
-    for (index, line) in kept.iter().enumerate() {
+    for (index, line) in trim(&lines, |line| line.is_empty()).iter().enumerate() {
         if index > 0 {
             value.push('\n');
         }
-        value.extend(line.iter().filter_map(|c| match c {
-            Char::Escaped(c) | Char::Written(c) => Some(*c),
-            Char::Break => None,
+        value.extend(line.iter().map(|c| match *c {
+            Char::Escaped(c) | Char::Written(c) => c,
         }));
     }
     Ok(value)
 }
 
+/// `items` without the blank items at either end.
+fn trim<T>(mut items: &[T], blank: impl Fn(&T) -> bool) -> &[T] {
+    while let [first, rest @ ..] = items
+        && blank(first)
+    {
+        items = rest;
+    }
+    while let [rest @ .., last] = items
+        && blank(last)
+    {
+        items = rest;
+    }
+    items
+}
+
 /// The character an escape after its backslash stands for, reading its hex digits from `chars`;
 /// `None` for a character that starts no escape of `escaped`.
-fn escape<I: Iterator<Item = (usize, char)>>(
+fn escape(
     escaped: char,
-    chars: &mut std::iter::Peekable<I>,
+    chars: &mut impl Iterator<Item = char>,
 ) -> Result<Option<char>, SyntaxRule> {
     let digits = match escaped {
         '\\' => return Ok(Some('\\')),
@@ -355,7 +344,7 @@ fn escape<I: Iterator<Item = (usize, char)>>(
     for _ in 0..digits {
         let digit = chars
             .next()
-            .and_then(|(_, c)| c.to_digit(16))
+            .and_then(|c| c.to_digit(16))
             .ok_or(SyntaxRule::Escape)?;
         code = code * 16 + digit;
     }
@@ -381,7 +370,7 @@ const fn is_ws(c: char) -> bool {
     matches!(c, ' ' | '\t')
 }
 
-/// A character a line may hold: `content`, a backslash, or a line's CR.
+/// A character a line may hold before its line ending: `content` or a backslash.
 const fn allowed(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\u{21}'..='\u{7E}' | '\u{A0}'..='\u{2027}' | '\u{202A}'..='\u{10FFFF}')
 }

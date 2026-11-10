@@ -4,6 +4,7 @@
 use std::num::{NonZeroU64, NonZeroU128};
 use std::ops::Rem;
 
+use crate::digit::Digit;
 use crate::numeric::decimal::Fixed;
 
 /// A plural category.
@@ -90,42 +91,39 @@ impl Operand {
 /// An operand's value: the digits of its integer part, without leading zeros, and whether its
 /// fraction is nonzero.
 struct Value {
-    int: Vec<u8>,
+    int: Vec<Digit>,
     fraction: bool,
 }
 
 impl Value {
-    fn of(digits: &[u8], fraction: bool) -> Self {
-        let int = digits.iter().copied().skip_while(|&d| d == 0).collect();
+    fn of(digits: &[Digit], fraction: bool) -> Self {
+        let int = digits
+            .iter()
+            .copied()
+            .skip_while(|&d| d == Digit::Zero)
+            .collect();
         Self { int, fraction }
     }
 
     fn count(count: usize) -> Self {
-        Self::of(
-            &count
-                .to_string()
-                .bytes()
-                .map(|b| b - b'0')
-                .collect::<Vec<_>>(),
-            false,
-        )
+        Self::of(&Digit::of_integer(count as u128), false)
     }
 
     /// The value's integer part, when it fits a `u64`.
     fn word(&self) -> Option<u64> {
-        self.int.iter().try_fold(0u64, |value, &d| {
-            value.checked_mul(10)?.checked_add(u64::from(d))
+        self.int.iter().try_fold(0u64, |value, d| {
+            value.checked_mul(10)?.checked_add(u64::from(d.value()))
         })
     }
 
     /// The value modulo `modulus`, its fraction kept.
     fn modulo(&self, modulus: NonZeroU64) -> Self {
         let modulus = NonZeroU128::from(modulus);
-        let rest = self.int.iter().fold(0u128, |rest, &d| {
-            Rem::rem(rest * 10 + u128::from(d), modulus)
+        let rest = self.int.iter().fold(0u128, |rest, d| {
+            Rem::rem(rest * 10 + u128::from(d.value()), modulus)
         });
         Self {
-            int: rest.to_string().bytes().map(|b| b - b'0').collect(),
+            int: Digit::of_integer(rest),
             fraction: self.fraction,
         }
     }
@@ -156,8 +154,7 @@ impl<'a> Operands<'a> {
 
     fn value(&self, operand: Operand) -> Value {
         let frac = &self.fixed.frac;
-        let trimmed = frac.len() - frac.iter().rev().take_while(|&&d| d == 0).count();
-        let without = frac.get(..trimmed).unwrap_or_default();
+        let without = without_trailing_zeros(frac);
         match operand {
             Operand::N => Value::of(&self.fixed.int, !without.is_empty()),
             Operand::I => Value::of(&self.fixed.int, false),
@@ -168,6 +165,14 @@ impl<'a> Operands<'a> {
             Operand::C | Operand::E => Value::count(0),
         }
     }
+}
+
+/// `digits` without their trailing zeros.
+fn without_trailing_zeros(mut digits: &[Digit]) -> &[Digit] {
+    while let [rest @ .., Digit::Zero] = digits {
+        digits = rest;
+    }
+    digits
 }
 
 /// Rules as a module writes them: one `<keyword>: <condition>` per line, samples after `@`
@@ -236,7 +241,10 @@ impl Rules {
             if category == Category::Other || rules.iter().any(|r| r.category == category) {
                 return None;
             }
-            let condition = condition.split('@').next().unwrap_or_default();
+            let condition = match condition.split_once('@') {
+                Some((condition, _samples)) => condition,
+                None => condition,
+            };
             rules.push(Rule {
                 category,
                 condition: or_condition(condition)?,
