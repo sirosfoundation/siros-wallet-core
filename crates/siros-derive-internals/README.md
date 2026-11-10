@@ -57,8 +57,9 @@ expand::<Note>(&input)?;
   any other key and a second `id`.
 - [`identified`] writes a shape with its own id, `crate::__siros_scope!(<SCOPE> "<id>")`:
   - A named field is an argument under its name, `r#` dropped. A field marked
-    `#[<ATTRIBUTE>(skip)]`, or one `Derive::left_out` names, stays out. A tuple field that is an
-    argument is refused: "an argument is a named field: name it".
+    `#[<ATTRIBUTE>(skip)]`, or one `Derive::left_out` names, stays out. A field `Derive::left_out`
+    refuses fails the build with its error. A tuple field that is an argument is refused: "an
+    argument is a named field: name it".
   - An argument gives its `Display`; the impl bounds its type by `Display`, so a type without
     `Display` fails there (E0277). A field spelled `Option<T>`, `std::option::Option<T>` or
     `core::option::Option<T>` gives its value when `Some` and `""` when `None`, bounding `T`.

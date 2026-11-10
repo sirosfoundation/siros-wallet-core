@@ -23,7 +23,6 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as Tokens;
 use quote::quote;
 use siros_derive_internals::{Derive, Shape, attributes, expand, id, identified};
-use syn::ext::IdentExt as _;
 use syn::spanned::Spanned as _;
 use syn::{
     Attribute, DeriveInput, Error, Field, Fields, Ident, Result, WherePredicate, parse_macro_input,
@@ -39,7 +38,8 @@ use syn::{
 ///   field's.
 /// - A named field is an argument under its name (`r#` dropped). A field marked `#[source]`,
 ///   `#[from]`, `#[backtrace]` or `#[explain(skip)]`, or named `source`, is no argument. A tuple
-///   field must be one of these.
+///   field must be one of these. A field spelled `r#source` is refused: thiserror takes the field
+///   spelled `source` as the error's source.
 /// - An argument's value is its `Display`. A field whose type is spelled `Option<T>` gives its
 ///   value when `Some`, and `""` when `None`.
 /// - An id names one error of its crate: a second use fails the build (E0428).
@@ -301,6 +301,32 @@ use syn::{
 /// # fn main() {}
 /// ```
 ///
+/// thiserror's implicit source is spelled `source`:
+///
+/// ```standalone_crate
+/// siros_explain::scope!("doc");
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[error("the file is unreadable")]
+/// #[explain(id = "unreadable")]
+/// struct Unreadable {
+///     source: std::io::Error,
+/// }
+/// # fn main() {}
+/// ```
+///
+/// ```compile_fail
+/// siros_explain::scope!("doc");
+///
+/// #[derive(Debug, thiserror::Error, siros_explain::Explain)]
+/// #[error("the file is unreadable")]
+/// #[explain(id = "unreadable")]
+/// struct Unreadable {
+///     r#source: std::io::Error,
+/// }
+/// # fn main() {}
+/// ```
+///
 /// A union is no error:
 ///
 /// ```standalone_crate
@@ -368,18 +394,25 @@ impl Derive for Explain {
     const MARKER: &'static str = "__siros_explain_id_";
 
     /// A field marked `#[source]`, `#[from]` or `#[backtrace]`, or named `source`: thiserror's
-    /// causes.
-    fn left_out(field: &Field) -> bool {
-        let cause = field.attrs.iter().any(|attr| {
-            ["source", "from", "backtrace"]
-                .iter()
-                .any(|thiserror| attr.path().is_ident(thiserror))
-        });
-        cause
-            || field
-                .ident
-                .as_ref()
-                .is_some_and(|ident| ident.unraw() == "source")
+    /// causes. Refuses a field spelled `r#source`, which thiserror takes for no cause.
+    fn left_out(field: &Field) -> Result<bool> {
+        let named = match &field.ident {
+            Some(ident) if ident == "r#source" => {
+                return Err(Error::new_spanned(
+                    ident,
+                    "write `source`: thiserror takes the field spelled `source` as the error's \
+                     source",
+                ));
+            }
+            Some(ident) => ident == "source",
+            None => false,
+        };
+        Ok(named
+            || field.attrs.iter().any(|attr| {
+                ["source", "from", "backtrace"]
+                    .iter()
+                    .any(|thiserror| attr.path().is_ident(thiserror))
+            }))
     }
 
     fn shape(path: Tokens, name: &Ident, attrs: &[Attribute], fields: &Fields) -> Result<Shape> {
