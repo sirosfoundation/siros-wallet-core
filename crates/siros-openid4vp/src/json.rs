@@ -234,6 +234,15 @@ impl<'a> Object<'a> {
         }
     }
 
+    /// The value of the member of that name, which the object no longer holds.
+    pub(crate) fn take(&mut self, name: &str) -> Option<Node<'a>> {
+        let (taken, kept): (Vec<Member<'a>>, Vec<Member<'a>>) = std::mem::take(&mut self.0)
+            .into_iter()
+            .partition(|member| member.name == name);
+        self.0 = kept;
+        taken.into_iter().next().map(|member| member.value)
+    }
+
     /// The object without the members `keep` refuses.
     pub fn retain(&mut self, mut keep: impl FnMut(&Member<'a>) -> bool) {
         self.0.retain(|member| keep(member));

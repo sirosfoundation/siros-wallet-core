@@ -229,7 +229,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         provided: &[Member],
     ) -> Result<Vec<OptionIndex>, Fault> {
         let view = ClaimsView::read(credential)?;
-        self.claims.answerable(self.plugin, view.json(), provided)
+        self.claims.answerable(self.plugin, &view, provided)
     }
 
     fn carries(&self, credential: &Credential<'_>, members: &[Member]) -> Result<Carriage, Fault> {
@@ -245,7 +245,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
     ) -> Result<(), NoCandidate> {
         let view = ClaimsView::read(credential)?;
         self.claims
-            .displayable(self.plugin, view.json(), options, env)
+            .displayable(self.plugin, &view, options, env)
             .map_err(|error| match error {
                 CardError::Text(cause) => Exclude::new(RefusedText { cause }).into(),
                 CardError::Path(path) => Self::values_fault(credential, path).into(),
@@ -262,7 +262,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
     ) -> Result<Card, Fault> {
         let view = ClaimsView::read(credential)?;
         self.claims
-            .card(self.plugin, view.json(), shown, env, context)
+            .card(self.plugin, &view, shown, env, context)
             .map_err(|error| caused(detail!("{id}: card", id = credential.id.to_string()), error))
     }
 }
@@ -278,7 +278,7 @@ impl<H, P: ClaimsPresent<H>> AnsweredQuery<H> for PluginQuery<'_, P> {
         let view = ClaimsView::read(credential.credential())?;
         Ok(self
             .claims
-            .answerable(self.plugin, view.json(), provided)?
+            .answerable(self.plugin, &view, provided)?
             .into_iter()
             .map(|option| {
                 Box::new(PluginOption {
@@ -339,7 +339,7 @@ impl<H, P: ClaimsPresent<H>> AnsweredOption<H> for PluginOption<'_, '_, P> {
         let disclosed = self
             .query
             .claims
-            .disclosed(self.query.plugin, self.option, view.json(), &provided)
+            .disclosed(self.query.plugin, self.option, &view, &provided)
             .map_err(|e| PluginQuery::<P>::values_fault(credential, e))?;
         self.query.plugin.present(
             Presenting {

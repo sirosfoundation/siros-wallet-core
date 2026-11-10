@@ -4,13 +4,11 @@
 use siros_syntax::{Count, Date, DateTime, Decimal, Fraction, Malformed, Offset, Second, Time};
 
 use super::super::{ArrayIndex, ClaimPath, Concrete};
-use super::{CardError, ClaimsFormat, Display};
+use super::{CardError, ClaimEntry, ClaimsFormat, Display};
 use crate::ids::LocaleTag;
 use crate::json::Node;
 use crate::rows::{BooleanText, ClaimText, ExactNumber, WalletText};
 use crate::text::{DisplayText, TextError, lookup};
-
-use super::merge::ISSUER_DISPLAY;
 
 /// A display array's entry for the wallet's locales, which SD-JWT VC §7 and §8.2 and
 /// OpenID4VCI leave to the wallet ("most appropriate"): RFC 4647 Lookup (§3.4) over the priority
@@ -57,18 +55,36 @@ pub fn format_entry<'n, 'e>(
     looked_up.or_else(filtered).or_else(untagged)
 }
 
-/// The view's `byte_strings`: where its `values` hold a byte string RFC 8949 §6.1 wrote as text,
-/// with its length in bytes. [`ClaimsView`](super::ClaimsView) reads their shape.
-pub(super) fn byte_strings<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get("byte_strings")
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
+/// An entry of the view's `byte_strings` or `dates`: the `path` of a string of its `values`, and
+/// what the string holds.
+#[derive(Debug, Clone)]
+pub(crate) struct Located<'v, T> {
+    pub(crate) path: Vec<Node<'v>>,
+    pub(crate) held: T,
 }
 
-/// The view's `dates`: where its `values` hold a date, with its text. [`ClaimsView`](super::ClaimsView)
-/// reads their shape.
-pub(super) fn dates<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get("dates").and_then(Node::as_array).unwrap_or(&[])
+impl<'v, T> Located<'v, T> {
+    /// The entry an element of the view's `byte_strings` or `dates` writes: an object with a
+    /// `path` array and what `held` reads of it.
+    pub(super) fn read(entry: Node<'v>, held: impl Fn(&Node<'v>) -> Option<T>) -> Option<Self> {
+        let held = held(&entry)?;
+        let Node::Object(mut entry) = entry else {
+            return None;
+        };
+        match entry.take("path") {
+            Some(Node::Array(path)) => Some(Self { path, held }),
+            _ => None,
+        }
+    }
+}
+
+/// The length an entry of the view's `byte_strings` states: a byte string RFC 8949 §6.1 wrote as
+/// text has that many bytes.
+pub(super) fn length_of(entry: &Node<'_>) -> Option<Count> {
+    match entry.get("length") {
+        Some(Node::Number(length)) => Count::parse(length.text()).ok(),
+        _ => None,
+    }
 }
 
 /// The number `digits` write; `None` for another byte or past a `u16`.
@@ -119,8 +135,8 @@ pub(super) fn date_of(entry: &Node<'_>) -> Option<ClaimText> {
         .or_else(|| tdate(text).map(|value| ClaimText::DateTime { value }))
 }
 
-/// The entry of `entries` whose `path` is `path`.
-fn entry_at<'v, 'a>(entries: &'v [Node<'a>], path: &[Concrete<'_>]) -> Option<&'v Node<'a>> {
+/// What the entry of `entries` whose `path` is `path` holds.
+fn entry_at<'e, T>(entries: &'e [Located<'_, T>], path: &[Concrete<'_>]) -> Option<&'e T> {
     let same = |written: &[Node<'_>]| {
         written.len() == path.len()
             && written.iter().zip(path).all(|(step, at)| match (step, at) {
@@ -133,35 +149,8 @@ fn entry_at<'v, 'a>(entries: &'v [Node<'a>], path: &[Concrete<'_>]) -> Option<&'
     };
     entries
         .iter()
-        .find(|entry| entry.get("path").and_then(Node::as_array).is_some_and(same))
-}
-
-/// The length of the byte string at `path`; `None` for another value.
-///
-/// # Errors
-///
-/// [`Malformed`]: the length is no count literal, a shape [`ClaimsView`](super::ClaimsView)
-/// refuses.
-fn byte_length(strings: &[Node<'_>], path: &[Concrete<'_>]) -> Result<Option<Count>, Malformed> {
-    match entry_at(strings, path).and_then(|entry| entry.get("length")) {
-        Some(Node::Number(length)) => Count::parse(length.text()).map(Some),
-        _ => Ok(None),
-    }
-}
-
-/// The view's Credential Issuer display entries, which [`ClaimsView`](super::ClaimsView) reads as
-/// an array.
-pub(super) fn issuer_display<'v, 'a>(view: &'v Node<'a>) -> &'v [Node<'a>] {
-    view.get(ISSUER_DISPLAY)
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
-}
-
-pub(super) fn metadata<'v, 'a>(view: &'v Node<'a>, name: &str) -> &'v [Node<'a>] {
-    view.get("metadata")
-        .and_then(|metadata| metadata.get(name))
-        .and_then(Node::as_array)
-        .unwrap_or(&[])
+        .find(|entry| same(&entry.path))
+        .map(|entry| &entry.held)
 }
 
 /// A text of a card, which the context resolves.
@@ -194,7 +183,7 @@ impl SaidRow {
 /// An entry of the metadata's `claims` with a pointer.
 pub(super) struct Described<'v, 'a> {
     pub(super) path: ClaimPath<'v>,
-    pub(super) claim: &'v Node<'a>,
+    pub(super) claim: &'v ClaimEntry<'a>,
 }
 
 fn label_of(
@@ -206,14 +195,7 @@ fn label_of(
     let Some(found) = described.iter().find(|known| known.path.matches(path)) else {
         return Ok(None);
     };
-    let entry = format_entry(
-        found
-            .claim
-            .get("display")
-            .and_then(Node::as_array)
-            .unwrap_or(&[]),
-        display.locales,
-    );
+    let entry = format_entry(&found.claim.display, display.locales);
     entry
         .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
@@ -357,13 +339,17 @@ pub(super) fn value_rows(
             },
         ),
         Node::String(written) => Said::Claim(
-            match byte_length(display.byte_strings, path).map_err(CardError::Count)? {
-                Some(length) => ClaimText::Bytes { length },
-                None => entry_at(display.dates, path)
-                    .and_then(date_of)
-                    .unwrap_or_else(|| ClaimText::Text {
-                        value: written.to_string(),
-                    }),
+            match (
+                entry_at(display.byte_strings, path),
+                entry_at(display.dates, path),
+            ) {
+                (Some(length), _) => ClaimText::Bytes {
+                    length: length.clone(),
+                },
+                (None, Some(date)) => date.clone(),
+                (None, None) => ClaimText::Text {
+                    value: written.to_string(),
+                },
             },
         ),
     };
