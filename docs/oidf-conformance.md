@@ -82,13 +82,17 @@ number, ≤90-day nextUpdate) served by the harness nginx with the
 RFC 2585 §4.2 content type. The wire is pinned by
 `vp.oidf.mdoc.basic.001` (provenance `oidf`, plan `OzBNWDaDeiAn7`).
 
-**The Digital Credentials API channel (2026-11-09)** — the W3C DC API
-response modes (OpenID4VP 1.0 §8.4), the last piece: the haip plan's
-`x509_hash` / `request_uri_signed` / `dc_api.jwt` module group (19
-modules, eudi_pid on the HAIP profile) green — 11 PASSED, the eight
-negatives REVIEW (the wallet refuses each for the right reason; the
+**The Digital Credentials API channel (complete 2026-11-10)** — the W3C
+DC API response modes (OpenID4VP 1.0 §8.4), ALL THREE module groups of
+the haip plan's `dc_api.jwt` variant (53 modules, eudi_pid on the HAIP
+profile): the signed compact form (`x509_hash` / `request_uri_signed`,
+19 — 11 PASSED, 8 REVIEW), the unsigned web-origin form
+(`web-origin` / `request_uri_unsigned`, 14 — 10 PASSED, 4 REVIEW), and
+the multi-signed general JWS (`x509_hash` / `request_uri_multisigned`,
+20 — 12 PASSED including multisigned-one-invalid-signature, 8 REVIEW).
+The negatives: the wallet refuses each for the right reason; the
 browser API's promise rejection posts to the module's submit URL, then
-the tester's error-screen placeholder). The channel's engine side:
+the tester's error-screen placeholder. The channel's engine side:
 the response never POSTs back — the flow completes with the
 DigitalCredential's data (the plain response object for `dc_api`, the
 JWE for `dc_api.jwt`), the error answers ride the same completion, and
@@ -102,16 +106,43 @@ alone never carried. The harness plays the browser: the response data
 hands to the module's browser API submit URL exactly as the suite's
 own page does.
 
+The 2026-11-10 completion added three wire rules:
+
+- **The multi-signed request object** (RFC 7515 §7.2, the JWS JSON
+  Serialization): every signature verifies through its
+  compact-equivalent against the `x5c` in its own protected header;
+  AT LEAST ONE valid signature authenticates the verifier (the
+  one-invalid-signature module leaves the second valid on purpose — a
+  failing signature is skipped, none verifying refuses). The
+  multisigned form carries the client_id in the signatures' protected
+  headers, not the payload: the first VERIFIED signature's client_id
+  is the binding the wallet's scheme rules run against — the
+  invalidated signature's claim never authenticates anything.
+- **§5.9.2's bounds on the pre-registered fallback**: an unknown-prefixed
+  client_id names a pre-registered client ONLY on an UNSIGNED request
+  (the alternate happy flow's `invalid_scheme:example` with wrong
+  origins — advisory); a SIGNED request's unknown prefix refuses (the
+  invalid-prefix negative), and a value embedding a recognized prefix
+  can never be pre-registered and refuses too. The web-origin form (no
+  client_id): the caller's origin IS the client.
+- **The origin binding is enforced for an authenticated verifier** — a
+  recognized Client Identifier Prefix OR a signed request object (the
+  multisigned form carries no client_id but its valid signature
+  authenticates); the unsigned pre-registered fallback's
+  `expected_origins` is advisory.
+
 Every module group of every agreed plan now passes through the
 mini-wallet: OID4VCI (both grants, both issuance modes) and OID4VP
 (both redirect response modes, the HAIP profile, the iso_mdl format,
-and the Digital Credentials API channel). The runs are published on
+and the complete Digital Credentials API channel). The runs are published on
 the Pages site under `runs/mini-wallet-phase1-2026-11-04`,
 `runs/mini-wallet-vp-phase2-2026-11-04`,
 `runs/mini-wallet-authcode-2026-11-05`,
 `runs/mini-wallet-vp-haip-2026-11-05`,
 `runs/mini-wallet-vp-mdoc-2026-11-05` and
-`runs/mini-wallet-vp-dcapi-2026-11-09`.
+`runs/mini-wallet-vp-dcapi-2026-11-09` and
+`runs/mini-wallet-vp-dcapi-2026-11-10` (the complete channel, all three
+groups).
 
 ## The goal
 
