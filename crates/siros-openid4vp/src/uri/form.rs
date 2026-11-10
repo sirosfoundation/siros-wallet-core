@@ -46,10 +46,7 @@ impl FormBody {
         let pairs: Vec<(String, String)> =
             serde_urlencoded::from_str(&text).map_err(|e| NotForm::Serializer(e.to_string()))?;
         for (k, (name, _)) in pairs.iter().enumerate() {
-            if pairs
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|(other, _)| other == name))
-            {
+            if pairs.iter().take(k).any(|(other, _)| other == name) {
                 return Err(NotForm::Repeated {
                     member: name.clone(),
                 });

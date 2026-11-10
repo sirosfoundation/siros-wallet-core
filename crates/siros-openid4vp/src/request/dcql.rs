@@ -109,11 +109,11 @@ impl<'a> Dcql<'a> {
                 Query::parse(index, raw)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if let Some(twice) = queries.iter().enumerate().find_map(|(k, q)| {
-            queries
-                .get(..k)
-                .and_then(|before| before.iter().find(|earlier| earlier.id == q.id))
-        }) {
+        if let Some(twice) = queries
+            .iter()
+            .enumerate()
+            .find_map(|(k, q)| queries.iter().take(k).find(|earlier| earlier.id == q.id))
+        {
             return Err(refuse(DcqlRule::IdTwice {
                 id: twice.id.to_string(),
             }));

@@ -167,8 +167,8 @@ impl IssuedNameSpace {
             .collect::<Result<Vec<_>, _>>()?;
         if let Some(twice) = items.iter().enumerate().find_map(|(k, item)| {
             items
-                .get(..k)?
                 .iter()
+                .take(k)
                 .find(|before| before.identifier == item.identifier)
         }) {
             return Err(IssuedError::Twice {

@@ -123,8 +123,10 @@ impl Members {
     pub fn new(members: Vec<(Member, MemberValue)>) -> Result<Self, MemberTwice> {
         if let Some((twice, _)) = members.iter().enumerate().find_map(|(k, (m, v))| {
             members
-                .get(..k)
-                .and_then(|before| before.iter().any(|(n, _)| n == m).then_some((m, v)))
+                .iter()
+                .take(k)
+                .any(|(n, _)| n == m)
+                .then_some((m, v))
         }) {
             return Err(MemberTwice(twice.clone()));
         }

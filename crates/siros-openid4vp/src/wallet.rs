@@ -66,11 +66,11 @@ impl<'a> Facts<'a> {
         holder: Holder,
         authorities: Vec<HeldAuthority<'a>>,
     ) -> Result<Self, RegistrationError> {
-        if let Some(twice) = authorities.iter().enumerate().find_map(|(k, a)| {
-            authorities
-                .get(..k)
-                .and_then(|before| before.iter().find(|b| b.kind == a.kind))
-        }) {
+        if let Some(twice) = authorities
+            .iter()
+            .enumerate()
+            .find_map(|(k, a)| authorities.iter().take(k).find(|b| b.kind == a.kind))
+        {
             return Err(RegistrationError::AuthorityTwice {
                 authority_type: twice.kind.to_string(),
             });
@@ -193,11 +193,11 @@ impl<'a> Credential<'a> {
         documents: Vec<Document<'a>>,
         facts: Facts<'a>,
     ) -> Result<Self, RegistrationError> {
-        if let Some(twice) = documents.iter().enumerate().find_map(|(k, d)| {
-            documents
-                .get(..k)
-                .and_then(|before| before.iter().find(|e| e.key == d.key))
-        }) {
+        if let Some(twice) = documents
+            .iter()
+            .enumerate()
+            .find_map(|(k, d)| documents.iter().take(k).find(|e| e.key == d.key))
+        {
             return Err(RegistrationError::DocumentTwice {
                 credential: id.to_string(),
                 key: twice.key.to_string(),
@@ -235,11 +235,11 @@ pub struct Wallet<'a>(Vec<Credential<'a>>);
 impl<'a> Wallet<'a> {
     /// The credentials, each id once.
     pub fn new(credentials: Vec<Credential<'a>>) -> Result<Self, RegistrationError> {
-        if let Some(twice) = credentials.iter().enumerate().find_map(|(k, c)| {
-            credentials
-                .get(..k)
-                .and_then(|before| before.iter().find(|d| d.id == c.id))
-        }) {
+        if let Some(twice) = credentials
+            .iter()
+            .enumerate()
+            .find_map(|(k, c)| credentials.iter().take(k).find(|d| d.id == c.id))
+        {
             return Err(RegistrationError::CredentialTwice {
                 credential: twice.id.to_string(),
             });

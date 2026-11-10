@@ -568,12 +568,11 @@ impl Attested {
     /// The pairs, each name once.
     pub fn new(pairs: Vec<(AttestedName, AttestedText)>) -> Result<Self, AttestedTwice> {
         if let Some((name, _)) = pairs.iter().enumerate().find_map(|(k, (name, text))| {
-            pairs.get(..k).and_then(|before| {
-                before
-                    .iter()
-                    .any(|(n, _)| n == name)
-                    .then_some((name, text))
-            })
+            pairs
+                .iter()
+                .take(k)
+                .any(|(n, _)| n == name)
+                .then_some((name, text))
         }) {
             return Err(AttestedTwice {
                 name: name.as_str().to_owned(),

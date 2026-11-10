@@ -975,8 +975,9 @@ impl<H: Build> RegistryBuilder<H> {
         #[cfg(feature = "transaction-data")]
         for (k, algorithm) in hashes.iter().enumerate() {
             if hashes
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == algorithm.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == algorithm.name())
             {
                 return Err(RegistryError::HashTwice {
                     algorithm: algorithm.name(),
@@ -989,8 +990,9 @@ impl<H: Build> RegistryBuilder<H> {
         let scopes = Vec::new();
         for (k, kind) in response_types.iter().enumerate() {
             if response_types
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.name() == kind.name()))
+                .iter()
+                .take(k)
+                .any(|other| other.name() == kind.name())
             {
                 return Err(RegistryError::ResponseTypeTwice {
                     response_type: kind.name(),
@@ -1004,13 +1006,11 @@ impl<H: Build> RegistryBuilder<H> {
             if errors && channel == ChannelKind::DcApi {
                 return Err(RegistryError::ErrorModeChannel { mode: name });
             }
-            if modes.get(..k).is_some_and(|before| {
-                before.iter().any(|other| {
-                    other.registered.mode().name() == name
-                        && other.registered.mode().channel() == channel
-                        && (other.registered.carries_errors() == errors
-                            || other.kind != registration.kind)
-                })
+            if modes.iter().take(k).any(|other| {
+                other.registered.mode().name() == name
+                    && other.registered.mode().channel() == channel
+                    && (other.registered.carries_errors() == errors
+                        || other.kind != registration.kind)
             }) {
                 return Err(RegistryError::ModeTwice { name, channel });
             }
@@ -1060,8 +1060,9 @@ impl<H: Build> RegistryBuilder<H> {
         if let Some(twice) = clients.iter().enumerate().find_map(|(k, registered)| {
             let name = registered.prefix.name();
             clients
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.prefix.name() == name))
+                .iter()
+                .take(k)
+                .any(|other| other.prefix.name() == name)
                 .then(|| name.to_string())
         }) {
             return Err(RegistryError::PrefixTwice { prefix: twice });
@@ -1072,8 +1073,9 @@ impl<H: Build> RegistryBuilder<H> {
         let post = Post::of(&posts)?;
         for (k, format) in formats.iter().enumerate() {
             if formats
-                .get(..k)
-                .is_some_and(|before| before.iter().any(|other| other.id() == format.id()))
+                .iter()
+                .take(k)
+                .any(|other| other.id() == format.id())
             {
                 return Err(RegistryError::FormatTwice {
                     format: format.id().to_string(),
@@ -1721,7 +1723,7 @@ fn names<H: Build>(
             if reserved.contains(name) {
                 return Err(RegistryError::NameReserved { place, name: *name });
             }
-            if names.get(..k).is_some_and(|before| before.contains(name)) {
+            if names.iter().take(k).any(|before| before == name) {
                 return Err(RegistryError::NameTwice { place, name: *name });
             }
         }
