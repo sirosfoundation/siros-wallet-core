@@ -3,7 +3,7 @@
 
 use sha2::{Digest, Sha256};
 use siros_explain::Explain;
-use siros_i18n::Text;
+use siros_i18n::{Style, Text};
 
 use crate::consent::{Card, Header, Overlay};
 use crate::ids::{CredentialId, QueryId};
@@ -95,15 +95,13 @@ impl Shown {
     fn text(&mut self, text: &Text) {
         self.count(text.spans().len());
         for span in text.spans() {
-            let styles = [
-                siros_i18n::Style::Strong,
-                siros_i18n::Style::Emphasis,
-                siros_i18n::Style::Underline,
-            ]
-            .iter()
-            .enumerate()
-            .filter(|(_, style)| span.styles.contains(**style))
-            .fold(0u8, |bits, (bit, _)| bits | (1 << bit));
+            let styles = span.styles.iter().fold(0u8, |bits, style| {
+                bits | match style {
+                    Style::Strong => 1,
+                    Style::Emphasis => 2,
+                    Style::Underline => 4,
+                }
+            });
             self.0.update([styles]);
             self.count(span.text.len());
             self.0.update(span.text.as_bytes());
