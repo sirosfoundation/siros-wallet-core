@@ -215,6 +215,7 @@ impl Fault {
 }
 
 /// The core's fault error.
+#[cfg(any(feature = "match", feature = "claims"))]
 #[derive(Debug, thiserror::Error, Explain)]
 #[error("{detail}")]
 #[explain(id = "fault")]
@@ -226,6 +227,7 @@ struct CoreFault {
 }
 
 /// The core's fault, its log line written by `detail`.
+#[cfg(any(feature = "match", feature = "claims"))]
 pub(crate) fn fault(detail: Detail) -> Fault {
     Fault::new(CoreFault {
         detail,
