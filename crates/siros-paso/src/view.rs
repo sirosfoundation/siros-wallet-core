@@ -38,7 +38,7 @@ use crate::metadata::{ClaimMeta, DisplayArray, LabelForm, Localized, RESERVED, V
 use crate::outcome::Outcome;
 use crate::render::{Registered, arrays, rulebook_metadata};
 use crate::rulebook::PasoType;
-use crate::template::{Placeholder, placeholders};
+use crate::template::marked;
 use crate::value::{FormattedKind, ValueKind};
 
 /// The prefix of the ids a type's metadata converts to: `paso.view.` and the hexadecimal SHA-256
@@ -437,22 +437,8 @@ fn close(out: &mut String, style: Style) {
 /// A `template:mini_markdown` label as a pattern's text: its spans with each placeholder naming a
 /// claim as that claim's argument, other placeholders literal.
 fn template(text: &str, claims: &[ClaimMeta<'_>]) -> Result<String, ConvertError> {
-    let named: Vec<(Placeholder, ClaimIndex)> = placeholders(text)
-        .into_iter()
-        .filter_map(|placeholder| {
-            let index = placeholder.index.filter(|index| *index < claims.len())?;
-            Some((placeholder, ClaimIndex(index)))
-        })
-        .collect();
-    let mut marked = String::with_capacity(text.len());
-    let mut copied = 0;
-    for (placeholder, _) in &named {
-        marked.push_str(text.get(copied..placeholder.span.start).unwrap_or_default());
-        marked.push(RESERVED);
-        copied = placeholder.span.end;
-    }
-    marked.push_str(text.get(copied..).unwrap_or_default());
-    let mut indices = named.iter().map(|(_, index)| *index);
+    let (marked, named) = marked(text, claims);
+    let mut indices = named.into_iter();
     let mut out = String::new();
     for span in spans(&marked) {
         open(&mut out, span.style);

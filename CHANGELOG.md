@@ -163,7 +163,9 @@ All notable changes to this workspace. The format follows
   a matcher built without `nfc` resolves the registration to the wallet's texts.
   `Registration::open` reads the header, the directory and the base; `Registration::context` loads
   the sources of the types a request names into a clone of the base's context and reads no other
-  entry. The wallet registers again when its language changes.
+  entry. The writer and `Registration::context` load a source byte-equal to an earlier type's once:
+  types whose metadata is one object share one converted source. The wallet registers again when
+  its language changes.
 - `siros-credman::emit` is the matcher's entry emission: every choice of a display as Credential
   Manager draws it, each text resolved through the registration's context. It fails as a whole on
   the first choice that does not emit (`NotEmitted`, naming the entry and holding the cause). A
@@ -240,6 +242,11 @@ All notable changes to this workspace. The format follows
 - `siros-mdoc` and `siros-sdjwt` type what their public signatures name: `Registered::{view, document}` return `ViewBytes` and `DocumentBytes`; `CertificateChain` and `SdJwt::x5c` give `DerCertificate`; `IssuerAuth::signature` an `IssuerSignature`; `Resolved::issuer` is an `IssuerName`; `Handover::Redirect::response_uri` a `HandoverUri`; `SdJwt::{issuer_jwt, typ}` return `IssuerJwt` and `JwtType`; `KeyBinding` takes a `KbSignature` from a `KbSigningInput` and assembles an `SdJwtKb`; `RegistrationError::IssuerCurve` names a `ResolvedCurve`.
 - `siros-paso`'s label limits are a parameter: `LabelText::parse` takes the limit, and
   `view::convert` takes a `Registered` and `LabelLimits`.
+- `siros-paso` refuses a label with no visible character (`LabelViolation::Invisible`), which
+  Credential Manager's field name needs. A fixed label without one, a `mini_markdown` label judged by
+  its spans' text (`LabelText::markdown`), leaves the metadata unsupported; a template label whose
+  rendered spans and values show none leaves the entry not compatible
+  (`NotCompatible::RenderedLabel`). `siros-ts12` renders through the same rules.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
   order.

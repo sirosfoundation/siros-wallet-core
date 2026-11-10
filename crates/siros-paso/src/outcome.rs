@@ -156,7 +156,7 @@ pub enum Unsupported {
         #[explain(skip)]
         at: ArrayAt,
     },
-    /// A claim label that breaks §3.3 as written.
+    /// A claim's fixed label that breaks §3.3 as written, or shows no visible character.
     #[error("claim {} label: {violation}", .claim.repr_text())]
     #[explain(id = "unsupported.claim_label")]
     ClaimLabel {
@@ -177,7 +177,7 @@ pub enum Unsupported {
     #[error("ui_labels is not an object")]
     #[explain(id = "unsupported.ui_labels_not_object")]
     UiLabelsNotObject,
-    /// A UI label that breaks §3.3 as written.
+    /// A fixed UI label that breaks §3.3 as written, or shows no visible character.
     #[error("ui_labels.{key}: {violation}")]
     #[explain(id = "unsupported.ui_label")]
     UiLabel {
@@ -348,7 +348,8 @@ pub enum NotCompatible {
     #[error("every locale lost an entry to a template's absent claim")]
     #[explain(id = "not_compatible.templates_exhausted")]
     TemplatesExhausted,
-    /// A label that breaks §3.3 once rendered (View §2).
+    /// A template label that breaks §3.3 once interpolated (View §2), or shows no visible
+    /// character once rendered.
     #[error("{}: {violation}", .at.logged())]
     #[explain(id = "not_compatible.rendered_label")]
     RenderedLabel {

@@ -1,7 +1,8 @@
 //! A transaction data type's metadata (Proof Metadata §3): its claims (§3.1) and the UI labels
-//! the wallet recognises (§3.2), parsed under the label and structural constraints of §3.3.
-//! Metadata that breaks a constraint makes the type unsupported by the credential; a displayed
-//! claim's value type the wallet does not support makes the entry not compatible (View §3).
+//! the wallet recognises (§3.2), parsed under the label and structural constraints of §3.3, each
+//! fixed label showing a visible character ([`crate::labels`]). Metadata that breaks a constraint
+//! makes the type unsupported by the credential; a displayed claim's value type the wallet does
+//! not support makes the entry not compatible (View §3).
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -102,7 +103,7 @@ impl ArrayAt {
         }
     }
 
-    /// The rule a label of this array breaks as written.
+    /// The rule a fixed label of this array breaks.
     fn label(&self, violation: LabelViolation) -> Unsupported {
         match self {
             Self::Claim { path } => Unsupported::ClaimLabel {
@@ -133,11 +134,13 @@ pub enum EntryLocale<'m> {
 /// A label as its entry types it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LabelForm<'m> {
-    /// Plain text, meeting §3.3.
+    /// Plain text, meeting §3.3 and showing a visible character ([`LabelText::parse`]).
     Plain(LabelText<'m>),
-    /// `mini_markdown`, meeting §3.3.
+    /// `mini_markdown`, meeting §3.3 as written, its spans showing a visible character
+    /// ([`LabelText::markdown`]).
     Markdown(LabelText<'m>),
-    /// `template:mini_markdown`: §3.3 applies once interpolated.
+    /// `template:mini_markdown`: §3.3 applies once interpolated, and the visible character to
+    /// what it shows once rendered.
     Template(&'m str),
     /// A Mandate claim's label: a text of the wallet's own, which the rulebook names.
     Own(MandateLabel),
@@ -187,7 +190,8 @@ impl<'m> DisplayArray<'m> {
         Self(entries)
     }
 
-    /// Parses an array: every entry's structure first, then each fixed label against §3.3.
+    /// Parses an array: every entry's structure first, then each fixed label against §3.3 and
+    /// the visible character.
     fn parse(node: &'m Node<'m>, shape: &ArrayShape) -> Result<Self, Unsupported> {
         let items = node
             .as_array()
@@ -236,10 +240,16 @@ impl<'m> DisplayArray<'m> {
         }
         raw.into_iter()
             .map(|(locale, text, typed)| {
-                let checked = || LabelText::parse(text, shape.limit).map_err(|v| shape.at.label(v));
+                let checked = |parsed: Result<LabelText<'m>, LabelViolation>| {
+                    parsed.map_err(|v| shape.at.label(v))
+                };
                 let label = match typed {
-                    RawType::Plain => LabelForm::Plain(checked()?),
-                    RawType::Markdown => LabelForm::Markdown(checked()?),
+                    RawType::Plain => {
+                        LabelForm::Plain(checked(LabelText::parse(text, shape.limit))?)
+                    }
+                    RawType::Markdown => {
+                        LabelForm::Markdown(checked(LabelText::markdown(text, shape.limit))?)
+                    }
                     RawType::Template if text.contains([RESERVED, '\0']) => {
                         return Err(Unsupported::Reserved {
                             at: shape.at.clone(),

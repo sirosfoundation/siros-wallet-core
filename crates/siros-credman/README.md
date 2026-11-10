@@ -149,15 +149,19 @@ A reader refuses a registration at the first rule it breaks, checked in this ord
 bidi and every source), checks every rule but a transaction source's, and loads the base sources
 in their order into one context under the bidi choice ([`Base::load`]).
 [`Registration::context`] reads the source of each registered type a request's `transaction_data`
-names, and no other entry, and loads each into a clone of that context, ascending by type.
+names, and no other entry, and loads each into a clone of that context, ascending by type. It
+loads a source byte-equal to one it loaded once: types whose metadata is one object convert to one
+source.
 
 ### Writing
 
 `register::write` writes a [`Base`], whose sources load. It loads the base's sources again in
 their order, then each transaction source into a clone of that context, alone and after the
-sources of the types before it, each through siros-i18n's `Context::module_in_nfc`. It refuses the
+sources of the types before it, each through siros-i18n's `Context::module_in_nfc`. A source
+byte-equal to an earlier type's loads once, and each type keeps its directory entry. It refuses the
 first base source that holds a name, a variant key or a selector literal outside Unicode
 Normalization Form C (`RegisterError::Source`), then the first transaction source that does not
-load or holds one (`RegisterError::Transaction`). Every request's context then loads from what it
+load or holds one (`RegisterError::Transaction`). A distinct source that words an id of an earlier
+type's source is refused (`LoadError::Repeated`). Every request's context then loads from what it
 writes, and a matcher built without siros-i18n's `nfc` resolves it to the texts the wallet
 resolves. A reader checks every rule of a blob it opens, whoever wrote it.

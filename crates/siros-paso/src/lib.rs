@@ -3,8 +3,8 @@
 //!
 //! - Core §3, §7.1 and §7.4.1: the request rules over PaSO's entries ([`entry`]).
 //! - Core §7.4.2: first match, the first entry in array order that renders for a credential.
-//! - Proof Metadata §3: a type's metadata, its labels held to §3.3 ([`metadata`], [`labels`]);
-//!   §5: ad-hoc metadata JWTs ([`adhoc`]).
+//! - Proof Metadata §3: a type's metadata, its labels held to §3.3 and to a visible character
+//!   ([`metadata`], [`labels`]); §5: ad-hoc metadata JWTs ([`adhoc`]).
 //! - View §2-4: the generic renderer, value types, templates and locale selection
 //!   ([`render`]), the Payment, Generic and Mandate rulebooks ([`rulebook`], [`mandate`]),
 //!   images ([`image`]); what keeps an entry from rendering ([`outcome`]).

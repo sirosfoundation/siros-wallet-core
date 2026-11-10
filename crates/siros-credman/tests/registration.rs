@@ -1,8 +1,9 @@
 //! The registration's format, as the crate README's "Format" lays it out: the writer writes that
 //! layout and the reader gives back what was written; a registration that breaks a rule is
 //! refused with that rule's error; sources that do not load are refused by the base, the writer
-//! and the reader; a request reads the header, the directory, the base entries and the source of
-//! the transaction type it names, and no other byte.
+//! and the reader; one source under two types is written and loads; a request reads the header,
+//! the directory, the base entries and the source of the transaction type it names, and no other
+//! byte.
 
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
@@ -547,6 +548,34 @@ fn sources_that_do_not_load_are_refused() {
             })) if kind.as_str() == "t1"
         ),
         "a blob whose named type's source does not load"
+    );
+}
+
+/// Two types whose metadata is one object convert to one source: the writer writes it under each
+/// type, and a request naming both types loads it.
+#[test]
+fn one_source_under_two_types_is_written_and_loads() {
+    let one = "@locale en\n---\n[gate]\nlabel = One\n";
+    let blob = write(&honest_base(), &types(&[("t0", one), ("t1", one)])).expect("written");
+    let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
+    for name in ["t0", "t1"] {
+        assert_eq!(
+            registration.transaction(&kind(name)).expect("read"),
+            Some(one.to_owned()),
+            "{name}"
+        );
+    }
+    let text = request_naming(&["t0", "t1"]);
+    let received = unsigned(&text).expect("received");
+    let request = request_of(&received).expect("request");
+    let context = registration
+        .context(&request)
+        .expect("a request naming both types loads");
+    assert_eq!(
+        context
+            .resolve(&Bare("gate.label"))
+            .map(|text| text.to_string()),
+        Ok("One".to_owned())
     );
 }
 

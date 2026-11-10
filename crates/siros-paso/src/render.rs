@@ -22,7 +22,7 @@ use siros_openid4vp::rows::{ClaimText, Env, Image, Row, Value, WalletText};
 use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
 use crate::image::{self, Resolution};
-use crate::labels::{LabelLimits, LabelSlot, LabelText};
+use crate::labels::{self, LabelLimits, LabelSlot, LabelViolation};
 use crate::locale::{ArrayKey, Discarded, matched, select};
 use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
@@ -474,7 +474,8 @@ impl<'r> Request<'r> {
 
     /// A label's text: the wallet's own, or the converted source's message for its array, with
     /// each template entry's liveness and its referenced values; the template the language takes
-    /// held to §3.3 for its slot (View §2), interpolated as written.
+    /// held to §3.3 for its slot (View §2), interpolated as written, and to the visible character
+    /// over what it shows.
     fn label(
         &self,
         names: &Names<'_>,
@@ -491,13 +492,19 @@ impl<'r> Request<'r> {
         match entry.label {
             LabelForm::Own(label) => return Ok(Planned::Statement(Box::new(label))),
             LabelForm::Template(template) => {
-                let text = Template(template).interpolate(claims, payload, nulls)?;
-                LabelText::parse(&text, placed.limit)
-                    .map(drop)
-                    .map_err(|violation| NotCompatible::RenderedLabel {
+                let template = Template(template);
+                let text = template.interpolate(claims, payload, nulls)?;
+                let violation = match labels::as_written(&text, placed.limit) {
+                    Err(violation) => Some(violation),
+                    Ok(()) => (!template.shows_visible(claims, payload, nulls)?)
+                        .then_some(LabelViolation::Invisible),
+                };
+                if let Some(violation) = violation {
+                    return Err(NotCompatible::RenderedLabel {
                         at: placed.at,
                         violation,
-                    })?;
+                    });
+                }
             }
             LabelForm::Plain(_) | LabelForm::Markdown(_) => {}
         }
