@@ -5,8 +5,8 @@ use std::fmt;
 /// A language tag, as a module's locale or an entry of a priority list: RFC 4647 §2.1's
 /// `1*8ALPHA *("-" 1*8alphanum)`, held in RFC 5646 §2.1.1's case: the language in lowercase, a
 /// four-letter script in title case, a two-letter region in uppercase, everything after a
-/// singleton in lowercase. Tags that differ in case alone are one tag. Only [`LocaleTag::parse`]
-/// makes one.
+/// singleton in lowercase, the tag's first subtag a singleton included. Tags that differ in case
+/// alone are one tag. Only [`LocaleTag::parse`] makes one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocaleTag(Box<str>);
 
@@ -58,7 +58,7 @@ impl LocaleTag {
             } else {
                 canonical.push_str(&lower);
             }
-            after_singleton |= !first && bytes.len() == 1;
+            after_singleton |= bytes.len() == 1;
         }
         Ok(Self(canonical.into_boxed_str()))
     }
