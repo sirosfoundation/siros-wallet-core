@@ -39,10 +39,16 @@ impl Dispatcher {
     /// `crypto.getRandomValues`; the tests inject fixed ones). The
     /// session store is the in-memory one — a page reload is a new
     /// wallet session; the resumption path is the client's to persist.
+    ///
+    /// `outgoing` receives the engine's peer notifications — the
+    /// `wmp.flow.progress`/`complete`/`error` messages — the wasm
+    /// side's JS forwarder; `None` drops them (the legacy behaviour,
+    /// and the host tests').
     pub fn new(
         ports: Arc<engine_core::Ports>,
         clock: wmp_core::sessionservice::Clock,
         entropy: wmp_core::sessionservice::EntropyFn,
+        outgoing: Option<std::sync::Arc<dyn wmp_core::transport::Transport>>,
     ) -> Result<Self, String> {
         let store: Arc<dyn SessionStore> = Arc::new(wmp_core::session::MemorySessionStore::new());
 
@@ -62,9 +68,12 @@ impl Dispatcher {
             service.clone(),
             clock.clone(),
         ));
-        let peer = wmp_core::peer::PeerBuilder::new(session_handler.clone())
-            .session_store(store.clone())
-            .build();
+        let mut peer_builder =
+            wmp_core::peer::PeerBuilder::new(session_handler.clone()).session_store(store.clone());
+        if let Some(transport) = outgoing {
+            peer_builder = peer_builder.transport(transport);
+        }
+        let peer = peer_builder.build();
 
         let runtime = Arc::new(FlowRuntime::new(ports, peer));
         runtime

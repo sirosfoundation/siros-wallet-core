@@ -546,12 +546,14 @@ impl FlowHandler for Oid4vciFlow {
             let authorization = start_authorization_code(
                 ctx,
                 &params.flow_id,
-                &offer_params,
-                &offer,
-                &as_metadata,
-                &issuer_metadata,
-                &configuration_id,
-                dpop_key_id.as_deref(),
+                &CodeGrantStart {
+                    offer_params: &offer_params,
+                    offer: &offer,
+                    as_metadata: &as_metadata,
+                    issuer_metadata: &issuer_metadata,
+                    configuration_id: &configuration_id,
+                    dpop_key_id: dpop_key_id.as_deref(),
+                },
             )
             .await?;
 
@@ -715,6 +717,23 @@ fn stash_key(flow_id: &str) -> String {
     format!("oid4vci:auth-code:{flow_id}")
 }
 
+/// The authorization-code grant's start inputs: the offer the wallet
+/// passed (its raw params and their parse), the AS and issuer metadata
+/// the flow resolved, the configuration the selection named, and the
+/// client-held DPoP key the start named (`dpop_key_id`: stashed for the
+/// resume - the redirect's answer rides the action - so the resume's
+/// token exchange asks the host to DPoP with the SAME key the WIA
+/// attests, EC TS03's one-key rule; found driving - see the stash field).
+/// Bundled because they travel together from the one call site.
+struct CodeGrantStart<'a> {
+    offer_params: &'a serde_json::Value,
+    offer: &'a types::CredentialOffer,
+    as_metadata: &'a types::AsMetadata,
+    issuer_metadata: &'a types::IssuerMetadata,
+    configuration_id: &'a str,
+    dpop_key_id: Option<&'a str>,
+}
+
 /// Builds the authorization request for the authorization_code grant:
 /// the PKCE pair and the OAuth state from the Rng port, the assembled
 /// parameters (auth_params), PAR when the AS advertises it (with the
@@ -722,17 +741,13 @@ fn stash_key(flow_id: &str) -> String {
 async fn start_authorization_code(
     ctx: &FlowContext,
     flow_id: &str,
-    offer_params: &serde_json::Value,
-    offer: &types::CredentialOffer,
-    as_metadata: &types::AsMetadata,
-    issuer_metadata: &types::IssuerMetadata,
-    configuration_id: &str,
-    // The client-held DPoP key the start named (`dpop_key_id`): stashed for
-    // the resume (the redirect's answer rides the action), so the resume's
-    // token exchange asks the host to DPoP with the SAME key the WIA
-    // attests (EC TS03's one-key rule; found driving - see the stash field).
-    dpop_key_id: Option<&str>,
+    start: &CodeGrantStart<'_>,
 ) -> Result<AuthorizationHandoff, HandlerError> {
+    let offer_params = start.offer_params;
+    let offer = start.offer;
+    let as_metadata = start.as_metadata;
+    let issuer_metadata = start.issuer_metadata;
+    let configuration_id = start.configuration_id;
     let flow_error = |reason: String| {
         HandlerError::Rpc(wmp_core::error::RpcError::new(
             wmp_core::error::ERR_FLOW_ERROR,
@@ -878,7 +893,7 @@ async fn start_authorization_code(
         redirect_uri,
         client_id,
         resource,
-        dpop_key_id: dpop_key_id.map(str::to_owned),
+        dpop_key_id: start.dpop_key_id.map(str::to_owned),
         configuration_id: configuration_id.to_owned(),
         offer_params: offer_params.clone(),
     };

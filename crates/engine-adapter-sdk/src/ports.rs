@@ -151,6 +151,7 @@ impl engine_ports::Host for HostBridge {
         let params = SigningKeyParams {
             flow_id: params.flow_id,
             key_id: params.key_id,
+            fresh: params.fresh,
         };
         let answer = self
             .0

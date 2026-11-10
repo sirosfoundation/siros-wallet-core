@@ -17,15 +17,39 @@ name: Conformance (mini-wallet)
 # not-yet-implemented feature with its own tracking issue. A skipped
 # module is absent from the run, not run-and-ignored: the summary
 # records the skip with the reason.
+#
+# The release-tag publish needs NO cross-repo secret: this repo's own
+# workflow uploads the certification ZIPs and the run summaries to the
+# release (github.token — no expiry, nothing to rotate), and the
+# conformance repo's publish-releases.yml PULLS them from the public
+# release assets on its daily check (or immediately, via its
+# workflow_dispatch). The earlier repository_dispatch design needed a
+# fine-grained PAT whose 90-day expiry would silently break the publish
+# each quarter — dropped for exactly that.
 
 on:
+  # PRs: the results ride the run's artifacts (the Actions tab), NOT
+  # conformance.siros.org - a PR is a conversation, not a release, and
+  # publishing every draft verdict would flood the site and muddy which
+  # reports speak for a release.
   pull_request:
     paths:
       - "crates/**"
       - "conformance/blacklist.json"
       - ".github/workflows/conformance.yml"
+  # Release tags: THE reports publish - conformance.siros.org carries one
+  # report set per release (keyed <core>/<tag> in the releases
+  # collection), so a release's conformance verdict is addressable,
+  # linkable from the release notes, and diffable against the previous
+  # release's.
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
+      tag:
+        description: "RE-TRIGGER on a release tag (e.g. v0.2.0): check out THAT tag's source, run the suites against it, and upload its verdict to that tag's release. Empty = a normal dispatch (this ref's source, nothing uploaded)."
+        required: false
+        default: ""
       conformance-ref:
         description: "The conformance repo ref to run (default: main)"
         required: false
@@ -35,7 +59,27 @@ on:
         required: false
         default: "both"
 
+# The `tag` re-trigger path (workflow_dispatch + tag input): a tag whose
+# push-run died before its suites ran has no recovery through the tag itself
+# (a dispatch against the tag ref runs THAT TAG'S workflow copy - v0.2.0's
+# predates the permissions fix and can never dispatch). The re-trigger runs
+# THIS workflow (main's, maintained), checks out the named tag's source, and
+# treats it exactly as the tag's own push-run would: suites, then the verdict
+# uploaded to that tag's release (the daily pull re-publishes the site set).
+# The semantics are honest: the tag's ENGINE, judged by today's HARNESS.
+#
+# A dispatch WITHOUT the tag input stays an experiment: the suites run, the
+# release job does not fire (github.ref_type == 'tag' alone is not enough -
+# a manual run against a tag ref would otherwise masquerade as the release
+# record, with an overridden harness pin).
+
 permissions:
+  # The default both jobs start from: read-only. The suites job needs
+  # nothing more; the release job below narrows to its own write scope.
+  # (A conditional write here — `contents: ${{ ... tag ... }}` — is NOT
+  # valid: GitHub's workflow parser rejects expressions in permissions,
+  # "Unexpected value ''", and the whole file dies with it. Found
+  # dispatching; the static-permission job split is the correct shape.)
   contents: read
 
 concurrency:
@@ -48,7 +92,7 @@ env:
 jobs:
   conformance:
     name: OIDF conformance (vci + vp)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       # The suite's TLS host — the suite validates callbacks against
@@ -62,7 +106,12 @@ jobs:
       # Dependabot proposes the bumps (the release notes ride the PR);
       # adopt deliberately.
     steps:
+      # The wallet-core source under test: the `tag` re-trigger input's
+      # tag when set, else this run's own triggering ref (the PR merge, the
+      # tag push, the dispatched branch).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Checkout the conformance repo (pinned ref)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -75,7 +124,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Install wasm-pack
         run: curl -sSLf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
@@ -140,10 +189,78 @@ jobs:
 
       - name: The results, as artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-results
           path: |
             conformance-repo/conformance-results/
             conformance-repo/test-results/
           if-no-files-found: warn
+
+      # The certification-package ZIPs: the suite's exporthtml exports (the
+      # same ZIPs a "Publish for certification" submission attaches -
+      # docs/oidf-conformance.md's submission form), attached to the
+      # RELEASE, so a release's conformance verdict ships in the
+      # submission's exact format, ready for the self-certification request
+      # (the signed declaration and the fee are the submitter's - a human's
+      # - the automation gets everything else to the door). The upload
+      # itself is the release job's, below - this artifact is its input.
+
+  # The release's conformance verdict, on the release: the
+  # certification-package ZIPs (the submission's exact form) plus the
+  # run summaries (the per-variant module indexes) - github.token
+  # carries the upload, and the conformance repo's pull workflow
+  # (publish-releases.yml) reads these public assets on its daily
+  # check and publishes the set to conformance.siros.org under
+  # releases/wallet-core/<tag>/. No cross-repo secret, nothing to
+  # rotate. Its own job for the write scope: the suites job stays
+  # read-only, and a PR never mints a write token at all (the tag-only
+  # `if` gates the whole job - the scope is absent on PRs, not merely
+  # unused).
+  release:
+    name: The verdict, on the release (release tags only)
+    # The release record: a TAG PUSH (github.ref_type == 'tag' alone is
+    # NOT enough - a manual dispatch against a tag ref would otherwise
+    # masquerade as the release record, with an overridden harness pin),
+    # OR the explicit `tag` re-trigger (the recovery path: the named
+    # tag's verdict, rebuilt by today's workflow).
+    if: (github.event_name == 'push' && github.ref_type == 'tag') || inputs.tag != ''
+    needs: conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write # the certification ZIPs + summaries upload (this job only)
+    env:
+      # The release this verdict belongs to: the re-trigger's named tag,
+      # else this run's own ref name (the pushed tag).
+      TARGET_REF: ${{ inputs.tag || github.ref_name }}
+      # gh without a checkout: the job needs no source, but gh itself
+      # resolves the repo from a .git directory it does not have -
+      # GH_REPO pins it (found re-triggering v0.2.0: every gh call
+      # failed "not a git repository", the wait loop spun empty).
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: The suites' results, from the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: conformance-results
+          path: results/
+
+      - name: The certification ZIPs and run summaries, on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls results/conformance-results/*.zip results/conformance-results/*-summary.json 2>/dev/null || { echo "No exported plan ZIPs or summaries"; exit 0; }
+          # The release object is created by release.yml's final job (it
+          # carries the XCFramework/AAR/bindings); this run's suites take
+          # the longer path, but the creation can race this upload anyway -
+          # wait for it, bounded: a release that never appears is a red
+          # release.yml run, visible there.
+          for _ in $(seq 1 30); do
+            gh release view "${TARGET_REF}" >/dev/null 2>&1 && break
+            echo "waiting for the release object..."
+            sleep 60
+          done
+          gh release upload "${TARGET_REF}" \
+            results/conformance-results/*.zip \
+            results/conformance-results/*-summary.json --clobber

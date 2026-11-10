@@ -204,7 +204,38 @@ impl FlowHandler for Oid4vpFlow {
                 auth_req.dcql_query.as_ref(),
                 &match_result.selections,
             );
+            // The refusal step the app observes on either channel.
+            let _ = ctx
+                .progress(
+                    "no_matching_credential",
+                    &serde_json::json!({
+                        "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
+                        "unsatisfied": unsatisfied,
+                    }),
+                )
+                .await;
             if !unsatisfied.is_empty() || auth_req.dcql_query.is_some() {
+                // The Digital Credentials API channel: the error
+                // returns through the browser like the success answer —
+                // the completion carries the DigitalCredential's error
+                // data the host hands to the verifier page (§8.4).
+                if auth_req.response_mode.is_dc_api() {
+                    let _ = ctx
+                        .complete(&serde_json::json!({
+                            "matched": false,
+                            "refused": true,
+                            "dc_api_response": {
+                                "error": "access_denied",
+                                "error_description": "The wallet did not fulfil the request",
+                            },
+                        }))
+                        .await;
+                    return Ok(FlowStartResult {
+                        wmp: wmp_core::types::Metadata::default(),
+                        flow_id: params.flow_id.clone(),
+                        flow_type: params.flow_type.clone(),
+                    });
+                }
                 let _ = response::submit_error_response(
                     ctx.http().as_ref(),
                     &auth_req,
@@ -217,15 +248,6 @@ impl FlowHandler for Oid4vpFlow {
                 )
                 .await;
             }
-            let _ = ctx
-                .progress(
-                    "no_matching_credential",
-                    &serde_json::json!({
-                        "requested": dcql::requested_credential_types(auth_req.dcql_query.as_ref()),
-                        "unsatisfied": unsatisfied,
-                    }),
-                )
-                .await;
             let _ = ctx
                 .complete(&serde_json::json!({ "matched": false, "refused": true }))
                 .await;
@@ -307,7 +329,26 @@ impl FlowHandler for Oid4vpFlow {
             .map_err(|err| flow_error(err.to_string()))?;
 
         if !consent.consented {
-            // The decline: a plain form POST, never encrypted (P0.6).
+            // The decline: the Digital Credentials API channel answers
+            // through the browser (the error data rides the
+            // completion, §8.4); the redirect channel's is a plain
+            // form POST, never encrypted (P0.6).
+            if auth_req.response_mode.is_dc_api() {
+                let _ = ctx
+                    .complete(&serde_json::json!({
+                        "declined": true,
+                        "dc_api_response": {
+                            "error": "access_denied",
+                            "error_description": "The wallet did not fulfil the request",
+                        },
+                    }))
+                    .await;
+                return Ok(FlowStartResult {
+                    wmp: wmp_core::types::Metadata::default(),
+                    flow_id: params.flow_id.clone(),
+                    flow_type: params.flow_type.clone(),
+                });
+            }
             let _ = response::submit_error_response(
                 ctx.http().as_ref(),
                 &auth_req,
@@ -354,6 +395,10 @@ impl FlowHandler for Oid4vpFlow {
                 verifier_session_id: trust::query_param(&outer_request_uri, "sessionId")
                     .unwrap_or_default(),
                 transaction_data: auth_req.transaction_data_raw.clone(),
+                // The Digital Credentials API channel's actual origin:
+                // the transport's caller, validated against the
+                // expected_origins at the parse (empty otherwise).
+                origin: auth_req.dc_api_origin.clone(),
                 // The transport's selection handle, unchanged (WMP
                 // OpenID4x 3.2.3.1): the answer's correlation rides
                 // back so the transport's ask matches its answer.
@@ -410,6 +455,64 @@ impl FlowHandler for Oid4vpFlow {
                 &serde_json::json!({ "message": "submitting the presentation" }),
             )
             .await;
+
+        // The Digital Credentials API channel (OpenID4VP 1.0 §8.4): the
+        // response never POSTs back from the wallet — the host hands it
+        // to the browser (the API's promise), and the verifier's page
+        // receives it. `dc_api` answers with the plain response
+        // object; `dc_api.jwt` with the JWE-encrypted one.
+        if auth_req.response_mode.is_dc_api() {
+            let dc_api_response = match auth_req.response_mode {
+                types::ResponseMode::DcApiJwt => {
+                    let jwe = jarm::build_dc_api_jwe_response(
+                        &auth_req,
+                        &vp_token,
+                        ctx.clock().now_unix(),
+                    )
+                    .map_err(|err| flow_error(err.to_string()))?;
+                    serde_json::json!({ "response": jwe })
+                }
+                _ => {
+                    let mut response = serde_json::Map::new();
+                    response.insert(
+                        "vp_token".to_owned(),
+                        serde_json::Value::String(vp_token.clone()),
+                    );
+                    if !auth_req.state.is_empty() {
+                        response.insert(
+                            "state".to_owned(),
+                            serde_json::Value::String(auth_req.state.clone()),
+                        );
+                    }
+                    serde_json::Value::Object(response)
+                }
+            };
+            let _ = ctx
+                .progress(
+                    "response_returned",
+                    &serde_json::json!({ "channel": auth_req.response_mode.as_str() }),
+                )
+                .await;
+            let _ = ctx
+                .complete(&serde_json::json!({
+                    "presented": true,
+                    "credential_ids": match_result
+                        .selections
+                        .iter()
+                        .map(|s| s.credential_id.clone())
+                        .collect::<Vec<_>>(),
+                    // The DigitalCredential's data the host returns
+                    // through the browser API; the harness hands it to
+                    // the verifier page's submit URL.
+                    "dc_api_response": dc_api_response,
+                }))
+                .await;
+            return Ok(FlowStartResult {
+                wmp: wmp_core::types::Metadata::default(),
+                flow_id: params.flow_id.clone(),
+                flow_type: params.flow_type.clone(),
+            });
+        }
 
         // Submit the response per the request's response mode. The
         // Clock port supplies the JARM `iat`/`exp`.
@@ -505,6 +608,26 @@ async fn refuse_verifier(
     auth_req: &types::AuthorizationRequest,
     error_code: &str,
 ) -> Result<FlowStartResult, HandlerError> {
+    // The Digital Credentials API channel: the error returns through
+    // the browser (the error data rides the completion, §8.4) — no
+    // HTTP POST from the wallet.
+    if auth_req.response_mode.is_dc_api() {
+        let _ = ctx
+            .complete(&serde_json::json!({
+                "declined": true,
+                "dc_api_response": {
+                    "error": error_code,
+                    "error_description": "The wallet did not fulfil the request",
+                },
+            }))
+            .await;
+        return Ok(FlowStartResult {
+            wmp: wmp_core::types::Metadata::default(),
+            flow_id: ctx.flow_id.clone(),
+            flow_type: ctx.flow_type.clone(),
+        });
+    }
+
     let redirect = response::submit_error_response(
         ctx.http().as_ref(),
         auth_req,

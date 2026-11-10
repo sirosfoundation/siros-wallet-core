@@ -219,6 +219,15 @@ pub struct SigningKeyParams {
     /// it — a renewal's reissuance kid; the device key when unnamed.
     #[serde(default)]
     pub key_id: Option<String>,
+    /// Whether the host must answer with a FRESH key (generated for
+    /// this ask, never returned before): the OID4VCI batch rule —
+    /// each credential in a batch binds to its own key so verifiers
+    /// cannot link them (SDJWT-10.1, the suite's
+    /// VCIEnsureProofKeysAreDistinct). Default false — the named (or
+    /// default) key, the historic shape; a host that does not
+    /// implement freshness keeps answering its named key.
+    #[serde(default)]
+    pub fresh: bool,
 }
 
 /// The public JWK answer. Keys always live in the app; the engine
@@ -427,6 +436,12 @@ pub struct VpParams {
     /// the KB-JWT (TS12).
     #[serde(default)]
     pub transaction_data: Vec<String>,
+    /// The Digital Credentials API channel's origin (OpenID4VP 1.0
+    /// §8.4): the request's `expected_origins` first entry — the
+    /// KB-JWT's `aud` and the mdoc DCAPIHandover origin (B.2.6.2).
+    /// Empty for the redirect response modes.
+    #[serde(default)]
+    pub origin: String,
     /// The transport's selection handle, as the match answer carried
     /// it (WMP OpenID4x 3.2.3.1): passed through unchanged, never
     /// interpreted. Absent when the transport has no handle.

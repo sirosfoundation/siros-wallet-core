@@ -736,6 +736,10 @@ pub struct SigningKeyParams {
     pub flow_id: String,
     /// The key the engine will sign with, named when the flow knows it.
     pub key_id: Option<String>,
+    /// Whether the host must answer with a FRESH key (the OID4VCI batch
+    /// rule: each credential in a batch binds to its own key —
+    /// SDJWT-10.1). Default false.
+    pub fresh: bool,
 }
 
 impl From<SigningKeyParams> for engine_ports::SigningKeyParams {
@@ -743,6 +747,7 @@ impl From<SigningKeyParams> for engine_ports::SigningKeyParams {
         Self {
             flow_id: p.flow_id,
             key_id: p.key_id,
+            fresh: p.fresh,
         }
     }
 }

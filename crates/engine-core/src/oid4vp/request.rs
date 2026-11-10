@@ -40,24 +40,80 @@ pub async fn parse_request(
         None => params.clone(),
     };
 
-    // Check for a `request_uri` (by reference).
-    if let Some(uri) = params.get("request_uri").and_then(|v| v.as_str()) {
-        if !uri.is_empty() {
-            return fetch_request_object(http, uri).await;
-        }
-    }
+    // The Digital Credentials API channel's actual origin (the
+    // browser's caller — the transport supplies it, W3C Digital
+    // Credentials API §5.1): the flow start's params carry it beside
+    // the request, and the dc_api binding checks it against the
+    // request's expected_origins below.
+    let dc_api_origin = params
+        .get("origin")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_owned();
 
-    // Check for a `request` (the request object by value).
-    if let Some(request_jwt) = params.get("request").and_then(|v| v.as_str()) {
-        return parse_request_object(request_jwt);
-    }
+    // By reference, by value, or the params are the request itself.
+    // The signed form validates its own scheme requirements inside
+    // (with the leaf's DER and the attestation); the params form is
+    // checked here (§5: x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the
+    // attestation — refused, not only in the signed form).
+    let mut request = if let Some(uri) = params
+        .get("request_uri")
+        .and_then(|v| v.as_str())
+        .filter(|uri| !uri.is_empty())
+    {
+        fetch_request_object(http, uri).await?
+    } else if let Some(request_jwt) = params.get("request").and_then(|v| v.as_str()) {
+        parse_request_object(request_jwt)?
+    } else {
+        let request = parse_request_value(&params, false)?;
+        validate_scheme_requirements(&request, None, None, "")?;
+        request
+    };
 
-    // The params are the request itself (by value).
-    let request = parse_request_value(&params)?;
-    // The scheme requirements the params form cannot satisfy (§5:
-    // x509_san_dns; §5.2.3: x509_hash; §5.9.3.4: the attestation) are
-    // refused here, not only in the signed form.
-    validate_scheme_requirements(&request, None, None, "")?;
+    // The dc_api origin binding (OpenID4VP 1.0 §8.4): the actual
+    // origin must be one the request's expected_origins named — but
+    // only for an AUTHENTICATED verifier (a recognized Client
+    // Identifier Prefix: the certificate and DID schemes). The
+    // pre-registered fallback (§5.9.2's unknown prefix) is
+    // unauthenticated: its expected_origins is advisory, the
+    // presentation binding rides the transport's origin alone (the
+    // alternate happy flow's invalid_scheme:example with wrong
+    // origins).
+    if request.response_mode.is_dc_api()
+        && !request.expected_origins.is_empty()
+        // Enforced for an AUTHENTICATED verifier: a recognized Client
+        // Identifier Prefix, or a signed request object (the
+        // multisigned form carries no client_id but its valid
+        // signature authenticates the verifier). The pre-registered
+        // fallback (§5.9.2's unknown prefix, unsigned) is
+        // unauthenticated: its expected_origins is advisory, the
+        // presentation binding rides the transport's origin alone (the
+        // alternate happy flow's invalid_scheme:example with wrong
+        // origins).
+        && (!matches!(request.client_id_scheme, ClientIdScheme::Unknown(_))
+            || request.request_jwt.is_some())
+        && !request
+            .expected_origins
+            .iter()
+            .any(|expected| expected == &dc_api_origin)
+    {
+        return Err(RequestError::OriginMismatch);
+    }
+    // The web-origin client identity (the DC API's unsigned channel):
+    // a request with no client_id names no verifier — the caller's
+    // origin IS the client (the browser authenticates it; the request
+    // binds through the transport, not a signed object).
+    if request.response_mode.is_dc_api()
+        && request.client_id.is_empty()
+        && !dc_api_origin.is_empty()
+    {
+        request.client_id = dc_api_origin.clone();
+        request.client_id_scheme = ClientIdScheme::infer(&request.client_id);
+    }
+    // The actual origin rides the request for the KB-JWT's `aud` and
+    // the mdoc DCAPIHandover.
+    request.dc_api_origin = dc_api_origin;
+
     Ok(request)
 }
 
@@ -168,7 +224,169 @@ async fn fetch_request_object(
 /// JSON. For a JWT, the payload is the request; the signature verification
 /// is the trust evaluation's job (S3's `evaluateVerifierTrust`), not the
 /// parser's.
+/// Whether the client_id embeds a recognized Client Identifier
+/// Prefix anywhere (§5.9.2's pre-registration constraint: such a value
+/// cannot name a pre-registered client, so the unknown-prefix fallback
+/// is forbidden for it).
+fn contains_recognized_prefix(client_id: &str) -> bool {
+    const PREFIXES: [&str; 7] = [
+        "x509_san_dns:",
+        "x509_san_uri:",
+        "x509_hash:",
+        "did:",
+        "verifier_attestation:",
+        "redirect_uri:",
+        "origin:",
+    ];
+    PREFIXES.iter().any(|prefix| client_id.contains(prefix))
+}
+
+/// Parses the JWS JSON Serialization's request object (RFC 7515 §7.2):
+/// `{"payload": <b64url>, "signatures": [{protected, signature}, …]}`.
+/// The request object is accepted when AT LEAST ONE signature verifies
+/// against the x5c in its own protected header (RFC 9052 §4.4's
+/// Sig_structure over the shared payload) — a multi-signed object
+/// with one invalid signature still names its verifier through the
+/// valid one (the multisigned-one-invalid-signature module leaves the
+/// second valid on purpose). A VALID signature's leaf DER is the
+/// scheme binding's certificate; none verifying refuses.
+fn parse_general_jws(general: &serde_json::Value) -> Result<AuthorizationRequest, RequestError> {
+    let payload_text = general
+        .get("payload")
+        .and_then(|v| v.as_str())
+        .ok_or(RequestError::NotRecognized)?;
+    let signatures = general
+        .get("signatures")
+        .and_then(|v| v.as_array())
+        .filter(|list| !list.is_empty())
+        .ok_or(RequestError::NotRecognized)?;
+
+    let mut first_leaf: Option<Vec<u8>> = None;
+    let mut first_x5c: Option<Vec<String>> = None;
+    let mut attestation_jwt: Option<String> = None;
+    // The first VERIFIED signature's client_id (each protected header
+    // carries its cert's binding): the wallet's scheme rules run
+    // against it — the invalidated signature's claim never
+    // authenticates anything.
+    let mut verified_client_id: Option<String> = None;
+    let mut verified_any = false;
+    for signature in signatures {
+        let protected = signature
+            .get("protected")
+            .and_then(|v| v.as_str())
+            .ok_or(RequestError::NotRecognized)?;
+        let protected_bytes = decode_base64url(protected).ok_or(RequestError::NotRecognized)?;
+        let header: serde_json::Value =
+            serde_json::from_slice(&protected_bytes).map_err(|_| RequestError::NotRecognized)?;
+        if header.get("typ").and_then(|v| v.as_str()) != Some("oauth-authz-req+jwt") {
+            return Err(RequestError::RequestObjectTyp);
+        }
+        // RFC 9052 §4.4's Sig_structure signs the same input the
+        // compact form's does — ASCII(protected) || '.' || payload —
+        // so each signature verifies through its compact-equivalent
+        // string.
+        let signature_text = signature
+            .get("signature")
+            .and_then(|v| v.as_str())
+            .ok_or(RequestError::NotRecognized)?;
+        let compact_form = format!("{protected}.{payload_text}.{signature_text}");
+        let verified = header
+            .get("x5c")
+            .and_then(|v| v.as_array())
+            .and_then(|chain| chain.first())
+            .and_then(|v| v.as_str())
+            .and_then(|cert| decode_base64(cert))
+            .map(|der| {
+                let jwk = jose_rs::jwk::cert::public_jwk_from_certificate_der(&der)
+                    .map_err(|_| RequestError::RequestObjectSignature)?;
+                jose_rs::jws::compact::verify_with_jwk(&jwk, &compact_form)
+                    .map_err(|_| RequestError::RequestObjectSignature)?;
+                Ok::<Vec<u8>, RequestError>(der)
+            });
+        match verified {
+            Some(Ok(der)) => {
+                verified_any = true;
+                if verified_client_id.is_none() {
+                    verified_client_id = header
+                        .get("client_id")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned);
+                }
+                if first_leaf.is_none() {
+                    first_leaf = Some(der);
+                    first_x5c = header.get("x5c").and_then(|v| v.as_array()).map(|chain| {
+                        chain
+                            .iter()
+                            .filter_map(|cert| cert.as_str().map(str::to_owned))
+                            .collect::<Vec<_>>()
+                    });
+                    attestation_jwt = header
+                        .get("jwt")
+                        .and_then(|v| v.as_str())
+                        .filter(|jwt| !jwt.is_empty())
+                        .map(str::to_owned);
+                }
+            }
+            // A failing signature is skipped, not fatal: the others
+            // may still authenticate the verifier (the one-invalid
+            // module leaves the second valid on purpose).
+            Some(Err(_)) => {}
+            // No x5c: an unauthenticated signature the trust evaluation
+            // would have to resolve by other means — skipped like a
+            // failing one; none verifying refuses below.
+            None => {}
+        }
+    }
+    if !verified_any {
+        return Err(RequestError::RequestObjectSignature);
+    }
+
+    let payload = decode_base64url(payload_text).ok_or(RequestError::NotRecognized)?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&payload).map_err(|_| RequestError::NotRecognized)?;
+    // The multisigned form carries the client_id in the signatures'
+    // PROTECTED HEADERS (each cert's binding), not the payload —
+    // inject the first VERIFIED one's so the client_id rules (the
+    // scheme inference, the x509_hash binding, the §5.9.2 fallback
+    // bounds) apply unchanged, against the certificate that actually
+    // authenticated the request.
+    if value.get("client_id").is_none() {
+        if let Some(header_client_id) = verified_client_id {
+            if let Some(object) = value.as_object_mut() {
+                object.insert("client_id".to_owned(), serde_json::Value::String(header_client_id));
+            }
+        }
+    }
+    parse_request_value(&value, true).and_then(|mut request| {
+        validate_scheme_requirements(
+            &request,
+            first_leaf.clone(),
+            attestation_jwt.clone(),
+            "",
+        )?;
+        request.request_jwt = Some(serde_json::to_string(general).unwrap_or_default());
+        request.x5c = first_x5c.clone();
+        request.attestation_jwt = attestation_jwt.clone();
+        Ok(request)
+    })
+}
+
 fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError> {
+    // The JWS JSON Serialization (RFC 7515 §7.2): the general form with
+    // a `signatures` array — the multi-signed request object (OpenID4VP
+    // 1.0, B.2.5's request_uri_multisigned). EVERY signature must
+    // verify (one invalid refuses — the multisigned negative); the
+    // first signature's certificate carries the scheme binding.
+    if text.starts_with('{') {
+        if let Ok(general) = serde_json::from_str::<serde_json::Value>(text) {
+            if general.get("signatures").and_then(|v| v.as_array()).is_some() {
+                return parse_general_jws(&general);
+            }
+            // A plain-JSON request object (not the general JWS): the
+            // caller's business, handled below.
+        }
+    }
+
     let parts: Vec<&str> = text.split('.').collect();
     if parts.len() >= 3 && !text.starts_with('{') {
         // A signed request object (RFC 9101 §5.2): the JOSE header
@@ -234,7 +452,7 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // x509_hash binding (§5.2.3), the x509_san_dns signed form (§5),
         // and the verifier_attestation extraction (§5.9.3.4) — all
         // against the payload's client_id.
-        parse_request_value(&value).and_then(|mut request| {
+        parse_request_value(&value, true).and_then(|mut request| {
             validate_scheme_requirements(&request, leaf_der, attestation_jwt.clone(), text)?;
             // The trust evaluation's inputs ride the request: the raw
             // JWT (the DID verification, the trust_chain extraction),
@@ -248,7 +466,7 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
         // Plain JSON.
         let value: serde_json::Value =
             serde_json::from_str(text).map_err(|_| RequestError::NotRecognized)?;
-        parse_request_value(&value).and_then(|request| {
+        parse_request_value(&value, false).and_then(|request| {
             validate_scheme_requirements(&request, None, None, text)?;
             Ok(request)
         })
@@ -371,7 +589,10 @@ fn validate_verifier_attestation(
 
 /// Parses the authorization request from its JSON value — the shared
 /// validation for all forms.
-fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest, RequestError> {
+fn parse_request_value(
+    value: &serde_json::Value,
+    from_signed_object: bool,
+) -> Result<AuthorizationRequest, RequestError> {
     let obj = value.as_object().ok_or(RequestError::NotRecognized)?;
 
     // The client_id: required.
@@ -441,9 +662,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
-    // The response endpoint: response_uri, or redirect_uri as the fallback.
-    if response_uri.is_empty() && redirect_uri.is_empty() {
+    // The response endpoint: response_uri, or redirect_uri as the
+    // fallback — the Digital Credentials API channel names neither;
+    // the response returns through the browser instead.
+    if response_uri.is_empty() && redirect_uri.is_empty() && !response_mode.is_dc_api() {
         return Err(RequestError::NotRecognized);
+    }
+
+    // The dc_api channel forbids both URIs (OpenID4VP 1.0 §8.4: the
+    // response never POSTs back from the wallet).
+    if response_mode.is_dc_api() && (!response_uri.is_empty() || !redirect_uri.is_empty()) {
+        return Err(RequestError::UnexpectedResponseUri {
+            mode: response_mode_str.to_owned(),
+        });
     }
 
     // The direct_post channel requires a response_uri and forbids a
@@ -459,9 +690,26 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         });
     }
 
-    // The client_id scheme must be a recognized one — an unknown
-    // prefix is not the redirect_uri scheme's fallback but a refusal.
-    if matches!(inferred_scheme, ClientIdScheme::Unknown(_)) {
+    // The client_id scheme must be a recognized one — on the redirect
+    // channel an unknown prefix (or an empty client_id) is not the
+    // redirect_uri scheme's fallback but a refusal. The Digital
+    // Credentials API channel takes §5.9.2's pre-registered fallback
+    // for an UNSIGNED request's unknown-prefixed client_id (the
+    // alternate happy flow's invalid_scheme:example): the value names a
+    // pre-registered client, the presentation binds to the origin,
+    // never the client_id. The fallback's bounds: a SIGNED request
+    // authenticates the verifier through its certificate — an unknown
+    // prefix there is the invalid-prefix negative's attack (the
+    // certificate binds x509_hash, the client_id claims something
+    // else) and refuses; and §5.9.2's own constraint forbids
+    // pre-registering a value that contains a recognized Client
+    // Identifier Prefix (the mangling of x509_hash:…), so that refuses
+    // too.
+    if matches!(inferred_scheme, ClientIdScheme::Unknown(_))
+        && (!response_mode.is_dc_api()
+            || (from_signed_object && !client_id.is_empty())
+            || contains_recognized_prefix(&client_id))
+    {
         return Err(RequestError::UnknownClientIdScheme);
     }
 
@@ -504,6 +752,19 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         .unwrap_or_default()
         .to_owned();
 
+    // The expected_origins (OpenID4VP 1.0 §5.1): the Digital
+    // Credentials API channel's origin binding.
+    let expected_origins: Vec<String> = obj
+        .get("expected_origins")
+        .and_then(|v| v.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(AuthorizationRequest {
         client_id,
         client_id_scheme: inferred_scheme,
@@ -518,6 +779,8 @@ fn parse_request_value(value: &serde_json::Value) -> Result<AuthorizationRequest
         client_metadata,
         client_metadata_uri,
         verifier_jwk,
+        expected_origins,
+        dc_api_origin: String::new(),
         scope,
         // The trust evaluation's inputs: the parser's caller fills them
         // when the request is JWT-secured (parse_request_object).

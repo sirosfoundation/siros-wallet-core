@@ -595,6 +595,27 @@ session belongs to that principal".
 
 ### The shape of W10
 
+**Landed 2026-11-08** — every step, in this order: engine
+`3345cf3`→`b52b9f7`→`3a78934` (`PrincipalMode` on the Principal, the
+transport stamps it from `ENGINE_PRINCIPAL_MODE`, the #319 gate's
+store-backed half keys the tenant via
+`TokenGate::tenant_auth_invalid_before`, `JtiBlacklist` wired into the
+validator with `EngineServer::revoke_jti`); AS `go-wallet-backend
+4b811641` (the `pseudonymous` token kind — `issueToken` splits the
+policy subject from the minted subject, the minted `sub` is a fresh
+`p-<uuid>` per mint, `tac` capped to `ri`); Kotlin
+`siros-sdk-kotlin#385` (`TokenKind.pseudonymous`, `TOKEN_WMP_ENGINE`,
+`ensureTenantToken()`, `AuthServerClient.requestPseudonymousToken`,
+`WalletConfig.wmpTenantTokens` — the `HTTP_SSE` provider mints per the
+flag); Swift `siros-sdk-swift#266` (the same mirror); deployment
+`sirosid-dev` `deploy.py` (the GDC/Fly engine overlay sets
+`ENGINE_PRINCIPAL_MODE=tenant` — read by the next engine image; the
+local compose keeps the default user mode). The SDK flag
+(`wmpTenantTokens`) must match the deployment's engine: a tenant-mode
+engine with user tokens keeps its sessions but loses the privacy
+point; a user-mode engine with pseudonym tokens strands every session
+at the token's mint.
+
 1. `wmp-core`: `Principal` gains a mode flag (or the owner key becomes
    tenant-or-subject per configuration) — the sessionservice's ownership
    checks follow it. Tests: a tenant principal resumes a session a
