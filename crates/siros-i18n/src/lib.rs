@@ -104,6 +104,7 @@ mod normal;
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 mod numeric;
 mod resource;
+mod store;
 mod string;
 #[cfg(feature = "conformance")]
 mod test_functions;

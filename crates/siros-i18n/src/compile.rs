@@ -18,6 +18,7 @@ use crate::format::{
 };
 use crate::mf2::ast::{self, Key, MarkupKind};
 use crate::normal::Hold;
+use crate::store::Id;
 use crate::text::{Style, Text, Writer};
 
 /// A message, compiled: its module's direction, its values, and its body.
@@ -69,7 +70,7 @@ enum Part {
 /// selector literals, the values so far, the value each variable stands for, and the uses of a
 /// call checked so far.
 struct Compiler<'c> {
-    id: &'c str,
+    id: Id<'c>,
     line: usize,
     formats: &'c Formats,
     hold: Hold,
@@ -87,7 +88,7 @@ struct Compiler<'c> {
 /// call its function refuses, a selector literal `hold` refuses, and markup outside the styles
 /// or not nested.
 pub(crate) fn compile(
-    id: &str,
+    id: Id<'_>,
     line: usize,
     message: &ast::Message,
     direction: Direction,
@@ -120,7 +121,7 @@ pub(crate) fn compile(
         };
         if compiler.bound.insert(name.clone(), at).is_some() {
             return Err(compiler.syntax(SyntaxRule::DuplicateDeclaration {
-                id: id.to_owned(),
+                id: id.to_string(),
                 variable: name.clone(),
             }));
         }
@@ -149,7 +150,7 @@ impl Compiler<'_> {
 
     /// The refusal of a chain whose outermost function is `function`.
     fn refused(&self, function: Function, refused: Refused) -> LoadError {
-        let (id, function) = (self.id.to_owned(), function.name().to_owned());
+        let (id, function) = (self.id.to_string(), function.name().to_owned());
         match refused {
             #[cfg(any(
                 feature = "number",
@@ -237,17 +238,18 @@ impl Compiler<'_> {
     ) -> Result<usize, LoadError> {
         let name = function.name.as_str();
         let called = Function::named(name).ok_or_else(|| LoadError::Function {
-            id: self.id.to_owned(),
+            id: self.id.to_string(),
             function: name.to_owned(),
         })?;
         if !self.formats.defines(called) {
             return Err(LoadError::Option {
-                id: self.id.to_owned(),
+                id: self.id.to_string(),
                 function: name.to_owned(),
             });
         }
-        let refuse = |id: &str, option: &str| LoadError::Call {
-            id: id.to_owned(),
+        let id = self.id;
+        let refuse = |option: &str| LoadError::Call {
+            id: id.to_string(),
             function: name.to_owned(),
             refusal: Refusal::Option {
                 option: option.to_owned(),
@@ -271,11 +273,11 @@ impl Compiler<'_> {
                         .fixed(&self.values)
                         .is_some_and(|text| Dir::named(text).is_none())
                     {
-                        return Err(refuse(self.id, &option.name));
+                        return Err(refuse(&option.name));
                     }
                 }
                 "u:id" => {}
-                other if other.starts_with("u:") => return Err(refuse(self.id, other)),
+                other if other.starts_with("u:") => return Err(refuse(other)),
                 _ => {}
             }
             options.push((option.name.clone(), value));
@@ -331,7 +333,7 @@ impl Compiler<'_> {
             let call = self.variable(name);
             if !self.is_call(call) {
                 return Err(self.syntax(SyntaxRule::MissingSelectorAnnotation {
-                    id: self.id.to_owned(),
+                    id: self.id.to_string(),
                     variable: name.clone(),
                 }));
             }
@@ -358,13 +360,13 @@ impl Compiler<'_> {
             let pattern = self.pattern(&variant.pattern)?;
             if variant.keys.len() != columns.len() {
                 return Err(self.syntax(SyntaxRule::VariantKeyMismatch {
-                    id: self.id.to_owned(),
+                    id: self.id.to_string(),
                 }));
             }
             if variant.keys.iter().all(|key| *key == Key::CatchAll) {
                 if fallback.replace(pattern).is_some() {
                     return Err(self.syntax(SyntaxRule::DuplicateVariant {
-                        id: self.id.to_owned(),
+                        id: self.id.to_string(),
                     }));
                 }
             } else {
@@ -376,7 +378,7 @@ impl Compiler<'_> {
         }
         let fallback = fallback.ok_or_else(|| {
             self.syntax(SyntaxRule::MissingFallbackVariant {
-                id: self.id.to_owned(),
+                id: self.id.to_string(),
             })
         })?;
         Ok(Body::Select {
@@ -399,7 +401,7 @@ impl Compiler<'_> {
                 ast::Part::Markup(markup) => {
                     let name = markup.name.as_str();
                     let refuse = |rule: fn(String, String) -> SyntaxRule| {
-                        self.syntax(rule(self.id.to_owned(), name.to_owned()))
+                        self.syntax(rule(self.id.to_string(), name.to_owned()))
                     };
                     let style = Style::named(name).ok_or_else(|| refuse(markup_rule))?;
                     if !markup.options.is_empty() {
@@ -423,7 +425,7 @@ impl Compiler<'_> {
         }
         match open.last() {
             Some((_, name)) => {
-                Err(self.syntax(nesting_rule(self.id.to_owned(), (*name).to_owned())))
+                Err(self.syntax(nesting_rule(self.id.to_string(), (*name).to_owned())))
             }
             None => Ok(parts),
         }

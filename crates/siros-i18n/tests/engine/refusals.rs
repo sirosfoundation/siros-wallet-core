@@ -127,6 +127,18 @@ fn each_load_rule_refuses_its_fixture() {
             LoadError::Repeated { id: hello() },
         ),
         (
+            load("[a]\nb.c = x\n[a.b]\nc = y"),
+            LoadError::Repeated {
+                id: "a.b.c".to_owned(),
+            },
+        ),
+        (
+            load("a.b = x\n[a]\nb = y"),
+            LoadError::Repeated {
+                id: "a.b".to_owned(),
+            },
+        ),
+        (
             load("hello = a").and_then(|context| context.module(&cldr::formats("en").expect("en"))),
             LoadError::Repeated {
                 id: "formats.number".to_owned(),
