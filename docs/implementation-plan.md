@@ -71,10 +71,13 @@ siros-wallet-engine/
     ├── siros-zkp-req/
     ├── siros-zkp-catalogues/
     ├── siros-presentation/
-    ├── siros-explain/         # the message contract: errors and texts the wallet renders
+    ├── siros-explain/         # the error contract: a stable id and named arguments
     ├── siros-explain-derive/
-    ├── siros-i18n/            # the i18n engine: MF2 modules and defined forms rendered through format modules
-    ├── siros-cldr/            # writes CLDR format options as module sections
+    ├── siros-derive-internals/
+    ├── siros-syntax/          # values in their literal forms; keyed and non-empty lists
+    ├── siros-i18n/            # the wallet's texts: MF2 sources a Context resolves into Text
+    ├── siros-i18n-derive/
+    ├── siros-cldr/            # writes CLDR format options as MF2 source
     ├── wmp-core/              # engine stubs until the spike opens (S0):
     ├── engine-ports/          #   ports, core, adapters, conformance
     ├── engine-core/

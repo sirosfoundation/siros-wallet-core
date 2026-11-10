@@ -1,12 +1,8 @@
 //! Values under distinct keys.
 
-use std::fmt;
+use siros_explain::Explain;
 
-use crate::arg::{Arg, Args, IntoArg};
-use crate::message::{Explain, Message, MessageId, Messages, ParamKind};
-
-/// Values under distinct keys, in the order given: a query's arguments, a module's sources by
-/// locale, a record's module digests. Each constructor holds the keys distinct.
+/// Values under distinct keys, in the order given. Each constructor holds the keys distinct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keyed<K, V>(Vec<Entry<K, V>>);
 
@@ -44,32 +40,12 @@ impl<K, V> Entry<K, V> {
 }
 
 /// A key given twice to [`Keyed::new`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{0:?} is given twice")]
-pub struct Repeated<K>(pub K);
-
-/// [`Repeated`]'s message.
-const REPEATED: MessageId = crate::checked!(MessageId, "explain.repeated");
-
-impl<K: IntoArg + fmt::Debug + Send + Sync> Explain for Repeated<K> {
-    fn id(&self) -> MessageId {
-        REPEATED
-    }
-
-    fn args(&self) -> Args<'_> {
-        Args::new(crate::names!("key"), [Arg::of(&self.0)])
-    }
-}
-
-impl<K: IntoArg> Messages for Repeated<K> {
-    fn messages() -> Vec<Message> {
-        vec![Message::new(
-            REPEATED,
-            Some("{0:?} is given twice"),
-            crate::names!("key"),
-            [ParamKind::of::<K>()],
-        )]
-    }
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
+#[error("{key} is given twice")]
+#[explain(id = "repeated")]
+pub struct Repeated<K> {
+    /// The key.
+    pub key: K,
 }
 
 impl<K, V> Keyed<K, V> {
@@ -120,14 +96,9 @@ impl<K, V> Keyed<K, V> {
         }
         Ok(Keyed(entries))
     }
-
-    /// Entries whose keys the caller holds distinct.
-    pub(crate) const fn distinct(entries: Vec<Entry<K, V>>) -> Self {
-        Self(entries)
-    }
 }
 
-impl<K: PartialEq + fmt::Debug, V> Keyed<K, V> {
+impl<K: PartialEq, V> Keyed<K, V> {
     /// The entries, in their order; refused when a key repeats.
     ///
     /// # Errors
@@ -137,7 +108,7 @@ impl<K: PartialEq + fmt::Debug, V> Keyed<K, V> {
         let mut held: Vec<Entry<K, V>> = Vec::with_capacity(entries.len());
         for entry in entries {
             if held.iter().any(|earlier| earlier.key == entry.key) {
-                return Err(Repeated(entry.key));
+                return Err(Repeated { key: entry.key });
             }
             held.push(entry);
         }

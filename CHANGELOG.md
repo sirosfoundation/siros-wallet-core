@@ -7,45 +7,64 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
-- `siros-explain` and `siros-explain-derive`: errors and texts as messages.
-  `Explain` gives a text's stable `MessageId` and its arguments under
-  distinct names, each of the kind its type declares through `IntoArg`; a
-  type without `IntoArg`, a secret's, is no argument. `#[derive(Explain)]`
-  writes it beside `thiserror::Error`, and `Messages` declares each message's
-  English template and parameter kinds. `Text` holds a message unrendered;
-  `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
-  second), and amounts in ISO 4217 currencies. A `RequestText` is a text that
-  depends on a request: it holds a message of its module's one
-  `DeclaredModule::Requested` type, a value, a name, a received text or a
-  defined module's message. Edition 2024, unpublished.
-- `siros-i18n`: the core renders messages. A module's sources are `.mf2`
-  resources of MessageFormat 2 messages, one per locale, with each used
-  format's options in `[formats.<format>]` sections; `Module::load` parses a
-  module whole, refuses it with the first rule it breaks, and compiles every
-  message. Each MF2 function family is a format module with a load half and a
-  render half, each a feature: `number`, `currency`, `offset`, `date`, `list`.
-  A `Screen` decides one language for every text by RFC 4647 basic filtering
-  over the priority list; its `Renderer` writes a `siros_explain::Text` as
-  formatted spans or plain text. `PackageBuilder` and `RegistrationBuilder`
-  write packages whose identity is the RFC 9162 Merkle tree root of their
-  entries; `Package::read` checks each entry when it is read. Feature `load`
-  is the wallet's half, `render` the matcher's. The message-format-wg test
-  suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles. A profile's selected
-  locale and its RFC 4647 §3.4 truncations (`LocaleTag::truncations`) head the
-  priority list, and a registration's package holds those truncations. Feature
-  `render` writes a defined module's render form with no loader (`DefinedForm`):
-  a package holds one through `PackageBuilder::defined`, or a screen carries one
-  through `Screen::carrying`. `Package::keys` lists the compiled messages of a
-  package's main and crate modules, and `main_locales` gives a main module's
-  formats of bare values. Edition 2024, unpublished.
+- `siros-explain` is the error contract: `Explain` gives an error's stable id,
+  `err.<scope>.<id>`, and its named arguments, each its `Display`.
+  `#[derive(Explain)]` (`siros-explain-derive`) sits beside thiserror's derive:
+  each struct or variant carries `#[explain(id = "…")]` or
+  `#[error(transparent)]`, a named field is an argument, a cause is `#[source]`
+  or `#[explain(skip)]`, a tuple argument and a field spelled `r#source` are
+  refused, and an id given twice in a crate fails the build. `scope!` names a
+  crate's scope once, at its root. Under `check`, each derived id registers a
+  row that `check::rows` reads.
+- `siros-derive-internals`: the field rules `#[derive(Explain)]` and
+  `#[derive(Message)]` share, which siros-explain-derive and siros-i18n-derive
+  call through its `Derive` trait.
+- `siros-syntax` holds the checked texts and values: `checked!`, `Keyed` with
+  `Entry` and `Repeated`, the non-empty `AllOf`, and `Count`, `Decimal`,
+  `Amount`, `Currency` with ISO 4217 List One (SIX's `list-one.xml`, published
+  2026-09-17, vendored and read by the build script), `Date`, `Time`,
+  `OffsetTime`, `Offset` and `DateTime`. Each value type writes its literal form
+  as `Display` and parses exactly that form, refusing any other text with
+  `Malformed`. `Digits`, one or more ASCII digits as written, give their count
+  through `Count::from`. Its errors derive `Explain`.
+- `siros-i18n` resolves the wallet's texts. A `Context` holds the
+  MessageFormat 2 sources of one locale, each loaded whole and checked
+  (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
+  or a statement (`ResolveError`), and no other code makes one. A statement
+  derives `Message` (`siros-i18n-derive`). Every argument is text: `:string`
+  writes it as given; `:number` and `:integer` parse an MF2 number literal and
+  show its fraction digits as written; `:offset`, `:currency` (its `currency`
+  option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
+  `:siros:datetime` parse their operand. An option's value is a literal or a
+  variable's value: an argument's text, a literal, or the value of a declared
+  call. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; another value from a
+  variable refuses the resolution (`ResolveError::Option`). A load takes time
+  and memory in proportion to its source. A lookup that misses what the engine
+  holds by construction is a `Defect` of `LoadError`, `ResolveError` and
+  `CheckError`. Each function sits behind its feature: `number`, `currency`,
+  `offset` and `date`, the defaults with `derive` and `nfc`. `nfc` holds names,
+  variant keys and selector literals in NFC, as MF2 compares them, and adds
+  `Context::module_in_nfc`, which refuses a source NFC would change
+  (`LoadError::Unnormalized`); without it they stay as written. `check` holds
+  `Context::check`, and `conformance` MF2's test functions for siros-i18n's
+  conformance tests. `escape` writes a resource value that resolves to a given
+  text, and `Context::bidi` takes the app's bidi strategy. The
+  message-format-wg test suite and ICU4X 2.4 over CLDR 49.0.0 are its oracles.
+- siros-i18n's `check` feature is the wallet's one completeness test: each
+  derive registers its id and argument names, and `Context::check` refuses an
+  id two crates share, an id no source words and a pattern that reads an
+  argument its row lacks.
+- `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the
+  crate's scope and its named fields as arguments. A repeated id fails the
+  build; under `check` each id registers a row for `Context::check`.
 - `siros-cldr` writes a language's format options from CLDR's JSON release
-  49.0.0 as a resource head and `[formats.<format>]` sections.
+  49.0.0 as MF2 source: a resource head and `[formats.<format>]` sections.
+- Each is edition 2024 and unpublished.
 - CI's per-merge job runs siros-i18n's ignored tests on a push to `main`.
-- The architecture contract's messages component (§4.19, layer L0): the core
-  renders each text at display and formats its numbers, amounts, dates and
-  lists; the UI lays out the result (D4, §4.17). M3 states the selected
-  locale's truncations, M5 a registration's locales, M6 defined modules and M7
-  texts that depend on a request.
+- The architecture contract's messages component (§4.19, layer L0): an error
+  is a stable id and named arguments, a statement a `Message` of the same
+  shape, and the wallet words both in MessageFormat 2 sources that a `Context`
+  loads and resolves into `Text`; the UI lays out the result (D4, §4.17).
 
 ### Changed
 

@@ -268,7 +268,7 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 - **D1.** It is the only metadata merger: it MUST remove `auxiliary_data` before any merge (privatedata §5A.3).
 - **D2.** Each display array MUST resolve by PaSO View §4: RFC 4647 Lookup with the wallet's language, then the entry without `locale`. The format-specific display falls back to `credential_metadata` per language (D3). One function serves credential display and transaction data.
 - **D3.** Format-specific display (SD-JWT VC type metadata) wins over OpenID4VCI `credential_metadata`, which is the fallback (OpenID4VCI 1.0 §12.2.4).
-- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). Numbers, amounts, dates and lists format through the messages component (§4.19).
+- **D4.** Values MUST be typed for display (null, text, boolean, integer, number, date, date-time, bytes, list, group). Numbers, amounts, dates and times format through the messages component (§4.19).
 - **D5.** A credential claim's bytes are shown by their length.
 
 ### 4.12 Transaction data
@@ -411,22 +411,23 @@ A component MUST NOT depend on a component of its own or a higher layer, except 
 
 ### 4.19 Messages (siros-i18n)
 
-**Responsibility:** rendering every text the End-User sees, at display, in the language of the screen: the core's errors and texts (siros-explain's `Text`), with their numbers, amounts, dates, times and lists formatted for that language. The wallet supplies the messages; the core ships none.
+**Responsibility:** resolving every text the End-User sees into styled text in the wallet's language. A crate declares each error as a stable id and named arguments (siros-explain's `Explain`) and each other text it shows as a statement (`Message`, the same shape). The wallet words both in MessageFormat 2 sources, which a `Context` loads and resolves into `Text`. The crates ship no wording.
 
 **Requirements:**
-- **M1. Modules.** A module's sources are Unicode MessageFormat 2 resources, one per locale. Loading MUST parse a module whole and refuse it at the first rule it breaks against its declaration (the keys and argument kinds of its siros-explain `Messages`) and its format options.
-- **M2. Format options.** A module MUST define, in each of its languages, the options of each format its messages use. siros-cldr writes them from CLDR 49.0.0.
-- **M3. Language.** One language MUST serve every text of a screen: the first tag of the End-User's priority list that every module of the screen matches by RFC 4647 basic filtering, else the first such tag of the app's fallback list. A module whose profile selected a locale shows its entry of that locale, and the locale and its RFC 4647 §3.4 truncations head the priority list the other modules decide over: `de-CH` selected heads it with `de-CH`, `de`.
-- **M4. Output.** Rendering writes formatted spans or plain text; the platform lays them out.
-- **M5. Packages.** A package's identity MUST be the RFC 9162 Merkle tree root of its entries, and each entry MUST be checked against that root when it is read. A registration's package holds the locales of the End-User's priority list, their RFC 4647 §3.4 truncations and the app's fallback list.
-- **M6. Defined modules.** A plug-in converts a defined module's metadata to its render form with no loader (`DefinedForm`): literal text, styles, arguments and selections over `:string` keys, each typed argument formatted as the main module formats a bare value of its kind in that locale. Building a form MUST refuse a repeated locale, a parameter name outside the grammar, a missing or undeclared key, an undeclared argument, a typed argument with no main format, a selector over an argument that is no text, a selection that breaks MF2's variant rules, and unbalanced markup. A package holds a form whole, or a screen carries it beside the package (`Screen::carrying`), and both render alike under one digest.
-- **M7. Texts that depend on a request.** A module declares the messages such texts draw from as one type (siros-explain's `DeclaredModule::Requested`). A `RequestText` holds a message of that type, a value, a name, a received text or a defined module's message.
+- **M1. Errors.** Every error a crate exposes MUST implement `Explain`: an id `err.<scope>.<id>`, stable across releases, and named arguments, each its `Display`. `#[derive(Explain)]` writes it beside `thiserror::Error`, and `scope!` names the crate's scope once, at its root. An id given twice in a crate MUST fail the build. `Display` stays the English line for logs.
+- **M2. Statements.** Every other text the core shows MUST be a statement: a `Message` with an id `<scope>.<id>` and named arguments (`#[derive(Message)]`, siros-i18n-derive). A value shown alone travels in a statement that carries its literal text.
+- **M3. Contexts.** A `Context` holds the wallet's sources for one locale, one resource file per `module` call. Loading MUST parse a source whole and refuse it at the first rule it breaks (`LoadError`): its syntax or MF2's data model, an id the context already words, a locale other than the context's, a function the build does not compile, or a call whose format options no loaded module defines. The wallet loads its format options first; siros-cldr writes them from CLDR 49.0.0.
+- **M4. Resolution.** `Context::resolve` alone makes a `Text`, from an error or a statement, and refuses with a `ResolveError`. Every argument is text: `:string` takes it as given; `:number` and `:integer` parse an MF2 number literal and show its fraction digits as written; `:currency` checks its code against ISO 4217 List One; `:siros:date`, `:siros:time` and `:siros:datetime` parse siros-syntax's ISO 8601 forms. An option's value is a literal or a variable's value.
+- **M5. Output.** A `Text` is spans of text, each with a set of styles (strong, emphasis, underline). Its `Display` is the plain text. The platform lays the spans out (§4.17).
+- **M6. Bidi and language.** `Context::new` applies MF2's Default Bidi Strategy, and `Context::bidi` takes the app's. The wallet picks the locale by the `Context` it passes, and the core uses that one context for a presentation; fallback languages are the wallet's to decide when it builds its context.
+- **M7. Completeness.** Under feature `check`, every derived id registers a row, and `Context::check` MUST refuse an id two crates share, an id no source words and a pattern that reads an argument its row lacks. The wallet runs it over the sources of each locale it ships.
+- **M8. Features.** Each format function is a feature: `number`, `currency`, `offset`, `date`. A source that calls a function the build lacks fails to load. Under `nfc`, a context holds names, variant keys and selector literals in Unicode Normalization Form C, as MF2 compares them, and `module_in_nfc` refuses a source normalization would change. A build without `nfc` holds them as written and resolves a source `module_in_nfc` loads to the same texts.
 
 ## 5. Boundary contracts
 
 | Boundary | Crosses inward | Crosses outward | Guaranteed by the core | Guaranteed by the other side |
 |---|---|---|---|---|
-| Host ↔ core | wallet state; display metadata; locales; key factors; circuits; trust store; time; effect results (request object texts, trust verdicts, signatures); reply bodies | effects (`RequestObject`, `Trust`, `Sign`); the URLs of the documents it wants; views; submissions as data; presentation records; refusals | R-G2 to R-G7; P1; P3; P4; P6 | H1 to H5 |
+| Host ↔ core | wallet state; display metadata; locales; the wallet's `Context` (§4.19); key factors; circuits; trust store; time; effect results (request object texts, trust verdicts, signatures); reply bodies | effects (`RequestObject`, `Trust`, `Sign`); the URLs of the documents it wants; views; submissions as data; presentation records; refusals | R-G2 to R-G7; P1; P3; P4; P6 | H1 to H5 |
 | HTTP adapter ↔ verifiers and publishers | request objects; replies; held metadata | request object requests; submissions; metadata requests | P3; P4 | F5 |
 | UI ↔ core | selection | consent view: verifier, purposes, offers with cards, rows and proof statements, optional additions, transactions | the view equals the plan; R-G6 | H6, §4.17 |
 | Engine ↔ web client | verified request | submission | P1; F3 | E1 to E5 |

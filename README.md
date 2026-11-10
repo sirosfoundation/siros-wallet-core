@@ -57,15 +57,26 @@ a socket, a clock, or a keystore.
 | `siros-zkp-req` | The `zkp_req` protocol layer: extensions to DCQL (`_req`, `_req_sets`, `vp_formats_supported.zkp_req`, the presentation) that carry ZKP requests and responses. Holds no prover and no system; format-neutral by design |
 | `siros-zkp-catalogues` | The catalogue crate: every `zkp_req` rulebook lands here as modules and features — capability growth never adds a crate. Today it holds nym_auth, a normal credential (an mdoc, stored in the wallet state and consented like any other) that happens to carry the capability of doing pseudonyms: its rulebook defines the functions (`pseudonym`, `age_check`) and the Longfellow and Vega systems that prove them |
 | `siros-presentation` | The plan of a request over the wallet's credentials, the consent view, the selection, the response |
-| `siros-explain` | Errors as messages: a stable identifier and typed, named arguments |
+| `siros-explain` | The error contract: a stable id and named arguments, each its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
-| `siros-i18n` | The i18n engine: MessageFormat 2 modules loaded whole, rendered through format modules |
-| `siros-cldr` | Writes a language's CLDR format options for siros-i18n modules |
+| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
+| `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, amounts in the currencies of ISO 4217 List One (SIX, 2026-09-17), dates and times |
+| `siros-i18n` | The wallet's texts: a `Context` of MessageFormat 2 sources resolves an error or a statement (`Message`) to `Text` |
+| `siros-i18n-derive` | `#[derive(Message)]` for statements |
+| `siros-cldr` | Writes a language's CLDR format options as MF2 source |
 
-siros-i18n's features: `load`, the wallet's half (parsing, checking and compiling modules,
-building packages); `render`, the matcher's half (reading packages, writing a defined module's
-render form, rendering); and one per
-format module, `number`, `currency`, `offset`, `date` and `list`.
+siros-i18n's format functions are features, which an app turns on as its
+wording calls them: `number` (`:number`, `:integer`), `currency` (`:currency`,
+`:percent`), `offset` (`:offset`) and `date` (`:siros:date`, `:siros:time`,
+`:siros:datetime`). `derive` gives `#[derive(Message)]`. `nfc` holds
+MessageFormat 2's names, variant keys and selector literals in Unicode
+Normalization Form C, as MF2 compares them, and adds `Context::module_in_nfc`,
+which refuses a source normalization would change. A build without `nfc` links
+no unicode-normalization and holds them as written, and resolves a source that
+`module_in_nfc` loads to the same texts. The wallet turns `nfc` on; the
+Credential Manager matcher leaves it off. All six are defaults. `check` adds
+`Context::check`, the wallet's completeness test, and `conformance` MF2's test
+functions for siros-i18n's conformance tests.
 
 Rust 1.89 is the floor of every crate (`rust-version` in `Cargo.toml`).
 
@@ -92,7 +103,8 @@ python3 scripts/check_panic_sites.py Cargo.toml
 ```
 
 On a push to `main`, CI's per-merge tier also runs siros-i18n's ignored tests, its
-renderings against ICU4X 2.4's.
+differentials against ICU4X 2.4: dates, times and years, plural categories, numbers and
+amounts in every currency.
 
 ```sh
 cargo test --locked -p siros-i18n --all-features -- --ignored

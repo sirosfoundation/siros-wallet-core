@@ -5,6 +5,7 @@ members = [
     "crates/siros-codec",
     "crates/siros-credential",
     "crates/siros-dcql",
+    "crates/siros-derive-internals",
     "crates/siros-display",
     "crates/siros-explain",
     "crates/siros-explain-derive",
@@ -14,6 +15,7 @@ members = [
     "crates/siros-oid4vp",
     "crates/siros-presentation",
     "crates/siros-sdjwt",
+    "crates/siros-syntax",
     "crates/siros-transaction-data",
     "crates/siros-trust",
     "crates/siros-wallet-state",
@@ -41,6 +43,7 @@ rust-version = "1.89"
 siros-codec = { path = "crates/siros-codec" }
 siros-credential = { path = "crates/siros-credential" }
 siros-dcql = { version = "0.12.0", path = "crates/siros-dcql" }
+siros-derive-internals = { path = "crates/siros-derive-internals" }
 siros-display = { path = "crates/siros-display", default-features = false }
 siros-explain = { path = "crates/siros-explain" }
 siros-explain-derive = { path = "crates/siros-explain-derive" }
@@ -48,6 +51,7 @@ siros-mdoc = { path = "crates/siros-mdoc" }
 siros-oid4vp = { path = "crates/siros-oid4vp" }
 siros-presentation = { path = "crates/siros-presentation", default-features = false }
 siros-sdjwt = { path = "crates/siros-sdjwt" }
+siros-syntax = { path = "crates/siros-syntax" }
 siros-transaction-data = { path = "crates/siros-transaction-data", default-features = false }
 siros-trust = { path = "crates/siros-trust", default-features = false }
 siros-wallet-state = { path = "crates/siros-wallet-state" }
@@ -65,10 +69,10 @@ rustc-hash = "2.1.3"
 # from a `random_get` the embedded hosts lack.
 itertools = "0.12.1"
 # Every error type derives `Display` and `Error` with it.
-thiserror = "2"
-# siros-explain's build script remaps its ISO 4217 table; the pin fixes the table.
-iso_currency = { version = "=0.7.1", features = ["iterator"] }
-# siros-explain-derive's parser and code generation.
+thiserror = "2.0.21"
+# `check` of siros-explain: each derived error's row, gathered when the test binary starts.
+inventory = "0.3"
+# The parser and code generation of siros-explain-derive and siros-derive-internals.
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.9", features = ["full"] }
