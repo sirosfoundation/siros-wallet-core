@@ -285,11 +285,14 @@ fn i33_one_entry_takes_the_generic_tag() {
     assert_eq!(confirm(&generic, "en"), "Approve payment");
 }
 
-/// An issuer's label holding MessageFormat 2's syntax shows as its characters, unstyled, through
-/// the source the registration carries: `view::convert` escapes it.
+/// An issuer's label holding MessageFormat 2's syntax and text outside Unicode Normalization Form
+/// C (U+1E0A U+0323, which NFC writes U+1E0C U+0307) shows as its characters, unstyled, through
+/// the source the registration carries: `view::convert` escapes it. The workspace's
+/// `--all-features` runs it with siros-i18n's `nfc`, and `cargo test -p siros-ts12 --all-features
+/// --test known_answers` without it: both show the same characters.
 #[test]
 fn an_issuers_label_shows_as_its_characters() {
-    const LABEL: &str = r".match {$x} {#strong} | \ end";
+    const LABEL: &str = ".match {$x} {#strong} | \\ \u{1E0A}\u{323}";
     let own = TESTBED_IBAN.replace(
         r#""value": "Confirm payment""#,
         &format!(r#""value": "{}""#, LABEL.replace('\\', r"\\")),
