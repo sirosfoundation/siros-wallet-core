@@ -1,6 +1,6 @@
 //! Credential Manager's Standard and Payment entries, laid out from the core's consent entry.
 
-use siros_explain::Text;
+use siros_i18n::Text;
 use siros_openid4vp::consent::{Card, ConsentEntry};
 use siros_openid4vp::matching::StaticEntry;
 use siros_openid4vp::rows::{Icon, ImageMedia, Row};
@@ -104,16 +104,16 @@ impl CredmanEntry {
                 icon,
                 title,
                 subtitle,
-                warning: overlay.hint.clone().map(Text::from),
+                warning: overlay.hint.clone(),
                 rows,
             }),
             Some(header) => Self::Payment(PaymentEntry {
-                merchant: header.counterparty.clone().into(),
-                amount: header.amount.clone().into(),
+                merchant: header.counterparty.clone(),
+                amount: header.amount.clone(),
                 method_name: title,
                 method_subtitle: subtitle,
                 method_icon: icon,
-                additional_info: overlay.hint.clone().map(Text::from),
+                additional_info: overlay.hint.clone(),
                 rows,
             }),
         }

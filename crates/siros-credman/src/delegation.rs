@@ -4,7 +4,7 @@
 //! background service, with nothing left to choose, needs no wallet display; the matcher then
 //! sends `Full` delegation, and the wallet fulfils from its background service.
 
-use siros_explain::{Explain, Text};
+use siros_explain::Explain;
 use siros_openid4vp::ids::CredentialId;
 use siros_openid4vp::matching::Choice;
 use siros_openid4vp::refusal::ErrorCode;
@@ -90,7 +90,7 @@ pub enum Fulfilment {
 
 /// A background fulfilment refused: the set needs the wallet's display (A9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "credman.fulfilment", id = "needed")]
+#[explain(id = "fulfilment.needed")]
 #[error("the set needs the wallet's display")]
 pub struct WalletDisplayNeeded;
 
@@ -105,34 +105,28 @@ impl WalletDisplayNeeded {
 
 impl SetFacts {
     /// The facts of a set of the display of a request carrying `transactions`, its static entries
-    /// left out: they disclose nothing. `text_of` renders each row's texts as Credential Manager
-    /// draws them.
-    ///
-    /// # Errors
-    ///
-    /// `text_of`'s first error.
-    pub fn of<E>(
+    /// left out: they disclose nothing. Each row's texts read as Credential Manager draws them.
+    #[must_use]
+    pub fn of(
         set: &[Vec<Choice<'_>>],
         presentable: Presentable<'_>,
         transactions: TransactionData,
-        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
-    ) -> Result<Self, E> {
+    ) -> Self {
         let entries = || {
             set.iter().flatten().filter_map(|choice| match choice {
                 Choice::Entry(view) => Some(*view),
                 Choice::Static(_) | Choice::Nothing => None,
             })
         };
-        let mut whole = true;
-        for row in entries().flat_map(|view| view.entry.rows()) {
-            whole &= Field::of(&row, text_of)?.is_ok_and(|field| field.extent() == Extent::Whole);
-        }
-        Ok(Self {
+        let whole = entries()
+            .flat_map(|view| view.entry.rows())
+            .all(|row| Field::of(&row).is_ok_and(|field| field.extent() == Extent::Whole));
+        Self {
             presentable: entries().all(|view| presentable.0.contains(view.record.credential())),
             transactions,
             settled: set.iter().all(|slot| slot.len() == 1),
             whole,
-        })
+        }
     }
 
     /// Every entry's credential is presentable without the wallet's UI.
@@ -200,26 +194,23 @@ impl Delegation {
 impl Fulfilment {
     /// A9 in the wallet: a background fulfilment of `slots`, a set of the display of a request
     /// carrying `transactions`, that needs the wallet's display is refused; on the wallet's
-    /// display every set stands. `text_of` renders each row's texts as Credential Manager drew
-    /// them.
+    /// display every set stands. Each row's texts read as Credential Manager drew them.
     ///
     /// # Errors
     ///
-    /// `text_of`'s first error, outside; [`WalletDisplayNeeded`] inside.
-    pub fn check<E>(
+    /// [`WalletDisplayNeeded`]: a background fulfilment of a set that needs the wallet's display.
+    pub fn check(
         self,
         slots: &[Vec<Choice<'_>>],
         presentable: Presentable<'_>,
         transactions: TransactionData,
-        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
-    ) -> Result<Result<(), WalletDisplayNeeded>, E> {
+    ) -> Result<(), WalletDisplayNeeded> {
         let Self::Background(host) = self else {
-            return Ok(Ok(()));
+            return Ok(());
         };
-        let facts = SetFacts::of(slots, presentable, transactions, text_of)?;
-        Ok(match WalletDisplay::of(facts, host) {
+        match WalletDisplay::of(SetFacts::of(slots, presentable, transactions), host) {
             WalletDisplay::NotNeeded => Ok(()),
             WalletDisplay::Needed => Err(WalletDisplayNeeded),
-        })
+        }
     }
 }

@@ -1,7 +1,7 @@
-//! A row as Credential Manager's field: its label and value, rendered, as one short line of plain
-//! text, and whether a text was cut to fit, which A9 reads.
+//! A row as Credential Manager's field: its label and value as one short line of plain text, and
+//! whether a text was cut to fit, which A9 reads.
 
-use siros_explain::{Explain, Text};
+use siros_explain::Explain;
 use siros_openid4vp::rows::{Row, Value};
 
 /// The most characters of a field's label or value the matcher writes: a picker row holds one short
@@ -32,7 +32,7 @@ pub struct FieldName(FieldText);
 
 /// A row whose label is white space alone: no field can name it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "credman.field")]
+#[explain(id = "field.no_name")]
 #[error("a row's label is white space alone")]
 pub struct NoName;
 
@@ -111,24 +111,21 @@ impl FieldName {
 }
 
 impl Field {
-    /// The field of a row, its label's and its value's texts as `text_of` renders them, plain text
-    /// with the styles dropped: Credential Manager draws plain text. A full-text row shows its
-    /// label alone; an image shows clipped, as a field holds text alone.
+    /// The field of a row, its label's and its value's texts plain, their styles dropped:
+    /// Credential Manager draws plain text. A full-text row shows its label alone; an image shows
+    /// clipped, as a field holds text alone.
     ///
     /// # Errors
     ///
-    /// `text_of`'s error, outside; [`NoName`] inside: the label is white space alone.
-    pub fn of<E>(
-        row: &Row,
-        text_of: &mut impl FnMut(&Text) -> Result<String, E>,
-    ) -> Result<Result<Self, NoName>, E> {
-        let name = text_of(&row.label)?;
+    /// [`NoName`]: the label is white space alone.
+    pub fn of(row: &Row) -> Result<Self, NoName> {
+        let name = FieldName::fit(&row.label.to_string())?;
         let value = match &row.value {
             None => None,
             Some(Value::Image(_)) => Some(FieldText::partial("")),
-            Some(Value::Text(text)) => Some(FieldText::fit(&text_of(text)?)),
+            Some(Value::Text(text)) => Some(FieldText::fit(&text.to_string())),
         };
-        Ok(FieldName::fit(&name).map(|name| Self { name, value }))
+        Ok(Self { name, value })
     }
 
     /// The label.

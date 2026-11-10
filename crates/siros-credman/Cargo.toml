@@ -1,24 +1,25 @@
 [package]
 name = "siros-credman"
 version = "0.1.0"
-description = "Android Credential Manager's entries for the SIROS wallet core's matcher: the Standard and Payment entries of a consent entry, and the delegation of a set (A9, K4)"
+description = "Android Credential Manager's entries for the SIROS wallet core's matcher: the Standard and Payment entries of a consent entry, the delegation of a set (A9, K4), and the registration the matcher reads its wording from"
 edition = "2024"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
+readme = "README.md"
 publish = false
 
 [features]
-# The registration writer's part: the package of the modules with the texts no request changes
-# precomputed, through siros-i18n's loader.
+# The registration writer, which the wallet links.
 register = []
 
 [dependencies]
 siros-openid4vp = { workspace = true, features = ["match"] }
 siros-explain = { workspace = true }
-# The matcher's renderer, which the entry emission renders each text through.
+# The matcher's context. The build that links the matcher picks the format functions.
 siros-i18n = { workspace = true }
+siros-syntax = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
