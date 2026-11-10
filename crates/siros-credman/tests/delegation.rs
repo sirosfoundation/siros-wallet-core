@@ -1,24 +1,23 @@
 //! A9 and K4 over the core's display: a set needs the wallet's display unless every entry's
 //! credential is presentable without the wallet's UI, the request carries no `transaction_data`,
 //! every row shows whole, nothing is left to choose and Credential Manager showed everything; the
-//! matcher
-//! sends `Full` delegation for a set that needs none, and the wallet refuses a background
+//! matcher sends `Full` delegation for a set that needs none, and the wallet refuses a background
 //! fulfilment of a set that needs it with `access_denied`.
 
 use siros_credman::{
     Delegation, Fulfilment, HostDisplay, Presentable, SetFacts, TransactionData, WalletDisplay,
     WalletDisplayNeeded,
 };
-use siros_explain::Text;
+use siros_i18n::{Context, Text};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::ids::{CredentialId, TransactionType};
 use siros_openid4vp::matching::{Accepted, Consent, Match, StaticEntry, Views, display, offer};
 use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::refusal::ErrorCode;
-use siros_openid4vp::rows::{Icon, Row};
+use siros_openid4vp::rows::{ClaimText, Icon, Row};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, parameters, request_of, unsigned};
-use siros_testkit::render::{App, AppError, CrateSource};
+use siros_testkit::render::Language;
 use siros_testkit::{Binds, TestFormat, TestHost, TestProfile};
 
 /// A text far longer than a picker line, which a field clips (A9's clipped fields).
@@ -37,18 +36,25 @@ fn registry() -> Registry<TestHost> {
     builder.build().expect("registry")
 }
 
-fn held(id: &str, queries: &[&str]) -> Held {
+fn holding(id: &str, queries: &[&str]) -> Held {
     let answers: Vec<String> = queries.iter().map(|q| format!("\"{q}\"")).collect();
-    let mut held = Held::new(
+    let mut holding = Held::new(
         id,
         "test",
         format!(r#"{{"answers":[{}],"alg":"A"}}"#, answers.join(",")),
     );
-    held.documents.push((
+    holding.documents.push((
         "test".to_owned(),
         br#"{"supports":["t1"],"nonconforming":[]}"#.to_vec(),
     ));
-    held
+    holding
+}
+
+/// A text as the context resolves the value written.
+fn written(context: &Context, value: String) -> Text {
+    context
+        .resolve(&ClaimText::Text { value })
+        .expect("the test app words a written text")
 }
 
 /// The facts of the display's first set, over the wallet's static entry, and A9's answer to a
@@ -64,25 +70,23 @@ fn judged(
     let registry = registry();
     let credentials = wallet
         .iter()
-        .map(|held| held.credential().expect("credential"))
+        .map(|holding| holding.credential().expect("credential"))
         .collect();
     let wallet = Wallet::new(credentials).expect("wallet");
     let env = env(&["en"], Vec::new()).expect("env");
     let accepted = Accepted::new(&request, &registry).expect("accepted");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
+    let context = Language::English.shared().expect("the test app");
+    let matched = Match::run(&accepted, &wallet, &env, context).expect("match");
     let consent = Consent::of(&matched).expect("consent");
-    let views = Views::of(&matched, &env).expect("views");
+    let views = Views::of(&matched, &env, context).expect("views");
     let sets = offer(&matched, &consent, env.choice());
     let statics = [StaticEntry {
         id: siros_openid4vp::ids::StaticEntryId::parse("notice").expect("an id"),
         card: Card {
             icon: Icon::DEFAULT,
-            title: Text::Raw("Notice".to_owned()),
+            title: written(context, "Notice".to_owned()),
             subtitle: None,
-            rows: vec![Row::full_text(Text::Raw("n".repeat(PARAGRAPH)))],
+            rows: vec![Row::full_text(written(context, "n".repeat(PARAGRAPH)))],
         },
     }];
     let shown = display(&sets, &views, &statics).expect("display");
@@ -92,13 +96,9 @@ fn judged(
         .collect();
     let presentable = Presentable(&presentable);
     let transactions = TransactionData::of(&request);
-    let app = App::of(&[CrateSource::openid4vp()]).expect("the test app");
-    let mut plain = |text: &Text| -> Result<String, AppError> { app.plain(&env, text) };
-    let facts = SetFacts::of(&shown.sets()[0], presentable, transactions, &mut plain)
-        .expect("the texts render");
-    let background = Fulfilment::Background(host)
-        .check(&shown.sets()[0], presentable, transactions, &mut plain)
-        .expect("the texts render");
+    let facts = SetFacts::of(&shown.sets()[0], presentable, transactions);
+    let background =
+        Fulfilment::Background(host).check(&shown.sets()[0], presentable, transactions);
     (facts, background)
 }
 
@@ -145,7 +145,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
             ),
         )
     };
-    let one = [held("c", &["q"])];
+    let one = [holding("c", &["q"])];
     // A credential id a field shows as its value: the test format's first row.
     let paragraph = ["c".repeat(PARAGRAPH)];
     let paragraph = [paragraph[0].as_str()];
@@ -203,7 +203,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         (
             "two candidates in one slot",
             parameters(QUERY, ""),
-            vec![held("c", &["q"]), held("d", &["q"])],
+            vec![holding("c", &["q"]), holding("d", &["q"])],
             &["c", "d"],
             full,
             Facts {
@@ -214,7 +214,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         (
             "an optional addition",
             parameters(OPTIONAL, ""),
-            vec![held("c", &["q"]), held("d", &["r"])],
+            vec![holding("c", &["q"]), holding("d", &["r"])],
             &["c", "d"],
             full,
             Facts {
@@ -225,7 +225,7 @@ fn a_set_needs_the_wallet_display_unless_a9_holds() {
         (
             "a clipped field",
             parameters(QUERY, ""),
-            vec![held(paragraph[0], &["q"])],
+            vec![holding(paragraph[0], &["q"])],
             &paragraph,
             full,
             Facts {

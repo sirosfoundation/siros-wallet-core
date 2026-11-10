@@ -1,7 +1,8 @@
-//! Text that is safe to show: the character rule and the length of each kind of text a credential's
-//! metadata writes.
+//! Text that is safe to show: the characters it may hold, the visible character a label needs, and
+//! the length of each kind of text a credential's metadata writes.
 
-use icu_properties::{CodePointMapData, props::GeneralCategory};
+use icu_properties::props::{DefaultIgnorableCodePoint, GeneralCategory};
+use icu_properties::{CodePointMapData, CodePointSetData};
 use siros_explain::Explain;
 
 /// The most characters of a label, a name, a title or a hint.
@@ -25,8 +26,8 @@ pub const CARD_TEXT_MAX: usize = LABEL_MAX + TEMPLATE_MAX;
 pub struct DisplayText(String);
 
 impl DisplayText {
-    /// A label, a name, a title or a hint: at most [`LABEL_MAX`] characters, one of them other
-    /// than white space.
+    /// A label, a name, a title or a hint: at most [`LABEL_MAX`] characters, one of them visible
+    /// ([`DisplayText::visible`]).
     ///
     /// # Errors
     ///
@@ -35,8 +36,8 @@ impl DisplayText {
         Self::non_blank(text, LABEL_MAX)
     }
 
-    /// A card's title or issuer line: at most [`CARD_TEXT_MAX`] characters, one of them other than
-    /// white space.
+    /// A card's title or issuer line: at most [`CARD_TEXT_MAX`] characters, one of them visible
+    /// ([`DisplayText::visible`]).
     ///
     /// # Errors
     ///
@@ -75,9 +76,16 @@ impl DisplayText {
         self.0
     }
 
+    /// Whether `c` shows: it is neither White_Space (UCD PropList.txt) nor
+    /// Default_Ignorable_Code_Point (UCD DerivedCoreProperties.txt).
+    #[must_use]
+    pub fn visible(c: char) -> bool {
+        !c.is_whitespace() && !CodePointSetData::new::<DefaultIgnorableCodePoint>().contains(c)
+    }
+
     fn non_blank(text: &str, max: usize) -> Result<Self, TextError> {
         let text = Self::of(text, max)?;
-        if text.0.chars().all(char::is_whitespace) {
+        if !text.0.chars().any(Self::visible) {
             return Err(TextError::Empty);
         }
         Ok(text)
@@ -117,8 +125,9 @@ pub enum TextError {
     #[error("the text has more characters than its kind allows")]
     #[explain(id = "text.too_long")]
     TooLong,
-    /// A label's, a title's or an issuer line's text is white space alone.
-    #[error("the text is white space alone")]
+    /// A label's, a title's or an issuer line's text holds no visible character
+    /// ([`DisplayText::visible`]).
+    #[error("the text holds no visible character")]
     #[explain(id = "text.empty")]
     Empty,
 }

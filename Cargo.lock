@@ -3344,8 +3344,10 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
+ "unicode-segmentation",
 ]
 
 [[package]]
