@@ -354,9 +354,9 @@ fn refused_step(jwt: &str, document: &Value, format: &str) -> Option<AdhocFailur
 
 /// What phase 2 must find, stated here: a credential the host says can no longer be
 /// presented; for PaSO, an ad-hoc metadata JWT failing a step of Proof Metadata §5.3
-/// ([`refused_step`]) and an https image whose fetch fails or whose content does not match its
-/// #integrity (View §3); for QES, a document with href and checksum whose fetch fails or does not
-/// match (CSC §6.3).
+/// ([`refused_step`]) alone, else each https image whose fetch fails or whose content does not
+/// match its #integrity (View §3); for QES, a document with href and checksum whose fetch fails or
+/// does not match (CSC §6.3).
 fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize, Found)> {
     let fetched = resources();
     let fetch = |url: &str| {
@@ -393,7 +393,11 @@ fn expected_findings(case: &Case<'_>, records: &[&EntryView<'_>]) -> Vec<(usize,
                 })
                 .into_iter()
                 .collect();
-            let images: Vec<Vec<Value>> = if kind.contains(":mandate:") {
+            let images: Vec<Vec<Value>> = if !refused.is_empty() {
+                // A refused JWT is the record's finding alone: phase 2 fetches none of the
+                // record's images.
+                Vec::new()
+            } else if kind.contains(":mandate:") {
                 case.spec
                     .mandate
                     .iter()
