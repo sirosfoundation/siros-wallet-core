@@ -45,7 +45,7 @@ impl Placeholder<'_> {
     }
 }
 
-/// The pieces of a template, leftmost placeholder first, none overlapping.
+/// The pieces of a template, in order.
 fn pieces(template: &str) -> Vec<Piece<'_>> {
     let mut out = Vec::new();
     let mut rest = template;

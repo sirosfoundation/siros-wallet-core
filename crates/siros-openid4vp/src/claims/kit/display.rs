@@ -257,8 +257,8 @@ fn fallback_label(path: &[Concrete<'_>]) -> Result<Said, TextError> {
 ///
 /// # Errors
 ///
-/// [`CardError`]: a label that breaks the rule of display text, or a count of the view that is no
-/// count literal.
+/// [`CardError`]: a label that breaks the rule of display text, or a claim's natural number that
+/// is no count literal.
 pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],

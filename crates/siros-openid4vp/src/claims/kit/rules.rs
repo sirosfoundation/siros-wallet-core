@@ -101,8 +101,7 @@ pub enum CardError {
     #[error("{0}")]
     #[explain(id = "claims_kit.text")]
     Text(#[source] TextError),
-    /// A count of the view, a byte string's length or a claim's natural number, is no count
-    /// literal.
+    /// A claim's natural number is no count literal.
     #[error("{0}")]
     #[explain(id = "claims_kit.count")]
     Count(#[source] Malformed),
