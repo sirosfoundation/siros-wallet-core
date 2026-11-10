@@ -9,7 +9,14 @@
 //!   ([`render`]), the Payment, Generic and Mandate rulebooks ([`rulebook`], [`mandate`]),
 //!   images ([`image`]); what keeps an entry from rendering ([`outcome`]).
 //! - Risk Signals §3-7 ([`risk`]) and Core §6, the response members each format carries
-//!   ([`respond`], with the core's feature `resolve`), with what phase 2 revalidates.
+#![cfg_attr(
+    feature = "resolve",
+    doc = "  ([`respond`], with the feature `resolve`), with what phase 2 revalidates."
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "  (`respond`, with the feature `resolve`), with what phase 2 revalidates."
+)]
 //!
 //! A credential's registration holds its PaSO document under [`document::DOCUMENT`]: the
 //! signed credential metadata the wallet verified at issuance.
@@ -320,7 +327,15 @@ impl PasoProfile {
     /// module they need). The metadata is the ad-hoc metadata JWT's unless the profile knows the
     /// wallet refused it for the credential: over the DC API read as a signed request is read, in
     /// the URI flow once the wallet verified it for the credential (Proof Metadata §5.3,
-    /// [`PasoProfile::with_verified`]); else the credential's stored metadata for the type.
+    #[cfg_attr(
+        feature = "resolve",
+        doc = "[`PasoProfile::with_verified`]); else the credential's stored metadata for the type."
+    )]
+    #[cfg_attr(
+        not(feature = "resolve"),
+        doc = "`PasoProfile::with_verified`, with the feature `resolve`); else the credential's stored \
+               metadata for the type."
+    )]
     /// Every text resolves through `context` (see [`render::Request::render`]). The outer error
     /// is the wallet's own failure: a document or an entry it cannot read, a text its context
     /// does not word.

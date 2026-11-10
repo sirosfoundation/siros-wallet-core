@@ -8,7 +8,14 @@
 //! - TS12 §4.1: the registration document, composed at issuance ([`document`]).
 //! - TS12 §4.3: the typed payloads ([`payload`]).
 //! - TS12 §3.3: the display rules, translated into PaSO's metadata ([`translate`], [`view`]).
-//! - TS12 §3.6: the `amr` claim ([`mod@amr`]).
+#![cfg_attr(
+    feature = "resolve",
+    doc = "- TS12 §3.6: the `amr` claim ([`mod@amr`])."
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "- TS12 §3.6: the `amr` claim (`amr`, with the feature `resolve`)."
+)]
 //!
 //! ```
 //! use siros_syntax::{AllOf, checked};

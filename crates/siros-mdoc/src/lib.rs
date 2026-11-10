@@ -12,8 +12,14 @@
 //! "elements": {namespace: [...]}}`; and `validity`, `not_before` and `not_after` from the MSO's
 //! `validityInfo`. Its `values` hold the issuer-signed data elements by name space; its
 //! `byte_strings` and `dates` state which of their strings hold a byte string or a date.
-//! [`registration::Registered`] builds it from a stored mdoc.
-
+#![cfg_attr(
+    feature = "resolve",
+    doc = "[`registration::Registered`] builds it from a stored mdoc."
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "`registration::Registered`, with the feature `resolve`, builds it from a stored mdoc."
+)]
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
 #![deny(

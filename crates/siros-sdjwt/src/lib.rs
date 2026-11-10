@@ -7,9 +7,18 @@
 //! `curve`, the Issuer-signed JWT's algorithm and key curve; `key_alg` and `key_curve`, the holder
 //! key's; `extends`, when its type extends another, each type the chain the wallet resolved at
 //! registration names, nearest first (§6.4); `validity`, `not_before` and `not_after` from `nbf`
-//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5). [`Registered`]
-//! builds the view from the issued SD-JWT, held as the [`DOCUMENT`] document phase 2 presents
-//! from, and gives its `Facts::holder`; `values` is its processed payload at the issued array
+//! and `exp`. `vct_values` matches the credential's `vct` or one of them (B.3.5).
+#![cfg_attr(
+    feature = "resolve",
+    doc = "[`Registered`] builds the view from the issued SD-JWT, held as the [`DOCUMENT`] \
+           document phase 2 presents from,"
+)]
+#![cfg_attr(
+    not(feature = "resolve"),
+    doc = "`Registered`, with the feature `resolve`, builds the view from the issued SD-JWT, held \
+           as the `DOCUMENT` document phase 2 presents from,"
+)]
+//! and gives its `Facts::holder`; `values` is its processed payload at the issued array
 //! positions, `{"...": digest}` where it holds no value.
 //!
 //! [`type_metadata`] gives the effective Type Metadata of a type that extends another, which the
