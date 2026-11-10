@@ -82,8 +82,9 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # Each build of the design's section 4.11 compiles none of the crates and crate features
       # its row excludes (I39), and siros-i18n with exactly the functions its wording calls, with
-      # `nfc` in each wallet and without it in each matcher; each crate builds alone and names the
-      # workspace crates its row gives (I25).
+      # `nfc` in each wallet and without it in each matcher; each crate builds alone, documents
+      # alone with rustdoc's warnings denied, both with and without its default features, and
+      # names the workspace crates its row gives (I25).
       # `xtask builds` reads each probe's tree offline over the workspace's Cargo.lock, so the
       # locked crates are downloaded first.
       - run: cargo fetch --locked
