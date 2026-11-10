@@ -90,7 +90,10 @@ impl<'a> Cursor<'a> {
     /// markup nor a reference.
     fn text<T>(&mut self, name: &str, read: fn(&str) -> Option<T>) -> Result<T, String> {
         let at = self.at;
-        let length = self.rest.find(['<', '&']).unwrap_or(self.rest.len());
+        let length = self
+            .rest
+            .find(['<', '&'])
+            .ok_or_else(|| refusal(self.at + self.rest.len(), &format!("`</{name}>`")))?;
         let value = self
             .take(length)
             .and_then(read)

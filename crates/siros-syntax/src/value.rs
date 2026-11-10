@@ -188,17 +188,27 @@ impl Decimal {
         parse(text, "Decimal", Self::read)
     }
 
-    /// The decimal at the reader.
+    /// The decimal at the reader. Its units accumulate toward their sign, so that `i128::MIN`
+    /// reads, and a digit that leaves an `i128` is refused where it stands.
     pub(crate) fn read(reader: &mut Reader<'_>) -> Result<Self, Malformed> {
         let start = reader.at();
         let negative = reader.take(b'-');
-        let limit = if negative {
-            i128::MIN.unsigned_abs()
-        } else {
-            i128::MAX.unsigned_abs()
+        let mut units = 0i128;
+        let mut shift = |digit: u8| {
+            let digit = i128::from(digit);
+            let next = units.checked_mul(10).and_then(|value| {
+                if negative {
+                    value.checked_sub(digit)
+                } else {
+                    value.checked_add(digit)
+                }
+            });
+            if let Some(next) = next {
+                units = next;
+            }
+            next.is_some()
         };
-        let mut magnitude = 0u128;
-        natural(reader, |digit| shift(&mut magnitude, digit, limit))?;
+        natural(reader, &mut shift)?;
         let mut scale = 0u8;
         if reader.take(b'.') {
             loop {
@@ -206,7 +216,7 @@ impl Decimal {
                 let Some(digit) = reader.digit() else {
                     break;
                 };
-                if scale == Self::MAX_SCALE || !shift(&mut magnitude, digit, limit) {
+                if scale == Self::MAX_SCALE || !shift(digit) {
                     return Err(reader.refuse(at));
                 }
                 scale += 1;
@@ -215,17 +225,10 @@ impl Decimal {
                 return Err(reader.here());
             }
         }
-        if negative && magnitude == 0 {
+        if negative && units == 0 {
             return Err(reader.refuse(start));
         }
-        let units = if negative {
-            0i128.checked_sub_unsigned(magnitude)
-        } else {
-            i128::try_from(magnitude).ok()
-        };
-        units
-            .and_then(|units| Self::new(units, scale))
-            .ok_or_else(|| reader.refuse(start))
+        Ok(Self { units, scale })
     }
 
     /// The units.
@@ -239,18 +242,6 @@ impl Decimal {
     pub const fn scale(self) -> u8 {
         self.scale
     }
-}
-
-/// `magnitude` × 10 + `digit` into `magnitude`, when it stays within `limit`.
-fn shift(magnitude: &mut u128, digit: u8, limit: u128) -> bool {
-    let next = magnitude
-        .checked_mul(10)
-        .and_then(|value| value.checked_add(u128::from(digit)))
-        .filter(|value| *value <= limit);
-    if let Some(next) = next {
-        *magnitude = next;
-    }
-    next.is_some()
 }
 
 /// Its literal: `-1234.50` for `units` -123450 at `scale` 2.

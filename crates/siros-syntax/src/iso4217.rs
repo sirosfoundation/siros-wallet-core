@@ -38,11 +38,12 @@ impl Currency {
                 .ok_or_else(|| reader.here())?;
             packed = packed * 32 + u16::from(letter - b'A');
         }
-        let row = table::CURRENCIES
-            .binary_search_by_key(&packed, |&[high, low, _]| u16::from_be_bytes([high, low]))
-            .ok()
-            .and_then(|index| table::CURRENCIES.get(index));
-        let &[_, _, minor] = row.ok_or_else(|| reader.refuse(start))?;
+        let code = |&[high, low, _]: &[u8; 3]| u16::from_be_bytes([high, low]);
+        let at = table::CURRENCIES.partition_point(|row| code(row) < packed);
+        let &[_, _, minor] = table::CURRENCIES
+            .get(at)
+            .filter(|row| code(row) == packed)
+            .ok_or_else(|| reader.refuse(start))?;
         Ok(Self { packed, minor })
     }
 
