@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: make bindings
       - uses: actions/upload-artifact@v7
         with:
@@ -43,7 +43,7 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: actions/download-artifact@v8
         with:
           name: bindings
@@ -73,7 +73,7 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
       # v4 takes `packages` (the SDK manager's list), not v3's
