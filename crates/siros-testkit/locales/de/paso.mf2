@@ -1,9 +1,9 @@
-# The test app's German source of the paso module.
+# The test app's German wording of siros-paso's statements.
 @locale de
 @dir ltr
 ---
 
-[mandate]
+[paso.mandate]
 mandate_id = Mandatsreferenz
 mandatee = Bevollmächtigte Partei
 action = Erlaubte Handlung
@@ -17,7 +17,7 @@ amount = Betrag
 payee = Empfänger
 payee_logo = Logo des Empfängers
 
-[title]
+[paso.title]
 transaction = Transaktion bestätigen
 payment = Zahlungsbestätigung
 data_sharing = Datenfreigabe erlauben
@@ -27,7 +27,7 @@ recurring_payment = Wiederkehrende Zahlung erlauben
 agent_purchase = Agentenkauf erlauben
 mandate = Mandat erteilen
 
-[confirm]
+[paso.confirm]
 confirm = Bestätigen
 allow_sharing = Erlauben
 pay = Bezahlen
@@ -36,12 +36,12 @@ mandate = Mandat erteilen
 agent = Agent erlauben
 authorize = Erteilen
 
-[section]
+[paso.section]
 payment_details = Zahlungsdetails
 first_collection = Erste Abbuchung
 payment = Zahlung
 
-[frequency]
+[paso.frequency]
 inda = untertägig
 dail = täglich
 week = wöchentlich

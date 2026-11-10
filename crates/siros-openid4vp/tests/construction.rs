@@ -139,7 +139,9 @@ fn what_cannot_exist_is_refused_at_construction() {
             (Cow::Borrowed("a"), Node::Null),
             (Cow::Borrowed("a"), Node::Null)
         ]),
-        Err(JsonError::DuplicateMember("a".to_owned()))
+        Err(JsonError::DuplicateMember {
+            member: "a".to_owned()
+        })
     );
     // The wallet's registration: a credential's facts list a Trusted Authorities type once, its
     // documents a key once, the wallet a credential id once.
@@ -149,7 +151,9 @@ fn what_cannot_exist_is_refused_at_construction() {
     };
     assert_eq!(
         Facts::new(Holder::Bound, vec![authority("aki"), authority("aki")]),
-        Err(RegistrationError::AuthorityTwice("aki".to_owned()))
+        Err(RegistrationError::AuthorityTwice {
+            authority_type: "aki".to_owned()
+        })
     );
     let document = |key: &'static str| Document {
         key: DocumentKey::parse(key).expect("key"),
@@ -174,7 +178,9 @@ fn what_cannot_exist_is_refused_at_construction() {
     let held = credential(vec![document("test")]).expect("credential");
     assert_eq!(
         Wallet::new(vec![held.clone(), held]),
-        Err(RegistrationError::CredentialTwice("c".to_owned()))
+        Err(RegistrationError::CredentialTwice {
+            credential: "c".to_owned()
+        })
     );
     // Bound entries are a non-empty ascending subset of those offered.
     let offered: Vec<EntryIndex> = request_entries(3);
@@ -342,7 +348,10 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
     let profile = twice.profile(TestProfile::new(Binds::First));
     twice.exact(kind("t1"), profile);
     twice.exact(kind("t1"), profile);
-    assert!(matches!(twice.build(), Err(RegistryError::TypeTwice(_))));
+    assert!(matches!(
+        twice.build(),
+        Err(RegistryError::TypeTwice { .. })
+    ));
     // A registration under a handle another builder gave names no profile this one holds.
     let mut other = Registry::<TestHost>::builder();
     let elsewhere = other.profile(TestProfile::new(Binds::First));
@@ -350,7 +359,7 @@ fn profiles_are_found_by_exact_type_then_longest_prefix() {
     unheld.exact(kind("t1"), elsewhere);
     assert!(matches!(
         unheld.build(),
-        Err(RegistryError::UnknownProfile(registration)) if registration == "t1"
+        Err(RegistryError::UnknownProfile { registration }) if registration == "t1"
     ));
 }
 
@@ -377,8 +386,8 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     use siros_openid4vp::wallet_metadata::ParameterName;
     use siros_testkit::{TestHash, TestMode, TestResponseType};
 
-    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
-    const JWKS: ParameterName = siros_explain::checked!(ParameterName, "jwks");
+    const MEMBER: ParameterName = siros_syntax::checked!(ParameterName, "test_member");
+    const JWKS: ParameterName = siros_syntax::checked!(ParameterName, "jwks");
     // A mode in the clear of a name and channel, declaring `wallet_metadata` members.
     let declares = |name: &'static str, channel, names: &'static [ParameterName]| TestMode {
         declares: names,
@@ -391,7 +400,9 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     builder.response_type(TestResponseType(VpToken.name()));
     assert_eq!(
         builder.build().map(drop),
-        Err(RegistryError::ResponseTypeTwice(VpToken.name()))
+        Err(RegistryError::ResponseTypeTwice {
+            response_type: VpToken.name()
+        })
     );
     // A mode twice on one channel, whatever its sealing.
     let mut builder = Registry::<TestHost>::builder();
@@ -437,7 +448,9 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     });
     assert_eq!(
         builder.build().map(drop),
-        Err(RegistryError::HashTwice(Sha2::Sha256.name()))
+        Err(RegistryError::HashTwice {
+            algorithm: Sha2::Sha256.name()
+        })
     );
     let mut builder = Registry::<TestHost>::builder();
     builder.hash(Sha2::Sha384);
@@ -451,13 +464,15 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     builder.scope(TestScope);
     assert_eq!(
         builder.build().map(drop),
-        Err(RegistryError::ScopeTwice(TestScope.scope()))
+        Err(RegistryError::ScopeTwice {
+            scope: TestScope.scope()
+        })
     );
     let mut builder = Registry::<TestHost>::builder();
     builder.scope(Scoped("org.example.broken", r#"{"credentials":[]}"#));
     assert!(matches!(
         builder.build().map(drop),
-        Err(RegistryError::ScopeQuery(_))
+        Err(RegistryError::ScopeQuery { .. })
     ));
     let mut builder = Registry::<TestHost>::builder();
     builder.scope(TestScope);
@@ -475,7 +490,7 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     builder.mode(declares("dc_api.test", ChannelKind::DcApi, &[MEMBER]));
     assert!(matches!(
         builder.build().map(drop),
-        Err(RegistryError::MetadataChannel(_))
+        Err(RegistryError::MetadataChannel { .. })
     ));
     let mut builder = Registry::<TestHost>::builder();
     builder.mode(declares("post.one", ChannelKind::Uri, &[MEMBER]));
@@ -494,8 +509,8 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     // member another reader declares; the answer member the core reads.
     use siros_openid4vp::wallet_metadata::{NamePlace, PostContent};
     use siros_testkit::{TestAnswerReader, TestPostContribution};
-    const NONCE: ParameterName = siros_explain::checked!(ParameterName, "wallet_nonce");
-    const REDIRECT: ParameterName = siros_explain::checked!(ParameterName, "redirect_uri");
+    const NONCE: ParameterName = siros_syntax::checked!(ParameterName, "wallet_nonce");
+    const REDIRECT: ParameterName = siros_syntax::checked!(ParameterName, "redirect_uri");
     let contribution = |members, parameters| TestPostContribution {
         members,
         parameters,
@@ -541,8 +556,8 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     );
     // An Authorization Response parameter two parts declare; one the core writes (§8.1).
     use siros_testkit::TestResponseParameters;
-    const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
-    const STATE: ParameterName = siros_explain::checked!(ParameterName, "state");
+    const ISS: ParameterName = siros_syntax::checked!(ParameterName, "iss");
+    const STATE: ParameterName = siros_syntax::checked!(ParameterName, "state");
     let parameters = |names| TestResponseParameters {
         names,
         writes: Vec::new(),
@@ -590,7 +605,7 @@ fn each_routing_conflict_is_refused_when_the_registry_builds() {
     builder.error_mode(dc_api_errors);
     assert_eq!(
         builder.build().map(drop),
-        Err(RegistryError::ErrorModeChannel(DcApi.name()))
+        Err(RegistryError::ErrorModeChannel { mode: DcApi.name() })
     );
 }
 
@@ -623,7 +638,9 @@ fn a_body_of_another_form_than_its_channels_is_refused() {
     ));
     assert_eq!(
         FormBody::of(&[("response", "a"), ("response", "b")]),
-        Err(NotForm::Repeated("response".to_owned()))
+        Err(NotForm::Repeated {
+            member: "response".to_owned()
+        })
     );
     // A.4: the DigitalCredential's data is a JSON object.
     assert_eq!(DcApiData::of("[]".to_owned()), Err(NotObject));

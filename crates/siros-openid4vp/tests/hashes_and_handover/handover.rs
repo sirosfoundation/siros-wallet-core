@@ -230,7 +230,7 @@ fn a_dc_api_session_binds_the_origin_the_nonce_and_the_key_the_core_sealed_to() 
             nonce: "n-0S6_WzA2Mj",
             client_metadata: "{}",
         },
-        siros_explain::checked!(PrefixName, "x509_san_dns"),
+        siros_syntax::checked!(PrefixName, "x509_san_dns"),
         TestChoice::Plain,
         |redirect| redirect.audience(),
     )

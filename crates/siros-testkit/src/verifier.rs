@@ -44,16 +44,17 @@ pub fn secret_key(secret: &str) -> P256Scalar {
 
 /// Why an encoder could not write its output.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.encode")]
 pub enum EncodeError {
     /// An input is no JSON with unique member names.
     #[error(transparent)]
     Json(#[from] JsonError),
     /// The HMAC refused the key.
     #[error("the HMAC refused the key")]
+    #[explain(id = "encode.key")]
     Key,
     /// The issuer names no `iss`, or a key set whose keys are no secrets.
     #[error("the issuer names no iss, or a key that is no secret")]
+    #[explain(id = "encode.issuer")]
     Issuer,
     /// The key is no P-256 scalar.
     #[error(transparent)]

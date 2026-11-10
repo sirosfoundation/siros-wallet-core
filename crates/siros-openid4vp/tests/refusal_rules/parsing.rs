@@ -143,6 +143,6 @@ fn a_dcql_query_breaking_section_6_is_refused() {
     builder.format(TestFormat::new().expect("format"));
     assert!(matches!(
         builder.build(),
-        Err(RegistryError::FormatTwice(_))
+        Err(RegistryError::FormatTwice { .. })
     ));
 }

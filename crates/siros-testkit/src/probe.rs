@@ -13,7 +13,7 @@ use std::any::Any;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use siros_explain::{AllOf, Text};
+use siros_i18n::Context;
 use siros_openid4vp::arrival::Received;
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
@@ -32,7 +32,6 @@ use siros_openid4vp::plugins::{
     OptionItems, Options, Profile, Registry, RegistryBuilder, Shown, ViewAdditions, ViewTypes,
 };
 use siros_openid4vp::refusal::Refusal;
-use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::request::{AgreeableKey, ContentEncryption, EntryIndex, Query, Request};
 use siros_openid4vp::resolve::{Prepared, Route};
 use siros_openid4vp::routing::{ChannelKind, ModeName, QueryContext, VpToken};
@@ -41,24 +40,20 @@ use siros_openid4vp::session::Session;
 use siros_openid4vp::uri::{Fetch as UriFetch, FetchAnswer};
 use siros_openid4vp::wallet::{Credential, Wallet};
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_syntax::AllOf;
 
 use crate::fixtures::{
     FixtureError, Held, REQUEST_OBJECT_HEADER, authenticate, env, first_selection,
 };
+use crate::format::{DoubleText, resolve};
 use crate::jose::{VERIFIER_SECRET, compact_jws};
 use crate::prefix::{NamedPrefix, TestPrefix};
-use crate::render::{App, CrateSource};
-use crate::{FAULT, TestChoice, TestHost, TestMode};
+use crate::render::Language;
+use crate::{TestChoice, TestHost, TestMode, fault};
 
 thread_local! {
     /// The closure the probes run next.
     static READ: Cell<Option<Box<dyn Any>>> = const { Cell::new(None) };
-
-    /// The test app of the core's module, which [`read_phase_two`] renders with, made once per
-    /// thread.
-    static APP: Result<&'static App, String> = App::of(&[CrateSource::openid4vp()])
-        .map(|app| &*Box::leak(Box::new(app)))
-        .map_err(|e| e.to_string());
 }
 
 /// The armed closure, which a flow that ends without reaching its probe leaves for no other.
@@ -96,7 +91,7 @@ fn armed<T: Any>() -> Option<T> {
 
 /// The fault that stops a flow at its probe.
 fn stopped() -> Fault {
-    Fault::new(FAULT, detail!("the flow stopped at its probe"))
+    fault(detail!("the flow stopped at its probe"))
 }
 
 /// What a closure returned, or why the flow never reached it.
@@ -270,15 +265,17 @@ impl FormatQuery for ProbeQuery {
         Ok(())
     }
 
+    /// The credential's id as the title.
     fn draw(
         &self,
         credential: &Credential<'_>,
         _shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
         Ok(Card {
             icon: env.icon(None).clone(),
-            title: Text::Raw(credential.id.to_string()),
+            title: resolve(context, &DoubleText::written(credential.id.as_str()))?,
             subtitle: None,
             rows: Vec::new(),
         })
@@ -332,8 +329,9 @@ impl FormatQuery for Answering<'_> {
         credential: &Credential<'_>,
         shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
-        self.reading.draw(credential, shown, env)
+        self.reading.draw(credential, shown, env, context)
     }
 }
 
@@ -378,7 +376,7 @@ impl<H: 'static> AnsweredOption<H> for AnsweringOption<'_, '_> {
         host: &H,
     ) -> Result<Option<Box<dyn FindingData>>, Fault> {
         let PhaseTwoRead(read) = armed::<PhaseTwoRead<H>>()
-            .ok_or_else(|| Fault::new(FAULT, detail!("a probe's phase 2 without a closure")))?;
+            .ok_or_else(|| fault(detail!("a probe's phase 2 without a closure")))?;
         read(PhaseTwo {
             query: self.query,
             context: self.context.clone(),
@@ -414,8 +412,13 @@ impl<P: Profile> Profile for ProfileProbe<P> {
         self.0.members(placement)
     }
 
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        self.0.bind(binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        self.0.bind(binding, env, context)
     }
 }
 
@@ -551,14 +554,11 @@ where
     let held = Held::new("probe", format, "{}");
     let wallet = Wallet::new(vec![held.credential()?]).map_err(FixtureError::Registration)?;
     let env = env(&["en"], Vec::new())?;
-    let app = APP.with(Clone::clone).map_err(FixtureError::Rejected)?;
-    let rendering = app
-        .rendering()
-        .map_err(|e| FixtureError::Rejected(e.to_string()))?;
-    let ids = first_selection(&request, &wallet, &registry, &env, &rendering)
+    let context = Language::English.shared()?;
+    let ids = first_selection(&request, &wallet, &registry, &env, context)
         .map_err(FixtureError::Rejected)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let authenticated = authenticate(&envelope, &registry, host)?;
+    let authenticated = authenticate(&envelope, &registry, context, host)?;
     let out = Rc::new(Cell::new(None));
     let sink = Rc::clone(&out);
     let armed = Armed::with(PhaseTwoRead::<H>(Box::new(move |phase_two| {
@@ -570,7 +570,7 @@ where
         &wallet,
         &registry,
         &env,
-        &rendering,
+        context,
         host,
     )
     .and_then(|prepared| prepared.respond(|_: &Resource| Fetch::Unfetched, host))
@@ -583,7 +583,7 @@ where
 }
 
 /// What the consent's first selection is made from: a request, the wallet, the registry, its
-/// configuration and rendering.
+/// configuration and the context its texts resolve in.
 pub struct Selection<'a, H: Build> {
     /// The request, its envelope read over a registry of `registry`'s modes.
     pub request: &'a Request<'a>,
@@ -593,8 +593,8 @@ pub struct Selection<'a, H: Build> {
     pub registry: &'a Registry<H>,
     /// The configuration.
     pub env: &'a Env,
-    /// What the core renders with.
-    pub rendering: &'a Rendering<'a>,
+    /// The context the texts resolve in.
+    pub context: &'a Context,
 }
 
 /// The closure's result over the [`FetchedRecord`] phase 2 revalidates for the first selection the
@@ -620,18 +620,18 @@ where
         wallet,
         registry,
         env,
-        rendering,
+        context,
     } = flow;
-    let ids = first_selection(request, wallet, registry, env, rendering)
-        .map_err(FixtureError::Rejected)?;
+    let ids =
+        first_selection(request, wallet, registry, env, context).map_err(FixtureError::Rejected)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let authenticated = authenticate(request.envelope(), registry, host)?;
+    let authenticated = authenticate(request.envelope(), registry, context, host)?;
     let out = Rc::new(Cell::new(None));
     let sink = Rc::clone(&out);
     let armed = Armed::with(RecordRead::<H>(Box::new(move |record, host| {
         sink.set(Some(read(record, host)));
     })));
-    let flow = Prepared::prepare(&authenticated, &ids, wallet, registry, env, rendering, host)
+    let flow = Prepared::prepare(&authenticated, &ids, wallet, registry, env, context, host)
         .and_then(|prepared| prepared.respond(fetch, host))
         .map(drop);
     drop(armed);
@@ -667,7 +667,7 @@ fn routed<R, H: CoreHost>(
     read: impl FnOnce(&Session<'_>) -> R,
 ) -> Result<R, FixtureError> {
     let envelope = Envelope::parse(received, registry)?;
-    let authenticated = authenticate(&envelope, registry, host)?;
+    let authenticated = authenticate(&envelope, registry, Language::English.shared()?, host)?;
     let route = Route::new(&authenticated, registry, host)
         .map_err(|outcome| FixtureError::Rejected(outcome.to_string()))?;
     let answering = route
@@ -701,7 +701,7 @@ pub fn read_redirect_session<R>(
     choice: TestChoice,
     read: impl FnOnce(&Session<'_>) -> R,
 ) -> Result<R, FixtureError> {
-    const MODE: ModeName = siros_explain::checked!(ModeName, "direct_post.test");
+    const MODE: ModeName = siros_syntax::checked!(ModeName, "direct_post.test");
     let Redirect {
         client_id,
         response_uri,
@@ -742,7 +742,7 @@ pub fn read_redirect_session<R>(
 #[must_use]
 pub const fn dc_api(choice: TestChoice) -> TestMode {
     let mut mode = TestMode::new(
-        siros_explain::checked!(ModeName, "dc_api"),
+        siros_syntax::checked!(ModeName, "dc_api"),
         ChannelKind::DcApi,
     );
     mode.choice = choice;

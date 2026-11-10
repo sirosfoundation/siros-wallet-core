@@ -4,15 +4,14 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
-/// A language tag of the wallet's priority and fallback lists, and of a module's locales, and a
-/// text that is none.
+/// A language tag of the End-User's priority list, and a text that is none.
 pub use siros_i18n::{InvalidTag, LocaleTag};
 
 /// A string that breaks the rule of the identifier it was parsed as.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "invalid_id")]
 #[error("{value:?} is no {what}")]
 pub struct InvalidId {
     /// What the string was parsed as.
@@ -60,15 +59,6 @@ macro_rules! text_id {
 
         impl AsRef<str> for $name<'_> {
             fn as_ref(&self) -> &str {
-                &self.0
-            }
-        }
-
-        /// An identifier is named by its text in a message.
-        impl IntoArg for $name<'_> {
-            type Kind = kind::Raw;
-
-            fn arg(&self) -> &str {
                 &self.0
             }
         }
@@ -284,15 +274,6 @@ impl FormatName {
 impl fmt::Display for FormatName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A format is named by its text in a message.
-impl IntoArg for FormatName {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 

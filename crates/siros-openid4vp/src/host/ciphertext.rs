@@ -56,39 +56,34 @@ impl SealedJwe {
 
 /// A JWE `Haip::encrypt_jwe` returned that breaks its form's rule: the module broke its contract.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.sealed")]
 pub enum NotSealed {
     /// A JWE of another count of parts than five (RFC 7516 §7.1).
     #[error("the JWE has {parts} parts, and a compact serialization has five")]
+    #[explain(id = "sealed.jwe_parts")]
     JweParts {
         /// The parts.
         parts: usize,
     },
     /// A JWE part that is no base64url without padding (RFC 7516 §2).
     #[error("part {part} of the JWE is no base64url without padding")]
+    #[explain(id = "sealed.jwe_base64")]
     JweBase64 {
         /// The part's position.
         part: usize,
         /// base64's reason.
         #[source]
-        #[explain(skip)]
         cause: base64::DecodeError,
     },
     /// A protected header whose octets are no UTF-8 text.
     #[error("the JWE's protected header is no UTF-8 text")]
-    JweHeaderUtf8(
-        #[source]
-        #[explain(skip)]
-        std::str::Utf8Error,
-    ),
+    #[explain(id = "sealed.jwe_header_utf8")]
+    JweHeaderUtf8(#[source] std::str::Utf8Error),
     /// A protected header that is no JSON text with unique member names (RFC 7516 §4).
     #[error("the JWE's protected header is no JSON text with unique member names")]
-    JweHeader(
-        #[source]
-        #[explain(name = "cause")]
-        JsonError,
-    ),
+    #[explain(id = "sealed.jwe_header")]
+    JweHeader(#[source] JsonError),
     /// A protected header that is no JSON object (RFC 7516 §4).
     #[error("the JWE's protected header is no JSON object")]
+    #[explain(id = "sealed.jwe_header_object")]
     JweHeaderObject,
 }

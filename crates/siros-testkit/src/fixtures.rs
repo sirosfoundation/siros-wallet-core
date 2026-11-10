@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::num::NonZeroU32;
 
 use siros_explain::Explain;
+use siros_i18n::Context;
 use siros_openid4vp::arrival::{DcApiProtocol, DcApiProtocols, Received, Unreadable};
 use siros_openid4vp::authenticate::{Authenticated, OriginPolicy, TrustConfig};
 use siros_openid4vp::envelope::Envelope;
@@ -26,9 +27,7 @@ use siros_openid4vp::plugins::{
 use siros_openid4vp::refusal::Refused;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::routing::{Carries, ModeName, RoutedMode, VpToken};
-use siros_openid4vp::rows::{
-    Amounts, Bidi, Choice, Env, EnvError, Icon, ImageMedia, OnRenderError, RenderOptions,
-};
+use siros_openid4vp::rows::{Choice, Env, EnvError, Icon, ImageMedia};
 use siros_openid4vp::scope::{ScopeQuery, ScopeValue};
 use siros_openid4vp::uri::{EncryptedRequests, RequestPost};
 use siros_openid4vp::wallet::{
@@ -87,13 +86,10 @@ pub fn additions<'c>(
         .iter()
         .find(|plugin| plugin.id() == credential.format)
         .ok_or_else(|| {
-            Fault::new(
-                crate::FAULT,
-                siros_openid4vp::detail!(
-                    "no plug-in of {format}",
-                    format = credential.format.to_string()
-                ),
-            )
+            crate::fault(siros_openid4vp::detail!(
+                "no plug-in of {format}",
+                format = credential.format.to_string()
+            ))
         })?
         .additions(credential)
 }
@@ -106,7 +102,6 @@ pub const REQUEST_OBJECT_HEADER: &str = r#"{"alg":"ES256","typ":"oauth-authz-req
 
 /// A fixture that cannot exist.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.fixture")]
 pub enum FixtureError {
     /// An identifier breaks its rule.
     #[error(transparent)]
@@ -122,16 +117,18 @@ pub enum FixtureError {
     Registration(#[from] RegistrationError),
     /// The view is no JSON.
     #[error("the view")]
+    #[explain(id = "fixture.view")]
     View(
         #[from]
-        #[explain(name = "cause")]
+        #[source]
         JsonError,
     ),
     /// The view cannot be issued.
     #[error("the issued IssuerSigned")]
+    #[explain(id = "fixture.issue")]
     Issue(
         #[from]
-        #[explain(name = "cause")]
+        #[source]
         IssueError,
     ),
     /// The request cannot be read.
@@ -143,6 +140,9 @@ pub enum FixtureError {
     /// A double failed.
     #[error(transparent)]
     Fault(#[from] Fault),
+    /// The test app's wording does not load.
+    #[error(transparent)]
+    Wording(#[from] siros_i18n::LoadError),
     /// The kit's registry cannot exist.
     #[error(transparent)]
     Registry(#[from] RegistryError),
@@ -151,6 +151,7 @@ pub enum FixtureError {
     Skew(#[from] SkewTooLarge),
     /// The request is rejected before or at its Verifier's authentication.
     #[error("the request is rejected: {0}")]
+    #[explain(id = "fixture.rejected")]
     Rejected(#[explain(skip)] String),
 }
 
@@ -168,14 +169,16 @@ pub fn trust_config() -> Result<TrustConfig, FixtureError> {
 }
 
 /// The envelope's request authenticated over the registry and the host: its questions answered
-/// by the trust service double, which permits ([`crate::TestTrust`]), under [`trust_config`].
+/// by the trust service double, which permits ([`crate::TestTrust`]), under [`trust_config`], the
+/// binding worded by `context`.
 ///
 /// # Errors
 ///
-/// The request breaks an A rule.
+/// The request breaks an A rule, or `context` words no text of the binding.
 pub fn authenticate<'e, H: CoreHost>(
     envelope: &'e Envelope<'e>,
     registry: &'e Registry<H>,
+    context: &Context,
     host: &H,
 ) -> Result<Authenticated<'e>, FixtureError> {
     let config = trust_config()?;
@@ -183,7 +186,12 @@ pub fn authenticate<'e, H: CoreHost>(
     envelope
         .questions(registry, &config, host)
         .and_then(|pending| {
-            pending.authenticate(|evaluation| trust.decide(evaluation), &config, host)
+            pending.authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config,
+                context,
+                host,
+            )
         })
         .map_err(|rejected| FixtureError::Rejected(rejected.failure().to_string()))
 }
@@ -304,7 +312,7 @@ pub struct TestScope;
 
 impl ScopeQuery for TestScope {
     fn scope(&self) -> ScopeValue {
-        siros_explain::checked!(ScopeValue, "org.example.test")
+        siros_syntax::checked!(ScopeValue, "org.example.test")
     }
 
     fn query(&self) -> &'static str {
@@ -439,22 +447,18 @@ pub fn with_generic_forms(tags: &[LocaleTag]) -> Vec<LocaleTag> {
     out
 }
 
-/// The rendering options of the fixtures: amounts formatted, no isolation characters, no entry
-/// for a text that does not render.
-pub const OPTIONS: RenderOptions = RenderOptions {
-    amounts: Amounts::Formatted,
-    bidi: Bidi::None,
-    on_error: OnRenderError::NoEntry,
-};
-
-/// The wallet's configuration: its priority list, no fallback list, its icons by logo URI,
-/// [`OPTIONS`], each slot's default preselected.
+/// The wallet's configuration: its priority list, its icons by logo URI, each slot's default
+/// preselected.
+///
+/// # Errors
+///
+/// A tag that is no language tag, or an empty list.
 pub fn env(locales: &[&'static str], icons: Vec<(String, Icon)>) -> Result<Env, FixtureError> {
     let tags = locales
         .iter()
         .map(|tag| LocaleTag::parse(tag))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Env::new(tags, Vec::new(), OPTIONS, icons, Choice::First)?)
+    Ok(Env::new(tags, icons, Choice::First)?)
 }
 
 /// A credential's registration: its id, format and view, its documents by key, whether it is
@@ -547,20 +551,25 @@ impl Held {
     }
 }
 
-/// The ids of the first selection the consent offers, each slot's first entry chosen (the slot's
-/// default); the refusals, the unmet request or the fault otherwise.
+/// The ids of the first selection the consent offers, its texts resolved by `context`, each
+/// slot's first entry chosen (the slot's default); the refusals, the unmet request or the fault
+/// otherwise.
+///
+/// # Errors
+///
+/// The text of the refusals, the unmet request or the fault.
 pub fn first_selection<H: siros_openid4vp::plugins::Build>(
     request: &Request<'_>,
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,
     env: &Env,
-    rendering: &siros_openid4vp::rendering::Rendering<'_>,
+    context: &Context,
 ) -> Result<Vec<String>, String> {
     use siros_openid4vp::matching::{Accepted, Consent, Match, Views, display, offer};
     let accepted = Accepted::new(request, registry).map_err(|e| e.to_string())?;
-    let matched = Match::run(&accepted, wallet, env, rendering).map_err(|e| e.to_string())?;
+    let matched = Match::run(&accepted, wallet, env, context).map_err(|e| e.to_string())?;
     let consent = Consent::of(&matched).ok_or("the wallet cannot meet the request")?;
-    let views = Views::of(&matched, env).map_err(|e| e.to_string())?;
+    let views = Views::of(&matched, env, context).map_err(|e| e.to_string())?;
     let sets = offer(&matched, &consent, env.choice());
     let shown = display(&sets, &views, &[]).map_err(|e| e.to_string())?;
     let first = shown.sets().first().ok_or("no set")?;
@@ -580,20 +589,25 @@ pub fn first_selection<H: siros_openid4vp::plugins::Build>(
 }
 
 /// The VP Token of the response to [`first_selection`], the request's envelope authenticated
-/// over the registry ([`authenticate`]), nothing published for phase 2's fetches; the refusals,
-/// the unmet request, the rejection, the fault or the phase 2 outcome otherwise.
+/// over the registry ([`authenticate`]), nothing published for phase 2's fetches, every text
+/// resolved by `context`; the refusals, the unmet request, the rejection, the fault or the phase
+/// 2 outcome otherwise.
+///
+/// # Errors
+///
+/// The text of the refusals, the unmet request, the rejection, the fault or the outcome.
 pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
     request: &Request<'_>,
     wallet: &siros_openid4vp::wallet::Wallet<'_>,
     registry: &siros_openid4vp::plugins::Registry<H>,
     env: &Env,
-    rendering: &siros_openid4vp::rendering::Rendering<'_>,
+    context: &Context,
     host: &H,
 ) -> Result<String, String> {
-    let ids = first_selection(request, wallet, registry, env, rendering)?;
+    let ids = first_selection(request, wallet, registry, env, context)?;
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
     let authenticated =
-        authenticate(request.envelope(), registry, host).map_err(|e| e.to_string())?;
+        authenticate(request.envelope(), registry, context, host).map_err(|e| e.to_string())?;
     let published = crate::Published::default();
     siros_openid4vp::resolve::Prepared::prepare(
         &authenticated,
@@ -601,7 +615,7 @@ pub fn answer_first<H: siros_openid4vp::host::CoreHost>(
         wallet,
         registry,
         env,
-        rendering,
+        context,
         host,
     )
     .and_then(|prepared| prepared.respond(|resource| published.answer(resource), host))
@@ -626,25 +640,17 @@ pub fn present_option<H>(
     session: &siros_openid4vp::session::Session<'_>,
     host: &H,
 ) -> Result<siros_openid4vp::host::Presentation, siros_openid4vp::host::PresentError> {
-    use siros_openid4vp::plugins::Fault;
-
-    let env = env(&["en"], Vec::new()).map_err(|e| {
-        Fault::caused(
-            crate::FAULT,
-            siros_openid4vp::detail!("the fixture's env"),
-            e,
-        )
-    })?;
+    let env = env(&["en"], Vec::new())
+        .map_err(|e| crate::caused(siros_openid4vp::detail!("the fixture's env"), e))?;
     let provided: Vec<siros_openid4vp::plugins::Member> = members.names().cloned().collect();
     let answered = query
         .choose(credential, &env, &provided)?
         .into_iter()
         .find(|answered| answered.option().position() == position)
         .ok_or_else(|| {
-            Fault::new(
-                crate::FAULT,
-                siros_openid4vp::detail!("an option the credential does not answer"),
-            )
+            crate::fault(siros_openid4vp::detail!(
+                "an option the credential does not answer"
+            ))
         })?;
     answered.present(members, session, host)
 }

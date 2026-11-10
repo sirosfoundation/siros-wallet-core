@@ -15,7 +15,7 @@ use crate::json::RawObject;
 use crate::request::Query;
 
 /// A scope value (RFC 6749 §3.3's `scope-token`): one or more of %x21, %x23-5B, %x5D-7E. A plug-in
-/// makes its own with `siros_explain::checked!`.
+/// makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeValue(&'static str);
 
@@ -46,15 +46,6 @@ impl ScopeValue {
 impl fmt::Display for ScopeValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A scope value is named by its text in a message.
-impl siros_explain::IntoArg for ScopeValue {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 

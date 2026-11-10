@@ -45,7 +45,7 @@ pub static MEMBERS: [Member; 2] = [
 ];
 
 /// A Hash Name String (RFC 6920 §9.4's registry): one or more of lowercase ASCII letters, digits
-/// and `-`. An algorithm makes its own with `siros_explain::checked!`.
+/// and `-`. An algorithm makes its own with `siros_syntax::checked!`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HashName(&'static str);
 
@@ -76,15 +76,6 @@ impl HashName {
 impl fmt::Display for HashName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0)
-    }
-}
-
-/// A name is named by its text in a message.
-impl siros_explain::IntoArg for HashName {
-    type Kind = siros_explain::kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.0
     }
 }
 
@@ -179,24 +170,24 @@ impl Sha2 {
 impl HashAlgorithm for Sha2 {
     fn name(&self) -> HashName {
         match self {
-            Self::Sha256 => siros_explain::checked!(HashName, "sha-256"),
+            Self::Sha256 => siros_syntax::checked!(HashName, "sha-256"),
             Self::Sha256Truncated(Truncation::To128) => {
-                siros_explain::checked!(HashName, "sha-256-128")
+                siros_syntax::checked!(HashName, "sha-256-128")
             }
             Self::Sha256Truncated(Truncation::To120) => {
-                siros_explain::checked!(HashName, "sha-256-120")
+                siros_syntax::checked!(HashName, "sha-256-120")
             }
             Self::Sha256Truncated(Truncation::To96) => {
-                siros_explain::checked!(HashName, "sha-256-96")
+                siros_syntax::checked!(HashName, "sha-256-96")
             }
             Self::Sha256Truncated(Truncation::To64) => {
-                siros_explain::checked!(HashName, "sha-256-64")
+                siros_syntax::checked!(HashName, "sha-256-64")
             }
             Self::Sha256Truncated(Truncation::To32) => {
-                siros_explain::checked!(HashName, "sha-256-32")
+                siros_syntax::checked!(HashName, "sha-256-32")
             }
-            Self::Sha384 => siros_explain::checked!(HashName, "sha-384"),
-            Self::Sha512 => siros_explain::checked!(HashName, "sha-512"),
+            Self::Sha384 => siros_syntax::checked!(HashName, "sha-384"),
+            Self::Sha512 => siros_syntax::checked!(HashName, "sha-512"),
         }
     }
 
@@ -256,10 +247,10 @@ impl Sha3 {
 impl HashAlgorithm for Sha3 {
     fn name(&self) -> HashName {
         match self {
-            Self::Sha3_224 => siros_explain::checked!(HashName, "sha3-224"),
-            Self::Sha3_256 => siros_explain::checked!(HashName, "sha3-256"),
-            Self::Sha3_384 => siros_explain::checked!(HashName, "sha3-384"),
-            Self::Sha3_512 => siros_explain::checked!(HashName, "sha3-512"),
+            Self::Sha3_224 => siros_syntax::checked!(HashName, "sha3-224"),
+            Self::Sha3_256 => siros_syntax::checked!(HashName, "sha3-256"),
+            Self::Sha3_384 => siros_syntax::checked!(HashName, "sha3-384"),
+            Self::Sha3_512 => siros_syntax::checked!(HashName, "sha3-512"),
         }
     }
 
@@ -304,9 +295,9 @@ impl Blake2 {
 impl HashAlgorithm for Blake2 {
     fn name(&self) -> HashName {
         match self {
-            Self::Blake2s256 => siros_explain::checked!(HashName, "blake2s-256"),
-            Self::Blake2b256 => siros_explain::checked!(HashName, "blake2b-256"),
-            Self::Blake2b512 => siros_explain::checked!(HashName, "blake2b-512"),
+            Self::Blake2s256 => siros_syntax::checked!(HashName, "blake2s-256"),
+            Self::Blake2b256 => siros_syntax::checked!(HashName, "blake2b-256"),
+            Self::Blake2b512 => siros_syntax::checked!(HashName, "blake2b-512"),
         }
     }
 
@@ -347,8 +338,8 @@ impl K12 {
 impl HashAlgorithm for K12 {
     fn name(&self) -> HashName {
         match self {
-            Self::K12_256 => siros_explain::checked!(HashName, "k12-256"),
-            Self::K12_512 => siros_explain::checked!(HashName, "k12-512"),
+            Self::K12_256 => siros_syntax::checked!(HashName, "k12-256"),
+            Self::K12_512 => siros_syntax::checked!(HashName, "k12-512"),
         }
     }
 
@@ -384,13 +375,14 @@ fn listed<'e>(entry: &'e Entry<'_>) -> Option<&'e Node<'static>> {
 #[cfg(feature = "transaction-data")]
 /// B.3.3.1's rules on an entry's `transaction_data_hashes_alg`: `invalid_transaction_data`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.hashes_alg")]
 pub enum HashesAlgRule {
     /// No non-empty array of strings.
     #[error("transaction_data_hashes_alg is not a non-empty array of strings (B.3.3.1)")]
+    #[explain(id = "hashes_alg.not_array")]
     NotArray,
     /// No hash the wallet computes.
-    #[error("transaction_data_hashes_alg {names} names no hash this wallet computes (B.3.3.1)")]
+    #[error("transaction_data_hashes_alg {} names no hash this wallet computes (B.3.3.1)", .names.repr_text())]
+    #[explain(id = "hashes_alg.unknown")]
     Unknown {
         /// The names.
         names: ReprList,
@@ -454,16 +446,17 @@ pub fn algorithm<'h>(entries: &[&Entry<'_>], hashes: Hashes<'h>) -> Option<&'h d
 /// Why the B.3.3.1 members cannot be written.
 #[cfg(all(feature = "transaction-data", feature = "resolve"))]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.hashes")]
 pub enum HashesError {
     /// No algorithm every entry allows.
     #[error("no hash algorithm every entry allows (B.3.3.1)")]
+    #[explain(id = "hashes.no_common_algorithm")]
     NoCommonAlgorithm,
     /// A member written twice.
     #[error(transparent)]
     MemberTwice(#[from] MemberTwice),
     /// A registered algorithm's digest of another length than it states: its plug-in's bug.
     #[error("{name}'s digest holds {octets} octets, and it states {stated}")]
+    #[explain(id = "hashes.digest")]
     Digest {
         /// The algorithm.
         name: HashName,

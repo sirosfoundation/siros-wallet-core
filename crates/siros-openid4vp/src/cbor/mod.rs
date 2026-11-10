@@ -21,60 +21,89 @@ use read::{DEPTH, Lengths, Reader};
 
 /// Why bytes are no CBOR data item the wallet reads, or a value does not convert.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.cbor")]
 pub enum CborError {
     /// The bytes end inside the data item.
     #[error("the bytes end inside the data item")]
+    #[explain(id = "cbor.truncated")]
     Truncated,
     /// A head RFC 8949 §3 makes not well-formed: additional information 28 to 30, an indefinite
     /// length on an integer, a tag or a string chunk, a break where an item belongs, a chunk of
     /// another major type, or a simple value below 32 in two bytes.
-    #[error("the head at byte {0} is not well-formed")]
-    Malformed(#[explain(name = "at")] usize),
+    #[error("the head at byte {at} is not well-formed")]
+    #[explain(id = "cbor.malformed")]
+    Malformed {
+        /// The item's offset.
+        at: usize,
+    },
     /// A text string, or a chunk of one, that is no UTF-8.
-    #[error("the text at byte {0} is no UTF-8")]
-    Utf8(#[explain(name = "at")] usize),
+    #[error("the text at byte {at} is no UTF-8")]
+    #[explain(id = "cbor.utf8")]
+    Utf8 {
+        /// The string's offset.
+        at: usize,
+    },
     /// Arrays, maps and tags nested deeper than the reading admits.
-    #[error("the data item nests deeper than {0} levels")]
-    Depth(#[explain(name = "levels")] usize),
+    #[error("the data item nests deeper than {levels} levels")]
+    #[explain(id = "cbor.depth")]
+    Depth {
+        /// The most levels.
+        levels: usize,
+    },
     /// An indefinite length, or the break that ends one, where the reading admits definite
     /// lengths alone.
-    #[error("the head at byte {0} has an indefinite length")]
-    Indefinite(#[explain(name = "at")] usize),
+    #[error("the head at byte {at} has an indefinite length")]
+    #[explain(id = "cbor.indefinite")]
+    Indefinite {
+        /// The item's offset.
+        at: usize,
+    },
     /// `undefined` (23) or an unassigned simple value, which ciborium's `Value` cannot hold.
-    #[error("the simple value {0}")]
-    Simple(#[explain(name = "value")] u8),
+    #[error("the simple value {value}")]
+    #[explain(id = "cbor.simple")]
+    Simple {
+        /// The simple value.
+        value: u8,
+    },
     /// Bytes after the data item.
-    #[error("{0} bytes after the data item")]
-    Trailing(#[explain(name = "bytes")] usize),
+    #[error("{bytes} bytes after the data item")]
+    #[explain(id = "cbor.trailing")]
+    Trailing {
+        /// The bytes left.
+        bytes: usize,
+    },
     /// A map holds one key twice under RFC 8949 §5.6.1's equivalence, at any depth.
     #[error("a map holds the key {0:?} twice")]
+    #[explain(id = "cbor.repeated_key")]
     RepeatedKey(#[explain(skip)] Value),
     /// ciborium could not write the value.
     #[error("the value does not encode")]
-    Encode(
-        #[source]
-        #[explain(skip)]
-        ciborium::ser::Error<io::Error>,
-    ),
+    #[explain(id = "cbor.encode")]
+    Encode(#[source] ciborium::ser::Error<io::Error>),
     /// An integer beyond CBOR's major types 0 and 1 (-2^64 to 2^64-1).
-    #[error("the integer {0} is beyond CBOR's major types 0 and 1")]
-    IntegerRange(#[explain(name = "number")] String),
+    #[error("the integer {number} is beyond CBOR's major types 0 and 1")]
+    #[explain(id = "cbor.integer_range")]
+    IntegerRange {
+        /// The number.
+        number: String,
+    },
     /// A JSON number beyond the double range.
-    #[error("the number {0} is beyond the double range")]
-    DoubleRange(#[explain(name = "number")] String),
+    #[error("the number {number} is beyond the double range")]
+    #[explain(id = "cbor.double_range")]
+    DoubleRange {
+        /// The number.
+        number: String,
+    },
     /// A map key other than a text string, which a JSON object cannot name.
     #[error("the map key {0:?} is no text a JSON object can name")]
+    #[explain(id = "cbor.key")]
     Key(#[explain(skip)] Value),
     /// A map whose text keys a JSON object cannot hold.
     #[error("a map converts to no JSON object")]
-    Object(
-        #[source]
-        #[explain(name = "cause")]
-        JsonError,
-    ),
+    #[explain(id = "cbor.object")]
+    Object(#[source] JsonError),
     /// A value of a kind ciborium adds after 0.2.2.
     #[error("the CBOR value {0:?} is of an unknown kind")]
+    #[explain(id = "cbor.unknown")]
     Unknown(#[explain(skip)] Value),
 }
 
@@ -102,7 +131,9 @@ pub fn decode_definite(bytes: &[u8], depth: usize) -> Result<Value, CborError> {
 fn read(mut reader: Reader<'_>) -> Result<Value, CborError> {
     let value = reader.item(0)?;
     if !reader.rest().is_empty() {
-        return Err(CborError::Trailing(reader.rest().len()));
+        return Err(CborError::Trailing {
+            bytes: reader.rest().len(),
+        });
     }
     distinct_keys(&value)?;
     Ok(value)
@@ -338,15 +369,17 @@ pub fn of_json(node: &Node<'_>) -> Result<Value, CborError> {
         Node::Null => Value::Null,
         Node::Bool(value) => Value::Bool(*value),
         Node::Number(number) if number.is_integer() => {
-            let range = || CborError::IntegerRange(number.text().to_owned());
+            let range = || CborError::IntegerRange {
+                number: number.text().to_owned(),
+            };
             let value: i128 = number.text().parse().map_err(|_| range())?;
             Value::Integer(Integer::try_from(value).map_err(|_| range())?)
         }
-        Node::Number(number) => Value::Float(
-            number
-                .to_double()
-                .ok_or_else(|| CborError::DoubleRange(number.text().to_owned()))?,
-        ),
+        Node::Number(number) => {
+            Value::Float(number.to_double().ok_or_else(|| CborError::DoubleRange {
+                number: number.text().to_owned(),
+            })?)
+        }
         Node::String(text) => Value::Text(text.to_string()),
         Node::Array(items) => Value::Array(items.iter().map(of_json).collect::<Result<_, _>>()?),
         Node::Object(object) => Value::Map(

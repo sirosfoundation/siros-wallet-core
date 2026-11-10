@@ -9,7 +9,8 @@
 
 use std::borrow::Cow;
 
-use siros_explain::{Explained, Text};
+use siros_explain::Explain;
+use siros_i18n::Context;
 use siros_openid4vp::authenticate::{
     ClientBinding, ClientClaim, ClientPrefix, EndpointBasis, PrefixClaim, PrefixHost, PrefixName,
     Unbound,
@@ -18,16 +19,17 @@ use siros_openid4vp::effects::{
     Action, ActionName, Decided, Decision, Entity, EntityId, EntityType, Evaluation, Verdict,
 };
 use siros_openid4vp::host::Timestamp;
-use siros_openid4vp::jose::Skew;
-use siros_openid4vp::json::{Member, Node, Object};
+use siros_openid4vp::jose::{Skew, VerificationKey};
+use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::uri::ResponseUri;
 
+use crate::format::DoubleText;
 use crate::jose::verifier_key;
 
-const TEST: PrefixName = siros_explain::checked!(PrefixName, "test");
-const CLIENT_ID: EntityType = siros_explain::checked!(EntityType, "client_id");
-const KEY: EntityType = siros_explain::checked!(EntityType, "test_key");
-const VERIFIER: ActionName = siros_explain::checked!(ActionName, "credential-verifier");
+const TEST: PrefixName = siros_syntax::checked!(PrefixName, "test");
+const CLIENT_ID: EntityType = siros_syntax::checked!(EntityType, "client_id");
+const KEY: EntityType = siros_syntax::checked!(EntityType, "test_key");
+const VERIFIER: ActionName = siros_syntax::checked!(ActionName, "credential-verifier");
 
 /// The `test` prefix. Without `endpoints` in the decision, `Request` vouches for any
 /// `response_uri` the request names, as `x509_hash` does; `Framework(host)` for one on the host,
@@ -47,14 +49,18 @@ impl ClientPrefix for TestPrefix {
 }
 
 impl<H> PrefixHost<H> for TestPrefix {
+    /// The claim, with the test Verifier's key; the test doubles' fault when the key does not
+    /// derive.
     fn claim<'c>(
         &'c self,
         claim: ClientClaim<'c>,
         _host: &H,
-    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explain>> {
+        let key = verifier_key().map_err(|fault| Box::new(fault) as Box<dyn Explain>)?;
         Ok(Box::new(TestClaim {
             prefix: self,
             claim,
+            key,
         }))
     }
 }
@@ -80,15 +86,16 @@ impl<H> PrefixHost<H> for NamedPrefix {
         &'c self,
         claim: ClientClaim<'c>,
         host: &H,
-    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explained>> {
+    ) -> Result<Box<dyn PrefixClaim + 'c>, Box<dyn Explain>> {
         self.prefix.claim(claim, host)
     }
 }
 
-/// A claim the test prefix read.
+/// A claim the test prefix read, with the key it binds.
 struct TestClaim<'c> {
     prefix: &'c TestPrefix,
     claim: ClientClaim<'c>,
+    key: VerificationKey,
 }
 
 fn text(value: &str) -> Node<'static> {
@@ -96,7 +103,7 @@ fn text(value: &str) -> Node<'static> {
 }
 
 /// The decision's context member.
-fn context<'d>(decided: &Decided<'d>, name: &str) -> Option<&'d Node<'static>> {
+fn stated<'d>(decided: &Decided<'d>, name: &str) -> Option<&'d Node<'static>> {
     decided
         .replies()
         .first()
@@ -128,11 +135,14 @@ impl PrefixClaim for TestClaim<'_> {
         }]
     }
 
+    /// The test Verifier's key when every decision permits; the decision's `name` as written,
+    /// worded by `context`, and its `facts`.
     fn bind(
         &self,
         decided: Decided<'_>,
         _now: Timestamp,
         _skew: Skew,
+        context: &Context,
     ) -> Result<ClientBinding, Unbound> {
         let permitted = decided
             .replies()
@@ -141,15 +151,13 @@ impl PrefixClaim for TestClaim<'_> {
         if !permitted || decided.replies().is_empty() {
             return Err(Unbound::Denied);
         }
-        let key = verifier_key().map_err(|_| Unbound::Denied)?;
         Ok(ClientBinding {
-            key,
-            name: context(&decided, "name")
+            key: self.key.clone(),
+            name: stated(&decided, "name")
                 .and_then(Node::as_str)
-                .map(|name| Text::Raw(name.to_owned())),
-            facts: context(&decided, "facts")
-                .and_then(Node::as_object)
-                .cloned(),
+                .map(|name| context.resolve(&DoubleText::written(name)))
+                .transpose()?,
+            facts: stated(&decided, "facts").and_then(Node::as_object).cloned(),
         })
     }
 
@@ -158,7 +166,7 @@ impl PrefixClaim for TestClaim<'_> {
         decided: Decided<'_>,
         response_uri: &ResponseUri,
     ) -> Result<EndpointBasis, Unbound> {
-        if let Some(endpoints) = context(&decided, "endpoints") {
+        if let Some(endpoints) = stated(&decided, "endpoints") {
             let listed = endpoints.as_array().is_some_and(|uris| {
                 uris.iter()
                     .any(|uri| uri.as_str() == Some(response_uri.as_str()))
@@ -233,30 +241,22 @@ impl TestTrust {
             Registration::Required if !registered => Verdict::Deny,
             Registration::Ignored | Registration::Required => self.verdict,
         };
-        let mut members = Vec::new();
+        let mut context = Object::default();
         if let Some(name) = &self.name {
-            members.push(("name", text(name)));
+            context.set(Cow::Borrowed("name"), text(name));
         }
         if let Some(facts) = &self.facts {
-            members.push(("facts", Node::Object(facts.clone())));
+            context.set(Cow::Borrowed("facts"), Node::Object(facts.clone()));
         }
         if let Some(endpoints) = &self.endpoints {
-            members.push((
-                "endpoints",
+            context.set(
+                Cow::Borrowed("endpoints"),
                 Node::Array(endpoints.iter().map(|uri| text(uri)).collect()),
-            ));
+            );
         }
-        let context = Object::new(
-            members
-                .into_iter()
-                .map(|(name, value)| Member {
-                    name: Cow::Borrowed(name),
-                    value,
-                })
-                .collect(),
-        )
-        .ok()
-        .filter(|context| !context.members().is_empty());
-        Decision { verdict, context }
+        Decision {
+            verdict,
+            context: (!context.members().is_empty()).then_some(context),
+        }
     }
 }

@@ -2,14 +2,14 @@
 //! when the wallet reports it (OpenID4VP 1.0 §8.5, RFC 6749 §4.1.2.1).
 //!
 //! A refusal's text quotes request strings and lists the way the reference model writes them
-//! ([`Quoted`], [`QuotedList`], [`ReprList`]), so the texts compare with the model's.
+//! ([`Quoted`], [`QuotedList`], [`ReprList::repr`]), so the texts compare with the model's.
 
+use std::error::Error;
 use std::fmt;
 
 use icu_properties::{CodePointMapData, props::GeneralCategory};
-use siros_explain::{
-    AllOf, Arg, Args, Explain, Explained, IntoArg, ListKind, Listed, MessageId, kind,
-};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 use crate::json::Node;
 
@@ -47,45 +47,45 @@ pub struct ErrorCode(&'static str);
 
 impl ErrorCode {
     /// `invalid_request` (RFC 6749 §4.1.2.1).
-    pub const INVALID_REQUEST: Self = siros_explain::checked!(ErrorCode, "invalid_request");
+    pub const INVALID_REQUEST: Self = siros_syntax::checked!(ErrorCode, "invalid_request");
     /// `unauthorized_client` (RFC 6749 §4.1.2.1).
-    pub const UNAUTHORIZED_CLIENT: Self = siros_explain::checked!(ErrorCode, "unauthorized_client");
+    pub const UNAUTHORIZED_CLIENT: Self = siros_syntax::checked!(ErrorCode, "unauthorized_client");
     /// `access_denied` (RFC 6749 §4.1.2.1).
-    pub const ACCESS_DENIED: Self = siros_explain::checked!(ErrorCode, "access_denied");
+    pub const ACCESS_DENIED: Self = siros_syntax::checked!(ErrorCode, "access_denied");
     /// `unsupported_response_type` (RFC 6749 §4.1.2.1).
     pub const UNSUPPORTED_RESPONSE_TYPE: Self =
-        siros_explain::checked!(ErrorCode, "unsupported_response_type");
+        siros_syntax::checked!(ErrorCode, "unsupported_response_type");
     /// `invalid_scope` (RFC 6749 §4.1.2.1).
-    pub const INVALID_SCOPE: Self = siros_explain::checked!(ErrorCode, "invalid_scope");
+    pub const INVALID_SCOPE: Self = siros_syntax::checked!(ErrorCode, "invalid_scope");
     /// `server_error` (RFC 6749 §4.1.2.1).
-    pub const SERVER_ERROR: Self = siros_explain::checked!(ErrorCode, "server_error");
+    pub const SERVER_ERROR: Self = siros_syntax::checked!(ErrorCode, "server_error");
     /// `temporarily_unavailable` (RFC 6749 §4.1.2.1).
     pub const TEMPORARILY_UNAVAILABLE: Self =
-        siros_explain::checked!(ErrorCode, "temporarily_unavailable");
+        siros_syntax::checked!(ErrorCode, "temporarily_unavailable");
     /// `invalid_request_uri` (RFC 9101 §7).
-    pub const INVALID_REQUEST_URI: Self = siros_explain::checked!(ErrorCode, "invalid_request_uri");
+    pub const INVALID_REQUEST_URI: Self = siros_syntax::checked!(ErrorCode, "invalid_request_uri");
     /// `invalid_request_object` (RFC 9101 §7).
     pub const INVALID_REQUEST_OBJECT: Self =
-        siros_explain::checked!(ErrorCode, "invalid_request_object");
+        siros_syntax::checked!(ErrorCode, "invalid_request_object");
     /// `request_not_supported` (RFC 9101 §7).
     pub const REQUEST_NOT_SUPPORTED: Self =
-        siros_explain::checked!(ErrorCode, "request_not_supported");
+        siros_syntax::checked!(ErrorCode, "request_not_supported");
     /// `request_uri_not_supported` (RFC 9101 §7).
     pub const REQUEST_URI_NOT_SUPPORTED: Self =
-        siros_explain::checked!(ErrorCode, "request_uri_not_supported");
+        siros_syntax::checked!(ErrorCode, "request_uri_not_supported");
     /// `invalid_client` (OpenID4VP 1.0 §8.5); no rule of the core returns it.
-    pub const INVALID_CLIENT: Self = siros_explain::checked!(ErrorCode, "invalid_client");
+    pub const INVALID_CLIENT: Self = siros_syntax::checked!(ErrorCode, "invalid_client");
     /// `vp_formats_not_supported` (OpenID4VP 1.0 §8.5).
     pub const VP_FORMATS_NOT_SUPPORTED: Self =
-        siros_explain::checked!(ErrorCode, "vp_formats_not_supported");
+        siros_syntax::checked!(ErrorCode, "vp_formats_not_supported");
     /// `invalid_request_uri_method` (OpenID4VP 1.0 §8.5).
     pub const INVALID_REQUEST_URI_METHOD: Self =
-        siros_explain::checked!(ErrorCode, "invalid_request_uri_method");
+        siros_syntax::checked!(ErrorCode, "invalid_request_uri_method");
     /// `invalid_transaction_data` (OpenID4VP 1.0 §8.5).
     pub const INVALID_TRANSACTION_DATA: Self =
-        siros_explain::checked!(ErrorCode, "invalid_transaction_data");
+        siros_syntax::checked!(ErrorCode, "invalid_transaction_data");
     /// `wallet_unavailable` (OpenID4VP 1.0 §8.5).
-    pub const WALLET_UNAVAILABLE: Self = siros_explain::checked!(ErrorCode, "wallet_unavailable");
+    pub const WALLET_UNAVAILABLE: Self = siros_syntax::checked!(ErrorCode, "wallet_unavailable");
 
     /// The code, when `code` is one or more of RFC 6749 Appendix A.7's `NQSCHAR` (`%x20-21`,
     /// `%x23-5B`, `%x5D-7E`).
@@ -146,25 +146,22 @@ impl ErrorDescription {
     }
 }
 
-/// A description is named by its text in a message.
-impl IntoArg for ErrorDescription {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.0
+impl fmt::Display for ErrorDescription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
 /// A request rule: its message, and the one code the Verifier receives for it (OpenID4VP 1.0
 /// §8.5).
-pub trait RequestRule: Explained {
+pub trait RequestRule: Explain {
     /// The rule's code.
     fn code(&self) -> ErrorCode;
 }
 
 /// A request rule the request breaks. The rule stays itself until a text is needed: its
 /// `Display` is the English text of a log line and, sanitized, of the Verifier's
-/// `error_description`; its message is the End-User's.
+/// `error_description`; its id, arguments and source are the rule's.
 #[derive(Debug)]
 pub struct Refusal(Box<dyn RequestRule>);
 
@@ -193,14 +190,19 @@ impl Refusal {
     }
 }
 
-/// A refusal's message is its rule's.
+impl Error for Refusal {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.0.source()
+    }
+}
+
 impl Explain for Refusal {
-    fn id(&self) -> MessageId {
+    fn id(&self) -> &'static str {
         self.0.id()
     }
 
-    fn args(&self) -> Args<'_> {
-        self.0.args()
+    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn fmt::Display)) {
+        self.0.args(arg);
     }
 }
 
@@ -212,9 +214,10 @@ impl fmt::Display for Refusal {
 
 /// The rules a request breaks, at least one, in the order the rules run.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "refused")]
 #[error("the request breaks {} rule(s), the first: {}", .refusals.items().len(), first(.refusals))]
 pub struct Refused {
+    #[explain(skip)]
     refusals: AllOf<Refusal>,
 }
 
@@ -338,22 +341,24 @@ impl<T: AsRef<str>> fmt::Display for QuotedList<'_, T> {
     }
 }
 
-/// Values a rule names, in their order. A rule's text writes them as Python's `repr` of the
-/// list; its message names them as an and-list of raw texts, absent when there is none.
+/// Values a rule names, in their order. Its `Display`, a message's argument, writes each value as
+/// its sender wrote it, separated by `, `, and nothing for no value; [`ReprList::repr_text`]
+/// writes Python's `repr` of the list for the rule's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprList(Vec<ReprItem>);
 
-/// A received value a rule names: the rule's text writes it for the logs, in Python's `repr` or as
-/// [`Node::json_spaced`] writes it, and its message, which the End-User may read, as its sender
-/// wrote it.
+/// A received value a rule names. Its `Display`, a message's argument, which the End-User may
+/// read, writes it as its sender wrote it; [`ReprItem::repr_text`] writes it for the rule's text,
+/// in Python's `repr` or as [`Node::json_spaced`] writes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprItem {
     repr: String,
     written: String,
 }
 
-/// A received value a rule names when the request may leave it out: the rule's text writes an
-/// absent one as Python's `None`, and its message's argument is absent.
+/// A received value a rule names when the request may leave it out. Its `Display`, a message's
+/// argument, writes nothing for an absent one; [`ReprOption::repr_text`] writes Python's `None`
+/// for the rule's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReprOption(Option<ReprItem>);
 
@@ -408,6 +413,12 @@ impl ReprList {
                 .collect(),
         )
     }
+
+    /// Python's `repr` of the list, as the rule's text writes it.
+    #[must_use]
+    pub fn repr_text(&self) -> impl fmt::Display + '_ {
+        ListRepr(&self.0)
+    }
 }
 
 impl ReprItem {
@@ -429,6 +440,12 @@ impl ReprItem {
             written: value.written_text(),
         }
     }
+
+    /// The value as the rule's text writes it.
+    #[must_use]
+    pub fn repr_text(&self) -> &str {
+        &self.repr
+    }
 }
 
 impl ReprOption {
@@ -437,57 +454,50 @@ impl ReprOption {
     pub fn of(value: Option<&Node<'_>>) -> Self {
         Self(value.map(ReprItem::repr))
     }
-}
 
-impl fmt::Display for ReprItem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.repr)
+    /// The value as the rule's text writes it: Python's `None` when absent.
+    #[must_use]
+    pub fn repr_text(&self) -> &str {
+        self.0.as_ref().map_or("None", ReprItem::repr_text)
     }
 }
 
-impl fmt::Display for ReprOption {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.0 {
-            Some(item) => item.fmt(f),
-            None => f.write_str("None"),
-        }
-    }
-}
+/// Python's `repr` of a list of items.
+struct ListRepr<'l>(&'l [ReprItem]);
 
-impl fmt::Display for ReprList {
+impl fmt::Display for ListRepr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[")?;
         for (k, item) in self.0.iter().enumerate() {
             if k > 0 {
                 f.write_str(", ")?;
             }
-            write!(f, "{item}")?;
+            f.write_str(&item.repr)?;
         }
         f.write_str("]")
     }
 }
 
-impl IntoArg for ReprItem {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.written
+impl fmt::Display for ReprItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.written)
     }
 }
 
-impl IntoArg for ReprOption {
-    type Kind = kind::Optional<kind::Raw>;
-
-    fn arg(&self) -> Option<&str> {
-        self.0.as_ref().map(IntoArg::arg)
+impl fmt::Display for ReprOption {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.as_ref().map_or(Ok(()), |item| item.fmt(f))
     }
 }
 
-impl IntoArg for ReprList {
-    type Kind = kind::Optional<kind::List>;
-
-    fn arg(&self) -> Option<Listed<'_>> {
-        AllOf::new(self.0.iter().map(Arg::of).collect())
-            .map(|items| Listed::new(ListKind::And, items))
+impl fmt::Display for ReprList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (k, item) in self.0.iter().enumerate() {
+            if k > 0 {
+                f.write_str(", ")?;
+            }
+            item.fmt(f)?;
+        }
+        Ok(())
     }
 }

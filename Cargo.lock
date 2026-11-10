@@ -3477,6 +3477,7 @@ dependencies = [
  "sha3 0.12.0",
  "siros-explain",
  "siros-i18n",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
@@ -3567,6 +3568,7 @@ dependencies = [
  "siros-explain",
  "siros-i18n",
  "siros-openid4vp",
+ "siros-syntax",
  "thiserror 2.0.21",
 ]
 

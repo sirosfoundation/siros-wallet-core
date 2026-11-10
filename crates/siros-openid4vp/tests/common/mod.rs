@@ -170,7 +170,7 @@ pub struct ClaimsTest {
 
 impl ClaimsFormat for ClaimsTest {
     fn id(&self) -> FormatName {
-        siros_explain::checked!(FormatName, "x")
+        siros_syntax::checked!(FormatName, "x")
     }
     fn label_key(&self) -> &'static str {
         self.label

@@ -1,6 +1,6 @@
 //! The records the returned ids name, and whether they are a selection the request allows.
 
-use siros_explain::AllOf;
+use siros_syntax::AllOf;
 
 use super::{Finding, Outcome, RecordIndex, Rejection};
 use crate::ids::QueryId;
@@ -8,8 +8,8 @@ use crate::matching::{Accepted, EntryView, ReturnedRecord, Views};
 use crate::request::{Multiplicity, QuerySet};
 
 /// The records the wallet derives for the returned ids; Fallback naming each id that is none of
-/// them, and the input each id that names a derived record with other rendering inputs names
-/// otherwise. Nothing renders to compare.
+/// them, as [`Finding::Rendered`] when it names a derived record's every member but its shown
+/// texts' digest as the record does.
 pub(super) fn derived<'v>(
     views: &'v Views<'v>,
     returned: &[ReturnedRecord<'_>],
@@ -23,9 +23,10 @@ pub(super) fn derived<'v>(
         .filter(|(_, (view, _))| view.is_none())
         .map(|(position, (_, id))| {
             let record = RecordIndex(position);
-            match views.iter().find_map(|view| view.record.other_input(id)) {
-                Some(input) => Finding::Rendered { record, input },
-                None => Finding::Diverged { record },
+            if views.iter().any(|view| view.record.shown_differs(id)) {
+                Finding::Rendered { record }
+            } else {
+                Finding::Diverged { record }
             }
         })
         .collect();

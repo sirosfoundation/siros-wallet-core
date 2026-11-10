@@ -7,16 +7,17 @@ use siros_explain::Explain;
 
 use super::{AuthorizationUri, FormBody, RequestUri, RequestUriMethod};
 use crate::arrival::{FetchFailure, Received, Unreadable};
+use crate::detail;
 use crate::host::CoreHost;
 #[cfg(feature = "request-decryption")]
 use crate::host::EphemeralKey;
 use crate::jose::CompactJws;
 #[cfg(feature = "request-decryption")]
 use crate::jose::{CompactJwe, JwsError};
+use crate::plugins::caused;
 use crate::plugins::{Build, Fault, Registry};
 use crate::recourse::{self, Rejected};
 use crate::wallet_metadata::{MetadataRefused, RequestUriPost, WalletMetadata};
-use crate::{FAULT, detail};
 
 /// What the caller fetches, with `Accept: application/oauth-authz-req+jwt` (RFC 9101 §5.2.3,
 /// §5.10): a GET of the `request_uri`, or a POST of this form body to it.
@@ -45,7 +46,6 @@ pub enum FetchAnswer<'b> {
 /// Why a URI gives no fetch: the URI breaks a U rule, a `wallet_metadata` contributor broke its
 /// declaration, or a module broke its contract.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.fetch")]
 pub enum NoFetch {
     /// A U rule.
     #[error(transparent)]
@@ -103,7 +103,7 @@ impl<'a> Fetch<'a> {
                 let key = post.ephemeral_key(host)?;
                 let metadata = WalletMetadata::of(registry, host, uri.client_id(), key.as_ref())?;
                 let body = FormBody::of(&RequestUriPost::of(&metadata))
-                    .map_err(|e| Fault::caused(FAULT, detail!("the request_uri POST's form"), e))?;
+                    .map_err(|e| caused(detail!("the request_uri POST's form"), e))?;
                 FetchMethod::Post {
                     body,
                     #[cfg(feature = "request-decryption")]

@@ -74,10 +74,10 @@ fn an_authorization_request_uri_breaks_its_rules_in_order() {
             | ("both", Unreadable::RequestAndRequestUri)
             | ("by value", Unreadable::RequestByValue)
             | ("no request_uri", Unreadable::ParametersInUri) => true,
-            ("repeated", Unreadable::Repeated(name)) => name == "x",
-            ("client_id", Unreadable::ClientId(id)) => id == "test:\u{fffd}",
-            ("request_uri", Unreadable::RequestUri(uri)) => uri.ends_with("/r"),
-            ("method", Unreadable::RequestUriMethod(method)) => method == "put",
+            ("repeated", Unreadable::Repeated { parameter: name }) => name == "x",
+            ("client_id", Unreadable::ClientId { client_id: id }) => id == "test:\u{fffd}",
+            ("request_uri", Unreadable::RequestUri { request_uri: uri }) => uri.ends_with("/r"),
+            ("method", Unreadable::RequestUriMethod { method }) => method == "put",
             _ => false,
         };
         assert!(holds, "{rule}: {uri}: {cause:?}");
@@ -99,7 +99,9 @@ fn a_fetch_that_fails_terminates_and_a_body_is_an_es256_jws() {
     let host = TestHost::default();
     let registry = registry();
     let fetch = Fetch::of(&uri, &registry, &host).expect("a fetch");
-    let failure = FetchFailure::Status(FailedStatus::new(404).expect("a status"));
+    let failure = FetchFailure::Status {
+        status: FailedStatus::new(404).expect("a status"),
+    };
     let rejected = fetch
         .resume(FetchAnswer::Failed(failure), &registry, &host)
         .expect_err("U9");
@@ -119,7 +121,7 @@ fn a_fetch_that_fails_terminates_and_a_body_is_an_es256_jws() {
     let rejected = fetched(&uri, &none).expect_err("U10");
     assert!(matches!(
         rejected.failure(),
-        Failure::Unreadable(Unreadable::Jws(JwsError::Algorithm(Some(alg)))) if alg == "none"
+        Failure::Unreadable(Unreadable::Jws(JwsError::Algorithm { alg: Some(alg) })) if alg == "none"
     ));
     let route = rejected.route().expect("an unverified route");
     assert!(matches!(route.target(), ErrorTarget::Unverified(at) if at.as_str() == RESPONSE_URI));
@@ -238,7 +240,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         .expect_err("U11");
     assert!(matches!(
         rejected.failure(),
-        Failure::Unreadable(Unreadable::Jwe(JweError::Algorithm(Some(alg)))) if alg == "RSA-OAEP"
+        Failure::Unreadable(Unreadable::Jwe(JweError::Algorithm { alg: Some(alg) })) if alg == "RSA-OAEP"
     ));
     // U11: a JWE after a GET, which posted no key.
     let get = link("test%3Averifier", "");
@@ -266,7 +268,7 @@ fn a_post_carries_wallet_metadata_and_a_jwe_decrypts_under_its_key_alone() {
         .expect_err("U11");
     assert!(matches!(
         rejected.failure(),
-        Failure::Unreadable(Unreadable::Jwe(JweError::Json(JsonError::DuplicateMember(m)))) if m == "alg"
+        Failure::Unreadable(Unreadable::Jwe(JweError::Json(JsonError::DuplicateMember { member: m }))) if m == "alg"
     ));
 }
 
@@ -309,9 +311,9 @@ fn a_post_carries_each_contribution_by_the_names_it_declared() {
         MetadataMember, MetadataRefused, ParameterName, PostContent, PostParameter,
     };
     use siros_testkit::{TestFormat, TestMode, TestPostContribution, TestPrefix};
-    const MEMBER: ParameterName = siros_explain::checked!(ParameterName, "test_member");
-    const PARAMETER: ParameterName = siros_explain::checked!(ParameterName, "test_parameter");
-    const OTHER: ParameterName = siros_explain::checked!(ParameterName, "other_member");
+    const MEMBER: ParameterName = siros_syntax::checked!(ParameterName, "test_member");
+    const PARAMETER: ParameterName = siros_syntax::checked!(ParameterName, "test_parameter");
+    const OTHER: ParameterName = siros_syntax::checked!(ParameterName, "other_member");
     let build = |format: TestFormat, content: PostContent| {
         let mut builder = Registry::<TestHost>::builder();
         siros_testkit::fixtures::openid4vp(&mut builder);
@@ -364,17 +366,17 @@ fn a_post_carries_each_contribution_by_the_names_it_declared() {
         let registry = build(format(), content);
         assert!(matches!(
             Fetch::of(&uri, &registry, &host),
-            Err(NoFetch::Metadata(MetadataRefused::Undeclared(name))) if name == OTHER
+            Err(NoFetch::Metadata(MetadataRefused::Undeclared { member: name })) if name == OTHER
         ));
     }
     // §10.1: a format's vp_formats_supported value is an object.
     let registry = build(format().stating(Node::Bool(true)), PostContent::default());
     assert!(matches!(
         Fetch::of(&uri, &registry, &host),
-        Err(NoFetch::Metadata(MetadataRefused::NotObject(member))) if member == "vp_formats_supported.test"
+        Err(NoFetch::Metadata(MetadataRefused::NotObject { member })) if member == "vp_formats_supported.test"
     ));
     // A URI mode's member of a name it did not declare.
-    const DECLARED: ParameterName = siros_explain::checked!(ParameterName, "mode_member");
+    const DECLARED: ParameterName = siros_syntax::checked!(ParameterName, "mode_member");
     let mut builder = Registry::<TestHost>::builder();
     siros_testkit::fixtures::openid4vp(&mut builder);
     builder.format(format());
@@ -383,14 +385,14 @@ fn a_post_carries_each_contribution_by_the_names_it_declared() {
         declares: &[DECLARED],
         writes: vec![MetadataMember::new(OTHER, Node::Bool(true))],
         ..TestMode::new(
-            siros_explain::checked!(ModeName, "direct_post.test"),
+            siros_syntax::checked!(ModeName, "direct_post.test"),
             ChannelKind::Uri,
         )
     });
     let registry = builder.build().expect("registry");
     assert!(matches!(
         Fetch::of(&uri, &registry, &host),
-        Err(NoFetch::Metadata(MetadataRefused::Undeclared(name))) if name == OTHER
+        Err(NoFetch::Metadata(MetadataRefused::Undeclared { member: name })) if name == OTHER
     ));
 }
 

@@ -1,6 +1,6 @@
 //! The doubles of the `request_uri` POST's contributions and of the Response URI answer's readers.
 
-use siros_explain::Explained;
+use siros_explain::Explain;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::uri::{AnswerMembers, AnswerReader};
 use siros_openid4vp::wallet_metadata::{
@@ -47,7 +47,7 @@ impl AnswerReader for TestAnswerReader {
     fn read(
         &self,
         _members: &AnswerMembers<'_>,
-    ) -> Result<Option<Box<dyn Explained>>, Box<dyn Explained>> {
+    ) -> Result<Option<Box<dyn Explain>>, Box<dyn Explain>> {
         Ok(None)
     }
 }

@@ -16,32 +16,37 @@ mod merge;
 mod plugin;
 mod rules;
 
-use siros_explain::{
-    AllOf, Count, DefinedKey, DefinedModule, Explained, Keyed, Query as ExplainQuery, Text,
-};
+use std::fmt;
+
+use siros_explain::Explain;
+use siros_i18n::{Context, Message};
+use siros_syntax::{AllOf, Count};
 
 use display::{
-    Described, byte_strings, date_of, dates, issuer_display, label_text, metadata, metadata_texts,
-    value_rows,
+    Described, Said, SaidRow, byte_strings, date_of, dates, issuer_display, label_text, metadata,
+    metadata_texts, value_rows,
 };
 pub use display::{format_entry, full_date, tdate};
 pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
-pub use rules::{CardError, KitRule, NoAlgorithm, QueryRule, RefusedText, VpFormatsMember};
+pub use rules::{
+    CardError, DrawError, KitRule, NoAlgorithm, QueryRule, RefusedText, VpFormatsMember,
+};
 
 use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
 use crate::consent::Card;
+use crate::detail;
 use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
 use crate::json::Node;
 use crate::plugins::{Clause, Exclude, Fault, Member, OptionIndex, Shown};
+use crate::plugins::{caused, fault};
 use crate::refusal::{Refusal, ReprList};
 use crate::request::{Item, Query};
-use crate::rows::{Env, Row, WalletText};
+use crate::rows::{ClaimText, Env, Row, Value, WalletText};
 use crate::text::TextError;
 use crate::wallet::Credential;
-use crate::{FAULT, detail};
 
 /// What sets one claims format apart from another.
 pub trait ClaimsFormat {
@@ -63,7 +68,7 @@ pub trait ClaimsFormat {
     fn read_meta<'n, 'm>(
         &self,
         meta: Option<&'n Node<'m>>,
-    ) -> Result<&'n Node<'m>, Box<dyn Explained>>;
+    ) -> Result<&'n Node<'m>, Box<dyn Explain>>;
     /// The credential's types its view states: its `type`, then those a format's view adds
     /// ([`crate::plugins::ViewAdditions`]).
     ///
@@ -77,27 +82,52 @@ pub trait ClaimsFormat {
     fn written(&self, claim: &Claim<'_>, provided: &[Member]) -> bool;
     /// The format's rule a claims path pointer breaks: it cannot address the format's
     /// credentials. `None` when it can.
-    fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explained>>;
+    fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explain>>;
     /// Whether an array element of the view's `values` marks a position the credential holds no
     /// value for: pointers select nothing there and the rows leave it out. A format whose views
     /// hold no such position keeps this answer.
     fn withheld(&self, _element: &Node<'_>) -> bool {
         false
     }
-    /// The defined module a credential's display metadata loaded as (section 4.14 of the design),
-    /// which then gives the card's title and the claims' labels. `None` shows the metadata's texts
-    /// as written.
+    /// The id under which the wallet's context words `item` of the credential `view` holds: an
+    /// id of the source the format converted the credential's display metadata into, which the
+    /// kit resolves for the card's title and the claims' labels. `None` shows the metadata's text
+    /// as written, through [`ClaimText::Label`].
     ///
     /// # Errors
     ///
-    /// The view names a module in no form the format writes.
-    fn display_module(&self, _view: &Node<'_>) -> Result<Option<DefinedModule>, Fault> {
+    /// The view names its converted source in no form the format writes.
+    fn display_id(&self, _view: &Node<'_>, _item: DisplayItem) -> Result<Option<DisplayId>, Fault> {
         Ok(None)
     }
-    /// The key of `item`'s message in the module [`Self::display_module`] names.
-    fn display_key(&self, _item: DisplayItem) -> Option<DefinedKey> {
-        None
+}
+
+/// An id a format's converted display source words, a statement without arguments: the source's
+/// ids carry the metadata's SHA-256, so every credential's converted source loads into one
+/// context.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DisplayId(String);
+
+impl DisplayId {
+    /// The statement of this id.
+    #[must_use]
+    pub const fn new(id: String) -> Self {
+        Self(id)
     }
+
+    /// The id.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Message for DisplayId {
+    fn id(&self) -> &str {
+        &self.0
+    }
+
+    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {}
 }
 
 /// A text of a credential's display metadata.
@@ -109,50 +139,67 @@ pub enum DisplayItem {
     Claim(usize),
 }
 
-/// What gives a card's texts: the wallet's locales, the defined module the metadata loaded as, and
-/// the view's byte strings and dates.
+/// What gives a card's texts: the wallet's locales and the view's byte strings and dates.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Display<'d> {
     pub(crate) locales: &'d [LocaleTag],
-    pub(crate) module: Option<&'d DefinedModule>,
     pub(crate) byte_strings: &'d [Node<'d>],
     pub(crate) dates: &'d [Node<'d>],
 }
 
 impl<'d> Display<'d> {
     /// What gives the texts of the credential `view` holds.
-    fn of(view: &'d Node<'d>, locales: &'d [LocaleTag], module: Option<&'d DefinedModule>) -> Self {
+    fn of(view: &'d Node<'d>, locales: &'d [LocaleTag]) -> Self {
         Self {
             locales,
-            module,
             byte_strings: byte_strings(view),
             dates: dates(view),
         }
     }
 
-    /// The text of `item`, whose metadata wrote `written`: its message in the defined module, else
-    /// as written.
-    pub(crate) fn text(self, format: &impl ClaimsFormat, item: DisplayItem, written: &str) -> Text {
-        match (self.module, format.display_key(item)) {
-            (Some(module), Some(key)) => Text::Query(ExplainQuery::defined(
-                *module,
-                key,
-                Keyed::first_of(Vec::new()),
-            )),
-            _ => Text::Raw(written.to_owned()),
-        }
-    }
-
-    /// The text of the label `item`, whose metadata wrote `written`, read through
+    /// The label `item`, whose metadata wrote `written`, read through
     /// [`DisplayText`](crate::text::DisplayText); `None` for white space alone.
-    pub(crate) fn label(
-        self,
-        format: &impl ClaimsFormat,
-        item: DisplayItem,
-        written: &str,
-    ) -> Result<Option<Text>, TextError> {
-        Ok(label_text(written)?.map(|_| self.text(format, item, written)))
+    pub(crate) fn label(item: DisplayItem, written: &str) -> Result<Option<Said>, TextError> {
+        Ok(label_text(written)?.map(|written| Said::Metadata { item, written }))
     }
+}
+
+/// The text `context` resolves for `said`: a metadata text by the id the format's converted
+/// source words it under, else as written.
+fn resolve(
+    said: Said,
+    format: &impl ClaimsFormat,
+    view: &Node<'_>,
+    context: &Context,
+) -> Result<siros_i18n::Text, DrawError> {
+    let text = match said {
+        Said::Wallet(text) => context.resolve(&text),
+        Said::Boolean(text) => context.resolve(&text),
+        Said::Claim(text) => context.resolve(&text),
+        Said::Metadata { item, written } => match format.display_id(view, item)? {
+            Some(id) => context.resolve(&id),
+            None => context.resolve(&ClaimText::Label { label: written }),
+        },
+    };
+    Ok(text?)
+}
+
+/// The rows `context` resolves for `said`.
+fn resolve_rows(
+    said: Vec<SaidRow>,
+    format: &impl ClaimsFormat,
+    view: &Node<'_>,
+    context: &Context,
+) -> Result<Vec<Row>, DrawError> {
+    said.into_iter()
+        .map(|row| {
+            let label = resolve(row.label, format, view, context)?;
+            Ok(match row.value {
+                Some(value) => Row::new(label, Value::Text(resolve(value, format, view, context)?)),
+                None => Row::full_text(label),
+            })
+        })
+        .collect()
 }
 
 /// A query's refusals in rule order: the first, the `vp_formats_supported` one when it follows,
@@ -371,7 +418,7 @@ impl<'q> ClaimsQuery<'q> {
                 .map_or(Ok(None), label_text)
                 .map_err(CardError::Text)?,
         );
-        let display = Display::of(view, env.priority(), None);
+        let display = Display::of(view, env.priority());
         for option in options {
             let items = self
                 .claims
@@ -383,34 +430,34 @@ impl<'q> ClaimsQuery<'q> {
         Ok(())
     }
 
-    /// The credential's card: the display entry's name, else the crate module's
-    /// `WalletText::Credential` message; as subtitle the name of the Credential Issuer's display
-    /// entry, else the `issuer`, white space alone showing none;
-    /// the logo resolved at issuance, else the wallet's default icon; the rows of the items shown.
+    /// The credential's card, its texts resolved by `context`: the display entry's name, else
+    /// [`WalletText::Credential`]; as subtitle the name of the Credential Issuer's display entry,
+    /// else the `issuer`, white space alone showing none; the logo resolved at issuance, else the
+    /// wallet's default icon; the rows of the items shown. A display entry's name and a claim's
+    /// label resolve by the id [`ClaimsFormat::display_id`] gives, else as written.
     ///
     /// # Errors
     ///
-    /// [`CardError`]: a pointer that selects nothing, or a text that breaks the rule of display
-    /// text.
+    /// [`DrawError`]: a pointer that selects nothing, a text that breaks the rule of display
+    /// text, a view whose converted source the format cannot read, or a statement `context`
+    /// resolves no text for.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
         view: &Node<'_>,
         shown: Shown<'_>,
         env: &Env,
-        module: Option<&DefinedModule>,
-    ) -> Result<Card, CardError> {
+        context: &Context,
+    ) -> Result<Card, DrawError> {
         let locales = env.priority();
-        let display = Display::of(view, locales, module);
+        let display = Display::of(view, locales);
         let entry = format_entry(metadata(view, "display"), locales);
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
-            .map_or(Ok(None), |name| {
-                display.label(format, DisplayItem::Name, name)
-            })
+            .map_or(Ok(None), |name| Display::label(DisplayItem::Name, name))
             .map_err(CardError::Text)?
-            .unwrap_or_else(|| Text::of(&WalletText::Credential));
+            .unwrap_or(Said::Wallet(WalletText::Credential));
         let named = format_entry(issuer_display(view), locales)
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
@@ -429,9 +476,12 @@ impl<'q> ClaimsQuery<'q> {
         rows.extend(self.claim_rows(format, shown.chosen, view, display)?);
         Ok(Card {
             icon,
-            title,
-            subtitle,
-            rows,
+            title: resolve(title, format, view, context)?,
+            subtitle: subtitle
+                .map(|label| context.resolve(&ClaimText::Label { label }))
+                .transpose()
+                .map_err(DrawError::Unworded)?,
+            rows: resolve_rows(rows, format, view, context)?,
         })
     }
 
@@ -443,7 +493,7 @@ impl<'q> ClaimsQuery<'q> {
         items: &[Item],
         view: &Node<'_>,
         display: Display<'_>,
-    ) -> Result<Vec<Row>, CardError> {
+    ) -> Result<Vec<SaidRow>, CardError> {
         let described: Vec<Described<'_, '_>> = metadata(view, "claims")
             .iter()
             .enumerate()
@@ -475,10 +525,7 @@ impl<'q> ClaimsQuery<'q> {
                 .select_held(values, |element| format.withheld(element))
                 .map_err(CardError::Path)?;
             for (path, value) in selected {
-                rows.extend(
-                    value_rows(format, &path, value, &described, display, None)
-                        .map_err(CardError::Text)?,
-                );
+                rows.extend(value_rows(format, &path, value, &described, display, None)?);
             }
         }
         Ok(rows)
@@ -579,9 +626,8 @@ impl<'v> ClaimsView<'v> {
     /// Reads the credential's view; a view of another shape is a fault of the wallet's data.
     pub fn read(credential: &'v Credential<'v>) -> Result<Self, Fault> {
         let what = || detail!("{id}: view", id = credential.id.to_string());
-        let text =
-            std::str::from_utf8(credential.view).map_err(|e| Fault::caused(FAULT, what(), e))?;
-        let json = Node::parse(text).map_err(|e| Fault::caused(FAULT, what(), e))?;
+        let text = std::str::from_utf8(credential.view).map_err(|e| caused(what(), e))?;
+        let json = Node::parse(text).map_err(|e| caused(what(), e))?;
         let metadata = json.get("metadata").and_then(Node::as_object);
         let listed = |name: &str| {
             metadata
@@ -602,18 +648,15 @@ impl<'v> ClaimsView<'v> {
             && located(&json, "byte_strings", |string| {
                 matches!(
                     string.get("length"),
-                    Some(Node::Number(length)) if Count::parse(length.text()).is_some()
+                    Some(Node::Number(length)) if Count::parse(length.text()).is_ok()
                 )
             })
             && located(&json, "dates", |date| date_of(date).is_some());
         if !shaped {
-            return Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{id}: a view without a string type, a metadata object or values",
-                    id = credential.id.to_string()
-                ),
-            ));
+            return Err(fault(detail!(
+                "{id}: a view without a string type, a metadata object or values",
+                id = credential.id.to_string()
+            )));
         }
         Ok(Self { credential, json })
     }

@@ -3,7 +3,8 @@
 //! own rules (a JWE mode's C7), each format's rules per query, each profile's over its entries;
 //! and the request they accept. C0 runs when the request is parsed.
 
-use siros_explain::{AllOf, Explain};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 use crate::envelope::Channel;
 use crate::plugins::registry::{Catalog, Placed};
@@ -15,11 +16,10 @@ use crate::wallet_metadata::Placement;
 
 /// The core's rules C1 to C8, each with its code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.rules")]
 pub enum CoreRule {
     /// C1: an entry's type has no profile.
     #[error("C1 entry {entry}: no profile for type {kind}")]
-    #[explain(id = "c1")]
+    #[explain(id = "rules.c1")]
     NoProfile {
         /// The entry's position.
         entry: EntryIndex,
@@ -27,8 +27,11 @@ pub enum CoreRule {
         kind: String,
     },
     /// C2: an entry's `credential_ids` name a query the request lacks.
-    #[error("C2 entry {entry}: credential_ids {ids} names no Credential Query of the request")]
-    #[explain(id = "c2")]
+    #[error(
+        "C2 entry {entry}: credential_ids {} names no Credential Query of the request",
+        .ids.repr_text()
+    )]
+    #[explain(id = "rules.c2")]
     CredentialIds {
         /// The entry's position.
         entry: EntryIndex,
@@ -37,22 +40,25 @@ pub enum CoreRule {
     },
     /// C3: an alternative presents two queries transaction data names.
     #[error("C3 two queries transaction data names can be presented together")]
-    #[explain(id = "c3")]
+    #[explain(id = "rules.c3")]
     TwoTransactions,
     /// C4: entries of two profiles name one query.
     #[error("C4 {query}: entries of two profiles name it")]
-    #[explain(id = "c4")]
+    #[explain(id = "rules.c4")]
     TwoProfiles {
         /// The query's id.
         query: String,
     },
     /// C6: `client_metadata` breaks its rule.
     #[error("C6 client_metadata: {0}")]
-    #[explain(id = "c6")]
-    ClientMetadata(#[explain(name = "cause")] MetadataError),
+    #[explain(id = "rules.c6")]
+    ClientMetadata(#[source] MetadataError),
     /// C8: a signed request whose `expected_origins` lack the Origin.
-    #[error("C8 a signed request whose expected_origins {expected} lack the Origin {origin}")]
-    #[explain(id = "c8")]
+    #[error(
+        "C8 a signed request whose expected_origins {} lack the Origin {origin}",
+        .expected.repr_text()
+    )]
+    #[explain(id = "rules.c8")]
     ExpectedOrigins {
         /// The `expected_origins`.
         expected: ReprList,

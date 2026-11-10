@@ -655,7 +655,7 @@ fn phase_2_answers_nothing_it_cannot_encrypt_as_dc_api_jwt_asks() {
             .iter()
             .map(|refusal| refusal.rule().id())
             .collect::<Vec<_>>(),
-        [siros_explain::checked!(
+        [siros_syntax::checked!(
             siros_explain::MessageId,
             "openid4vp.modes.c7_key"
         )]
@@ -669,7 +669,7 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
     use siros_openid4vp::routing::{ChannelKind, ModeName};
     use siros_testkit::{TestBody, TestChoice, TestMode};
 
-    const NAME: ModeName = siros_explain::checked!(ModeName, "dc_api.test");
+    const NAME: ModeName = siros_syntax::checked!(ModeName, "dc_api.test");
     let jwk = r#"{"kty": "EC", "crv": "P-256", "kid": "k", "x": "DxiH5Q4Yx3UrukE2lWCErq8N8bqC9CHLLrAwLz5BmE0", "y": "XtLM4-3h5o3HUH0MHVJV0kyq0iBlrBwlh8qEDMZ4-Pc", "use": "enc", "alg": "ECDH-ES"}"#;
     // The Verifier lists A192GCM and A128GCM; the test HAIP module states A256GCM and A128GCM.
     let text = format!(
@@ -695,7 +695,7 @@ fn the_core_checks_what_a_mode_chooses_and_writes() {
             Some(RouteBreach::Foreign),
         ),
         (
-            key(siros_explain::checked!(
+            key(siros_syntax::checked!(
                 ContentEncryption<'static>,
                 "A192GCM"
             )),
@@ -779,8 +779,8 @@ fn phase_2_writes_the_registered_response_parameters_after_vp_token() {
     use siros_openid4vp::wallet_metadata::ParameterName;
     use siros_testkit::TestResponseParameters;
 
-    const ISS: ParameterName = siros_explain::checked!(ParameterName, "iss");
-    const VP_TOKEN: ParameterName = siros_explain::checked!(ParameterName, "vp_token");
+    const ISS: ParameterName = siros_syntax::checked!(ParameterName, "iss");
+    const VP_TOKEN: ParameterName = siros_syntax::checked!(ParameterName, "vp_token");
 
     /// Declares `iss` at `build`, `vp_token` afterwards, and writes `vp_token`.
     #[derive(Debug)]

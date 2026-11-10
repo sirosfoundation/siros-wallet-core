@@ -1,21 +1,16 @@
-//! The row vocabulary every plug-in renders into. A row is a label and an optional value, each a
-//! [`Text`] the core renders when it is displayed, or for a transaction's overlay a
-//! [`RequestText`]; a row without a value is a full-text row.
+//! The row vocabulary every plug-in draws into. A row is a label and an optional value, each a
+//! [`Text`] a `siros_i18n::Context` resolved; a row without a value is a full-text row.
 
 mod env;
 mod https_url;
 
-use siros_explain::{RequestText, Text};
+use siros_i18n::Text;
 
 pub use env::{
-    BooleanText, Choice, ClaimText, Env, EnvError, Icon, IconReference, ImageMedia, NotImageMedia,
-    WalletText,
+    BooleanText, Choice, ClaimText, Env, EnvError, ExactNumber, Icon, IconReference, ImageMedia,
+    NotImageMedia, WalletText,
 };
 pub use https_url::{HttpsUrl, NotHttpsUrl};
-pub use siros_i18n::{
-    Amounts, Bidi, Language, ModuleName, OnRenderError, RENDERER, RenderOptions, RenderingInputs,
-    Selected,
-};
 
 /// An image a row shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,19 +168,19 @@ impl RemoteImage {
     }
 }
 
-/// A row's value, its text a [`Text`] or, in a transaction's overlay, a [`RequestText`].
+/// A row's value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Value<T = Text> {
+pub enum Value {
     /// An image, which has no text.
     Image(Image),
-    /// A text: a typed value where the value has a type.
-    Text(T),
+    /// A text.
+    Text(Text),
 }
 
-impl<T> Value<T> {
+impl Value {
     /// The text; an image has none.
     #[must_use]
-    pub const fn text(&self) -> Option<&T> {
+    pub const fn text(&self) -> Option<&Text> {
         match self {
             Self::Image(_) => None,
             Self::Text(text) => Some(text),
@@ -193,48 +188,21 @@ impl<T> Value<T> {
     }
 }
 
-impl Value<RequestText> {
-    /// An https URL, shown by its [`HttpsUrl::ascii`].
-    #[must_use]
-    pub fn url(url: &HttpsUrl) -> Self {
-        Self::Text(RequestText::raw(url.ascii().to_owned()))
-    }
-}
-
-impl From<Value<RequestText>> for Value {
-    fn from(value: Value<RequestText>) -> Self {
-        match value {
-            Value::Image(image) => Self::Image(image),
-            Value::Text(text) => Self::Text(text.into()),
-        }
-    }
-}
-
-/// One row of a box, its texts [`Text`]s or, in a transaction's overlay, [`RequestText`]s.
+/// One row of a box.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Row<T = Text> {
+pub struct Row {
     /// The label.
-    pub label: T,
+    pub label: Text,
     /// The value; `None` makes a full-text row.
-    pub value: Option<Value<T>>,
+    pub value: Option<Value>,
     /// The title of the delimited section the row sits in.
-    pub section: Option<T>,
+    pub section: Option<Text>,
 }
 
-impl From<Row<RequestText>> for Row {
-    fn from(row: Row<RequestText>) -> Self {
-        Self {
-            label: row.label.into(),
-            value: row.value.map(Value::from),
-            section: row.section.map(Text::from),
-        }
-    }
-}
-
-impl<T> Row<T> {
+impl Row {
     /// A row showing a value.
     #[must_use]
-    pub const fn new(label: T, value: Value<T>) -> Self {
+    pub const fn new(label: Text, value: Value) -> Self {
         Self {
             label,
             value: Some(value),
@@ -244,7 +212,7 @@ impl<T> Row<T> {
 
     /// A full-text row: its label alone.
     #[must_use]
-    pub const fn full_text(label: T) -> Self {
+    pub const fn full_text(label: Text) -> Self {
         Self {
             label,
             value: None,
@@ -254,7 +222,7 @@ impl<T> Row<T> {
 
     /// The row placed in a delimited section.
     #[must_use]
-    pub fn in_section(self, section: T) -> Self {
+    pub fn in_section(self, section: Text) -> Self {
         Self {
             section: Some(section),
             ..self

@@ -38,7 +38,7 @@ use super::config;
 /// The test Verifier's endpoints.
 const RESPONSE_URI: &str = "https://verifier.example/post";
 const ORIGIN: &str = "https://verifier.example";
-const TEST_MODE: ModeName = siros_explain::checked!(ModeName, "test.mode");
+const TEST_MODE: ModeName = siros_syntax::checked!(ModeName, "test.mode");
 
 /// How a mode under test registers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

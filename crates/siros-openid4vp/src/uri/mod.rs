@@ -87,7 +87,11 @@ impl<'a> AuthorizationUri<'a> {
             .ok_or(Unreadable::Uri(UriError::Query))?
             .as_str();
         let (client_id, request_uri, method, request) = match query::read(query)? {
-            QueryRead::Repeated(name) => return Err(Unreadable::Repeated(name.into_owned())),
+            QueryRead::Repeated(name) => {
+                return Err(Unreadable::Repeated {
+                    parameter: name.into_owned(),
+                });
+            }
             QueryRead::Read {
                 client_id,
                 request_uri,
@@ -96,7 +100,8 @@ impl<'a> AuthorizationUri<'a> {
             } => (client_id, request_uri, method, request),
         };
         let client_id = client_id.ok_or(Unreadable::ClientIdAbsent)?;
-        let client_id = ClientId::parse(client_id).map_err(|e| Unreadable::ClientId(e.value))?;
+        let client_id =
+            ClientId::parse(client_id).map_err(|e| Unreadable::ClientId { client_id: e.value })?;
         match (request, request_uri) {
             (true, Some(_)) => Err(Unreadable::RequestAndRequestUri),
             (true, None) => Err(Unreadable::RequestByValue),
@@ -162,8 +167,10 @@ impl RequestUri {
     pub fn parse(text: String) -> Result<Self, Unreadable> {
         match Uri::parse(text) {
             Ok(uri) if https_with_host(&uri) => Ok(Self(uri)),
-            Ok(uri) => Err(Unreadable::RequestUri(uri.into_string())),
-            Err((_, text)) => Err(Unreadable::RequestUri(text)),
+            Ok(uri) => Err(Unreadable::RequestUri {
+                request_uri: uri.into_string(),
+            }),
+            Err((_, text)) => Err(Unreadable::RequestUri { request_uri: text }),
         }
     }
 
@@ -176,9 +183,12 @@ impl RequestUri {
 
 /// A URI other than an absolute `https` URI with a host.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.uri", id = "not_https")]
-#[error("{0:?} is no absolute https URI with a host")]
-pub struct NotHttps(#[explain(name = "uri")] pub String);
+#[explain(id = "uri.not_https")]
+#[error("{uri:?} is no absolute https URI with a host")]
+pub struct NotHttps {
+    /// The text.
+    pub uri: String,
+}
 
 /// A `response_uri` (§8.2): an absolute `https` URI with a host (A13), and that host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,14 +204,16 @@ impl ResponseUri {
     ///
     /// The text is no absolute `https` URI with a host.
     pub fn parse(text: String) -> Result<Self, NotHttps> {
-        let uri = Uri::parse(text).map_err(|(_, text)| NotHttps(text))?;
+        let uri = Uri::parse(text).map_err(|(_, uri)| NotHttps { uri })?;
         let host = uri
             .authority()
             .map(|authority| authority.host().to_owned())
             .filter(|_| https_with_host(&uri));
         match host {
             Some(host) => Ok(Self { uri, host }),
-            None => Err(NotHttps(uri.into_string())),
+            None => Err(NotHttps {
+                uri: uri.into_string(),
+            }),
         }
     }
 
@@ -225,9 +237,12 @@ pub struct RedirectTarget(Uri<String>);
 
 /// A text that is no URI with a scheme: a relative reference, or no reference at all.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.uri", id = "not_uri")]
-#[error("{0:?} is no URI with a scheme")]
-pub struct NotUri(#[explain(name = "uri")] pub String);
+#[explain(id = "uri.not_uri")]
+#[error("{uri:?} is no URI with a scheme")]
+pub struct NotUri {
+    /// The text.
+    pub uri: String,
+}
 
 impl RedirectTarget {
     /// The URI (feature `uri`).
@@ -237,7 +252,9 @@ impl RedirectTarget {
     /// The text is no URI with a scheme.
     #[cfg(feature = "uri")]
     pub fn parse(text: String) -> Result<Self, NotUri> {
-        Uri::parse(text).map(Self).map_err(|(_, text)| NotUri(text))
+        Uri::parse(text)
+            .map(Self)
+            .map_err(|(_, uri)| NotUri { uri })
     }
 
     /// The URI as received.
@@ -263,7 +280,9 @@ impl RequestUriMethod {
         match text {
             None | Some("get") => Ok(Self::Get),
             Some("post") => Ok(Self::Post),
-            Some(other) => Err(Unreadable::RequestUriMethod(other.to_owned())),
+            Some(other) => Err(Unreadable::RequestUriMethod {
+                method: other.to_owned(),
+            }),
         }
     }
 }

@@ -112,7 +112,7 @@ pub trait Haip {
 
 /// A signature that does not verify under the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.host")]
+#[explain(id = "host.signature_invalid")]
 #[error("the signature does not verify under the key")]
 pub struct SignatureInvalid;
 
@@ -154,16 +154,16 @@ pub trait RequestDecryption {
 /// A JWE that does not decrypt: one failure for every cause.
 #[cfg(feature = "request-decryption")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.host")]
+#[explain(id = "host.decrypt_failed")]
 #[error("the JWE does not decrypt under the key")]
 pub struct DecryptFailed;
 
 /// Why the credential's key made no signature.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.host")]
 pub enum SignFailed {
     /// The End-User cancelled the key prompt.
     #[error("the End-User cancelled the signature")]
+    #[explain(id = "host.cancelled")]
     Cancelled,
     /// The keystore broke its contract.
     #[error(transparent)]

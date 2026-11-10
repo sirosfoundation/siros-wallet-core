@@ -13,28 +13,43 @@ pub use inputs::{bytes, field, member, missing, text};
 
 /// Why a run could not compare.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "testkit.oracle")]
 pub enum OracleError {
     /// The exporter did not run, or failed.
-    #[error("the exporter: {0}")]
-    Export(#[explain(name = "detail")] String),
+    #[error("the exporter: {detail}")]
+    #[explain(id = "oracle.export")]
+    Export {
+        /// What failed.
+        detail: String,
+    },
     /// The export holds no input of the shape the port reads.
-    #[error("the export: {0}")]
-    Input(#[explain(name = "detail")] String),
+    #[error("the export: {detail}")]
+    #[explain(id = "oracle.input")]
+    Input {
+        /// What failed.
+        detail: String,
+    },
     /// The port failed where the model answered.
-    #[error("the port: {0}")]
-    Port(#[explain(name = "detail")] String),
+    #[error("the port: {detail}")]
+    #[explain(id = "oracle.port")]
+    Port {
+        /// What failed.
+        detail: String,
+    },
 }
 
 impl From<InvalidId> for OracleError {
     fn from(error: InvalidId) -> Self {
-        Self::Input(error.to_string())
+        Self::Input {
+            detail: error.to_string(),
+        }
     }
 }
 
 impl From<Fault> for OracleError {
     fn from(error: Fault) -> Self {
-        Self::Port(error.to_string())
+        Self::Port {
+            detail: error.to_string(),
+        }
     }
 }
 
@@ -56,5 +71,7 @@ pub fn informed<H: siros_openid4vp::host::CoreHost>(
         .collect();
     registry
         .informed(&revalidations)
-        .map_err(|e| OracleError::Port(e.to_string()))
+        .map_err(|e| OracleError::Port {
+            detail: e.to_string(),
+        })
 }

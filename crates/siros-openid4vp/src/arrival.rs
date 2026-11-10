@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
 use crate::envelope::{ClientIdPlacement, NestedParameter, Parameters};
 use crate::ids::Origin;
@@ -41,7 +41,9 @@ impl DcApiProtocol {
         Self::ALL
             .into_iter()
             .find(|protocol| protocol.as_str() == text)
-            .ok_or_else(|| Unreadable::Protocol(text.to_owned()))
+            .ok_or_else(|| Unreadable::Protocol {
+                protocol: text.to_owned(),
+            })
     }
 
     /// The protocol's identifier.
@@ -58,15 +60,6 @@ impl DcApiProtocol {
 impl fmt::Display for DcApiProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-/// A protocol is named by its identifier in a message.
-impl IntoArg for DcApiProtocol {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.as_str()
     }
 }
 
@@ -90,16 +83,18 @@ impl DcApiProtocols {
 
 /// Why a URI is unreadable (U3).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.uri")]
 pub enum UriError {
     /// No URI (RFC 3986 §3): fluent-uri's error.
     #[error("no URI: {0}")]
+    #[explain(id = "uri.syntax")]
     Syntax(#[explain(skip)] String),
     /// A URI without a query.
     #[error("the URI holds no query")]
+    #[explain(id = "uri.query")]
     Query,
     /// A query serde_urlencoded does not read: its error, which holds a message alone.
     #[error("the query: {0}")]
+    #[explain(id = "uri.form")]
     Form(#[explain(skip)] String),
 }
 
@@ -131,43 +126,47 @@ impl fmt::Display for FailedStatus {
     }
 }
 
-/// A status is a count in a message.
-impl IntoArg for FailedStatus {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> siros_explain::Count {
-        siros_explain::Count::of(u64::from(self.0))
-    }
-}
-
 /// Why the caller's fetch of a Request Object failed (§5.10.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.fetch")]
 pub enum FetchFailure {
     /// An HTTP status other than 200.
-    #[error("the request_uri answered HTTP {0}")]
-    Status(#[explain(name = "status")] FailedStatus),
+    #[error("the request_uri answered HTTP {status}")]
+    #[explain(id = "fetch.status")]
+    Status {
+        /// The status.
+        status: FailedStatus,
+    },
     /// A media type other than `application/oauth-authz-req+jwt`.
     #[error("the request_uri answered another media type than application/oauth-authz-req+jwt")]
+    #[explain(id = "fetch.media_type")]
     MediaType,
     /// No response: TLS, DNS, a timeout, the size limit.
     #[error("the request_uri gave no response")]
+    #[explain(id = "fetch.transport")]
     Transport,
 }
 
 /// A request the wallet cannot read or must not process (the U rules). Its error goes where
 /// section 4.5 of the flows design says.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.arrival")]
 pub enum Unreadable {
     /// U1: a DC API protocol other than A.1's.
-    #[error("DC API protocol {0:?} is none of OpenID4VP A.1")]
-    Protocol(#[explain(name = "protocol")] String),
+    #[error("DC API protocol {protocol:?} is none of OpenID4VP A.1")]
+    #[explain(id = "arrival.protocol")]
+    Protocol {
+        /// The protocol identifier.
+        protocol: String,
+    },
     /// U1: a protocol of A.1 the wallet does not register.
-    #[error("the wallet does not register the DC API protocol {0}")]
-    Unregistered(#[explain(name = "protocol")] DcApiProtocol),
+    #[error("the wallet does not register the DC API protocol {protocol}")]
+    #[explain(id = "arrival.unregistered")]
+    Unregistered {
+        /// The protocol.
+        protocol: DcApiProtocol,
+    },
     /// U2: DC API `data` without its protocol's shape.
     #[error("the DC API data does not have the {protocol} shape: {cause}")]
+    #[explain(id = "arrival.shape")]
     Shape {
         /// The protocol.
         protocol: DcApiProtocol,
@@ -176,54 +175,88 @@ pub enum Unreadable {
     },
     /// U3: parameters that are no JSON object with unique member names at every level.
     #[error("the parameters: {0}")]
-    Json(#[explain(name = "cause")] JsonError),
+    #[explain(id = "arrival.json")]
+    Json(#[source] JsonError),
     /// U3: an Authorization Request URI that cannot be read.
     #[error("the Authorization Request URI: {0}")]
-    Uri(#[explain(name = "cause")] UriError),
+    #[explain(id = "arrival.uri")]
+    Uri(#[source] UriError),
     /// U3: a `client_id`, in the URI or the parameters, outside RFC 6749 Appendix A.1's
     /// `*VSCHAR` (%x20-7E), U+FFFD included: what serde_urlencoded reads an octet that is no
     /// UTF-8 as.
-    #[error("client_id {0:?} holds a character outside RFC 6749 Appendix A.1")]
-    ClientId(#[explain(name = "client_id")] String),
+    #[error("client_id {client_id:?} holds a character outside RFC 6749 Appendix A.1")]
+    #[explain(id = "arrival.client_id")]
+    ClientId {
+        /// The `client_id`.
+        client_id: String,
+    },
     /// U4: a parameter given twice, known or unknown; one without a value counts as omitted
     /// (RFC 6749 §3.1).
-    #[error("the parameter {0} is given twice")]
-    Repeated(#[explain(name = "parameter")] String),
+    #[error("the parameter {parameter} is given twice")]
+    #[explain(id = "arrival.repeated")]
+    Repeated {
+        /// The parameter's name.
+        parameter: String,
+    },
     /// U5: a URI request without `client_id` (§5.2, RFC 9101 §5).
     #[error("client_id is absent")]
+    #[explain(id = "arrival.client_id_absent")]
     ClientIdAbsent,
     /// U6: `request` and `request_uri` together (RFC 9101 §5).
     #[error("request and request_uri are both present")]
+    #[explain(id = "arrival.request_and_request_uri")]
     RequestAndRequestUri,
     /// U7: `request_uri` no absolute https URI with a host (RFC 9101 §5.2).
-    #[error("request_uri {0:?} is no absolute https URI with a host")]
-    RequestUri(#[explain(name = "request_uri")] String),
+    #[error("request_uri {request_uri:?} is no absolute https URI with a host")]
+    #[explain(id = "arrival.request_uri")]
+    RequestUri {
+        /// The `request_uri`.
+        request_uri: String,
+    },
     /// U8: `request_uri_method` neither `get` nor `post` (§5.1).
-    #[error("request_uri_method {0:?} is neither get nor post")]
-    RequestUriMethod(#[explain(name = "method")] String),
+    #[error("request_uri_method {method:?} is neither get nor post")]
+    #[explain(id = "arrival.request_uri_method")]
+    RequestUriMethod {
+        /// The method.
+        method: String,
+    },
     /// U9: the fetch failed (§5.10.2).
     #[error("the request_uri fetch failed: {0}")]
-    Fetch(#[explain(name = "failure")] FetchFailure),
+    #[explain(id = "arrival.fetch")]
+    Fetch(#[source] FetchFailure),
     /// U10, U16: a Request Object that is no ES256 JWS.
     #[error("the Request Object: {0}")]
-    Jws(#[explain(name = "cause")] JwsError),
+    #[explain(id = "arrival.jws")]
+    Jws(#[source] JwsError),
     /// U11: a JWE Request Object after a GET, which posted no key (reading 21).
     #[error("the Request Object is a JWE; a GET posts no key to encrypt one to")]
+    #[explain(id = "arrival.encrypted")]
     Encrypted,
     /// U11: a JWE Request Object after a POST that [`JweError`] refuses.
     #[error("the encrypted Request Object: {0}")]
-    Jwe(#[explain(name = "cause")] JweError),
+    #[explain(id = "arrival.jwe")]
+    Jwe(#[source] JweError),
     /// U11: a JWE the host's module cannot decrypt with the posted key.
     #[error("the encrypted Request Object does not decrypt under the posted key")]
+    #[explain(id = "arrival.undecryptable")]
     Undecryptable,
     /// U12: `typ` absent or other than `oauth-authz-req+jwt` (§5).
-    #[error("typ {0:?}: the wallet processes oauth-authz-req+jwt alone")]
-    Typ(#[explain(name = "typ")] Option<String>),
+    #[error("typ {typ:?}: the wallet processes oauth-authz-req+jwt alone")]
+    #[explain(id = "arrival.typ")]
+    Typ {
+        /// The `typ`, when the header names one.
+        typ: Option<String>,
+    },
     /// U13: a Request Object holding `request` or `request_uri` (RFC 9101 §4).
-    #[error("the Request Object holds {0}")]
-    Nested(#[explain(name = "parameter")] NestedParameter),
+    #[error("the Request Object holds {parameter}")]
+    #[explain(id = "arrival.nested")]
+    Nested {
+        /// The parameter.
+        parameter: NestedParameter,
+    },
     /// U14: the `client_id` parameter and the Request Object's differ (§5.10.1).
     #[error("client_id {outer:?} and the Request Object's {inner:?} differ")]
+    #[explain(id = "arrival.client_id_mismatch")]
     ClientIdMismatch {
         /// The parameter.
         outer: String,
@@ -232,26 +265,33 @@ pub enum Unreadable {
     },
     /// U17: a multisigned request with `client_id` in its payload or an unprotected header
     /// (A.3.2.2).
-    #[error("multisigned: client_id in the {0}, outside the protected headers")]
-    Placement(#[explain(name = "member")] ClientIdPlacement),
+    #[error("multisigned: client_id in the {member}, outside the protected headers")]
+    #[explain(id = "arrival.placement")]
+    Placement {
+        /// Where the request names it.
+        member: ClientIdPlacement,
+    },
     /// U18: a URI without `request_uri` (HAIP §5.1: signed requests by `request_uri`).
     #[error("the URI holds no request_uri; the wallet reads signed Request Objects by reference")]
+    #[explain(id = "arrival.parameters_in_uri")]
     ParametersInUri,
     /// U19: `request` (RFC 9101 §7 `request_not_supported`).
     #[error("the request parameter is unsupported; the wallet reads request_uri")]
+    #[explain(id = "arrival.request_by_value")]
     RequestByValue,
 }
 
 /// Why `data` lacks the shape A.3.2.1 gives a signed request: a JSON object whose `request` is
 /// the JWS.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.arrival.data")]
 pub enum DataShape {
     /// `data` is no JSON object with unique member names.
     #[error("{0}")]
-    Json(#[explain(name = "cause")] JsonError),
+    #[explain(id = "arrival.data.json")]
+    Json(#[source] JsonError),
     /// `request` is absent or no string.
     #[error("data.request is no string")]
+    #[explain(id = "arrival.data.request")]
     Request,
 }
 
@@ -310,7 +350,7 @@ impl<'a> Received<'a> {
     ) -> Result<Self, Unreadable> {
         let protocol = DcApiProtocol::parse(protocol)?;
         if !protocols.holds(protocol) {
-            return Err(Unreadable::Unregistered(protocol));
+            return Err(Unreadable::Unregistered { protocol });
         }
         let request = match protocol {
             DcApiProtocol::Unsigned => {

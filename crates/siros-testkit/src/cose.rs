@@ -1,7 +1,6 @@
 //! The COSE_Encrypt stand-in: a tagged COSE_Encrypt (RFC 9052 §5.1) whose ciphertext is the
 //! plaintext, and the JOSE names of its algorithms.
 
-use siros_explain::checked;
 use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
 use siros_openid4vp::cbor::cose::coset::{
     CoseEncryptBuilder, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
@@ -9,8 +8,9 @@ use siros_openid4vp::cbor::cose::coset::{
 use siros_openid4vp::detail;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::{ContentEncryption, KeyAgreement};
+use siros_syntax::checked;
 
-use crate::FAULT;
+use crate::{caused, fault};
 
 /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
 pub const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [
@@ -71,10 +71,9 @@ pub fn cose_encrypt(
     plaintext: &[u8],
 ) -> Result<Vec<u8>, Fault> {
     let (recipient, content) = cose_algorithms(alg, enc).ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!("a key agreement or a content encryption the stand-in does not write"),
-        )
+        fault(detail!(
+            "a key agreement or a content encryption the stand-in does not write"
+        ))
     })?;
     CoseEncryptBuilder::new()
         .protected(HeaderBuilder::new().algorithm(content).build())
@@ -88,7 +87,7 @@ pub fn cose_encrypt(
         )
         .build()
         .to_tagged_vec()
-        .map_err(|e| Fault::caused(FAULT, detail!("the COSE_Encrypt stand-in"), e))
+        .map_err(|e| caused(detail!("the COSE_Encrypt stand-in"), e))
 }
 
 /// The JOSE names of a COSE_Encrypt stand-in's recipient and content algorithms.

@@ -14,7 +14,6 @@ use std::borrow::Cow;
 use std::fmt;
 
 use serde_json::value::RawValue;
-use siros_explain::{Count, IntoArg, kind};
 
 use crate::envelope::{Channel, Envelope, NonceError, Signatures};
 use crate::ids::{ClientId, ExpectedOrigin, Nonce};
@@ -48,15 +47,6 @@ impl EntryIndex {
 impl fmt::Display for EntryIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-/// A position is named as a count in a message.
-impl IntoArg for EntryIndex {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -128,7 +118,9 @@ impl<'a> Request<'a> {
                     .split(' ')
                     .map(|value| {
                         envelope.scopes().named(value).ok_or_else(|| {
-                            Refused::one(Refusal::new(ParameterRule::Scope(value.to_owned())))
+                            Refused::one(Refusal::new(ParameterRule::Scope {
+                                scope: value.to_owned(),
+                            }))
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;

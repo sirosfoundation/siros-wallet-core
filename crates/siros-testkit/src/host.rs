@@ -10,7 +10,6 @@ use std::num::NonZeroU32;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
-use siros_explain::AllOf;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
     Authentication, AuthenticationNeed, Factor, Haip, Knowledge, Platform, Possession,
@@ -23,8 +22,9 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::request::{AgreeableKey, Agreements, ContentEncryption, Curve, KeyAgreement};
 use siros_openid4vp::wallet::Credential;
+use siros_syntax::AllOf;
 
-use crate::FAULT;
+use crate::caused;
 use crate::jose::TestRequestDecryption;
 
 /// The platform double. `unusable` lists the credentials no longer valid; `authentication` is
@@ -159,13 +159,13 @@ impl Haip for TestHaip {
                 Node::String(Cow::Owned(key.kid().to_string())),
             ),
         ])
-        .map_err(|e| Fault::caused(FAULT, detail!("a JWE header"), e))?;
+        .map_err(|e| caused(detail!("a JWE header"), e))?;
         SealedJwe::parse(format!(
             "{}...{}.",
             URL_SAFE_NO_PAD.encode(header.json_ascii().to_string()),
             URL_SAFE_NO_PAD.encode(plaintext)
         ))
-        .map_err(|e| Fault::caused(FAULT, detail!("the JWE stand-in"), e))
+        .map_err(|e| caused(detail!("the JWE stand-in"), e))
     }
 }
 
@@ -205,7 +205,7 @@ impl Haip for JweHaip {
             crate::jose::Zip::None,
             plaintext,
         )?;
-        SealedJwe::parse(jwe).map_err(|e| Fault::caused(FAULT, detail!("the JWE"), e))
+        SealedJwe::parse(jwe).map_err(|e| caused(detail!("the JWE"), e))
     }
 }
 

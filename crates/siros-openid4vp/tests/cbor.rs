@@ -65,14 +65,14 @@ fn a_key_twice_is_refused_at_every_depth() {
         (
             "undefined has no value",
             "a2f601f702",
-            Some(|e| matches!(e, CborError::Simple(23))),
+            Some(|e| matches!(e, CborError::Simple { value: 23 })),
         ),
         ("200 maps nested in keys", keyed.as_str(), None),
         ("a repeat inside a key", "a1a2010001000a", Some(repeated)),
         (
             "a byte after the item",
             "a161610100",
-            Some(|e| matches!(e, CborError::Trailing(1))),
+            Some(|e| matches!(e, CborError::Trailing { bytes: 1 })),
         ),
         (
             "a cut item",
@@ -83,7 +83,7 @@ fn a_key_twice_is_refused_at_every_depth() {
         (
             "300 nested arrays",
             deep.as_str(),
-            Some(|e| matches!(e, CborError::Depth(256))),
+            Some(|e| matches!(e, CborError::Depth { levels: 256 })),
         ),
     ];
     for (name, text, refused) in cases {

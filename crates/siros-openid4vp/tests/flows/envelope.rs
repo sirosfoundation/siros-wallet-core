@@ -37,7 +37,7 @@ fn a_request_object_names_its_type_and_nests_no_request() {
     for header in [r#"{"alg":"ES256"}"#, r#"{"alg":"ES256","typ":"JWT"}"#] {
         let (cause, target) =
             refused(&compact_jws(&VERIFIER_SECRET, header, &payload).expect("signs"));
-        assert!(matches!(cause, Unreadable::Typ(_)), "{cause:?}");
+        assert!(matches!(cause, Unreadable::Typ { .. }), "{cause:?}");
         assert!(unverified(target), "U12 by URI: unverified");
     }
     // RFC 7515 §4.1.9: `application/` prefixed, case-insensitively.
@@ -60,13 +60,20 @@ fn a_request_object_names_its_type_and_nests_no_request() {
     let (cause, target) = refused(&request_object(&uri_payload(
         r#","request_uri":"https://verifier.example/r""#,
     )));
-    assert_eq!(cause, Unreadable::Nested(NestedParameter::RequestUri));
+    assert_eq!(
+        cause,
+        Unreadable::Nested {
+            parameter: NestedParameter::RequestUri
+        }
+    );
     assert!(unverified(target));
     // U3: the payload's member twice is the json module's refusal; no route without a payload.
     let (cause, target) = refused(&request_object(&uri_payload(r#","nonce":"again""#)));
     assert_eq!(
         cause,
-        Unreadable::Json(JsonError::DuplicateMember("nonce".to_owned()))
+        Unreadable::Json(JsonError::DuplicateMember {
+            member: "nonce".to_owned()
+        })
     );
     assert!(target.is_none());
     assert_eq!(
@@ -87,7 +94,7 @@ fn crit_is_refused_by_u16_with_an_unverified_route() {
     let rejected = fetched(&uri, &object).expect_err("U16");
     assert!(matches!(
         rejected.failure(),
-        Failure::Unreadable(Unreadable::Jws(JwsError::Critical(header))) if header == "exp"
+        Failure::Unreadable(Unreadable::Jws(JwsError::Critical { header })) if header == "exp"
     ));
     assert!(unverified(
         rejected.route().map(|route| route.target().clone())
@@ -168,7 +175,7 @@ fn a_multisigned_request_names_client_id_in_its_protected_headers_alone() {
         )
         .map(drop)
         .expect_err("U17");
-        assert_eq!(cause, Unreadable::Placement(member));
+        assert_eq!(cause, Unreadable::Placement { member });
         let rejected = Rejected::unreadable(&received, cause);
         assert_eq!(
             rejected.route().map(|route| route.target().clone()),
@@ -202,6 +209,11 @@ fn a_multisigned_request_names_client_id_in_its_protected_headers_alone() {
         )
         .map(drop)
         .expect_err("U3");
-        assert_eq!(cause, Unreadable::ClientId(named.to_owned()));
+        assert_eq!(
+            cause,
+            Unreadable::ClientId {
+                client_id: named.to_owned()
+            }
+        );
     }
 }

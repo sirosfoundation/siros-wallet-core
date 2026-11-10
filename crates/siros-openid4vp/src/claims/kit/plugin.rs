@@ -1,14 +1,18 @@
 //! A claims format as a format plug-in: the kit answers the core for it.
 
-use siros_explain::{AllOf, DefinedModule};
+use std::error::Error;
+
+use siros_i18n::Context;
+use siros_syntax::AllOf;
 
 #[cfg(feature = "resolve")]
 use super::super::ConcretePath;
-use super::super::PathError;
-use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, RefusedText};
+use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, DrawError, RefusedText};
 use crate::consent::Card;
+use crate::detail;
 use crate::ids::CredentialType;
 use crate::json::Node;
+use crate::plugins::caused;
 use crate::plugins::{
     Carriage, Exclude, Fault, FormatQuery, Member, NoCandidate, OptionIndex, Options, Shown,
     ViewAdditions, ViewTypes,
@@ -18,7 +22,6 @@ use crate::request::{AgreeableKey, Query};
 use crate::routing::{EntryNaming, QueryContext};
 use crate::rows::Env;
 use crate::wallet::Credential;
-use crate::{FAULT, detail};
 #[cfg(feature = "resolve")]
 use crate::{
     host::{AnsweredContext, AnsweredOption, AnsweredQuery, PresentError, Presentation, Usable},
@@ -187,9 +190,12 @@ impl<'q, P: ClaimsPlugin> PluginQuery<'q, P> {
         }
     }
 
-    fn path_fault(credential: &Credential<'_>, error: PathError) -> Fault {
-        Fault::caused(
-            FAULT,
+    /// The fault of a credential whose values break the view's shape.
+    fn values_fault(
+        credential: &Credential<'_>,
+        error: impl Error + Send + Sync + 'static,
+    ) -> Fault {
+        caused(
             detail!("{id}: values", id = credential.id.to_string()),
             error,
         )
@@ -242,7 +248,8 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
             .displayable(self.plugin, view.json(), options, env)
             .map_err(|error| match error {
                 CardError::Text(cause) => Exclude::new(RefusedText { cause }).into(),
-                CardError::Path(path) => Self::path_fault(credential, path).into(),
+                CardError::Path(path) => Self::values_fault(credential, path).into(),
+                CardError::Count(count) => Self::values_fault(credential, count).into(),
             })
     }
 
@@ -251,23 +258,15 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         credential: &Credential<'_>,
         shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
         let view = ClaimsView::read(credential)?;
-        let module = self.plugin.display_module(view.json())?;
         self.claims
-            .card(self.plugin, view.json(), shown, env, module.as_ref())
-            .map_err(|e| {
-                Fault::caused(
-                    FAULT,
-                    detail!("{id}: card", id = credential.id.to_string()),
-                    e,
-                )
+            .card(self.plugin, view.json(), shown, env, context)
+            .map_err(|error| match error {
+                DrawError::Fault(fault) => fault,
+                error => caused(detail!("{id}: card", id = credential.id.to_string()), error),
             })
-    }
-
-    fn card_module(&self, credential: &Credential<'_>) -> Result<Option<DefinedModule>, Fault> {
-        let view = ClaimsView::read(credential)?;
-        self.plugin.display_module(view.json())
     }
 }
 
@@ -344,7 +343,7 @@ impl<H, P: ClaimsPresent<H>> AnsweredOption<H> for PluginOption<'_, '_, P> {
             .query
             .claims
             .disclosed(self.query.plugin, self.option, view.json(), &provided)
-            .map_err(|e| PluginQuery::<P>::path_fault(credential, e))?;
+            .map_err(|e| PluginQuery::<P>::values_fault(credential, e))?;
         self.query.plugin.present(
             Presenting {
                 query: &self.query.claims,

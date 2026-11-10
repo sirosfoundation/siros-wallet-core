@@ -5,9 +5,7 @@
 //! [option, ...]}, "logo"?: uri, "carries"?: bool, "alg": its algorithm}`. The Verifier's
 //! `vp_formats_supported` value for "test": `{"algs"?: [...]}`.
 
-use siros_explain::{
-    AllOf, Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value,
-};
+use siros_i18n::{Context, Message, Text};
 use siros_openid4vp::consent::Card;
 use siros_openid4vp::detail;
 use siros_openid4vp::host::{
@@ -25,59 +23,141 @@ use siros_openid4vp::rows::{BooleanText, Env, Row, Value as RowValue};
 use siros_openid4vp::session::Session;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_syntax::{AllOf, Currency, Date, DateTime, Decimal, OffsetTime};
 
-use crate::FAULT;
 use crate::rules::{Excluded, FormatRule};
+use crate::{caused, fault};
 
-/// A text of the test format's rows that a transaction profile words: a message of the test app's
-/// own module.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, siros_explain::Explain)]
-#[explain(domain = "testkit.format")]
+/// A text of the test doubles, which the test app words in its own module.
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum DoubleText {
     /// ISO 20022's `MNTH`.
-    #[error("monthly")]
+    #[message(id = "format.monthly")]
     Monthly,
+    /// A text as the test wrote it: an id, a kind's name, a Verifier's name.
+    #[message(id = "format.written")]
+    Written {
+        /// The text.
+        text: String,
+    },
+    /// A date.
+    #[message(id = "format.date")]
+    Date {
+        /// The date.
+        value: Date,
+    },
+    /// A time of day with its offset.
+    #[message(id = "format.time")]
+    Time {
+        /// The time.
+        value: OffsetTime,
+    },
+    /// A date and time.
+    #[message(id = "format.date_time")]
+    DateTime {
+        /// The date and time.
+        value: DateTime,
+    },
+    /// A currency.
+    #[message(id = "format.currency")]
+    Currency {
+        /// The currency.
+        code: Currency,
+    },
+    /// An amount in a currency.
+    #[message(id = "format.amount")]
+    Amount {
+        /// The amount.
+        value: Decimal,
+        /// Its currency.
+        currency: Currency,
+    },
+    /// The test profile's label of the entries it binds.
+    #[message(id = "profile.reference")]
+    Reference,
+    /// The test profile's section.
+    #[message(id = "profile.section")]
+    Section,
+    /// The test profile's label of its logo.
+    #[message(id = "profile.logo")]
+    Logo,
+    /// The test profile's counterparty.
+    #[message(id = "profile.merchant")]
+    Merchant,
+    /// The test profile's confirm action.
+    #[message(id = "profile.confirm")]
+    Confirm,
+    /// The test profile's title of the entries it binds.
+    #[message(id = "profile.entries")]
+    Entries {
+        /// The entries' indexes, separated by `,`.
+        reference: String,
+    },
+    /// The test profile's hint of the entries it binds.
+    #[message(id = "profile.hint")]
+    Hint {
+        /// The entries' indexes, separated by `,`.
+        reference: String,
+    },
+}
+
+impl DoubleText {
+    /// The text as the test wrote it.
+    pub fn written(text: impl Into<String>) -> Self {
+        Self::Written { text: text.into() }
+    }
+}
+
+/// The text `context` words for `message`; the test doubles' fault, caused by the
+/// `siros_i18n::ResolveError`, for none.
+///
+/// # Errors
+///
+/// The fault of a message `context` words no text for.
+pub fn resolve(context: &Context, message: &dyn Message) -> Result<Text, Fault> {
+    context
+        .resolve(message)
+        .map_err(|e| caused(detail!("{id}: no text", id = message.id().to_owned()), e))
 }
 
 /// A value of every kind PaSO View §3 types but an image, one row each in every card, under the
 /// kind's name: a boolean, a frequency, a date, a time, a date-time, a currency, an amount, a
 /// `mini_markdown` text and a URL.
-fn typed() -> Option<Vec<(&'static str, Text)>> {
-    let eur = Currency::from_code("EUR")?;
-    let at =
-        |hour, minute, second| Time::new(hour, minute, Some(Second::new(second, Fraction::NONE)?));
-    let value = |value: Value| Text::Value(value);
-    Some(vec![
-        ("boolean", Text::of(&BooleanText::Yes)),
-        ("frequency", Text::of(&DoubleText::Monthly)),
-        ("date", value(Value::Date(Date::new(2026, 9, 2)?))),
+fn typed() -> Result<Vec<(&'static str, Box<dyn Message>)>, siros_syntax::Malformed> {
+    let eur = Currency::parse("EUR")?;
+    Ok(vec![
+        ("boolean", Box::new(BooleanText::Yes)),
+        ("frequency", Box::new(DoubleText::Monthly)),
+        (
+            "date",
+            Box::new(DoubleText::Date {
+                value: Date::parse("2026-09-02")?,
+            }),
+        ),
         (
             "time",
-            value(Value::Time {
-                at: at(10, 15, 30)?,
-                offset: Some(Offset::new(0)?),
+            Box::new(DoubleText::Time {
+                value: OffsetTime::parse("10:15:30Z")?,
             }),
         ),
         (
             "date_time",
-            value(Value::DateTime(DateTime::new(
-                Date::new(2026, 6, 2)?,
-                at(10, 15, 30)?,
-                Some(Offset::new(120)?),
-            ))),
+            Box::new(DoubleText::DateTime {
+                value: DateTime::parse("2026-06-02T10:15:30+02:00")?,
+            }),
         ),
-        ("currency", value(Value::Currency(eur))),
+        ("currency", Box::new(DoubleText::Currency { code: eur })),
         (
             "currency_amount",
-            value(Value::Amount(Amount::new(
-                Decimal::new(123_456_750, 2)?,
-                eur,
-            ))),
+            Box::new(DoubleText::Amount {
+                value: Decimal::parse("1234567.50")?,
+                currency: eur,
+            }),
         ),
-        ("mini_markdown", Text::Raw("a b".to_owned())),
+        ("mini_markdown", Box::new(DoubleText::written("a b"))),
         (
             "url",
-            Text::Raw("https://xn--bcher-kva.example/x".to_owned()),
+            Box::new(DoubleText::written("https://xn--bcher-kva.example/x")),
         ),
     ])
 }
@@ -220,8 +300,8 @@ struct TestQuery<'q> {
 /// The credential's view.
 fn view<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
     let what = || detail!("{id}: view", id = credential.id.to_string());
-    let text = std::str::from_utf8(credential.view).map_err(|e| Fault::caused(FAULT, what(), e))?;
-    Node::parse(text).map_err(|e| Fault::caused(FAULT, what(), e))
+    let text = std::str::from_utf8(credential.view).map_err(|e| caused(what(), e))?;
+    Node::parse(text).map_err(|e| caused(what(), e))
 }
 
 impl FormatQuery for TestQuery<'_> {
@@ -244,10 +324,10 @@ impl FormatQuery for TestQuery<'_> {
         };
         let view = view(credential)?;
         let alg = view.get("alg").ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("{id}: view without alg", id = credential.id.to_string()),
-            )
+            fault(detail!(
+                "{id}: view without alg",
+                id = credential.id.to_string()
+            ))
         })?;
         if algs.contains(alg) {
             return Ok(());
@@ -276,10 +356,10 @@ impl FormatQuery for TestQuery<'_> {
             .get("answers")
             .and_then(Node::as_array)
             .ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("{id}: view without answers", id = credential.id.to_string()),
-                )
+                fault(detail!(
+                    "{id}: view without answers",
+                    id = credential.id.to_string()
+                ))
             })?;
         if !answers
             .iter()
@@ -309,13 +389,10 @@ impl FormatQuery for TestQuery<'_> {
         match view(credential)?.get("carries") {
             None | Some(Node::Bool(true)) => Ok(Carriage::Carried),
             Some(Node::Bool(false)) => Ok(Carriage::Uncarried),
-            Some(_) => Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{id}: carries is not a boolean",
-                    id = credential.id.to_string()
-                ),
-            )),
+            Some(_) => Err(fault(detail!(
+                "{id}: carries is not a boolean",
+                id = credential.id.to_string()
+            ))),
         }
     }
 
@@ -328,27 +405,34 @@ impl FormatQuery for TestQuery<'_> {
         Ok(())
     }
 
+    /// The query's id beside the credential's, a full-text row, and a row of each typed value;
+    /// the credential's id as the title.
     fn draw(
         &self,
         credential: &Credential<'_>,
         _shown: Shown<'_>,
         env: &Env,
+        context: &Context,
     ) -> Result<Card, Fault> {
         let view = view(credential)?;
+        let written = |text: &str| resolve(context, &DoubleText::written(text));
         let mut rows = vec![
             Row::new(
-                Text::Raw(self.id.as_str().to_owned()),
-                RowValue::Text(Text::Raw(credential.id.as_str().to_owned())),
+                written(self.id.as_str())?,
+                RowValue::Text(written(credential.id.as_str())?),
             ),
-            Row::full_text(Text::Name("statement")),
+            Row::full_text(written("statement")?),
         ];
-        let typed = typed().ok_or_else(|| Fault::new(FAULT, detail!("a test value")))?;
+        let typed = typed().map_err(|e| caused(detail!("a test value"), e))?;
         for (kind, text) in typed {
-            rows.push(Row::new(Text::Name(kind), RowValue::Text(text)));
+            rows.push(Row::new(
+                written(kind)?,
+                RowValue::Text(resolve(context, &*text)?),
+            ));
         }
         Ok(Card {
             icon: env.icon(view.get("logo").and_then(Node::as_str)).clone(),
-            title: Text::Raw(credential.id.to_string()),
+            title: written(credential.id.as_str())?,
             subtitle: None,
             rows,
         })
@@ -415,37 +499,31 @@ impl TestOption<'_> {
         ];
         for (member, value) in members.iter() {
             let Member::Claim(name) = member else {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!("a test proof holds no {member}", member = member.clone()),
-                ));
+                return Err(fault(detail!(
+                    "a test proof holds no {member}",
+                    member = member.clone()
+                )));
             };
             if name == "aud" || name == "nonce" {
-                return Err(Fault::new(
-                    FAULT,
-                    detail!("the member {name} is the format's own", name = name.clone()),
-                ));
+                return Err(fault(detail!(
+                    "the member {name} is the format's own",
+                    name = name.clone()
+                )));
             }
             let value = match value {
                 MemberValue::Text(text) => quote(text),
                 MemberValue::Json(json) => json.as_str().to_owned(),
                 MemberValue::Bytes(_) => {
-                    return Err(Fault::new(
-                        FAULT,
-                        detail!(
-                            "a test proof holds no byte string ({name})",
-                            name = name.clone()
-                        ),
-                    ));
+                    return Err(fault(detail!(
+                        "a test proof holds no byte string ({name})",
+                        name = name.clone()
+                    )));
                 }
                 MemberValue::Cbor(_) => {
-                    return Err(Fault::new(
-                        FAULT,
-                        detail!(
-                            "a test proof holds no CBOR data item ({name})",
-                            name = name.clone()
-                        ),
-                    ));
+                    return Err(fault(detail!(
+                        "a test proof holds no CBOR data item ({name})",
+                        name = name.clone()
+                    )));
                 }
             };
             proof.push(format!("{}:{value}", quote(name)));
@@ -456,7 +534,6 @@ impl TestOption<'_> {
             self.option.position(),
             proof.join(",")
         );
-        Presentation::object(&text)
-            .map_err(|e| Fault::caused(FAULT, detail!("a test presentation"), e))
+        Presentation::object(&text).map_err(|e| caused(detail!("a test presentation"), e))
     }
 }

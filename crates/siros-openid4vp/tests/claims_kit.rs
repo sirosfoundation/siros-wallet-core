@@ -520,17 +520,23 @@ fn claims_breaking_section_6_3_or_6_4_1_are_refused() {
     let table = [
         (
             r#""claims":[{"id":"a b","path":["a"]}]"#,
-            ClaimsError::Id(0),
+            ClaimsError::Id { claim: 0 },
         ),
-        (r#""claims":[{"id":"","path":["a"]}]"#, ClaimsError::Id(0)),
-        (r#""claims":[{"id":1,"path":["a"]}]"#, ClaimsError::Id(0)),
+        (
+            r#""claims":[{"id":"","path":["a"]}]"#,
+            ClaimsError::Id { claim: 0 },
+        ),
+        (
+            r#""claims":[{"id":1,"path":["a"]}]"#,
+            ClaimsError::Id { claim: 0 },
+        ),
         (
             r#""claims":[{"id":"a","path":["a"]},{"id":"a","path":["b"]}]"#,
-            ClaimsError::IdTwice("a".to_owned()),
+            ClaimsError::IdTwice { id: "a".to_owned() },
         ),
         (
             r#""claims":[{"id":"a","path":["a"]},{"path":["b"]}],"claim_sets":[["a"]]"#,
-            ClaimsError::IdAbsent(1),
+            ClaimsError::IdAbsent { claim: 1 },
         ),
         (
             r#""claims":[{"id":"a","path":["a"]}],"claim_sets":[]"#,

@@ -114,7 +114,7 @@ pub struct Members(Vec<(Member, MemberValue)>);
 
 /// A member written twice into one presentation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "member_twice")]
 #[error("the member {0} is written twice")]
 pub struct MemberTwice(#[explain(skip)] pub Member);
 

@@ -61,25 +61,28 @@ pub trait IssuedShape {
 
 /// Why a credential's display metadata makes no view.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.claims_kit.merge")]
 pub enum MergeError {
     /// The configuration's `credential_metadata` publishes delivered secrets.
     #[error("the configuration's credential_metadata holds auxiliary_data")]
+    #[explain(id = "claims_kit.merge.auxiliary_data_published")]
     AuxiliaryDataPublished,
     /// `display` or `claims` is no array of objects.
     #[error("{member} is no array of objects")]
+    #[explain(id = "claims_kit.merge.not_entries")]
     NotEntries {
         /// The member.
         member: &'static str,
     },
     /// A display entry's `locale` is no language tag.
     #[error("the display entry's locale {locale} is no language tag")]
+    #[explain(id = "claims_kit.merge.locale")]
     Locale {
         /// The text it states.
         locale: String,
     },
     /// An entry of `claims` holds no claims path pointer (OpenID4VCI Appendix B.2).
     #[error("claims[{position}] holds no claims path pointer")]
+    #[explain(id = "claims_kit.merge.path")]
     Path {
         /// The entry's position.
         position: usize,

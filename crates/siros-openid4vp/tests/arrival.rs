@@ -53,12 +53,16 @@ fn refused(protocol: &str, data: &str) -> Unreadable {
 fn a_dc_api_request_names_a_registered_protocol_of_a_1() {
     assert_eq!(
         refused("openid4vp-v2-unsigned", PARAMETERS),
-        Unreadable::Protocol("openid4vp-v2-unsigned".to_owned())
+        Unreadable::Protocol {
+            protocol: "openid4vp-v2-unsigned".to_owned()
+        }
     );
     // The WE BUILD build registers the signed protocols alone (CS-07 WU-DC-01).
     assert_eq!(
         dc_api("openid4vp-v1-unsigned", PARAMETERS, &DcApiProtocols::SIGNED).map(drop),
-        Err(Unreadable::Unregistered(DcApiProtocol::Unsigned))
+        Err(Unreadable::Unregistered {
+            protocol: DcApiProtocol::Unsigned
+        })
     );
     let signed = format!(r#"{{"request":"{}"}}"#, compact(HEADER, PARAMETERS));
     assert!(dc_api("openid4vp-v1-signed", &signed, &DcApiProtocols::SIGNED).is_ok());
@@ -90,7 +94,9 @@ fn data_has_its_protocols_shape() {
     ] {
         assert_eq!(
             refused("openid4vp-v1-unsigned", data),
-            Unreadable::Json(JsonError::DuplicateMember(member.to_owned()))
+            Unreadable::Json(JsonError::DuplicateMember {
+                member: member.to_owned()
+            })
         );
     }
 }
@@ -119,33 +125,45 @@ fn a_compact_jws_names_its_alg_in_three_base64url_parts() {
         // The json module under JOSE: a header member twice.
         (
             compact(r#"{"alg":"ES256","kid":"a","kid":"b"}"#, PARAMETERS),
-            JwsError::Json(JsonError::DuplicateMember("kid".to_owned())),
+            JwsError::Json(JsonError::DuplicateMember {
+                member: "kid".to_owned(),
+            }),
         ),
         // An alg that is none (RFC 8725 §3.2), absent, no string, or no registry name.
         (
             compact(r#"{"alg":"none"}"#, PARAMETERS),
-            JwsError::Algorithm(Some("none".to_owned())),
+            JwsError::Algorithm {
+                alg: Some("none".to_owned()),
+            },
         ),
         (
             compact(r#"{"typ":"JWT"}"#, PARAMETERS),
-            JwsError::Algorithm(None),
+            JwsError::Algorithm { alg: None },
         ),
         (
             compact(r#"{"alg":7}"#, PARAMETERS),
-            JwsError::Algorithm(Some("7".to_owned())),
+            JwsError::Algorithm {
+                alg: Some("7".to_owned()),
+            },
         ),
         (
             compact(r#"{"alg":"ES 256"}"#, PARAMETERS),
-            JwsError::Algorithm(Some("ES 256".to_owned())),
+            JwsError::Algorithm {
+                alg: Some("ES 256".to_owned()),
+            },
         ),
         // U16: crit naming a header, and crit empty.
         (
             compact(r#"{"alg":"ES256","crit":["exp"],"exp":1}"#, PARAMETERS),
-            JwsError::Critical("exp".to_owned()),
+            JwsError::Critical {
+                header: "exp".to_owned(),
+            },
         ),
         (
             compact(r#"{"alg":"ES256","crit":[]}"#, PARAMETERS),
-            JwsError::Critical("[]".to_owned()),
+            JwsError::Critical {
+                header: "[]".to_owned(),
+            },
         ),
     ];
     for (jws, error) in cases {
@@ -197,7 +215,11 @@ fn a_jws_json_serialization_keeps_each_name_once_and_its_headers_disjoint() {
             .count(),
         1
     );
-    let twice = |member: &str| JwsError::Json(JsonError::DuplicateMember(member.to_owned()));
+    let twice = |member: &str| {
+        JwsError::Json(JsonError::DuplicateMember {
+            member: member.to_owned(),
+        })
+    };
     let cases = [
         // A member of the serialization twice.
         (
@@ -220,14 +242,18 @@ fn a_jws_json_serialization_keeps_each_name_once_and_its_headers_disjoint() {
         // RFC 7515 §7.2.1: one name in both headers.
         (
             general(&[signature(HEADER, Some(r#"{"typ":"JWT"}"#))]),
-            JwsError::HeaderTwice("typ".to_owned()),
+            JwsError::HeaderTwice {
+                header: "typ".to_owned(),
+            },
         ),
         // An empty signatures array.
         (general(&[]), JwsError::Structure),
         // crit in an unprotected header.
         (
             general(&[signature(HEADER, Some(r#"{"crit":["b64"]}"#))]),
-            JwsError::Critical("crit".to_owned()),
+            JwsError::Critical {
+                header: "crit".to_owned(),
+            },
         ),
     ];
     for (jws, error) in cases {
@@ -257,19 +283,27 @@ fn a_jwe_request_object_names_an_alg_and_enc_the_module_decrypts() {
         (format!("{ok}="), JweError::Base64),
         (
             jwe(r#"{"alg":"RSA-OAEP","enc":"A128GCM"}"#),
-            JweError::Algorithm(Some("RSA-OAEP".to_owned())),
+            JweError::Algorithm {
+                alg: Some("RSA-OAEP".to_owned()),
+            },
         ),
         (
             jwe(r#"{"alg":"ECDH-ES","enc":"A128CBC-HS256"}"#),
-            JweError::Encryption(Some("A128CBC-HS256".to_owned())),
+            JweError::Encryption {
+                enc: Some("A128CBC-HS256".to_owned()),
+            },
         ),
         (
             jwe(r#"{"alg":"ECDH-ES","enc":"A256GCM","crit":["zip"]}"#),
-            JweError::Critical(r#"["zip"]"#.to_owned()),
+            JweError::Critical {
+                header: r#"["zip"]"#.to_owned(),
+            },
         ),
         (
             jwe(r#"{"alg":"ECDH-ES","alg":"ECDH-ES","enc":"A128GCM"}"#),
-            JweError::Json(JsonError::DuplicateMember("alg".to_owned())),
+            JweError::Json(JsonError::DuplicateMember {
+                member: "alg".to_owned(),
+            }),
         ),
     ];
     for (text, error) in cases {
@@ -297,11 +331,15 @@ fn constructors_refuse_what_their_rule_excludes() {
     assert_eq!(jwk(r#"{"crv":"P-256"}"#), Err(NotPublicJwk::KeyType));
     assert_eq!(
         jwk(r#"{"kty":"EC","crv":"P-256","x":"AA","y":"AQ","d":"AA"}"#),
-        Err(NotPublicJwk::Private("d".to_owned()))
+        Err(NotPublicJwk::Private {
+            member: "d".to_owned()
+        })
     );
     assert_eq!(
         jwk(r#"{"kty":"oct","k":"AA"}"#),
-        Err(NotPublicJwk::Private("k".to_owned()))
+        Err(NotPublicJwk::Private {
+            member: "k".to_owned()
+        })
     );
     // §8.1: a presentation is "a string or a JSON object".
     assert_eq!(

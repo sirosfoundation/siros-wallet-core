@@ -287,7 +287,7 @@ pub struct PostBody {
 
 /// A POST body of the form media type that no [`FormBody`] wrote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.post_body")]
+#[explain(id = "post_body.form_media")]
 #[error("a body of application/x-www-form-urlencoded comes from FormBody::of alone")]
 pub struct FormMedia;
 
@@ -334,7 +334,7 @@ pub struct DcApiData(String);
 
 /// A DC API body that is no JSON object whose objects name each member once.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.dc_api_data")]
+#[explain(id = "dc_api_data.not_object")]
 #[error("the DC API data is no JSON object with unique member names")]
 pub struct NotObject;
 

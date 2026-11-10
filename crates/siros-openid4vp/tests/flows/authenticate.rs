@@ -158,7 +158,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         let rejected = classify(id);
         let holds = match cause(&rejected) {
             Unauthenticated::Origin => want == "A1",
-            Unauthenticated::UnknownPrefix(named) => want == "A2" && named == id,
+            Unauthenticated::UnknownPrefix { client_id: named } => want == "A2" && named == id,
             _ => false,
         };
         assert!(holds, "{id}: {rejected:?}");
@@ -182,7 +182,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         .questions(prefixes, &checked, &TestHost::default())
         .map(drop)
         .expect_err("A7");
-    assert!(matches!(cause(&rejected), Unauthenticated::Algorithm(alg) if alg == "ES384"));
+    assert!(matches!(cause(&rejected), Unauthenticated::Algorithm { alg } if alg == "ES384"));
     assert_eq!(target(&rejected), unverified());
     assert_eq!(
         rejected.failure().code(),
@@ -194,7 +194,9 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         ..TestTrust::default()
     };
     let rejected = refused(&uri_payload(""), TestPrefix::Request, &denied, &checked);
-    assert!(matches!(cause(&rejected), Unauthenticated::Untrusted(id) if id == "test:verifier"));
+    assert!(
+        matches!(cause(&rejected), Unauthenticated::Untrusted { client_id: id } if id == "test:verifier")
+    );
     assert_eq!(target(&rejected), unverified());
     // A9: expired, not yet valid.
     let now = 1_785_000_000_i64;
@@ -233,7 +235,7 @@ fn each_a_rule_refuses_with_its_code_and_route() {
         &checked,
     );
     assert!(
-        matches!(cause(&rejected), Unauthenticated::Audience(aud) if aud == "https://wallet.example")
+        matches!(cause(&rejected), Unauthenticated::Audience { aud } if aud == "https://wallet.example")
     );
     let uri = link("test%3Averifier", "");
     let object = request_object(&uri_payload(r#","aud":"https://self-issued.me/v2""#));
@@ -244,14 +246,19 @@ fn each_a_rule_refuses_with_its_code_and_route() {
     // identifier names, without endpoints.
     let without = uri_payload("").replace(&format!(r#""response_uri":"{RESPONSE_URI}","#), "");
     let rejected = refused(&without, TestPrefix::Request, &trust, &checked);
-    assert!(matches!(cause(&rejected), Unauthenticated::Endpoint(None)));
+    assert!(matches!(
+        cause(&rejected),
+        Unauthenticated::Endpoint { response_uri: None }
+    ));
     assert!(target(&rejected).is_none(), "no response_uri, no route");
     let listing = TestTrust {
         endpoints: Some(vec!["https://verifier.example/other".to_owned()]),
         ..TestTrust::default()
     };
     let rejected = refused(&uri_payload(""), TestPrefix::Request, &listing, &checked);
-    assert!(matches!(cause(&rejected), Unauthenticated::Endpoint(Some(at)) if at == RESPONSE_URI));
+    assert!(
+        matches!(cause(&rejected), Unauthenticated::Endpoint { response_uri: Some(at) } if at == RESPONSE_URI)
+    );
     assert_eq!(target(&rejected), unverified());
     let rejected = refused(
         &uri_payload(""),
@@ -261,7 +268,9 @@ fn each_a_rule_refuses_with_its_code_and_route() {
     );
     assert!(matches!(
         cause(&rejected),
-        Unauthenticated::Endpoint(Some(_))
+        Unauthenticated::Endpoint {
+            response_uri: Some(_)
+        }
     ));
     // A13 tamper: a response_uri by http, refused when the questions are asked, without a route.
     let http = uri_payload("").replace(RESPONSE_URI, "http://verifier.example/post");
@@ -411,7 +420,7 @@ fn a_signed_dc_api_request_names_its_client_and_an_origin_it_expects() {
         .map(drop)
         .expect_err("A6");
     assert!(
-        matches!(cause(&rejected), Unauthenticated::Untrusted(origin) if origin == "https://verifier.example")
+        matches!(cause(&rejected), Unauthenticated::Untrusted { client_id: origin } if origin == "https://verifier.example")
     );
     let accepted =
         authenticated(&envelope, &registry, &denied, &checked).expect("OriginPolicy::Accept");
@@ -491,7 +500,7 @@ fn a_multisigned_request_authenticates_by_its_first_good_signature_or_lists_each
     assert!(matches!(
         reasons.items(),
         [
-            Unauthenticated::UnknownPrefix(_),
+            Unauthenticated::UnknownPrefix { .. },
             Unauthenticated::Signature
         ]
     ));
@@ -509,13 +518,15 @@ fn the_registry_and_the_configuration_refuse_what_their_rule_excludes() {
     siros_testkit::fixtures::openid4vp(&mut builder);
     builder.client_prefix(TestPrefix::Request);
     builder.client_prefix(TestPrefix::Framework("verifier.example".to_owned()));
-    assert!(matches!(builder.build(), Err(RegistryError::PrefixTwice(name)) if name == "test"));
+    assert!(
+        matches!(builder.build(), Err(RegistryError::PrefixTwice { prefix: name }) if name == "test")
+    );
     assert_eq!(PrefixName::new("origin"), None);
     assert_eq!(
         PrefixName::new("x509_hash").map(|name| name.as_str()),
         Some("x509_hash")
     );
     // A skew past 300 s.
-    assert_eq!(Skew::new(Seconds(301)), Err(SkewTooLarge(301)));
+    assert_eq!(Skew::new(Seconds(301)), Err(SkewTooLarge { seconds: 301 }));
     assert!(Skew::new(Seconds(300)).is_ok());
 }

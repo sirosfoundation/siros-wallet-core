@@ -14,17 +14,22 @@ pub struct PublicJwk(Object<'static>);
 
 /// A JWK that is no public key.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.jose")]
 pub enum NotPublicJwk {
     /// No JSON object.
     #[error("the JWK is no JSON object")]
+    #[explain(id = "jose.object")]
     Object,
     /// `kty` absent or no string.
     #[error("the JWK holds no kty")]
+    #[explain(id = "jose.key_type")]
     KeyType,
     /// A private member (RFC 7518 §6.2.2, §6.3.2, §6.4).
-    #[error("the JWK holds the private member {0}")]
-    Private(#[explain(name = "member")] String),
+    #[error("the JWK holds the private member {member}")]
+    #[explain(id = "jose.private")]
+    Private {
+        /// The member's name.
+        member: String,
+    },
 }
 
 /// The members RFC 7518 §6.2.2, §6.3.2 and §6.4 and RFC 8037 §2 name for private keys.
@@ -44,7 +49,9 @@ impl PublicJwk {
             return Err(NotPublicJwk::KeyType);
         }
         if let Some(private) = PRIVATE.into_iter().find(|name| object.get(name).is_some()) {
-            return Err(NotPublicJwk::Private(private.to_owned()));
+            return Err(NotPublicJwk::Private {
+                member: private.to_owned(),
+            });
         }
         Ok(Self(object.into_owned()))
     }

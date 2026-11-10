@@ -108,15 +108,17 @@ fn unsafe_to_show(c: char) -> bool {
 
 /// Why text is refused for display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.text")]
 pub enum TextError {
     /// The text holds a control, format, separator, private-use or unassigned character.
     #[error("the text holds a control, format, separator, private-use or unassigned character")]
+    #[explain(id = "text.unsafe")]
     Unsafe,
     /// The text has more characters than its kind allows.
     #[error("the text has more characters than its kind allows")]
+    #[explain(id = "text.too_long")]
     TooLong,
     /// A label's, a title's or an issuer line's text is white space alone.
     #[error("the text is white space alone")]
+    #[explain(id = "text.empty")]
     Empty,
 }

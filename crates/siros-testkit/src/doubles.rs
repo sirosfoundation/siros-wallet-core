@@ -26,8 +26,9 @@ use siros_openid4vp::uri::FormBody;
 use siros_openid4vp::wallet_metadata::{MetadataMember, ParameterName};
 
 use crate::fixtures::{FixtureError, authenticate, parameters, routing, unsigned};
+use crate::render::Language;
 use crate::rules::TestRule;
-use crate::{FAULT, TestHost};
+use crate::{TestHost, caused, fault};
 
 /// A response type of the name given (RFC 6749 §3.1.1).
 #[derive(Debug, Clone, Copy)]
@@ -96,7 +97,7 @@ const FOREIGN: &str = r#"{"jwks":{"keys":[{"kty":"EC","crv":"P-256","kid":"forei
 /// The key of a second parsed request whose metadata is [`FOREIGN`], from its route's session; the
 /// request and its route are leaked, so the key outlives every request.
 fn foreign() -> Result<VerifierKey<'static>, Fault> {
-    let refused = |e: FixtureError| Fault::caused(FAULT, detail!("the foreign request"), e);
+    let refused = |e: FixtureError| caused(detail!("the foreign request"), e);
     let text: &'static str = Box::leak(
         parameters(
             r#"{"credentials":[{"id":"q","format":"test"}]}"#,
@@ -111,21 +112,24 @@ fn foreign() -> Result<VerifierKey<'static>, Fault> {
         Envelope::parse(received, registry).map_err(|e| refused(e.into()))?,
     ));
     let host = TestHost::default();
+    let context = Language::English
+        .shared()
+        .map_err(|e| caused(detail!("the test app's English context"), e))?;
     let authenticated: &'static Authenticated<'static> = Box::leak(Box::new(
-        authenticate(envelope, registry, &host).map_err(refused)?,
+        authenticate(envelope, registry, context, &host).map_err(refused)?,
     ));
     let route: &'static Route<'static, TestHost> = Box::leak(Box::new(
         Route::new(authenticated, registry, &host)
-            .map_err(|e| Fault::caused(FAULT, detail!("the foreign route"), e))?,
+            .map_err(|e| caused(detail!("the foreign route"), e))?,
     ));
     let answering: &'static AnswerRoute<'static, TestHost> =
         Box::leak(Box::new(route.answering().ok_or_else(|| {
-            Fault::new(FAULT, detail!("the foreign route answers nothing"))
+            fault(detail!("the foreign route answers nothing"))
         })?));
     let keys = answering.session().keys();
     keys.iter()
         .next()
-        .ok_or_else(|| Fault::new(FAULT, detail!("the foreign metadata's key")))
+        .ok_or_else(|| fault(detail!("the foreign metadata's key")))
 }
 
 /// The channel whose body a [`TestMode`] writes: its own, or the other, which the core refuses.
@@ -245,7 +249,7 @@ impl<H> ModeHost<H> for TestMode {
             (TestBody::Other, ChannelKind::DcApi) => ChannelKind::Uri,
             (TestBody::Other, ChannelKind::Uri) => ChannelKind::DcApi,
         };
-        let fault = |e| Fault::caused(FAULT, detail!("a test mode's body"), e);
+        let fault = |e| caused(detail!("a test mode's body"), e);
         Ok(match (channel, content) {
             (ChannelKind::DcApi, AnswerContent::Clear(response)) => {
                 Body::DcApi(DcApiData::of(response.json()).map_err(fault)?)
@@ -260,13 +264,13 @@ impl<H> ModeHost<H> for TestMode {
                 if let Some(state) = response.state() {
                     members.push(("state", state.as_str()));
                 }
-                Body::Post(PostBody::form(FormBody::of(&members).map_err(|e| {
-                    Fault::caused(FAULT, detail!("a test mode's form"), e)
-                })?))
+                Body::Post(PostBody::form(
+                    FormBody::of(&members).map_err(|e| caused(detail!("a test mode's form"), e))?,
+                ))
             }
             (ChannelKind::Uri, AnswerContent::Sealed(jwe)) => Body::Post(PostBody::form(
                 FormBody::of(&[("response", jwe.as_str())])
-                    .map_err(|e| Fault::caused(FAULT, detail!("a test mode's form"), e))?,
+                    .map_err(|e| caused(detail!("a test mode's form"), e))?,
             )),
         })
     }
@@ -296,7 +300,7 @@ impl<H> ErrorModeHost<H> for TestMode {
         };
         FormBody::of(&members)
             .map(PostBody::form)
-            .map_err(|e| Fault::caused(FAULT, detail!("a test mode's form"), e))
+            .map_err(|e| caused(detail!("a test mode's form"), e))
     }
 }
 

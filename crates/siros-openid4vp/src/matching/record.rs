@@ -1,21 +1,19 @@
 //! The record a consent entry carries: what choosing it presents and what the response attests of
 //! it. The platform returns it as the entry's id when the user picks the entry.
 
+use sha2::{Digest, Sha256};
 use siros_explain::Explain;
+use siros_i18n::Text;
 
+use crate::consent::{Card, Header, Overlay};
 use crate::ids::{CredentialId, QueryId};
 use crate::json::{JsonError, Node, quote};
 use crate::plugins::{Attested, OptionIndex};
 use crate::request::{EntryIndex, RequestDigest};
-use crate::rows::{Amounts, Bidi, Language, ModuleName, RenderingInputs};
+use crate::rows::{Row, Value};
 
 /// A record's id: the JSON array `[query, credential, option, entries, attested, request,
-/// rendering]`, `rendering` the object of its rendering inputs, members in this order:
-/// `selected` (`null`, or the array of the name of the module a profile selected a locale for
-/// and that locale), `language` (the tag), `fallback` (whether the language fell back),
-/// `modules` (each module's name and the hexadecimal SHA-256 of its sources), `amounts`
-/// (`formatted` or `written`), `bidi` (`default` or `none`) and `renderer` (the renderer's
-/// version).
+/// shown]`, `shown` the hexadecimal [`ShownDigest`] of the entry's texts.
 /// As an array it differs from "none" and from every static box's id; its pick tells it from
 /// every other entry of its slot.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,9 +27,109 @@ impl RecordId {
     }
 }
 
+/// The SHA-256 of the texts an entry shows, so a record commits to what the End-User read.
+///
+/// The hashed bytes encode, in this order, the card (its title, its subtitle, its rows), the
+/// transaction's header when there is one (its title, its confirm and cancel actions) and the
+/// transaction's overlay when there is one (its rows, its header when there is one, with its
+/// counterparty, its amount and its rows, then its hint). Each part is written as follows; every
+/// count and length is 8 bytes big-endian, so the encoding is injective:
+/// - a part that may be absent: `0` when absent, else `1` and the part;
+/// - a text: its span count, then per span its styles (bit 0 strong, bit 1 emphasis, bit 2
+///   underline), its UTF-8 length and its UTF-8 bytes;
+/// - rows: their count, then per row its label, its value (`0` for none, `1` for an image, `2`
+///   and the text for a text) and its section as a part that may be absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShownDigest([u8; 32]);
+
+impl ShownDigest {
+    /// The digest of the texts of a card, its transaction's header and its overlay.
+    #[must_use]
+    pub fn of(card: &Card, header: Option<&Header>, overlay: Option<&Overlay>) -> Self {
+        let mut shown = Shown(Sha256::new());
+        shown.text(&card.title);
+        shown.optional(card.subtitle.as_ref(), Shown::text);
+        shown.rows(&card.rows);
+        shown.optional(header, |shown, header| {
+            shown.text(&header.title);
+            shown.text(&header.confirm);
+            shown.text(&header.cancel);
+        });
+        shown.optional(overlay, |shown, overlay| {
+            shown.rows(&overlay.rows);
+            shown.optional(overlay.header.as_ref(), |shown, header| {
+                shown.text(&header.counterparty);
+                shown.text(&header.amount);
+                shown.rows(&header.rows);
+            });
+            shown.optional(overlay.hint.as_ref(), Shown::text);
+        });
+        Self(shown.0.finalize().into())
+    }
+
+    /// The digest in lowercase hexadecimal.
+    #[must_use]
+    pub fn hex(&self) -> String {
+        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+}
+
+/// The encoding [`ShownDigest`] hashes.
+struct Shown(Sha256);
+
+impl Shown {
+    fn count(&mut self, count: usize) {
+        self.0.update((count as u64).to_be_bytes());
+    }
+
+    fn optional<T>(&mut self, part: Option<T>, write: impl FnOnce(&mut Self, T)) {
+        match part {
+            None => self.0.update([0]),
+            Some(part) => {
+                self.0.update([1]);
+                write(self, part);
+            }
+        }
+    }
+
+    fn text(&mut self, text: &Text) {
+        self.count(text.spans().len());
+        for span in text.spans() {
+            let styles = [
+                siros_i18n::Style::Strong,
+                siros_i18n::Style::Emphasis,
+                siros_i18n::Style::Underline,
+            ]
+            .iter()
+            .enumerate()
+            .filter(|(_, style)| span.styles.contains(**style))
+            .fold(0u8, |bits, (bit, _)| bits | (1 << bit));
+            self.0.update([styles]);
+            self.count(span.text.len());
+            self.0.update(span.text.as_bytes());
+        }
+    }
+
+    fn rows(&mut self, rows: &[Row]) {
+        self.count(rows.len());
+        for row in rows {
+            self.text(&row.label);
+            match &row.value {
+                None => self.0.update([0]),
+                Some(Value::Image(_)) => self.0.update([1]),
+                Some(Value::Text(text)) => {
+                    self.0.update([2]);
+                    self.text(text);
+                }
+            }
+            self.optional(row.section.as_ref(), Shown::text);
+        }
+    }
+}
+
 /// What a consent entry presents (the query, the credential, the option), the entries it
 /// authorizes, the (name, text) pairs its profile attests of their display, the digest of the
-/// request with its Origin the matcher displayed, and what its texts rendered with. Phase 2
+/// request with its Origin the matcher displayed, and the digest of the texts it shows. Phase 2
 /// trusts the user's choice of a record alone: it derives every record itself and answers only a
 /// record equal to one of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +140,9 @@ pub struct Record<'m> {
     entries: &'m [EntryIndex],
     attested: Option<&'m Attested>,
     request: &'m RequestDigest,
-    inputs: &'m RenderingInputs,
+    shown: ShownDigest,
+    /// The id's text before its `shown` member.
+    head: String,
     id: RecordId,
 }
 
@@ -56,7 +156,7 @@ impl<'m> Record<'m> {
         entries: &'m [EntryIndex],
         attested: Option<&'m Attested>,
         request: &'m RequestDigest,
-        inputs: &'m RenderingInputs,
+        shown: ShownDigest,
     ) -> Self {
         let indexes: Vec<String> = entries
             .iter()
@@ -73,16 +173,16 @@ impl<'m> Record<'m> {
                     .collect()
             })
             .unwrap_or_default();
-        let id = format!(
-            "[{},{},{},[{}],{{{}}},{},{}]",
+        let head = format!(
+            "[{},{},{},[{}],{{{}}},{}",
             quote(query.as_str()),
             quote(credential.as_str()),
             option.position(),
             indexes.join(","),
             pairs.join(","),
             quote(request.as_str()),
-            Written::of(inputs).json(),
         );
+        let id = RecordId(format!("{head},{}]", quote(&shown.hex())));
         Self {
             query,
             credential,
@@ -90,8 +190,9 @@ impl<'m> Record<'m> {
             entries,
             attested,
             request,
-            inputs,
-            id: RecordId(id),
+            shown,
+            head,
+            id,
         }
     }
 
@@ -137,183 +238,41 @@ impl<'m> Record<'m> {
         self.request
     }
 
-    /// What its texts rendered with.
+    /// The digest of the texts it shows.
     #[must_use]
-    pub const fn inputs(&self) -> &'m RenderingInputs {
-        self.inputs
+    pub const fn shown(&self) -> ShownDigest {
+        self.shown
     }
 
-    /// The rendering input `returned` names differently, when it names this record's other
-    /// items as this record does: the selected module and its locale, the language, its
-    /// fallback flag, a module's digest or its presence, the amounts, the bidi strategy, or the
-    /// renderer's version, in that order.
+    /// Whether `returned` writes this record's every other member as this record's id does,
+    /// and another `shown`: the End-User read other texts than this record's.
     #[must_use]
-    pub fn other_input(&self, returned: &ReturnedRecord<'_>) -> Option<RenderingInput> {
-        let own = Node::parse(self.id.as_str()).ok()?;
-        let theirs = Node::parse(returned.as_str()).ok()?;
-        let (Some([own_items @ .., _]), Some([their_items @ .., rendering])) =
-            (own.as_array(), theirs.as_array())
-        else {
-            return None;
-        };
-        if own_items != their_items {
-            return None;
-        }
-        Written::of(self.inputs).first_other(rendering)
-    }
-}
-
-/// A rendering input a returned record names differently from the record phase 2 derives.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RenderingInput {
-    /// The module a profile selected a locale for, or that locale.
-    Selected,
-    /// The language.
-    Language,
-    /// Whether the language fell back.
-    Fallback,
-    /// A module, by its name: its digest, or its presence among the modules.
-    Module(String),
-    /// How amounts show.
-    Amounts,
-    /// The bidi strategy.
-    Bidi,
-    /// The renderer's version.
-    Renderer,
-}
-
-/// A record's rendering inputs as its id writes them.
-struct Written<'i> {
-    inputs: &'i RenderingInputs,
-    selected: String,
-    language: &'i str,
-    fallback: bool,
-    amounts: &'static str,
-    bidi: &'static str,
-}
-
-impl<'i> Written<'i> {
-    fn of(inputs: &'i RenderingInputs) -> Self {
-        let (language, fallback) = match inputs.language() {
-            Language::Understood(tag) => (tag.as_str(), false),
-            Language::Fallback(tag) => (tag.as_str(), true),
-        };
-        let selected = inputs.selected().map_or_else(
-            || "null".to_owned(),
-            |selected| {
-                format!(
-                    "[{},{}]",
-                    quote(&ModuleName::of(selected.module()).to_string()),
-                    quote(selected.locale().as_str())
-                )
-            },
-        );
-        Self {
-            inputs,
-            selected,
-            language,
-            fallback,
-            amounts: match inputs.amounts() {
-                Amounts::Formatted => "formatted",
-                Amounts::Written => "written",
-            },
-            bidi: match inputs.bidi() {
-                Bidi::Default => "default",
-                Bidi::None => "none",
-            },
-        }
-    }
-
-    /// Each module's name and its digest in hexadecimal, in the inputs' order.
-    fn modules(&self) -> impl Iterator<Item = (String, String)> + '_ {
-        self.inputs.modules().entries().iter().map(|entry| {
-            let digest = entry
-                .value()
-                .bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect();
-            (ModuleName::of(*entry.key()).to_string(), digest)
-        })
-    }
-
-    fn json(&self) -> String {
-        let modules: Vec<String> = self
-            .modules()
-            .map(|(name, digest)| format!("{}:{}", quote(&name), quote(&digest)))
-            .collect();
-        format!(
-            "{{\"selected\":{},\"language\":{},\"fallback\":{},\"modules\":{{{}}},\"amounts\":{},\"bidi\":{},\"renderer\":{}}}",
-            self.selected,
-            quote(self.language),
-            self.fallback,
-            modules.join(","),
-            quote(self.amounts),
-            quote(self.bidi),
-            self.inputs.renderer().number(),
-        )
-    }
-
-    /// The first input `rendering` names otherwise than these, by its members of those names.
-    fn first_other(&self, rendering: &Node<'_>) -> Option<RenderingInput> {
-        let text = |name: &str| rendering.get(name).and_then(Node::as_str);
-        let own = Node::parse(&self.selected).ok();
-        if rendering.get("selected") != own.as_ref() {
-            return Some(RenderingInput::Selected);
-        }
-        if text("language") != Some(self.language) {
-            return Some(RenderingInput::Language);
-        }
-        if rendering.get("fallback") != Some(&Node::Bool(self.fallback)) {
-            return Some(RenderingInput::Fallback);
-        }
-        let theirs = rendering.get("modules").and_then(Node::as_object);
-        for (name, digest) in self.modules() {
-            let named = theirs.and_then(|modules| modules.get(&name));
-            if named.and_then(Node::as_str) != Some(digest.as_str()) {
-                return Some(RenderingInput::Module(name));
-            }
-        }
-        let own: Vec<String> = self.modules().map(|(name, _)| name).collect();
-        if let Some(extra) = theirs.and_then(|modules| {
-            modules
-                .names()
-                .find(|name| !own.iter().any(|known| known == name))
-                .map(str::to_owned)
-        }) {
-            return Some(RenderingInput::Module(extra));
-        }
-        if text("amounts") != Some(self.amounts) {
-            return Some(RenderingInput::Amounts);
-        }
-        if text("bidi") != Some(self.bidi) {
-            return Some(RenderingInput::Bidi);
-        }
-        let renderer = rendering.get("renderer").and_then(|node| match node {
-            Node::Number(number) => number.as_u64(),
-            _ => None,
-        });
-        if renderer != Some(u64::from(self.inputs.renderer().number())) {
-            return Some(RenderingInput::Renderer);
-        }
-        None
+    pub fn shown_differs(&self, returned: &ReturnedRecord<'_>) -> bool {
+        returned.as_str() != self.id.as_str()
+            && returned
+                .as_str()
+                .strip_prefix(self.head.as_str())
+                .is_some_and(|rest| rest.starts_with(','))
     }
 }
 
 /// An id the platform returned that is no record.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.record")]
 pub enum RecordError {
     /// No JSON with unique member names.
     #[error(transparent)]
     Json(#[from] JsonError),
     /// JSON of another shape; the first 80 characters.
-    #[error("not a record: {0}")]
-    Shape(#[explain(name = "detail")] String),
+    #[error("not a record: {detail}")]
+    #[explain(id = "record.shape")]
+    Shape {
+        /// What breaks the shape.
+        detail: String,
+    },
 }
 
 /// An id returned as a record: a JSON array of two strings, a non-negative integer, an array of
-/// non-negative integers, an object of strings, a string and an object.
+/// non-negative integers, an object of strings and two strings.
 #[derive(Debug, Clone, Copy)]
 pub struct ReturnedRecord<'t>(&'t str);
 
@@ -323,17 +282,7 @@ impl<'t> ReturnedRecord<'t> {
         let node = Node::parse(text)?;
         let natural = |node: &Node<'_>| matches!(node, Node::Number(n) if n.text().bytes().all(|b| b.is_ascii_digit()) || n.text() == "-0");
         let shaped = match node.as_array() {
-            Some(
-                [
-                    query,
-                    credential,
-                    option,
-                    entries,
-                    attested,
-                    request,
-                    rendering,
-                ],
-            ) => {
+            Some([query, credential, option, entries, attested, request, shown]) => {
                 query.as_str().is_some()
                     && credential.as_str().is_some()
                     && natural(option)
@@ -347,14 +296,16 @@ impl<'t> ReturnedRecord<'t> {
                             .all(|m| m.value.as_str().is_some())
                     })
                     && request.as_str().is_some()
-                    && rendering.as_object().is_some()
+                    && shown.as_str().is_some()
             }
             _ => false,
         };
         if shaped {
             Ok(Self(text))
         } else {
-            Err(RecordError::Shape(text.chars().take(80).collect()))
+            Err(RecordError::Shape {
+                detail: text.chars().take(80).collect(),
+            })
         }
     }
 

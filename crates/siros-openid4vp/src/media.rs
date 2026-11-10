@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, kind};
+use siros_explain::Explain;
 
 /// A media type as received: the text a `Content-Type` field carried. Only [`MediaType::parse`]
 /// makes one.
@@ -16,10 +16,10 @@ pub struct MediaType {
 
 /// The rule of RFC 9110 a text breaks, at its byte offset.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.media_type")]
 pub enum NotMediaType {
     /// `type = token` (§8.3.1).
     #[error("{text:?} is no media type: no token for the type at byte {at} (RFC 9110 §8.3.1)")]
+    #[explain(id = "media_type.type")]
     Type {
         /// The text.
         text: String,
@@ -28,6 +28,7 @@ pub enum NotMediaType {
     },
     /// The `"/"` between type and subtype (§8.3.1).
     #[error("{text:?} is no media type: no \"/\" after the type at byte {at} (RFC 9110 §8.3.1)")]
+    #[explain(id = "media_type.slash")]
     Slash {
         /// The text.
         text: String,
@@ -36,6 +37,7 @@ pub enum NotMediaType {
     },
     /// `subtype = token` (§8.3.1).
     #[error("{text:?} is no media type: no token for the subtype at byte {at} (RFC 9110 §8.3.1)")]
+    #[explain(id = "media_type.subtype")]
     Subtype {
         /// The text.
         text: String,
@@ -46,6 +48,7 @@ pub enum NotMediaType {
     #[error(
         "{text:?} is no media type: no \";\" before a parameter at byte {at} (RFC 9110 §5.6.6)"
     )]
+    #[explain(id = "media_type.separator")]
     Separator {
         /// The text.
         text: String,
@@ -56,6 +59,7 @@ pub enum NotMediaType {
     #[error(
         "{text:?} is no media type: no \"=\" after a parameter name at byte {at} (RFC 9110 §5.6.6)"
     )]
+    #[explain(id = "media_type.equals")]
     Equals {
         /// The text.
         text: String,
@@ -66,6 +70,7 @@ pub enum NotMediaType {
     #[error(
         "{text:?} is no media type: no token or quoted-string for a parameter value at byte {at} (RFC 9110 §5.6.6)"
     )]
+    #[explain(id = "media_type.parameter_value")]
     ParameterValue {
         /// The text.
         text: String,
@@ -76,6 +81,7 @@ pub enum NotMediaType {
     #[error(
         "{text:?} is no media type: a quoted-string breaks its rule at byte {at} (RFC 9110 §5.6.4)"
     )]
+    #[explain(id = "media_type.quoted_string")]
     QuotedString {
         /// The text.
         text: String,
@@ -289,15 +295,6 @@ impl MediaType {
 
 /// The form media type's essence.
 const FORM: &str = "application/x-www-form-urlencoded";
-
-/// A media type is named by its text as received.
-impl IntoArg for MediaType {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.text
-    }
-}
 
 impl fmt::Display for MediaType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

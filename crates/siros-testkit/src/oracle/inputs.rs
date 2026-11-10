@@ -11,7 +11,9 @@ use crate::cose::cose_encrypt;
 
 /// The input error for a member `name` absent or not of its type.
 pub fn missing(name: &str) -> OracleError {
-    OracleError::Input(format!("no {name} of its type"))
+    OracleError::Input {
+        detail: format!("no {name} of its type"),
+    }
 }
 
 /// A member of an object.
@@ -61,7 +63,9 @@ pub fn member(written: &Value) -> Result<(Member, MemberValue), OracleError> {
     } else if let Some(hex) = value.get("bytes").and_then(Value::as_str) {
         MemberValue::Bytes(bytes(hex)?)
     } else if let Some(json) = value.get("json").and_then(Value::as_str) {
-        MemberValue::Json(JsonText::parse(json).map_err(|e| OracleError::Input(e.to_string()))?)
+        MemberValue::Json(JsonText::parse(json).map_err(|e| OracleError::Input {
+            detail: e.to_string(),
+        })?)
     } else {
         MemberValue::Cbor(sealed(text(value, "cbor")?)?)
     };
@@ -71,8 +75,9 @@ pub fn member(written: &Value) -> Result<(Member, MemberValue), OracleError> {
 /// The testkit's tagged COSE_Encrypt of the model's stand-in `{"COSE_Encrypt": {"protected":
 /// {"alg", "enc", "kid"}, "ciphertext": {"bstr": hex}}}`.
 fn sealed(stand_in: &str) -> Result<Item, OracleError> {
-    let written: Value =
-        serde_json::from_str(stand_in).map_err(|e| OracleError::Input(e.to_string()))?;
+    let written: Value = serde_json::from_str(stand_in).map_err(|e| OracleError::Input {
+        detail: e.to_string(),
+    })?;
     let sealed = field(&written, "COSE_Encrypt")?;
     let protected = field(sealed, "protected")?;
     let alg = text(protected, "alg")?;
@@ -89,5 +94,7 @@ fn sealed(stand_in: &str) -> Result<Item, OracleError> {
         .ok_or_else(|| missing("COSE_Encrypt enc"))?;
     let plaintext = bytes(text(field(sealed, "ciphertext")?, "bstr")?)?;
     let encoded = cose_encrypt(alg, enc, text(protected, "kid")?, &plaintext)?;
-    Item::parse(encoded).map_err(|e| OracleError::Port(format!("the COSE_Encrypt stand-in: {e}")))
+    Item::parse(encoded).map_err(|e| OracleError::Port {
+        detail: format!("the COSE_Encrypt stand-in: {e}"),
+    })
 }

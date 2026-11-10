@@ -6,7 +6,8 @@ use std::any::Any;
 use std::any::TypeId;
 use std::fmt;
 
-use siros_explain::{AllOf, Explain};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 #[cfg(feature = "resolve")]
 use super::{Answered, Fault, FetchedRecord, Members};
@@ -15,6 +16,8 @@ use super::{Binding, Bound, NoCandidate, ViewAdditions};
 use super::{Format, Member, Profile};
 #[cfg(feature = "signed")]
 use crate::authenticate::{HostedPrefix, ObjectRule};
+#[cfg(feature = "request-decryption")]
+use crate::detail;
 #[cfg(feature = "transaction-data")]
 use crate::hash::HashAlgorithm;
 use crate::hash::HashName;
@@ -27,6 +30,8 @@ use crate::host::{Authentication, AuthenticationNeed, FormatHost, ProfileHost};
 #[cfg(feature = "resolve")]
 use crate::host::{Haip, Has, Platform};
 use crate::ids::{FormatId, TransactionType, TypePrefix};
+#[cfg(feature = "request-decryption")]
+use crate::plugins::fault;
 #[cfg(feature = "uri")]
 use crate::request::Agreements;
 #[cfg(feature = "request-decryption")]
@@ -53,14 +58,14 @@ use crate::wallet_metadata::{
 };
 #[cfg(feature = "uri")]
 use crate::wallet_metadata::{HostedPostContribution, MetadataMember, PostContribution};
-#[cfg(feature = "request-decryption")]
-use crate::{FAULT, detail};
 #[cfg(feature = "match")]
 use crate::{
     refusal::Refusal,
     request::{EntryIndex, Request},
     rows::Env,
 };
+#[cfg(feature = "match")]
+use siros_i18n::Context;
 
 /// A profile by its registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,23 +73,39 @@ pub struct ProfileHandle(usize);
 
 /// A registry that cannot exist.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.registry")]
 pub enum RegistryError {
     /// Two formats with one identifier.
-    #[error("two formats have the identifier {0}")]
-    FormatTwice(#[explain(name = "format")] String),
+    #[error("two formats have the identifier {format}")]
+    #[explain(id = "registry.format_twice")]
+    FormatTwice {
+        /// The format identifier.
+        format: String,
+    },
     /// A type or prefix registered twice.
-    #[error("{0} is registered twice")]
-    TypeTwice(#[explain(name = "registration")] String),
+    #[error("{registration} is registered twice")]
+    #[explain(id = "registry.type_twice")]
+    TypeTwice {
+        /// The type or type prefix.
+        registration: String,
+    },
     /// Two Client Identifier Prefix plug-ins with one name.
-    #[error("two Client Identifier Prefix plug-ins have the name {0}")]
-    PrefixTwice(#[explain(name = "prefix")] String),
+    #[error("two Client Identifier Prefix plug-ins have the name {prefix}")]
+    #[explain(id = "registry.prefix_twice")]
+    PrefixTwice {
+        /// The prefix.
+        prefix: String,
+    },
     /// A registration names a profile the builder does not hold.
-    #[error("{0} names a profile the registry does not hold")]
-    UnknownProfile(#[explain(name = "registration")] String),
+    #[error("{registration} names a profile the registry does not hold")]
+    #[explain(id = "registry.unknown_profile")]
+    UnknownProfile {
+        /// The type or type prefix.
+        registration: String,
+    },
     /// Two modes of one name on one channel: two registrations for answers, two for errors, or
     /// an answer and an error registration of modes of different types.
     #[error("the response mode {name} is registered twice on one channel")]
+    #[explain(id = "registry.mode_twice")]
     ModeTwice {
         /// The name.
         name: ModeName,
@@ -93,28 +114,51 @@ pub enum RegistryError {
         channel: ChannelKind,
     },
     /// An error mode on the DC API, whose errors are A.4's and the core's.
-    #[error("the response mode {0} writes DC API errors, which A.4 fixes")]
-    ErrorModeChannel(#[explain(name = "mode")] ModeName),
+    #[error("the response mode {mode} writes DC API errors, which A.4 fixes")]
+    #[explain(id = "registry.error_mode_channel")]
+    ErrorModeChannel {
+        /// The mode.
+        mode: ModeName,
+    },
     /// Two response types of one name.
-    #[error("the response type {0} is registered twice")]
-    ResponseTypeTwice(#[explain(name = "response_type")] ResponseTypeName),
+    #[error("the response type {response_type} is registered twice")]
+    #[explain(id = "registry.response_type_twice")]
+    ResponseTypeTwice {
+        /// The response type.
+        response_type: ResponseTypeName,
+    },
     /// `RequestPost` or `EncryptedRequests` registered twice.
     #[error("the request_uri POST is registered twice")]
+    #[explain(id = "registry.post_twice")]
     PostTwice,
     /// Two hash algorithms of one name.
-    #[error("the hash algorithm {0} is registered twice")]
-    HashTwice(#[explain(name = "algorithm")] HashName),
+    #[error("the hash algorithm {algorithm} is registered twice")]
+    #[explain(id = "registry.hash_twice")]
+    HashTwice {
+        /// The algorithm.
+        algorithm: HashName,
+    },
     /// A transaction data profile without `sha-256`, B.3.3.1's default.
     #[error("a transaction data profile is registered and sha-256 is not")]
+    #[explain(id = "registry.sha256_absent")]
     Sha256Absent,
     /// Two queries of one scope value.
-    #[error("the scope value {0} is registered twice")]
-    ScopeTwice(#[explain(name = "scope")] ScopeValue),
+    #[error("the scope value {scope} is registered twice")]
+    #[explain(id = "registry.scope_twice")]
+    ScopeTwice {
+        /// The scope value.
+        scope: ScopeValue,
+    },
     /// A scope value's query that is no DCQL query the core reads.
-    #[error("the scope value {0} maps to no DCQL query")]
-    ScopeQuery(#[explain(name = "scope")] ScopeValue),
+    #[error("the scope value {scope} maps to no DCQL query")]
+    #[explain(id = "registry.scope_query")]
+    ScopeQuery {
+        /// The scope value.
+        scope: ScopeValue,
+    },
     /// A Credential Query or claim id two scope values' queries share (§5.5: "MUST be unique").
     #[error("the scope values {first} and {second} share the id {id}")]
+    #[explain(id = "registry.scope_ids")]
     ScopeIds {
         /// The first scope value.
         first: ScopeValue,
@@ -124,10 +168,15 @@ pub enum RegistryError {
         id: String,
     },
     /// A mode that writes `wallet_metadata` members over the DC API, whose requests post none.
-    #[error("the DC API response mode {0} writes wallet_metadata members")]
-    MetadataChannel(#[explain(name = "mode")] ModeName),
+    #[error("the DC API response mode {mode} writes wallet_metadata members")]
+    #[explain(id = "registry.metadata_channel")]
+    MetadataChannel {
+        /// The mode.
+        mode: ModeName,
+    },
     /// A name two registered parts write.
     #[error("{name} is written by two registered parts")]
+    #[explain(id = "registry.name_twice")]
     NameTwice {
         /// Where.
         #[explain(skip)]
@@ -137,6 +186,7 @@ pub enum RegistryError {
     },
     /// A name the core writes itself, which a registered part declares.
     #[error("{name} is the core's to write")]
+    #[explain(id = "registry.name_reserved")]
     NameReserved {
         /// Where.
         #[explain(skip)]
@@ -146,29 +196,62 @@ pub enum RegistryError {
     },
     /// `EncryptedRequests` without `RequestPost`.
     #[error("encrypted Request Objects are registered without the request_uri POST")]
+    #[explain(id = "registry.decryption_without_post")]
     DecryptionWithoutPost,
     /// A profile would write a member twice into one presentation: one of the format's own, or
     /// one it declares twice.
-    #[error("the profile registered for {registration} writes {} twice in a {format} presentation", .members.items().join(", "))]
+    #[error(
+        "the profile registered for {registration} writes {members} twice in a {format} presentation"
+    )]
+    #[explain(id = "registry.member_twice")]
     MemberTwice {
         /// A type or prefix the profile is registered under.
         registration: String,
         /// The format.
         format: String,
         /// The members.
-        members: AllOf<String>,
+        members: MemberNames,
     },
     /// A profile names members of another kind than the format's placement holds: a data
     /// element where the proof holds claims, or a claim where it holds name-space elements.
-    #[error("the profile registered for {registration} names {} in a {format} presentation, whose proof holds no such member", .members.items().join(", "))]
+    #[error(
+        "the profile registered for {registration} names {members} in a {format} presentation, whose proof holds no such member"
+    )]
+    #[explain(id = "registry.member_placement")]
     MemberPlacement {
         /// A type or prefix the profile is registered under.
         registration: String,
         /// The format.
         format: String,
         /// The members.
-        members: AllOf<String>,
+        members: MemberNames,
     },
+}
+
+/// Member names a [`RegistryError`] lists, sorted, each once. Its `Display`, a message's
+/// argument, writes them separated by `, `.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberNames(AllOf<String>);
+
+impl MemberNames {
+    /// The names sorted, each once; `None` for no name.
+    fn of(mut names: Vec<String>) -> Option<Self> {
+        names.sort();
+        names.dedup();
+        AllOf::new(names).map(Self)
+    }
+
+    /// The names.
+    #[must_use]
+    pub fn names(&self) -> &[String] {
+        self.0.items()
+    }
+}
+
+impl fmt::Display for MemberNames {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0.items().join(", "))
+    }
 }
 
 /// A registered format and the placement it stated when the registry was built, which the
@@ -827,7 +910,9 @@ impl<H: Build> RegistryBuilder<H> {
                 .get(..k)
                 .is_some_and(|before| before.iter().any(|other| other.name() == algorithm.name()))
             {
-                return Err(RegistryError::HashTwice(algorithm.name()));
+                return Err(RegistryError::HashTwice {
+                    algorithm: algorithm.name(),
+                });
             }
         }
         #[cfg(feature = "uri")]
@@ -839,7 +924,9 @@ impl<H: Build> RegistryBuilder<H> {
                 .get(..k)
                 .is_some_and(|before| before.iter().any(|other| other.name() == kind.name()))
             {
-                return Err(RegistryError::ResponseTypeTwice(kind.name()));
+                return Err(RegistryError::ResponseTypeTwice {
+                    response_type: kind.name(),
+                });
             }
         }
         for (k, registration) in modes.iter().enumerate() {
@@ -847,7 +934,7 @@ impl<H: Build> RegistryBuilder<H> {
             let (name, channel) = (registered.mode().name(), registered.mode().channel());
             let errors = registered.carries_errors();
             if errors && channel == ChannelKind::DcApi {
-                return Err(RegistryError::ErrorModeChannel(name));
+                return Err(RegistryError::ErrorModeChannel { mode: name });
             }
             if modes.get(..k).is_some_and(|before| {
                 before.iter().any(|other| {
@@ -909,7 +996,7 @@ impl<H: Build> RegistryBuilder<H> {
                 .is_some_and(|before| before.iter().any(|other| other.prefix.name() == name))
                 .then(|| name.to_string())
         }) {
-            return Err(RegistryError::PrefixTwice(twice));
+            return Err(RegistryError::PrefixTwice { prefix: twice });
         }
         #[cfg(feature = "request-decryption")]
         let post = Post::of(&posts, encrypted)?;
@@ -920,7 +1007,9 @@ impl<H: Build> RegistryBuilder<H> {
                 .get(..k)
                 .is_some_and(|before| before.iter().any(|other| other.id() == format.id()))
             {
-                return Err(RegistryError::FormatTwice(format.id().to_string()));
+                return Err(RegistryError::FormatTwice {
+                    format: format.id().to_string(),
+                });
             }
         }
         let formats: Vec<RegisteredFormat<H>> = formats
@@ -944,11 +1033,15 @@ impl<H: Build> RegistryBuilder<H> {
                 .get(..k)
                 .is_some_and(|before| before.iter().any(|(other, _)| other == name))
             {
-                return Err(RegistryError::TypeTwice(name.clone()));
+                return Err(RegistryError::TypeTwice {
+                    registration: name.clone(),
+                });
             }
             let profile = profiles
                 .get(handle.0)
-                .ok_or_else(|| RegistryError::UnknownProfile(name.clone()))?;
+                .ok_or_else(|| RegistryError::UnknownProfile {
+                    registration: name.clone(),
+                })?;
             for RegisteredFormat { format, placement } in &formats {
                 let Some((placement, members)) = placement.and_then(|placement| {
                     profile
@@ -957,21 +1050,19 @@ impl<H: Build> RegistryBuilder<H> {
                 }) else {
                     continue;
                 };
-                let mut misplaced: Vec<String> = members
+                let misplaced: Vec<String> = members
                     .iter()
                     .filter(|member| !placement.places(member))
                     .map(ToString::to_string)
                     .collect();
-                misplaced.sort();
-                misplaced.dedup();
-                if let Some(members) = AllOf::new(misplaced) {
+                if let Some(members) = MemberNames::of(misplaced) {
                     return Err(RegistryError::MemberPlacement {
                         registration: name.clone(),
                         format: format.id().to_string(),
                         members,
                     });
                 }
-                let mut twice: Vec<String> = members
+                let twice: Vec<String> = members
                     .iter()
                     .enumerate()
                     .filter(|(j, m)| {
@@ -983,9 +1074,7 @@ impl<H: Build> RegistryBuilder<H> {
                     })
                     .map(|(_, m)| m.to_string())
                     .collect();
-                twice.sort();
-                twice.dedup();
-                if let Some(members) = AllOf::new(twice) {
+                if let Some(members) = MemberNames::of(twice) {
                     return Err(RegistryError::MemberTwice {
                         registration: name.clone(),
                         format: format.id().to_string(),
@@ -1334,10 +1423,9 @@ impl<H> Post<H> {
                 if curve.is_some_and(|curve| decryption.decrypts().curve(curve)) {
                     Ok(key)
                 } else {
-                    Err(Fault::new(
-                        FAULT,
-                        detail!("the ephemeral key's crv is none the module states"),
-                    ))
+                    Err(fault(detail!(
+                        "the ephemeral key's crv is none the module states"
+                    )))
                 }
             })
             .transpose()
@@ -1512,7 +1600,7 @@ fn names<H: Build>(
         let mode = registered.mode();
         let names = mode.metadata_names();
         if mode.channel() == ChannelKind::DcApi && !names.is_empty() {
-            return Err(RegistryError::MetadataChannel(mode.name()));
+            return Err(RegistryError::MetadataChannel { mode: mode.name() });
         }
         members.extend_from_slice(names);
     }
@@ -1552,9 +1640,9 @@ fn read_scopes(queries: &[Box<dyn ScopeQuery>]) -> Result<Vec<ScopeEntry>, Regis
     for query in queries {
         let (value, entry) = (query.scope(), ScopeEntry::read(query.as_ref()));
         if entries.iter().any(|entry| entry.value == value) {
-            return Err(RegistryError::ScopeTwice(value));
+            return Err(RegistryError::ScopeTwice { scope: value });
         }
-        let entry = entry.ok_or(RegistryError::ScopeQuery(value))?;
+        let entry = entry.ok_or(RegistryError::ScopeQuery { scope: value })?;
         for earlier in &entries {
             if let Some(id) = entry.ids.iter().find(|id| earlier.ids.contains(id)) {
                 return Err(RegistryError::ScopeIds {
@@ -1640,7 +1728,7 @@ impl ProfileFinding {
 /// A finding from a profile the registry does not hold.
 #[cfg(feature = "resolve")]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "inform_error")]
 #[error("a finding comes from a profile the registry does not hold")]
 pub struct InformError;
 
@@ -1654,7 +1742,12 @@ pub trait ErasedProfile: Send + Sync {
     fn refusals(&self, request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Refusal>;
     fn members(&self, placement: Placement) -> Option<&[Member]>;
     #[cfg(feature = "match")]
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate>;
     #[cfg(feature = "match")]
     fn reserves(
         &self,
@@ -1674,8 +1767,13 @@ impl<P: Profile> ErasedProfile for P {
     }
 
     #[cfg(feature = "match")]
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate> {
-        Profile::bind(self, binding, env)
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
+        Profile::bind(self, binding, env, context)
     }
 
     #[cfg(feature = "match")]

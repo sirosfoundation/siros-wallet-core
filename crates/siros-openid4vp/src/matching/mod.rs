@@ -17,22 +17,23 @@ pub use display::{
     StaticEntry, Views, display, option_items, wallet_header,
 };
 pub use offer::{OfferSet, Offered, each, fills, flatten, offer, ways};
-pub use record::{Record, RecordError, RecordId, RenderingInput, ReturnedRecord};
+pub use record::{Record, RecordError, RecordId, ReturnedRecord, ShownDigest};
 pub use rules::{Accepted, CoreRule, Transaction};
 
 use siros_explain::Explain;
+use siros_i18n::Context;
 
+use crate::detail;
+use crate::plugins::fault;
 use crate::plugins::registry::{Catalog, ErasedProfile};
 use crate::plugins::{
     Binding, Bound, Carriage, Clause, Exclude, Exclusion, Fault, Member, NoCandidate, OptionIndex,
     ProfileHandle,
 };
 use crate::refusal::ErrorCode;
-use crate::rendering::Rendering;
 use crate::request::{AgreeableKey, HolderBinding, Query, QueryIndex, Request};
-use crate::rows::{Env, RenderingInputs};
+use crate::rows::Env;
 use crate::wallet::{Credential, Holder, Wallet};
-use crate::{FAULT, detail};
 use rules::Formatted;
 
 /// A candidate by its position among a query's candidates. Only the core's match makes one
@@ -69,9 +70,6 @@ pub struct Candidate<'m> {
     /// The transaction it authorizes for the query with the profile's binding: present for each
     /// candidate of a query transaction data names.
     pub bound: Option<TransactionBinding<'m>>,
-    /// What its texts render with: the language and its fallback flag, each module's digest,
-    /// the rendering options and the renderer's version.
-    pub inputs: RenderingInputs,
 }
 
 /// A candidate's transaction: its query's `Transaction` and the `Bound` the transaction's profile
@@ -100,7 +98,7 @@ pub struct Excluded<'m> {
 /// A profile keeps the credential for its own transactions, and no entry of that profile names the
 /// query ([`crate::plugins::Profile::reserves`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.matching", id = "reserved")]
+#[explain(id = "matching.reserved")]
 #[error("a profile reserves the credential for a query its own entries name")]
 pub struct ReservedCredential;
 
@@ -119,9 +117,6 @@ pub enum ExcludedBy {
     /// The profile of the transaction naming the query binds none of its entries, or another
     /// profile reserves the credential.
     Profile,
-    /// The entry's texts cannot render: no language serves its modules, or the package holds
-    /// no module whose locale its profile selected (section 4.14 of the design).
-    Language,
     /// The query's format: what the End-User could be shown of the credential must not reach them
     /// (`FormatQuery::displayable`).
     Display,
@@ -162,20 +157,23 @@ impl<'m> Match<'m> {
     /// query trusts and, unless the query waives it, bound to a key; that the Verifier's
     /// algorithms admit; for a query transaction data names, to which its profile binds entries;
     /// and which answer an option, a claim naming one of the profile's response members included.
-    /// Each candidate's texts take their language over `rendering`'s modules; an entry no
-    /// language serves is excluded.
+    /// `context` resolves the texts a profile's binding gives.
+    ///
+    /// # Errors
+    ///
+    /// A plug-in's fault, which a text `context` resolves none of causes.
     pub fn run(
         accepted: &'m Accepted<'m>,
         wallet: &'m Wallet<'m>,
         env: &Env,
-        rendering: &Rendering<'_>,
+        context: &Context,
     ) -> Result<Self, Fault> {
         let keys = accepted.metadata().agreeable_keys();
         let mut candidates = Vec::new();
         let mut excluded = Vec::new();
         for (index, query) in accepted.request().indexed_queries() {
             let mut found = Vec::new();
-            let matcher = QueryMatcher::of(accepted, index, query, &keys, env, rendering)?;
+            let matcher = QueryMatcher::of(accepted, index, query, &keys, env, context)?;
             if let Some(matcher) = matcher {
                 for credential in wallet.credentials().iter().filter(|c| matcher.eligible(c)) {
                     match matcher.consider(credential)? {
@@ -291,7 +289,7 @@ struct QueryMatcher<'m, 'k> {
     catalog: &'m dyn Catalog,
     keys: &'k [AgreeableKey<'k>],
     env: &'k Env,
-    rendering: &'k Rendering<'k>,
+    context: &'k Context,
 }
 
 impl<'m, 'k> QueryMatcher<'m, 'k> {
@@ -306,7 +304,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         query: &'m Query<'m>,
         keys: &'k [AgreeableKey<'k>],
         env: &'k Env,
-        rendering: &'k Rendering<'k>,
+        context: &'k Context,
     ) -> Result<Option<Self>, Fault> {
         let Some(formatted) = accepted
             .plan(index)
@@ -322,10 +320,9 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                     .profile_ref(t.profile)
                     .map(|profile| (t, profile))
                     .ok_or_else(|| {
-                        Fault::new(
-                            FAULT,
-                            detail!("a transaction names a profile the registry does not hold"),
-                        )
+                        fault(detail!(
+                            "a transaction names a profile the registry does not hold"
+                        ))
                     })
             })
             .transpose()?;
@@ -343,7 +340,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             catalog: accepted.registry(),
             keys,
             env,
-            rendering,
+            context,
         }))
     }
 
@@ -373,24 +370,6 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             }
             Err((_, NoCandidate::Fault(fault))) => return Err(fault),
         };
-        let selected = bound
-            .as_ref()
-            .and_then(|binding| binding.bound.selected.as_ref());
-        let card_module = self.formatted.query.card_module(credential)?;
-        let inputs = match self.rendering.renderer(
-            selected,
-            card_module,
-            Some(credential.id.as_str()),
-            self.env,
-        )? {
-            Ok(renderer) => renderer.inputs(),
-            Err(unrendered) => {
-                return Ok(Considered::Excluded(
-                    ExcludedBy::Language,
-                    Exclude::new(unrendered),
-                ));
-            }
-        };
         let provided = match (&bound, self.members) {
             (Some(_), Some(members)) => members,
             _ => &[],
@@ -404,14 +383,11 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             .windows(2)
             .all(|pair| matches!(pair, [a, b] if a < b));
         if !ascending || options.iter().any(|option| own.get(*option).is_none()) {
-            return Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{query}: the format answered options {options:?} of its query's {count}",
-                    query = self.query.id().to_string(),
-                    count = own.iter().count()
-                ),
-            ));
+            return Err(fault(detail!(
+                "{query}: the format answered options {options:?} of its query's {count}",
+                query = self.query.id().to_string(),
+                count = own.iter().count()
+            )));
         }
         if options.is_empty() {
             return Ok(Considered::Unanswered);
@@ -431,7 +407,6 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
                 credential,
                 options,
                 bound,
-                inputs,
             })),
             Err(NoCandidate::Excluded(exclude)) => {
                 Ok(Considered::Excluded(ExcludedBy::Display, exclude))
@@ -474,7 +449,7 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
             additions: &*additions,
             carriage,
         };
-        let bound = profile.bind(binding, self.env)?;
+        let bound = profile.bind(binding, self.env, self.context)?;
         if bound
             .entries
             .entries()
@@ -483,13 +458,10 @@ impl<'m, 'k> QueryMatcher<'m, 'k> {
         {
             Ok(Some(TransactionBinding { transaction, bound }))
         } else {
-            Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{query}: a profile bound entries no entry naming the query offered",
-                    query = self.query.id().to_string()
-                ),
-            )
+            Err(fault(detail!(
+                "{query}: a profile bound entries no entry naming the query offered",
+                query = self.query.id().to_string()
+            ))
             .into())
         }
     }

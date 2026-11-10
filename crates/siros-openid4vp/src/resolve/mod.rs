@@ -24,10 +24,11 @@ pub use route::{AnswerRoute, Route, Unroutable};
 
 use std::fmt;
 
-use siros_explain::{AllOf, Explain, Explained};
+use siros_explain::Explain;
+use siros_syntax::AllOf;
 
 use crate::host::{AuthenticationNeed, Categories};
-use crate::matching::{RecordError, RenderingInput};
+use crate::matching::RecordError;
 use crate::plugins::{Fault, FindingData, ProfileFinding};
 use crate::refusal::{QuotedList, Refused};
 use crate::session::{Session, SessionBinding};
@@ -59,14 +60,12 @@ pub enum Finding {
         /// The record's position.
         record: RecordIndex,
     },
-    /// The record is one the wallet derives, its texts rendered with another input than the
-    /// wallet's: a package built before the app changed a module, the language preferences or
-    /// the options, or by another renderer.
+    /// The record is one the wallet derives but for the texts it showed: the End-User read
+    /// other texts than the wallet's context resolves, such as a matcher's registration written
+    /// before the wallet changed its wording or its language.
     Rendered {
         /// The record's position.
         record: RecordIndex,
-        /// The first input that differs.
-        input: RenderingInput,
     },
     /// Its credential can no longer be presented.
     Unusable {
@@ -93,60 +92,67 @@ pub enum Finding {
 /// How a mode's route or body breaks its registration, the cause of phase 2's fault: the mode
 /// broke its contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.route_breach")]
 pub enum RouteBreach {
     /// A mode registered for errors alone routed an answer.
     #[error("a mode that carries errors routed an answer")]
+    #[explain(id = "route_breach.errors_answered")]
     ErrorsAnswered,
     /// A mode in the clear chose a key.
     #[error("a mode in the clear chose a key")]
+    #[explain(id = "route_breach.key_in_the_clear")]
     KeyInTheClear,
     /// A JWE mode chose no key.
     #[error("a JWE mode chose no key")]
+    #[explain(id = "route_breach.no_key")]
     NoKey,
     /// A JWE mode chose a key outside the request's `client_metadata.jwks`.
     #[error("a JWE mode chose a key the request does not name")]
+    #[explain(id = "route_breach.foreign")]
     Foreign,
     /// A JWE mode chose a key or an `enc` the sealing module does not state.
     #[error("a mode chose a key or an enc the sealing module does not state")]
+    #[explain(id = "route_breach.unstated")]
     Unstated,
     /// A JWE mode chose an `enc` the Verifier does not list (§5.1, §8.3).
     #[error("a mode chose an enc the Verifier does not list")]
+    #[explain(id = "route_breach.unlisted")]
     Unlisted,
     /// A mode wrote a body of another channel than the request's.
     #[error("a mode wrote a body of another channel than the request's")]
+    #[explain(id = "route_breach.body_channel")]
     BodyChannel,
 }
 
 /// How a registered part of the Authorization Response's parameters breaks its registration, the
 /// cause of phase 2's fault: the part broke its contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.parameter_breach")]
 pub enum ParameterBreach {
     /// A member of a name outside the names the registry checked for the part.
     #[error("a part wrote a response parameter it does not declare")]
+    #[explain(id = "parameter_breach.undeclared")]
     Undeclared,
     /// A member of a name an earlier member holds.
     #[error("a response parameter written twice")]
+    #[explain(id = "parameter_breach.twice")]
     Twice,
 }
 
 /// A profile wrote a presentation member outside those it declares for the placement, the cause of
 /// phase 2's fault.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp", id = "undeclared_member")]
+#[explain(id = "undeclared_member")]
 #[error("a profile wrote a presentation member it does not declare")]
 pub struct UndeclaredMember;
 
 /// Why phase 2 rejects a selection: its ids are no records, or no selection the request allows.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.rejection")]
 pub enum Rejection {
     /// An id that is no record.
     #[error(transparent)]
     NotARecord(#[from] RecordError),
     /// A query takes one record without `multiple`, distinct credentials with it.
     #[error("{query}: {records} records, {credentials} credentials")]
+    #[explain(id = "rejection.query_records")]
     QueryRecords {
         /// The query.
         query: String,
@@ -157,15 +163,16 @@ pub enum Rejection {
     },
     /// Two records carry transactions.
     #[error("two records carry transactions; one confirmation carries one")]
+    #[explain(id = "rejection.two_transactions")]
     TwoTransactions,
     /// The queries presented are none of the request's alternatives.
     #[error("the queries {} are none of the request's alternatives", QuotedList(.0))]
+    #[explain(id = "rejection.no_alternative")]
     NoAlternative(#[explain(skip)] Vec<String>),
 }
 
 /// Why phase 2 answers nothing.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.outcome")]
 pub enum Outcome {
     /// The request breaks a rule.
     #[error(transparent)]
@@ -179,6 +186,7 @@ pub enum Outcome {
     /// [informed](crate::plugins::Registry::informed) of the findings. The user confirms again in
     /// the wallet's own UI.
     #[error("{} finding(s) make phase 2 fall back", .0.items().len())]
+    #[explain(id = "outcome.fallback")]
     Fallback(#[explain(skip)] AllOf<Finding>),
     /// A URI request whose mode names no registered error mode (C5): the End-User alone hears
     /// of it.
@@ -186,12 +194,14 @@ pub enum Outcome {
     Unroutable(#[from] Unroutable),
     /// The wallet failed to authenticate the End-User (OpenID4VP §8.5 `access_denied`).
     #[error("the Wallet failed to authenticate the End-User")]
+    #[explain(id = "outcome.user_unauthenticated")]
     UserUnauthenticated,
     /// The End-User's authentication covers fewer PSD2 categories than a record's profile needs
     /// (CS-12 §5 item 4; TS12 §3.6).
     #[error(
         "the End-User's authentication covers {covered} PSD2 categories, and a {need} need asks for more"
     )]
+    #[explain(id = "outcome.authentication_too_weak")]
     AuthenticationTooWeak {
         /// The strongest need of the records' profiles.
         need: AuthenticationNeed,
@@ -201,7 +211,8 @@ pub enum Outcome {
     /// A format made no presentation: a step failed without a bug, such as a cancelled key
     /// prompt (OpenID4VP §8.5 `access_denied`).
     #[error("the presentation failed: {0}")]
-    NotPresented(#[explain(name = "reason")] Box<dyn Explained>),
+    #[explain(id = "outcome.not_presented")]
+    NotPresented(#[source] Box<dyn Explain>),
     /// A plug-in failed.
     #[error(transparent)]
     Fault(#[from] Fault),

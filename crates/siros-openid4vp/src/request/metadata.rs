@@ -11,20 +11,22 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 /// `client_metadata` that is no JSON object, or whose `vp_formats_supported` is none (rule C6).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.metadata")]
 pub enum MetadataError {
     /// No JSON with unique member names.
     #[error("{0}")]
+    #[explain(id = "metadata.json")]
     Json(
         #[from]
-        #[explain(name = "cause")]
+        #[source]
         JsonError,
     ),
     /// No object.
     #[error("client_metadata is not a JSON object")]
+    #[explain(id = "metadata.not_object")]
     NotObject,
     /// `vp_formats_supported` is no object.
     #[error("vp_formats_supported is not a JSON object")]
+    #[explain(id = "metadata.vp_formats")]
     VpFormats,
 }
 
@@ -142,19 +144,19 @@ jose_names! {
 
 impl Curve<'static> {
     /// `P-256` (RFC 7518 §6.2.1.1).
-    pub const P_256: Self = siros_explain::checked!(Curve<'static>, "P-256");
+    pub const P_256: Self = siros_syntax::checked!(Curve<'static>, "P-256");
 }
 
 impl KeyAgreement<'static> {
     /// `ECDH-ES` (RFC 7518 §4.6).
-    pub const ECDH_ES: Self = siros_explain::checked!(KeyAgreement<'static>, "ECDH-ES");
+    pub const ECDH_ES: Self = siros_syntax::checked!(KeyAgreement<'static>, "ECDH-ES");
 }
 
 impl ContentEncryption<'static> {
     /// `A128GCM` (RFC 7518 §5.3).
-    pub const A128GCM: Self = siros_explain::checked!(ContentEncryption<'static>, "A128GCM");
+    pub const A128GCM: Self = siros_syntax::checked!(ContentEncryption<'static>, "A128GCM");
     /// `A256GCM` (RFC 7518 §5.3).
-    pub const A256GCM: Self = siros_explain::checked!(ContentEncryption<'static>, "A256GCM");
+    pub const A256GCM: Self = siros_syntax::checked!(ContentEncryption<'static>, "A256GCM");
 }
 
 /// What a module agrees keys and encrypts with: curves, key agreements and content encryptions,

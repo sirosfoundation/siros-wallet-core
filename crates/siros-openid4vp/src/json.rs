@@ -19,15 +19,19 @@ pub use write::{WrittenJson, quote};
 
 /// Why a text is no JSON with unique member names.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.json")]
 pub enum JsonError {
     /// The text is no JSON value.
     #[error("{0}")]
+    #[explain(id = "json.syntax")]
     Syntax(#[explain(skip)] String),
     /// An object names a member twice: the first such name in code point order, of the first
     /// object to end that repeats one.
-    #[error("an object repeats a member name: {0}")]
-    DuplicateMember(#[explain(name = "member")] String),
+    #[error("an object repeats a member name: {member}")]
+    #[explain(id = "json.duplicate_member")]
+    DuplicateMember {
+        /// The name.
+        member: String,
+    },
 }
 
 impl From<serde_json::Error> for JsonError {
@@ -193,7 +197,9 @@ impl<'a> Object<'a> {
             .map(|(name, value)| Node::from_raw(value).map(|value| Member { name, value }))
             .collect::<Result<Vec<_>, _>>()?;
         if let Some(name) = first_repeated(&members) {
-            return Err(JsonError::DuplicateMember(name.to_owned()));
+            return Err(JsonError::DuplicateMember {
+                member: name.to_owned(),
+            });
         }
         Ok(Object(members))
     }
@@ -213,7 +219,9 @@ impl<'a> Object<'a> {
     /// The object of these members in their order; refused when a name repeats.
     pub fn new(members: Vec<Member<'a>>) -> Result<Self, JsonError> {
         match first_repeated(&members) {
-            Some(name) => Err(JsonError::DuplicateMember(name.to_owned())),
+            Some(name) => Err(JsonError::DuplicateMember {
+                member: name.to_owned(),
+            }),
             None => Ok(Object(members)),
         }
     }
@@ -290,7 +298,7 @@ fn first_repeated<T: Named>(values: &[T]) -> Option<&str> {
 
 /// A name a [`Distinct`] was given twice.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.json", id = "repeated_name")]
+#[explain(id = "json.repeated_name")]
 #[error("the name {name} repeats")]
 pub struct RepeatedName {
     /// The name.
@@ -599,7 +607,9 @@ impl<'a> RawObject<'a> {
             .windows(2)
             .find(|pair| matches!(pair, [a, b] if a == b))
         {
-            return Err(JsonError::DuplicateMember((*name).to_owned()));
+            return Err(JsonError::DuplicateMember {
+                member: (*name).to_owned(),
+            });
         }
         Ok(Self(members))
     }

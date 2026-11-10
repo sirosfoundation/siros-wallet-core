@@ -4,7 +4,7 @@
 //! A credential's `test` document: `{"supports": [types], "nonconforming": [entries], "stale"?:
 //! [entries phase 2 finds no longer hold]}`.
 
-use siros_explain::{RequestText, Text};
+use siros_i18n::Context;
 use siros_openid4vp::consent::{Header, Overlay, TransactionHeader};
 use siros_openid4vp::detail;
 use siros_openid4vp::hash;
@@ -16,11 +16,12 @@ use siros_openid4vp::plugins::{
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{EntryIndex, Request};
-use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Row, Value};
+use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Row, Value, WalletText};
 use siros_openid4vp::wallet::Credential;
 
-use crate::FAULT;
+use crate::format::{DoubleText, resolve};
 use crate::rules::{EntryRule, Excluded};
+use crate::{caused, fault};
 
 /// Which compatible entries the profile binds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,14 +65,14 @@ impl TestProfile {
 /// The credential's `test` document.
 fn document<'c>(credential: &'c Credential<'_>) -> Result<Node<'c>, Fault> {
     let bytes = credential.document("test").ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!("{id}: no test document", id = credential.id.to_string()),
-        )
+        fault(detail!(
+            "{id}: no test document",
+            id = credential.id.to_string()
+        ))
     })?;
     let what = || detail!("{id}: test document", id = credential.id.to_string());
-    let text = std::str::from_utf8(bytes).map_err(|e| Fault::caused(FAULT, what(), e))?;
-    Node::parse(text).map_err(|e| Fault::caused(FAULT, what(), e))
+    let text = std::str::from_utf8(bytes).map_err(|e| caused(what(), e))?;
+    Node::parse(text).map_err(|e| caused(what(), e))
 }
 
 /// The array member of the document, which a test document holds.
@@ -84,14 +85,11 @@ fn array<'d>(
         .get(member)
         .and_then(Node::as_array)
         .ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!(
-                    "{id}: test document without {member}",
-                    id = credential.id.to_string(),
-                    member = member.to_owned()
-                ),
-            )
+            fault(detail!(
+                "{id}: test document without {member}",
+                id = credential.id.to_string(),
+                member = member.to_owned()
+            ))
         })
 }
 
@@ -130,7 +128,14 @@ impl Profile for TestProfile {
         })
     }
 
-    fn bind(&self, binding: Binding<'_>, _env: &Env) -> Result<Bound, NoCandidate> {
+    /// The entries' indexes as the reference: a row of it and a logo row in a section, a
+    /// transaction header when the first entry is of type `t2`, and a hint.
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        _env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
         let document = document(binding.credential)?;
         let supported = array(&document, "supports", binding.credential)?;
         let nonconforming = array(&document, "nonconforming", binding.credential)?;
@@ -172,15 +177,16 @@ impl Profile for TestProfile {
             .and_then(|index| binding.request.entry(*index))
             .map(|entry| entry.kind().as_str() == "t2");
         let entries = BoundEntries::select(binding.entries, chosen)
-            .map_err(|e| Fault::caused(FAULT, detail!("bound entries"), e))?;
+            .map_err(|e| caused(detail!("bound entries"), e))?;
+        let section = resolve(context, &DoubleText::Section)?;
         let rows = vec![
             Row::new(
-                RequestText::raw("Reference".to_owned()),
-                Value::Text(RequestText::raw(reference.clone())),
+                resolve(context, &DoubleText::Reference)?,
+                Value::Text(resolve(context, &DoubleText::written(reference.as_str()))?),
             )
-            .in_section(RequestText::raw("Section".to_owned())),
+            .in_section(section.clone()),
             Row::new(
-                RequestText::raw("Logo".to_owned()),
+                resolve(context, &DoubleText::Logo)?,
                 Value::Image(Image::Embedded(ImageRef::new(
                     siros_openid4vp::rows::ImageSource::Data,
                     siros_openid4vp::rows::ImageMedia::PNG,
@@ -188,31 +194,38 @@ impl Profile for TestProfile {
                     siros_openid4vp::rows::ImageHeight::new(1),
                 ))),
             )
-            .in_section(RequestText::raw("Section".to_owned())),
+            .in_section(section),
         ];
-        let transaction = (first == Some(true)).then(|| TransactionHeader {
-            counterparty: RequestText::raw("Merchant".to_owned()),
-            amount: RequestText::raw("1.00 EUR".to_owned()),
-            rows: Vec::new(),
-        });
+        let transaction = match first {
+            Some(true) => Some(TransactionHeader {
+                counterparty: resolve(context, &DoubleText::Merchant)?,
+                amount: resolve(context, &DoubleText::written("1.00 EUR"))?,
+                rows: Vec::new(),
+            }),
+            Some(false) | None => None,
+        };
         Ok(Bound {
             entries,
             header: Header {
-                title: Text::Raw(format!("entries {reference}")),
-                confirm: Text::Raw("Confirm".to_owned()),
-                cancel: Text::Raw("Cancel".to_owned()),
+                title: resolve(
+                    context,
+                    &DoubleText::Entries {
+                        reference: reference.clone(),
+                    },
+                )?,
+                confirm: resolve(context, &DoubleText::Confirm)?,
+                cancel: resolve(context, &WalletText::Deny)?,
             },
             attested: Attested::new(vec![(
                 AttestedName::new("entries"),
                 AttestedText::new(reference.clone()),
             )])
-            .map_err(|e| Fault::caused(FAULT, detail!("attested"), e))?,
+            .map_err(|e| caused(detail!("attested"), e))?,
             overlay: Overlay {
                 rows,
                 header: transaction,
-                hint: Some(RequestText::raw(format!("hint {reference}"))),
+                hint: Some(resolve(context, &DoubleText::Hint { reference })?),
             },
-            selected: None,
         })
     }
 }
@@ -247,10 +260,10 @@ impl<H> ProfileHost<H> for TestProfile {
     fn revalidate(&self, record: FetchedRecord<'_>, _host: &H) -> Result<Option<Stale>, Fault> {
         let record = record.record();
         let document = document(record.credential())?;
-        let listed = document
-            .get("stale")
-            .and_then(Node::as_array)
-            .unwrap_or(&[]);
+        let listed = match document.get("stale") {
+            None => &[][..],
+            Some(_) => array(&document, "stale", record.credential())?,
+        };
         let stale: Vec<(String, usize)> = record
             .entries()
             .entries()
@@ -276,19 +289,19 @@ impl<H> ProfileHost<H> for TestProfile {
                     .filter_map(|index| record.request().entry(*index))
                     .collect();
                 hash::members(&entries, record.request().envelope().hashes())
-                    .map_err(|e| Fault::caused(FAULT, detail!("B.3.3.1 hashes"), e))
+                    .map_err(|e| caused(detail!("B.3.3.1 hashes"), e))
             }
             Binds::First => {
                 let entries = record
                     .attested()
                     .get("entries")
-                    .ok_or_else(|| Fault::new(FAULT, detail!("the record attests no entries")))?;
+                    .ok_or_else(|| fault(detail!("the record attests no entries")))?;
                 let [binding] = BINDING.clone();
                 Members::new(vec![(
                     binding,
                     MemberValue::Text(entries.as_str().to_owned()),
                 )])
-                .map_err(|e| Fault::caused(FAULT, detail!("binding"), e))
+                .map_err(|e| caused(detail!("binding"), e))
             }
         }
     }

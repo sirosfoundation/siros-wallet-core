@@ -18,12 +18,13 @@ mod answered;
 pub(crate) mod members;
 pub(crate) mod registry;
 
+use std::error::Error;
 use std::fmt;
 
 use dyn_clone::DynClone;
-use siros_explain::{
-    AllOf, Args, DefinedModule, Explain, Explained, Message, MessageId, Messages, names,
-};
+use siros_explain::Explain;
+use siros_i18n::Context;
+use siros_syntax::AllOf;
 
 #[cfg(feature = "resolve")]
 pub use answered::{Answered, FetchedRecord};
@@ -32,7 +33,7 @@ pub use members::{JsonText, Member, MemberTwice, MemberValue, Members};
 pub use registry::Hashes;
 pub use registry::{
     Build, HostedErrorMode, HostedFormat, HostedMode, HostedProfile, HostedResponseParameters,
-    JweHost, NoHost, ProfileHandle, Registry, RegistryBuilder, RegistryError,
+    JweHost, MemberNames, NoHost, ProfileHandle, Registry, RegistryBuilder, RegistryError,
 };
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};
@@ -43,7 +44,7 @@ use crate::json::Node;
 use crate::refusal::Refusal;
 use crate::request::{AgreeableKey, EntryIndex, Item, ItemSet, Query, Request};
 use crate::routing::QueryContext;
-use crate::rows::{Env, Selected};
+use crate::rows::Env;
 use crate::wallet::Credential;
 use crate::wallet_metadata::Placement;
 
@@ -74,14 +75,14 @@ impl fmt::Display for Clause {
 
 /// A rule that keeps a credential from answering a query: its message, and the clause that
 /// decides it.
-pub trait Exclusion: Explained {
+pub trait Exclusion: Explain {
     /// The clause that decides it.
     fn clause(&self) -> Clause;
 }
 
 /// A credential cannot answer a query: the plug-in's rule, kept as itself until a text is needed.
-#[derive(Debug, thiserror::Error)]
-#[error("{rule} [{}]", rule.clause())]
+/// Its id, arguments and source are the rule's; its log line adds the clause.
+#[derive(Debug)]
 pub struct Exclude {
     rule: Box<dyn Exclusion>,
 }
@@ -107,57 +108,25 @@ impl Exclude {
     }
 }
 
-/// An exclusion's message is its rule's.
+impl fmt::Display for Exclude {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} [{}]", self.rule, self.rule.clause())
+    }
+}
+
+impl Error for Exclude {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.rule.source()
+    }
+}
+
 impl Explain for Exclude {
-    fn id(&self) -> MessageId {
+    fn id(&self) -> &'static str {
         self.rule.id()
     }
 
-    fn args(&self) -> Args<'_> {
-        self.rule.args()
-    }
-}
-
-/// An exclusion's rule declares its message, in its own type's [`Messages`].
-impl Messages for Exclude {
-    fn messages() -> Vec<Message> {
-        Vec::new()
-    }
-}
-
-/// A crate's domain, as its fault message `<domain>.fault`: `checked!(FaultDomain,
-/// "openid4vp.fault")` makes one when the crate builds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FaultDomain(MessageId);
-
-impl FaultDomain {
-    /// The domain of the message `id`; `None` unless `id` is a message identifier ending in
-    /// `.fault`.
-    #[must_use]
-    pub const fn new(id: &'static str) -> Option<Self> {
-        match MessageId::new(id) {
-            Some(message) if matches!(id.as_bytes(), [.., b'.', b'f', b'a', b'u', b'l', b't']) => {
-                Some(Self(message))
-            }
-            _ => None,
-        }
-    }
-
-    /// The fault message's identifier.
-    #[must_use]
-    pub const fn id(self) -> MessageId {
-        self.0
-    }
-
-    /// The fault message as its crate's module declares it: no argument.
-    #[must_use]
-    pub fn message(self) -> Message {
-        Message::new(
-            self.0,
-            Some("a plug-in could not read the wallet's data, or broke its contract"),
-            names!(),
-            [],
-        )
+    fn args(&self, arg: &mut dyn FnMut(&'static str, &dyn fmt::Display)) {
+        self.rule.args(arg);
     }
 }
 
@@ -168,93 +137,112 @@ impl FaultDomain {
 macro_rules! detail {
     ($text:literal $(, $name:ident = $value:expr)* $(,)?) => {{
         $(let $name = $value;)*
-        move |f: &mut ::core::fmt::Formatter<'_>| ::core::write!(f, $text)
+        $crate::plugins::Detail::new(
+            move |f: &mut ::core::fmt::Formatter<'_>| ::core::write!(f, $text),
+        )
     }};
 }
 
-/// Writes a fault's detail when a log line is written: a formatter that owns its values.
-type Detail = Box<dyn Fn(&mut fmt::Formatter<'_>) -> fmt::Result + Send + Sync>;
+/// A fault's log line, written when a log line is written: a formatter that owns its values.
+/// [`detail!`](crate::detail) makes one.
+pub struct Detail(Box<dyn Fn(&mut fmt::Formatter<'_>) -> fmt::Result + Send + Sync>);
 
-/// A plug-in could not read the wallet's data, or broke its contract. Its message is its
-/// crate's `<domain>.fault`; its detail is the log line's.
-pub struct Fault {
-    domain: FaultDomain,
-    detail: Detail,
-    source: Option<Box<dyn std::error::Error + Send + Sync>>,
-}
-
-impl Fault {
-    /// A fault of a crate, its detail written by `detail`.
+impl Detail {
+    /// The detail `write` writes.
     pub fn new(
-        domain: FaultDomain,
-        detail: impl Fn(&mut fmt::Formatter<'_>) -> fmt::Result + Send + Sync + 'static,
+        write: impl Fn(&mut fmt::Formatter<'_>) -> fmt::Result + Send + Sync + 'static,
     ) -> Self {
-        Self {
-            domain,
-            detail: Box::new(detail),
-            source: None,
-        }
-    }
-
-    /// A fault of a crate caused by an error, its detail written by `detail`.
-    pub fn caused(
-        domain: FaultDomain,
-        detail: impl Fn(&mut fmt::Formatter<'_>) -> fmt::Result + Send + Sync + 'static,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            domain,
-            detail: Box::new(detail),
-            source: Some(Box::new(source)),
-        }
+        Self(Box::new(write))
     }
 }
 
-impl fmt::Display for Fault {
+impl fmt::Display for Detail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self.detail)(f)
+        (self.0)(f)
     }
 }
 
-impl fmt::Debug for Fault {
+impl fmt::Debug for Detail {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Fault")
-            .field("domain", &self.domain)
-            .field("detail", &self.to_string())
-            .field("source", &self.source)
+        f.debug_tuple("Detail")
+            .field(&format_args!("{self}"))
             .finish()
     }
 }
 
-impl std::error::Error for Fault {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source
-            .as_deref()
-            .map(|source| source as &(dyn std::error::Error + 'static))
+/// A plug-in could not read the wallet's data, or broke its contract. Its id and source are the
+/// fault error's that its crate wraps.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error(transparent)]
+pub struct Fault(Box<dyn Explain>);
+
+impl Fault {
+    /// The fault of a crate's own fault error. Each crate that faults derives one, under its
+    /// scope, with its detail for the log line and its cause as the source:
+    ///
+    /// ```standalone_crate
+    /// use std::error::Error;
+    ///
+    /// use siros_explain::Explain;
+    /// use siros_openid4vp::detail;
+    /// use siros_openid4vp::plugins::{Detail, Fault};
+    ///
+    /// siros_explain::scope!("mdoc");
+    ///
+    /// #[derive(Debug, thiserror::Error, Explain)]
+    /// #[error("{detail}")]
+    /// #[explain(id = "fault")]
+    /// struct MdocFault {
+    ///     #[explain(skip)]
+    ///     detail: Detail,
+    ///     #[source]
+    ///     cause: Option<Box<dyn Error + Send + Sync>>,
+    /// }
+    ///
+    /// fn main() {
+    ///     let id = "pid-1";
+    ///     let fault = Fault::new(MdocFault {
+    ///         detail: detail!("{id}: no view", id = id.to_owned()),
+    ///         cause: None,
+    ///     });
+    ///     assert_eq!(fault.id(), "err.mdoc.fault");
+    ///     assert_eq!(fault.to_string(), "pid-1: no view");
+    /// }
+    /// ```
+    pub fn new(error: impl Explain) -> Self {
+        Self(Box::new(error))
     }
 }
 
-/// A fault's message is its crate's `<domain>.fault`, its detail left to the log line.
-impl Explain for Fault {
-    fn id(&self) -> MessageId {
-        self.domain.id()
-    }
-
-    fn args(&self) -> Args<'_> {
-        Args::none()
-    }
+/// The core's fault error.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct CoreFault {
+    #[explain(skip)]
+    detail: Detail,
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
 }
 
-/// A fault's message is its crate's, which the crate declares with [`FaultDomain::message`].
-impl Messages for Fault {
-    fn messages() -> Vec<Message> {
-        Vec::new()
-    }
+/// The core's fault, its log line written by `detail`.
+pub(crate) fn fault(detail: Detail) -> Fault {
+    Fault::new(CoreFault {
+        detail,
+        cause: None,
+    })
+}
+
+/// The core's fault caused by an error, its log line written by `detail`.
+pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(CoreFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
 }
 
 /// Why a credential gives no candidate for a query.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.no_candidate")]
 pub enum NoCandidate {
     /// The plug-in excludes it.
     #[error(transparent)]
@@ -461,19 +449,20 @@ pub trait FormatQuery {
         env: &Env,
     ) -> Result<(), NoCandidate>;
 
-    /// The credential's card showing the items.
-    fn draw(&self, credential: &Credential<'_>, shown: Shown<'_>, env: &Env)
-    -> Result<Card, Fault>;
-
-    /// The defined module the credential's card draws its texts from (section 4.14 of the design),
-    /// which then takes one language with the entry's other modules.
+    /// The credential's card showing the items, each text resolved by `context`. A format that
+    /// converts metadata into wording loads the converted source into a clone of `context`.
     ///
     /// # Errors
     ///
-    /// The credential names a module in no form the format writes.
-    fn card_module(&self, _credential: &Credential<'_>) -> Result<Option<DefinedModule>, Fault> {
-        Ok(None)
-    }
+    /// The format cannot read the credential, or `context` resolves no text for one of the
+    /// card's statements: the fault's source is the `siros_i18n::ResolveError`.
+    fn draw(
+        &self,
+        credential: &Credential<'_>,
+        shown: Shown<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Card, Fault>;
 }
 
 /// The `transaction_data` entries a credential authorizes for a query: a non-empty ascending
@@ -483,7 +472,7 @@ pub struct BoundEntries(Vec<EntryIndex>);
 
 /// Bound entries that break their rule.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "not_offered")]
 #[error("bound entries {0:?}: not a non-empty ascending subset of the offered entries")]
 pub struct NotOffered(#[explain(skip)] pub Vec<EntryIndex>);
 
@@ -548,9 +537,12 @@ pub struct Attested(Vec<(AttestedName, AttestedText)>);
 
 /// An attested name given twice.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
-#[error("the attested name {0} is given twice")]
-pub struct AttestedTwice(#[explain(name = "name")] pub String);
+#[explain(id = "attested_twice")]
+#[error("the attested name {name} is given twice")]
+pub struct AttestedTwice {
+    /// The name.
+    pub name: String,
+}
 
 impl Attested {
     /// The pairs, each name once.
@@ -563,7 +555,9 @@ impl Attested {
                     .then_some((name, text))
             })
         }) {
-            return Err(AttestedTwice(name.as_str().to_owned()));
+            return Err(AttestedTwice {
+                name: name.as_str().to_owned(),
+            });
         }
         Ok(Self(pairs))
     }
@@ -595,9 +589,6 @@ pub struct Bound {
     pub attested: Attested,
     /// What the profile draws over the format's card.
     pub overlay: Overlay,
-    /// The module whose texts show in a locale the profile selected itself; `None` when the
-    /// presentation's language decides every text.
-    pub selected: Option<Selected>,
 }
 
 /// Whether the credential's presentation can carry the profile's response members.
@@ -639,8 +630,8 @@ pub struct Binding<'b> {
 /// (`UnknownProfile`), and members a format's proof cannot hold (`MemberPlacement`,
 /// `MemberTwice`). `refusals` reads the request's entries the profile owns and refuses with its
 /// rules' codes. `members` places the profile's members by the format's [`Placement`] and names
-/// no format. `bind` reads a core-made [`Binding`] and renders the entries the credential
-/// authorizes. The phase-2 half, `ProfileHost`, names the resources it revalidates with
+/// no format. `bind` reads a core-made [`Binding`] and gives the entries the credential
+/// authorizes, with their texts. The phase-2 half, `ProfileHost`, names the resources it revalidates with
 /// (`wanted`), the authentication a record needs, its revalidation and its response members over
 /// the host modules its bounds name. siros-paso and siros-qes implement it; siros-testkit's
 /// `TestProfile` is the double.
@@ -656,8 +647,20 @@ pub trait Profile: Clone + Send + Sync + 'static {
     /// when it defines no binding for it. A profile names no format.
     fn members(&self, placement: Placement) -> Option<&[Member]>;
 
-    /// The entries of `binding.entries` the credential authorizes, rendered.
-    fn bind(&self, binding: Binding<'_>, env: &Env) -> Result<Bound, NoCandidate>;
+    /// The entries of `binding.entries` the credential authorizes, with the header and overlay
+    /// their texts resolved by `context`. A profile that converts the request's metadata into
+    /// wording loads the converted source into a clone of `context`.
+    ///
+    /// # Errors
+    ///
+    /// The profile excludes the credential, cannot read it, or `context` resolves no text for one
+    /// of its statements: that fault's source is the `siros_i18n::ResolveError`.
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate>;
 
     /// Whether the profile keeps the credential for its own transactions: a credential a profile
     /// reserves is a candidate only for a query one of the profile's entries names. `additions`:

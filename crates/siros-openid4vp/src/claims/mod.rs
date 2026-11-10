@@ -89,7 +89,7 @@ pub type ConcretePath<'a> = Vec<Concrete<'a>>;
 /// A path component that does not fit the element it is applied to (§7.1): what it reads, and
 /// its position in the path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp")]
+#[explain(id = "path_error")]
 #[error("a claims path pointer reads {what} in an element of another kind at component {step}")]
 pub struct PathError {
     what: &'static str,
@@ -303,28 +303,46 @@ pub struct Claims<'a> {
 
 /// `claims` or `claim_sets` that break §6.3-6.4.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.claims")]
 pub enum ClaimsError {
     /// `claims` is no non-empty array of claims queries.
     #[error("claims is not a non-empty array of objects with a claims path pointer")]
+    #[explain(id = "claims.claims")]
     Claims,
     /// `values` is no non-empty array.
-    #[error("claims[{0}].values is not a non-empty array")]
-    Values(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}].values is not a non-empty array")]
+    #[explain(id = "claims.values")]
+    Values {
+        /// The claim's position.
+        claim: usize,
+    },
     /// `id` is no non-empty string of letters, digits, `_` and `-` (§6.3).
-    #[error("claims[{0}].id is not a non-empty string of letters, digits, _ and -")]
-    Id(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}].id is not a non-empty string of letters, digits, _ and -")]
+    #[explain(id = "claims.id")]
+    Id {
+        /// The claim's position.
+        claim: usize,
+    },
     /// Two claims queries share an `id` (§6.3).
-    #[error("the id {0} names two claims queries")]
-    IdTwice(#[explain(name = "id")] String),
+    #[error("the id {id} names two claims queries")]
+    #[explain(id = "claims.id_twice")]
+    IdTwice {
+        /// The id.
+        id: String,
+    },
     /// A claims query without an `id` beside `claim_sets` (§6.3).
-    #[error("claims[{0}] has no id, which claim_sets requires")]
-    IdAbsent(#[explain(name = "claim")] usize),
+    #[error("claims[{claim}] has no id, which claim_sets requires")]
+    #[explain(id = "claims.id_absent")]
+    IdAbsent {
+        /// The claim's position.
+        claim: usize,
+    },
     /// `claim_sets` without `claims`, or not a non-empty array of non-empty arrays of claim ids.
     #[error("claim_sets is not a non-empty array of non-empty arrays of claim ids")]
+    #[explain(id = "claims.claim_sets")]
     ClaimSets,
     /// More claims than an option can hold.
     #[error("more than 64 claims")]
+    #[explain(id = "claims.too_many")]
     TooMany,
 }
 
@@ -351,7 +369,9 @@ impl<'a> Claims<'a> {
                     .any(|earlier| earlier.id.as_ref() == Some(*id))
             })
         }) {
-            return Err(ClaimsError::IdTwice(twice.to_string()));
+            return Err(ClaimsError::IdTwice {
+                id: twice.to_string(),
+            });
         }
         let item = |k: usize| Item::new(k).ok_or(ClaimsError::TooMany);
         let options = match query.get("claim_sets") {
@@ -364,7 +384,7 @@ impl<'a> Claims<'a> {
                     .filter(|sets| !sets.is_empty() && !claims.is_empty())
                     .ok_or(ClaimsError::ClaimSets)?;
                 if let Some(absent) = claims.iter().position(|claim| claim.id.is_none()) {
-                    return Err(ClaimsError::IdAbsent(absent));
+                    return Err(ClaimsError::IdAbsent { claim: absent });
                 }
                 sets.iter()
                     .map(|set| {
@@ -424,9 +444,9 @@ impl<'a> Claim<'a> {
         let id = match node.get("id") {
             None => None,
             Some(Node::String(id)) => {
-                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id(k))?)
+                Some(ClaimId::parse(id.clone()).map_err(|_| ClaimsError::Id { claim: k })?)
             }
-            Some(_) => return Err(ClaimsError::Id(k)),
+            Some(_) => return Err(ClaimsError::Id { claim: k }),
         };
         let values = node
             .get("values")
@@ -435,7 +455,7 @@ impl<'a> Claim<'a> {
                     .as_array()
                     .filter(|values| !values.is_empty())
                     .map(<[_]>::to_vec)
-                    .ok_or(ClaimsError::Values(k))
+                    .ok_or(ClaimsError::Values { claim: k })
             })
             .transpose()?;
         Ok(Self { id, path, values })

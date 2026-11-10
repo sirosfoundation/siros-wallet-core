@@ -8,16 +8,17 @@ use siros_openid4vp::refusal::{ErrorCode, RequestRule};
 
 /// A rule of the test format's queries: `invalid_request`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.format")]
 pub enum FormatRule {
     /// The Verifier's `algs` is no array.
     #[error("test {query}: algs is not an array")]
+    #[explain(id = "format.algs")]
     Algs {
         /// The query's id.
         query: String,
     },
     /// The query is no JSON with unique member names.
     #[error("test {query}: {cause}")]
+    #[explain(id = "format.json")]
     Json {
         /// The query's id.
         query: String,
@@ -26,6 +27,7 @@ pub enum FormatRule {
     },
     /// `options` is no array of item arrays.
     #[error("test {query}: options is not an array of item arrays")]
+    #[explain(id = "format.options")]
     Options {
         /// The query's id.
         query: String,
@@ -40,7 +42,7 @@ impl RequestRule for FormatRule {
 
 /// B.3.3.1's rule an entry of the test profile breaks, under the entry: its code is the rule's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.profile", id = "entry")]
+#[explain(id = "profile.entry")]
 #[error("test entry {entry}: {rule}")]
 pub struct EntryRule {
     /// The entry's position.
@@ -57,19 +59,21 @@ impl RequestRule for EntryRule {
 
 /// Why the test format or the test profile excludes a credential.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.excluded")]
 pub enum Excluded {
     /// The Verifier's `algs` admit no algorithm of the credential.
     #[error("algs [{listed}] admit no algorithm of the credential")]
+    #[explain(id = "excluded.algs")]
     Algs {
         /// The algorithms, each as Python's `repr` writes it.
         listed: String,
     },
     /// No entry the profile binds is compatible.
     #[error("no entry is compatible")]
+    #[explain(id = "excluded.no_entry")]
     NoEntry,
     /// No hash algorithm every bound entry allows.
     #[error("no hash algorithm every entry allows")]
+    #[explain(id = "excluded.no_algorithm")]
     NoAlgorithm,
 }
 
@@ -84,7 +88,7 @@ impl Exclusion for Excluded {
 
 /// A test's own request rule: its text and its code.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.test", id = "rule")]
+#[explain(id = "test.rule")]
 #[error("{text}")]
 pub struct TestRule {
     /// What the rule found.
@@ -120,14 +124,17 @@ impl RequestRule for TestRule {
 
 /// A test's own exclusion: its text, under the clause `test`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.test", id = "excluded")]
-#[error("{0}")]
-pub struct TestExclusion(#[explain(name = "text")] pub String);
+#[explain(id = "test.excluded")]
+#[error("{text}")]
+pub struct TestExclusion {
+    /// The text.
+    pub text: String,
+}
 
 impl TestExclusion {
     /// The exclusion of a text.
     pub fn new(text: impl Into<String>) -> Self {
-        Self(text.into())
+        Self { text: text.into() }
     }
 }
 
@@ -143,9 +150,11 @@ pub struct TestObjectRule(pub &'static str);
 
 /// A Request Object without the claim [`TestObjectRule`] requires.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "testkit.object")]
-#[error("the Request Object states no {0}")]
-pub struct ClaimAbsent(#[explain(name = "claim")] &'static str);
+#[explain(id = "object.claim_absent")]
+#[error("the Request Object states no {claim}")]
+pub struct ClaimAbsent {
+    claim: &'static str,
+}
 
 impl RequestRule for ClaimAbsent {
     fn code(&self) -> ErrorCode {
@@ -161,6 +170,6 @@ impl siros_openid4vp::authenticate::ObjectRule for TestObjectRule {
         claims
             .get(self.0)
             .is_none()
-            .then(|| siros_openid4vp::refusal::Refusal::new(ClaimAbsent(self.0)))
+            .then(|| siros_openid4vp::refusal::Refusal::new(ClaimAbsent { claim: self.0 }))
     }
 }

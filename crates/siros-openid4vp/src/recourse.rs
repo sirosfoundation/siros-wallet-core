@@ -7,12 +7,17 @@ use siros_explain::Explain;
 
 use crate::arrival::{Received, ReceivedForm, Unreadable};
 use crate::authenticate::Unauthenticated;
+use crate::detail;
 use crate::envelope::Parameters;
 #[cfg(feature = "uri")]
 use crate::jose::JwsError;
 #[cfg(feature = "uri")]
 use crate::modes::ErrorForm;
 use crate::plugins::Fault;
+#[cfg(feature = "uri")]
+use crate::plugins::caused;
+#[cfg(not(feature = "uri"))]
+use crate::plugins::fault;
 use crate::refusal::{ErrorCode, ErrorDescription};
 #[cfg(feature = "uri")]
 use crate::resolve::PostBody;
@@ -21,11 +26,10 @@ use crate::routing::Echo;
 #[cfg(feature = "uri")]
 use crate::uri::FormBody;
 use crate::uri::ResponseUri;
-use crate::{FAULT, detail};
 
-/// Why a request is refused before its Verifier is authenticated.
+/// Why a request ends before its Verifier is authenticated: a rule it breaks, or a fault of the
+/// wallet.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "openid4vp.recourse")]
 pub enum Failure {
     /// A U rule.
     #[error(transparent)]
@@ -33,16 +37,21 @@ pub enum Failure {
     /// An A rule.
     #[error(transparent)]
     Unauthenticated(#[from] Unauthenticated),
+    /// A fault of the wallet, such as a binding its context does not word.
+    #[error(transparent)]
+    Fault(#[from] Fault),
 }
 
 impl Failure {
     /// The code its error response carries (§8.5, RFC 9101 §7); `None` when the specification
-    /// terminates the request (U9, U14: §5.10.1, §5.10.2).
+    /// terminates the request (U9, U14: §5.10.1, §5.10.2), and for a fault of the wallet, which
+    /// the End-User alone hears of.
     #[must_use]
     pub fn code(&self) -> Option<ErrorCode> {
         match self {
             Self::Unreadable(rule) => rule.code(),
             Self::Unauthenticated(rule) => Some(rule.code()),
+            Self::Fault(_) => None,
         }
     }
 }
@@ -53,25 +62,25 @@ impl Unreadable {
     pub const fn code(&self) -> Option<ErrorCode> {
         Some(match self {
             Self::Fetch(_) | Self::ClientIdMismatch { .. } => return None,
-            Self::Protocol(_)
-            | Self::Unregistered(_)
+            Self::Protocol { .. }
+            | Self::Unregistered { .. }
             | Self::Shape { .. }
             | Self::Json(_)
             | Self::Uri(_)
-            | Self::ClientId(_)
-            | Self::Repeated(_)
+            | Self::ClientId { .. }
+            | Self::Repeated { .. }
             | Self::ClientIdAbsent
             | Self::RequestAndRequestUri
-            | Self::Placement(_)
+            | Self::Placement { .. }
             | Self::ParametersInUri => ErrorCode::INVALID_REQUEST,
-            Self::RequestUri(_) => ErrorCode::INVALID_REQUEST_URI,
-            Self::RequestUriMethod(_) => ErrorCode::INVALID_REQUEST_URI_METHOD,
+            Self::RequestUri { .. } => ErrorCode::INVALID_REQUEST_URI,
+            Self::RequestUriMethod { .. } => ErrorCode::INVALID_REQUEST_URI_METHOD,
             Self::Jws(_)
             | Self::Encrypted
             | Self::Jwe(_)
             | Self::Undecryptable
-            | Self::Typ(_)
-            | Self::Nested(_) => ErrorCode::INVALID_REQUEST_OBJECT,
+            | Self::Typ { .. }
+            | Self::Nested { .. } => ErrorCode::INVALID_REQUEST_OBJECT,
             Self::RequestByValue => ErrorCode::REQUEST_NOT_SUPPORTED,
         })
     }
@@ -150,7 +159,7 @@ impl<'r> Rejected<'r> {
             ReceivedForm::DcApi { .. } => Self::dc_api(cause),
             ReceivedForm::Uri { object, .. } => {
                 let route = match cause {
-                    Unreadable::Typ(_) | Unreadable::Nested(_) => {
+                    Unreadable::Typ { .. } | Unreadable::Nested { .. } => {
                         Parameters::parse(object.payload())
                             .ok()
                             .and_then(|parameters| unverified(&parameters))
@@ -207,17 +216,16 @@ impl<'r> Rejected<'r> {
             #[cfg(feature = "uri")]
             (ErrorTarget::Listed(endpoint) | ErrorTarget::Unverified(endpoint), _) => {
                 let form = FormBody::of(&ErrorForm::of(&error))
-                    .map_err(|e| Fault::caused(FAULT, detail!("the plain error form"), e))?;
+                    .map_err(|e| caused(detail!("the plain error form"), e))?;
                 Ok(Reply::Deliver(Delivery::Post {
                     endpoint: endpoint.clone(),
                     body: PostBody::form(form),
                 }))
             }
             #[cfg(not(feature = "uri"))]
-            (ErrorTarget::Listed(_) | ErrorTarget::Unverified(_), _) => Err(Fault::new(
-                FAULT,
-                detail!("an error route by URI in a build without the feature uri"),
-            )),
+            (ErrorTarget::Listed(_) | ErrorTarget::Unverified(_), _) => Err(fault(detail!(
+                "an error route by URI in a build without the feature uri"
+            ))),
         }
     }
 }
