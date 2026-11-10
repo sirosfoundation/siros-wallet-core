@@ -245,7 +245,7 @@ fn each_core_rule_refuses_with_its_error_code() {
     let named =
         |kind: &str, ids: &str| entry(&format!(r#"{{"type": "{kind}", "credential_ids": {ids}}}"#));
     let unsigned = request("dc_api", "{}", &[], "");
-    let cases: [(&str, String, bool, ErrorCode, &str); 14] = [
+    let cases: [(&str, String, bool, ErrorCode, &str); 15] = [
         (
             "dcql_query",
             r#"{"response_type":"vp_token","response_mode":"dc_api","nonce":"n-0S6_WzA2Mj"}"#
@@ -340,6 +340,13 @@ fn each_core_rule_refuses_with_its_error_code() {
         (
             "C6",
             request("dc_api", "[]", &[], ""),
+            false,
+            ErrorCode::INVALID_REQUEST,
+            "err.openid4vp.rules.c6",
+        ),
+        (
+            "C6 jwks",
+            request("dc_api", r#"{"jwks": []}"#, &[], ""),
             false,
             ErrorCode::INVALID_REQUEST,
             "err.openid4vp.rules.c6",

@@ -78,9 +78,7 @@ impl FiniteDouble {
 impl fmt::Display for FiniteDouble {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let scientific = format!("{:e}", self.0);
-        let (mantissa, exponent) = scientific
-            .split_once('e')
-            .unwrap_or((scientific.as_str(), "0"));
+        let (mantissa, exponent) = scientific.split_once('e').ok_or(fmt::Error)?;
         let exponent: i32 = exponent.parse().map_err(|_| fmt::Error)?;
         let (sign, mantissa) = mantissa
             .strip_prefix('-')
@@ -94,14 +92,15 @@ impl fmt::Display for FiniteDouble {
             } else if shift >= digits.len() {
                 format!("{digits}{}.0", "0".repeat(shift - digits.len()))
             } else {
-                let (whole, fraction) = digits
-                    .split_at_checked(shift)
-                    .unwrap_or((digits.as_str(), ""));
+                let whole: String = digits.chars().take(shift).collect();
+                let fraction: String = digits.chars().skip(shift).collect();
                 format!("{whole}.{fraction}")
             };
             write!(f, "{sign}{fixed}")
         } else {
-            let (first, rest) = digits.split_at_checked(1).unwrap_or((digits.as_str(), ""));
+            let mut chars = digits.chars();
+            let first: String = chars.by_ref().take(1).collect();
+            let rest = chars.as_str();
             let fraction = if rest.is_empty() {
                 String::new()
             } else {

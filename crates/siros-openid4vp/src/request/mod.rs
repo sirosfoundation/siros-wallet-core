@@ -30,7 +30,7 @@ pub use metadata::{
     MetadataError, Point,
 };
 pub use rules::{DcqlRule, ParameterRule, StructureRule, UndecodedEntry};
-pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set};
+pub use sets::{Item, ItemSet, MAX_POSITIONS, Position, QueryIndex, QuerySet, Set, Slot};
 
 /// A `transaction_data` entry by its position in the array.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -98,8 +98,8 @@ fn structure(rule: StructureRule) -> Refused {
 }
 
 impl<'a> Request<'a> {
-    /// The request an envelope holds, which it keeps. Refused in this order: S3 a `scope` value by
-    /// URI naming no registered scope query; S4 `dcql_query` beside a `scope` naming one (§5.1);
+    /// The request an envelope holds, which it keeps. Refused in this order: S3 a `scope` by URI
+    /// that is no string or holds a value naming no registered scope query; S4 `dcql_query` beside a `scope` naming one (§5.1);
     /// DCQL's structure, `dcql_query` or a `scope` naming a query required (§5.1), a `scope`'s
     /// queries read as their union; `nonce` absent, or N1 not URL-safe ASCII;
     /// `expected_origins` and `transaction_data` breaking their structure; C0, every entry that
@@ -111,9 +111,13 @@ impl<'a> Request<'a> {
     pub fn parse(envelope: &Envelope<'a>) -> Result<Self, Refused> {
         let channel = envelope.channel();
         let parameters = envelope.parameters();
-        let scoped = match (channel, parameters.text("scope")) {
+        let scoped = match (channel, parameters.json("scope")) {
             (Channel::Uri, Some(scope)) => {
-                let scope = scope.unwrap_or_default();
+                let json::Node::String(scope) = scope else {
+                    return Err(Refused::one(Refusal::new(ParameterRule::Scope {
+                        scope: scope.written_compact(),
+                    })));
+                };
                 let entries = scope
                     .split(' ')
                     .map(|value| {

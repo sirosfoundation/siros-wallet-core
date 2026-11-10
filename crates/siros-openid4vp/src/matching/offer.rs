@@ -23,23 +23,18 @@ pub type OfferSet = Vec<OfferSlot>;
 type Way = Vec<OfferSlot>;
 
 /// A candidate's entries: one per answerable option.
-fn entries(matched: &Match<'_>, query: QueryIndex, candidate: CandidateIndex) -> OfferSlot {
-    matched
-        .candidate(query, candidate)
-        .map(|found| {
-            found
-                .options
-                .iter()
-                .map(|option| {
-                    Offered::Pick(Pick {
-                        query,
-                        candidate,
-                        option: *option,
-                    })
-                })
-                .collect()
+fn entries(query: QueryIndex, (candidate, found): (CandidateIndex, &Candidate<'_>)) -> OfferSlot {
+    found
+        .options
+        .iter()
+        .map(|option| {
+            Offered::Pick(Pick {
+                query,
+                candidate,
+                option: *option,
+            })
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 /// Each way to show the query's fills as slots of entries. Without `multiple`: one slot of every
@@ -59,28 +54,29 @@ pub fn ways(matched: &Match<'_>, query: QueryIndex) -> Vec<Way> {
         return vec![vec![
             candidates
                 .iter()
-                .flat_map(|(candidate, _)| entries(matched, query, *candidate))
+                .flat_map(|candidate| entries(query, *candidate))
                 .collect(),
         ]];
     }
     let bearing = |candidate: &Candidate<'_>| candidate.bound.is_some();
     let mut out = Vec::new();
-    for (at, (first, held)) in candidates.iter().enumerate() {
-        let later = candidates.get(at + 1..).unwrap_or_default();
+    let mut rest = candidates.as_slice();
+    while let Some((first, later)) = rest.split_first() {
+        rest = later;
         let plain = later.iter().filter(|(_, other)| !bearing(other));
-        let joining: Vec<Option<CandidateIndex>> = std::iter::once(None)
+        let joining: Vec<Option<&(CandidateIndex, &Candidate<'_>)>> = std::iter::once(None)
             .chain(
                 later
                     .iter()
-                    .filter(|(_, other)| !bearing(held) && bearing(other))
-                    .map(|(candidate, _)| Some(*candidate)),
+                    .filter(|(_, other)| !bearing(first.1) && bearing(other))
+                    .map(Some),
             )
             .collect();
         for joined in joining {
-            let mut way = vec![entries(matched, query, *first)];
-            way.extend(joined.map(|candidate| entries(matched, query, candidate)));
-            for (candidate, _) in plain.clone() {
-                let mut slot = entries(matched, query, *candidate);
+            let mut way = vec![entries(query, *first)];
+            way.extend(joined.map(|candidate| entries(query, *candidate)));
+            for candidate in plain.clone() {
+                let mut slot = entries(query, *candidate);
                 slot.push(Offered::Nothing);
                 way.push(slot);
             }

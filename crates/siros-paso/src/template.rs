@@ -6,8 +6,6 @@
 //! parses its text reads the interpolation as written, as its value type takes precedence over
 //! theirs.
 
-use std::ops::Range;
-
 use crate::markdown::spans;
 use crate::value::{BadValue, Breach, FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_openid4vp::claims::Step;
@@ -19,41 +17,66 @@ use crate::metadata::{ClaimMeta, RESERVED, ValueType, kind_name};
 use crate::outcome::NotCompatible;
 use crate::path::{at, substitute};
 
-/// A placeholder in a template: its place and the claim index it names, `None` beyond the
-/// platform's integers.
-pub(crate) struct Placeholder {
-    pub(crate) span: Range<usize>,
-    pub(crate) index: Option<usize>,
+/// A piece of a template: text as written, or a placeholder `\{[0-9]+\}`. A template's pieces,
+/// in order, write it exactly.
+#[derive(Debug, Clone, Copy)]
+enum Piece<'t> {
+    Text(&'t str),
+    Placeholder(Placeholder<'t>),
 }
 
-/// The placeholders `\{[0-9]+\}` of a template, leftmost first, none overlapping.
-pub(crate) fn placeholders(template: &str) -> Vec<Placeholder> {
-    let bytes = template.as_bytes();
+/// A placeholder in a template: its decimal digits.
+#[derive(Debug, Clone, Copy)]
+struct Placeholder<'t> {
+    digits: &'t str,
+}
+
+impl Placeholder<'_> {
+    /// The claim index the placeholder names, `None` beyond the platform's integers.
+    fn index(&self) -> Option<usize> {
+        self.digits.parse().ok()
+    }
+
+    /// Appends the placeholder as written.
+    fn write(&self, out: &mut String) {
+        out.push('{');
+        out.push_str(self.digits);
+        out.push('}');
+    }
+}
+
+/// The pieces of a template, leftmost placeholder first, none overlapping.
+fn pieces(template: &str) -> Vec<Piece<'_>> {
     let mut out = Vec::new();
-    let mut k = 0;
-    while let Some(offset) = bytes
-        .get(k..)
-        .and_then(|rest| rest.iter().position(|b| *b == b'{'))
-    {
-        let open = k + offset;
-        let digits = bytes.get(open + 1..).map_or(0, |rest| {
-            rest.iter().take_while(|b| b.is_ascii_digit()).count()
-        });
-        let close = open + 1 + digits;
-        if digits > 0 && bytes.get(close) == Some(&b'}') {
-            let index = template
-                .get(open + 1..close)
-                .and_then(|text| text.parse().ok());
-            out.push(Placeholder {
-                span: open..close + 1,
-                index,
-            });
-            k = close + 1;
-        } else {
-            k = open + 1;
+    let mut rest = template;
+    while let Some((text, after)) = rest.split_once('{') {
+        out.push(Piece::Text(text));
+        let closed = after
+            .trim_start_matches(|c: char| c.is_ascii_digit())
+            .starts_with('}');
+        match after.split_once(|c: char| !c.is_ascii_digit()) {
+            Some((digits, tail)) if closed && !digits.is_empty() => {
+                out.push(Piece::Placeholder(Placeholder { digits }));
+                rest = tail;
+            }
+            _ => {
+                out.push(Piece::Text("{"));
+                rest = after;
+            }
         }
     }
+    out.push(Piece::Text(rest));
     out
+}
+
+/// The placeholders of a template, leftmost first.
+fn placeholders(template: &str) -> impl Iterator<Item = Placeholder<'_>> {
+    pieces(template)
+        .into_iter()
+        .filter_map(|piece| match piece {
+            Piece::Placeholder(placeholder) => Some(placeholder),
+            Piece::Text(_) => None,
+        })
 }
 
 /// A template with each placeholder that names a claim replaced by [`RESERVED`], which a
@@ -62,21 +85,20 @@ pub(crate) fn placeholders(template: &str) -> Vec<Placeholder> {
 pub(crate) fn marked(template: &str, claims: &[ClaimMeta<'_>]) -> (String, Vec<ClaimIndex>) {
     let mut marked = String::with_capacity(template.len());
     let mut named = Vec::new();
-    let mut copied = 0;
-    for placeholder in placeholders(template) {
-        let Some(index) = placeholder.index.filter(|index| *index < claims.len()) else {
-            continue;
-        };
-        marked.push_str(
-            template
-                .get(copied..placeholder.span.start)
-                .unwrap_or_default(),
-        );
-        marked.push(RESERVED);
-        named.push(ClaimIndex(index));
-        copied = placeholder.span.end;
+    for piece in pieces(template) {
+        match piece {
+            Piece::Text(text) => marked.push_str(text),
+            Piece::Placeholder(placeholder) => {
+                match placeholder.index().filter(|index| *index < claims.len()) {
+                    Some(index) => {
+                        marked.push(RESERVED);
+                        named.push(ClaimIndex(index));
+                    }
+                    None => placeholder.write(&mut marked),
+                }
+            }
+        }
     }
-    marked.push_str(template.get(copied..).unwrap_or_default());
     (marked, named)
 }
 
@@ -88,8 +110,8 @@ struct Reference<'c, 'm> {
 }
 
 impl<'c, 'm> Reference<'c, 'm> {
-    fn of(placeholder: &Placeholder, claims: &'c [ClaimMeta<'m>]) -> Option<Self> {
-        let index = placeholder.index?;
+    fn of(placeholder: &Placeholder<'_>, claims: &'c [ClaimMeta<'m>]) -> Option<Self> {
+        let index = placeholder.index()?;
         claims.get(index).map(|claim| Self {
             index: ClaimIndex(index),
             claim,
@@ -182,23 +204,23 @@ impl Template<'_> {
         nulls: &NullIndices,
     ) -> Result<String, NotCompatible> {
         let mut out = String::with_capacity(self.0.len());
-        let mut copied = 0;
-        for placeholder in placeholders(self.0) {
+        for piece in pieces(self.0) {
+            let placeholder = match piece {
+                Piece::Text(text) => {
+                    out.push_str(text);
+                    continue;
+                }
+                Piece::Placeholder(placeholder) => placeholder,
+            };
             let Some(reference) = Reference::of(&placeholder, claims) else {
+                placeholder.write(&mut out);
                 continue;
             };
             let value = reference
                 .read(payload, nulls)?
                 .ok_or(NotCompatible::TemplatesExhausted)?;
-            out.push_str(
-                self.0
-                    .get(copied..placeholder.span.start)
-                    .unwrap_or_default(),
-            );
             out.push_str(&checked(reference.value_type(), value)?);
-            copied = placeholder.span.end;
         }
-        out.push_str(self.0.get(copied..).unwrap_or_default());
         Ok(out)
     }
 
@@ -223,20 +245,23 @@ impl Template<'_> {
             return Ok(Valued::Alone(read));
         }
         let mut parts: Vec<Part> = Vec::new();
-        let mut copied = 0;
-        for placeholder in placeholders(self.0) {
+        for piece in pieces(self.0) {
+            let placeholder = match piece {
+                Piece::Text(text) => {
+                    parts.push(Part::Written(text.to_owned()));
+                    continue;
+                }
+                Piece::Placeholder(placeholder) => placeholder,
+            };
             let Some(reference) = Reference::of(&placeholder, claims) else {
+                let mut literal = String::new();
+                placeholder.write(&mut literal);
+                parts.push(Part::Written(literal));
                 continue;
             };
             let value = reference
                 .read(payload, nulls)?
                 .ok_or(NotCompatible::TemplatesExhausted)?;
-            parts.push(Part::Written(
-                self.0
-                    .get(copied..placeholder.span.start)
-                    .unwrap_or_default()
-                    .to_owned(),
-            ));
             parts.push(match (text(reference.value_type(), value)?, kind) {
                 (Parsed::Text(_), FormattedKind::MiniMarkdown) => {
                     Part::Written(value_written(value))
@@ -244,11 +269,7 @@ impl Template<'_> {
                 (Parsed::Text(shown), _) => Part::Written(shown),
                 (typed, _) => Part::Typed(typed),
             });
-            copied = placeholder.span.end;
         }
-        parts.push(Part::Written(
-            self.0.get(copied..).unwrap_or_default().to_owned(),
-        ));
         if parts.iter().all(|part| matches!(part, Part::Written(_))) {
             return Ok(Valued::Alone(read));
         }

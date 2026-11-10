@@ -585,7 +585,7 @@ fn generic_tags(tags: &[&str]) -> Vec<String> {
                 (*tag).to_owned()
             } else {
                 held.push(lowered);
-                generic.to_owned()
+                generic
             }
         })
         .collect()
@@ -624,27 +624,28 @@ const GRANDFATHERED: [&str; 26] = [
 
 /// The tag without its region and variants, its script kept (RFC 5646 §2.1): the language, its
 /// extended language subtags and its script. A grandfathered or private-use tag stays whole.
-fn generic_tag(tag: &str) -> &str {
+fn generic_tag(tag: &str) -> String {
     if GRANDFATHERED
         .iter()
         .any(|grandfathered| grandfathered.eq_ignore_ascii_case(tag))
     {
-        return tag;
+        return tag.to_owned();
     }
     let mut subtags = tag.split('-');
     let Some(language) = subtags.next().filter(|language| language.len() >= 2) else {
-        return tag;
+        return tag.to_owned();
     };
     let alphabetic = |subtag: &str| subtag.bytes().all(|byte| byte.is_ascii_alphabetic());
-    let mut end = language.len();
+    let mut generic = language.to_owned();
     for subtag in subtags {
         if !alphabetic(subtag) || !matches!(subtag.len(), 3 | 4) {
             break;
         }
-        end += 1 + subtag.len();
+        generic.push('-');
+        generic.push_str(subtag);
         if subtag.len() == 4 {
             break;
         }
     }
-    tag.get(..end).unwrap_or(tag)
+    generic
 }

@@ -144,7 +144,12 @@ fn requiring_registration() -> TestTrust {
 }
 
 fn signed(payload: &str) -> String {
-    compact_jws(&VERIFIER_SECRET, &header(&x5c(&leaf())), payload).expect("signs")
+    compact_jws(
+        &VERIFIER_SECRET,
+        &header(&x5c(&leaf()).expect("the chain")),
+        payload,
+    )
+    .expect("signs")
 }
 
 /// Answers a POST with the Request Object as a JWE under the first values of the wallet's lists.

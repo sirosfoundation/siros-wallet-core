@@ -20,7 +20,7 @@ impl FieldPath {
 
     /// The member's name in its object.
     pub(crate) fn name(self) -> &'static str {
-        self.0.rsplit('.').next().unwrap_or(self.0)
+        self.0.rsplit_once('.').map_or(self.0, |(_, name)| name)
     }
 }
 

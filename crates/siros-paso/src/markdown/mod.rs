@@ -162,7 +162,7 @@ struct Tree {
 
 const HEAD: usize = 0;
 /// Flattening starts from the head's successors.
-const ROOT_CHILDREN: Option<usize> = None;
+const ROOT_CHILDREN: Option<&Node> = None;
 
 impl Tree {
     fn parse(line: &str) -> Self {
@@ -177,7 +177,7 @@ impl Tree {
         while let Some(&c) = chars.get(i) {
             let end = atom(&chars, i);
             if end > i {
-                text.extend(chars.get(i..end).unwrap_or_default());
+                text.extend(chars.iter().skip(i).take(end - i));
                 i = end;
                 continue;
             }
@@ -235,9 +235,8 @@ impl Tree {
                 continue;
             }
             let opener = stack
-                .get(..pos)
-                .unwrap_or_default()
                 .iter()
+                .take(pos)
                 .enumerate()
                 .rev()
                 .find(|(_, opener)| {
@@ -345,13 +344,9 @@ impl Tree {
     }
 
     /// The nodes under a node, or the head's successors for `None`.
-    fn children(&self, parent: Option<usize>) -> Vec<usize> {
+    fn children(&self, parent: Option<&Node>) -> Vec<usize> {
         match parent {
-            Some(node) => self
-                .nodes
-                .get(node)
-                .map(|n| n.children.clone())
-                .unwrap_or_default(),
+            Some(node) => node.children.clone(),
             None => std::iter::successors(self.nodes.get(HEAD).and_then(|n| n.next), |&n| {
                 self.nodes.get(n).and_then(|node| node.next)
             })
@@ -360,11 +355,11 @@ impl Tree {
     }
 
     /// The nodes under a node as CommonMark HTML.
-    fn html(&self, parent: Option<usize>) -> String {
+    fn html(&self, parent: Option<&Node>) -> String {
         self.children(parent)
             .into_iter()
-            .filter_map(|child| self.nodes.get(child).map(|node| (child, node)))
-            .map(|(child, node)| match node.kind {
+            .filter_map(|child| self.nodes.get(child))
+            .map(|node| match node.kind {
                 Kind::Text => node
                     .text
                     .replace('&', "&amp;")
@@ -373,15 +368,15 @@ impl Tree {
                     .replace('"', "&quot;"),
                 Kind::OpenU => "<u>".to_owned(),
                 Kind::CloseU => "</u>".to_owned(),
-                Kind::Em => format!("<em>{}</em>", self.html(Some(child))),
-                Kind::Strong => format!("<strong>{}</strong>", self.html(Some(child))),
+                Kind::Em => format!("<em>{}</em>", self.html(Some(node))),
+                Kind::Strong => format!("<strong>{}</strong>", self.html(Some(node))),
                 Kind::Head => String::new(),
             })
             .collect()
     }
 
     /// The pieces under a node (the head's successors for `None`), each with its styles.
-    fn flatten(&self, parent: Option<usize>, style: Style, out: &mut Vec<Flat>) {
+    fn flatten(&self, parent: Option<&Node>, style: Style, out: &mut Vec<Flat>) {
         for child in self.children(parent) {
             let Some(node) = self.nodes.get(child) else {
                 continue;
@@ -399,8 +394,8 @@ impl Tree {
                     piece: Piece::Close,
                     style,
                 }),
-                Kind::Em => self.flatten(Some(child), style.with(Style::EM), out),
-                Kind::Strong => self.flatten(Some(child), style.with(Style::STRONG), out),
+                Kind::Em => self.flatten(Some(node), style.with(Style::EM), out),
+                Kind::Strong => self.flatten(Some(node), style.with(Style::STRONG), out),
                 Kind::Head => {}
             }
         }
@@ -423,12 +418,7 @@ impl Delimiter {
     /// The run of `c` at `i`, whether it can open and close emphasis (CommonMark §6.2: left- and
     /// right-flanking runs; `_` also by the punctuation around it). Its node is set on append.
     fn run(chars: &[char], i: usize, c: char) -> Self {
-        let count = chars
-            .get(i..)
-            .unwrap_or_default()
-            .iter()
-            .take_while(|&&x| x == c)
-            .count();
+        let count = chars.iter().skip(i).take_while(|&&x| x == c).count();
         let before = i.checked_sub(1).and_then(|k| chars.get(k).copied());
         let after = chars.get(i + count).copied();
         let left = !space(after) && (!punctuation(after) || space(before) || punctuation(before));

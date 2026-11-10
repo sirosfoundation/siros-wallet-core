@@ -49,14 +49,7 @@ pub(super) fn atom(chars: &[char], i: usize) -> usize {
 
 /// A backtick run closes only on a run of its length; unclosed, the run is literal text.
 fn code_span(chars: &[char], i: usize) -> usize {
-    let run_at = |k: usize| {
-        chars
-            .get(k..)
-            .unwrap_or_default()
-            .iter()
-            .take_while(|&&c| c == '`')
-            .count()
-    };
+    let run_at = |k: usize| chars.iter().skip(k).take_while(|&&c| c == '`').count();
     let run = run_at(i);
     let mut k = i + run;
     while let Some(&c) = chars.get(k) {
