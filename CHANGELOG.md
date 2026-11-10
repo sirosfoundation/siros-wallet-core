@@ -7,17 +7,18 @@ All notable changes to this workspace. The format follows
 
 ### Added
 
-- `siros-explain` and `siros-explain-derive`: errors and texts as messages.
-  `Explain` gives a text's stable `MessageId` and its arguments under
-  distinct names, each of the kind its type declares through `IntoArg`; a
-  type without `IntoArg`, a secret's, is no argument. `#[derive(Explain)]`
-  writes it beside `thiserror::Error`, and `Messages` declares each message's
-  English template and parameter kinds. `Text` holds a message unrendered;
-  `Value` holds counts, decimals, ISO 8601 dates and times (RFC 3339's leap
-  second), and amounts in ISO 4217 currencies. A `RequestText` is a text that
-  depends on a request: it holds a message of its module's one
-  `DeclaredModule::Requested` type, a value, a name, a received text or a
-  defined module's message. Edition 2024, unpublished.
+- `siros-explain` is the error contract: `Explain` gives an error's stable id,
+  `err.<scope>.<id>`, and its named arguments, each its `Display`.
+  `#[derive(Explain)]` (`siros-explain-derive`) sits beside thiserror's derive:
+  each struct or variant carries `#[explain(id = "…")]` or
+  `#[error(transparent)]`, a named field is an argument, a cause is `#[source]`
+  or `#[explain(skip)]`, a tuple argument and a field spelled `r#source` are
+  refused, and an id given twice in a crate fails the build. `scope!` names a
+  crate's scope once, at its root. Under `check`, each derived id registers a
+  row that `check::rows` reads.
+- `siros-derive-internals`: the derives' field rules, which
+  siros-explain-derive calls through its `Derive` trait.
+- Each is edition 2024 and unpublished.
 
 ### Changed
 
