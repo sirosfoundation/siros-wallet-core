@@ -32,4 +32,4 @@ pub use iso4217::Currency;
 pub use keyed::{Entry, Keyed, Repeated};
 pub use list::AllOf;
 pub use malformed::Malformed;
-pub use value::{Amount, Count, Decimal};
+pub use value::{Amount, Count, Decimal, Digits};

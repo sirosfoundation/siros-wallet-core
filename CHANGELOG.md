@@ -100,7 +100,8 @@ All notable changes to this workspace. The format follows
   2026-09-17, vendored and read by the build script), `Date`, `Time`,
   `OffsetTime`, `Offset` and `DateTime`. Each value type writes its literal form
   as `Display` and parses exactly that form, refusing any other text with
-  `Malformed`.
+  `Malformed`. `Digits`, one or more ASCII digits as written, give their count
+  through `Count::from`.
 - `siros-i18n` resolves the wallet's texts. A `Context` holds the
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error

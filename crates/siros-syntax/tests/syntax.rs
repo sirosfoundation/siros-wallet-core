@@ -3,14 +3,15 @@
 //! the form. Then where RFC 3339 places a leap second, and a key given twice.
 
 use siros_syntax::{
-    Amount, Count, Currency, Date, DateTime, Decimal, Entry, Fraction, Keyed, Malformed, Offset,
-    OffsetTime, Repeated, Second, Time,
+    Amount, Count, Currency, Date, DateTime, Decimal, Digits, Entry, Fraction, Keyed, Malformed,
+    Offset, OffsetTime, Repeated, Second, Time,
 };
 
 /// A value of one of the crate's literal types.
 #[derive(Debug, PartialEq)]
 enum Literal {
     Count(Count),
+    Digits(Digits),
     Decimal(Decimal),
     Currency(Currency),
     Amount(Amount),
@@ -26,6 +27,7 @@ impl Literal {
     fn of(&self) -> &'static str {
         match self {
             Self::Count(_) => "Count",
+            Self::Digits(_) => "Digits",
             Self::Decimal(_) => "Decimal",
             Self::Currency(_) => "Currency",
             Self::Amount(_) => "Amount",
@@ -41,6 +43,7 @@ impl Literal {
     fn literal(&self) -> String {
         match self {
             Self::Count(value) => value.to_string(),
+            Self::Digits(value) => value.to_string(),
             Self::Decimal(value) => value.to_string(),
             Self::Currency(value) => value.to_string(),
             Self::Amount(value) => value.to_string(),
@@ -57,6 +60,7 @@ impl Literal {
 fn parse(of: &str, text: &str) -> Result<Literal, Malformed> {
     match of {
         "Count" => Count::parse(text).map(Literal::Count),
+        "Digits" => Digits::parse(text).map(Literal::Digits),
         "Decimal" => Decimal::parse(text).map(Literal::Decimal),
         "Currency" => Currency::parse(text).map(Literal::Currency),
         "Amount" => Amount::parse(text).map(Literal::Amount),
@@ -201,12 +205,33 @@ fn a_value_is_its_literal() {
         ("18446744073709551616".to_owned(), None, true)
     );
 
+    let counted = [
+        ("0", "0"),
+        ("000", "0"),
+        ("007", "7"),
+        ("018446744073709551615", "18446744073709551615"),
+        ("0018446744073709551616", "18446744073709551616"),
+    ];
+    for (written, count) in counted {
+        let digits = Digits::parse(written).expect("digits");
+        assert_eq!(digits.to_string(), written);
+        assert_eq!(
+            Count::from(&digits),
+            Count::parse(count).expect("a count"),
+            "{written}"
+        );
+    }
+
     let refused = [
         ("Count", "", 0),
         ("Count", "007", 1),
         ("Count", "12a", 2),
         ("Count", "-1", 0),
         ("Count", "1 ", 1),
+        ("Digits", "", 0),
+        ("Digits", "12a", 2),
+        ("Digits", "-1", 0),
+        ("Digits", " 1", 0),
         ("Decimal", "-", 1),
         ("Decimal", "01", 1),
         ("Decimal", "1.", 2),

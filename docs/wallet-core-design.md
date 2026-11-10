@@ -3820,6 +3820,7 @@ leaves the form.
 | Type | Literal form |
 | :-- | :-- |
 | `Count` | digits: a natural number of any length |
+| `Digits` | one or more digits, leading zeros kept; `Count::from` takes their value |
 | `Decimal` | `-?(0\|[1-9][0-9]*)(\.[0-9]+)?`, the fraction digits as written |
 | `Currency` | an alphabetic ISO 4217 code |
 | `Amount` | `<decimal> <CODE>` |

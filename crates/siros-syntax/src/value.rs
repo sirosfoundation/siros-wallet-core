@@ -11,20 +11,72 @@ use crate::malformed::{Malformed, Reader, parse};
 /// fits, else its decimal digits, so each number has one form. Its literal is its digits: `0`, or
 /// a digit other than `0` and then digits.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Count(Digits);
+pub struct Count(Form);
 
 /// A count's form: a `u64`, or the digits of a count past `u64::MAX`, the first other than `0`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Digits {
+enum Form {
     Word(u64),
     Long(Box<str>),
+}
+
+impl Form {
+    /// The form of a count's literal: ASCII digits, the first other than `0` unless it is `0`.
+    fn of(literal: &str) -> Self {
+        literal
+            .bytes()
+            .try_fold(0u64, |value, digit| {
+                value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+            })
+            .map_or_else(|| Self::Long(literal.into()), Self::Word)
+    }
+}
+
+/// Decimal digits as written: one or more ASCII digits, leading zeros kept, such as a JSON
+/// number's integer part. `Count::from` takes their value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Digits(Box<str>);
+
+impl Digits {
+    /// The digits `text` writes: one or more ASCII digits.
+    ///
+    /// # Errors
+    ///
+    /// [`Malformed`] for any other text.
+    pub fn parse(text: &str) -> Result<Self, Malformed> {
+        parse(text, "Digits", |reader| {
+            if reader.digit().is_none() {
+                return Err(reader.here());
+            }
+            while reader.digit().is_some() {}
+            Ok(())
+        })?;
+        Ok(Self(text.into()))
+    }
+}
+
+/// The digits as written.
+impl fmt::Display for Digits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The count the digits write, their leading zeros dropped.
+impl From<&Digits> for Count {
+    fn from(digits: &Digits) -> Self {
+        Self(Form::of(match digits.0.trim_start_matches('0') {
+            "" => "0",
+            significant => significant,
+        }))
+    }
 }
 
 impl Count {
     /// The count of a `u64`.
     #[must_use]
     pub const fn of(value: u64) -> Self {
-        Self(Digits::Word(value))
+        Self(Form::Word(value))
     }
 
     /// The count `text` writes: `0`, or a digit other than `0` and then digits.
@@ -33,24 +85,16 @@ impl Count {
     ///
     /// [`Malformed`] for any other text.
     pub fn parse(text: &str) -> Result<Self, Malformed> {
-        let mut word = Some(0u64);
-        parse(text, "Count", |reader| {
-            natural(reader, |digit| {
-                word = word.and_then(|value| value.checked_mul(10)?.checked_add(u64::from(digit)));
-                true
-            })
-        })?;
-        Ok(Self(
-            word.map_or_else(|| Digits::Long(text.into()), Digits::Word),
-        ))
+        parse(text, "Count", |reader| natural(reader, |_| true))?;
+        Ok(Self(Form::of(text)))
     }
 
     /// The count, when it fits a `u64`.
     #[must_use]
     pub const fn to_u64(&self) -> Option<u64> {
         match &self.0 {
-            Digits::Word(value) => Some(*value),
-            Digits::Long(_) => None,
+            Form::Word(value) => Some(*value),
+            Form::Long(_) => None,
         }
     }
 
@@ -58,8 +102,8 @@ impl Count {
     #[must_use]
     pub fn digits(&self) -> Cow<'_, str> {
         match &self.0 {
-            Digits::Word(value) => Cow::Owned(value.to_string()),
-            Digits::Long(digits) => Cow::Borrowed(digits),
+            Form::Word(value) => Cow::Owned(value.to_string()),
+            Form::Long(digits) => Cow::Borrowed(digits),
         }
     }
 }
@@ -74,10 +118,10 @@ impl PartialOrd for Count {
 impl Ord for Count {
     fn cmp(&self, other: &Self) -> Ordering {
         match (&self.0, &other.0) {
-            (Digits::Word(a), Digits::Word(b)) => a.cmp(b),
-            (Digits::Word(_), Digits::Long(_)) => Ordering::Less,
-            (Digits::Long(_), Digits::Word(_)) => Ordering::Greater,
-            (Digits::Long(a), Digits::Long(b)) => a.len().cmp(&b.len()).then_with(|| a.cmp(b)),
+            (Form::Word(a), Form::Word(b)) => a.cmp(b),
+            (Form::Word(_), Form::Long(_)) => Ordering::Less,
+            (Form::Long(_), Form::Word(_)) => Ordering::Greater,
+            (Form::Long(a), Form::Long(b)) => a.len().cmp(&b.len()).then_with(|| a.cmp(b)),
         }
     }
 }

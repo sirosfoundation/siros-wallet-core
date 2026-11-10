@@ -6,8 +6,10 @@ Values in their literal forms, and the lists that hold values.
 [`OffsetTime`] and [`DateTime`] each write their literal with `Display` (`1234.5`, `EUR`,
 `42.50 EUR`, `2026-09-02`, `12:30:15.5+02:00`), and `parse` accepts exactly what `Display`
 writes: a value is its literal. A text outside the form is [`Malformed`], with the byte where it
-leaves the form. [`Keyed`] holds values under distinct keys, [`AllOf`] one or more values, and
-[`checked!`] makes a value of a type whose rule a `const fn` holds when the crate builds.
+leaves the form. [`Digits`] are one or more ASCII digits as written, leading zeros kept, such as
+a JSON number's integer part; `Count::from` takes their value. [`Keyed`] holds values under
+distinct keys, [`AllOf`] one or more values, and [`checked!`] makes a value of a type whose rule a
+`const fn` holds when the crate builds.
 
 ```rust
 use siros_syntax::{Amount, Date, Malformed};
