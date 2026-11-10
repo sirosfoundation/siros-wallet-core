@@ -3,7 +3,10 @@
 
 use std::borrow::Cow;
 
+use rustc_hash::FxHashSet;
+
 use crate::error::Fault;
+use crate::seen::repeated;
 
 use super::ast::{
     Body, Declaration, Expression, Function, Key, Message, Operand, Opt, Part, Pattern, Variant,
@@ -65,17 +68,11 @@ impl<'a, 's> Valid<'a, 's> {
                     .ok_or(Fault::MissingFallbackVariant)?;
                 if let Some(selector) = selectors
                     .iter()
-                    .find(|selector| !annotated.contains(&selector.as_ref()))
+                    .find(|selector| !annotated.contains(selector.as_ref()))
                 {
                     return Err(Fault::MissingSelectorAnnotation(selector.to_string()));
                 }
-                let repeated = variants.iter().enumerate().any(|(at, variant)| {
-                    variants
-                        .iter()
-                        .take(at)
-                        .any(|earlier| earlier.keys == variant.keys)
-                });
-                if repeated {
+                if repeated(variants.iter().map(|variant| variant.keys.as_slice())).is_some() {
                     return Err(Fault::DuplicateVariant);
                 }
                 variants
@@ -98,10 +95,10 @@ impl<'a, 's> Valid<'a, 's> {
 /// Duplicate Declaration: a declaration binds no variable a previous declaration binds or names,
 /// and none its own expression or function names. Returns the variables that reference, directly
 /// or through local declarations, a declaration with a function (Missing Selector Annotation).
-fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<Vec<&'a str>, Fault> {
-    let mut bound: Vec<&str> = Vec::new();
-    let mut annotated: Vec<&str> = Vec::new();
-    let mut named: Vec<&str> = Vec::new();
+fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<FxHashSet<&'a str>, Fault> {
+    let mut bound: FxHashSet<&str> = FxHashSet::default();
+    let mut annotated: FxHashSet<&str> = FxHashSet::default();
+    let mut named: FxHashSet<&str> = FxHashSet::default();
     for declaration in declarations {
         let (name, operand, function) = match declaration {
             Declaration::Input { name, function } => (name, None, function.as_ref()),
@@ -128,7 +125,7 @@ fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<Vec<&'a str>,
                         function: None,
                     },
                 ..
-            } => annotated.contains(&next.as_ref()),
+            } => annotated.contains(next.as_ref()),
             Declaration::Local {
                 expression:
                     Expression::Operand {
@@ -139,13 +136,12 @@ fn declarations<'a>(declarations: &'a [Declaration<'_>]) -> Result<Vec<&'a str>,
             } => false,
         };
         let own = || variables(operand, function);
-        if named.contains(&name) || own().any(|own| own == name) || bound.contains(&name) {
+        if named.contains(name) || own().any(|own| own == name) || !bound.insert(name) {
             return Err(Fault::DuplicateDeclaration(name.to_owned()));
         }
         named.extend(own());
-        bound.push(name);
         if with {
-            annotated.push(name);
+            annotated.extend([name]);
         }
     }
     Ok(annotated)
@@ -187,14 +183,8 @@ fn pattern_options(pattern: &Pattern<'_>) -> Result<(), Fault> {
 
 /// Duplicate Option Name: the first option an earlier one names.
 fn options(options: &[Opt<'_>]) -> Result<(), Fault> {
-    let repeated = options.iter().enumerate().find(|(at, option)| {
-        options
-            .iter()
-            .take(*at)
-            .any(|earlier| earlier.name == option.name)
-    });
-    match repeated {
-        Some((_, option)) => Err(Fault::DuplicateOptionName(option.name.to_string())),
+    match repeated(options.iter().map(|option| option.name.as_ref())) {
+        Some(name) => Err(Fault::DuplicateOptionName(name.to_owned())),
         None => Ok(()),
     }
 }

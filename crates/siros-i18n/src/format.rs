@@ -7,17 +7,19 @@
 
 use std::borrow::Cow;
 
-use crate::chain::{Chain, Failure, Refused, Scope, Texts, Use};
-use crate::error::{FormatRule, LoadError, Refusal};
-use crate::normal::Hold;
+use crate::chain::{Chain, Failure, Refused, Texts, Use};
+use crate::error::Refusal;
+pub(crate) use crate::formats::Formats;
 #[cfg(any(
     feature = "number",
     feature = "currency",
     feature = "offset",
     feature = "date"
 ))]
-use crate::resource::Entry;
-use crate::resource::FormatSection;
+pub(crate) use crate::formats::Options;
+use crate::formats::Section;
+use crate::normal::Hold;
+use crate::scope::Scope;
 
 /// A text's directionality: a message's, by its module's `@dir`, and a formatted value's, which
 /// MF2's Default Bidi Strategy isolates it by.
@@ -143,7 +145,7 @@ impl Function {
     }
 
     /// The section that defines its options; `None` for a function that takes none.
-    const fn section(self) -> Option<Section> {
+    pub(crate) const fn section(self) -> Option<Section> {
         match self {
             Self::String => None,
             #[cfg(feature = "number")]
@@ -156,32 +158,6 @@ impl Function {
             Self::Date | Self::Time | Self::DateTime => Some(Section::Date),
             #[cfg(feature = "conformance")]
             Self::Test | Self::TestSelect | Self::TestFormat => None,
-        }
-    }
-}
-
-/// A `[formats.<format>]` section's format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Section {
-    Number,
-    Offset,
-    Currency,
-    Date,
-}
-
-impl Section {
-    const ALL: [Self; 4] = [Self::Number, Self::Offset, Self::Currency, Self::Date];
-
-    fn named(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|section| section.name() == name)
-    }
-
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Number => "number",
-            Self::Offset => "offset",
-            Self::Currency => "currency",
-            Self::Date => "date",
         }
     }
 }
@@ -207,7 +183,7 @@ enum Family {
 /// with a call of another family.
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 fn language<'f>(
-    chain: &Chain,
+    chain: &Chain<'_>,
     formats: &'f Formats,
 ) -> Result<crate::numeric::Language<'f>, Refused> {
     #[cfg(any(feature = "number", feature = "currency"))]
@@ -216,15 +192,15 @@ fn language<'f>(
     match (chain.outer.function, formatter) {
         #[cfg(feature = "currency")]
         (_, Numeric::Currency | Numeric::Percent) => Ok(crate::numeric::Language::Currency(
-            formats.currency.as_ref().ok_or(Refused::Undefined)?,
+            formats.currency().ok_or(Refused::Undefined)?,
         )),
         #[cfg(feature = "offset")]
         (Function::Offset, _) => Ok(crate::numeric::Language::Plain(
-            formats.offset.as_ref().ok_or(Refused::Undefined)?,
+            formats.offset().ok_or(Refused::Undefined)?,
         )),
         #[cfg(feature = "number")]
         (_, Numeric::Number | Numeric::Integer | Numeric::Offset) => Ok(
-            crate::numeric::Language::Plain(formats.number.as_ref().ok_or(Refused::Undefined)?),
+            crate::numeric::Language::Plain(formats.number().ok_or(Refused::Undefined)?),
         ),
         #[cfg(not(all(feature = "number", feature = "currency")))]
         _ => Err(Refusal::Operand.into()),
@@ -238,7 +214,7 @@ fn language<'f>(
 /// [`Failure::Operand`] for a chain no section of the context formats.
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 fn formatting<'f>(
-    chain: &Chain,
+    chain: &Chain<'_>,
     formats: &'f Formats,
 ) -> Result<crate::numeric::Language<'f>, Failure> {
     language(chain, formats).map_err(|_| Failure::Operand)
@@ -251,7 +227,7 @@ fn formatting<'f>(
 ///
 /// [`Refused`] for a section no module defined, or a call the function refuses.
 pub(crate) fn check(
-    chain: &Chain,
+    chain: &Chain<'_>,
     #[cfg_attr(
         not(feature = "conformance"),
         expect(
@@ -277,7 +253,7 @@ pub(crate) fn check(
         Family::Numeric => crate::numeric::check(chain, language(chain, formats)?),
         #[cfg(feature = "date")]
         Family::Date => {
-            if formats.date.is_none() {
+            if formats.date().is_none() {
                 return Err(Refused::Undefined);
             }
             Ok(crate::date::check(chain)?)
@@ -309,7 +285,7 @@ impl Selecting {
     /// [`Refused`] for a section no module defined, a call the function refuses, or a literal
     /// `hold` refuses: a function that does not select refuses with [`Refusal::Selector`].
     pub(crate) fn of(
-        chain: &Chain,
+        chain: &Chain<'_>,
         #[cfg_attr(
             not(any(feature = "number", feature = "currency", feature = "offset")),
             expect(unused_variables, reason = "only the numeric functions read a section")
@@ -357,7 +333,7 @@ impl Selecting {
     /// [`Failure`] as [`format`].
     pub(crate) fn selected<'s>(
         self,
-        chain: &'s Chain,
+        chain: &Chain<'s>,
         #[cfg_attr(
             not(any(
                 feature = "number",
@@ -417,7 +393,7 @@ impl Selected<'_> {
 /// # Errors
 ///
 /// [`Failure`] as [`format`].
-pub(crate) fn value<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
+pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
     #[cfg_attr(
         not(any(
             feature = "number",
@@ -451,7 +427,7 @@ pub(crate) fn value<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<Cow<'m, s
 /// [`Failure`] for an operand or an option text the function refuses, a chain no section of the
 /// context formats, or an argument the message does not give.
 pub(crate) fn format(
-    chain: &Chain,
+    chain: &Chain<'_>,
     #[cfg_attr(
         not(any(
             feature = "number",
@@ -477,209 +453,12 @@ pub(crate) fn format(
         }
         #[cfg(feature = "date")]
         Family::Date => {
-            let section = scope.formats.date.as_ref().ok_or(Failure::Operand)?;
+            let section = scope.formats.date().ok_or(Failure::Operand)?;
             let text = crate::date::format(chain, texts, scope, section)?;
             Ok((text, section.direction()))
         }
         #[cfg(feature = "conformance")]
         Family::Test => crate::test_functions::format(chain, texts, scope)
             .map(|text| (text, Direction::Unknown)),
-    }
-}
-
-/// A format section's options, each name once, each one its format takes; and the direction of
-/// the module that defines it.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Options<'s> {
-    entries: &'s [Entry<'s>],
-    pub(crate) direction: Direction,
-}
-
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
-impl<'s> Options<'s> {
-    /// The option `name`'s text.
-    ///
-    /// # Errors
-    ///
-    /// [`FormatRule::Missing`] when the section lacks it.
-    pub(crate) fn text(&self, name: &'static str) -> Result<&'s str, FormatRule> {
-        self.entries
-            .iter()
-            .find(|entry| entry.key == name)
-            .map(|entry| entry.value.as_ref())
-            .ok_or(FormatRule::Missing { option: name })
-    }
-
-    /// The option `name`, parsed by `accept`.
-    ///
-    /// # Errors
-    ///
-    /// [`FormatRule::Missing`] when the section lacks it, [`FormatRule::Text`] when `accept`
-    /// refuses its text.
-    pub(crate) fn parse<T>(
-        &self,
-        name: &'static str,
-        accept: impl FnOnce(&'s str) -> Option<T>,
-    ) -> Result<T, FormatRule> {
-        accept(self.text(name)?).ok_or(FormatRule::Text { option: name })
-    }
-}
-
-/// The format sections a context defines, each parsed by its family; a section of a format the
-/// build lacks is held by name alone.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Formats {
-    defined: Vec<Section>,
-    #[cfg(feature = "number")]
-    number: Option<crate::numeric::Plain>,
-    #[cfg(feature = "offset")]
-    offset: Option<crate::numeric::Plain>,
-    #[cfg(feature = "currency")]
-    currency: Option<crate::numeric::currency::Parsed>,
-    #[cfg(feature = "date")]
-    date: Option<crate::date::Parsed>,
-}
-
-impl Formats {
-    /// Defines a section of a module whose direction is `direction`.
-    ///
-    /// # Errors
-    ///
-    /// [`LoadError::Repeated`] for a section the context holds or an option given twice,
-    /// [`LoadError::Format`] for a section its format refuses.
-    pub(crate) fn define(
-        &mut self,
-        section: &FormatSection<'_>,
-        #[cfg_attr(
-            not(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "date"
-            )),
-            expect(unused_variables, reason = "a build without formats parses no section")
-        )]
-        direction: Direction,
-    ) -> Result<(), LoadError> {
-        let format = section.format.as_ref();
-        let refuse = |rule| LoadError::Format {
-            format: format.to_owned(),
-            rule,
-        };
-        let Some(named) = Section::named(format) else {
-            return Err(refuse(FormatRule::Unknown));
-        };
-        if self.defined.contains(&named) {
-            return Err(LoadError::Repeated {
-                id: format!("formats.{format}"),
-            });
-        }
-        let options = &section.options;
-        if let Some((_, entry)) = options.iter().enumerate().find(|(at, entry)| {
-            options
-                .iter()
-                .take(*at)
-                .any(|earlier| earlier.key == entry.key)
-        }) {
-            return Err(LoadError::Repeated {
-                id: format!("formats.{format}.{}", entry.key),
-            });
-        }
-        #[cfg(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date"
-        ))]
-        self.parse(
-            named,
-            Options {
-                entries: options,
-                direction,
-            },
-        )
-        .map_err(refuse)?;
-        self.defined.push(named);
-        Ok(())
-    }
-
-    /// Parses a section of a format the build compiles in; a section of another format stays
-    /// unparsed.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date"
-    ))]
-    fn parse(&mut self, section: Section, options: Options<'_>) -> Result<(), FormatRule> {
-        match section {
-            #[cfg(feature = "number")]
-            Section::Number => {
-                takes(options, &crate::numeric::PLAIN)?;
-                self.number = Some(crate::numeric::Plain::parse(options)?);
-            }
-            #[cfg(feature = "offset")]
-            Section::Offset => {
-                takes(options, &crate::numeric::PLAIN)?;
-                self.offset = Some(crate::numeric::Plain::parse(options)?);
-            }
-            #[cfg(feature = "currency")]
-            Section::Currency => {
-                takes(options, &crate::numeric::currency::OPTIONS)?;
-                self.currency = Some(crate::numeric::currency::Parsed::parse(options)?);
-            }
-            #[cfg(feature = "date")]
-            Section::Date => {
-                takes(options, &crate::date::OPTIONS)?;
-                self.date = Some(crate::date::Parsed::parse(options)?);
-            }
-            #[cfg(not(all(
-                feature = "number",
-                feature = "offset",
-                feature = "currency",
-                feature = "date"
-            )))]
-            _ => {}
-        }
-        Ok(())
-    }
-
-    /// Whether a module defined the section of `function`'s options; a function that takes none
-    /// needs no section.
-    pub(crate) fn defines(&self, function: Function) -> bool {
-        function
-            .section()
-            .is_none_or(|section| self.defined.contains(&section))
-    }
-}
-
-/// Refuses an option the format does not take.
-#[cfg(any(
-    feature = "number",
-    feature = "currency",
-    feature = "offset",
-    feature = "date"
-))]
-fn takes(options: Options<'_>, names: &[&str]) -> Result<(), FormatRule> {
-    match options
-        .entries
-        .iter()
-        .find(|entry| !names.contains(&entry.key.as_ref()))
-    {
-        Some(entry) => Err(FormatRule::Undefined {
-            option: entry.key.to_string(),
-        }),
-        None => Ok(()),
     }
 }

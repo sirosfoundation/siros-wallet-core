@@ -47,7 +47,7 @@ pub(crate) struct Variant<'s> {
 }
 
 /// A variant key.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Key<'s> {
     /// A literal, held.
     Literal(Cow<'s, str>),

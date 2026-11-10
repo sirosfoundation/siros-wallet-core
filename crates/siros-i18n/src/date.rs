@@ -8,10 +8,11 @@
 
 use siros_syntax::{Date, DateTime, Offset, OffsetTime};
 
-use crate::chain::{Chain, Failure, Root, Scope, Texts};
+use crate::chain::{Chain, Failure, Root, Texts};
 use crate::digit::Numerals;
 use crate::error::{FormatRule, Refusal};
 use crate::format::{Direction, Function, Options};
+use crate::scope::Scope;
 
 /// The options `[formats.date]` takes.
 pub(crate) const OPTIONS: [&str; 22] = [
@@ -491,9 +492,9 @@ impl Parsed {
 ///
 /// [`Refusal::Operand`] for a missing operand, a call of another function, or a literal a call
 /// does not take; [`Refusal::Option`] for a `length` the load fixes that names no length.
-pub(crate) fn check(chain: &Chain) -> Result<(), Refusal> {
+pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refusal> {
     let kinds = kinds(chain).ok_or(Refusal::Operand)?;
-    match &chain.root {
+    match chain.root {
         Root::None => return Err(Refusal::Operand),
         Root::Literal(text) => {
             let written = Written::of(text).ok_or(Refusal::Operand)?;
@@ -513,14 +514,14 @@ pub(crate) fn check(chain: &Chain) -> Result<(), Refusal> {
 }
 
 /// The kinds of the chain's calls, innermost first; `None` for a call of another function.
-fn kinds(chain: &Chain) -> Option<Vec<Kind>> {
+fn kinds(chain: &Chain<'_>) -> Option<Vec<Kind>> {
     chain.calls().map(|call| Kind::of(call.function)).collect()
 }
 
 /// The operand's text, the value it writes, which every call of the chain takes, and the kind
 /// of the outermost call.
-fn written<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<(&'m str, Written, Kind), Failure> {
-    let text = match &chain.root {
+fn written<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<(&'m str, Written, Kind), Failure> {
+    let text = match chain.root {
         Root::None => return Err(Failure::Operand),
         Root::Literal(text) => text,
         Root::Argument(key) => scope.argument(key)?,
@@ -548,7 +549,7 @@ fn length(texts: &Texts<'_>) -> Result<Length, Failure> {
 /// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
 /// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
 pub(crate) fn value<'m>(
-    chain: &'m Chain,
+    chain: &Chain<'m>,
     texts: &Texts<'_>,
     scope: &Scope<'m>,
 ) -> Result<&'m str, Failure> {
@@ -564,7 +565,7 @@ pub(crate) fn value<'m>(
 /// its pattern shows; [`Failure::Option`] for a `length` text that names no length, and
 /// [`Failure::Unresolved`] for an argument not given.
 pub(crate) fn format(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
     language: &Parsed,

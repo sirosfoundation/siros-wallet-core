@@ -8,10 +8,11 @@
 //! fraction digit under `decimalPlaces=1`; it selects the keys `1`, and `1.0` under
 //! `decimalPlaces=1`, when it is one. An option's value is the input's text.
 
-use crate::chain::{Chain, Failure, Refused, Root, Scope, Texts, Use};
+use crate::chain::{Chain, Failure, Refused, Root, Texts, Use};
 use crate::error::Refusal;
 use crate::format::Function;
 use crate::mf2::number::NumberLiteral;
+use crate::scope::Scope;
 
 /// `decimalPlaces`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,8 +76,8 @@ fn number_literal(text: &str) -> bool {
 ///
 /// [`Refusal::Operand`] for an operand other than a number literal or an argument, or a call of
 /// another function; [`Refusal::Option`] for an option text the functions refuse.
-fn fixed(chain: &Chain) -> Result<(State, bool), Refused> {
-    match &chain.root {
+fn fixed(chain: &Chain<'_>) -> Result<(State, bool), Refused> {
+    match chain.root {
         Root::None => return Err(Refusal::Operand.into()),
         Root::Literal(text) if !number_literal(text) => return Err(Refusal::Operand.into()),
         Root::Literal(_) | Root::Argument(_) => {}
@@ -111,7 +112,7 @@ fn refuse(option: &str) -> Refusal {
 /// The refusals of an operand, a call or an option text; [`Refusal::Formatter`] for
 /// `:test:select` in a placeholder, and [`Refusal::Option`] for `fails` that fails formatting
 /// there.
-pub(crate) fn check(chain: &Chain, at: Use) -> Result<(), Refused> {
+pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refused> {
     let (state, every) = fixed(chain)?;
     match at {
         Use::Format if chain.outer.function == Function::TestSelect => {
@@ -128,7 +129,7 @@ pub(crate) fn check(chain: &Chain, at: Use) -> Result<(), Refused> {
 ///
 /// The refusals of an operand, a call or an option text; [`Refusal::Selector`] for
 /// `:test:format`, or `fails` that fails selection.
-pub(crate) fn selecting(chain: &Chain) -> Result<(), Refused> {
+pub(crate) fn selecting(chain: &Chain<'_>) -> Result<(), Refused> {
     let (state, every) = fixed(chain)?;
     if chain.outer.function == Function::TestFormat || (every && state.fails_select) {
         return Err(Refusal::Selector.into());
@@ -137,8 +138,8 @@ pub(crate) fn selecting(chain: &Chain) -> Result<(), Refused> {
 }
 
 /// The operand's text, a number literal.
-fn input<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<&'m str, Failure> {
-    let text = match &chain.root {
+fn input<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<&'m str, Failure> {
+    let text = match chain.root {
         Root::None => return Err(Failure::Operand),
         Root::Literal(text) => text,
         Root::Argument(key) => scope.argument(key)?,
@@ -157,7 +158,7 @@ fn input<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<&'m str, Failure> {
 /// [`Failure`] for an operand other than a number literal, an option text the functions refuse,
 /// or an argument not given.
 pub(crate) fn value<'m>(
-    chain: &'m Chain,
+    chain: &Chain<'m>,
     texts: &Texts<'_>,
     scope: &Scope<'m>,
 ) -> Result<&'m str, Failure> {
@@ -165,7 +166,11 @@ pub(crate) fn value<'m>(
 }
 
 /// The operand's value and the resolved state.
-fn number(chain: &Chain, texts: &Texts<'_>, scope: &Scope<'_>) -> Result<(f64, State), Failure> {
+fn number(
+    chain: &Chain<'_>,
+    texts: &Texts<'_>,
+    scope: &Scope<'_>,
+) -> Result<(f64, State), Failure> {
     let state = State::resolved(texts)?;
     let value = input(chain, scope)?.parse().map_err(|_| Failure::Operand)?;
     Ok((value, state))
@@ -178,7 +183,7 @@ fn number(chain: &Chain, texts: &Texts<'_>, scope: &Scope<'_>) -> Result<(f64, S
 /// [`Failure`] for an operand other than a number literal, an option text the functions refuse,
 /// `fails` that fails formatting, or an argument not given.
 pub(crate) fn format(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
 ) -> Result<String, Failure> {
@@ -203,7 +208,7 @@ pub(crate) fn format(
 ///
 /// [`Failure`] as [`format`], with `fails` that fails selection.
 pub(crate) fn selected(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
 ) -> Result<&'static [&'static str], Failure> {

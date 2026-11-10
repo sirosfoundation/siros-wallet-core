@@ -2,11 +2,13 @@
 
 use std::fmt::Write as _;
 
+use rustc_hash::FxHashMap;
+
 use crate::message::Message;
 use crate::normal::normal;
 
-/// A message's arguments: each key as [`normal`] holds it with its value's text, each key once.
-pub(crate) struct Args(Vec<(String, String)>);
+/// A message's arguments: each key as [`normal`] holds it, with its value's text.
+pub(crate) struct Args(FxHashMap<String, String>);
 
 impl Args {
     /// The arguments `message` gives.
@@ -15,7 +17,7 @@ impl Args {
     ///
     /// The first key given twice, or whose value's `Display` fails.
     pub(crate) fn of(message: &dyn Message) -> Result<Self, String> {
-        let mut args: Vec<(String, String)> = Vec::new();
+        let mut args: FxHashMap<String, String> = FxHashMap::default();
         let mut refused: Option<String> = None;
         message.args(&mut |key, value| {
             if refused.is_some() {
@@ -23,10 +25,10 @@ impl Args {
             }
             let key = normal(key).into_owned();
             let mut text = String::new();
-            if args.iter().any(|(given, _)| *given == key) || write!(text, "{value}").is_err() {
+            if args.contains_key(&key) || write!(text, "{value}").is_err() {
                 refused = Some(key);
             } else {
-                args.push((key, text));
+                args.extend([(key, text)]);
             }
         });
         match refused {
@@ -37,9 +39,6 @@ impl Args {
 
     /// The text of the argument `key`.
     pub(crate) fn get(&self, key: &str) -> Option<&str> {
-        self.0
-            .iter()
-            .find(|(given, _)| given == key)
-            .map(|(_, text)| text.as_str())
+        self.0.get(key).map(String::as_str)
     }
 }

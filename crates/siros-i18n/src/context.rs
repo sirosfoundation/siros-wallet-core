@@ -3,16 +3,17 @@
 use rustc_hash::FxHashMap;
 
 use crate::args::Args;
-use crate::compile::{self, Compiled};
+use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
 use crate::error::{LoadError, ResolveError};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
+use crate::messages::{Messages, Prefix};
 use crate::mf2;
 use crate::normal::Hold;
-use crate::resource;
+use crate::resource::{self, Entry};
 use crate::text::Text;
 
 /// How a context isolates a placeholder's text from the text around it.
@@ -36,7 +37,7 @@ pub struct Context {
     locale: Option<LocaleTag>,
     bidi: Bidi,
     formats: Formats,
-    messages: FxHashMap<Box<str>, Compiled>,
+    messages: Messages,
 }
 
 impl Context {
@@ -97,25 +98,42 @@ impl Context {
                 });
             }
         }
-        for section in &resource.formats {
-            self.formats.define(section, resource.direction)?;
+        // A format's options are those of each of its heads; a format is defined where its
+        // first head stands.
+        let mut options: FxHashMap<&str, Vec<&Entry<'_>>> = FxHashMap::default();
+        for head in &resource.formats {
+            options
+                .entry(&head.format)
+                .or_default()
+                .extend(&head.options);
+        }
+        for head in &resource.formats {
+            if let Some(options) = options.remove(head.format.as_ref()) {
+                self.formats
+                    .define(&head.format, &options, resource.direction)?;
+            }
         }
         for section in &resource.sections {
+            let (prefix, name) = match &section.name {
+                Some(name) => (self.messages.section(name), Some(name)),
+                None => (Prefix::NONE, None),
+            };
             for entry in &section.entries {
-                let id: Box<str> = match &section.name {
-                    Some(name) => format!("{name}.{}", entry.key).into(),
-                    None => entry.key.as_ref().into(),
+                let id = || match name {
+                    Some(name) => format!("{name}.{}", entry.key),
+                    None => entry.key.to_string(),
                 };
-                if self.messages.contains_key(&id) {
-                    return Err(LoadError::Repeated { id: id.into() });
+                let slot = self.messages.slot(prefix, &entry.key);
+                if slot.is_some() {
+                    return Err(LoadError::Repeated { id: id() });
                 }
                 let message = mf2::parse::parse(&entry.value, hold)
                     .and_then(|message| {
                         let valid = mf2::valid::Valid::of(&message)?;
                         compile::compile(&valid, resource.direction, &self.formats, hold)
                     })
-                    .map_err(|fault| fault.at(&id, entry.line))?;
-                self.messages.extend([(id, message)]);
+                    .map_err(|fault| fault.at(&id(), entry.line))?;
+                *slot = Some(Box::new(message));
             }
         }
         Ok(self)
@@ -139,7 +157,7 @@ impl Context {
     pub fn resolve(&self, message: &dyn Message) -> Result<Text, ResolveError> {
         let id = message.id();
         let unknown = || ResolveError::Unknown { id: id.to_owned() };
-        let worded = self.messages.get(id).ok_or_else(unknown)?;
+        let worded = self.messages.find(id).ok_or_else(unknown)?;
         let args = Args::of(message).map_err(|key| ResolveError::Argument {
             id: id.to_owned(),
             key,
@@ -172,7 +190,7 @@ impl Context {
         }
         let mut worded = Vec::with_capacity(rows.len());
         for (id, keys) in &rows {
-            let found = self.messages.get(*id).ok_or_else(|| CheckError::Unworded {
+            let found = self.messages.find(id).ok_or_else(|| CheckError::Unworded {
                 id: (*id).to_owned(),
             })?;
             worded.push((id, keys, found));

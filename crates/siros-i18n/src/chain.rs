@@ -1,25 +1,134 @@
-//! A call's chain: what it starts from and the calls applied to it, innermost first. A message
-//! holds one chain for each placeholder, each selector and each declared call an option reads;
-//! the load builds each from the declarations, so a resolution reads it as it is. A [`Scope`] is
-//! what one resolution reads beside the message: the arguments, the context's format sections,
-//! and the values of the declared calls.
+//! Calls and the chains they form. A message holds each call once: a declared call under its
+//! variable, a placeholder's with the placeholder. A call's operand names a declared call by its
+//! variable, so a [`Chain`], a call with the calls its operand's value applies and what the
+//! innermost starts from, is followed through the declarations, by the load to check it and by
+//! a resolution to read it.
+//!
+//! One rule gives a variable its meaning, as an operand and as an option's value: the call
+//! declared under its name, else the argument of that key.
 
-use std::borrow::Cow;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
-use crate::args::Args;
 use crate::error::{Fault, Refusal, ResolveError};
-use crate::format::{Formats, Function};
+use crate::format::Function;
 use crate::normal::Unnormalized;
+use crate::scope::Scope;
 
-/// What a chain of calls starts from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Root {
+/// What a call applies to.
+#[derive(Debug, Clone)]
+pub(crate) enum Operand {
     /// No operand: `{:function}`.
     None,
     /// A literal's string value.
     Literal(Box<str>),
-    /// The argument of this key.
+    /// The argument of this key, which an `.input` declaration's call applies to.
     Argument(Box<str>),
+    /// A variable: the value of the call declared under this name, else the argument of this
+    /// key.
+    Variable(Box<str>),
+}
+
+/// A call on its operand.
+#[derive(Debug, Clone)]
+pub(crate) struct Link {
+    pub(crate) operand: Operand,
+    pub(crate) call: Call,
+}
+
+/// What a placeholder formats: a call, or a literal or a variable without one, which formats
+/// as its declared call does, else with `:string`.
+#[derive(Debug, Clone)]
+pub(crate) enum Site {
+    Call(Link),
+    Literal(Box<str>),
+    Variable(Box<str>),
+}
+
+/// The call of a placeholder without a function.
+static STRING: Call = Call::new(Function::String, Vec::new());
+
+/// A message's declared calls, each under its variable. A call's operand names no call declared
+/// after it.
+#[derive(Debug, Clone)]
+pub(crate) struct Declared(FxHashMap<Box<str>, Link>);
+
+impl Declared {
+    /// No call, with room for `calls`.
+    pub(crate) fn with_capacity(calls: usize) -> Self {
+        Self(FxHashMap::with_capacity_and_hasher(calls, FxBuildHasher))
+    }
+
+    /// Declares `link` under `name`.
+    pub(crate) fn declare(&mut self, name: &str, link: Link) {
+        self.0.extend([(name.into(), link)]);
+    }
+
+    /// The call declared under `name`.
+    pub(crate) fn call(&self, name: &str) -> Option<&Link> {
+        self.0.get(name)
+    }
+
+    /// The chain of `link`: its call, and the calls of its operand's value through the
+    /// declarations.
+    pub(crate) fn chain<'m>(&'m self, link: &'m Link) -> Chain<'m> {
+        let mut inner = Vec::new();
+        let mut operand = &link.operand;
+        let root = loop {
+            match operand {
+                Operand::None => break Root::None,
+                Operand::Literal(text) => break Root::Literal(text),
+                Operand::Argument(key) => break Root::Argument(key),
+                Operand::Variable(name) => match self.call(name) {
+                    Some(declared) => {
+                        inner.push(&declared.call);
+                        operand = &declared.operand;
+                    }
+                    None => break Root::Argument(name),
+                },
+            }
+        };
+        Chain {
+            root,
+            inner,
+            outer: &link.call,
+        }
+    }
+
+    /// The chain of the variable `name`: its declared call's, else `:string` on the argument.
+    pub(crate) fn variable<'m>(&'m self, name: &'m str) -> Chain<'m> {
+        match self.call(name) {
+            Some(link) => self.chain(link),
+            None => Chain {
+                root: Root::Argument(name),
+                inner: Vec::new(),
+                outer: &STRING,
+            },
+        }
+    }
+
+    /// The chain a placeholder formats.
+    pub(crate) fn site<'m>(&'m self, site: &'m Site) -> Chain<'m> {
+        match site {
+            Site::Call(link) => self.chain(link),
+            Site::Variable(name) => self.variable(name),
+            Site::Literal(text) => Chain {
+                root: Root::Literal(text),
+                inner: Vec::new(),
+                outer: &STRING,
+            },
+        }
+    }
+}
+
+/// What a chain of calls starts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Root<'m> {
+    /// No operand: `{:function}`.
+    None,
+    /// A literal's string value.
+    Literal(&'m str),
+    /// The argument of this key.
+    Argument(&'m str),
 }
 
 /// An option's value (spec/formatting.md, "Option Resolution").
@@ -120,13 +229,13 @@ impl Call {
     }
 }
 
-/// A call's chain: what it starts from, the calls its operand's value applies from the innermost,
-/// and the call itself, whose function formats, selects or gives the value.
-#[derive(Debug, Clone)]
-pub(crate) struct Chain {
-    pub(crate) root: Root,
-    inner: Vec<Call>,
-    pub(crate) outer: Call,
+/// A call's chain: what it starts from, the calls its operand's value applies, outermost
+/// first, and the call itself, whose function formats, selects or gives the value.
+#[derive(Debug)]
+pub(crate) struct Chain<'m> {
+    pub(crate) root: Root<'m>,
+    inner: Vec<&'m Call>,
+    pub(crate) outer: &'m Call,
 }
 
 /// An expression's `u:dir` (spec/u-namespace.md).
@@ -238,37 +347,20 @@ enum Unfixed {
     Misnamed,
 }
 
-impl Chain {
-    /// The chain of `call` on `root`.
-    pub(crate) const fn new(root: Root, call: Call) -> Self {
-        Self {
-            root,
-            inner: Vec::new(),
-            outer: call,
-        }
-    }
-
-    /// The chain of `call` on this chain's value.
-    pub(crate) fn then(mut self, call: Call) -> Self {
-        self.inner.push(std::mem::replace(&mut self.outer, call));
-        self
-    }
-
+impl<'m> Chain<'m> {
     /// The calls, innermost first.
-    pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &Call> {
-        self.inner.iter().chain([&self.outer])
+    pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &'m Call> {
+        self.inner.iter().rev().copied().chain([self.outer])
     }
 
     /// The function of the innermost call, whose operand is the root.
     fn innermost(&self) -> Function {
-        self.inner
-            .first()
-            .map_or(self.outer.function, |call| call.function)
+        self.inner.last().map_or(self.outer, |call| call).function
     }
 
     /// The variables that give the calls' options a value at resolution.
     #[cfg(feature = "check")]
-    pub(crate) fn variables(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn variables(&self) -> impl Iterator<Item = &'m str> {
         self.calls()
             .flat_map(|call| &call.options)
             .filter_map(|option| match &option.value {
@@ -280,11 +372,14 @@ impl Chain {
     /// The calls' resolved options, each option's text by `text`: `u:dir` parsed, `u:id`
     /// dropped. `misnamed` is the error of a `u:dir` that names no direction.
     fn texts_by<'s, E>(
-        &'s self,
-        mut text: impl FnMut(&'s Opt) -> Result<&'s str, E>,
+        &self,
+        mut text: impl FnMut(&'m Opt) -> Result<&'s str, E>,
         misnamed: impl Fn() -> E,
-    ) -> Result<Texts<'s>, E> {
-        let mut resolved = |call: &'s Call| {
+    ) -> Result<Texts<'s>, E>
+    where
+        'm: 's,
+    {
+        let mut resolved = |call: &'m Call| {
             let mut dir = None;
             let mut options = Vec::with_capacity(call.options.len());
             for option in &call.options {
@@ -305,9 +400,10 @@ impl Chain {
             inner: self
                 .inner
                 .iter()
-                .map(&mut resolved)
+                .rev()
+                .map(|call| resolved(call))
                 .collect::<Result<_, E>>()?,
-            outer: resolved(&self.outer)?,
+            outer: resolved(self.outer)?,
         })
     }
 
@@ -319,7 +415,7 @@ impl Chain {
     /// [`Failure::Unresolved`] for an argument the message does not give, and
     /// [`Failure::Option`] for a variable whose value fails, or a `u:dir` that names no
     /// direction.
-    pub(crate) fn texts<'s>(&'s self, scope: &'s Scope<'_>) -> Result<Texts<'s>, Failure> {
+    pub(crate) fn texts<'s>(&self, scope: &'s Scope<'m>) -> Result<Texts<'s>, Failure> {
         self.texts_by(
             |option| {
                 scope
@@ -342,7 +438,7 @@ impl Chain {
         feature = "offset",
         feature = "conformance"
     ))]
-    pub(crate) fn fixed_texts(&self) -> Result<Option<Texts<'_>>, Refusal> {
+    pub(crate) fn fixed_texts(&self) -> Result<Option<Texts<'m>>, Refusal> {
         match self.texts_by(
             |option| option.value.fixed().ok_or(Unfixed::Variable),
             || Unfixed::Misnamed,
@@ -442,70 +538,6 @@ impl Refused {
             Self::Undefined => Fault::Undefined(function.name()),
             Self::Call(refusal) => Fault::Call(function.name(), refusal),
             Self::Unnormalized(literal) => Fault::Unnormalized(literal.written()),
-        }
-    }
-}
-
-/// What one resolution of a message reads beside the message: the arguments' texts, the
-/// context's format sections, and the value of each declared call an option reads, in the order
-/// declared.
-pub(crate) struct Scope<'m> {
-    args: &'m Args,
-    #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date"
-        )),
-        expect(dead_code, reason = "only the format functions read a section")
-    )]
-    pub(crate) formats: &'m Formats,
-    declared: Vec<(&'m str, Result<Cow<'m, str>, Failure>)>,
-}
-
-impl<'m> Scope<'m> {
-    /// The resolution over `args` in a context whose format sections are `formats`.
-    pub(crate) const fn new(args: &'m Args, formats: &'m Formats) -> Self {
-        Self {
-            args,
-            formats,
-            declared: Vec::new(),
-        }
-    }
-
-    /// Declares the call `chain` under `name`: its value, over the calls declared before it.
-    pub(crate) fn declare(&mut self, name: &'m str, chain: &'m Chain) {
-        let value = crate::format::value(chain, self);
-        self.declared.push((name, value));
-    }
-
-    /// The text of the argument `key`.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure::Unresolved`] for an argument the message does not give.
-    pub(crate) fn argument(&self, key: &str) -> Result<&'m str, Failure> {
-        self.args
-            .get(key)
-            .ok_or_else(|| Failure::Unresolved(key.to_owned()))
-    }
-
-    /// The text of an option's value: a literal as written, a declared call's value, an
-    /// argument's text.
-    ///
-    /// # Errors
-    ///
-    /// The declared call's [`Failure`], and [`Failure::Unresolved`] for an argument the message
-    /// does not give.
-    fn text<'s>(&'s self, given: &'s Value) -> Result<&'s str, Failure> {
-        let name = match given {
-            Value::Literal(text) | Value::Bound(text) => return Ok(text),
-            Value::Variable(name) => &**name,
-        };
-        match self.declared.iter().find(|(declared, _)| *declared == name) {
-            Some((_, value)) => value.as_deref().map_err(Failure::clone),
-            None => self.argument(name),
         }
     }
 }

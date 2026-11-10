@@ -7,17 +7,18 @@
 
 use std::borrow::Cow;
 
-use crate::chain::{Chain, Failure, Refused, Root, Scope};
+use crate::chain::{Chain, Failure, Refused, Root};
 use crate::error::Refusal;
 use crate::format::Function;
 use crate::normal::{Hold, normal};
+use crate::scope::Scope;
 
 /// Checks a chain of `:string` calls: an operand, and calls of `:string` alone.
 ///
 /// # Errors
 ///
 /// [`Refusal::Operand`] for a chain without an operand or with a call of another function.
-pub(crate) fn check(chain: &Chain) -> Result<(), Refused> {
+pub(crate) fn check(chain: &Chain<'_>) -> Result<(), Refused> {
     if chain.root == Root::None || chain.calls().any(|call| call.function != Function::String) {
         return Err(Refusal::Operand.into());
     }
@@ -30,9 +31,9 @@ pub(crate) fn check(chain: &Chain) -> Result<(), Refused> {
 /// # Errors
 ///
 /// The refusal of [`check`], and [`Refused::Unnormalized`] for a literal `hold` refuses.
-pub(crate) fn selecting(chain: &Chain, hold: Hold) -> Result<(), Refused> {
+pub(crate) fn selecting(chain: &Chain<'_>, hold: Hold) -> Result<(), Refused> {
     check(chain)?;
-    match &chain.root {
+    match chain.root {
         Root::Literal(text) => hold.check(text).map_err(Refused::Unnormalized),
         Root::None | Root::Argument(_) => Ok(()),
     }
@@ -44,8 +45,8 @@ pub(crate) fn selecting(chain: &Chain, hold: Hold) -> Result<(), Refused> {
 ///
 /// [`Failure::Operand`] for a chain without an operand, and [`Failure::Unresolved`] for an
 /// argument the message does not give.
-pub(crate) fn value<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<&'m str, Failure> {
-    match &chain.root {
+pub(crate) fn value<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<&'m str, Failure> {
+    match chain.root {
         Root::None => Err(Failure::Operand),
         Root::Literal(text) => Ok(text),
         Root::Argument(key) => scope.argument(key),
@@ -58,8 +59,8 @@ pub(crate) fn value<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<&'m str, 
 /// # Errors
 ///
 /// [`Failure`] as [`value`].
-pub(crate) fn selected<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
-    match &chain.root {
+pub(crate) fn selected<'m>(chain: &Chain<'m>, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
+    match chain.root {
         Root::None => Err(Failure::Operand),
         Root::Literal(text) => Ok(normal(text)),
         Root::Argument(key) => scope.argument(key).map(Cow::Borrowed),

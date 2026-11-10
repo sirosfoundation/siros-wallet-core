@@ -7,7 +7,6 @@ use std::num::NonZeroU32;
 
 use icu_properties::CodePointMapData;
 use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
-use rustc_hash::FxHashSet;
 use siros_syntax::Currency;
 
 use crate::chain::Failure;
@@ -19,6 +18,7 @@ use crate::numeric::language::{Numbers, symbol};
 use crate::numeric::options::{Function, Refused, Resolved};
 use crate::numeric::pattern::{Affix, Pattern};
 use crate::numeric::plural::{Category, Operands};
+use crate::seen::repeated;
 
 /// The options `[formats.currency]` takes.
 pub(crate) const OPTIONS: [&str; 22] = [
@@ -157,9 +157,8 @@ fn table<T>(text: &str, mut entry: impl FnMut(Currency, &str) -> Option<T>) -> O
 }
 
 /// Whether no two items share a key.
-fn distinct<T, K: Hash + Eq>(items: &[T], key: impl Fn(&T) -> K) -> bool {
-    let mut keys = FxHashSet::default();
-    items.iter().all(|item| keys.insert(key(item)))
+fn distinct<T, K: Copy + Hash + Eq>(items: &[T], key: impl Fn(&T) -> K) -> bool {
+    repeated(items.iter().map(key)).is_none()
 }
 
 fn symbols(text: &str) -> Option<Vec<Symbol>> {

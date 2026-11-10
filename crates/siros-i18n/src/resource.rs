@@ -14,8 +14,8 @@ use crate::locale::LocaleTag;
 /// The section prefix of a format's options.
 const FORMATS: &str = "formats";
 
-/// A resource, parsed: its locale, its direction, its message sections and its formats' options,
-/// each in source order.
+/// A resource, parsed: its locale, its direction, its message sections and its format sections,
+/// each kind in source order.
 #[derive(Debug)]
 pub(crate) struct Resource<'s> {
     pub(crate) locale: Option<LocaleTag>,
@@ -40,7 +40,7 @@ pub(crate) struct Entry<'s> {
     pub(crate) line: usize,
 }
 
-/// One format's options, as its `[formats.<format>]` sections give them.
+/// The options under one `[formats.<format>]` head.
 #[derive(Debug)]
 pub(crate) struct FormatSection<'s> {
     pub(crate) format: Cow<'s, str>,
@@ -59,8 +59,7 @@ enum Section<'s> {
     Format(FormatSection<'s>),
 }
 
-/// The sections the parser has left: the message sections, and each format's options, the
-/// formats in the order of their first sections.
+/// The sections the parser has left, each kind in source order.
 #[derive(Default)]
 struct Left<'s> {
     sections: Vec<MessageSection<'s>>,
@@ -68,20 +67,11 @@ struct Left<'s> {
 }
 
 impl<'s> Left<'s> {
-    /// Adds a section the parser leaves: its options to its format's.
+    /// Adds a section the parser leaves.
     fn leave(&mut self, section: Section<'s>) {
         match section {
             Section::Messages(messages) => self.sections.push(messages),
-            Section::Format(section) => {
-                match self
-                    .formats
-                    .iter_mut()
-                    .find(|held| held.format == section.format)
-                {
-                    Some(held) => held.options.extend(section.options),
-                    None => self.formats.push(section),
-                }
-            }
+            Section::Format(format) => self.formats.push(format),
         }
     }
 }

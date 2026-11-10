@@ -3965,16 +3965,14 @@ pub fn escape(text: &str) -> String;
   defines; `Format`, a `[formats.<f>]` section the build's format refuses (`FormatRule`); `Call`, a
   call its function refuses when the module loads, MF2's message function errors (`Refusal`);
   `Unnormalized`, a name, a variant key or a selector literal NFC changes, which `module_in_nfc`
-  refuses; `Defect { id }`, a lookup that misses a value the load holds by construction, a defect
-  of siros-i18n. The wallet loads its formats first.
+  refuses. The wallet loads its formats first.
 - **Resolving.** `resolve` finds the message's id among the loaded modules and evaluates its pattern
   over the message's arguments: literal text, placeholders, selection, markup and bidi isolation.
   `ResolveError`: `Unknown { id }`, an id no module words; `Unresolved { id, key }`, a pattern that
   reads an argument the message does not give; `Operand { id, function }`, a function that refuses
   its operand's text; `Option { id, function, option }`, a function that refuses the text an
   argument gives for an option; `Argument { id, key }`, a message that gives a key twice, or a value
-  whose `Display` fails; `Defect { id }`, a lookup that misses a value, a format section or a
-  selection the load holds by construction, a defect of siros-i18n.
+  whose `Display` fails.
 - **Text.** A `Text` is styled spans, the styles MF2 markup opens (strong, emphasis, underline),
   which the frontend renders deterministically, one fixed presentation per style. `Span.styles`
   is a set, since PaSO's `mini_markdown` nests strong and emphasis. `Display` drops the styles: the
@@ -4229,8 +4227,7 @@ sources and equal arguments give equal digests (I31). PaSO's `display_locale` an
 makes each derive register a row, its id and its argument keys, through inventory: errors in
 siros-explain's collection, statements in siros-i18n's. `Context::check()` returns the first of
 `CheckError::Repeated { id }`, two rows of one id (two crates chose one scope); `Unworded { id }`,
-a row no module words; `Unknown { id, key }`, a pattern that reads a variable its row lacks;
-`Defect { id }`, a lookup that misses a message's value the load holds, a defect of siros-i18n. The
+a row no module words; `Unknown { id, key }`, a pattern that reads a variable its row lacks. The
 wallet's one test loads its sources for each locale it ships and calls `check`. Shipping builds
 leave `check` off, so the table exists in test builds alone. The rows survive into a rustc-linked
 test binary, whose synthetic object keeps `#[used]` statics.
@@ -4251,8 +4248,10 @@ oracles.
   one maintainer and shipped three major versions in twelve days.
 - **Loading** (wallet and matcher). `Context::module` reads a resource file, parses each message
   by MF2's grammar, checks the data model, and checks each call against the build's functions and
-  the format options loaded so far. A load takes time and memory in proportion to its source: the
-  context holds a section's name once for all its messages and finds an id by its text's hash.
+  the format options loaded so far. A load takes memory in proportion to its source: the context
+  holds each dot-separated part of an id once under the parts before it, and a message holds each
+  call once. It takes time in proportion to its source and, for each use of a call, to the count
+  of the calls its operand's value applies.
 - **Resolving** (wallet and matcher). `Context::resolve` evaluates a message over its text
   arguments through the build's format functions. Loading and resolving are measured in the
   matcher on their first build (I10).

@@ -99,13 +99,17 @@ mod digit;
 mod error;
 mod escape;
 mod format;
+mod formats;
 mod locale;
 mod message;
+mod messages;
 mod mf2;
 mod normal;
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 mod numeric;
 mod resource;
+mod scope;
+mod seen;
 mod string;
 #[cfg(feature = "conformance")]
 mod test_functions;

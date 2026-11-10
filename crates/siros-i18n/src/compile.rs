@@ -1,59 +1,58 @@
-//! A message compiled for a context, and resolved. A compiled message holds a [`Chain`] for each
-//! placeholder and each selector: the load follows each variable to its declaration, so a chain
-//! starts from a literal or an argument and names every call applied to it. A variable that
-//! gives an option its value at resolution stands for a declared call's value, else for the
-//! argument of its name. The load checks each chain for its use. Markup opens and closes the
-//! styles in nested order.
+//! A message compiled for a context, and resolved. A compiled message holds each declared call
+//! under its variable, and what each placeholder formats and each selector selects on: the load
+//! follows each variable to its declaration, so a variable left in the message names a declared
+//! call or an argument. The load checks the chain of each placeholder, each selector and each
+//! declared call an option reads. Markup opens and closes the styles in nested order.
 //!
 //! A message resolves lazily: a placeholder formats when the pattern writes it, and a selector
-//! selects when the matcher picks a variant (spec/formatting.md "Pattern Selection"). A declared
-//! call an option reads gives its value once per resolution.
+//! selects when the matcher picks a variant (spec/formatting.md "Pattern Selection"). A variable
+//! an option reads gives its value once per resolution.
 
 use std::borrow::Cow;
 
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+
 use crate::args::Args;
-use crate::chain::{Call, Chain, Dir, Name, Opt, Root, Scope, Use, Value};
+use crate::chain::{Call, Declared, Dir, Link, Name, Operand, Opt, Site, Use, Value};
 use crate::context::Bidi;
 use crate::error::{Fault, Refusal, ResolveError};
 use crate::format::{Direction, Formats, Function, Selected, Selecting};
 use crate::mf2::ast::{self, MarkupKind};
 use crate::mf2::valid::{Shape, Valid};
 use crate::normal::Hold;
+use crate::scope::Scope;
 use crate::text::{Style, Text, Writer};
 
-/// A message, compiled: its module's direction, the declared calls its options read, and its
-/// body.
+/// A message, compiled: its module's direction, its declared calls, the variables of those its
+/// options read, each after those its own value reads, and its body.
 #[derive(Debug, Clone)]
 pub(crate) struct Compiled {
     direction: Direction,
-    declared: Vec<Declared>,
+    declared: Declared,
+    read: Vec<Box<str>>,
     body: Body,
-}
-
-/// A declared call whose value an option reads: its variable and its chain.
-#[derive(Debug, Clone)]
-struct Declared {
-    name: Box<str>,
-    chain: Chain,
 }
 
 /// A message's body.
 #[derive(Debug, Clone)]
 enum Body {
     Pattern(Pattern),
-    /// `.match`: its selectors, its variants with a literal key, and the pattern of the variant
-    /// whose keys are all `*`.
-    Select {
-        selectors: Vec<Selector>,
-        variants: Vec<Variant>,
-        fallback: Pattern,
-    },
+    Select(Box<Select>),
 }
 
-/// A selector: its chain, and how its function selects.
+/// `.match`: its selectors, its variants with a literal key, and the pattern of the variant
+/// whose keys are all `*`.
+#[derive(Debug, Clone)]
+struct Select {
+    selectors: Vec<Selector>,
+    variants: Vec<Variant>,
+    fallback: Pattern,
+}
+
+/// A selector: the variable of its declared call, and how the call's function selects.
 #[derive(Debug, Clone)]
 struct Selector {
-    chain: Chain,
+    variable: Box<str>,
     selecting: Selecting,
 }
 
@@ -99,35 +98,29 @@ type Pattern = Vec<Part>;
 #[derive(Debug, Clone)]
 enum Part {
     Text(Box<str>),
-    /// The chain a placeholder formats.
-    Placeholder(Chain),
+    Placeholder(Site),
     Open(Style),
     Close(Style),
 }
 
-/// What a declaration binds its variable to.
-#[derive(Debug, Clone)]
-enum Bound {
-    Literal(Box<str>),
-    /// The argument of this key.
-    Argument(Box<str>),
-    Call(Chain),
-}
-
-/// A declaration: its variable, what it binds it to, and whether an option reads its call's
-/// value.
-struct Binding<'a> {
-    name: &'a str,
-    bound: Bound,
-    read: bool,
+/// What a declared variable stands for where a later expression names it: the literal its
+/// declaration binds, or a variable, its own when its declaration binds a call or an argument.
+#[derive(Debug, Clone, Copy)]
+enum Bound<'a> {
+    Literal(&'a str),
+    Variable(&'a str),
 }
 
 /// The compilation of one message: the context's formats, how the load holds selector literals,
-/// and the declarations so far.
+/// what each declared variable stands for, the declared calls, and the variables of those
+/// options read.
 struct Compiler<'c, 'a> {
     formats: &'c Formats,
     hold: Hold,
-    bindings: Vec<Binding<'a>>,
+    bound: FxHashMap<&'a str, Bound<'a>>,
+    declared: Declared,
+    reading: FxHashSet<&'a str>,
+    read: Vec<Box<str>>,
 }
 
 /// Compiles a message of a module whose direction is `direction`, each literal a selector
@@ -138,34 +131,30 @@ struct Compiler<'c, 'a> {
 /// The [`Fault`] of a function the build lacks, a function whose section no module defined, a
 /// call its function refuses, a selector literal `hold` refuses, and markup outside the styles
 /// or not nested.
-pub(crate) fn compile(
-    message: &Valid<'_, '_>,
+pub(crate) fn compile<'a>(
+    message: &Valid<'a, '_>,
     direction: Direction,
     formats: &Formats,
     hold: Hold,
 ) -> Result<Compiled, Fault> {
+    let declarations = message.declarations;
+    let calls = declarations
+        .iter()
+        .filter(|declaration| match declaration {
+            ast::Declaration::Input { function, .. } => function.is_some(),
+            ast::Declaration::Local { expression, .. } => expression.parts().1.is_some(),
+        })
+        .count();
     let mut compiler = Compiler {
         formats,
         hold,
-        bindings: Vec::with_capacity(message.declarations.len()),
+        bound: FxHashMap::with_capacity_and_hasher(declarations.len(), FxBuildHasher),
+        declared: Declared::with_capacity(calls),
+        reading: FxHashSet::default(),
+        read: Vec::new(),
     };
-    for declaration in message.declarations {
-        let (name, bound) = match declaration {
-            ast::Declaration::Input { name, function } => {
-                let argument = Bound::Argument(name.as_ref().into());
-                let bound = match function {
-                    Some(function) => Bound::Call(compiler.call(Some(argument), function)?),
-                    None => argument,
-                };
-                (name, bound)
-            }
-            ast::Declaration::Local { name, expression } => (name, compiler.bind(expression)?),
-        };
-        compiler.bindings.push(Binding {
-            name,
-            bound,
-            read: false,
-        });
+    for declaration in declarations {
+        compiler.declare(declaration)?;
     }
     let body = match &message.body {
         Shape::Pattern(pattern) => Body::Pattern(compiler.pattern(pattern)?),
@@ -175,68 +164,77 @@ pub(crate) fn compile(
             fallback,
         } => compiler.matcher(selectors, variants, fallback)?,
     };
-    let declared = compiler
-        .bindings
-        .into_iter()
-        .filter_map(|binding| match binding {
-            Binding {
-                name,
-                bound: Bound::Call(chain),
-                read: true,
-            } => Some(Declared {
-                name: name.into(),
-                chain,
-            }),
-            _ => None,
-        })
-        .collect();
     Ok(Compiled {
         direction,
-        declared,
+        declared: compiler.declared,
+        read: compiler.read,
         body,
     })
 }
 
-impl Compiler<'_, '_> {
-    /// What an operand stands for: a literal, or what its variable's declaration binds; the
-    /// argument of its name for a variable no declaration binds.
-    fn operand(&self, operand: &ast::Operand<'_>) -> Bound {
+impl<'a> Compiler<'_, 'a> {
+    /// Holds what a declaration's variable stands for, and its call.
+    fn declare(&mut self, declaration: &'a ast::Declaration<'_>) -> Result<(), Fault> {
+        let (name, bound) = match declaration {
+            ast::Declaration::Input { name, function } => {
+                if let Some(function) = function {
+                    let link = Link {
+                        operand: Operand::Argument(name.as_ref().into()),
+                        call: self.call(function)?,
+                    };
+                    self.declared.declare(name, link);
+                }
+                (name, Bound::Variable(name))
+            }
+            ast::Declaration::Local { name, expression } => match expression {
+                ast::Expression::Operand {
+                    operand,
+                    function: None,
+                } => (name, self.bound(operand)),
+                ast::Expression::Operand {
+                    function: Some(function),
+                    ..
+                }
+                | ast::Expression::Function(function) => {
+                    let link = Link {
+                        operand: self.operand(expression),
+                        call: self.call(function)?,
+                    };
+                    self.declared.declare(name, link);
+                    (name, Bound::Variable(name))
+                }
+            },
+        };
+        self.bound.extend([(name.as_ref(), bound)]);
+        Ok(())
+    }
+
+    /// What an operand stands for: a literal; what its variable's declaration binds; or its
+    /// variable, which no declaration binds.
+    fn bound(&self, operand: &'a ast::Operand<'_>) -> Bound<'a> {
         match operand {
-            ast::Operand::Literal(text) => Bound::Literal(text.as_ref().into()),
+            ast::Operand::Literal(text) => Bound::Literal(text),
             ast::Operand::Variable(name) => self
-                .bindings
-                .iter()
-                .find(|binding| binding.name == name)
-                .map_or_else(
-                    || Bound::Argument(name.as_ref().into()),
-                    |binding| binding.bound.clone(),
-                ),
+                .bound
+                .get(name.as_ref())
+                .copied()
+                .unwrap_or(Bound::Variable(name)),
         }
     }
 
-    /// What an expression stands for: its operand, or the call of its function on it.
-    fn bind(&mut self, expression: &ast::Expression<'_>) -> Result<Bound, Fault> {
+    /// What an expression's call applies to.
+    fn operand(&self, expression: &'a ast::Expression<'_>) -> Operand {
         match expression {
-            ast::Expression::Operand {
-                operand,
-                function: None,
-            } => Ok(self.operand(operand)),
-            ast::Expression::Operand {
-                operand,
-                function: Some(function),
-            } => self
-                .call(Some(self.operand(operand)), function)
-                .map(Bound::Call),
-            ast::Expression::Function(function) => self.call(None, function).map(Bound::Call),
+            ast::Expression::Function(_) => Operand::None,
+            ast::Expression::Operand { operand, .. } => match self.bound(operand) {
+                Bound::Literal(text) => Operand::Literal(text.into()),
+                Bound::Variable(name) => Operand::Variable(name.into()),
+            },
         }
     }
 
-    /// The chain of a call of `function` on `operand`.
-    fn call(
-        &mut self,
-        operand: Option<Bound>,
-        function: &ast::Function<'_>,
-    ) -> Result<Chain, Fault> {
+    /// The call of `function`.
+    fn call(&mut self, function: &'a ast::Function<'_>) -> Result<Call, Fault> {
         let name = function.name.as_ref();
         let called = Function::named(name).ok_or_else(|| Fault::Function(name.to_owned()))?;
         if !self.formats.defines(called) {
@@ -247,44 +245,25 @@ impl Compiler<'_, '_> {
             .iter()
             .map(|option| self.option(called, option))
             .collect::<Result<_, _>>()?;
-        let call = Call::new(called, options);
-        Ok(match operand {
-            None => Chain::new(Root::None, call),
-            Some(Bound::Literal(text)) => Chain::new(Root::Literal(text), call),
-            Some(Bound::Argument(key)) => Chain::new(Root::Argument(key), call),
-            Some(Bound::Call(chain)) => chain.then(call),
-        })
+        Ok(Call::new(called, options))
     }
 
-    /// An option of a call of `called`: its value a literal, written or bound to its variable,
-    /// or a variable, whose declared call is checked to give a value; and its name, a `u:dir`
-    /// the load fixes naming a direction.
-    fn option(&mut self, called: Function, option: &ast::Opt<'_>) -> Result<Opt, Fault> {
-        let value = match &option.value {
-            ast::Operand::Literal(text) => Value::Literal(text.as_ref().into()),
-            ast::Operand::Variable(variable) => {
-                let variable = variable.as_ref();
-                match self.bindings.iter_mut().find(|b| b.name == variable) {
-                    Some(Binding {
-                        bound: Bound::Literal(text),
-                        ..
-                    }) => Value::Bound(text.clone()),
-                    Some(Binding {
-                        bound: Bound::Argument(key),
-                        ..
-                    }) => Value::Variable(key.clone()),
-                    Some(Binding {
-                        bound: Bound::Call(chain),
-                        read,
-                        ..
-                    }) => {
-                        crate::format::check(chain, Use::Value, self.formats)
-                            .map_err(|refused| refused.fault(chain.outer.function))?;
-                        *read = true;
-                        Value::Variable(variable.into())
+    /// An option of a call of `called`: its value, a literal or a variable, whose declared call
+    /// is checked to give a value; and its name, a `u:dir` the load fixes naming a direction.
+    fn option(&mut self, called: Function, option: &'a ast::Opt<'_>) -> Result<Opt, Fault> {
+        let value = match (&option.value, self.bound(&option.value)) {
+            (ast::Operand::Literal(_), Bound::Literal(text)) => Value::Literal(text.into()),
+            (_, Bound::Literal(text)) => Value::Bound(text.into()),
+            (_, Bound::Variable(name)) => {
+                if let Some(link) = self.declared.call(name) {
+                    let chain = self.declared.chain(link);
+                    crate::format::check(&chain, Use::Value, self.formats)
+                        .map_err(|refused| refused.fault(chain.outer.function))?;
+                    if self.reading.insert(name) {
+                        self.read.push(name.into());
                     }
-                    None => Value::Variable(variable.into()),
                 }
+                Value::Variable(name.into())
             }
         };
         let refuse = || {
@@ -305,33 +284,46 @@ impl Compiler<'_, '_> {
         Ok(Opt { name, value })
     }
 
-    /// The chain a placeholder formats, checked. A literal or a variable without a function
-    /// formats with `:string`.
-    fn placeholder(&mut self, expression: &ast::Expression<'_>) -> Result<Chain, Fault> {
-        let string = || Call::new(Function::String, Vec::new());
-        let chain = match self.bind(expression)? {
-            Bound::Call(chain) => chain,
-            Bound::Literal(text) => Chain::new(Root::Literal(text), string()),
-            Bound::Argument(key) => Chain::new(Root::Argument(key), string()),
+    /// What a placeholder formats, its chain checked.
+    fn placeholder(&mut self, expression: &'a ast::Expression<'_>) -> Result<Site, Fault> {
+        let site = match expression {
+            ast::Expression::Operand {
+                operand,
+                function: None,
+            } => match self.bound(operand) {
+                Bound::Literal(text) => Site::Literal(text.into()),
+                Bound::Variable(name) => Site::Variable(name.into()),
+            },
+            ast::Expression::Operand {
+                function: Some(function),
+                ..
+            }
+            | ast::Expression::Function(function) => Site::Call(Link {
+                operand: self.operand(expression),
+                call: self.call(function)?,
+            }),
         };
+        let chain = self.declared.site(&site);
         crate::format::check(&chain, Use::Format, self.formats)
             .map_err(|refused| refused.fault(chain.outer.function))?;
-        Ok(chain)
+        Ok(site)
     }
 
-    /// The selector of the variable `name`: its declared call's chain, checked to select.
-    fn selector(&self, name: &str) -> Result<Selector, Fault> {
-        let Some(Binding {
-            bound: Bound::Call(chain),
-            ..
-        }) = self.bindings.iter().find(|binding| binding.name == name)
-        else {
-            return Err(Fault::MissingSelectorAnnotation(name.to_owned()));
+    /// The selector of the variable `name`: its declared call, checked to select.
+    fn selector(&self, name: &'a str) -> Result<Selector, Fault> {
+        let unannotated = || Fault::MissingSelectorAnnotation(name.to_owned());
+        let Some(Bound::Variable(variable)) = self.bound.get(name).copied() else {
+            return Err(unannotated());
         };
-        let selecting = Selecting::of(chain, self.formats, self.hold)
+        let chain = self
+            .declared
+            .call(variable)
+            .map(|link| self.declared.chain(link))
+            .ok_or_else(unannotated)?;
+        let selecting = Selecting::of(&chain, self.formats, self.hold)
             .map_err(|refused| refused.fault(chain.outer.function))?;
         Ok(Selector {
-            chain: chain.clone(),
+            variable: variable.into(),
             selecting,
         })
     }
@@ -340,9 +332,9 @@ impl Compiler<'_, '_> {
     /// reads, and each pattern.
     fn matcher(
         &mut self,
-        selectors: &[Cow<'_, str>],
-        variants: &[&ast::Variant<'_>],
-        fallback: &ast::Pattern<'_>,
+        selectors: &'a [Cow<'_, str>],
+        variants: &[&'a ast::Variant<'_>],
+        fallback: &'a ast::Pattern<'_>,
     ) -> Result<Body, Fault> {
         let selectors = selectors
             .iter()
@@ -359,7 +351,8 @@ impl Compiler<'_, '_> {
                         ast::Key::Literal(key) => match selector.selecting.reads(key) {
                             Ok(()) => Ok(Key::Literal(key.as_ref().into())),
                             Err(refusal) => {
-                                Err(Fault::Call(selector.chain.outer.function.name(), refusal))
+                                let chain = self.declared.variable(&selector.variable);
+                                Err(Fault::Call(chain.outer.function.name(), refusal))
                             }
                         },
                     })
@@ -368,15 +361,15 @@ impl Compiler<'_, '_> {
                 Ok(Variant { keys, pattern })
             })
             .collect::<Result<_, Fault>>()?;
-        Ok(Body::Select {
+        Ok(Body::Select(Box::new(Select {
             selectors,
             variants,
             fallback: self.pattern(fallback)?,
-        })
+        })))
     }
 
     /// A pattern, its markup checked to open and close each style in nested order, once.
-    fn pattern(&mut self, pattern: &ast::Pattern<'_>) -> Result<Pattern, Fault> {
+    fn pattern(&mut self, pattern: &'a ast::Pattern<'_>) -> Result<Pattern, Fault> {
         let mut parts = Vec::with_capacity(pattern.len());
         let mut open: Vec<(Style, &str)> = Vec::new();
         for part in pattern {
@@ -450,31 +443,30 @@ impl Compiled {
         formats: &Formats,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
-        let mut scope = Scope::new(args, formats);
-        for declared in &self.declared {
-            scope.declare(&declared.name, &declared.chain);
+        let mut scope = Scope::new(args, formats, &self.declared);
+        for variable in &self.read {
+            scope.hold(variable);
         }
         let pattern = match &self.body {
             Body::Pattern(pattern) => pattern,
-            Body::Select {
-                selectors,
-                variants,
-                fallback,
-            } => {
-                let selected = selectors
+            Body::Select(select) => {
+                let selected = select
+                    .selectors
                     .iter()
-                    .map(|Selector { chain, selecting }| {
+                    .map(|selector| {
+                        let chain = self.declared.variable(&selector.variable);
                         chain
                             .texts(&scope)
-                            .and_then(|texts| selecting.selected(chain, &texts, &scope))
+                            .and_then(|texts| selector.selecting.selected(&chain, &texts, &scope))
                             .map_err(|failure| chain.error(id, failure))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                variants
+                select
+                    .variants
                     .iter()
                     .filter(|variant| variant.ranks(&selected).all(|rank| rank.is_some()))
                     .min_by(|a, b| a.ranks(&selected).cmp(b.ranks(&selected)))
-                    .map_or(fallback, |variant| &variant.pattern)
+                    .map_or(&select.fallback, |variant| &variant.pattern)
             }
         };
         let mut writer = Writer::default();
@@ -483,11 +475,12 @@ impl Compiled {
                 Part::Text(text) => writer.text(text),
                 Part::Open(style) => writer.open(*style),
                 Part::Close(style) => writer.close(*style),
-                Part::Placeholder(chain) => {
+                Part::Placeholder(site) => {
+                    let chain = self.declared.site(site);
                     let (text, value, dir) = chain
                         .texts(&scope)
                         .and_then(|texts| {
-                            let (text, value) = crate::format::format(chain, &texts, &scope)?;
+                            let (text, value) = crate::format::format(&chain, &texts, &scope)?;
                             Ok((text, value, texts.dir()))
                         })
                         .map_err(|failure| chain.error(id, failure))?;
@@ -509,38 +502,40 @@ impl Compiled {
     /// operands and their options' variables, each once, sorted.
     #[cfg(feature = "check")]
     pub(crate) fn reads(&self) -> Vec<&str> {
-        fn placeholders(pattern: &Pattern) -> impl Iterator<Item = &Chain> {
+        fn placeholders(pattern: &Pattern) -> impl Iterator<Item = &Site> {
             pattern.iter().filter_map(|part| match part {
-                Part::Placeholder(chain) => Some(chain),
+                Part::Placeholder(site) => Some(site),
                 Part::Text(_) | Part::Open(_) | Part::Close(_) => None,
             })
         }
-        let mut pending: Vec<&Chain> = match &self.body {
-            Body::Pattern(pattern) => placeholders(pattern).collect(),
-            Body::Select {
-                selectors,
-                variants,
-                fallback,
-            } => selectors
+        let mut pending: Vec<crate::chain::Chain<'_>> = match &self.body {
+            Body::Pattern(pattern) => placeholders(pattern)
+                .map(|site| self.declared.site(site))
+                .collect(),
+            Body::Select(select) => select
+                .selectors
                 .iter()
-                .map(|selector| &selector.chain)
-                .chain(variants.iter().flat_map(|v| placeholders(&v.pattern)))
-                .chain(placeholders(fallback))
+                .map(|selector| self.declared.variable(&selector.variable))
+                .chain(
+                    select
+                        .variants
+                        .iter()
+                        .flat_map(|variant| placeholders(&variant.pattern))
+                        .chain(placeholders(&select.fallback))
+                        .map(|site| self.declared.site(site)),
+                )
                 .collect(),
         };
-        let mut followed: Vec<&str> = Vec::new();
+        let mut followed: FxHashSet<&str> = FxHashSet::default();
         let mut reads: Vec<&str> = Vec::new();
         while let Some(chain) = pending.pop() {
-            if let Root::Argument(key) = &chain.root {
+            if let crate::chain::Root::Argument(key) = chain.root {
                 reads.push(key);
             }
             for name in chain.variables() {
-                match self.declared.iter().find(|d| &*d.name == name) {
-                    Some(_) if followed.contains(&name) => {}
-                    Some(declared) => {
-                        followed.push(name);
-                        pending.push(&declared.chain);
-                    }
+                match self.declared.call(name) {
+                    Some(link) if followed.insert(name) => pending.push(self.declared.chain(link)),
+                    Some(_) => {}
                     None => reads.push(name),
                 }
             }

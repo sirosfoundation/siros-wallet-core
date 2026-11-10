@@ -16,10 +16,11 @@ pub(crate) use language::{PLAIN, Plain};
 
 use std::num::NonZeroU32;
 
-use crate::chain::{Call, Chain, Failure, Root, Scope, Texts, Value};
+use crate::chain::{Call, Chain, Failure, Root, Texts, Value};
 use crate::digit::{Digit, Numerals};
 use crate::error::Refusal;
 use crate::format::Direction;
+use crate::scope::Scope;
 use decimal::{Fixed, Given, Num, RoundingMode};
 use language::Numbers;
 use options::{Function, Refused, Resolved};
@@ -218,7 +219,7 @@ pub(crate) struct Form<'a> {
 /// a chain of `:offset` calls, whose value is the operand's numeric value
 /// (spec/functions/number.md, `:offset`'s resolved value). `None` for a chain with a call of
 /// another family.
-pub(crate) fn formatter(chain: &Chain) -> Option<Function> {
+pub(crate) fn formatter(chain: &Chain<'_>) -> Option<Function> {
     let mut formatter = Function::Number;
     for call in chain.calls() {
         match Function::of(call.function)? {
@@ -230,8 +231,8 @@ pub(crate) fn formatter(chain: &Chain) -> Option<Function> {
 }
 
 /// The kind of a chain's root; a literal must be a number literal.
-fn root(chain: &Chain) -> Result<options::Root, Refusal> {
-    match &chain.root {
+fn root(chain: &Chain<'_>) -> Result<options::Root, Refusal> {
+    match chain.root {
         Root::None => Err(Refusal::Operand),
         Root::Literal(text) => match Given::literal(text) {
             Some(_) => Ok(options::Root::Literal),
@@ -262,7 +263,10 @@ fn failure(refused: Refused) -> Failure {
 /// # Errors
 ///
 /// [`Refusal`] for an operand or an option the functions refuse.
-pub(crate) fn check(chain: &Chain, language: Language<'_>) -> Result<(), crate::chain::Refused> {
+pub(crate) fn check(
+    chain: &Chain<'_>,
+    language: Language<'_>,
+) -> Result<(), crate::chain::Refused> {
     checked(chain, language).map(drop)
 }
 
@@ -273,7 +277,7 @@ pub(crate) fn check(chain: &Chain, language: Language<'_>) -> Result<(), crate::
 /// The refusal of [`check`], and [`Refusal::Selector`] for a `:currency` value, which selects
 /// no variant.
 pub(crate) fn selection(
-    chain: &Chain,
+    chain: &Chain<'_>,
     language: Language<'_>,
 ) -> Result<Selection, crate::chain::Refused> {
     checked(chain, language)?.ok_or_else(|| Refusal::Selector.into())
@@ -284,7 +288,7 @@ pub(crate) fn selection(
 /// its functions, its operand, a selector's `select`, and the options `:currency` and `:offset`
 /// need.
 fn checked(
-    chain: &Chain,
+    chain: &Chain<'_>,
     language: Language<'_>,
 ) -> Result<Option<Selection>, crate::chain::Refused> {
     let root = root(chain)?;
@@ -312,7 +316,7 @@ fn checked(
 /// [`Resolved::of`] checks it: each literal option a function reads, `select` written as a
 /// literal on the outermost call that reads it, `currency` on one `:currency` call, `add` or
 /// `subtract` on each `:offset` call. How the value selects; `None` for a `:currency` value.
-fn structure(chain: &Chain) -> Result<Option<Selection>, Refused> {
+fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
     let option = |name: &str| Refused::Option(name.to_owned());
     let mut select: Option<&str> = None;
     let mut currency = false;
@@ -420,14 +424,14 @@ fn form<'t>(
 
 /// The operand's number and the options resolved over `language`.
 fn resolve<'t>(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &'t Texts<'_>,
     scope: &Scope<'_>,
     language: Language<'_>,
 ) -> Result<(Given, Form<'t>), Failure> {
-    let (root, text) = match &chain.root {
+    let (root, text) = match chain.root {
         Root::None => return Err(Failure::Operand),
-        Root::Literal(text) => (options::Root::Literal, &**text),
+        Root::Literal(text) => (options::Root::Literal, text),
         Root::Argument(key) => (options::Root::Argument, scope.argument(key)?),
     };
     let given = Given::literal(text).ok_or(Failure::Operand)?;
@@ -441,7 +445,7 @@ fn resolve<'t>(
 ///
 /// [`Failure`] for an operand or option text refused, or an argument not given.
 pub(crate) fn format(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
     language: Language<'_>,
@@ -490,7 +494,7 @@ impl Selected {
 ///
 /// [`Failure`] as [`format`].
 pub(crate) fn selected(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
     language: Language<'_>,
@@ -517,7 +521,7 @@ pub(crate) fn selected(
 ///
 /// [`Failure`] as [`format`].
 pub(crate) fn value(
-    chain: &Chain,
+    chain: &Chain<'_>,
     texts: &Texts<'_>,
     scope: &Scope<'_>,
     language: Language<'_>,
