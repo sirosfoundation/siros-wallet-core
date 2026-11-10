@@ -295,7 +295,7 @@ fn parse_general_jws(general: &serde_json::Value) -> Result<AuthorizationRequest
             .and_then(|v| v.as_array())
             .and_then(|chain| chain.first())
             .and_then(|v| v.as_str())
-            .and_then(|cert| decode_base64(cert))
+            .and_then(decode_base64)
             .map(|der| {
                 let jwk = jose_rs::jwk::cert::public_jwk_from_certificate_der(&der)
                     .map_err(|_| RequestError::RequestObjectSignature)?;
@@ -353,17 +353,15 @@ fn parse_general_jws(general: &serde_json::Value) -> Result<AuthorizationRequest
     if value.get("client_id").is_none() {
         if let Some(header_client_id) = verified_client_id {
             if let Some(object) = value.as_object_mut() {
-                object.insert("client_id".to_owned(), serde_json::Value::String(header_client_id));
+                object.insert(
+                    "client_id".to_owned(),
+                    serde_json::Value::String(header_client_id),
+                );
             }
         }
     }
     parse_request_value(&value, true).and_then(|mut request| {
-        validate_scheme_requirements(
-            &request,
-            first_leaf.clone(),
-            attestation_jwt.clone(),
-            "",
-        )?;
+        validate_scheme_requirements(&request, first_leaf.clone(), attestation_jwt.clone(), "")?;
         request.request_jwt = Some(serde_json::to_string(general).unwrap_or_default());
         request.x5c = first_x5c.clone();
         request.attestation_jwt = attestation_jwt.clone();
@@ -379,7 +377,11 @@ fn parse_request_object(text: &str) -> Result<AuthorizationRequest, RequestError
     // first signature's certificate carries the scheme binding.
     if text.starts_with('{') {
         if let Ok(general) = serde_json::from_str::<serde_json::Value>(text) {
-            if general.get("signatures").and_then(|v| v.as_array()).is_some() {
+            if general
+                .get("signatures")
+                .and_then(|v| v.as_array())
+                .is_some()
+            {
                 return parse_general_jws(&general);
             }
             // A plain-JSON request object (not the general JWS): the
