@@ -1,47 +1,46 @@
 //! ISO 20022's frequency codes, PaSO View §3's `frequency` value type.
 
-use siros_explain::Explain;
+use siros_i18n::Message;
 
 /// A payment's frequency, shown for its ISO 20022 code (PaSO View §3 `frequency`): a message of
 /// the crate's module, one per code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Explain)]
-#[explain(domain = "paso.frequency")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Message)]
 pub enum Frequency {
     /// The code `INDA`.
-    #[explain(id = "inda")]
+    #[message(id = "frequency.inda")]
     Intraday,
     /// The code `DAIL`.
-    #[explain(id = "dail")]
+    #[message(id = "frequency.dail")]
     Daily,
     /// The code `WEEK`.
-    #[explain(id = "week")]
+    #[message(id = "frequency.week")]
     Weekly,
     /// The code `TOWK`.
-    #[explain(id = "towk")]
+    #[message(id = "frequency.towk")]
     EveryTwoWeeks,
     /// The code `TWMN`.
-    #[explain(id = "twmn")]
+    #[message(id = "frequency.twmn")]
     TwiceAMonth,
     /// The code `MNTH`.
-    #[explain(id = "mnth")]
+    #[message(id = "frequency.mnth")]
     Monthly,
     /// The code `TOMN`.
-    #[explain(id = "tomn")]
+    #[message(id = "frequency.tomn")]
     EveryTwoMonths,
     /// The code `QUTR`.
-    #[explain(id = "qutr")]
+    #[message(id = "frequency.qutr")]
     Quarterly,
     /// The code `FOMN`.
-    #[explain(id = "fomn")]
+    #[message(id = "frequency.fomn")]
     EveryFourMonths,
     /// The code `SEMI`.
-    #[explain(id = "semi")]
+    #[message(id = "frequency.semi")]
     TwiceAYear,
     /// The code `YEAR`.
-    #[explain(id = "year")]
+    #[message(id = "frequency.year")]
     Yearly,
     /// The code `TYEA`.
-    #[explain(id = "tyea")]
+    #[message(id = "frequency.tyea")]
     EveryTwoYears,
 }
 

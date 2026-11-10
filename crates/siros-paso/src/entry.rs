@@ -49,16 +49,21 @@ impl<'e> Payload<'e> {
 
 /// A member of a PaSO entry that breaks Core §7.1, Proof Metadata §5.1 or OpenID4VP §5.1.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.entry")]
 pub enum EntryRule {
     /// A member none of the three specifications defines.
-    #[error("unknown member {0} (OpenID4VP §5.1)")]
-    UnknownMember(#[explain(name = "member")] String),
+    #[error("unknown member {member} (OpenID4VP §5.1)")]
+    #[explain(id = "entry.unknown_member")]
+    UnknownMember {
+        /// The member as written.
+        member: String,
+    },
     /// `payload` is absent or no object.
     #[error("payload is not a JSON object (Core §7.1)")]
+    #[explain(id = "entry.payload_not_object")]
     PayloadNotObject,
     /// `metadata` is no string.
     #[error("metadata is not a string (Proof Metadata §5.1)")]
+    #[explain(id = "entry.metadata_not_string")]
     MetadataNotString,
 }
 
@@ -104,7 +109,9 @@ fn broken(entry: &Entry<'_>) -> Vec<EntryRule> {
     let unknown = members
         .names()
         .filter(|name| !MEMBERS.contains(name))
-        .map(|name| EntryRule::UnknownMember(name.to_owned()));
+        .map(|name| EntryRule::UnknownMember {
+            member: name.to_owned(),
+        });
     let payload = members
         .get("payload")
         .and_then(Payload::of)

@@ -12,10 +12,10 @@ use crate::conform::NullIndices;
 /// A path read where its element has another kind: a member name in a non-object, an index or
 /// `null` in a non-array (Core §7.4.2 step 2).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso.path")]
 pub enum Mismatch {
     /// A member name read in a non-object.
-    #[error("path {path} reads {} in a non-object", Quoted(.key))]
+    #[error("path {} reads {} in a non-object", .path.repr_text(), Quoted(.key))]
+    #[explain(id = "path.key")]
     Key {
         /// The path.
         path: ReprItem,
@@ -23,7 +23,8 @@ pub enum Mismatch {
         key: String,
     },
     /// An index or `null` read in a non-array.
-    #[error("path {path} indexes a non-array")]
+    #[error("path {} indexes a non-array", .path.repr_text())]
+    #[explain(id = "path.index")]
     Index {
         /// The path.
         path: ReprItem,

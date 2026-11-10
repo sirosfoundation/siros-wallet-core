@@ -1,16 +1,16 @@
 //! PaSO View §3's text rules against their standards' own data: CommonMark 0.31.2's emphasis
 //! examples (`data/commonmark-0.31.2-spec.json`, spec.commonmark.org 0.31.2, SHA-256
-//! d431b29d97b6f73e69d547109cf5081578fac931e72afe95639ebe766c1b2a20), and the value kinds parsed
-//! into the typed values ISO 8601 and ISO 4217 write.
+//! d431b29d97b6f73e69d547109cf5081578fac931e72afe95639ebe766c1b2a20), the value kinds parsed
+//! into the typed values ISO 8601 and ISO 4217 write, and the statement that shows each value
+//! alone with its literal.
 
 use serde_json::Value as Json;
-use siros_explain::{
-    Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, Second, Text, Time, Value as Typed,
-};
-use siros_openid4vp::rows::BooleanText;
 use siros_paso::frequency::Frequency;
 use siros_paso::markdown::{Span, Style, commonmark_html, spans};
-use siros_paso::value::{Breach, FormattedKind, Written, formatted};
+use siros_paso::value::{Breach, FormattedKind, Parsed, Written, formatted};
+use siros_syntax::{
+    Amount, Currency, Date, DateTime, Decimal, Fraction, Offset, OffsetTime, Second, Time,
+};
 
 fn styled(parts: &[(&str, Style)]) -> Vec<Span> {
     parts
@@ -136,21 +136,26 @@ fn mini_markdown_keeps_every_other_construct_literal() {
     );
 }
 
-/// A value's text, or the rule it breaks.
-fn shown(kind: FormattedKind, written: Written<'_>) -> Result<Text, Breach> {
-    formatted(kind, written)
-        .map(|text| text.into_text())
-        .map_err(|bad| bad.why)
+/// A value parsed, or the rule it breaks.
+fn shown(kind: FormattedKind, written: Written<'_>) -> Result<Parsed, Breach> {
+    formatted(kind, written).map_err(|bad| bad.why)
 }
 
-fn date(year: u16, month: u8, day: u8) -> Text {
-    Text::Value(Typed::Date(Date::new(year, month, day).expect("a date")))
+fn date(year: u16, month: u8, day: u8) -> Parsed {
+    Parsed::Date(Date::new(year, month, day).expect("a date"))
 }
 
-fn amount(units: i128, scale: u8, code: &str) -> Text {
-    let currency = Currency::from_code(code).expect("an ISO 4217 code");
+fn currency(code: &str) -> Currency {
+    Currency::parse(code).expect("an ISO 4217 code")
+}
+
+fn amount(units: i128, scale: u8, code: &str) -> Parsed {
     let value = Decimal::new(units, scale).expect("a decimal");
-    Text::Value(Typed::Amount(Amount::new(value, currency)))
+    Parsed::Amount(Amount::new(value, currency(code)))
+}
+
+fn text(text: &str) -> Parsed {
+    Parsed::Text(text.to_owned())
 }
 
 fn time(hour: u8, minute: u8, second: Option<(u8, u32, u8)>) -> Time {
@@ -164,9 +169,9 @@ fn offset(minutes: i16) -> Offset {
     Offset::new(minutes).expect("an offset")
 }
 
-/// What a value of a kind shows: a text its source fixes, or a refusal for the rule it breaks.
+/// What a value of a kind parses to, or a refusal for the rule it breaks.
 enum Want {
-    Is(Text),
+    Is(Parsed),
     Refused(Breach),
 }
 
@@ -179,12 +184,16 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
     use Want::{Is, Refused};
     use Written::{Boolean as B, Text as T};
     let other = siros_openid4vp::json::Node::parse("3").expect("number");
-    let raw = |text: &str| Is(Text::Raw(text.to_owned()));
+    let raw = |written: &str| Is(text(written));
     let table: [(K, Written<'_>, Want); 31] = [
-        (K::Boolean, B(true), Is(Text::of(&BooleanText::Yes))),
+        (K::Boolean, B(true), Is(Parsed::Boolean(true))),
         (K::Boolean, T("true"), Refused(Breach::NotBoolean)),
         (K::Date, B(true), Refused(Breach::NotString)),
-        (K::Frequency, T("MNTH"), Is(Text::of(&Frequency::Monthly))),
+        (
+            K::Frequency,
+            T("MNTH"),
+            Is(Parsed::Frequency(Frequency::Monthly)),
+        ),
         (K::Frequency, T("MONTHLY"), Refused(Breach::NotFrequency)),
         (K::Date, T("2026-09-02"), Is(date(2026, 9, 2))),
         (K::Date, T("20260902"), Is(date(2026, 9, 2))),
@@ -192,10 +201,10 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
         (
             K::Time,
             T("10:15:30Z"),
-            Is(Text::Value(Typed::Time {
-                at: time(10, 15, Some((30, 0, 0))),
-                offset: Some(offset(0)),
-            })),
+            Is(Parsed::Time(OffsetTime::new(
+                time(10, 15, Some((30, 0, 0))),
+                Some(offset(0)),
+            ))),
         ),
         (K::Time, T("25:00"), Refused(Breach::NotTime)),
         (K::Time, T("10:00+24:00"), Refused(Breach::NotTime)),
@@ -203,24 +212,18 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
         (
             K::DateTime,
             T("2026-06-02T10:15:30+02:00"),
-            Is(Text::Value(Typed::DateTime(DateTime::new(
+            Is(Parsed::DateTime(DateTime::new(
                 Date::new(2026, 6, 2).expect("a date"),
                 time(10, 15, Some((30, 0, 0))),
                 Some(offset(120)),
-            )))),
+            ))),
         ),
         (
             K::DateTime,
             T("2026-06-02 10:15"),
             Refused(Breach::NotDateTime),
         ),
-        (
-            K::Currency,
-            T("EUR"),
-            Is(Text::Value(Typed::Currency(
-                Currency::from_code("EUR").expect("EUR"),
-            ))),
-        ),
+        (K::Currency, T("EUR"), Is(Parsed::Currency(currency("EUR")))),
         (K::Currency, T("EURO"), Refused(Breach::NotCurrency)),
         (
             K::CurrencyAmount,
@@ -242,22 +245,22 @@ fn value_kinds_parse_as_paso_view_section_3_states() {
         (
             K::CurrencyAmount,
             T("49.9 EUR"),
-            Refused(Breach::NumberForm(2)),
+            Refused(Breach::NumberForm { digits: 2 }),
         ),
         (
             K::CurrencyAmount,
             T("49 EUR"),
-            Refused(Breach::NumberForm(2)),
+            Refused(Breach::NumberForm { digits: 2 }),
         ),
         (
             K::CurrencyAmount,
             T("012.00 EUR"),
-            Refused(Breach::NumberForm(2)),
+            Refused(Breach::NumberForm { digits: 2 }),
         ),
         (
             K::CurrencyAmount,
             T("100. JPY"),
-            Refused(Breach::NumberForm(0)),
+            Refused(Breach::NumberForm { digits: 0 }),
         ),
         (K::MiniMarkdown, T("*a*"), raw("a")),
         (
@@ -294,7 +297,7 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_rfc_3492() {
     use FormattedKind as K;
     use Written::Text as T;
     let day = |year, month, day| date(year, month, day);
-    let cases: [(K, &str, Result<Text, Breach>); 22] = [
+    let cases: [(K, &str, Result<Parsed, Breach>); 22] = [
         (K::Date, "2026-01-31", Ok(day(2026, 1, 31))),
         (K::Date, "2023-02-28", Ok(day(2023, 2, 28))),
         (K::Date, "2026-09/02", Err(Breach::NotDate)),
@@ -311,17 +314,14 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_rfc_3492() {
         (
             K::Time,
             "07:05",
-            Ok(Text::Value(Typed::Time {
-                at: time(7, 5, None),
-                offset: None,
-            })),
+            Ok(Parsed::Time(OffsetTime::new(time(7, 5, None), None))),
         ),
         (K::Time, "7:05", Err(Breach::NotTime)),
         (K::Time, "10:15:30.", Err(Breach::NotTime)),
         (
             K::DateTime,
             "2016-12-31T23:59:60.5Z",
-            Ok(Text::Value(Typed::DateTime(
+            Ok(Parsed::DateTime(
                 DateTime::leap(
                     Date::new(2016, 12, 31).expect("a date"),
                     23,
@@ -330,7 +330,7 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_rfc_3492() {
                     offset(0),
                 )
                 .expect("IERS Bulletin C 52's leap second"),
-            ))),
+            )),
         ),
         (
             K::DateTime,
@@ -341,19 +341,84 @@ fn calendar_dates_times_and_urls_follow_iso_8601_and_rfc_3492() {
         (
             K::Url,
             "https://user@bücher.example:8443/x",
-            Ok(Text::Raw(
-                "https://user@xn--bcher-kva.example:8443/x".to_owned(),
-            )),
+            Ok(text("https://user@xn--bcher-kva.example:8443/x")),
         ),
         (
             K::Url,
             "https://Ü@bücher.example/",
-            Ok(Text::Raw("https://Ü@xn--bcher-kva.example/".to_owned())),
+            Ok(text("https://Ü@xn--bcher-kva.example/")),
         ),
         (K::Url, "https://shop.example/a b", Err(Breach::NotUrl)),
         (K::Url, "https://", Err(Breach::NotUrl)),
     ];
     for (kind, written, want) in cases {
         assert_eq!(shown(kind, T(written)), want, "{kind:?} {written:?}");
+    }
+}
+
+/// A value shown alone resolves through a statement carrying its literal (ISO 8601's extended
+/// form, ISO 4217's code, an amount's number with its currency's minor digits): siros-openid4vp's
+/// statement where one has the kind, else PaSO's.
+#[test]
+fn a_value_shown_alone_is_a_statement_of_its_literal() {
+    use FormattedKind as K;
+    use Written::{Boolean as B, Text as T};
+    /// A value, the statement's id and its arguments.
+    type Case<'a> = (K, Written<'a>, &'a str, &'a [(&'a str, &'a str)]);
+    let table: [Case<'_>; 9] = [
+        (K::Boolean, B(false), "openid4vp.wallet.no", &[]),
+        (K::Frequency, T("QUTR"), "paso.frequency.qutr", &[]),
+        (
+            K::Date,
+            T("20260902"),
+            "openid4vp.wallet.date",
+            &[("value", "2026-09-02")],
+        ),
+        (
+            K::Time,
+            T("07:05"),
+            "paso.value.time",
+            &[("value", "07:05")],
+        ),
+        (
+            K::DateTime,
+            T("2026-06-02T10:15:30+02:00"),
+            "openid4vp.wallet.date_time",
+            &[("value", "2026-06-02T10:15:30+02:00")],
+        ),
+        (
+            K::Currency,
+            T("JPY"),
+            "paso.value.currency",
+            &[("code", "JPY")],
+        ),
+        (
+            K::CurrencyAmount,
+            T("42.50 EUR"),
+            "paso.value.amount",
+            &[("value", "42.50"), ("currency", "EUR")],
+        ),
+        (
+            K::MiniMarkdown,
+            T("**a**"),
+            "openid4vp.wallet.text",
+            &[("value", "a")],
+        ),
+        (
+            K::Text,
+            T("{0}"),
+            "openid4vp.wallet.text",
+            &[("value", "{0}")],
+        ),
+    ];
+    for (kind, written, id, want) in table {
+        let statement = formatted(kind, written).expect("conforms").shown();
+        let mut args = Vec::new();
+        statement.args(&mut |key, value| args.push((key.to_owned(), value.to_string())));
+        let want: Vec<(String, String)> = want
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect();
+        assert_eq!((statement.id(), args), (id, want), "{kind:?} {written:?}");
     }
 }

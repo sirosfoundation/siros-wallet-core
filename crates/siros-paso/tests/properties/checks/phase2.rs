@@ -3,10 +3,10 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
+use siros_i18n::Context;
 use siros_openid4vp::effects::MediaType;
 use siros_openid4vp::host::{ProfileHost, Timestamp};
 use siros_openid4vp::plugins::{Binding, Bound, Carriage, NoCandidate, Profile};
-use siros_openid4vp::rendering::Rendering;
 use siros_openid4vp::request::Request;
 use siros_openid4vp::rows::{Env, HttpsUrl};
 use siros_paso::adhoc::{AdhocFailure, AdhocJwt, AdhocRefusal};
@@ -69,7 +69,8 @@ pub(super) struct Answer<'a> {
     pub(super) card: &'a Card,
     pub(super) bound: &'a Bound,
     pub(super) entry: &'a Value,
-    pub(super) rendering: &'a Rendering<'a>,
+    /// The matcher's context, which the wallet's phase 2 reproduces.
+    pub(super) context: &'a Context,
 }
 
 impl Answer<'_> {
@@ -197,7 +198,7 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         answer.request,
         answer.card,
         env,
-        answer.rendering,
+        answer.context,
         |resource| published.answer(resource),
         &host,
         move |record, host| profile.revalidate(record, host),
@@ -239,7 +240,7 @@ pub(super) fn phase2(case: &Case, answer: &Answer<'_>, meta: &Value, env: &Env, 
         additions: &*additions,
         carriage: Carriage::Carried,
     };
-    match informed.bind(binding, env) {
+    match informed.bind(binding, env, answer.context) {
         Ok(again) => assert_ne!(
             again.entries, answer.bound.entries,
             "R-fallback offers the failed record again"

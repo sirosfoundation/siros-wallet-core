@@ -6,9 +6,10 @@
 
 mod common;
 
-use common::{Card, PAY, Screen, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
+use common::{Card, PAY, Seen, Shown, annex, en, entry, env, member, png, shown, sri};
+use siros_i18n::Context;
 use siros_openid4vp::media::MediaType;
-use siros_openid4vp::rows::{Amounts, Env, HttpsUrl, Image, ImageRef, Value};
+use siros_openid4vp::rows::{Env, HttpsUrl, Image, ImageRef, Value};
 use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome, Unsupported};
 use siros_paso::{Fetch, PasoProfile};
@@ -32,8 +33,20 @@ fn paid(merchant: &str, amount: &str) -> Option<(String, String)> {
 }
 
 /// An entry rendered for a card whose metadata gives `meta` for the entry's type (`{}`: the
-/// Mandate rulebook needs none).
+/// Mandate rulebook needs none), in the test app's context of `env`'s language.
 fn render(entry_json: &str, meta: &str, env: &Env, profile: &PasoProfile) -> Result<Seen, Outcome> {
+    rendered_in(entry_json, meta, env, common::context(env), profile)
+}
+
+/// An entry rendered for a card whose metadata gives `meta` for the entry's type, its texts
+/// resolved by `context`.
+fn rendered_in(
+    entry_json: &str,
+    meta: &str,
+    env: &Env,
+    context: &Context,
+    profile: &PasoProfile,
+) -> Result<Seen, Outcome> {
     let kind = member(entry_json, "type");
     let card = Card::new("mso_mdoc", &format!("{{{kind}: {meta}}}"), None, ISSUER);
     let rendered = profile
@@ -43,11 +56,10 @@ fn render(entry_json: &str, meta: &str, env: &Env, profile: &PasoProfile) -> Res
             &card.credential(),
             crate::common::placement(&card.credential().format),
             env,
+            context,
         )
         .expect("no fault")?;
-    let kind: String = serde_json::from_str(&kind).expect("the type");
-    let screen = Screen::of(&kind, meta, env, &rendered.view.locale);
-    Ok(Seen { rendered, screen })
+    Ok(Seen { rendered })
 }
 
 fn view(rendered: Result<Seen, Outcome>) -> Seen {
@@ -127,7 +139,7 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
         ))))
     );
     assert_eq!(
-        rendered.plain(&rendered.view.rows[2].row.label),
+        common::plain(&rendered.view.rows[2].row.label),
         "Payee logo"
     );
     assert_eq!(rendered.payment(), paid("Acme Store", "€49.99"));
@@ -136,14 +148,14 @@ fn payment_a1_renders_as_its_screen_with_a_logo_that_verifies() {
     let de = view(render(
         &repaired,
         &meta,
-        &env(&["de"], Amounts::Formatted),
+        &env(&["de"]),
         &with_logo(url, logo),
     ));
     assert_eq!(de.labels(), ["Betrag", "Empfänger", "Logo des Empfängers"]);
     assert_eq!(
         (
-            de.plain(&de.view.title).as_str(),
-            de.plain(&de.view.actions.confirm).as_str()
+            common::plain(&de.view.title).as_str(),
+            common::plain(&de.view.actions.confirm).as_str()
         ),
         ("Zahlung bestätigen", "Bezahlen")
     );
@@ -172,16 +184,18 @@ fn core_a4_shows_core_a1_with_payment_a1s_metadata() {
         ]
     );
     // A.4 exactly: without the metadata's transaction_title the wallet titles it (Proof
-    // Metadata §3.2), and amounts stay as written (View §3 MAY).
+    // Metadata §3.2), and a wallet whose wording writes an amount's two arguments as given shows
+    // the amount as written (View §3 MAY).
     let untitled = meta.replace(
         r#""transaction_title": [{"locale": "en", "value": "Confirm Payment"}, {"locale": "de", "value": "Zahlung bestätigen"}], "#,
         "",
     );
     assert_ne!(untitled, meta);
-    let rendered = render(
+    let rendered = rendered_in(
         entry_json,
         &untitled,
-        &env(&["en"], Amounts::Written),
+        &en(),
+        common::amounts_written(&en()),
         &PasoProfile::default(),
     )
     .expect("renders");
@@ -220,14 +234,14 @@ fn generic_a1_renders_in_payload_order_in_english_and_german() {
     let de = view(render(
         &blocks[0],
         &meta,
-        &env(&["de"], Amounts::Formatted),
+        &env(&["de"]),
         &PasoProfile::default(),
     ));
     assert_eq!(de.labels(), ["Dienstanbieter", "Gerät", "Zweck"]);
     assert_eq!(
         (
-            de.plain(&de.view.title).as_str(),
-            de.plain(&de.view.actions.confirm).as_str()
+            common::plain(&de.view.title).as_str(),
+            common::plain(&de.view.actions.confirm).as_str()
         ),
         ("Anmeldung bestätigen", "Anmelden")
     );
@@ -245,7 +259,7 @@ fn generic_a2_needs_its_long_label_shortened_then_shows_its_screen() {
     );
     assert!(matches!(
         rendered,
-        Err(Outcome::Unsupported(Unsupported::ClaimLabel(..)))
+        Err(Outcome::Unsupported(Unsupported::ClaimLabel { .. }))
     ));
     let short = "Recipients disclosed separately by the service";
     let meta = meta.replace(
@@ -306,17 +320,12 @@ fn generic_a3_shows_the_embedded_payment_as_a_section_and_the_hint() {
     let de_en = view(render(
         &blocks[0],
         &meta,
-        &env(&["de", "en"], Amounts::Formatted),
+        &env(&["de", "en"]),
         &PasoProfile::default(),
     ));
     assert_eq!(de_en.view.locale.as_str(), "en");
     assert!(matches!(
-        render(
-            &blocks[0],
-            &meta,
-            &env(&["de"], Amounts::Formatted),
-            &PasoProfile::default()
-        ),
+        render(&blocks[0], &meta, &env(&["de"]), &PasoProfile::default()),
         Err(Outcome::Excluded(_))
     ));
 }
@@ -340,13 +349,7 @@ fn generic_a4_shows_its_screen_and_the_metadatas_german_labels() {
             shown_row("Effective from", date("Jun 3, 2026")),
         ]
     );
-    let de = render(
-        &blocks[0],
-        &meta,
-        &env(&["de"], Amounts::Formatted),
-        &PasoProfile::default(),
-    )
-    .expect("renders");
+    let de = render(&blocks[0], &meta, &env(&["de"]), &PasoProfile::default()).expect("renders");
     assert_eq!(
         de.text(),
         said((

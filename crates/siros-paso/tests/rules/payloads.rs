@@ -2,13 +2,13 @@
 //! images, the rulebooks' rules, the wallet's bound on items, and the locales.
 
 use siros_openid4vp::media::MediaType;
-use siros_openid4vp::rows::{Amounts, HttpsUrl};
+use siros_openid4vp::rows::HttpsUrl;
 use siros_paso::image::ImageFailure;
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
 
-use crate::common::{CUSTOM, PAY, Screen, data_png, en, env, png, sri};
+use crate::common::{CUSTOM, PAY, data_png, en, env, plain, png, sri};
 
 use super::{claims, render, render_with, shown};
 
@@ -54,7 +54,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "i": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ImageNotString(_))
+        Outcome::NotCompatible(NotCompatible::ImageNotString { .. })
     );
     decided!(
         render(&claims(&n), r#"{"transaction_id": "t", "n": "a\u202eb"}"#),
@@ -93,7 +93,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
     ] {
         decided!(
             render(&claims(meta), payload),
-            Outcome::NotCompatible(NotCompatible::Uncovered(_))
+            Outcome::NotCompatible(NotCompatible::Uncovered { .. })
         );
     }
     // The directional rule reaches the strings inside a covered container.
@@ -119,7 +119,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             CUSTOM,
             &claims(&date),
             r#"{"transaction_id": "t", "d": "2026-02-30"}"#,
-            &env(&["de"], Amounts::Formatted),
+            &env(&["de"]),
             &PasoProfile::default()
         ),
         Outcome::NotCompatible(NotCompatible::Value { .. })
@@ -132,7 +132,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t"}"#
         ),
-        Outcome::NotCompatible(NotCompatible::MandatoryAbsent(_))
+        Outcome::NotCompatible(NotCompatible::MandatoryAbsent { .. })
     );
     decided!(
         render(
@@ -142,7 +142,7 @@ pub(super) fn a_payload_that_does_not_conform_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "s": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::TemplateNotString(_))
+        Outcome::NotCompatible(NotCompatible::TemplateNotString { .. })
     );
 }
 
@@ -188,7 +188,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             r#"{"transaction_id": "t", "n": "a", "k": 5}"#
         ),
-        Outcome::NotCompatible(NotCompatible::ReferenceNotString(claim)) if claim.get() == 2
+        Outcome::NotCompatible(NotCompatible::ReferenceNotString { placeholder: claim }) if claim.get() == 2
     );
     let items = r#"{"transaction_id": "t", "items": [{"name": "A", "qty": "1"}], "sum": "3"}"#;
     decided!(
@@ -200,7 +200,7 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             )),
             items
         ),
-        Outcome::NotCompatible(NotCompatible::MoreNulls(claim)) if claim.get() == 1
+        Outcome::NotCompatible(NotCompatible::MoreNulls { placeholder: claim }) if claim.get() == 1
     );
     // No entry survives in any locale: not compatible (View §3 template), not excluded.
     decided!(
@@ -292,7 +292,9 @@ pub(super) fn each_image_failure_makes_the_entry_not_compatible() {
             "a media type no image has",
             payload(url, Some(&sri(&logo))),
             fetched(logo.clone(), "image/gif"),
-            ImageFailure::MediaType(MediaType::parse("image/gif").expect("a media type")),
+            ImageFailure::MediaType {
+                media_type: MediaType::parse("image/gif").expect("a media type"),
+            },
         ),
         (
             "content no image of its type",
@@ -375,15 +377,15 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
     );
     decided!(
         g(r#"{"transaction_id": "t", "c0": 5}"#),
-        Outcome::NotCompatible(NotCompatible::GenericCustom(_))
+        Outcome::NotCompatible(NotCompatible::GenericCustom { .. })
     );
     decided!(
         g(r#"{"transaction_id": "t", "zz": "v"}"#),
-        Outcome::NotCompatible(NotCompatible::Uncovered(_))
+        Outcome::NotCompatible(NotCompatible::Uncovered { .. })
     );
     decided!(
         g(r#"{"transaction_id": "t", "payment_payload": {"amount": "1.00 EUR"}}"#),
-        Outcome::NotCompatible(NotCompatible::GenericPayment(_))
+        Outcome::NotCompatible(NotCompatible::GenericPayment { .. })
     );
     let mandate = "urn:paso:sca:global:mandate:1";
     decided!(
@@ -394,7 +396,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::NotCompatible(NotCompatible::MandatePayment(_))
+        Outcome::NotCompatible(NotCompatible::MandatePayment { .. })
     );
     let payment = claims(&format!(
         r#"{{"path": ["amount"], "value_type": "iso_currency_amount", "display": {}}}, {{"path": ["payee", "name"], "display": {}}}, {{"path": ["payee", "id"]}}"#,
@@ -409,7 +411,7 @@ pub(super) fn each_rulebook_payload_rule_makes_the_entry_not_compatible() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::NotCompatible(NotCompatible::PaymentRequired(_))
+        Outcome::NotCompatible(NotCompatible::PaymentRequired { .. })
     );
 }
 
@@ -457,7 +459,7 @@ pub(super) fn no_locale_completing_every_array_excludes_the_credential() {
             CUSTOM,
             &meta,
             r#"{"transaction_id": "t", "n": "a"}"#,
-            &env(&["de"], Amounts::Formatted),
+            &env(&["de"]),
             &PasoProfile::default()
         ),
         Outcome::Excluded(_)
@@ -502,7 +504,7 @@ fn view_4_selects_by_rfc_4647_lookup_and_the_default_entry() {
     ];
     for (display, priority, want) in cases {
         let meta = claims(&format!(r#"{{"path": ["n"], "display": {display}}}"#));
-        let env = env(priority, Amounts::Formatted);
+        let env = env(priority);
         let rendered = render_with(
             CUSTOM,
             &meta,
@@ -516,7 +518,6 @@ fn view_4_selects_by_rfc_4647_lookup_and_the_default_entry() {
         };
         let view = rendered.expect("renders").view;
         assert_eq!(view.locale.as_str(), locale, "{display} over {priority:?}");
-        let screen = Screen::of(CUSTOM, &meta, &env, &view.locale);
-        assert_eq!(screen.plain(&view.rows[0].row.label), label, "{display}");
+        assert_eq!(plain(&view.rows[0].row.label), label, "{display}");
     }
 }

@@ -63,6 +63,7 @@ pub(super) fn image(value: &str, profile: &PasoProfile) -> ImageShown {
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
+            crate::common::context(&en()),
         )
         .expect("no fault")
     {
@@ -331,6 +332,7 @@ pub(super) fn image_headers_give_the_dimensions_view_section_3_bounds() {
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
+            crate::common::context(&en()),
         )
         .expect("no fault")
         .expect("renders");

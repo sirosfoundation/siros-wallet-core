@@ -1,23 +1,23 @@
 //! One `transaction_data` entry rendered with one type's metadata, in PaSO Core §7.4.2's order:
 //! the metadata (Proof Metadata §3), payload conformance (step 2), images (step 3), templates,
 //! the locale (View §4 over the End-User's priority list), then the rows and UI labels (View
-//! §2-3) within the wallet's item bound.
+//! §2-3) within the wallet's item bound. Every text then resolves through the wallet's context:
+//! a statement of its wording, or a display array's message of the type's converted source
+//! ([`crate::view`]), which a clone of the context loads when the context does not word it.
 
 use std::borrow::Cow;
-
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use siros_explain::{
-    Count, DefinedModule, Entry, Explain, IntoArg, Keyed, ParamName, RequestText, Text, kind,
-};
+use siros_explain::Explain;
+use siros_i18n::{Context, Message, Text};
 use siros_openid4vp::claims::{Concrete, ConcretePath};
+use siros_openid4vp::detail;
 use siros_openid4vp::ids::LocaleTag;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::plugins::Fault;
 use siros_openid4vp::refusal::ReprItem;
-use siros_openid4vp::rows::{Env, Image, Row, Value, WalletText};
-
-use crate::PasoRequested;
+use siros_openid4vp::rows::{ClaimText, Env, Image, Row, Value, WalletText};
 
 use crate::conform::{ClaimIndex, Instance, NullIndices, Placement, conform, instances, written};
 use crate::entry::Payload;
@@ -28,10 +28,11 @@ use crate::mandate;
 use crate::metadata::{DisplayArray, Displayed, LabelForm, Metadata, UiKey, ValueType, kind_name};
 use crate::outcome::{Excluded, NotCompatible, Outcome, RenderedAt, Unsupported};
 use crate::path::{at, concrete_text};
-use crate::rulebook::{Family, PasoType, Rulebook, Subtype};
-use crate::template::Template;
-use crate::value::{self as values, FormattedKind, ValueKind};
-use crate::view;
+use crate::rulebook::{Family, PasoType, Rulebook, Section, Subtype};
+use crate::template::{Template, Valued};
+use crate::value::{self as values, FormattedKind, Parsed, ValueKind};
+use crate::view::{self, ViewId};
+use crate::{caused, fault};
 
 /// The wallet's bound on a rendering's items: its rows and UI elements (View §2), at least 200.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,9 +40,12 @@ pub struct ItemBound(usize);
 
 /// An item bound under View §2's 200.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "paso")]
-#[error("View §2 bound {0} under 200")]
-pub struct BoundTooLow(#[explain(name = "bound")] usize);
+#[error("View §2 bound {bound} under 200")]
+#[explain(id = "bound_too_low")]
+pub struct BoundTooLow {
+    /// The bound given.
+    bound: usize,
+}
 
 impl ItemBound {
     /// View §2's least bound.
@@ -50,7 +54,7 @@ impl ItemBound {
     /// The bound, when at least 200.
     pub const fn new(bound: usize) -> Result<Self, BoundTooLow> {
         if bound < 200 {
-            Err(BoundTooLow(bound))
+            Err(BoundTooLow { bound })
         } else {
             Ok(Self(bound))
         }
@@ -69,19 +73,11 @@ impl fmt::Display for ItemBound {
     }
 }
 
-impl IntoArg for ItemBound {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
-    }
-}
-
 /// A row with what it shows: the claim, the payload element, and its value's kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewRow {
     /// The row, a transaction overlay's.
-    pub row: Row<RequestText>,
+    pub row: Row,
     /// The kind of value it shows, by its claim's value type; `None` for a label alone.
     pub kind: Option<ValueKind>,
     /// The claim.
@@ -98,7 +94,7 @@ pub struct Actions {
     /// The denial action: the metadata's, else the wallet's own (Proof Metadata §3.2).
     pub deny: Text,
     /// The `security_hint`: plain text, shown exactly.
-    pub hint: Option<RequestText>,
+    pub hint: Option<Text>,
 }
 
 /// The rows a payment presentation's header shows: the Payment rulebook's `payee.name` and
@@ -140,8 +136,6 @@ impl PaymentRows {
 pub struct TransactionView {
     /// The locale View §4 selected, which the response reports (Core §7.2).
     pub locale: LocaleTag,
-    /// The defined module the metadata converts to, which its display arrays' texts name.
-    pub module: DefinedModule,
     /// The transaction title.
     pub title: Text,
     /// The rows, in the rulebook's order.
@@ -154,7 +148,7 @@ pub struct TransactionView {
 
 impl TransactionView {
     /// The text of the row at a position.
-    fn text(&self, position: RowPosition) -> Option<&RequestText> {
+    fn text(&self, position: RowPosition) -> Option<&Text> {
         self.rows
             .get(position.get())
             .and_then(|row| row.row.value.as_ref())
@@ -163,7 +157,7 @@ impl TransactionView {
 
     /// The payment's merchant and amount texts.
     #[must_use]
-    pub fn payment_texts(&self) -> Option<(&RequestText, &RequestText)> {
+    pub fn payment_texts(&self) -> Option<(&Text, &Text)> {
         let rows = self.payment?;
         Some((self.text(rows.merchant)?, self.text(rows.amount)?))
     }
@@ -198,8 +192,10 @@ pub struct Request<'r> {
     pub registered: Registered<'r>,
     /// The payload, in PaSO's value forms.
     pub payload: Payload<'r>,
-    /// The wallet's configuration.
+    /// The wallet's configuration: its priority list selects the locale (View §4).
     pub env: &'r Env,
+    /// The wallet's context, which words the texts.
+    pub context: &'r Context,
     /// View §2's item bound.
     pub bound: ItemBound,
     /// The labels' maximum lengths.
@@ -226,21 +222,81 @@ struct Shown<'p> {
     content: Content,
 }
 
+/// A rendering whose every rule held, its texts not yet resolved.
+pub(crate) struct Plan {
+    view: ViewId,
+    locale: LocaleTag,
+    title: Planned,
+    rows: Vec<PlannedRow>,
+    confirm: Planned,
+    deny: Planned,
+    hint: Option<Planned>,
+    payment: Option<PaymentRows>,
+}
+
+/// A text a plan resolves.
+enum Planned {
+    /// A statement of the wallet's wording.
+    Statement(Box<dyn Message>),
+    /// A display array's message of the type's converted source.
+    Label(Label),
+}
+
+/// A display array's message in the selected locale: its id, whether each of the array's
+/// template entries is live, and each value its templates reference, one per claim.
+struct Label {
+    id: String,
+    liveness: Vec<(usize, bool)>,
+    values: Vec<(ClaimIndex, Parsed)>,
+}
+
+/// A row of a plan.
+struct PlannedRow {
+    label: Planned,
+    value: Option<PlannedValue>,
+    section: Option<Section>,
+    kind: Option<ValueKind>,
+    claim: ClaimIndex,
+    path: ConcretePath<'static>,
+}
+
+/// A row's value in a plan.
+enum PlannedValue {
+    /// The resolved image.
+    Image(Image),
+    /// A value shown as a text.
+    Text(Valued),
+}
+
 impl<'r> Request<'r> {
     /// The rendering of the entry.
     ///
     /// # Errors
     ///
-    /// [`Outcome`]: what keeps the entry from rendering.
-    pub fn render(&self) -> Result<TransactionView, Outcome> {
+    /// The outer [`Fault`]: the context does not word a text, or the type's converted source
+    /// does not load into it. The inner [`Outcome`]: what keeps the entry from rendering.
+    pub fn render(&self) -> Result<Result<TransactionView, Outcome>, Fault> {
+        match self.plan() {
+            Ok(plan) => plan.resolve(self).map(Ok),
+            Err(outcome) => Ok(Err(outcome)),
+        }
+    }
+
+    /// Every rule of the rendering, its texts not yet resolved.
+    pub(crate) fn plan(&self) -> Result<Plan, Outcome> {
         let (metadata, rulebook) = rulebook_metadata(&self.registered, self.limits)?;
         rulebook.check_payload(self.payload)?;
         conform(self.payload, &metadata, &rulebook)?;
         let shown = self.images(&metadata, &rulebook)?;
         let discarded = self.discarded(&metadata, &shown)?;
         let arrays = arrays(&metadata);
-        let module = view::module_of(self.registered.given());
         let locale = self.locale(&arrays, &discarded)?;
+        let view = ViewId::of(self.registered.given());
+        let names = Names {
+            view: &view,
+            locale: &locale,
+            discarded: &discarded,
+        };
         let taken = |key: ArrayKey, array: &DisplayArray<'_>| -> Option<usize> {
             matched(key, array, &locale, &discarded).map(|(position, _)| position)
         };
@@ -250,10 +306,10 @@ impl<'r> Request<'r> {
                 let key = ArrayKey::Claim(shown.instance.claim);
                 let position = taken(key, &shown.instance.display.names)
                     .ok_or(NotCompatible::TemplatesExhausted)?;
-                self.row(module, &metadata, &rulebook, &discarded, position, shown)
+                self.row(&names, &metadata, &rulebook, position, shown)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let ui = |key: UiKey| -> Result<Option<RequestText>, NotCompatible> {
+        let ui = |key: UiKey| -> Result<Option<Planned>, NotCompatible> {
             let Some(label) = metadata.ui.iter().find(|label| label.key == key) else {
                 return Ok(None);
             };
@@ -264,23 +320,17 @@ impl<'r> Request<'r> {
                 entries: &label.entries,
                 position,
                 limit: self.limits.of(key.slot()),
-                at: RenderedAt::Ui(key),
+                at: RenderedAt::Ui { key },
             };
-            self.label(
-                module,
-                &metadata,
-                &discarded,
-                &NullIndices::default(),
-                placed,
-            )
-            .map(Some)
+            self.label(&names, &metadata, &NullIndices::default(), placed)
+                .map(Some)
         };
-        let header = |key: UiKey, own: Text| -> Result<Text, NotCompatible> {
-            Ok(ui(key)?.map_or(own, RequestText::into_text))
-        };
-        let title = header(UiKey::TransactionTitle, Text::of(&rulebook.title()))?;
-        let confirm = header(UiKey::AffirmativeActionLabel, Text::of(&rulebook.confirm()))?;
-        let deny = header(UiKey::DenialActionLabel, Text::of(&WalletText::Deny))?;
+        let title = ui(UiKey::TransactionTitle)?
+            .unwrap_or_else(|| Planned::Statement(Box::new(rulebook.title())));
+        let confirm = ui(UiKey::AffirmativeActionLabel)?
+            .unwrap_or_else(|| Planned::Statement(Box::new(rulebook.confirm())));
+        let deny = ui(UiKey::DenialActionLabel)?
+            .unwrap_or_else(|| Planned::Statement(Box::new(WalletText::Deny)));
         let hint = ui(UiKey::SecurityHint)?;
         let items = rows.len() + 3 + usize::from(hint.is_some());
         if items > self.bound.get() {
@@ -294,16 +344,14 @@ impl<'r> Request<'r> {
             Rulebook::Payment => payment_rows(&rows),
             _ => None,
         };
-        Ok(TransactionView {
+        Ok(Plan {
+            view,
             locale,
-            module,
             title,
             rows,
-            actions: Actions {
-                confirm,
-                deny,
-                hint,
-            },
+            confirm,
+            deny,
+            hint,
             payment,
         })
     }
@@ -338,23 +386,26 @@ impl<'r> Request<'r> {
     {
         let mut out = Vec::new();
         for instance in instances(rulebook, metadata, self.payload)? {
-            let content = match instance.display.value {
-                _ if rulebook.label_alone(&instance.path, instance.value) => Content::Alone,
-                ValueType::LabelOnly => Content::Alone,
-                ValueType::Plain => Content::Formatted(FormattedKind::Text),
-                ValueType::Kind(ValueKind::Formatted(kind)) => Content::Formatted(kind),
-                ValueType::Template(kind) => Content::Template(kind),
-                ValueType::Kind(ValueKind::Image) => {
-                    let url = instance.value.as_str().ok_or_else(|| {
-                        NotCompatible::ImageNotString(ReprItem::repr(instance.value))
-                    })?;
-                    let sibling = match integrity_sibling(&instance.path) {
-                        Some(path) => at(self.payload.node(), &path)?,
-                        None => None,
-                    };
-                    Content::Image(image::resolve(url, sibling, self.resolve)?)
-                }
-            };
+            let content =
+                match instance.display.value {
+                    _ if rulebook.label_alone(&instance.path, instance.value) => Content::Alone,
+                    ValueType::LabelOnly => Content::Alone,
+                    ValueType::Plain => Content::Formatted(FormattedKind::Text),
+                    ValueType::Kind(ValueKind::Formatted(kind)) => Content::Formatted(kind),
+                    ValueType::Template(kind) => Content::Template(kind),
+                    ValueType::Kind(ValueKind::Image) => {
+                        let url = instance.value.as_str().ok_or_else(|| {
+                            NotCompatible::ImageNotString {
+                                path: ReprItem::repr(instance.value),
+                            }
+                        })?;
+                        let sibling = match integrity_sibling(&instance.path) {
+                            Some(path) => at(self.payload.node(), &path)?,
+                            None => None,
+                        };
+                        Content::Image(image::resolve(url, sibling, self.resolve)?)
+                    }
+                };
             out.push(Shown { instance, content });
         }
         Ok(out)
@@ -421,17 +472,16 @@ impl<'r> Request<'r> {
         Ok(discarded)
     }
 
-    /// A label's text: the wallet's own, or the converted module's message for its array, with
+    /// A label's text: the wallet's own, or the converted source's message for its array, with
     /// each template entry's liveness and its referenced values; the template the language takes
     /// held to §3.3 for its slot (View §2), interpolated as written.
     fn label(
         &self,
-        module: DefinedModule,
+        names: &Names<'_>,
         metadata: &Metadata<'_>,
-        discarded: &Discarded,
         nulls: &NullIndices,
         placed: Placed<'_, '_>,
-    ) -> Result<RequestText, NotCompatible> {
+    ) -> Result<Planned, NotCompatible> {
         let claims = &metadata.claims;
         let payload = self.payload.node();
         let entries = placed.entries.entries();
@@ -439,9 +489,7 @@ impl<'r> Request<'r> {
             .get(placed.position)
             .ok_or(NotCompatible::TemplatesExhausted)?;
         match entry.label {
-            LabelForm::Own(label) => {
-                return Ok(RequestText::of(&PasoRequested::Mandate(label)));
-            }
+            LabelForm::Own(label) => return Ok(Planned::Statement(Box::new(label))),
             LabelForm::Template(template) => {
                 let text = Template(template).interpolate(claims, payload, nulls)?;
                 LabelText::parse(&text, placed.limit)
@@ -453,82 +501,266 @@ impl<'r> Request<'r> {
             }
             LabelForm::Plain(_) | LabelForm::Markdown(_) => {}
         }
-        let mut args: Vec<Entry<ParamName, RequestText>> = Vec::new();
+        let mut liveness = Vec::new();
+        let mut values: Vec<(ClaimIndex, Parsed)> = Vec::new();
         for (position, entry) in entries.iter().enumerate() {
             if let LabelForm::Template(template) = entry.label {
-                let live = if discarded.holds(placed.array, position) {
-                    view::DEAD
-                } else {
-                    view::LIVE.as_str()
-                };
-                args.push(Entry::new(
-                    view::liveness(position),
-                    RequestText::name(live),
-                ));
-                args.extend(Template(template).arguments(claims, payload, nulls)?);
+                liveness.push((position, !names.discarded.holds(placed.array, position)));
+                for (claim, value) in Template(template).arguments(claims, payload, nulls)? {
+                    if values.iter().all(|(known, _)| *known != claim) {
+                        values.push((claim, value));
+                    }
+                }
             }
         }
-        let key = view::key(placed.array);
-        Ok(RequestText::defined(module, key, Keyed::first_of(args)))
+        Ok(Planned::Label(Label {
+            id: names.view.message(names.locale, placed.array),
+            liveness,
+            values,
+        }))
     }
 
     /// One instance's row: its label in the presentation's language, its value, its section.
     fn row(
         &self,
-        module: DefinedModule,
+        names: &Names<'_>,
         metadata: &Metadata<'_>,
         rulebook: &Rulebook<'_>,
-        discarded: &Discarded,
         position: usize,
         shown: Shown<'_>,
-    ) -> Result<ViewRow, NotCompatible> {
+    ) -> Result<PlannedRow, NotCompatible> {
         let Shown { instance, content } = shown;
         let placed = Placed {
             array: ArrayKey::Claim(instance.claim),
             entries: &instance.display.names,
             position,
             limit: self.limits.of(LabelSlot::ClaimName),
-            at: RenderedAt::Claim(concrete_text(&instance.path)),
+            at: RenderedAt::Claim {
+                claim: concrete_text(&instance.path),
+            },
         };
-        let label = self.label(module, metadata, discarded, &instance.nulls, placed)?;
+        let label = self.label(names, metadata, &instance.nulls, placed)?;
         let kind = match content {
             Content::Alone => None,
             Content::Image(_) => Some(ValueKind::Image),
             Content::Formatted(kind) | Content::Template(kind) => Some(ValueKind::Formatted(kind)),
         };
-        let value = match content {
-            Content::Alone => None,
-            Content::Image(image) => Some(Value::Image(image)),
-            Content::Formatted(kind) => Some(formatted(kind, instance.value)?),
-            Content::Template(kind) => {
-                let template = instance.value.as_str().ok_or_else(|| {
-                    NotCompatible::TemplateNotString(concrete_text(&instance.path))
-                })?;
-                Some(Value::Text(Template(template).value(
+        let value =
+            match content {
+                Content::Alone => None,
+                Content::Image(image) => Some(PlannedValue::Image(image)),
+                Content::Formatted(kind) => Some(PlannedValue::Text(Valued::Alone(formatted(
                     kind,
-                    &metadata.claims,
-                    self.payload.node(),
-                    &instance.nulls,
-                )?))
-            }
-        };
+                    instance.value,
+                )?))),
+                Content::Template(kind) => {
+                    let template = instance.value.as_str().ok_or_else(|| {
+                        NotCompatible::TemplateNotString {
+                            claim: concrete_text(&instance.path),
+                        }
+                    })?;
+                    Some(PlannedValue::Text(Template(template).value(
+                        kind,
+                        &metadata.claims,
+                        self.payload.node(),
+                        &instance.nulls,
+                    )?))
+                }
+            };
         let section = match instance.placement {
             Placement::Main => None,
-            Placement::Embedded => rulebook
-                .section()
-                .map(|section| RequestText::of(&PasoRequested::Section(section))),
+            Placement::Embedded => rulebook.section(),
         };
+        Ok(PlannedRow {
+            label,
+            value,
+            section,
+            kind,
+            claim: instance.claim,
+            path: owned(&instance.path),
+        })
+    }
+}
+
+/// What names a plan's converted labels: the type's id prefix, the selected locale, and the
+/// entries absent claims discard.
+struct Names<'a> {
+    view: &'a ViewId,
+    locale: &'a LocaleTag,
+    discarded: &'a Discarded,
+}
+
+impl Plan {
+    /// The rendering, each text resolved through the request's context, or through a clone of it
+    /// that loads the type's converted source when the context does not word the plan's labels.
+    pub(crate) fn resolve(self, request: &Request<'_>) -> Result<TransactionView, Fault> {
+        let context = self.context(request)?;
+        let rows = self
+            .rows
+            .into_iter()
+            .map(|row| row.resolve(&context))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(TransactionView {
+            locale: self.locale,
+            title: self.title.resolve(&context)?,
+            rows,
+            actions: Actions {
+                confirm: self.confirm.resolve(&context)?,
+                deny: self.deny.resolve(&context)?,
+                hint: self.hint.map(|hint| hint.resolve(&context)).transpose()?,
+            },
+            payment: self.payment,
+        })
+    }
+
+    /// The context that words the plan: the request's when it words the plan's first converted
+    /// label or the plan has none; else a clone of it with the type's converted source loaded.
+    fn context<'c>(&self, request: &Request<'c>) -> Result<Cow<'c, Context>, Fault> {
+        let first = self
+            .rows
+            .iter()
+            .map(|row| &row.label)
+            .chain([&self.title, &self.confirm, &self.deny])
+            .chain(&self.hint)
+            .find_map(|planned| match planned {
+                Planned::Label(label) => Some(label.id.as_str()),
+                Planned::Statement(_) => None,
+            });
+        match first {
+            Some(id) if !view::words(request.context, id) => view::load(
+                &request.registered,
+                request.limits,
+                request.context,
+                request.env.priority(),
+            )
+            .map(Cow::Owned)
+            .map_err(|e| {
+                caused(
+                    detail!(
+                        "the converted view {view}",
+                        view = self.view.as_str().to_owned()
+                    ),
+                    e,
+                )
+            }),
+            Some(_) | None => Ok(Cow::Borrowed(request.context)),
+        }
+    }
+}
+
+impl Planned {
+    /// The text.
+    fn resolve(self, context: &Context) -> Result<Text, Fault> {
+        match self {
+            Self::Statement(statement) => resolved(context, statement.as_ref()),
+            Self::Label(label) => {
+                let worded = label.worded(context)?;
+                resolved(context, &worded)
+            }
+        }
+    }
+}
+
+impl Label {
+    /// The message with its arguments: each liveness as `live` or `dead`; each referenced value
+    /// as its literal, an amount as its number and its currency's code, a boolean and a
+    /// frequency as the context words them, a text as shown.
+    fn worded(self, context: &Context) -> Result<Worded, Fault> {
+        let mut args: Vec<(String, String)> = self
+            .liveness
+            .into_iter()
+            .map(|(position, live)| {
+                let state = if live { view::LIVE } else { view::DEAD };
+                (view::liveness(position), state.to_owned())
+            })
+            .collect();
+        for (claim, value) in self.values {
+            let name = view::argument(claim);
+            match value {
+                Parsed::Text(text) => args.push((name, text)),
+                Parsed::Date(date) => args.push((name, date.to_string())),
+                Parsed::Time(time) => args.push((name, time.to_string())),
+                Parsed::DateTime(at) => args.push((name, at.to_string())),
+                Parsed::Currency(code) => args.push((name, code.to_string())),
+                Parsed::Amount(amount) => {
+                    args.push((name, amount.value().to_string()));
+                    args.push((view::currency(claim), amount.currency().to_string()));
+                }
+                stated @ (Parsed::Boolean(_) | Parsed::Frequency(_)) => {
+                    let text = resolved(context, stated.shown().as_ref())?;
+                    args.push((name, text.to_string()));
+                }
+            }
+        }
+        Ok(Worded { id: self.id, args })
+    }
+}
+
+/// A converted label's message with its arguments' texts.
+struct Worded {
+    id: String,
+    args: Vec<(String, String)>,
+}
+
+impl Message for Worded {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn args(&self, arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {
+        for (name, text) in &self.args {
+            arg(name, text);
+        }
+    }
+}
+
+impl PlannedRow {
+    /// The row with its texts.
+    fn resolve(self, context: &Context) -> Result<ViewRow, Fault> {
+        let label = self.label.resolve(context)?;
+        let value = match self.value {
+            None => None,
+            Some(PlannedValue::Image(image)) => Some(Value::Image(image)),
+            Some(PlannedValue::Text(valued)) => Some(Value::Text(shown(context, valued)?)),
+        };
+        let section = self
+            .section
+            .map(|section| resolved(context, &section))
+            .transpose()?;
         Ok(ViewRow {
             row: Row {
                 label,
                 value,
                 section,
             },
-            kind,
-            claim: instance.claim,
-            path: owned(&instance.path),
+            kind: self.kind,
+            claim: self.claim,
+            path: self.path,
         })
     }
+}
+
+/// A value's text: a value alone as its statement shows it; a template value's text joined with
+/// each typed value as its statement shows it, shown as a text.
+fn shown(context: &Context, valued: Valued) -> Result<Text, Fault> {
+    match valued {
+        Valued::Alone(value) => resolved(context, value.shown().as_ref()),
+        Valued::Joined(joined) => {
+            let value = joined
+                .text(|typed| {
+                    resolved(context, typed.shown().as_ref()).map(|text| text.to_string())
+                })?
+                .ok_or_else(|| fault(detail!("a template value's mini_markdown lost a value")))?;
+            resolved(context, &ClaimText::Text { value })
+        }
+    }
+}
+
+/// The text the context words for a message.
+fn resolved(context: &Context, message: &dyn Message) -> Result<Text, Fault> {
+    context
+        .resolve(message)
+        .map_err(|e| caused(detail!("the text of {id}", id = message.id().to_owned()), e))
 }
 
 /// Where a label shows: its array, the position of the entry the language takes, its limit, and
@@ -542,14 +774,12 @@ struct Placed<'a, 'm> {
     at: RenderedAt,
 }
 
-/// A value of a kind other than an image, with its text.
-fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Value<RequestText>, NotCompatible> {
-    values::formatted(kind, written(value))
-        .map(Value::Text)
-        .map_err(|bad| NotCompatible::Value {
-            value_type: kind_name(ValueKind::Formatted(kind)),
-            bad,
-        })
+/// A value of a kind other than an image, parsed.
+fn formatted(kind: FormattedKind, value: &Node<'_>) -> Result<Parsed, NotCompatible> {
+    values::formatted(kind, written(value)).map_err(|bad| NotCompatible::Value {
+        value_type: kind_name(ValueKind::Formatted(kind)),
+        bad,
+    })
 }
 
 /// The metadata a type renders with and its rulebook: the Mandate rulebook's own metadata with
@@ -562,7 +792,10 @@ pub(crate) fn rulebook_metadata<'m>(
     let kind = &registered.kind;
     let given = registered.given;
     if *given == Node::Null {
-        return Err(Unsupported::NoEntry(kind.to_owned_type()).into());
+        return Err(Unsupported::NoEntry {
+            kind: kind.to_owned_type(),
+        }
+        .into());
     }
     Ok(match kind.family() {
         Family::Mandate => {
@@ -624,7 +857,7 @@ pub(crate) fn arrays<'a, 'm>(metadata: &'a Metadata<'m>) -> Vec<(ArrayKey, &'a D
 
 /// The Payment rulebook's header rows: the last rows at `payee.name` and `amount`, when both
 /// show a text.
-fn payment_rows(rows: &[ViewRow]) -> Option<PaymentRows> {
+fn payment_rows(rows: &[PlannedRow]) -> Option<PaymentRows> {
     let at_path = |keys: &[&str]| {
         rows.iter().rposition(|row| {
             row.path.len() == keys.len()
@@ -637,9 +870,7 @@ fn payment_rows(rows: &[ViewRow]) -> Option<PaymentRows> {
     };
     let texted = |position: usize| {
         rows.get(position)
-            .and_then(|row| row.row.value.as_ref())
-            .and_then(Value::text)
-            .is_some()
+            .is_some_and(|row| matches!(row.value, Some(PlannedValue::Text(_))))
     };
     let merchant = at_path(&["payee", "name"])?;
     let amount = at_path(&["amount"])?;

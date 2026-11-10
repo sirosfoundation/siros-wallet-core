@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use siros_explain::{Explain, IntoArg, Keyed, kind};
+use siros_explain::Explain;
 use siros_openid4vp::ids::{DocumentKey, TransactionType};
 use siros_openid4vp::json::{JsonError, Node, Object};
 use siros_openid4vp::known_object;
@@ -13,11 +13,12 @@ use siros_openid4vp::plugins::JsonText;
 use siros_openid4vp::rows::HttpsUrl;
 use siros_openid4vp::wallet::DocumentBytes;
 use siros_paso::rulebook::{Family, PasoType};
+use siros_syntax::{Keyed, checked};
 
 use crate::translate::{Ts12Unsupported, TypeMetadata};
 
 /// The key of the TS12 document in a credential's registration.
-pub const DOCUMENT: DocumentKey<'static> = siros_explain::checked!(DocumentKey, "ts12");
+pub const DOCUMENT: DocumentKey<'static> = checked!(DocumentKey, "ts12");
 /// TS12 §3: the category of an SCA attestation.
 const SCA_CATEGORY: &str = "urn:eu:europa:ec:eudi:sua:sca";
 
@@ -103,36 +104,30 @@ impl fmt::Display for TwinnedMember {
     }
 }
 
-/// A member is named as the code fixes it.
-impl IntoArg for TwinnedMember {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
-    }
-}
-
 /// Type metadata the registration cannot compose, or a document it cannot read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "ts12.compose")]
 pub enum ComposeError {
     /// `transaction_data_types` absent, or no object of objects.
     #[error("transaction_data_types is absent or no object of objects")]
+    #[explain(id = "compose.types")]
     Types,
     /// A member and its `_uri` twin both present (TS12 §4.1).
     #[error("{member}: a member and its _uri twin are both present")]
+    #[explain(id = "compose.both")]
     Both {
         /// The member.
         member: TwinnedMember,
     },
     /// A `_uri` member that is no https URL (TS12 §4.1.1).
     #[error("{member}_uri is no https URL")]
+    #[explain(id = "compose.uri_form")]
     UriForm {
         /// The member it stands for.
         member: TwinnedMember,
     },
     /// A `_uri` member naming a document the caller did not fetch.
     #[error("{} names a document the caller did not fetch", .url.ascii())]
+    #[explain(id = "compose.unfetched")]
     Unfetched {
         /// The URL.
         url: Box<HttpsUrl>,

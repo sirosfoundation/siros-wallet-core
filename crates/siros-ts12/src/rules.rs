@@ -15,34 +15,38 @@ use crate::translate::Ts12Unsupported;
 
 /// A rule TS12 and CS-12 set on a request over its TS12 entries.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "ts12.rule")]
 pub enum Ts12Rule {
     /// T1: an entry without `transaction_data_hashes_alg` (TS12 §4.2).
     #[error("entry {entry}: no transaction_data_hashes_alg")]
+    #[explain(id = "rule.no_hashes")]
     NoHashes {
         /// The entry.
         entry: EntryIndex,
     },
     /// T1: an entry without a `payload` object (TS12 §4.2).
     #[error("entry {entry}: no payload object")]
+    #[explain(id = "rule.no_payload")]
     NoPayload {
         /// The entry.
         entry: EntryIndex,
     },
     /// T2: a second TS12 entry (CS-12 §8.1).
     #[error("entry {entry}: a second entry under urn:eudi:sca:")]
+    #[explain(id = "rule.second")]
     Second {
         /// The entry.
         entry: EntryIndex,
     },
     /// T3: `credential_ids` holding more than one id (CS-12 §8.1, §7.3 item 7).
     #[error("entry {entry}: credential_ids holds more than one id")]
+    #[explain(id = "rule.credential_ids")]
     CredentialIds {
         /// The entry.
         entry: EntryIndex,
     },
     /// T4: a type other than the two served (CS-12 §7.1 item 1, §7.3 item 10).
     #[error("entry {entry}: {kind} is no type this profile serves")]
+    #[explain(id = "rule.type")]
     Type {
         /// The entry.
         entry: EntryIndex,
@@ -51,19 +55,23 @@ pub enum Ts12Rule {
     },
     /// T5: an unsigned request carrying a TS12 entry (CS-12 §7.3 item 3; PaSO Core §3).
     #[error("a TS12 entry in an unsigned request")]
+    #[explain(id = "rule.unsigned")]
     Unsigned,
     /// T6: `multiple` true on the query a TS12 entry names (CS-12 §8.1).
     #[error("query {query}: multiple is true on the query a TS12 entry names")]
+    #[explain(id = "rule.multiple")]
     Multiple {
         /// The query's id.
         query: QueryId<'static>,
     },
     /// OpenID4VP B.3.3.1's rule over the entry's `transaction_data_hashes_alg`.
     #[error("entry {entry}: {rule}")]
+    #[explain(id = "rule.hashes")]
     Hashes {
         /// The entry.
         entry: EntryIndex,
         /// The rule.
+        #[source]
         rule: HashesAlgRule,
     },
 }
@@ -139,10 +147,10 @@ pub(crate) fn refusals(request: &Request<'_>, entries: &[EntryIndex]) -> Vec<Ref
 
 /// Why phase 1 excludes a credential, beyond View §4's locale rule.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "ts12.excluded")]
 pub enum Ts12Excluded {
     /// The presentation cannot carry TS12's Key Binding JWT claims.
     #[error("its presentation cannot carry TS12's claims")]
+    #[explain(id = "excluded.carriage")]
     Carriage,
     /// The type is unsupported for the credential (phase 1's steps 1 to 4).
     #[error(transparent)]

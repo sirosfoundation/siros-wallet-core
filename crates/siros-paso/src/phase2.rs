@@ -3,7 +3,6 @@
 //! which the caller fetches, View §3 and Core §7.4.2 step 3), and the SCA response claims (Core
 //! §6).
 
-use siros_explain::{IntoArg, kind};
 use siros_openid4vp::request::Agreements;
 
 use crate::adhoc::AdhocRefusal;
@@ -43,15 +42,6 @@ impl OptionalModule {
         match self {
             Self::CoseEncrypt => "COSE_Encrypt",
         }
-    }
-}
-
-/// A module names an argument as the code fixes it.
-impl IntoArg for OptionalModule {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.name()
     }
 }
 
@@ -170,7 +160,7 @@ use crate::respond::{Answer, Modules};
 use crate::risk::RiskSignal;
 #[cfg(feature = "resolve")]
 #[cfg(feature = "resolve")]
-use crate::{FAULT, PasoProfile};
+use crate::{PasoProfile, caused, fault};
 
 #[cfg(feature = "resolve")]
 /// What a record's entry reads: the entry as received and as read, the credential's document, and
@@ -202,32 +192,26 @@ fn read<T>(
     then: impl FnOnce(Read<'_>) -> Result<T, Fault>,
 ) -> Result<Result<T, AdhocRefusal>, Fault> {
     let [index] = record.entries().entries() else {
-        return Err(Fault::new(
-            FAULT,
-            detail!("a PaSO record authorizes one entry"),
-        ));
+        return Err(fault(detail!("a PaSO record authorizes one entry")));
     };
     let received = record
         .request()
         .entry(*index)
-        .ok_or_else(|| Fault::new(FAULT, detail!("a record's entry the request lacks")))?;
+        .ok_or_else(|| fault(detail!("a record's entry the request lacks")))?;
     let entry = PasoEntry::read(received, crate::paso_type(received)?)
-        .map_err(|refused| Fault::caused(FAULT, detail!("a bound PaSO entry"), refused))?;
-    let bytes = record.credential().document(DOCUMENT).ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!("a bound credential without its PaSO document"),
-        )
-    })?;
-    let node = PasoDocument::json(bytes)
-        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
-    let document = PasoDocument::read(&node)
-        .map_err(|e| Fault::caused(FAULT, detail!("the PaSO document"), e))?;
+        .map_err(|refused| caused(detail!("a bound PaSO entry"), refused))?;
+    let bytes = record
+        .credential()
+        .document(DOCUMENT)
+        .ok_or_else(|| fault(detail!("a bound credential without its PaSO document")))?;
+    let node = PasoDocument::json(bytes).map_err(|e| caused(detail!("the PaSO document"), e))?;
+    let document =
+        PasoDocument::read(&node).map_err(|e| caused(detail!("the PaSO document"), e))?;
     let read = entry
         .metadata
         .map(AdhocRead::parse)
         .transpose()
-        .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's ad-hoc metadata"), e))?;
+        .map_err(|e| caused(detail!("a bound entry's ad-hoc metadata"), e))?;
     if let (Some(jwt), Reliance::Verify(modules)) = (&read, reliance) {
         let credential = record.credential();
         let binding = adhoc::Binding {
@@ -247,7 +231,7 @@ fn read<T>(
         Some(read) => Some(read.metadata()),
         None => document.metadata(&entry.kind),
     }
-    .ok_or_else(|| Fault::new(FAULT, detail!("a bound entry's metadata is gone")))?;
+    .ok_or_else(|| fault(detail!("a bound entry's metadata is gone")))?;
     then(Read {
         received,
         entry,
@@ -271,7 +255,7 @@ struct Pending<'r> {
 fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>>, Fault> {
     let registered = Registered::of(read.entry.kind.clone(), read.given);
     let (metadata, _) = rulebook_metadata(&registered, LabelLimits::PASO)
-        .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's metadata"), e))?;
+        .map_err(|e| caused(detail!("a bound entry's metadata"), e))?;
     let payload = read.entry.payload.node();
     let mut pending = Vec::new();
     for claim in &metadata.claims {
@@ -281,13 +265,8 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
         if display.value != ValueType::Kind(ValueKind::Image) {
             continue;
         }
-        let found = select(payload, &claim.path).map_err(|e| {
-            Fault::caused(
-                FAULT,
-                detail!("a bound entry's image"),
-                NotCompatible::from(e),
-            )
-        })?;
+        let found = select(payload, &claim.path)
+            .map_err(|e| caused(detail!("a bound entry's image"), NotCompatible::from(e)))?;
         for (path, value) in found {
             let (Some(text), Some(Concrete::Key(_))) = (value.as_str(), path.last()) else {
                 continue;
@@ -301,11 +280,7 @@ fn pending<'r>(profile: &PasoProfile, read: &Read<'r>) -> Result<Vec<Pending<'r>
             }
             let integrity = match integrity_sibling(&path) {
                 Some(sibling) => at(payload, &sibling).map_err(|e| {
-                    Fault::caused(
-                        FAULT,
-                        detail!("a bound entry's image"),
-                        NotCompatible::from(e),
-                    )
+                    caused(detail!("a bound entry's image"), NotCompatible::from(e))
                 })?,
                 None => None,
             };
@@ -355,7 +330,7 @@ pub(crate) fn revalidate(
     let record = fetched.record();
     let read = read(&record, Reliance::Verify(modules), |read| {
         let signals = Effective::resolve(read.given, &profile.catalogue)
-            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+            .map_err(|e| caused(detail!("a bound entry's risk signals"), e))?;
         let lacks =
             OptionalModule::needed(&signals, record.placement()).filter(|module| match module {
                 OptionalModule::CoseEncrypt => !cose_held,
@@ -366,9 +341,9 @@ pub(crate) fn revalidate(
         .then_some(sealer);
         let mut failed = Vec::new();
         for image in pending(profile, &read)? {
-            let fetch = resources.fetched(&image.url).ok_or_else(|| {
-                Fault::new(FAULT, detail!("an image the profile wanted is unanswered"))
-            })?;
+            let fetch = resources
+                .fetched(&image.url)
+                .ok_or_else(|| fault(detail!("an image the profile wanted is unanswered")))?;
             let resolution = |_: &str| match fetch {
                 Fetch::Fetched { content, media } => Resolution::Fetched { content, media },
                 Fetch::Unfetched => Resolution::Failed("the fetch failed"),
@@ -381,7 +356,7 @@ pub(crate) fn revalidate(
                         failure,
                     });
                 }
-                Err(other) => return Err(Fault::caused(FAULT, detail!("an image"), other)),
+                Err(other) => return Err(caused(detail!("an image"), other)),
             }
         }
         Ok(PasoFinding::of(lacks, unsealable, None, failed))
@@ -399,7 +374,7 @@ pub(crate) fn authentication(
 ) -> Result<AuthenticationNeed, Fault> {
     read(record, Reliance::Revalidated, |read| {
         let signals = Effective::resolve(read.given, &profile.catalogue)
-            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+            .map_err(|e| caused(detail!("a bound entry's risk signals"), e))?;
         Ok(
             if signals
                 .required()
@@ -411,13 +386,7 @@ pub(crate) fn authentication(
             },
         )
     })?
-    .map_err(|refused| {
-        Fault::caused(
-            FAULT,
-            detail!("a refused ad-hoc metadata JWT"),
-            refused.failure,
-        )
-    })
+    .map_err(|refused| caused(detail!("a refused ad-hoc metadata JWT"), refused.failure))
 }
 
 #[cfg(feature = "resolve")]
@@ -433,13 +402,12 @@ pub(crate) fn respond(
 ) -> Result<Members, Fault> {
     read(record, Reliance::Verify(verifying), |read| {
         let placement = record.placement().ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("PaSO binds no presentation whose proof carries no members"),
-            )
+            fault(detail!(
+                "PaSO binds no presentation whose proof carries no members"
+            ))
         })?;
         let signals = Effective::resolve(read.given, &profile.catalogue)
-            .map_err(|e| Fault::caused(FAULT, detail!("a bound entry's risk signals"), e))?;
+            .map_err(|e| caused(detail!("a bound entry's risk signals"), e))?;
         Answer {
             request: record.request(),
             entry: read.received,
@@ -451,11 +419,5 @@ pub(crate) fn respond(
         }
         .members(modules, authentication)
     })?
-    .map_err(|refused| {
-        Fault::caused(
-            FAULT,
-            detail!("a refused ad-hoc metadata JWT"),
-            refused.failure,
-        )
-    })
+    .map_err(|refused| caused(detail!("a refused ad-hoc metadata JWT"), refused.failure))
 }
