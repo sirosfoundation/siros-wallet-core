@@ -44,8 +44,8 @@ fn rule_json(rule: RequestRule) -> Value {
 
 /// The vectors' code of a rule of the core's DCQL reader (OpenID4VP 1.0, Section 6).
 fn dcql_code(refusal: &Refusal) -> &'static str {
-    match refusal.rule().id().as_str() {
-        "openid4vp.dcql.query_id" => "query_id_empty",
+    match refusal.rule().id() {
+        "err.openid4vp.dcql.query_id" => "query_id_empty",
         _ => "dcql_malformed",
     }
 }

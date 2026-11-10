@@ -171,10 +171,7 @@ pub(super) fn outcome(
     let ui = meta.get("ui_labels");
     let ui_array = |key: &str| ui.and_then(|u| u.get(key)).and_then(Value::as_array);
     let shown = plain;
-    let mut labels = vec![(
-        "security_hint",
-        view.actions.hint.as_ref().map(shown),
-    )];
+    let mut labels = vec![("security_hint", view.actions.hint.as_ref().map(shown))];
     if !mandate {
         labels.extend([
             ("transaction_title", Some(shown(&view.title))),

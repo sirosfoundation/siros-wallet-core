@@ -24,6 +24,7 @@ use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::Query;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
 use siros_openid4vp::wallet::DerCertificate;
+use siros_testkit::render::Language;
 use siros_testkit::{TestFormat, TestHost, TestTrust};
 use siros_trust::{AdmittedIssuer, IssuerChain, TrustStore, Unadmitted};
 use siros_x509::X509SanDns;
@@ -145,10 +146,16 @@ impl SignedRequest {
             .unwrap();
         let envelope = Envelope::parse(&received, &registry).unwrap();
         let trust = TestTrust::default();
+        let context = Language::English.shared().unwrap();
         let authenticated = envelope
             .questions(&registry, &config, &host)
             .unwrap()
-            .authenticate(|evaluation| trust.decide(evaluation), &config, &host)
+            .authenticate(
+                |evaluation| trust.decide(evaluation),
+                &config,
+                context,
+                &host,
+            )
             .unwrap();
         with(&authenticated)
     }

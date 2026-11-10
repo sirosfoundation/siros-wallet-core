@@ -53,8 +53,8 @@ fn verdict(vector: &Value) -> Value {
         Ok(parsed) => parsed,
         // A rule of the core's DCQL reader (OpenID4VP 1.0, Section 6).
         Err(refusal) => {
-            let code = match refusal.rule().id().as_str() {
-                "openid4vp.dcql.query_id" => "query_id_empty",
+            let code = match refusal.rule().id() {
+                "err.openid4vp.dcql.query_id" => "query_id_empty",
                 _ => "dcql_malformed",
             };
             return json!({ "error": code });

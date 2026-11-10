@@ -110,15 +110,15 @@ impl CborFault {
 pub fn read_item(bytes: &[u8]) -> Result<Value, CborFault> {
     let value = cbor::decode_definite(bytes, MAX_DEPTH).map_err(|error| match error {
         CborError::Truncated => CborFault::Truncated,
-        CborError::Trailing(_) => CborFault::TrailingBytes,
-        CborError::Utf8(_) => CborFault::InvalidUtf8,
+        CborError::Trailing { .. } => CborFault::TrailingBytes,
+        CborError::Utf8 { .. } => CborFault::InvalidUtf8,
         CborError::RepeatedKey(_) => CborFault::DuplicateKey,
-        CborError::Depth(_) => CborFault::TooDeep,
-        CborError::Indefinite(_) => CborFault::Unsupported(Unsupported::IndefiniteLength),
-        CborError::Simple(_) => CborFault::Unsupported(Unsupported::SimpleValue),
-        CborError::Malformed(_)
-        | CborError::IntegerRange(_)
-        | CborError::DoubleRange(_)
+        CborError::Depth { .. } => CborFault::TooDeep,
+        CborError::Indefinite { .. } => CborFault::Unsupported(Unsupported::IndefiniteLength),
+        CborError::Simple { .. } => CborFault::Unsupported(Unsupported::SimpleValue),
+        CborError::Malformed { .. }
+        | CborError::IntegerRange { .. }
+        | CborError::DoubleRange { .. }
         | CborError::Encode(_)
         | CborError::Key(_)
         | CborError::Object(_)
