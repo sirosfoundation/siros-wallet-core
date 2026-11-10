@@ -138,7 +138,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --all-featur
 cargo test --locked --workspace --all-features
 python3 scripts/check_panic_sites.py Cargo.toml proving/Cargo.toml
 cargo xtask builds   # each build of xtask/builds.json against the crates it excludes and its count
-cargo xtask alone    # each crate alone, with and without its default features
+cargo xtask alone    # each crate alone, built and documented, with and without its default features
 ```
 
 Nothing panics outside the tests: a type makes the impossible state

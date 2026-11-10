@@ -79,9 +79,9 @@ owns it and say why there.
 A build compiles what it registers. `cargo xtask builds` checks each build of
 `xtask/builds.json`, the design's section 4.11, against the crates it must not
 compile, the siros-i18n features it compiles, and the count of crates it stays
-below; `cargo xtask alone` checks each crate alone and the workspace crates it
-names. A change that adds a feature or a dependency edge updates the table in
-the same pull request.
+below; `cargo xtask alone` builds and documents each crate alone, and checks the
+workspace crates it names. A change that adds a feature or a dependency edge
+updates the table in the same pull request.
 
 Nothing panics outside the tests: a type makes the impossible state
 unrepresentable, or the caller receives an error. CI holds each crate to it with
