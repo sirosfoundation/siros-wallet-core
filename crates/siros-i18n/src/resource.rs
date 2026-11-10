@@ -2,9 +2,10 @@
 //! (`explainers/message-resource.abnf`). A resource names its locale in `@locale` metadata, and its
 //! text direction in `@dir` metadata when it is known, before its `---` frontmatter; then
 //! `[section]` heads prefix the keys of the `key = message` entries after them, an indented line
-//! continues a message, and the sections `[formats.<format>]` hold a format's options.
+//! continues a message, and the sections `[formats.<format>]` hold a format's options. A parsed
+//! resource borrows from its source each id and each value written without an escape on one line.
 
-use rustc_hash::FxHashMap;
+use std::borrow::Cow;
 
 use crate::error::{LoadError, SyntaxRule};
 use crate::format::Direction;
@@ -13,91 +14,70 @@ use crate::locale::LocaleTag;
 /// The section prefix of a format's options.
 const FORMATS: &str = "formats";
 
-/// A resource, parsed: its locale, its direction, its message sections and its formats' options,
-/// each in source order.
+/// A resource, parsed: its locale, its direction, its message sections and its format sections,
+/// each kind in source order.
 #[derive(Debug)]
-pub(crate) struct Resource {
+pub(crate) struct Resource<'s> {
     pub(crate) locale: Option<LocaleTag>,
     pub(crate) direction: Direction,
-    pub(crate) sections: Vec<MessageSection>,
-    pub(crate) formats: Vec<FormatSection>,
+    pub(crate) sections: Vec<MessageSection<'s>>,
+    pub(crate) formats: Vec<FormatSection<'s>>,
 }
 
 /// The message entries under one `[section]` head, whose name and a dot prefix each entry's key in
 /// its id; or those before the first head, whose ids are their keys.
 #[derive(Debug)]
-pub(crate) struct MessageSection {
-    pub(crate) name: Option<String>,
-    pub(crate) entries: Vec<Entry>,
+pub(crate) struct MessageSection<'s> {
+    pub(crate) name: Option<Cow<'s, str>>,
+    pub(crate) entries: Vec<Entry<'s>>,
 }
 
 /// A message or an option under its key, and the line, from 1, where the entry starts.
 #[derive(Debug)]
-pub(crate) struct Entry {
-    pub(crate) key: String,
-    pub(crate) value: String,
+pub(crate) struct Entry<'s> {
+    pub(crate) key: Cow<'s, str>,
+    pub(crate) value: Cow<'s, str>,
     pub(crate) line: usize,
 }
 
-/// One format's options, as its `[formats.<format>]` sections give them.
+/// The options under one `[formats.<format>]` head.
 #[derive(Debug)]
-pub(crate) struct FormatSection {
-    pub(crate) format: String,
-    pub(crate) options: Vec<Entry>,
+pub(crate) struct FormatSection<'s> {
+    pub(crate) format: Cow<'s, str>,
+    pub(crate) options: Vec<Entry<'s>>,
 }
 
 /// Where the parser stands: before the frontmatter, then in a section.
-enum Place {
+enum Place<'s> {
     Head,
-    Body(Section),
+    Body(Section<'s>),
 }
 
 /// The section the parser adds entries to.
-enum Section {
-    Messages(MessageSection),
-    Format(FormatSection),
+enum Section<'s> {
+    Messages(MessageSection<'s>),
+    Format(FormatSection<'s>),
 }
 
-/// The sections the parser has left: the message sections, and each format's options under its
-/// name, with the position of its first section among the formats.
+/// The sections the parser has left, each kind in source order.
 #[derive(Default)]
-struct Left {
-    sections: Vec<MessageSection>,
-    formats: FxHashMap<String, (usize, Vec<Entry>)>,
+struct Left<'s> {
+    sections: Vec<MessageSection<'s>>,
+    formats: Vec<FormatSection<'s>>,
 }
 
-impl Left {
-    /// Adds a section the parser leaves: its options to its format's.
-    fn leave(&mut self, section: Section) {
+impl<'s> Left<'s> {
+    /// Adds a section the parser leaves.
+    fn leave(&mut self, section: Section<'s>) {
         match section {
             Section::Messages(messages) => self.sections.push(messages),
-            Section::Format(FormatSection { format, options }) => {
-                let at = self.formats.len();
-                self.formats
-                    .entry(format)
-                    .or_insert_with(|| (at, Vec::new()))
-                    .1
-                    .extend(options);
-            }
+            Section::Format(format) => self.formats.push(format),
         }
-    }
-
-    /// The message sections, and the formats' options, each format at its first section's
-    /// position.
-    fn finish(self) -> (Vec<MessageSection>, Vec<FormatSection>) {
-        let mut formats: Vec<(usize, FormatSection)> = self
-            .formats
-            .into_iter()
-            .map(|(format, (at, options))| (at, FormatSection { format, options }))
-            .collect();
-        formats.sort_unstable_by_key(|&(at, _)| at);
-        let formats = formats.into_iter().map(|(_, format)| format).collect();
-        (self.sections, formats)
     }
 }
 
 /// Parses the resource `text`.
-pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
+pub(crate) fn parse(text: &str) -> Result<Resource<'_>, LoadError> {
     let refuse = |line: usize, rule: SyntaxRule| LoadError::Syntax { line, rule };
     // `newline = CRLF / LF`: a line an LF ends drops the CR before it; the last line keeps one.
     let lines: Vec<&str> = match text.rsplit_once('\n') {
@@ -142,23 +122,28 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
                 metadata(&lines, at, rest).map_err(|rule| refuse(number, rule))?;
             at = next;
             let value = value.map_err(|rule| refuse(number, rule))?;
-            match (&place, name.as_str()) {
+            match (&place, name.as_ref()) {
                 (Place::Head, "locale") if locale.is_none() => {
-                    let tag = LocaleTag::parse(&value)
-                        .map_err(|_| refuse(number, SyntaxRule::Tag { tag: value }))?;
+                    let tag = LocaleTag::parse(&value).map_err(|_| {
+                        let tag = value.to_string();
+                        refuse(number, SyntaxRule::Tag { tag })
+                    })?;
                     locale = Some(tag);
                 }
                 (Place::Head, "dir") if direction.is_none() => {
-                    direction = Some(match value.as_str() {
+                    direction = Some(match value.as_ref() {
                         "ltr" => Direction::Ltr,
                         "rtl" => Direction::Rtl,
                         _ => {
-                            let rule = SyntaxRule::Direction { direction: value };
-                            return Err(refuse(number, rule));
+                            let direction = value.into_owned();
+                            return Err(refuse(number, SyntaxRule::Direction { direction }));
                         }
                     });
                 }
-                _ => return Err(refuse(number, SyntaxRule::Metadata { name })),
+                _ => {
+                    let name = name.into_owned();
+                    return Err(refuse(number, SyntaxRule::Metadata { name }));
+                }
             }
             continue;
         }
@@ -190,12 +175,11 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
     match place {
         Place::Body(section) => {
             left.leave(section);
-            let (sections, formats) = left.finish();
             Ok(Resource {
                 locale,
                 direction: direction.unwrap_or(Direction::Unknown),
-                sections,
-                formats,
+                sections: left.sections,
+                formats: left.formats,
             })
         }
         Place::Head => Err(refuse(lines.len(), SyntaxRule::Frontmatter)),
@@ -203,7 +187,7 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
 }
 
 /// A section head after its `[`.
-fn head(rest: &str) -> Result<Section, SyntaxRule> {
+fn head(rest: &str) -> Result<Section<'_>, SyntaxRule> {
     let (path, after) = id(rest.trim_start_matches(is_ws))?;
     let Some(tail) = after.trim_start_matches(is_ws).strip_prefix(']') else {
         return Err(SyntaxRule::Line);
@@ -211,30 +195,36 @@ fn head(rest: &str) -> Result<Section, SyntaxRule> {
     if !tail.trim_start_matches(is_ws).is_empty() {
         return Err(SyntaxRule::Line);
     }
-    Ok(
-        match path
-            .strip_prefix(FORMATS)
-            .and_then(|format| format.strip_prefix('.'))
-        {
-            Some(format) => Section::Format(FormatSection {
-                format: format.to_owned(),
-                options: Vec::new(),
-            }),
-            None => Section::Messages(MessageSection {
-                name: Some(path),
-                entries: Vec::new(),
-            }),
-        },
-    )
+    fn format(path: &str) -> Option<&str> {
+        path.strip_prefix(FORMATS)?.strip_prefix('.')
+    }
+    let format = match &path {
+        Cow::Borrowed(path) => format(path).map(Cow::Borrowed),
+        Cow::Owned(path) => format(path).map(|format| Cow::Owned(format.to_owned())),
+    };
+    Ok(match format {
+        Some(format) => Section::Format(FormatSection {
+            format,
+            options: Vec::new(),
+        }),
+        None => Section::Messages(MessageSection {
+            name: Some(path),
+            entries: Vec::new(),
+        }),
+    })
 }
 
 /// A metadata line after its `@` (`id-part [ws value]`): its name, its value, and the line after
 /// it.
-fn metadata(
-    lines: &[&str],
+#[expect(
+    clippy::type_complexity,
+    reason = "the name, the value or its refusal, and the next line"
+)]
+fn metadata<'s>(
+    lines: &[&'s str],
     next: usize,
-    rest: &str,
-) -> Result<(String, Result<String, SyntaxRule>, usize), SyntaxRule> {
+    rest: &'s str,
+) -> Result<(Cow<'s, str>, Result<Cow<'s, str>, SyntaxRule>, usize), SyntaxRule> {
     let (name, after) = part(rest)?;
     if !after.is_empty() && !after.starts_with(is_ws) {
         return Err(SyntaxRule::Line);
@@ -243,10 +233,27 @@ fn metadata(
     Ok((name, value, next))
 }
 
+/// The longest prefix of `text` whose characters `admitted` admits, and the text after it.
+fn run(text: &str, admitted: impl Fn(char) -> bool) -> (&str, &str) {
+    let run = text
+        .split_once(|c| !admitted(c))
+        .map_or(text, |(run, _)| run);
+    (run, text.trim_start_matches(admitted))
+}
+
 /// An id at the start of `text`: its parts joined by `.`, and the text after it.
-fn id(text: &str) -> Result<(String, &str), SyntaxRule> {
+fn id(text: &str) -> Result<(Cow<'_, str>, &str), SyntaxRule> {
     if text.starts_with("---") {
         return Err(SyntaxRule::Line);
+    }
+    // An id written without an escape or a space around its dots is a slice of the line.
+    let (plain, after) = run(text, |c| id_safe(c) || c == '-' || c == '.');
+    if !plain.is_empty()
+        && plain.split('.').all(|part| !part.is_empty())
+        && !after.starts_with('\\')
+        && !after.trim_start_matches(is_ws).starts_with('.')
+    {
+        return Ok((Cow::Borrowed(plain), after));
     }
     let (mut path, mut rest) = part(text)?;
     loop {
@@ -255,6 +262,7 @@ fn id(text: &str) -> Result<(String, &str), SyntaxRule> {
             return Ok((path, rest));
         };
         let (next, left) = part(dotted.trim_start_matches(is_ws))?;
+        let path = path.to_mut();
         path.push('.');
         path.push_str(&next);
         rest = left;
@@ -262,24 +270,28 @@ fn id(text: &str) -> Result<(String, &str), SyntaxRule> {
 }
 
 /// One id part: `1*(id-char / "-")`, its escapes resolved.
-fn part(text: &str) -> Result<(String, &str), SyntaxRule> {
-    let mut out = String::new();
-    let mut chars = text.chars();
-    loop {
-        let rest = chars.as_str();
-        match chars.next() {
-            Some('\\') => {
-                let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
-                match escape(escaped, &mut chars)? {
-                    Some(c) => out.push(c),
-                    None if symbol(escaped) => out.push(escaped),
-                    None => return Err(SyntaxRule::Escape),
-                }
-            }
-            Some(c) if id_safe(c) || c == '-' => out.push(c),
-            Some(_) | None if out.is_empty() => return Err(SyntaxRule::Line),
-            Some(_) | None => return Ok((out, rest)),
-        }
+fn part(text: &str) -> Result<(Cow<'_, str>, &str), SyntaxRule> {
+    let written = |c| id_safe(c) || c == '-';
+    let (first, mut rest) = run(text, written);
+    let mut out = Cow::Borrowed(first);
+    while let Some(after) = rest.strip_prefix('\\') {
+        let mut chars = after.chars();
+        let escaped = chars.next().ok_or(SyntaxRule::Escape)?;
+        let c = match escape(escaped, &mut chars)? {
+            Some(c) => c,
+            None if symbol(escaped) => escaped,
+            None => return Err(SyntaxRule::Escape),
+        };
+        let (next, left) = run(chars.as_str(), written);
+        let out = out.to_mut();
+        out.push(c);
+        out.push_str(next);
+        rest = left;
+    }
+    if out.is_empty() {
+        Err(SyntaxRule::Line)
+    } else {
+        Ok((out, rest))
     }
 }
 
@@ -293,13 +305,18 @@ enum Char {
 /// A value from `first`, the rest of its first line, through its continuation lines: each line
 /// trimmed, empty lines trimmed from both ends, lines joined by LF. MF2's escapes `\\`, `\{`,
 /// `\|` and `\}` pass through intact. Returns the line after it.
-fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, SyntaxRule>, usize) {
-    let mut text = first.to_owned();
+fn value<'s>(
+    lines: &[&'s str],
+    mut next: usize,
+    first: &'s str,
+) -> (Result<Cow<'s, str>, SyntaxRule>, usize) {
+    let mut text = Cow::Borrowed(first);
     let mut blank = 0;
     for &line in lines.iter().skip(next) {
         if line.trim_matches(is_ws).is_empty() {
             blank += 1;
         } else if line.starts_with(is_ws) {
+            let text = text.to_mut();
             text.extend(std::iter::repeat_n('\n', blank + 1));
             text.push_str(line);
             next += blank + 1;
@@ -308,7 +325,11 @@ fn value(lines: &[&str], mut next: usize, first: &str) -> (Result<String, Syntax
             break;
         }
     }
-    (resolve(&text), next)
+    let value = match text {
+        Cow::Borrowed(line) if !line.contains('\\') => Ok(Cow::Borrowed(line.trim_matches(is_ws))),
+        text => resolve(&text).map(Cow::Owned),
+    };
+    (value, next)
 }
 
 /// The value's text, its escapes resolved and its lines trimmed.
