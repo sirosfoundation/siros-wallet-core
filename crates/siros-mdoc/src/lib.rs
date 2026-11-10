@@ -61,7 +61,9 @@ pub use transcript::{
     Handover, HandoverUri, SessionTranscript, SessionTranscriptBytes, Thumbprint, TranscriptError,
 };
 
-use siros_explain::{AllOf, Explain, Explained, Message, Messages};
+use std::error::Error;
+
+use siros_explain::Explain;
 use siros_openid4vp::claims::kit::{
     self, ClaimsFormat, ClaimsPlugin, ClaimsView, Constraint, VpFormatsMember,
 };
@@ -69,86 +71,64 @@ use siros_openid4vp::claims::{Claim, ClaimPath, Step};
 use siros_openid4vp::ids::{CredentialType, FormatId, FormatName, InvalidId};
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{
-    Carriage, Clause, Fault, FaultDomain, Format, FormatQuery, Member, ViewAdditions,
+    Carriage, Clause, Detail, Fault, Format, FormatQuery, Member, ViewAdditions,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{AgreeableKey, Query};
 use siros_openid4vp::routing::EntryNaming;
 use siros_openid4vp::wallet::Credential;
 use siros_openid4vp::wallet_metadata::Placement;
+use siros_syntax::AllOf;
 
 use cose::DeviceKeyView;
 use view::MdocMembers;
 
+siros_explain::scope!("mdoc");
+
 /// The Credential Format Identifier.
-const NAME: FormatName = siros_explain::checked!(FormatName, "mso_mdoc");
+const NAME: FormatName = siros_syntax::checked!(FormatName, "mso_mdoc");
 const ID: &str = NAME.as_str();
 /// The claim display member holding the label (OpenID4VCI Appendix B.2).
 const LABEL: &str = "name";
 
-/// The plug-in's domain, as its fault message.
-pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "mdoc.fault");
+/// The plug-in's fault error: the log line, and the error that caused the fault.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct MdocFault {
+    #[explain(skip)]
+    detail: Detail,
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
+}
+
+/// The plug-in's fault, its log line written by `detail`.
+pub(crate) fn fault(detail: Detail) -> Fault {
+    Fault::new(MdocFault {
+        detail,
+        cause: None,
+    })
+}
+
+/// The plug-in's fault caused by an error, its log line written by `detail`.
+pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(MdocFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
+}
 
 /// The rules of an `mso_mdoc` query the kit reports under the query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.rules")]
 pub enum MdocRule {
     /// B.2.3: `meta.doctype_value` is no string.
     #[error("meta.doctype_value is not a string (B.2.3)")]
+    #[explain(id = "rules.doctype")]
     Doctype,
     /// §7.2: a claims path pointer is no name space and data element identifier.
     #[error("is not [name space, data element identifier] (OpenID4VP §7.2)")]
+    #[explain(id = "rules.pointer")]
     Pointer,
-}
-
-#[cfg(feature = "resolve")]
-/// The messages phase 2's error types declare.
-fn phase_two() -> Vec<Message> {
-    [
-        issuer_signed::IssuedError::messages(),
-        device_authentication::ValueError::messages(),
-        presentation::DeviceAuthRefused::messages(),
-        transcript::TranscriptError::messages(),
-        stored::PointError::messages(),
-        stored::MdocError::messages(),
-        stored::EnvelopeFault::messages(),
-        stored::IssuerAuthFault::messages(),
-        stored::AlgorithmFault::messages(),
-        stored::PayloadFault::messages(),
-        stored::DocTypeFault::messages(),
-        stored::NameFault::messages(),
-        stored::ValueDigestsFault::messages(),
-        stored::DeviceKeyFault::messages(),
-        stored::NamesFault::messages(),
-        stored::KeyAuthorizationsFault::messages(),
-        stored::ValidityFault::messages(),
-        stored::NameSpacesFault::messages(),
-        stored::ItemFault::messages(),
-        stored::MemberFault::messages(),
-        stored::CborError::messages(),
-        registration::RegistrationError::messages(),
-    ]
-    .concat()
-}
-
-#[cfg(not(feature = "resolve"))]
-/// The messages phase 2's error types declare: none without phase 2.
-fn phase_two() -> Vec<Message> {
-    Vec::new()
-}
-
-/// The plug-in's messages: those its error types and rules declare, and its fault's.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        let declared: &[fn() -> Vec<Message>] = &[MdocRule::messages, phase_two];
-        declared
-            .iter()
-            .flat_map(|messages| messages())
-            .chain([FAULT.message()])
-            .collect()
-    }
 }
 
 /// The mdoc format plug-in. A transaction's response members are data elements of the
@@ -180,7 +160,7 @@ impl Format for Mdoc {
     /// ES256 (-7) for IssuerAuth and the device signature (B.2.4; HAIP §7).
     fn wallet_formats(&self) -> Result<Node<'static>, Fault> {
         Node::parse(r#"{"issuerauth_alg_values":[-7],"deviceauth_alg_values":[-7]}"#)
-            .map_err(|e| Fault::caused(FAULT, siros_openid4vp::detail!("the formats member"), e))
+            .map_err(|e| caused(siros_openid4vp::detail!("the formats member"), e))
     }
 
     /// `DeviceSigned` carries a profile's members as elements of its name spaces (ISO/IEC 18013-5
@@ -234,9 +214,9 @@ impl ClaimsFormat for Mdoc {
     fn read_meta<'n, 'm>(
         &self,
         meta: Option<&'n Node<'m>>,
-    ) -> Result<&'n Node<'m>, Box<dyn Explained>> {
+    ) -> Result<&'n Node<'m>, Box<dyn Explain>> {
         meta.filter(|meta| meta.get("doctype_value").and_then(Node::as_str).is_some())
-            .ok_or_else(|| Box::new(MdocRule::Doctype) as Box<dyn Explained>)
+            .ok_or_else(|| Box::new(MdocRule::Doctype) as Box<dyn Explain>)
     }
 
     /// B.2.3: the credential's docType is `doctype_value`.
@@ -246,7 +226,7 @@ impl ClaimsFormat for Mdoc {
             .and_then(Node::as_str)
             .and_then(|doctype| CredentialType::parse(doctype).ok())
             .map(|doctype| vec![doctype])
-            .ok_or_else(|| Fault::new(FAULT, siros_openid4vp::detail!("a view without a doctype")))
+            .ok_or_else(|| fault(siros_openid4vp::detail!("a view without a doctype")))
     }
 
     /// B.2.3: `doctype_value` is the credential's doctype.
@@ -269,9 +249,9 @@ impl ClaimsFormat for Mdoc {
     }
 
     /// §7.2: a claims path pointer into an mdoc is a name space and a data element identifier.
-    fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explained>> {
+    fn pointer_refusal(&self, path: &ClaimPath<'_>) -> Option<Box<dyn Explain>> {
         (!matches!(path.steps(), [Step::Key(_), Step::Key(_)]))
-            .then(|| Box::new(MdocRule::Pointer) as Box<dyn Explained>)
+            .then(|| Box::new(MdocRule::Pointer) as Box<dyn Explain>)
     }
 }
 

@@ -13,7 +13,7 @@ use siros_openid4vp::{
 };
 
 use crate::approval::SignatureQualifier;
-use crate::{CLAIM, DOCUMENT, FAULT, NAMESPACE};
+use crate::{CLAIM, DOCUMENT, NAMESPACE};
 
 /// The hash algorithms the wallet computes, by object identifier (NIST CSOR
 /// 2.16.840.1.101.3.4.2): the SHA-2 and SHA-3 families ETSI TS 119 312 recommends for signatures
@@ -162,32 +162,20 @@ pub(crate) fn approves(
         return Ok(false);
     };
     let id = || credential.id.to_string();
-    let malformed = |why: &'static str| {
-        Fault::new(
-            FAULT,
-            detail!("{id}: the {DOCUMENT} document {why}", id = id()),
-        )
-    };
+    let malformed =
+        |why: &'static str| crate::fault(detail!("{id}: the {DOCUMENT} document {why}", id = id()));
     let text = std::str::from_utf8(bytes).map_err(|_| malformed("is no UTF-8"))?;
-    let document = Node::parse(text).map_err(|e| {
-        Fault::caused(
-            FAULT,
-            detail!("{id}: the {DOCUMENT} document", id = id()),
-            e,
-        )
-    })?;
+    let document = Node::parse(text)
+        .map_err(|e| crate::caused(detail!("{id}: the {DOCUMENT} document", id = id()), e))?;
     let object = document
         .as_object()
         .ok_or_else(|| malformed("is no JSON object"))?;
     if let Some(name) = object.names().find(|name| *name != "signature_qualifiers") {
-        return Err(Fault::new(
-            FAULT,
-            detail!(
-                "{id}: the {DOCUMENT} document holds the unknown member {name}",
-                id = id(),
-                name = name.to_owned()
-            ),
-        ));
+        return Err(crate::fault(detail!(
+            "{id}: the {DOCUMENT} document holds the unknown member {name}",
+            id = id(),
+            name = name.to_owned()
+        )));
     }
     let Some(listed) = object.get("signature_qualifiers") else {
         return Ok(false);

@@ -198,7 +198,7 @@ fn each_rule_refuses_its_fixture() {
         (
             "envelope",
             edited(|p| p.documents = 2),
-            MdocError::Envelope(EnvelopeFault::Documents(2)),
+            MdocError::Envelope(EnvelopeFault::Documents { count: 2 }),
         ),
         (
             "issuer_auth",
@@ -233,11 +233,11 @@ fn each_rule_refuses_its_fixture() {
         (
             "value_digests",
             edited(|p| p.digests[0].1 = Value::Bytes(vec![0; 31])),
-            MdocError::ValueDigests(ValueDigestsFault::DigestLength(
-                NameSpace::new(NAME_SPACE),
-                DigestId::new(0),
-                31,
-            )),
+            MdocError::ValueDigests(ValueDigestsFault::DigestLength {
+                namespace: NameSpace::new(NAME_SPACE),
+                digest_id: DigestId::new(0),
+                length: 31,
+            }),
         ),
         (
             "device_key",
@@ -265,7 +265,9 @@ fn each_rule_refuses_its_fixture() {
                     ),
                 ]);
             }),
-            MdocError::KeyAuthorizations(KeyAuthorizationsFault::Overlap(NameSpace::new(SIGNED))),
+            MdocError::KeyAuthorizations(KeyAuthorizationsFault::Overlap {
+                namespace: NameSpace::new(SIGNED),
+            }),
         ),
         (
             "validity",
@@ -275,10 +277,10 @@ fn each_rule_refuses_its_fixture() {
         (
             "name_spaces",
             edited(|p| p.items.clear()),
-            MdocError::NameSpaces(NameSpacesFault::Items(
-                NameSpace::new(NAME_SPACE),
-                MemberFault::Empty,
-            )),
+            MdocError::NameSpaces(NameSpacesFault::Items {
+                namespace: NameSpace::new(NAME_SPACE),
+                cause: MemberFault::Empty,
+            }),
         ),
         (
             "item",
@@ -289,7 +291,9 @@ fn each_rule_refuses_its_fixture() {
                     ("elementValue", text("Ada")),
                 ]));
             }),
-            MdocError::Item(ItemFault::Member(ItemMember::Random)),
+            MdocError::Item(ItemFault::Member {
+                member: ItemMember::Random,
+            }),
         ),
         (
             "repeated_element",

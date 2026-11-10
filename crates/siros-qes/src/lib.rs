@@ -40,14 +40,17 @@ mod documents;
 mod render;
 mod rules;
 
+use std::error::Error;
+
 use rustc_hash::FxHashMap;
-use siros_explain::{AllOf, Message, Messages};
+use siros_explain::Explain;
+use siros_i18n::Context;
 use siros_openid4vp::consent::Overlay;
 use siros_openid4vp::detail;
 use siros_openid4vp::ids::{InvalidId, TransactionType};
 use siros_openid4vp::plugins::{
-    Attested, Binding, Bound, BoundEntries, Build, Carriage, Exclude, Fault, FaultDomain,
-    HostedProfile, Member, NoCandidate, Profile, RegistryBuilder,
+    Attested, Binding, Bound, BoundEntries, Build, Carriage, Detail, Exclude, Fault, HostedProfile,
+    Member, NoCandidate, Profile, RegistryBuilder,
 };
 use siros_openid4vp::refusal::Refusal;
 use siros_openid4vp::request::{Entry, EntryIndex, Request};
@@ -60,6 +63,7 @@ use siros_openid4vp::{
     plugins::{Answered, FetchedRecord, Members},
     rows::HttpsUrl,
 };
+use siros_syntax::AllOf;
 
 pub use approval::{DocumentAt, DocumentNumber, Problem, SignatureQualifier};
 
@@ -71,44 +75,33 @@ pub use rules::{EntryPosition, Positions, QesRule};
 
 use rules::Excluded;
 
-/// The profile's domain, as its fault message.
-pub(crate) const FAULT: FaultDomain = siros_explain::checked!(FaultDomain, "qes.fault");
+siros_explain::scope!("qes");
 
-/// The crate's module, `qes`: the messages of the texts the End-User sees. The wallet provides
-/// their text in each of its languages, checked against this declaration when it loads.
-pub struct CrateModule;
-
-impl CrateModule {
-    /// The module's identity.
-    pub const ID: siros_explain::ModuleId =
-        siros_explain::ModuleId::Crate(siros_explain::checked!(siros_explain::Domain, "qes"));
+/// The profile's fault error: the log line, and the error that caused the fault.
+#[derive(Debug, thiserror::Error, Explain)]
+#[error("{detail}")]
+#[explain(id = "fault")]
+struct QesFault {
+    #[explain(skip)]
+    detail: Detail,
+    #[source]
+    cause: Option<Box<dyn Error + Send + Sync>>,
 }
 
-impl Messages for CrateModule {
-    fn messages() -> Vec<Message> {
-        [render::QesTitle::messages(), render::QesText::messages()].concat()
-    }
+/// The profile's fault, its log line written by `detail`.
+pub(crate) fn fault(detail: Detail) -> Fault {
+    Fault::new(QesFault {
+        detail,
+        cause: None,
+    })
 }
 
-/// Its request messages are the approval's rows' texts.
-impl siros_explain::DeclaredModule for CrateModule {
-    const ID: siros_explain::ModuleId = Self::ID;
-    type Requested = render::QesText;
-}
-
-/// The profile's messages: those its rules and exclusions declare, and its fault's.
-pub struct CrateMessages;
-
-impl Messages for CrateMessages {
-    fn messages() -> Vec<Message> {
-        [
-            approval::Problem::messages(),
-            QesRule::messages(),
-            Excluded::messages(),
-            vec![FAULT.message()],
-        ]
-        .concat()
-    }
+/// The profile's fault caused by an error, its log line written by `detail`.
+pub(crate) fn caused(detail: Detail, cause: impl Error + Send + Sync + 'static) -> Fault {
+    Fault::new(QesFault {
+        detail,
+        cause: Some(Box::new(cause)),
+    })
 }
 
 /// The transaction data type identifier (CSC §7.1).
@@ -197,23 +190,20 @@ fn approval_of<'r>(
     entries: &[EntryIndex],
 ) -> Result<(EntryIndex, &'r Entry<'r>, ApprovalRequest<'r>), Fault> {
     let [index] = entries else {
-        return Err(Fault::new(
-            FAULT,
-            detail!(
-                "QES entries {entries:?}: one presentation approves one entry",
-                entries = entries.to_vec()
-            ),
-        ));
+        return Err(fault(detail!(
+            "QES entries {entries:?}: one presentation approves one entry",
+            entries = entries.to_vec()
+        )));
     };
     let entry = request.entry(*index).ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!("QES entry {entry}: not in the request", entry = index.get()),
-        )
+        fault(detail!(
+            "QES entry {entry}: not in the request",
+            entry = index.get()
+        ))
     })?;
     let approval = ApprovalRequest::parse(entry.members()).map_err(|problems| {
         let entry = index.get();
-        Fault::new(FAULT, move |f| {
+        fault(Detail::new(move |f| {
             write!(f, "QES entry {entry}: breaks the type's rules (")?;
             for (k, problem) in problems.iter().enumerate() {
                 if k > 0 {
@@ -222,7 +212,7 @@ fn approval_of<'r>(
                 write!(f, "{problem}")?;
             }
             f.write_str(")")
-        })
+        }))
     })?;
     Ok((*index, entry, approval))
 }
@@ -265,7 +255,12 @@ impl Profile for QesProfile {
     /// qualifier (§6.3; §7.2.1 Note 22), its presentation can carry the approval (§7.2.1), and no
     /// linked document it holds fails its checksum (§6.3); rendered by §6.4, attesting nothing
     /// beyond the entry, which the approval hashes.
-    fn bind(&self, binding: Binding<'_>, _env: &Env) -> Result<Bound, NoCandidate> {
+    fn bind(
+        &self,
+        binding: Binding<'_>,
+        _env: &Env,
+        context: &Context,
+    ) -> Result<Bound, NoCandidate> {
         let (index, _, approval) = approval_of(binding.request, binding.entries)?;
         if !binding::approves(binding.credential, approval.qualifier)? {
             return Err(Exclude::new(Excluded::Qualifier {
@@ -276,9 +271,9 @@ impl Profile for QesProfile {
         if binding.carriage == Carriage::Uncarried {
             return Err(Exclude::new(Excluded::Carriage).into());
         }
-        let rendered = render::render(&approval, &self.held)?;
+        let rendered = render::render(&approval, &self.held, context)?;
         let entries = BoundEntries::select(binding.entries, vec![index])
-            .map_err(|e| Fault::caused(FAULT, detail!("QES bound entries"), e))?;
+            .map_err(|e| caused(detail!("QES bound entries"), e))?;
         Ok(Bound {
             entries,
             header: rendered.header,
@@ -288,7 +283,6 @@ impl Profile for QesProfile {
                 header: None,
                 hint: None,
             },
-            selected: None,
         })
     }
 }
@@ -369,10 +363,9 @@ impl<H> ProfileHost<H> for QesProfile {
                         Some(Fetch::Fetched { content, .. }) => Fetched::Content(content.clone()),
                         Some(Fetch::Unfetched) => Fetched::Failed,
                         None => {
-                            return Err(Fault::new(
-                                FAULT,
-                                detail!("a document the profile wanted is unanswered"),
-                            ));
+                            return Err(fault(detail!(
+                                "a document the profile wanted is unanswered"
+                            )));
                         }
                     },
                     Err(_) => Fetched::Failed,
@@ -394,13 +387,12 @@ impl<H> ProfileHost<H> for QesProfile {
     ) -> Result<Members, Fault> {
         let (_, entry, approval) = approval_of(record.request(), record.entries().entries())?;
         let encoding = record.placement().map(Encoding::of).ok_or_else(|| {
-            Fault::new(
-                FAULT,
-                detail!("QES binds no presentation whose proof carries no members"),
-            )
+            fault(detail!(
+                "QES binds no presentation whose proof carries no members"
+            ))
         })?;
         encoding
             .approval(approval.hash, entry)
-            .map_err(|e| Fault::caused(FAULT, detail!("qesApproval"), e))
+            .map_err(|e| caused(detail!("qesApproval"), e))
     }
 }

@@ -4,7 +4,6 @@
 //! credentials, options, members and sessions; and what the plug-in refuses to present.
 
 use siros_openid4vp::detail;
-use siros_testkit::FAULT;
 use std::borrow::Cow;
 use std::error::Error as _;
 
@@ -26,6 +25,7 @@ use siros_testkit::fixtures::{
     Held, NONCE, ORIGIN, answer_first, env, parameters, present_option, request_of, unsigned,
 };
 use siros_testkit::probe::{dc_api, read_phase_two};
+use siros_testkit::render::Language;
 use siros_testkit::sd_jwt_issuer;
 use siros_testkit::sd_jwt_reading::{Read, read};
 use siros_testkit::{Binds, TestChoice, TestHost, TestProfile, verifier};
@@ -99,15 +99,12 @@ fn presented(dcql: &str, extra: &str, held: &[Held], registry: &Registry<TestHos
             .collect(),
     )
     .expect("wallet");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
     let token = answer_first(
         &request,
         &wallet,
         registry,
         &env(&["en"], Vec::new()).expect("env"),
-        &rendering,
+        Language::English.shared().expect("the test app"),
         &TestHost::default(),
     )
     .expect("response");
@@ -423,7 +420,9 @@ fn what_cannot_be_presented_is_a_fault() {
         Why,
     );
     let document = || Some(keyed.clone());
-    let own_claim = KeyBindingError::Repeated(JsonError::DuplicateMember("aud".to_owned()));
+    let own_claim = KeyBindingError::Repeated(JsonError::DuplicateMember {
+        member: "aud".to_owned(),
+    });
     let cases: Vec<Case> = vec![
         (
             "presented",
@@ -449,7 +448,7 @@ fn what_cannot_be_presented_is_a_fault() {
             Holder::Bound,
             Vec::new(),
             Why::Plugin(PresentFault::Document(ParseError::IssuerJwt(
-                IssuerJwtFault::Segments(2),
+                IssuerJwtFault::Segments { count: 2 },
             ))),
         ),
         (
@@ -500,7 +499,9 @@ fn what_cannot_be_presented_is_a_fault() {
             document(),
             Holder::Bound,
             vec![claim("x", MemberValue::Bytes(vec![1]))],
-            Why::Plugin(PresentFault::Binary("x".to_owned())),
+            Why::Plugin(PresentFault::Binary {
+                member: "x".to_owned(),
+            }),
         ),
         (
             "a data element",
@@ -508,9 +509,9 @@ fn what_cannot_be_presented_is_a_fault() {
             document(),
             Holder::Bound,
             vec![(Member::element("ns", "x"), text_member())],
-            Why::Plugin(PresentFault::NoClaim(
-                Member::element("ns", "x").to_string(),
-            )),
+            Why::Plugin(PresentFault::NoClaim {
+                member: Member::element("ns", "x").to_string(),
+            }),
         ),
         (
             "the Key Binding JWT's own claim",
@@ -526,7 +527,9 @@ fn what_cannot_be_presented_is_a_fault() {
             Some(keyless.clone()),
             Holder::Unbound,
             vec![claim("x", text_member())],
-            Why::Plugin(PresentFault::NoKeyForMember(Member::claim("x").to_string())),
+            Why::Plugin(PresentFault::NoKeyForMember {
+                member: Member::claim("x").to_string(),
+            }),
         ),
     ];
     for (name, view, document, holder, members, why) in cases {
@@ -556,7 +559,7 @@ fn what_cannot_be_presented_is_a_fault() {
             Why::Plugin(want) => assert_eq!(cause, Some(&want), "{name}"),
             Why::Reading => {
                 assert_eq!(cause, None, "{name}");
-                assert_eq!(fault.id().as_str(), "sdjwt.fault", "{name}");
+                assert_eq!(fault.id(), "err.sdjwt.fault", "{name}");
             }
         }
     }
@@ -588,11 +591,9 @@ impl siros_openid4vp::plugins::Profile for Writes {
         &self,
         _binding: siros_openid4vp::plugins::Binding<'_>,
         _env: &siros_openid4vp::rows::Env,
+        _context: &siros_i18n::Context,
     ) -> Result<siros_openid4vp::plugins::Bound, siros_openid4vp::plugins::NoCandidate> {
-        Err(
-            siros_openid4vp::plugins::Fault::new(FAULT, detail!("judged at registration alone"))
-                .into(),
-        )
+        Err(siros_testkit::fault(detail!("judged at registration alone")).into())
     }
 }
 
@@ -602,10 +603,9 @@ impl<H> ProfileHost<H> for Writes {
         _record: siros_openid4vp::plugins::Answered<'_>,
         _host: &H,
     ) -> Result<Vec<siros_openid4vp::rows::HttpsUrl>, siros_openid4vp::plugins::Fault> {
-        Err(siros_openid4vp::plugins::Fault::new(
-            FAULT,
-            detail!("judged at registration alone"),
-        ))
+        Err(siros_testkit::fault(detail!(
+            "judged at registration alone"
+        )))
     }
 
     fn informed(&self, _findings: &[&()]) -> Self {
@@ -624,10 +624,9 @@ impl<H> ProfileHost<H> for Writes {
         _record: siros_openid4vp::plugins::FetchedRecord<'_>,
         _host: &H,
     ) -> Result<Option<()>, siros_openid4vp::plugins::Fault> {
-        Err(siros_openid4vp::plugins::Fault::new(
-            FAULT,
-            detail!("judged at registration alone"),
-        ))
+        Err(siros_testkit::fault(detail!(
+            "judged at registration alone"
+        )))
     }
 
     fn respond(
@@ -636,10 +635,9 @@ impl<H> ProfileHost<H> for Writes {
         _host: &H,
         _authentication: &siros_openid4vp::host::Authentication,
     ) -> Result<Members, siros_openid4vp::plugins::Fault> {
-        Err(siros_openid4vp::plugins::Fault::new(
-            FAULT,
-            detail!("judged at registration alone"),
-        ))
+        Err(siros_testkit::fault(detail!(
+            "judged at registration alone"
+        )))
     }
 }
 

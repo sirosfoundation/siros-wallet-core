@@ -1,9 +1,10 @@
 //! The original Client Identifiers of the X.509 prefixes (§5.9.3): `x509_hash`'s leaf hash and
 //! `x509_san_dns`'s DNS name, and how each compares.
 
+use std::fmt;
+
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_explain::{IntoArg, kind};
 use siros_openid4vp::uri::ResponseUri;
 use x509_cert::ext::pkix::SubjectAltName;
 use x509_cert::ext::pkix::name::GeneralName;
@@ -28,7 +29,9 @@ impl LeafHash {
             .ok()
             .and_then(|octets| <[u8; 32]>::try_from(octets).ok())
             .map(Self)
-            .ok_or_else(|| X509Refusal::HashSyntax(original.to_owned()))
+            .ok_or_else(|| X509Refusal::HashSyntax {
+                original: original.to_owned(),
+            })
     }
 
     pub(crate) const fn of(octets: [u8; 32]) -> Self {
@@ -60,11 +63,9 @@ impl HashText {
     }
 }
 
-impl IntoArg for HashText {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.0
+impl fmt::Display for HashText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -92,7 +93,9 @@ impl SanDnsName {
         if original.len() <= 253 && original.split('.').all(label) {
             Ok(Self(original.to_owned()))
         } else {
-            Err(X509Refusal::SanSyntax(original.to_owned()))
+            Err(X509Refusal::SanSyntax {
+                original: original.to_owned(),
+            })
         }
     }
 
@@ -129,11 +132,8 @@ impl SanDnsName {
     }
 }
 
-/// A name is named by its text in a message.
-impl IntoArg for SanDnsName {
-    type Kind = kind::Raw;
-
-    fn arg(&self) -> &str {
-        &self.0
+impl fmt::Display for SanDnsName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
     }
 }

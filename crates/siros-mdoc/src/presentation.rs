@@ -20,7 +20,6 @@ use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, FindingData, Member};
 use siros_openid4vp::request::AgreeableKey;
 
-use crate::FAULT;
 use crate::cose::{DeviceKeyView, device_mac, device_signature};
 use crate::device_authentication::{
     DeviceNameSpacesBytes, Element, ElementValue, device_authentication_bytes,
@@ -35,16 +34,17 @@ use crate::view::MdocMembers;
 /// Why the build makes no device authentication the Verifier accepts: the format's finding at
 /// revalidation, before the End-User authenticates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.device")]
 pub enum DeviceAuthRefused {
     /// The Verifier's `deviceauth_alg_values` (OpenID4VP B.2.4) lists the device MAC (ISO/IEC
     /// 18013-5 §9.1.3.5) and no signature the device key makes, and the build holds no
     /// [`DeviceMac`] module.
     #[error("the Verifier accepts only a device MAC, and the build holds no device MAC module")]
+    #[explain(id = "device.no_device_mac")]
     NoDeviceMac,
     /// The device key signs nothing (RFC 9053 §7.1 keeps X25519 and X448 to ECDH), and no Verifier
     /// key on its curve, listed for a device MAC, lets the wallet agree the MAC key (B.2.2).
     #[error("the device key signs nothing, and no Verifier key lets the wallet agree a MAC key")]
+    #[explain(id = "device.key_agreement_only")]
     KeyAgreementOnly,
 }
 
@@ -82,10 +82,9 @@ impl<'k, M> DeviceAuth<'k, M> {
         let allowed = match supported.and_then(|supported| supported.get("deviceauth_alg_values")) {
             None => None,
             Some(listed) => Some(listed.as_array().ok_or_else(|| {
-                Fault::new(
-                    FAULT,
-                    detail!("deviceauth_alg_values is no array, which the request rules refuse"),
-                )
+                crate::fault(detail!(
+                    "deviceauth_alg_values is no array, which the request rules refuse"
+                ))
             })?),
         };
         let lists =
@@ -153,7 +152,7 @@ fn caused<E: std::error::Error + Send + Sync + 'static>(
     what: &'static str,
 ) -> impl FnOnce(E) -> Fault {
     let id = id.to_string();
-    move |e| Fault::caused(FAULT, detail!("{id}: {what}"), e)
+    move |e| crate::caused(detail!("{id}: {what}"), e)
 }
 
 /// The presentation of what the option discloses, with the transaction's members as
@@ -166,13 +165,10 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
     let credential = view.credential();
     let id = &credential.id;
     let document = credential.document(DOCUMENT).ok_or_else(|| {
-        Fault::new(
-            FAULT,
-            detail!(
-                "{id}: no {DOCUMENT} document holds its IssuerSigned",
-                id = id.to_string()
-            ),
-        )
+        crate::fault(detail!(
+            "{id}: no {DOCUMENT} document holds its IssuerSigned",
+            id = id.to_string()
+        ))
     })?;
     let issued = IssuerSigned::read(document).map_err(caused(id, "the stored IssuerSigned"))?;
     let doctype = issued.doctype().as_str();
@@ -185,14 +181,11 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
                 element: ElementIdentifier::new(element),
                 shown,
             }),
-            _ => Err(Fault::new(
-                FAULT,
-                detail!(
-                    "{id}: an issuer-signed element at {path:?}, no [name space, data element identifier]",
-                    id = id.to_string(),
-                    path = path.iter().map(Concrete::owned).collect::<Vec<_>>()
-                ),
-            )),
+            _ => Err(crate::fault(detail!(
+                "{id}: an issuer-signed element at {path:?}, no [name space, data element identifier]",
+                id = id.to_string(),
+                path = path.iter().map(Concrete::owned).collect::<Vec<_>>()
+            ))),
         })
         .collect::<Result<Vec<_>, Fault>>()?;
     let issuer_signed = issued
@@ -208,8 +201,7 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
                     Element {
                         name: element,
                         value: ElementValue::of(value).map_err(|e| {
-                            Fault::caused(
-                                FAULT,
+                            crate::caused(
                                 detail!(
                                     "{id}: the member {member}",
                                     id = id.to_string(),
@@ -220,14 +212,11 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
                         })?,
                     },
                 )),
-                Member::Claim(_) => Err(Fault::new(
-                    FAULT,
-                    detail!(
-                        "{id}: DeviceSigned name spaces hold data elements, and {member} is a claim",
-                        id = id.to_string(),
-                        member = member.clone()
-                    ),
-                )),
+                Member::Claim(_) => Err(crate::fault(detail!(
+                    "{id}: DeviceSigned name spaces hold data elements, and {member} is a claim",
+                    id = id.to_string(),
+                    member = member.clone()
+                ))),
             })
             .collect::<Result<Vec<_>, Fault>>()?,
     );
@@ -239,8 +228,7 @@ pub(crate) fn present<H: Has<dyn Haip> + MayHave<dyn DeviceMac>>(
         host.maybe::<dyn DeviceMac>(),
     )?
     .map_err(|refused| {
-        Fault::caused(
-            FAULT,
+        crate::caused(
             detail!(
                 "{id}: a device authentication refused after revalidation passed",
                 id = id.to_string()

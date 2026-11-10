@@ -113,30 +113,30 @@ pub fn rule_table() -> Vec<(String, Refuses)> {
     let table: Vec<(Fields, Refuses)> = vec![
         (
             approval().set("signAlgo", r#""1.2.840.113549.1.1.1""#),
-            |p| matches!(p, Problem::UnknownMember(member) if member == "signAlgo"),
+            |p| matches!(p, Problem::UnknownMember { member } if member == "signAlgo"),
         ),
         (approval().set("numSignatures", "0"), |p| {
             matches!(p, Problem::SignatureCount)
         }),
         (
             approval().set("signatureQualifier", r#""za_ecta_aes""#),
-            |p| matches!(p, Problem::SignatureQualifier(_)),
+            |p| matches!(p, Problem::SignatureQualifier { .. }),
         ),
         (approval().without("hashAlgorithmOID"), |p| {
             matches!(p, Problem::NoHashAlgorithm)
         }),
         (
             approval().set("hashAlgorithmOID", r#""1.2.840.113549.2.5""#),
-            |p| matches!(p, Problem::UnknownHashAlgorithm(oid) if oid == "1.2.840.113549.2.5"),
+            |p| matches!(p, Problem::UnknownHashAlgorithm { oid } if oid == "1.2.840.113549.2.5"),
         ),
         (documents("[]"), |p| matches!(p, Problem::NoDocuments)),
         (
             documents(r#"[{"label": "x"}]"#),
-            |p| matches!(p, Problem::NotADocument(at) if at.get() == 0),
+            |p| matches!(p, Problem::NotADocument { document } if document.get() == 0),
         ),
         (
             documents(r#"[{"hash": "h", "hashType": "sodr", "access": {"type": "OTP"}}]"#),
-            |p| matches!(p, Problem::OtpWithoutPassword(at) if at.get() == 0),
+            |p| matches!(p, Problem::OtpWithoutPassword { document } if document.get() == 0),
         ),
         (
             approval().set("locations", r#""https://rsp.example""#),

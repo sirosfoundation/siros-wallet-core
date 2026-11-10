@@ -102,7 +102,9 @@ fn x5chain(item: Option<&Value>) -> Result<CertificateChain, MemberFault> {
                 certificate
                     .bytes()
                     .map(<[u8]>::to_vec)
-                    .ok_or(MemberFault::Entry(ArrayIndex::new(index)))
+                    .ok_or(MemberFault::Entry {
+                        position: ArrayIndex::new(index),
+                    })
             });
             let document_signer = ders.next().ok_or(MemberFault::Empty)??;
             Ok(CertificateChain::new(

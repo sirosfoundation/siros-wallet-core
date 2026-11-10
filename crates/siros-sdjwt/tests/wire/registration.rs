@@ -107,12 +107,16 @@ fn refusals() {
         (
             "an exp of a string",
             r#"{"vct":"t","exp":"soon"}"#,
-            RegistrationError::Validity(ValidityClaim::Exp),
+            RegistrationError::Validity {
+                claim: ValidityClaim::Exp,
+            },
         ),
         (
             "an exp beyond the double range",
             r#"{"vct":"t","exp":1e400}"#,
-            RegistrationError::Validity(ValidityClaim::Exp),
+            RegistrationError::Validity {
+                claim: ValidityClaim::Exp,
+            },
         ),
     ];
     for (case, payload, cause) in rows {
@@ -143,7 +147,7 @@ fn sd_jwt_vc_refusals() {
         let payload = format!(r#"{{{vct}"_sd":["{digest}"]}}"#);
         assert_eq!(
             Registered::of(&compact(&payload, &[&revealing]), &Resolved::default()).map(|_| ()),
-            Err(RegistrationError::SelectivelyDisclosed(permanent)),
+            Err(RegistrationError::SelectivelyDisclosed { claim: permanent }),
             "{claim}"
         );
     }
@@ -151,7 +155,9 @@ fn sd_jwt_vc_refusals() {
     let payload = format!(r#"{{"vct":"t","cnf":{{"_sd":["{digest}"]}}}}"#);
     assert_eq!(
         Registered::of(&compact(&payload, &[&key]), &Resolved::default()),
-        Err(RegistrationError::SelectivelyDisclosed(PermanentClaim::Cnf)),
+        Err(RegistrationError::SelectivelyDisclosed {
+            claim: PermanentClaim::Cnf
+        }),
     );
     for header in [r#"{"alg":"ES256"}"#, r#"{"alg":"ES256","typ":"JWT"}"#] {
         assert_eq!(
@@ -208,7 +214,9 @@ fn the_holder_key() {
         (
             "no y",
             format!(r#"{{"jwk":{{"kty":"EC","crv":"P-256","x":"{x}"}}}}"#),
-            HolderKeyFault::Coordinate(JwkCoordinate::Y),
+            HolderKeyFault::Coordinate {
+                coordinate: JwkCoordinate::Y,
+            },
         ),
         (
             "an x of a P-384 size on P-256",
@@ -216,7 +224,9 @@ fn the_holder_key() {
                 r#"{{"jwk":{{"kty":"EC","crv":"P-256","x":"{}","y":"{y}"}}}}"#,
                 b64(&[1; 48])
             ),
-            HolderKeyFault::Coordinate(JwkCoordinate::X),
+            HolderKeyFault::Coordinate {
+                coordinate: JwkCoordinate::X,
+            },
         ),
         (
             "alg none",
@@ -311,9 +321,9 @@ fn a_curve_the_algorithm_rules_out() {
         Registered::of(&issued, &repeated),
         Err(RegistrationError::Metadata {
             cause: MergeError::Json {
-                cause: JsonError::DuplicateMember(name)
+                cause: JsonError::DuplicateMember { member }
             }
-        }) if name == "rendering"
+        }) if member == "rendering"
     ));
 }
 

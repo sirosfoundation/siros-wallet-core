@@ -2,7 +2,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use siros_explain::{Count, Text};
+use siros_i18n::{Bidi, Context};
 use siros_mdoc::Mdoc;
 use siros_mdoc::registration::{Registered, Resolved};
 use siros_mdoc::stored::StoredMdoc;
@@ -11,7 +11,6 @@ use siros_openid4vp::host::Timestamp;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::Shown;
 use siros_openid4vp::request::Item;
-use siros_openid4vp::rows::ClaimText;
 use siros_testkit::fixtures::{Held, env, parameters};
 use siros_testkit::probe::read_parsed;
 
@@ -80,9 +79,17 @@ fn annex_d_known_answers() {
 }
 
 /// D5 over the Annex's `portrait`: the item's head `59 0412` states 1042 bytes, which show by
-/// their length; `family_name`, a text, as written.
+/// their length; `family_name`, a text, as written. The wording names the statement each value
+/// takes and writes the argument it carries.
 #[test]
 fn a_byte_string_shows_by_its_length() {
+    let marked = Context::new()
+        .bidi(Bidi::None)
+        .module(
+            "@locale en\n---\n[openid4vp.wallet]\ncredential = Credential\nlabel = {$label}\n\
+             bytes = bytes {$length}\ntext = text {$value}\n",
+        )
+        .unwrap();
     let data = URL_SAFE_NO_PAD.encode(unhex(DEVICE_RESPONSE.trim()));
     let registered = Registered::of(&data, &Resolved::default()).unwrap();
     let view = std::str::from_utf8(registered.view().as_bytes())
@@ -111,22 +118,16 @@ fn a_byte_string_shows_by_its_length() {
                         chosen: &[],
                     },
                     &env(&["en"], Vec::new()).unwrap(),
+                    &marked,
                 )
                 .unwrap();
-            let values: Vec<&Text> = card
+            let values: Vec<String> = card
                 .rows
                 .iter()
                 .filter_map(|row| row.value.as_ref().and_then(|value| value.text()))
+                .map(ToString::to_string)
                 .collect();
-            assert_eq!(
-                values,
-                [
-                    &Text::of(&ClaimText::Bytes {
-                        length: Count::of(1042)
-                    }),
-                    &Text::Raw("Doe".to_owned()),
-                ]
-            );
+            assert_eq!(values, ["bytes 1042", "text Doe"]);
         },
     )
     .unwrap();

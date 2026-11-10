@@ -165,9 +165,13 @@ impl IssuerSignedItem {
         let inner = tagged
             .untag(24)
             .and_then(|tagged| tagged.bytes())
-            .ok_or_else(|| MdocError::NameSpaces(NameSpacesFault::NotTagged(name_space.clone())))?;
+            .ok_or_else(|| {
+                MdocError::NameSpaces(NameSpacesFault::NotTagged {
+                    namespace: name_space.clone(),
+                })
+            })?;
         let item = cbor::decode(inner).map_err(|e| MdocError::Item(ItemFault::Cbor(e.into())))?;
-        let missing = |member| MdocError::Item(ItemFault::Member(member));
+        let missing = |member| MdocError::Item(ItemFault::Member { member });
         let Some(digest_id) = item.get("digestID").and_then(|id| id.as_unsigned()) else {
             return Err(missing(ItemMember::DigestId));
         };
@@ -219,9 +223,9 @@ fn envelope(root: &Value) -> Result<(&Value, Option<&str>), MdocError> {
     let document = match root.get("documents").and_then(|v| v.items()) {
         Some([document]) => document,
         Some(documents) => {
-            return Err(MdocError::Envelope(EnvelopeFault::Documents(
-                documents.len(),
-            )));
+            return Err(MdocError::Envelope(EnvelopeFault::Documents {
+                count: documents.len(),
+            }));
         }
         None => root,
     };
@@ -242,8 +246,12 @@ fn read_name_spaces(spaces: &Value, mso: &Mso) -> Result<Distinct<IssuerNameSpac
     let entries = non_empty_map(Some(spaces)).map_err(|e| fault(NameSpacesFault::Member(e)))?;
     cbor::distinct_map(entries, |name, items| {
         let name = NameSpace::new(name.as_text().ok_or(fault(NameSpacesFault::NameSpace))?);
-        let items = non_empty_array(Some(items))
-            .map_err(|e| fault(NameSpacesFault::Items(name.clone(), e)))?;
+        let items = non_empty_array(Some(items)).map_err(|cause| {
+            fault(NameSpacesFault::Items {
+                namespace: name.clone(),
+                cause,
+            })
+        })?;
         let items = read_items(&name, items, mso)?;
         Ok(IssuerNameSpace { name, items })
     })
