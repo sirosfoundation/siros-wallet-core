@@ -46,6 +46,13 @@ pub(crate) struct Variant<'s> {
     pub(crate) pattern: Pattern<'s>,
 }
 
+impl Variant<'_> {
+    /// Whether every key is `*`.
+    pub(crate) fn catches_all(&self) -> bool {
+        self.keys.iter().all(|key| *key == Key::CatchAll)
+    }
+}
+
 /// A variant key.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Key<'s> {

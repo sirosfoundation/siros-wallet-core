@@ -333,7 +333,7 @@ impl<'a> Compiler<'_, 'a> {
     fn matcher(
         &mut self,
         selectors: &'a [Cow<'_, str>],
-        variants: &[&'a ast::Variant<'_>],
+        variants: &'a [ast::Variant<'_>],
         fallback: &'a ast::Pattern<'_>,
     ) -> Result<Body, Fault> {
         let selectors = selectors
@@ -342,6 +342,7 @@ impl<'a> Compiler<'_, 'a> {
             .collect::<Result<Vec<_>, _>>()?;
         let variants = variants
             .iter()
+            .filter(|variant| !variant.catches_all())
             .map(|variant| {
                 let keys = selectors
                     .iter()

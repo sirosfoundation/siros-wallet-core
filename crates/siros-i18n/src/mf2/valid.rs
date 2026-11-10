@@ -9,7 +9,7 @@ use crate::error::Fault;
 use crate::seen::repeated;
 
 use super::ast::{
-    Body, Declaration, Expression, Function, Key, Message, Operand, Opt, Part, Pattern, Variant,
+    Body, Declaration, Expression, Function, Message, Operand, Opt, Part, Pattern, Variant,
 };
 
 /// A message the data model rules hold for: each declaration binds a variable no earlier
@@ -23,12 +23,12 @@ pub(crate) struct Valid<'a, 's> {
 pub(crate) enum Shape<'a, 's> {
     /// A single pattern.
     Pattern(&'a Pattern<'s>),
-    /// `.match`: its selectors, each a variable a declaration with a function binds; its variants
-    /// with a literal key, each of one key per selector and each list of keys once; and the
-    /// pattern of the one variant whose keys are all `*`.
+    /// `.match`: its selectors, each a variable a declaration with a function binds; its
+    /// variants, each of one key per selector and each list of keys once; and among them the
+    /// pattern of the one whose keys are all `*`.
     Matcher {
         selectors: &'a [Cow<'s, str>],
-        variants: Vec<&'a Variant<'s>>,
+        variants: &'a [Variant<'s>],
         fallback: &'a Pattern<'s>,
     },
 }
@@ -57,14 +57,12 @@ impl<'a, 's> Valid<'a, 's> {
                 selectors,
                 variants,
             } => {
-                let catches_all =
-                    |variant: &Variant<'_>| variant.keys.iter().all(|key| *key == Key::CatchAll);
                 if variants.iter().any(|v| v.keys.len() != selectors.len()) {
                     return Err(Fault::VariantKeyMismatch);
                 }
                 let fallback = variants
                     .iter()
-                    .find(|variant| catches_all(variant))
+                    .find(|variant| variant.catches_all())
                     .ok_or(Fault::MissingFallbackVariant)?;
                 if let Some(selector) = selectors
                     .iter()
@@ -80,7 +78,7 @@ impl<'a, 's> Valid<'a, 's> {
                     .try_for_each(|variant| pattern_options(&variant.pattern))?;
                 Shape::Matcher {
                     selectors,
-                    variants: variants.iter().filter(|v| !catches_all(v)).collect(),
+                    variants,
                     fallback: &fallback.pattern,
                 }
             }
