@@ -23,14 +23,13 @@ impl fmt::Display for PythonRepr<'_, '_> {
         match self.0 {
             Node::Null => f.write_str("None"),
             Node::Bool(value) => f.write_str(if *value { "True" } else { "False" }),
-            Node::Number(number) => match (number.integer(), number.double()) {
-                (Some(digits), _) => f.write_str(digits),
-                (None, Some(value)) => match FiniteDouble::of(value) {
+            Node::Number(number) => match number.integer() {
+                Some(digits) => f.write_str(digits),
+                None => match FiniteDouble::of(number.double) {
                     Some(finite) => write!(f, "{finite}"),
-                    None if value.is_nan() => f.write_str("nan"),
-                    None => f.write_str(if value > 0.0 { "inf" } else { "-inf" }),
+                    None if number.double.is_nan() => f.write_str("nan"),
+                    None => f.write_str(if number.double > 0.0 { "inf" } else { "-inf" }),
                 },
-                (None, None) => f.write_str(number.text()),
             },
             Node::String(text) => write!(f, "{}", Quoted(text)),
             Node::Array(items) => {

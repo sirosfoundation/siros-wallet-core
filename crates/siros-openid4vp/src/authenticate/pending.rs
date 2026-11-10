@@ -248,20 +248,24 @@ impl<'e> Envelope<'e> {
                     )
                 };
                 let first = read(signers.first());
-                let rest: Vec<_> = signers.rest().map(read).collect();
-                match first {
-                    Err(first) if rest.iter().all(Result::is_err) => {
-                        let reasons = rest
+                match (first, failures(signers.rest().map(read))) {
+                    (Err(first), Ok(causes)) => {
+                        let reasons = causes
                             .into_iter()
-                            .filter_map(Result::err)
                             .fold(AllOf::one(first), |all, cause| all.and(AllOf::one(cause)));
                         let cause = Unauthenticated::NoSignature(reasons);
                         return Err(reject(cause, self.route()));
                     }
-                    first => Asked::Claims(
-                        Claimed::of(first),
-                        rest.into_iter().map(Claimed::of).collect(),
-                    ),
+                    (first, rest) => {
+                        let rest: Vec<_> = match rest {
+                            Ok(causes) => causes.into_iter().map(Err).collect(),
+                            Err(rest) => rest,
+                        };
+                        Asked::Claims(
+                            Claimed::of(first),
+                            rest.into_iter().map(Claimed::of).collect(),
+                        )
+                    }
                 }
             }
         };
@@ -552,6 +556,28 @@ impl<'e, H: CoreHost> Pending<'e, H> {
 
 /// How the framework names the Verifier and what it states, when a prefix bound it.
 type Named = (Option<Text>, Option<Object<'static>>);
+
+#[cfg(feature = "signed")]
+/// Each error of `results` when every result failed, else every result.
+fn failures<T, E>(
+    mut results: impl Iterator<Item = Result<T, E>>,
+) -> Result<Vec<E>, Vec<Result<T, E>>> {
+    let mut causes = Vec::new();
+    while let Some(result) = results.next() {
+        match result {
+            Err(cause) => causes.push(cause),
+            Ok(found) => {
+                return Err(causes
+                    .into_iter()
+                    .map(Err)
+                    .chain([Ok(found)])
+                    .chain(results)
+                    .collect());
+            }
+        }
+    }
+    Ok(causes)
+}
 
 #[cfg(feature = "signed")]
 /// Why a claim does not authenticate the Verifier: an A rule it breaks, with the route its error

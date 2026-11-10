@@ -388,10 +388,10 @@ impl<'a> Claims<'a> {
                 .collect::<Result<Vec<_>, _>>()?,
         };
         if let Some(twice) = claims.iter().enumerate().find_map(|(k, claim)| {
-            let before = claims.get(..k)?;
             claim.id.as_ref().filter(|id| {
-                before
+                claims
                     .iter()
+                    .take(k)
                     .any(|earlier| earlier.id.as_ref() == Some(*id))
             })
         }) {
@@ -465,12 +465,7 @@ impl<'a> Claims<'a> {
     ///
     /// [`Foreign::Option`]: the option is another query's.
     pub fn items(&self, option: OptionIndex) -> Result<&[Item], Foreign> {
-        self.options
-            .get(option)
-            .map(OptionItems::items)
-            .ok_or(Foreign::Option {
-                option: option.position(),
-            })
+        self.options.option(option).map(OptionItems::items)
     }
 
     /// The options as claim items.

@@ -45,6 +45,7 @@ pub use registry::{
 #[cfg(feature = "resolve")]
 pub use registry::{FindingData, InformError, ProfileFinding};
 
+use crate::claims::Foreign;
 use crate::consent::{Card, Header, Overlay};
 use crate::ids::{CredentialType, FormatId};
 use crate::json::Node;
@@ -314,6 +315,15 @@ impl Options {
     #[must_use]
     pub fn get(&self, option: OptionIndex) -> Option<&OptionItems> {
         self.0.get(option.0)
+    }
+
+    /// The option at an index.
+    ///
+    /// # Errors
+    ///
+    /// [`Foreign::Option`]: the index is of a longer query's options.
+    pub fn option(&self, option: OptionIndex) -> Result<&OptionItems, Foreign> {
+        self.get(option).ok_or(Foreign::Option { option: option.0 })
     }
 }
 

@@ -267,10 +267,7 @@ impl<'a> Request<'a> {
 
     /// The queries with their positions.
     pub fn indexed_queries(&self) -> impl Iterator<Item = (QueryIndex, &Query<'a>)> {
-        self.queries
-            .iter()
-            .enumerate()
-            .filter_map(|(k, query)| QueryIndex::new(k).map(|index| (index, query)))
+        self.queries.iter().map(|query| (query.index(), query))
     }
 
     /// The Credential Sets, when present.
@@ -302,13 +299,18 @@ impl<'a> Request<'a> {
     /// The entries whose `credential_ids` name the query, in array order.
     #[must_use]
     pub fn entries_naming(&self, query: QueryIndex) -> Vec<EntryIndex> {
+        self.naming(query).map(|(index, _)| index).collect()
+    }
+
+    /// The entries whose `credential_ids` name the query, with their positions, in array order.
+    pub(crate) fn naming(
+        &self,
+        query: QueryIndex,
+    ) -> impl Iterator<Item = (EntryIndex, &Entry<'a>)> {
         let id = self.query(query).map(|query| query.id().as_str());
-        self.indexed_entries()
-            .filter(|(_, entry)| {
-                id.is_some_and(|id| entry.credential_ids().iter().any(|named| *named == *id))
-            })
-            .map(|(index, _)| index)
-            .collect()
+        self.indexed_entries().filter(move |(_, entry)| {
+            id.is_some_and(|id| entry.credential_ids().iter().any(|named| *named == *id))
+        })
     }
 
     /// The queries some entry names.
@@ -372,11 +374,7 @@ fn decode_entries(raw: Vec<Cow<'_, str>>) -> Result<Vec<Entry<'_>>, Refused> {
 }
 
 fn alternatives(queries: &[Query<'_>], sets: Option<&[CredentialSet]>) -> Vec<Alternative> {
-    let all = || {
-        (0..queries.len())
-            .filter_map(QueryIndex::new)
-            .collect::<Vec<_>>()
-    };
+    let all = || queries.iter().map(Query::index).collect::<Vec<_>>();
     let Some(sets) = sets else {
         return vec![Alternative::of(all())];
     };

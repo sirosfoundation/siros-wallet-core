@@ -159,6 +159,11 @@ fn a_compact_jws_names_its_alg_in_three_base64url_parts() {
                 alg: Some("ES 256".to_owned()),
             },
         ),
+        // A kid of another kind than string (RFC 7515 §4.1.4).
+        (
+            compact(r#"{"alg":"ES256","kid":7}"#, PARAMETERS),
+            JwsError::Member { member: "kid" },
+        ),
         // U16: crit naming a header, and crit empty.
         (
             compact(r#"{"alg":"ES256","crit":["exp"],"exp":1}"#, PARAMETERS),

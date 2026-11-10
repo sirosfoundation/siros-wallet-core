@@ -87,19 +87,24 @@ impl<P: Position> Iterator for Combinations<'_, P> {
             return None;
         }
         let set = Set::of(
-            self.indices
+            self.items
                 .iter()
-                .filter_map(|&i| self.items.get(i).copied()),
+                .enumerate()
+                .filter(|(at, _)| self.indices.contains(at))
+                .map(|(_, item)| *item),
         );
         let n = self.items.len();
         let k = self.indices.len();
         // Advance the rightmost index that can still move, then reset those after it.
-        match (0..k)
+        match self
+            .indices
+            .iter()
+            .enumerate()
             .rev()
-            .find(|&i| self.indices.get(i).is_some_and(|&at| at < n - k + i))
+            .find(|&(i, &at)| at < n - k + i)
+            .map(|(i, &at)| (i, at + 1))
         {
-            Some(i) => {
-                let start = self.indices.get(i).map_or(0, |&at| at + 1);
+            Some((i, start)) => {
                 for (offset, index) in self.indices.iter_mut().skip(i).enumerate() {
                     *index = start + offset;
                 }

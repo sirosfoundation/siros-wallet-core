@@ -2,6 +2,7 @@
 //! options the wallet can meet.
 
 use super::{Candidate, Match};
+use crate::claims::Foreign;
 use crate::plugins::{OptionIndex, OptionItems, Options};
 use crate::request::{ItemSet, QuerySet, factor, project};
 
@@ -69,13 +70,19 @@ impl Consent {
 /// The candidate's answerable options factored into independent choices, by the factoring the
 /// Credential Sets use: the answerable options can couple items the Verifier's options leave
 /// independent. Each choice with its options as item sets.
-#[must_use]
-pub fn answer_slots(options: &Options, candidate: &Candidate<'_>) -> Vec<(ItemSet, Vec<ItemSet>)> {
-    let answerable: Vec<&OptionItems> = candidate
+///
+/// # Errors
+///
+/// [`Foreign::Option`]: a candidate's option is no option of `options`.
+pub fn answer_slots(
+    options: &Options,
+    candidate: &Candidate<'_>,
+) -> Result<Vec<(ItemSet, Vec<ItemSet>)>, Foreign> {
+    let answerable = candidate
         .options
         .iter()
-        .filter_map(|option| options.get(*option))
-        .collect();
+        .map(|option| options.option(*option))
+        .collect::<Result<Vec<&OptionItems>, _>>()?;
     let family: Vec<ItemSet> = answerable.iter().map(|option| option.set()).collect();
     let mut order = Vec::new();
     for item in answerable.iter().flat_map(|option| option.items()) {
@@ -83,22 +90,26 @@ pub fn answer_slots(options: &Options, candidate: &Candidate<'_>) -> Vec<(ItemSe
             order.push(*item);
         }
     }
-    factor(&family, &order)
+    Ok(factor(&family, &order)
         .into_iter()
         .map(|block| (block, project(&family, block)))
-        .collect()
+        .collect())
 }
 
 /// The option the chosen items answer: the first answerable option holding exactly them.
-#[must_use]
+///
+/// # Errors
+///
+/// [`Foreign::Option`]: a candidate's option is no option of `options`.
 pub fn option_of(
     options: &Options,
     candidate: &Candidate<'_>,
     items: ItemSet,
-) -> Option<OptionIndex> {
-    candidate
-        .options
-        .iter()
-        .copied()
-        .find(|option| options.get(*option).is_some_and(|o| o.set() == items))
+) -> Result<Option<OptionIndex>, Foreign> {
+    for option in &candidate.options {
+        if options.option(*option)?.set() == items {
+            return Ok(Some(*option));
+        }
+    }
+    Ok(None)
 }

@@ -8,11 +8,12 @@ use siros_explain::Explain;
 use siros_i18n::{Context, ResolveError};
 
 use super::{Match, OfferSet, Offered, Pick, Record, ShownDigest};
+use crate::claims::Foreign;
 use crate::consent::{Card, ConsentEntry, Header};
 use crate::detail;
 use crate::ids::StaticEntryId;
-use crate::plugins::fault;
-use crate::plugins::{Fault, OptionIndex, OptionItems, Options, Shown};
+use crate::plugins::{Fault, OptionIndex, Options, Shown};
+use crate::plugins::{caused, fault};
 use crate::request::Item;
 use crate::rows::{Env, WalletText};
 
@@ -31,27 +32,28 @@ pub fn wallet_header(context: &Context) -> Result<Header, ResolveError> {
 }
 
 /// The option's items in every option the candidate answers, then those this option adds.
-#[must_use]
+///
+/// # Errors
+///
+/// [`Foreign::Option`]: `option` or an answerable option is no option of `options`.
 pub fn option_items(
     options: &Options,
     answerable: &[OptionIndex],
     option: OptionIndex,
-) -> (Vec<Item>, Vec<Item>) {
-    let items = options.get(option).map_or(&[][..], OptionItems::items);
-    let in_all = |item: &Item| {
-        answerable.iter().all(|o| {
-            options
-                .get(*o)
-                .is_some_and(|other| other.items().contains(item))
-        })
-    };
+) -> Result<(Vec<Item>, Vec<Item>), Foreign> {
+    let items = options.option(option)?.items();
+    let answerable = answerable
+        .iter()
+        .map(|other| options.option(*other))
+        .collect::<Result<Vec<_>, _>>()?;
+    let in_all = |item: &Item| answerable.iter().all(|other| other.items().contains(item));
     let everyone: Vec<Item> = items.iter().copied().filter(in_all).collect();
     let chosen = items
         .iter()
         .copied()
         .filter(|item| !everyone.contains(item))
         .collect();
-    (everyone, chosen)
+    Ok((everyone, chosen))
 }
 
 /// One consent entry: its pick, its record, what it shows, and its transaction's header.
@@ -88,18 +90,18 @@ impl<'m> Views<'m> {
         let request = accepted.request();
         let digest = request.digest();
         let mut views = Vec::new();
-        for (index, query) in request.indexed_queries() {
-            let Some(formatted) = accepted
-                .plan(index)
-                .and_then(|plan| plan.formatted.as_ref())
-            else {
+        for plan in accepted.plans() {
+            let (index, query) = (plan.index, plan.query);
+            // A query whose format has no plug-in has no candidate.
+            let Some(formatted) = plan.formatted.as_ref() else {
                 continue;
             };
             let options = formatted.query.options();
             for (at, candidate) in matched.indexed_candidates(index) {
                 let bound = candidate.bound.as_ref().map(|binding| &binding.bound);
                 for option in &candidate.options {
-                    let (everyone, chosen) = option_items(options, &candidate.options, *option);
+                    let (everyone, chosen) = option_items(options, &candidate.options, *option)
+                        .map_err(|foreign| caused(detail!("a candidate's option"), foreign))?;
                     let entries = bound.map_or(&[][..], |bound| bound.entries.entries());
                     let card = formatted.query.draw(
                         candidate.credential,

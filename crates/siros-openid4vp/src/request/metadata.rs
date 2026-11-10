@@ -320,7 +320,7 @@ impl<'k> AgreeableKey<'k> {
         usable.then_some(Self {
             jwk,
             kty: KeyType(kty),
-            kid: KeyId::parse(member("kid")?).ok()?,
+            kid: KeyId::new(member("kid")?),
             curve,
             point: Point { x, y },
             alg,

@@ -7,7 +7,7 @@ use siros_explain::Explain;
 use siros_syntax::AllOf;
 
 use crate::envelope::Channel;
-use crate::plugins::registry::{Catalog, Placed};
+use crate::plugins::registry::{Catalog, ErasedProfile, Placed};
 use crate::plugins::{Build, Format, FormatQuery, Options, ProfileHandle, Registry};
 use crate::refusal::{ErrorCode, Refusal, Refused, ReprList, RequestRule};
 use crate::request::{ClientMetadata, EntryIndex, MetadataError, QueryIndex, Request};
@@ -99,8 +99,23 @@ pub(crate) struct Formatted<'q> {
 
 /// What the matcher knows of each query.
 pub(crate) struct Plan<'q> {
+    pub(crate) index: QueryIndex,
+    pub(crate) query: &'q crate::request::Query<'q>,
     pub(crate) formatted: Option<Formatted<'q>>,
-    pub(crate) transaction: Option<Transaction>,
+    pub(crate) transaction: Option<Transacted<'q>>,
+}
+
+/// A query with its position and its transaction data.
+type Planned<'q> = (
+    QueryIndex,
+    &'q crate::request::Query<'q>,
+    Option<Transacted<'q>>,
+);
+
+/// A query's transaction data with the profile it names.
+pub(crate) struct Transacted<'q> {
+    pub(crate) transaction: Transaction,
+    pub(crate) profile: &'q dyn ErasedProfile,
 }
 
 /// A request every rule accepts, with its registry.
@@ -144,7 +159,7 @@ impl<'q> Accepted<'q> {
         }
         let mode = mode.map(|(mode, _)| mode);
         let mut plans = Vec::new();
-        for ((index, query), transaction) in request.indexed_queries().zip(transactions) {
+        for (index, query, transaction) in transactions {
             let formatted = match Formatted::of(
                 request,
                 registry,
@@ -160,6 +175,8 @@ impl<'q> Accepted<'q> {
                 parsed => parsed.and_then(Result::ok),
             };
             plans.push(Plan {
+                index,
+                query,
                 formatted,
                 transaction,
             });
@@ -205,10 +222,17 @@ impl<'q> Accepted<'q> {
         self.plans.get(query.get())
     }
 
+    /// Each query's plan, in query order.
+    pub(crate) fn plans(&self) -> &[Plan<'q>] {
+        &self.plans
+    }
+
     /// The transaction data naming a query.
     #[must_use]
     pub fn transaction(&self, query: QueryIndex) -> Option<&Transaction> {
-        self.plan(query).and_then(|plan| plan.transaction.as_ref())
+        self.plan(query)
+            .and_then(|plan| plan.transaction.as_ref())
+            .map(|transacted| &transacted.transaction)
     }
 
     /// The query's options as its format parsed them; empty for a format without a plug-in.
@@ -259,21 +283,23 @@ fn one_transaction(request: &Request<'_>) -> Option<Refusal> {
 
 /// Each query's transaction, and C4: the entries naming one query belong to one profile, so one
 /// credential carries one transaction.
-fn transactions(
-    request: &Request<'_>,
-    registry: &dyn Catalog,
-) -> (Vec<Option<Transaction>>, Vec<Refusal>) {
+fn transactions<'q>(
+    request: &'q Request<'q>,
+    registry: &'q dyn Catalog,
+) -> (Vec<Planned<'q>>, Vec<Refusal>) {
     let mut refusals = Vec::new();
     let mut transactions = Vec::new();
     for (index, query) in request.indexed_queries() {
-        let entries = request.entries_naming(index);
-        let mut profiles: Vec<Option<ProfileHandle>> = Vec::new();
-        for profile in entries
-            .iter()
-            .filter_map(|e| request.entry(*e))
-            .map(|entry| registry.profile(entry.kind()))
+        let mut profiles: Vec<Option<(ProfileHandle, &dyn ErasedProfile)>> = Vec::new();
+        let handle = |profile: &Option<(ProfileHandle, _)>| profile.as_ref().map(|(h, _)| *h);
+        for profile in request
+            .naming(index)
+            .map(|(_, entry)| registry.profiled(entry.kind()))
         {
-            if !profiles.contains(&profile) {
+            if !profiles
+                .iter()
+                .any(|other| handle(other) == handle(&profile))
+            {
                 profiles.push(profile);
             }
         }
@@ -282,13 +308,20 @@ fn transactions(
                 query: query.id().to_string(),
             }));
         }
-        transactions.push(match profiles.first() {
-            Some(Some(profile)) => Some(Transaction {
-                profile: *profile,
-                entries,
-            }),
-            _ => None,
-        });
+        transactions.push((
+            index,
+            query,
+            match profiles.first() {
+                Some(Some((handle, profile))) => Some(Transacted {
+                    transaction: Transaction {
+                        profile: *handle,
+                        entries: request.entries_naming(index),
+                    },
+                    profile: *profile,
+                }),
+                _ => None,
+            },
+        ));
     }
     (transactions, refusals)
 }
@@ -316,7 +349,7 @@ fn expected_origin(request: &Request<'_>) -> Option<Refusal> {
 fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
     let mut refusals = Vec::new();
     for (k, entry) in request.indexed_entries() {
-        if registry.profile(entry.kind()).is_none() {
+        if registry.profiled(entry.kind()).is_none() {
             refusals.push(Refusal::new(CoreRule::NoProfile {
                 entry: k,
                 kind: entry.kind().to_string(),
@@ -340,23 +373,19 @@ fn entry_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
 
 /// Each profile's rules over its entries, the profiles in the order of their first entry.
 fn profile_rules(request: &Request<'_>, registry: &dyn Catalog) -> Vec<Refusal> {
-    let mut groups: Vec<(ProfileHandle, Vec<EntryIndex>)> = Vec::new();
+    let mut groups: Vec<(ProfileHandle, &dyn ErasedProfile, Vec<EntryIndex>)> = Vec::new();
     for (index, entry) in request.indexed_entries() {
-        let Some(profile) = registry.profile(entry.kind()) else {
+        // C1 refuses an entry no profile takes (`entry_rules`).
+        let Some((handle, profile)) = registry.profiled(entry.kind()) else {
             continue;
         };
-        match groups.iter_mut().find(|(handle, _)| *handle == profile) {
-            Some((_, own)) => own.push(index),
-            None => groups.push((profile, vec![index])),
+        match groups.iter_mut().find(|(own, _, _)| *own == handle) {
+            Some((_, _, own)) => own.push(index),
+            None => groups.push((handle, profile, vec![index])),
         }
     }
     groups
         .iter()
-        .filter_map(|(handle, own)| {
-            registry
-                .profile_ref(*handle)
-                .map(|profile| profile.refusals(request, own))
-        })
-        .flatten()
+        .flat_map(|(_, profile, own)| profile.refusals(request, own))
         .collect()
 }

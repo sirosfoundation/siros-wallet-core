@@ -142,7 +142,7 @@ fn entry_at<'e, T>(entries: &'e [Located<'_, T>], path: &[Concrete<'_>]) -> Opti
             && written.iter().zip(path).all(|(step, at)| match (step, at) {
                 (Node::String(name), Concrete::Key(key)) => name == key,
                 (Node::Number(index), Concrete::Index(at)) => {
-                    index.as_u64() == u64::try_from(at.position()).ok()
+                    index.as_u64().map(usize::try_from) == Some(Ok(at.position()))
                 }
                 _ => false,
             })

@@ -408,46 +408,54 @@ impl RequestRule for HashesAlgRule {
 /// array of strings naming a registered algorithm.
 #[must_use]
 pub fn rule(entry: &Entry<'_>, hashes: Hashes<'_>) -> Option<HashesAlgRule> {
-    let value = listed(entry)?;
-    let names: Option<Vec<&str>> = value
-        .as_array()
-        .filter(|items| !items.is_empty())
-        .and_then(|items| items.iter().map(Node::as_str).collect());
-    match names {
-        None => Some(HashesAlgRule::NotArray),
-        Some(names) if names.iter().all(|name| hashes.named(name).is_none()) => {
+    listed(entry).and_then(|_| match allowed(entry) {
+        Err(rule) => Some(rule),
+        Ok(names) if names.iter().all(|name| hashes.named(name).is_none()) => {
             Some(HashesAlgRule::Unknown {
                 names: ReprList::strings(&names),
             })
         }
-        Some(_) => None,
-    }
+        Ok(_) => None,
+    })
+}
+
+#[cfg(feature = "transaction-data")]
+/// The names the entry allows: its `transaction_data_hashes_alg`, else sha-256 alone.
+fn allowed<'e>(entry: &'e Entry<'_>) -> Result<Vec<&'e str>, HashesAlgRule> {
+    let Some(value) = listed(entry) else {
+        return Ok(vec!["sha-256"]);
+    };
+    value
+        .as_array()
+        .filter(|items| !items.is_empty())
+        .and_then(|items| items.iter().map(Node::as_str).collect())
+        .ok_or(HashesAlgRule::NotArray)
 }
 
 #[cfg(feature = "transaction-data")]
 /// One registered algorithm every entry allows, an entry without a list allowing sha-256 alone:
-/// the first of the first entry's that the others allow and the registry holds.
-#[must_use]
-pub fn algorithm<'h>(entries: &[&Entry<'_>], hashes: Hashes<'h>) -> Option<&'h dyn HashAlgorithm> {
-    let allowed = |entry: &Entry<'_>| -> Vec<String> {
-        match listed(entry)
-            .and_then(Node::as_array)
-            .filter(|items| !items.is_empty())
-        {
-            Some(items) => items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect(),
-            None => vec!["sha-256".to_owned()],
-        }
+/// the first of the first entry's that the others allow and the registry holds; `None` without
+/// entries or without such an algorithm.
+///
+/// # Errors
+///
+/// An entry's `transaction_data_hashes_alg` breaks [`HashesAlgRule::NotArray`].
+pub fn algorithm<'h>(
+    entries: &[&Entry<'_>],
+    hashes: Hashes<'h>,
+) -> Result<Option<&'h dyn HashAlgorithm>, HashesAlgRule> {
+    let Some((first, others)) = entries.split_first() else {
+        return Ok(None);
     };
-    let (first, others) = entries.split_first()?;
-    let others: Vec<Vec<String>> = others.iter().map(|entry| allowed(entry)).collect();
-    allowed(first).iter().find_map(|name| {
+    let others = others
+        .iter()
+        .map(|entry| allowed(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(allowed(first)?.into_iter().find_map(|name| {
         hashes
             .named(name)
-            .filter(|_| others.iter().all(|other| other.contains(name)))
-    })
+            .filter(|_| others.iter().all(|other| other.contains(&name)))
+    }))
 }
 
 /// Why the B.3.3.1 members cannot be written.
@@ -458,6 +466,9 @@ pub enum HashesError {
     #[error("no hash algorithm every entry allows (B.3.3.1)")]
     #[explain(id = "hashes.no_common_algorithm")]
     NoCommonAlgorithm,
+    /// An entry's `transaction_data_hashes_alg` breaks its rule.
+    #[error(transparent)]
+    Listed(#[from] HashesAlgRule),
     /// A member written twice.
     #[error(transparent)]
     MemberTwice(#[from] MemberTwice),
@@ -478,7 +489,7 @@ pub enum HashesError {
 /// the algorithm when an entry listed algorithms.
 #[cfg(all(feature = "transaction-data", feature = "resolve"))]
 pub fn members(entries: &[&Entry<'_>], hashes: Hashes<'_>) -> Result<Members, HashesError> {
-    let algorithm = algorithm(entries, hashes).ok_or(HashesError::NoCommonAlgorithm)?;
+    let algorithm = algorithm(entries, hashes)?.ok_or(HashesError::NoCommonAlgorithm)?;
     let hashes = entries
         .iter()
         .map(|entry| {

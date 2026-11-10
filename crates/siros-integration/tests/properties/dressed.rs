@@ -575,7 +575,8 @@ fn boxes(
             accepted.options(view.pick.query),
             &candidate.options,
             view.pick.option,
-        );
+        )
+        .expect("the candidate's options are the query's");
         // The format's card shows the items in every answerable option, then the option's own.
         let card: Card = parsed
             .draw(candidate.credential, &everyone, &chosen)

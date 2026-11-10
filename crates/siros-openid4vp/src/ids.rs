@@ -143,6 +143,14 @@ text_id!(
     "kid",
     |_| true
 );
+
+impl<'a> KeyId<'a> {
+    /// The `kid` of a text; RFC 7517 §4.5 takes any string.
+    #[must_use]
+    pub fn new(text: impl Into<Cow<'a, str>>) -> Self {
+        Self(text.into())
+    }
+}
 text_id!(
     /// A credential's type as its format reads it from the view: a `vct` (SD-JWT VC §3.2.2.2) or
     /// a docType (ISO/IEC 18013-5 §7.1).
