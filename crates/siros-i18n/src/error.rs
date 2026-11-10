@@ -92,20 +92,80 @@ pub enum LoadError {
         /// The name, the key or the literal, as written.
         text: String,
     },
-    /// The engine misses a value of the message or an entry of the context that it holds by
-    /// construction: a defect of siros-i18n.
-    #[error("{id}: siros-i18n misses a value it holds by construction")]
-    #[explain(id = "load.defect")]
-    Defect {
-        /// The message's id.
-        id: String,
-    },
 }
 
-/// A lookup that misses a value, an entry or a section the engine holds by construction. The
-/// public errors report it as their `Defect`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Defect;
+/// Why a message does not load, before its id and its line join it: [`Fault::at`] makes the
+/// [`LoadError`].
+#[derive(Debug)]
+pub(crate) enum Fault {
+    /// The byte offset where the message leaves MF2's grammar.
+    Syntax(usize),
+    /// Variant Key Mismatch.
+    VariantKeyMismatch,
+    /// Missing Fallback Variant.
+    MissingFallbackVariant,
+    /// Missing Selector Annotation, of this variable.
+    MissingSelectorAnnotation(String),
+    /// Duplicate Declaration, of this variable.
+    DuplicateDeclaration(String),
+    /// Duplicate Option Name, of this option.
+    DuplicateOptionName(String),
+    /// Duplicate Variant.
+    DuplicateVariant,
+    /// Markup of this name, which names no style.
+    Markup(String),
+    /// Markup of this name with options.
+    MarkupOption(String),
+    /// Markup of this name, which leaves the nested order.
+    Nesting(String),
+    /// A function of this name, which the build lacks.
+    Function(String),
+    /// This function, whose format options no module defines.
+    Undefined(&'static str),
+    /// This function's refusal of a call.
+    Call(&'static str, Refusal),
+    /// A name, a variant key or a selector literal, as written, that NFC changes.
+    Unnormalized(String),
+}
+
+impl Fault {
+    /// The error of the fault in the message `id`, which starts at `line`.
+    pub(crate) fn at(self, id: &str, line: usize) -> LoadError {
+        let id = id.to_owned();
+        let rule = match self {
+            Self::Syntax(at) => SyntaxRule::Message { id, at },
+            Self::VariantKeyMismatch => SyntaxRule::VariantKeyMismatch { id },
+            Self::MissingFallbackVariant => SyntaxRule::MissingFallbackVariant { id },
+            Self::MissingSelectorAnnotation(variable) => {
+                SyntaxRule::MissingSelectorAnnotation { id, variable }
+            }
+            Self::DuplicateDeclaration(variable) => {
+                SyntaxRule::DuplicateDeclaration { id, variable }
+            }
+            Self::DuplicateOptionName(option) => SyntaxRule::DuplicateOptionName { id, option },
+            Self::DuplicateVariant => SyntaxRule::DuplicateVariant { id },
+            Self::Markup(markup) => SyntaxRule::Markup { id, markup },
+            Self::MarkupOption(markup) => SyntaxRule::MarkupOption { id, markup },
+            Self::Nesting(markup) => SyntaxRule::Nesting { id, markup },
+            Self::Function(function) => return LoadError::Function { id, function },
+            Self::Undefined(function) => {
+                return LoadError::Option {
+                    id,
+                    function: function.to_owned(),
+                };
+            }
+            Self::Call(function, refusal) => {
+                return LoadError::Call {
+                    id,
+                    function: function.to_owned(),
+                    refusal,
+                };
+            }
+            Self::Unnormalized(text) => return LoadError::Unnormalized { id, text },
+        };
+        LoadError::Syntax { line, rule }
+    }
+}
 
 /// The rules of syntax a module follows: the resource format's (the W3C i18n-discuss message
 /// resource syntax), MessageFormat 2's syntax and data model (spec/errors.md "Syntax Errors",
@@ -349,14 +409,6 @@ pub enum ResolveError {
         /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
         key: String,
     },
-    /// The engine misses a value of the message, an entry of the context or a format section
-    /// that it holds by construction: a defect of siros-i18n.
-    #[error("{id}: siros-i18n misses a value it holds by construction")]
-    #[explain(id = "resolve.defect")]
-    Defect {
-        /// The message's id.
-        id: String,
-    },
 }
 
 /// Why `Context::check` failed: the first of its rules a row breaks.
@@ -384,14 +436,6 @@ pub enum CheckError {
         id: String,
         /// The argument's key.
         key: String,
-    },
-    /// The engine misses a value of the message or an entry of the context that it holds by
-    /// construction: a defect of siros-i18n.
-    #[error("{id}: siros-i18n misses a value it holds by construction")]
-    #[explain(id = "check.defect")]
-    Defect {
-        /// The id.
-        id: String,
     },
 }
 

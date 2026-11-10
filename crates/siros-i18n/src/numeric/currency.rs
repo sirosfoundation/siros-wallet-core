@@ -10,8 +10,9 @@ use icu_properties::props::{GeneralCategory, GeneralCategoryGroup};
 use rustc_hash::FxHashSet;
 use siros_syntax::Currency;
 
+use crate::chain::Failure;
 use crate::error::FormatRule;
-use crate::format::{Failure, Options};
+use crate::format::Options;
 use crate::numeric::Form;
 use crate::numeric::decimal::{Fixed, Given};
 use crate::numeric::language::{Numbers, symbol};
@@ -326,10 +327,10 @@ impl Parsed {
     /// # Errors
     ///
     /// [`Failure::Option`] for a `currency` or `currencyDisplay` text the function refuses, and
-    /// [`Failure::Defect`] for a value whose call names no currency: the load refuses it.
+    /// [`Failure::Operand`] for a value whose call names no currency.
     pub(crate) fn amount(&self, form: &Form<'_>, given: &Given) -> Result<String, Failure> {
         let option = |name: &str| Failure::Option(name.to_owned());
-        let code = form.resolved.get("currency").ok_or(Failure::Defect)?;
+        let code = form.resolved.get("currency").ok_or(Failure::Operand)?;
         let currency = currency(code).ok_or_else(|| option("currency"))?;
         let display = match form.resolved.get("currencyDisplay") {
             Some(name) => Display::named(name).ok_or_else(|| option("currencyDisplay"))?,

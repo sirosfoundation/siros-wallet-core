@@ -8,9 +8,10 @@
 
 use siros_syntax::{Date, DateTime, Offset, OffsetTime};
 
+use crate::chain::{Chain, Failure, Root, Scope, Texts};
 use crate::digit::Numerals;
 use crate::error::{FormatRule, Refusal};
-use crate::format::{CallTexts, Chain, Direction, Env, Failure, Function, Options, Root, Use};
+use crate::format::{Direction, Function, Options};
 
 /// The options `[formats.date]` takes.
 pub(crate) const OPTIONS: [&str; 22] = [
@@ -272,10 +273,12 @@ impl Names {
     ///
     /// # Errors
     ///
-    /// [`Failure::Defect`] for an index past the names: [`Parsed::parse`] holds a name at each
-    /// position a field reads.
+    /// [`Failure::Operand`] for an index past the names.
     fn at(&self, index: usize) -> Result<&str, Failure> {
-        self.0.get(index).map(String::as_str).ok_or(Failure::Defect)
+        self.0
+            .get(index)
+            .map(String::as_str)
+            .ok_or(Failure::Operand)
     }
 }
 
@@ -480,21 +483,17 @@ impl Parsed {
     }
 }
 
-/// Checks a chain of date function calls for its use: a placeholder formats it, an option takes
-/// its operand's text. A call takes the `length` of the nearest call that gives one, its own
+/// Checks a chain of date function calls, which a placeholder formats or an option takes the
+/// operand's text of. A call takes the `length` of the nearest call that gives one, its own
 /// first.
 ///
 /// # Errors
 ///
-/// [`Refusal::Selector`] in a selector; [`Refusal::Operand`] for a missing operand, a call of
-/// another function, or a literal a call does not take; [`Refusal::Option`] for a `length` the
-/// load fixes that names no length.
-pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
-    if at == Use::Select {
-        return Err(Refusal::Selector);
-    }
+/// [`Refusal::Operand`] for a missing operand, a call of another function, or a literal a call
+/// does not take; [`Refusal::Option`] for a `length` the load fixes that names no length.
+pub(crate) fn check(chain: &Chain) -> Result<(), Refusal> {
     let kinds = kinds(chain).ok_or(Refusal::Operand)?;
-    match chain.root {
+    match &chain.root {
         Root::None => return Err(Refusal::Operand),
         Root::Literal(text) => {
             let written = Written::of(text).ok_or(Refusal::Operand)?;
@@ -504,11 +503,8 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
         }
         Root::Argument(_) => {}
     }
-    let given = chain
-        .calls()
-        .rev()
-        .find_map(|call| call.options.iter().find(|(name, _)| *name == "length"));
-    match given.and_then(|&(_, value)| value.fixed()) {
+    let given = chain.calls().rev().find_map(|call| call.option("length"));
+    match given.and_then(|value| value.fixed()) {
         Some(name) if Length::named(name).is_none() => Err(Refusal::Option {
             option: "length".to_owned(),
         }),
@@ -517,29 +513,29 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
 }
 
 /// The kinds of the chain's calls, innermost first; `None` for a call of another function.
-fn kinds(chain: &Chain<'_>) -> Option<Vec<Kind>> {
+fn kinds(chain: &Chain) -> Option<Vec<Kind>> {
     chain.calls().map(|call| Kind::of(call.function)).collect()
 }
 
-/// The operand's text and the value it writes, which every call of the chain takes.
-fn written<'m>(chain: &Chain<'m>, env: &Env<'_, 'm>) -> Result<(&'m str, Written), Failure> {
-    let text = match chain.root {
+/// The operand's text, the value it writes, which every call of the chain takes, and the kind
+/// of the outermost call.
+fn written<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<(&'m str, Written, Kind), Failure> {
+    let text = match &chain.root {
         Root::None => return Err(Failure::Operand),
         Root::Literal(text) => text,
-        Root::Argument(key) => env.argument(key)?,
+        Root::Argument(key) => scope.argument(key)?,
     };
     let written = Written::of(text).ok_or(Failure::Operand)?;
     let kinds = kinds(chain).ok_or(Failure::Operand)?;
-    if kinds.iter().all(|kind| kind.takes(&written)) {
-        Ok((text, written))
-    } else {
-        Err(Failure::Operand)
+    match kinds.last() {
+        Some(outer) if kinds.iter().all(|kind| kind.takes(&written)) => Ok((text, written, *outer)),
+        Some(_) | None => Err(Failure::Operand),
     }
 }
 
 /// The length of resolved calls: the nearest call's that gives one, `medium` when none does.
-fn length(texts: &[CallTexts<'_>]) -> Result<Length, Failure> {
-    match texts.iter().rev().find_map(|call| call.option("length")) {
+fn length(texts: &Texts<'_>) -> Result<Length, Failure> {
+    match texts.calls().rev().find_map(|call| call.option("length")) {
         None => Ok(Length::Medium),
         Some(name) => Length::named(name).ok_or_else(|| Failure::Option("length".to_owned())),
     }
@@ -552,11 +548,11 @@ fn length(texts: &[CallTexts<'_>]) -> Result<Length, Failure> {
 /// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
 /// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
 pub(crate) fn value<'m>(
-    chain: &Chain<'m>,
-    texts: &[CallTexts<'m>],
-    env: &Env<'_, 'm>,
+    chain: &'m Chain,
+    texts: &Texts<'_>,
+    scope: &Scope<'m>,
 ) -> Result<&'m str, Failure> {
-    let (text, _) = written(chain, env)?;
+    let (text, ..) = written(chain, scope)?;
     length(texts).map(|_| text)
 }
 
@@ -564,19 +560,17 @@ pub(crate) fn value<'m>(
 ///
 /// # Errors
 ///
-/// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
-/// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
-/// [`Failure::Defect`] for a chain of another function, or a field the value or the section
-/// lacks: [`Parsed::parse`] refuses a pattern that shows one.
-pub(crate) fn format<'m>(
-    chain: &Chain<'m>,
-    texts: &[CallTexts<'_>],
-    env: &Env<'_, 'm>,
+/// [`Failure::Operand`] for a text no call of the chain takes, or a value that lacks a field
+/// its pattern shows; [`Failure::Option`] for a `length` text that names no length, and
+/// [`Failure::Unresolved`] for an argument not given.
+pub(crate) fn format(
+    chain: &Chain,
+    texts: &Texts<'_>,
+    scope: &Scope<'_>,
     language: &Parsed,
 ) -> Result<String, Failure> {
-    let (_, written) = written(chain, env)?;
+    let (_, written, kind) = written(chain, scope)?;
     let length = length(texts)?;
-    let kind = Kind::of(chain.outer.function).ok_or(Failure::Defect)?;
     let moment = Moment::of(written);
     let mut out = String::new();
     match kind {
@@ -778,7 +772,7 @@ impl Parsed {
         shows_era: bool,
         out: &mut String,
     ) -> Result<(), Failure> {
-        let date = || moment.date.ok_or(Failure::Defect);
+        let date = || moment.date.ok_or(Failure::Operand);
         let month = || Ok::<_, Failure>(usize::from(date()?.month()) - 1);
         match field {
             Field::Era => out.push_str(self.eras.at(in_era(date()?.year()).0)?),
@@ -807,7 +801,7 @@ impl Parsed {
             }
             Field::Period => out.push_str(self.periods.at(usize::from(moment.hour >= 12))?),
             Field::Zone { long } => {
-                let offset = moment.offset.ok_or(Failure::Defect)?;
+                let offset = moment.offset.ok_or(Failure::Operand)?;
                 self.zone(offset, long, out);
             }
         }

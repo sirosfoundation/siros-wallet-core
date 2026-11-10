@@ -1,228 +1,221 @@
-//! A message compiled for a context, and resolved. Its values form a table: each declaration's
-//! value once, each literal and argument an expression reads, and each call, on an earlier value.
-//! A variable stands for its declaration's value, else for the argument of its name. Each
-//! placeholder and each selector names the call it formats or selects with, and each option a
-//! variable gives names the value it takes; the load checks each call once for each such use. A
-//! declaration nothing reads never runs. Markup opens and closes the styles in nested order.
+//! A message compiled for a context, and resolved. A compiled message holds a [`Chain`] for each
+//! placeholder and each selector: the load follows each variable to its declaration, so a chain
+//! starts from a literal or an argument and names every call applied to it. A variable that
+//! gives an option its value at resolution stands for a declared call's value, else for the
+//! argument of its name. The load checks each chain for its use. Markup opens and closes the
+//! styles in nested order.
 //!
-//! A message resolves lazily: a placeholder formats when the pattern writes it, a selector
-//! selects when the matcher picks a variant (spec/formatting.md "Pattern Selection"), and a call
-//! an option reads gives its value once per resolution.
+//! A message resolves lazily: a placeholder formats when the pattern writes it, and a selector
+//! selects when the matcher picks a variant (spec/formatting.md "Pattern Selection"). A declared
+//! call an option reads gives its value once per resolution.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use std::borrow::Cow;
 
+use crate::args::Args;
+use crate::chain::{Call, Chain, Dir, Name, Opt, Root, Scope, Use, Value};
 use crate::context::Bidi;
-use crate::error::{Defect, LoadError, Refusal, ResolveError, SyntaxRule};
-use crate::format::{
-    Argument, Call, Chain, Dir, Direction, Env, Formats, Function, OptionValue, Refused, Use, Value,
-};
-use crate::mf2::ast::{self, Key, MarkupKind};
+use crate::error::{Fault, Refusal, ResolveError};
+use crate::format::{Direction, Formats, Function, Selected, Selecting};
+use crate::mf2::ast::{self, MarkupKind};
+use crate::mf2::valid::{Shape, Valid};
 use crate::normal::Hold;
-use crate::store::Id;
 use crate::text::{Style, Text, Writer};
 
-/// A message, compiled: its module's direction, its values, and its body.
+/// A message, compiled: its module's direction, the declared calls its options read, and its
+/// body.
 #[derive(Debug, Clone)]
 pub(crate) struct Compiled {
     direction: Direction,
-    values: Vec<Value>,
+    declared: Vec<Declared>,
     body: Body,
+}
+
+/// A declared call whose value an option reads: its variable and its chain.
+#[derive(Debug, Clone)]
+struct Declared {
+    name: Box<str>,
+    chain: Chain,
 }
 
 /// A message's body.
 #[derive(Debug, Clone)]
 enum Body {
     Pattern(Pattern),
-    /// `.match`: its selectors, its variants with a key, and the variant whose keys are all `*`.
+    /// `.match`: its selectors, its variants with a literal key, and the pattern of the variant
+    /// whose keys are all `*`.
     Select {
-        columns: Vec<Column>,
+        selectors: Vec<Selector>,
         variants: Vec<Variant>,
         fallback: Pattern,
     },
 }
 
-/// A selector: the index of the call it selects with, and the distinct keys of its column.
+/// A selector: its chain, and how its function selects.
 #[derive(Debug, Clone)]
-struct Column {
-    call: usize,
-    keys: Vec<String>,
+struct Selector {
+    chain: Chain,
+    selecting: Selecting,
 }
 
-/// A variant with a key: one key per selector, and its pattern.
+/// A variant with a literal key: one key per selector, and its pattern.
 #[derive(Debug, Clone)]
 struct Variant {
     keys: Vec<Key>,
     pattern: Pattern,
 }
 
+/// A variant key.
+#[derive(Debug, Clone)]
+enum Key {
+    Literal(Box<str>),
+    CatchAll,
+}
+
+/// How well a variant's key matches its selector's value: a literal key by its rank among the
+/// keys the value matches, before `*`.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Rank {
+    Key(usize),
+    CatchAll,
+}
+
+impl Variant {
+    /// The rank of each key over its selector's value; `None` for a key the value does not
+    /// match.
+    fn ranks(&self, selected: &[Selected<'_>]) -> impl Iterator<Item = Option<Rank>> {
+        self.keys
+            .iter()
+            .zip(selected)
+            .map(|(key, selected)| match key {
+                Key::CatchAll => Some(Rank::CatchAll),
+                Key::Literal(key) => selected.rank(key).map(Rank::Key),
+            })
+    }
+}
+
 type Pattern = Vec<Part>;
 
-/// A part of a compiled pattern: a placeholder is the index of the call it formats with.
+/// A part of a compiled pattern.
 #[derive(Debug, Clone)]
 enum Part {
-    Text(String),
-    Placeholder(usize),
+    Text(Box<str>),
+    /// The chain a placeholder formats.
+    Placeholder(Chain),
     Open(Style),
     Close(Style),
 }
 
-/// The compilation of one message: its id, its line, the context's formats, how the load holds
-/// selector literals, the values so far, the value each variable stands for, and the uses of a
-/// call checked so far.
-struct Compiler<'c> {
-    id: Id<'c>,
-    line: usize,
-    formats: &'c Formats,
-    hold: Hold,
-    values: Vec<Value>,
-    bound: FxHashMap<String, usize>,
-    checked: FxHashSet<(usize, Use)>,
+/// What a declaration binds its variable to.
+#[derive(Debug, Clone)]
+enum Bound {
+    Literal(Box<str>),
+    /// The argument of this key.
+    Argument(Box<str>),
+    Call(Chain),
 }
 
-/// Compiles the message `id`, which starts at `line` of a module whose direction is
-/// `direction`, each literal a selector compares held by `hold`.
+/// A declaration: its variable, what it binds it to, and whether an option reads its call's
+/// value.
+struct Binding<'a> {
+    name: &'a str,
+    bound: Bound,
+    read: bool,
+}
+
+/// The compilation of one message: the context's formats, how the load holds selector literals,
+/// and the declarations so far.
+struct Compiler<'c, 'a> {
+    formats: &'c Formats,
+    hold: Hold,
+    bindings: Vec<Binding<'a>>,
+}
+
+/// Compiles a message of a module whose direction is `direction`, each literal a selector
+/// compares held by `hold`.
 ///
 /// # Errors
 ///
-/// [`LoadError`] for a function the build lacks, a function whose section no module defined, a
+/// The [`Fault`] of a function the build lacks, a function whose section no module defined, a
 /// call its function refuses, a selector literal `hold` refuses, and markup outside the styles
 /// or not nested.
 pub(crate) fn compile(
-    id: Id<'_>,
-    line: usize,
-    message: &ast::Message,
+    message: &Valid<'_, '_>,
     direction: Direction,
     formats: &Formats,
     hold: Hold,
-) -> Result<Compiled, LoadError> {
+) -> Result<Compiled, Fault> {
     let mut compiler = Compiler {
-        id,
-        line,
         formats,
         hold,
-        values: Vec::new(),
-        bound: FxHashMap::default(),
-        checked: FxHashSet::default(),
+        bindings: Vec::with_capacity(message.declarations.len()),
     };
-    for declaration in &message.declarations {
-        let (name, at) = match declaration {
-            ast::Declaration::Input {
-                name,
-                function: Some(function),
-            } => {
-                let operand = compiler.push(Value::Argument(name.clone()));
-                (name, compiler.call(Some(operand), function)?)
+    for declaration in message.declarations {
+        let (name, bound) = match declaration {
+            ast::Declaration::Input { name, function } => {
+                let argument = Bound::Argument(name.as_ref().into());
+                let bound = match function {
+                    Some(function) => Bound::Call(compiler.call(Some(argument), function)?),
+                    None => argument,
+                };
+                (name, bound)
             }
-            ast::Declaration::Input {
-                name,
-                function: None,
-            } => (name, compiler.push(Value::Argument(name.clone()))),
             ast::Declaration::Local { name, expression } => (name, compiler.bind(expression)?),
         };
-        if compiler.bound.insert(name.clone(), at).is_some() {
-            return Err(compiler.syntax(SyntaxRule::DuplicateDeclaration {
-                id: id.to_string(),
-                variable: name.clone(),
-            }));
-        }
+        compiler.bindings.push(Binding {
+            name,
+            bound,
+            read: false,
+        });
     }
     let body = match &message.body {
-        ast::Body::Pattern(pattern) => Body::Pattern(compiler.pattern(pattern)?),
-        ast::Body::Matcher {
+        Shape::Pattern(pattern) => Body::Pattern(compiler.pattern(pattern)?),
+        Shape::Matcher {
             selectors,
             variants,
-        } => compiler.matcher(selectors, variants)?,
+            fallback,
+        } => compiler.matcher(selectors, variants, fallback)?,
     };
+    let declared = compiler
+        .bindings
+        .into_iter()
+        .filter_map(|binding| match binding {
+            Binding {
+                name,
+                bound: Bound::Call(chain),
+                read: true,
+            } => Some(Declared {
+                name: name.into(),
+                chain,
+            }),
+            _ => None,
+        })
+        .collect();
     Ok(Compiled {
         direction,
-        values: compiler.values,
+        declared,
         body,
     })
 }
 
-impl Compiler<'_> {
-    fn syntax(&self, rule: SyntaxRule) -> LoadError {
-        LoadError::Syntax {
-            line: self.line,
-            rule,
-        }
-    }
-
-    /// The error of a lookup that misses a value the compiler holds.
-    fn defect(&self) -> LoadError {
-        LoadError::Defect {
-            id: self.id.to_string(),
-        }
-    }
-
-    /// The value at `at`.
-    ///
-    /// # Errors
-    ///
-    /// [`LoadError::Defect`] for an index past the values.
-    fn value(&self, at: usize) -> Result<&Value, LoadError> {
-        self.values.get(at).ok_or_else(|| self.defect())
-    }
-
-    /// The refusal of a chain whose outermost function is `function`.
-    fn refused(&self, function: Function, refused: Refused) -> LoadError {
-        let (id, function) = (self.id.to_string(), function.name().to_owned());
-        match refused {
-            #[cfg(any(
-                feature = "number",
-                feature = "currency",
-                feature = "offset",
-                feature = "date"
-            ))]
-            Refused::Undefined => LoadError::Option { id, function },
-            Refused::Call(refusal) => LoadError::Call {
-                id,
-                function,
-                refusal,
-            },
-            Refused::Unnormalized(literal) => LoadError::Unnormalized {
-                id,
-                text: literal.written(),
-            },
-            Refused::Defect => LoadError::Defect { id },
-        }
-    }
-
-    /// Adds a value; returns its index.
-    fn push(&mut self, value: Value) -> usize {
-        self.values.push(value);
-        self.values.len() - 1
-    }
-
-    /// The index of the value the variable `name` stands for: its declaration's, else the
-    /// argument of its name, which the variable then stands for.
-    fn variable(&mut self, name: &str) -> usize {
-        if let Some(&at) = self.bound.get(name) {
-            return at;
-        }
-        let at = self.push(Value::Argument(name.to_owned()));
-        *self.bound.entry(name.to_owned()).or_insert(at)
-    }
-
-    /// The index of an operand's value.
-    fn operand(&mut self, operand: &ast::Operand) -> usize {
+impl Compiler<'_, '_> {
+    /// What an operand stands for: a literal, or what its variable's declaration binds; the
+    /// argument of its name for a variable no declaration binds.
+    fn operand(&self, operand: &ast::Operand<'_>) -> Bound {
         match operand {
-            ast::Operand::Literal(literal) => self.push(Value::Literal(literal.clone())),
-            ast::Operand::Variable(name) => self.variable(name),
+            ast::Operand::Literal(text) => Bound::Literal(text.as_ref().into()),
+            ast::Operand::Variable(name) => self
+                .bindings
+                .iter()
+                .find(|binding| binding.name == name)
+                .map_or_else(
+                    || Bound::Argument(name.as_ref().into()),
+                    |binding| binding.bound.clone(),
+                ),
         }
     }
 
-    /// Whether the value at `at` is a call.
-    ///
-    /// # Errors
-    ///
-    /// [`LoadError::Defect`] for an index past the values.
-    fn is_call(&self, at: usize) -> Result<bool, LoadError> {
-        Ok(matches!(self.value(at)?, Value::Call(_)))
-    }
-
-    /// The index of the value a local declaration's expression binds.
-    fn bind(&mut self, expression: &ast::Expression) -> Result<usize, LoadError> {
+    /// What an expression stands for: its operand, or the call of its function on it.
+    fn bind(&mut self, expression: &ast::Expression<'_>) -> Result<Bound, Fault> {
         match expression {
             ast::Expression::Operand {
                 operand,
@@ -231,207 +224,172 @@ impl Compiler<'_> {
             ast::Expression::Operand {
                 operand,
                 function: Some(function),
-            } => {
-                let operand = self.operand(operand);
-                self.call(Some(operand), function)
-            }
-            ast::Expression::Function(function) => self.call(None, function),
+            } => self
+                .call(Some(self.operand(operand)), function)
+                .map(Bound::Call),
+            ast::Expression::Function(function) => self.call(None, function).map(Bound::Call),
         }
     }
 
-    /// Checks the call at `at` for `used`, once per use.
-    fn check(&mut self, at: usize, used: Use) -> Result<(), LoadError> {
-        if !self.checked.insert((at, used)) {
-            return Ok(());
-        }
-        let chain = Chain::of(&self.values, at).map_err(|Defect| self.defect())?;
-        crate::format::check(&chain, used, self.formats, self.hold)
-            .map_err(|refusal| self.refused(chain.outer.function, refusal))
-    }
-
-    /// A call of `function` on the value at `operand`: its options, each a literal or a
-    /// variable, and a `u:dir` the load fixes, which names a direction. Returns its index.
+    /// The chain of a call of `function` on `operand`.
     fn call(
         &mut self,
-        operand: Option<usize>,
-        function: &ast::Function,
-    ) -> Result<usize, LoadError> {
-        let name = function.name.as_str();
-        let called = Function::named(name).ok_or_else(|| LoadError::Function {
-            id: self.id.to_string(),
-            function: name.to_owned(),
-        })?;
+        operand: Option<Bound>,
+        function: &ast::Function<'_>,
+    ) -> Result<Chain, Fault> {
+        let name = function.name.as_ref();
+        let called = Function::named(name).ok_or_else(|| Fault::Function(name.to_owned()))?;
         if !self.formats.defines(called) {
-            return Err(LoadError::Option {
-                id: self.id.to_string(),
-                function: name.to_owned(),
-            });
+            return Err(Fault::Undefined(called.name()));
         }
-        let id = self.id;
-        let refuse = |option: &str| LoadError::Call {
-            id: id.to_string(),
-            function: name.to_owned(),
-            refusal: Refusal::Option {
-                option: option.to_owned(),
+        let options = function
+            .options
+            .iter()
+            .map(|option| self.option(called, option))
+            .collect::<Result<_, _>>()?;
+        let call = Call::new(called, options);
+        Ok(match operand {
+            None => Chain::new(Root::None, call),
+            Some(Bound::Literal(text)) => Chain::new(Root::Literal(text), call),
+            Some(Bound::Argument(key)) => Chain::new(Root::Argument(key), call),
+            Some(Bound::Call(chain)) => chain.then(call),
+        })
+    }
+
+    /// An option of a call of `called`: its value a literal, written or bound to its variable,
+    /// or a variable, whose declared call is checked to give a value; and its name, a `u:dir`
+    /// the load fixes naming a direction.
+    fn option(&mut self, called: Function, option: &ast::Opt<'_>) -> Result<Opt, Fault> {
+        let value = match &option.value {
+            ast::Operand::Literal(text) => Value::Literal(text.as_ref().into()),
+            ast::Operand::Variable(variable) => {
+                let variable = variable.as_ref();
+                match self.bindings.iter_mut().find(|b| b.name == variable) {
+                    Some(Binding {
+                        bound: Bound::Literal(text),
+                        ..
+                    }) => Value::Bound(text.clone()),
+                    Some(Binding {
+                        bound: Bound::Argument(key),
+                        ..
+                    }) => Value::Variable(key.clone()),
+                    Some(Binding {
+                        bound: Bound::Call(chain),
+                        read,
+                        ..
+                    }) => {
+                        crate::format::check(chain, Use::Value, self.formats)
+                            .map_err(|refused| refused.fault(chain.outer.function))?;
+                        *read = true;
+                        Value::Variable(variable.into())
+                    }
+                    None => Value::Variable(variable.into()),
+                }
+            }
+        };
+        let refuse = || {
+            let option = option.name.to_string();
+            Fault::Call(called.name(), Refusal::Option { option })
+        };
+        let name = match option.name.as_ref() {
+            "u:dir" => match &value {
+                Value::Literal(text) | Value::Bound(text) if Dir::named(text).is_none() => {
+                    return Err(refuse());
+                }
+                Value::Literal(_) | Value::Bound(_) | Value::Variable(_) => Name::Dir,
             },
+            "u:id" => Name::Id,
+            other if other.starts_with("u:") => return Err(refuse()),
+            other => Name::Of(other.into()),
         };
-        let mut options = Vec::with_capacity(function.options.len());
-        for option in &function.options {
-            let value = match &option.value {
-                ast::Operand::Literal(literal) => OptionValue::Literal(literal.clone()),
-                ast::Operand::Variable(variable) => {
-                    let at = self.variable(variable);
-                    if self.is_call(at)? {
-                        self.check(at, Use::Value)?;
-                    }
-                    OptionValue::Variable(at)
-                }
-            };
-            match option.name.as_str() {
-                "u:dir" => {
-                    let fixed = match &value {
-                        OptionValue::Literal(text) => Some(text.as_str()),
-                        OptionValue::Variable(at) => match self.value(*at)? {
-                            Value::Literal(text) => Some(text.as_str()),
-                            Value::Argument(_) | Value::Call(_) => None,
-                        },
-                    };
-                    if fixed.is_some_and(|text| Dir::named(text).is_none()) {
-                        return Err(refuse(&option.name));
-                    }
-                }
-                "u:id" => {}
-                other if other.starts_with("u:") => return Err(refuse(other)),
-                _ => {}
-            }
-            options.push((option.name.clone(), value));
-        }
-        Ok(self.push(Value::Call(Call {
-            function: called,
-            operand,
-            options,
-        })))
+        Ok(Opt { name, value })
     }
 
-    /// A placeholder: the index of the call it formats with, checked. A literal or a variable
-    /// without a function formats with `:string`.
-    fn placeholder(&mut self, expression: &ast::Expression) -> Result<usize, LoadError> {
-        let at = match expression {
-            ast::Expression::Operand {
-                operand,
-                function: None,
-            } => {
-                let at = self.operand(operand);
-                if self.is_call(at)? {
-                    at
-                } else {
-                    self.push(Value::Call(Call {
-                        function: Function::String,
-                        operand: Some(at),
-                        options: Vec::new(),
-                    }))
-                }
-            }
-            ast::Expression::Operand {
-                operand,
-                function: Some(function),
-            } => {
-                let operand = self.operand(operand);
-                self.call(Some(operand), function)?
-            }
-            ast::Expression::Function(function) => self.call(None, function)?,
+    /// The chain a placeholder formats, checked. A literal or a variable without a function
+    /// formats with `:string`.
+    fn placeholder(&mut self, expression: &ast::Expression<'_>) -> Result<Chain, Fault> {
+        let string = || Call::new(Function::String, Vec::new());
+        let chain = match self.bind(expression)? {
+            Bound::Call(chain) => chain,
+            Bound::Literal(text) => Chain::new(Root::Literal(text), string()),
+            Bound::Argument(key) => Chain::new(Root::Argument(key), string()),
         };
-        self.check(at, Use::Format)?;
-        Ok(at)
+        crate::format::check(&chain, Use::Format, self.formats)
+            .map_err(|refused| refused.fault(chain.outer.function))?;
+        Ok(chain)
     }
 
-    /// A `.match` body: each selector checked over its column's keys, each variant's pattern,
-    /// and the variant whose keys are all `*`.
+    /// The selector of the variable `name`: its declared call's chain, checked to select.
+    fn selector(&self, name: &str) -> Result<Selector, Fault> {
+        let Some(Binding {
+            bound: Bound::Call(chain),
+            ..
+        }) = self.bindings.iter().find(|binding| binding.name == name)
+        else {
+            return Err(Fault::MissingSelectorAnnotation(name.to_owned()));
+        };
+        let selecting = Selecting::of(chain, self.formats, self.hold)
+            .map_err(|refused| refused.fault(chain.outer.function))?;
+        Ok(Selector {
+            chain: chain.clone(),
+            selecting,
+        })
+    }
+
+    /// A `.match` body: each selector, each variant's keys, which its selector's selection
+    /// reads, and each pattern.
     fn matcher(
         &mut self,
-        selectors: &[String],
-        variants: &[ast::Variant],
-    ) -> Result<Body, LoadError> {
-        if variants
+        selectors: &[Cow<'_, str>],
+        variants: &[&ast::Variant<'_>],
+        fallback: &ast::Pattern<'_>,
+    ) -> Result<Body, Fault> {
+        let selectors = selectors
             .iter()
-            .any(|variant| variant.keys.len() != selectors.len())
-        {
-            return Err(self.syntax(SyntaxRule::VariantKeyMismatch {
-                id: self.id.to_string(),
-            }));
-        }
-        let mut columns = Vec::with_capacity(selectors.len());
-        for (column, name) in selectors.iter().enumerate() {
-            let call = self.variable(name);
-            let function = match self.value(call)? {
-                Value::Call(selecting) => selecting.function,
-                Value::Literal(_) | Value::Argument(_) => {
-                    return Err(self.syntax(SyntaxRule::MissingSelectorAnnotation {
-                        id: self.id.to_string(),
-                        variable: name.clone(),
-                    }));
-                }
-            };
-            let mut seen = FxHashSet::default();
-            let mut keys: Vec<String> = Vec::new();
-            for variant in variants {
-                match variant.keys.get(column).ok_or_else(|| self.defect())? {
-                    Key::Literal(key) if seen.insert(key.as_str()) => keys.push(key.clone()),
-                    Key::Literal(_) | Key::CatchAll => {}
-                }
-            }
-            self.check(call, Use::Select)?;
-            crate::format::keys(function, &keys)
-                .map_err(|refusal| self.refused(function, Refused::Call(refusal)))?;
-            columns.push(Column { call, keys });
-        }
-        let mut keyed = Vec::with_capacity(variants.len());
-        let mut fallback = None;
-        for variant in variants {
-            let pattern = self.pattern(&variant.pattern)?;
-            if variant.keys.iter().all(|key| *key == Key::CatchAll) {
-                if fallback.replace(pattern).is_some() {
-                    return Err(self.syntax(SyntaxRule::DuplicateVariant {
-                        id: self.id.to_string(),
-                    }));
-                }
-            } else {
-                keyed.push(Variant {
-                    keys: variant.keys.clone(),
-                    pattern,
-                });
-            }
-        }
-        let fallback = fallback.ok_or_else(|| {
-            self.syntax(SyntaxRule::MissingFallbackVariant {
-                id: self.id.to_string(),
+            .map(|name| self.selector(name))
+            .collect::<Result<Vec<_>, _>>()?;
+        let variants = variants
+            .iter()
+            .map(|variant| {
+                let keys = selectors
+                    .iter()
+                    .zip(&variant.keys)
+                    .map(|(selector, key)| match key {
+                        ast::Key::CatchAll => Ok(Key::CatchAll),
+                        ast::Key::Literal(key) => match selector.selecting.reads(key) {
+                            Ok(()) => Ok(Key::Literal(key.as_ref().into())),
+                            Err(refusal) => {
+                                Err(Fault::Call(selector.chain.outer.function.name(), refusal))
+                            }
+                        },
+                    })
+                    .collect::<Result<_, _>>()?;
+                let pattern = self.pattern(&variant.pattern)?;
+                Ok(Variant { keys, pattern })
             })
-        })?;
+            .collect::<Result<_, Fault>>()?;
         Ok(Body::Select {
-            columns,
-            variants: keyed,
-            fallback,
+            selectors,
+            variants,
+            fallback: self.pattern(fallback)?,
         })
     }
 
     /// A pattern, its markup checked to open and close each style in nested order, once.
-    fn pattern(&mut self, pattern: &ast::Pattern) -> Result<Pattern, LoadError> {
+    fn pattern(&mut self, pattern: &ast::Pattern<'_>) -> Result<Pattern, Fault> {
         let mut parts = Vec::with_capacity(pattern.len());
         let mut open: Vec<(Style, &str)> = Vec::new();
         for part in pattern {
             parts.push(match part {
-                ast::Part::Text(text) => Part::Text(text.clone()),
+                ast::Part::Text(text) => Part::Text(text.as_ref().into()),
                 ast::Part::Expression(expression) => {
                     Part::Placeholder(self.placeholder(expression)?)
                 }
                 ast::Part::Markup(markup) => {
-                    let name = markup.name.as_str();
-                    let refuse = |rule: fn(String, String) -> SyntaxRule| {
-                        self.syntax(rule(self.id.to_string(), name.to_owned()))
-                    };
-                    let style = Style::named(name).ok_or_else(|| refuse(markup_rule))?;
+                    let name = markup.name.as_ref();
+                    let style = Style::named(name).ok_or_else(|| Fault::Markup(name.to_owned()))?;
                     if !markup.options.is_empty() {
-                        return Err(refuse(option_rule));
+                        return Err(Fault::MarkupOption(name.to_owned()));
                     }
                     match markup.kind {
                         MarkupKind::Open if open.iter().all(|(earlier, _)| *earlier != style) => {
@@ -440,34 +398,20 @@ impl Compiler<'_> {
                         }
                         MarkupKind::Close => match open.pop() {
                             Some((last, _)) if last == style => Part::Close(style),
-                            Some(_) | None => return Err(refuse(nesting_rule)),
+                            Some(_) | None => return Err(Fault::Nesting(name.to_owned())),
                         },
                         MarkupKind::Open | MarkupKind::Standalone => {
-                            return Err(refuse(nesting_rule));
+                            return Err(Fault::Nesting(name.to_owned()));
                         }
                     }
                 }
             });
         }
         match open.last() {
-            Some((_, name)) => {
-                Err(self.syntax(nesting_rule(self.id.to_string(), (*name).to_owned())))
-            }
+            Some((_, name)) => Err(Fault::Nesting((*name).to_owned())),
             None => Ok(parts),
         }
     }
-}
-
-const fn markup_rule(id: String, markup: String) -> SyntaxRule {
-    SyntaxRule::Markup { id, markup }
-}
-
-const fn option_rule(id: String, markup: String) -> SyntaxRule {
-    SyntaxRule::MarkupOption { id, markup }
-}
-
-const fn nesting_rule(id: String, markup: String) -> SyntaxRule {
-    SyntaxRule::Nesting { id, markup }
 }
 
 /// The isolating character a placeholder opens under MF2's Default Bidi Strategy; `None` for a
@@ -491,110 +435,46 @@ fn isolation(bidi: Bidi, dir: Dir, value: Direction, message: Direction) -> Opti
     }
 }
 
-/// Each selector's matching keys, best first.
-struct Ranks<'k>(Vec<Vec<&'k str>>);
-
-/// The rank of `key` among a selector's matching keys: `Some(None)` for `*`, which matches last,
-/// and `None` for a key that does not match.
-fn rank(matched: &[&str], key: &Key) -> Option<Option<usize>> {
-    match key {
-        Key::CatchAll => Some(None),
-        Key::Literal(key) => matched.iter().position(|m| *m == key).map(Some),
-    }
-}
-
-impl Ranks<'_> {
-    /// The rank of each key of `variant`, `None` for `*`; `None` when a key does not match.
-    ///
-    /// # Errors
-    ///
-    /// [`Defect`] for a variant whose keys are not one per selector: the load refuses it.
-    fn of(&self, variant: &Variant) -> Result<Option<Vec<Option<usize>>>, Defect> {
-        if variant.keys.len() != self.0.len() {
-            return Err(Defect);
-        }
-        Ok(variant
-            .keys
-            .iter()
-            .zip(&self.0)
-            .map(|(key, matched)| rank(matched, key))
-            .collect())
-    }
-}
-
-/// Whether keys ranked `candidate` sort before keys ranked `best`, both one per selector: column
-/// by column, a key before `*`, a key by its rank.
-fn better(candidate: &[Option<usize>], best: &[Option<usize>]) -> bool {
-    for (a, b) in candidate.iter().zip(best) {
-        match (a, b) {
-            (Some(a), Some(b)) if a != b => return a < b,
-            (Some(_), None) => return true,
-            (None, Some(_)) => return false,
-            (Some(_), Some(_)) | (None, None) => {}
-        }
-    }
-    false
-}
-
 impl Compiled {
-    /// The chain of the call at `at`.
-    ///
-    /// # Errors
-    ///
-    /// [`ResolveError::Defect`] when `at` names no call, or the chain names no earlier value.
-    fn chain(&self, id: &str, at: usize) -> Result<Chain<'_>, ResolveError> {
-        Chain::of(&self.values, at).map_err(|Defect| ResolveError::Defect { id: id.to_owned() })
-    }
-
-    /// The message `id` resolved over its arguments' texts, with the context's format sections
+    /// The message `id` resolved over its arguments `args`, with the context's format sections
     /// `formats`.
     ///
     /// # Errors
     ///
     /// [`ResolveError`] for an argument the message does not give, or a text a function
     /// refuses.
-    pub(crate) fn resolve<'a>(
-        &'a self,
+    pub(crate) fn resolve(
+        &self,
         id: &str,
-        argument: &Argument<'a>,
-        formats: &'a Formats,
+        args: &Args,
+        formats: &Formats,
         bidi: Bidi,
     ) -> Result<Text, ResolveError> {
-        let mut env = Env::new(argument, &self.values, formats);
+        let mut scope = Scope::new(args, formats);
+        for declared in &self.declared {
+            scope.declare(&declared.name, &declared.chain);
+        }
         let pattern = match &self.body {
             Body::Pattern(pattern) => pattern,
             Body::Select {
-                columns,
+                selectors,
                 variants,
                 fallback,
             } => {
-                let mut ranks = Vec::with_capacity(columns.len());
-                for column in columns {
-                    let chain = self.chain(id, column.call)?;
-                    let texts = chain
-                        .texts(&mut env)
-                        .map_err(|failure| chain.error(id, failure))?;
-                    let matched = crate::format::select(&chain, &texts, &env, &column.keys)
-                        .map_err(|failure| chain.error(id, failure))?;
-                    ranks.push(matched);
-                }
-                let ranks = Ranks(ranks);
-                let mut best: Option<(Vec<Option<usize>>, &Variant)> = None;
-                for variant in variants {
-                    let ranked = ranks
-                        .of(variant)
-                        .map_err(|Defect| ResolveError::Defect { id: id.to_owned() })?;
-                    let Some(ranked) = ranked else {
-                        continue;
-                    };
-                    if best
-                        .as_ref()
-                        .is_none_or(|(current, _)| better(&ranked, current))
-                    {
-                        best = Some((ranked, variant));
-                    }
-                }
-                best.map_or(fallback, |(_, variant)| &variant.pattern)
+                let selected = selectors
+                    .iter()
+                    .map(|Selector { chain, selecting }| {
+                        chain
+                            .texts(&scope)
+                            .and_then(|texts| selecting.selected(chain, &texts, &scope))
+                            .map_err(|failure| chain.error(id, failure))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                variants
+                    .iter()
+                    .filter(|variant| variant.ranks(&selected).all(|rank| rank.is_some()))
+                    .min_by(|a, b| a.ranks(&selected).cmp(b.ranks(&selected)))
+                    .map_or(fallback, |variant| &variant.pattern)
             }
         };
         let mut writer = Writer::default();
@@ -603,14 +483,15 @@ impl Compiled {
                 Part::Text(text) => writer.text(text),
                 Part::Open(style) => writer.open(*style),
                 Part::Close(style) => writer.close(*style),
-                Part::Placeholder(at) => {
-                    let chain = self.chain(id, *at)?;
-                    let texts = chain
-                        .texts(&mut env)
+                Part::Placeholder(chain) => {
+                    let (text, value, dir) = chain
+                        .texts(&scope)
+                        .and_then(|texts| {
+                            let (text, value) = crate::format::format(chain, &texts, &scope)?;
+                            Ok((text, value, texts.dir()))
+                        })
                         .map_err(|failure| chain.error(id, failure))?;
-                    let (text, direction) = crate::format::format(&chain, &texts, &env)
-                        .map_err(|failure| chain.error(id, failure))?;
-                    match isolation(bidi, Dir::of(&texts), direction, self.direction) {
+                    match isolation(bidi, dir, value, self.direction) {
                         Some(open) => {
                             writer.text(open);
                             writer.text(&text);
@@ -626,55 +507,46 @@ impl Compiled {
 
     /// The keys of the arguments the message's placeholders and selectors read, through their
     /// operands and their options' variables, each once, sorted.
-    ///
-    /// # Errors
-    ///
-    /// [`Defect`] for an index that names no value.
     #[cfg(feature = "check")]
-    pub(crate) fn reads(&self) -> Result<Vec<&str>, Defect> {
-        fn placeholders(pattern: &Pattern) -> impl Iterator<Item = usize> + '_ {
+    pub(crate) fn reads(&self) -> Vec<&str> {
+        fn placeholders(pattern: &Pattern) -> impl Iterator<Item = &Chain> {
             pattern.iter().filter_map(|part| match part {
-                Part::Placeholder(at) => Some(*at),
+                Part::Placeholder(chain) => Some(chain),
                 Part::Text(_) | Part::Open(_) | Part::Close(_) => None,
             })
         }
-        let mut pending: Vec<usize> = match &self.body {
+        let mut pending: Vec<&Chain> = match &self.body {
             Body::Pattern(pattern) => placeholders(pattern).collect(),
             Body::Select {
-                columns,
+                selectors,
                 variants,
                 fallback,
-            } => columns
+            } => selectors
                 .iter()
-                .map(|column| column.call)
-                .chain(
-                    variants
-                        .iter()
-                        .flat_map(|variant| placeholders(&variant.pattern)),
-                )
+                .map(|selector| &selector.chain)
+                .chain(variants.iter().flat_map(|v| placeholders(&v.pattern)))
                 .chain(placeholders(fallback))
                 .collect(),
         };
-        let mut seen = FxHashSet::default();
+        let mut followed: Vec<&str> = Vec::new();
         let mut reads: Vec<&str> = Vec::new();
-        while let Some(at) = pending.pop() {
-            if !seen.insert(at) {
-                continue;
+        while let Some(chain) = pending.pop() {
+            if let Root::Argument(key) = &chain.root {
+                reads.push(key);
             }
-            match self.values.get(at).ok_or(Defect)? {
-                Value::Argument(key) => reads.push(key),
-                Value::Call(call) => {
-                    pending.extend(call.operand);
-                    pending.extend(call.options.iter().filter_map(|(_, value)| match value {
-                        OptionValue::Variable(at) => Some(*at),
-                        OptionValue::Literal(_) => None,
-                    }));
+            for name in chain.variables() {
+                match self.declared.iter().find(|d| &*d.name == name) {
+                    Some(_) if followed.contains(&name) => {}
+                    Some(declared) => {
+                        followed.push(name);
+                        pending.push(&declared.chain);
+                    }
+                    None => reads.push(name),
                 }
-                Value::Literal(_) => {}
             }
         }
         reads.sort_unstable();
         reads.dedup();
-        Ok(reads)
+        reads
     }
 }

@@ -7,25 +7,34 @@
 
 use std::borrow::Cow;
 
+use crate::chain::{Chain, Failure, Refused, Root, Scope};
 use crate::error::Refusal;
-use crate::format::{Chain, Env, Failure, Function, Refused, Root, Use};
+use crate::format::Function;
 use crate::normal::{Hold, normal};
 
-/// Checks a chain of `:string` calls for its use: an operand, a call of `:string` alone, and a
-/// selector's literal `hold` holds.
+/// Checks a chain of `:string` calls: an operand, and calls of `:string` alone.
 ///
 /// # Errors
 ///
-/// [`Refused::Call`] with [`Refusal::Operand`] for a chain without an operand or with a call of
-/// another function, and [`Refused::Unnormalized`] for a selector's literal `hold` refuses.
-pub(crate) fn check(chain: &Chain<'_>, at: Use, hold: Hold) -> Result<(), Refused> {
-    if chain.calls().any(|call| call.function != Function::String) {
+/// [`Refusal::Operand`] for a chain without an operand or with a call of another function.
+pub(crate) fn check(chain: &Chain) -> Result<(), Refused> {
+    if chain.root == Root::None || chain.calls().any(|call| call.function != Function::String) {
         return Err(Refusal::Operand.into());
     }
-    match chain.root {
-        Root::None => Err(Refusal::Operand.into()),
-        Root::Literal(text) if at == Use::Select => hold.check(text).map_err(Refused::Unnormalized),
-        Root::Literal(_) | Root::Argument(_) => Ok(()),
+    Ok(())
+}
+
+/// Checks a chain of `:string` calls for its use as a selector: as [`check`], and a literal it
+/// compares `hold` holds.
+///
+/// # Errors
+///
+/// The refusal of [`check`], and [`Refused::Unnormalized`] for a literal `hold` refuses.
+pub(crate) fn selecting(chain: &Chain, hold: Hold) -> Result<(), Refused> {
+    check(chain)?;
+    match &chain.root {
+        Root::Literal(text) => hold.check(text).map_err(Refused::Unnormalized),
+        Root::None | Root::Argument(_) => Ok(()),
     }
 }
 
@@ -33,33 +42,26 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use, hold: Hold) -> Result<(), Refuse
 ///
 /// # Errors
 ///
-/// [`Failure::Unresolved`] for an argument the message does not give.
-pub(crate) fn value<'m>(chain: &Chain<'m>, env: &Env<'_, 'm>) -> Result<&'m str, Failure> {
-    match chain.root {
+/// [`Failure::Operand`] for a chain without an operand, and [`Failure::Unresolved`] for an
+/// argument the message does not give.
+pub(crate) fn value<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<&'m str, Failure> {
+    match &chain.root {
         Root::None => Err(Failure::Operand),
         Root::Literal(text) => Ok(text),
-        Root::Argument(key) => env.argument(key),
+        Root::Argument(key) => scope.argument(key),
     }
 }
 
-/// The keys equal to the text a selector compares.
+/// The text a selector compares its keys to: a literal as [`normal`] holds it, an argument's
+/// text as given.
 ///
 /// # Errors
 ///
-/// [`Failure::Unresolved`] for an argument the message does not give.
-pub(crate) fn select<'k>(
-    chain: &Chain<'_>,
-    env: &Env<'_, '_>,
-    keys: &'k [String],
-) -> Result<Vec<&'k str>, Failure> {
-    let compared = match chain.root {
-        Root::None => return Err(Failure::Operand),
-        Root::Literal(text) => normal(text),
-        Root::Argument(key) => Cow::Borrowed(env.argument(key)?),
-    };
-    Ok(keys
-        .iter()
-        .filter(|key| key.as_str() == compared.as_ref())
-        .map(String::as_str)
-        .collect())
+/// [`Failure`] as [`value`].
+pub(crate) fn selected<'m>(chain: &'m Chain, scope: &Scope<'m>) -> Result<Cow<'m, str>, Failure> {
+    match &chain.root {
+        Root::None => Err(Failure::Operand),
+        Root::Literal(text) => Ok(normal(text)),
+        Root::Argument(key) => scope.argument(key).map(Cow::Borrowed),
+    }
 }
