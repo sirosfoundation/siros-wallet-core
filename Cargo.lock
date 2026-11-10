@@ -3340,6 +3340,7 @@ dependencies = [
 name = "siros-credman"
 version = "0.1.0"
 dependencies = [
+ "icu_properties",
  "siros-credman",
  "siros-explain",
  "siros-i18n",

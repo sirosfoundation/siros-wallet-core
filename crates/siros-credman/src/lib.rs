@@ -19,6 +19,7 @@
 
 siros_explain::scope!("credman");
 
+mod cluster;
 mod delegation;
 mod emit;
 mod entry;
