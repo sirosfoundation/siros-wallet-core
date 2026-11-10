@@ -52,6 +52,19 @@ pub(crate) enum CldrError {
         /// The text.
         text: String,
     },
+    /// A value the tool reads is outside the forms siros-i18n's formats take: a character order
+    /// other than left-to-right and right-to-left, digits other than ten consecutive characters,
+    /// or a plural form outside TR35's categories.
+    #[error("{path} gives {value} at {at}, outside the forms siros-i18n's formats take")]
+    #[explain(id = "form")]
+    Form {
+        /// The file.
+        path: String,
+        /// The value's path.
+        at: String,
+        /// The value, as written.
+        value: String,
+    },
 }
 
 /// One file, read.
@@ -73,6 +86,24 @@ impl File {
         self.value(at)?.as_str().ok_or_else(|| self.missing(at))
     }
 
+    /// The text at `at`; `None` when a key of the path is absent.
+    ///
+    /// # Errors
+    ///
+    /// [`CldrError::Missing`] for a value that is no text, or a key under a value that is no
+    /// object.
+    pub(crate) fn optional_text(&self, at: &[&str]) -> Result<Option<&str>, CldrError> {
+        let mut value = &self.json;
+        for key in at {
+            let object = value.as_object().ok_or_else(|| self.missing(at))?;
+            match object.get(*key) {
+                Some(next) => value = next,
+                None => return Ok(None),
+            }
+        }
+        value.as_str().map(Some).ok_or_else(|| self.missing(at))
+    }
+
     /// The object at `at`, its members in key order.
     pub(crate) fn object(&self, at: &[&str]) -> Result<&serde_json::Map<String, Value>, CldrError> {
         self.value(at)?.as_object().ok_or_else(|| self.missing(at))
@@ -82,6 +113,15 @@ impl File {
         CldrError::Missing {
             path: self.path.clone(),
             at: at.join("/"),
+        }
+    }
+
+    /// The refusal of `value` at `at`, outside the forms the tool writes.
+    pub(crate) fn form(&self, at: &[&str], value: &str) -> CldrError {
+        CldrError::Form {
+            path: self.path.clone(),
+            at: at.join("/"),
+            value: value.to_owned(),
         }
     }
 }
