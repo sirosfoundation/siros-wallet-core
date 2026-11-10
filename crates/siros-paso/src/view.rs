@@ -16,6 +16,11 @@
 //! an amount's number `c<n>` with its code `c<n>_currency`, any other value as given. Every text
 //! the metadata writes reaches the source through [`siros_i18n::escape`]. A message's format
 //! options are the wallet's modules' in the same context.
+//!
+//! Every id, name and variant key the source holds is ASCII: digests, language tags,
+//! `claim_<n>`, UI labels' names, `c<n>`, `c<n>_currency`, `e<j>`, `live`, and the functions' and
+//! the markup's names. A matcher whose siros-i18n is built without `nfc` loads the source into the
+//! messages the wallet loads.
 
 use std::fmt;
 
