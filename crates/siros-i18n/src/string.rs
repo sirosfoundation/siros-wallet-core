@@ -1,24 +1,24 @@
 //! `:string` (spec/functions/string.md): it formats its operand's text as given and selects the
 //! key equal to it. It ignores the options a call writes, as spec/functions/README.md permits.
 //!
-//! The parser holds keys in NFC. A selector over a literal compares the literal's NFC form; one
-//! over an argument compares the argument's text as given.
-
-use unicode_normalization::UnicodeNormalization;
+//! The parse holds keys as [`normal`](crate::normal::normal) holds them, and a selector compares a
+//! literal held the same way ("Selection": the operand's value in NFC). A selector over an
+//! argument compares the argument's text as given.
 
 use crate::error::Refusal;
-use crate::format::{Argument, Chain, Failure, Function, Root};
+use crate::format::{Argument, Chain, Failure, Function, Refused, Root};
+use crate::normal::Hold;
 
 /// A compiled `:string` call: its operand.
 #[derive(Debug, Clone)]
 pub(crate) enum Compiled {
-    /// A literal: as written, and in NFC.
-    Literal { text: String, normalized: String },
+    /// A literal: as written in a placeholder, held in a selector.
+    Literal(String),
     /// The argument of this key.
     Argument(String),
 }
 
-/// Compiles a chain of `:string` calls.
+/// Compiles a chain of `:string` calls for a placeholder: a literal as written.
 ///
 /// # Errors
 ///
@@ -29,11 +29,23 @@ pub(crate) fn compile(chain: &Chain) -> Result<Compiled, Refusal> {
     }
     match &chain.root {
         Root::None => Err(Refusal::Operand),
-        Root::Literal(text) => Ok(Compiled::Literal {
-            text: text.clone(),
-            normalized: text.nfc().collect(),
-        }),
+        Root::Literal(text) => Ok(Compiled::Literal(text.clone())),
         Root::Argument(key) => Ok(Compiled::Argument(key.clone())),
+    }
+}
+
+/// Compiles a chain of `:string` calls for a selector: a literal as `hold` holds it.
+///
+/// # Errors
+///
+/// [`Refused::Call`] as [`compile`], and [`Refused::Unnormalized`] for a literal `hold` refuses.
+pub(crate) fn selector(chain: &Chain, hold: Hold) -> Result<Compiled, Refused> {
+    match compile(chain)? {
+        Compiled::Literal(text) => hold
+            .hold(text)
+            .map(Compiled::Literal)
+            .map_err(Refused::Unnormalized),
+        argument @ Compiled::Argument(_) => Ok(argument),
     }
 }
 
@@ -45,7 +57,7 @@ impl Compiled {
     /// [`Failure::Unresolved`] for an argument the message does not give.
     pub(crate) fn format<'a>(&'a self, argument: &Argument<'a>) -> Result<&'a str, Failure> {
         match self {
-            Self::Literal { text, .. } => Ok(text),
+            Self::Literal(text) => Ok(text),
             Self::Argument(key) => argument(key).ok_or_else(|| Failure::Unresolved(key.clone())),
         }
     }
@@ -61,7 +73,7 @@ impl Compiled {
         keys: &'k [String],
     ) -> Result<Vec<&'k str>, Failure> {
         let compared = match self {
-            Self::Literal { normalized, .. } => normalized.as_str(),
+            Self::Literal(text) => text.as_str(),
             Self::Argument(key) => argument(key).ok_or_else(|| Failure::Unresolved(key.clone()))?,
         };
         Ok(keys

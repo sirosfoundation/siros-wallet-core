@@ -81,6 +81,17 @@ pub enum LoadError {
         #[source]
         refusal: Refusal,
     },
+    /// A name, a variant key or a selector literal that Unicode Normalization Form C changes,
+    /// which `Context::module_in_nfc` (feature `nfc`) refuses: a build without the feature holds
+    /// it as written.
+    #[error("{id} holds {text:?}, which NFC changes")]
+    #[explain(id = "load.unnormalized")]
+    Unnormalized {
+        /// The message's id.
+        id: String,
+        /// The name, the key or the literal, as written.
+        text: String,
+    },
 }
 
 /// The rules of syntax a module follows: the resource format's (the W3C i18n-discuss message
@@ -321,7 +332,7 @@ pub enum ResolveError {
     Argument {
         /// The message's id.
         id: String,
-        /// The argument's key, in NFC.
+        /// The argument's key, as the build compares it: in NFC with the feature `nfc`.
         key: String,
     },
 }

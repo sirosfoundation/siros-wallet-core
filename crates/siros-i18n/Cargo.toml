@@ -10,7 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = ["number", "currency", "offset", "date", "derive"]
+default = ["number", "currency", "offset", "date", "derive", "nfc"]
 # `:number` and `:integer`.
 number = []
 # `:currency` and `:percent`. icu_properties gives the letters that decide a currency symbol's
@@ -22,6 +22,10 @@ offset = []
 date = ["dep:siros-syntax"]
 # `#[derive(Message)]`.
 derive = ["dep:siros-i18n-derive"]
+# MF2's Unicode Normalization Form C of names, variant keys, selector literals and argument keys,
+# and `Context::module_in_nfc`. A build without it holds them as written, and resolves a module
+# `module_in_nfc` loads to the texts a build with it resolves.
+nfc = ["dep:unicode-normalization"]
 # Test builds only: `Context::check` and every derived statement's row.
 check = ["siros-explain/check", "dep:inventory"]
 # siros-i18n's conformance tests' functions: MF2's `:test:function`, `:test:select` and
@@ -34,7 +38,7 @@ siros-syntax = { workspace = true, optional = true }
 siros-i18n-derive = { workspace = true, optional = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
-unicode-normalization = { workspace = true }
+unicode-normalization = { workspace = true, optional = true }
 icu_properties = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 
@@ -58,10 +62,11 @@ icu_experimental = { workspace = true }
 fixed_decimal = { workspace = true }
 writeable = { workspace = true }
 
-# The message-format-wg suite calls the numeric functions.
+# The message-format-wg suite calls the numeric functions, and its "NFC:" cases compare names and
+# keys in NFC.
 [[test]]
 name = "conformance"
-required-features = ["number", "currency", "offset"]
+required-features = ["number", "currency", "offset", "nfc"]
 
 # The ICU4X differential calls `:number`, `:currency` and the date functions.
 [[test]]
