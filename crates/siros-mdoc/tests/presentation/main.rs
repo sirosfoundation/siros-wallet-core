@@ -247,7 +247,7 @@ fn the_session_transcript_reproduces_the_b_2_6_examples() {
             nonce: KA_NONCE,
             client_metadata: metadata.get(),
         },
-        siros_explain::checked!(PrefixName, "x509_san_dns"),
+        siros_syntax::checked!(PrefixName, "x509_san_dns"),
         choice,
         b26_transcript,
     )

@@ -110,7 +110,9 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "date"
+          ]
         }
       ],
       "forbid": [
@@ -393,7 +395,9 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "date"
+          ]
         }
       ],
       "forbid": [

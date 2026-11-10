@@ -46,24 +46,18 @@ pub struct Resolved<'a> {
 
 /// Why a stored mdoc makes no view.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.registration")]
 pub enum RegistrationError {
     /// The text is no stored mdoc.
     #[error("no stored mdoc")]
-    Stored(
-        #[source]
-        #[explain(skip)]
-        MdocError,
-    ),
+    #[explain(id = "registration.stored")]
+    Stored(#[source] MdocError),
     /// An element's value converts to no JSON (RFC 8949 §6.1).
     #[error("an element's value converts to no JSON")]
-    Value(
-        #[from]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "registration.value")]
+    Value(#[from] CborError),
     /// The display metadata breaks a rule of the merge.
     #[error("the display metadata: {cause}")]
+    #[explain(id = "registration.metadata")]
     Metadata {
         /// The rule.
         #[from]
@@ -71,6 +65,7 @@ pub enum RegistrationError {
     },
     /// A value under tag 1004 is no `full-date` (RFC 8943, ISO/IEC 18013-5 §7.2.1).
     #[error("{namespace}: {element} holds a value under tag 1004 that is no `full-date`")]
+    #[explain(id = "registration.full_date")]
     FullDate {
         /// The name space.
         namespace: NameSpace,
@@ -80,6 +75,7 @@ pub enum RegistrationError {
     /// A value under tag 0 is no `tdate` of the form `YYYY-MM-DDThh:mm:ssZ` (ISO/IEC 18013-5
     /// §9.1.2.4).
     #[error("{namespace}: {element} holds a value under tag 0 that is no `tdate`")]
+    #[explain(id = "registration.tdate")]
     Tdate {
         /// The name space.
         namespace: NameSpace,

@@ -3460,6 +3460,7 @@ dependencies = [
  "siros-i18n",
  "siros-mdoc",
  "siros-openid4vp",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]

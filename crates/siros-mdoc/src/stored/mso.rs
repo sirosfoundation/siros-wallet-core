@@ -199,22 +199,28 @@ fn read_digests(
     algorithm: DigestAlgorithm,
 ) -> Result<FxHashMap<DigestId, ItemDigest>, ValueDigestsFault> {
     non_empty_map(Some(digests))
-        .map_err(|fault| ValueDigestsFault::Digests(name_space.clone(), fault))?
+        .map_err(|cause| ValueDigestsFault::Digests {
+            namespace: name_space.clone(),
+            cause,
+        })?
         .iter()
         .map(|(id, digest)| {
             let id = id
                 .as_unsigned()
-                .ok_or_else(|| ValueDigestsFault::DigestId(name_space.clone()))?;
+                .ok_or_else(|| ValueDigestsFault::DigestId {
+                    namespace: name_space.clone(),
+                })?;
             let id = DigestId::new(id);
-            let digest = digest
-                .bytes()
-                .ok_or_else(|| ValueDigestsFault::Digest(name_space.clone(), id))?;
+            let digest = digest.bytes().ok_or_else(|| ValueDigestsFault::Digest {
+                namespace: name_space.clone(),
+                digest_id: id,
+            })?;
             if digest.len() != algorithm.output_len() {
-                return Err(ValueDigestsFault::DigestLength(
-                    name_space.clone(),
-                    id,
-                    digest.len(),
-                ));
+                return Err(ValueDigestsFault::DigestLength {
+                    namespace: name_space.clone(),
+                    digest_id: id,
+                    length: digest.len(),
+                });
             }
             Ok((id, ItemDigest(digest.to_vec())))
         })
@@ -238,7 +244,7 @@ impl Validity {
                 .and_then(|t| t.untag(0))
                 .and_then(Value::as_text)
                 .and_then(instant)
-                .ok_or(ValidityFault::Time(member))
+                .ok_or(ValidityFault::Time { time: member })
         };
         let signed = time(ValidityTime::Signed)?;
         let valid_from = time(ValidityTime::ValidFrom)?;

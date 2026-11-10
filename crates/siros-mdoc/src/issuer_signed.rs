@@ -49,34 +49,26 @@ pub struct Disclosed<'a> {
 
 /// Why a stored IssuerSigned cannot be presented.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.issued")]
 pub enum IssuedError {
     /// No CBOR the wallet reads.
     #[error("no CBOR the wallet reads")]
-    Cbor(
-        #[from]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "issued.cbor")]
+    Cbor(#[from] CborError),
     /// Another shape than ISO/IEC 18013-5's CDDL, or an unknown member.
     #[error("{0}")]
+    #[explain(id = "issued.shape")]
     Shape(#[explain(skip)] String),
     /// IssuerAuth is no COSE_Sign1 the wallet reads.
     #[error("IssuerAuth")]
-    IssuerAuth(
-        #[from]
-        #[explain(name = "cause")]
-        CoseShape,
-    ),
+    #[explain(id = "issued.issuer_auth")]
+    IssuerAuth(#[from] CoseShape),
     /// coset cannot write IssuerAuth back.
     #[error("IssuerAuth does not encode")]
-    Encode(
-        #[source]
-        #[explain(skip)]
-        coset::CoseError,
-    ),
+    #[explain(id = "issued.encode")]
+    Encode(#[source] coset::CoseError),
     /// One element identifier twice in a name space.
     #[error("{namespace}: {element} issued twice")]
+    #[explain(id = "issued.twice")]
     Twice {
         /// The name space.
         namespace: NameSpace,
@@ -85,6 +77,7 @@ pub enum IssuedError {
     },
     /// The view discloses an element the issuer did not sign.
     #[error("{namespace}: {element} was not issued")]
+    #[explain(id = "issued.missing")]
     Missing {
         /// The name space.
         namespace: NameSpace,
@@ -93,6 +86,7 @@ pub enum IssuedError {
     },
     /// The issued value differs from the view's: the End-User consented to another value.
     #[error("{namespace}: {element}'s issued value is not the view's")]
+    #[explain(id = "issued.differs")]
     Differs {
         /// The name space.
         namespace: NameSpace,

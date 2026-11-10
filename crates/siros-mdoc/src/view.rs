@@ -6,7 +6,6 @@ use siros_openid4vp::detail;
 use siros_openid4vp::json::Node;
 use siros_openid4vp::plugins::{Fault, Member};
 
-use crate::FAULT;
 use crate::cose::{Curve, DeviceKeyView, SignatureAlgorithm, Signer};
 
 /// The mdoc members of a credential's view, each read when an operation needs it.
@@ -22,15 +21,12 @@ impl<'a, 'v> MdocMembers<'a, 'v> {
 
     /// The fault of the view's member `<prefix><what>`.
     fn fault(&self, prefix: &str, what: &'static str) -> Fault {
-        Fault::new(
-            FAULT,
-            detail!(
-                "{id}: the view's {prefix}{what}",
-                id = self.view.credential().id.to_string(),
-                prefix = prefix.to_owned(),
-                what = what
-            ),
-        )
+        crate::fault(detail!(
+            "{id}: the view's {prefix}{what}",
+            id = self.view.credential().id.to_string(),
+            prefix = prefix.to_owned(),
+            what = what
+        ))
     }
 
     /// The member `<prefix>_alg`, a COSE algorithm identifier; `None` when absent.

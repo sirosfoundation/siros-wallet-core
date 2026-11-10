@@ -11,6 +11,7 @@ use siros_openid4vp::plugins::{HostedFormat, Member, MemberValue, Registry};
 use siros_openid4vp::resolve::{Finding, Outcome, Prepared};
 use siros_openid4vp::wallet::Wallet;
 use siros_testkit::fixtures::{Held, env, first_selection, parameters, request_of, unsigned};
+use siros_testkit::render::Language;
 
 use super::{MdocHost, P256, P384, QUERY, device_auth, issued, present, read, view};
 
@@ -120,23 +121,19 @@ where
     let registry = builder.build().expect("registry");
     let wallet = Wallet::new(vec![held.credential().expect("credential")]).expect("wallet");
     let env = env(&["en"], Vec::new()).expect("env");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
-    let ids = first_selection(&request, &wallet, &registry, &env, &rendering).expect("a selection");
+    let context = Language::English.shared().expect("the test app");
+    let ids = first_selection(&request, &wallet, &registry, &env, context).expect("a selection");
     let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let authenticated = siros_testkit::fixtures::authenticate(request.envelope(), &registry, host)
-        .expect("authentic");
-    let app = siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-        .expect("the test app");
-    let rendering = app.rendering().expect("the rendering");
+    let authenticated =
+        siros_testkit::fixtures::authenticate(request.envelope(), &registry, context, host)
+            .expect("authentic");
     Prepared::prepare(
         &authenticated,
         &ids,
         &wallet,
         &registry,
         &env,
-        &rendering,
+        context,
         host,
     )
     .and_then(|prepared| prepared.respond(|_| Fetch::Unfetched, host))

@@ -29,22 +29,15 @@ pub(crate) enum ElementValue<'a> {
 
 /// Why a member's value is no data element value.
 #[derive(Debug, thiserror::Error, Explain)]
-#[explain(domain = "mdoc.value")]
 pub(crate) enum ValueError {
     /// The JSON text does not parse.
     #[error("a JSON member")]
-    Json(
-        #[source]
-        #[explain(name = "cause")]
-        JsonError,
-    ),
+    #[explain(id = "value.json")]
+    Json(#[source] JsonError),
     /// The CBOR item does not decode.
     #[error("a CBOR member")]
-    Cbor(
-        #[source]
-        #[explain(name = "cause")]
-        CborError,
-    ),
+    #[explain(id = "value.cbor")]
+    Cbor(#[source] CborError),
 }
 
 impl<'a> ElementValue<'a> {
