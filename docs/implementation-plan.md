@@ -64,13 +64,18 @@ siros-wallet-engine/
     ├── siros-sdjwt/
     ├── siros-paso/
     ├── siros-qes/
+    ├── siros-ts12/
+    ├── siros-webuild/
+    ├── siros-credman/
     ├── siros-trust/
     ├── siros-wallet-state/
     ├── siros-i18n/
     ├── siros-i18n-derive/
+    ├── siros-cldr/
     ├── siros-syntax/
     ├── siros-explain/
     ├── siros-explain-derive/
+    ├── siros-derive-internals/
     ├── siros-testkit/
     ├── siros-integration/
     ├── siros-zkp-req/
@@ -80,6 +85,7 @@ siros-wallet-engine/
     ├── engine-core/
     ├── engine-adapter-sdk/
     ├── engine-adapter-server/
+    ├── engine-adapter-wasm/
     └── engine-conformance/
 ```
 

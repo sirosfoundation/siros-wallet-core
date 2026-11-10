@@ -105,9 +105,12 @@ engine core. Keep changes small and protocol-specific.
   `check` feature) proves them complete. `#[error]` templates stay English, for
   logs and the Verifier's `error_description`.
 - **An id is stable.** A message whose meaning changes takes a new id.
-- **The test app words every id.** A new error or statement takes its English
-  and German text in siros-testkit's `locales/`, which siros-integration's
-  `Context::check` test holds complete.
+- **A secret stays out of every message.** A secret type implements no
+  `Display`, so the derive cannot take it as an argument (E0277).
+- **The test app words every statement.** A new statement takes its English
+  and German text in siros-testkit's `locales/`: siros-integration's `texts.rs`
+  refuses a statement the test app does not word. The test words each error
+  row itself.
 
 ## Read first
 

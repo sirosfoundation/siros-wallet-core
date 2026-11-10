@@ -54,7 +54,7 @@ proves its sources complete for each locale it ships.
 | `siros-openid4vp` | The core: a request in, a response built. Arrival, the envelope, routing, Verifier authentication, DCQL, matching and consent, phase 2, and every extension point's trait |
 | `siros-x509` | The `x509_hash` and `x509_san_dns` Client Identifier Prefixes |
 | `siros-mdoc` | `mso_mdoc`: B.2.6's handover, the `DeviceMac` module, the stored mdoc's reading (`stored`), and its registration: the view with `validityInfo` (`registration`) |
-| `siros-sdjwt` | `dc+sd-jwt`: the issued SD-JWT read into its document and view with validity (`Registered`), its presentation with a compact Key Binding JWT, and a type metadata document's `display` converted to MF2 source |
+| `siros-sdjwt` | `dc+sd-jwt`: the issued SD-JWT read into its document and view with validity (`Registered`), and its presentation with a compact Key Binding JWT |
 | `siros-paso` | PaSO's transaction data, with the `Paso`, `RandomIds`, `IssuerTrust` and `CoseEncrypt` modules; `sealed-signals` seals an mdoc's risk signals with the last |
 | `siros-qes` | CSC's QES transaction data; its SHA-3 approval hashes under `sha3` |
 | `siros-ts12` | TS12's payments and logins under `urn:eudi:sca:`: the registration document, typed payloads, the translation into PaSO's model, the request rules T1 to T6 and the Key Binding JWT's claims, rendered through siros-paso's engine |
@@ -67,6 +67,7 @@ proves its sources complete for each locale it ships.
 | `siros-syntax` | Checked texts, keyed and non-empty lists, and values in their literal forms: numbers, ISO 4217 amounts, dates and times |
 | `siros-explain` | The error contract: a stable id and named arguments, each its `Display` |
 | `siros-explain-derive` | `#[derive(Explain)]` beside `thiserror` |
+| `siros-derive-internals` | The field rules the two derives share: arguments, `Option`, `Display` bounds, the id marker, the `check` row |
 | `siros-cldr` | Writes a language's CLDR format options as MF2 source |
 | `siros-testkit` | The core's test doubles |
 | `siros-integration` | The HAIP and WE BUILD builds end to end: every flow of the design, F1 to F13 |
@@ -76,7 +77,14 @@ proves its sources complete for each locale it ships.
 Each mechanism of the core is a feature, which the crates that use it turn on;
 a build compiles what it registers. The right column names the core's features
 each crate turns on: those it always turns on, then `feature: core features`
-for each of its own features that turns more on.
+for each of its own features that turns more on. siros-i18n's format functions
+are features too: the core turns on none, siros-paso turns on `currency` and
+`date`, and the app turns on those its wording calls. siros-i18n's `nfc`, a
+default, holds MessageFormat 2's names and keys in Unicode Normalization Form C.
+The wallet turns it on, as siros-credman's `register` does. The matcher leaves
+it off and links no unicode-normalization: siros-credman's writer refuses a
+source normalization would change, so both builds resolve a registration to the
+same texts.
 
 ```text
 siros-openid4vp       the core: a request in, a response built   match | resolve | dc-api | uri | signed | request-decryption | cbor | transaction-data | sha3 | blake2 | k12 | sri | claims
@@ -93,12 +101,13 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
 ├── siros-testkit     the core's test doubles                     resolve, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
-siros-i18n            Message, Context, Text                      derive | check | number | currency | offset | date
+siros-i18n            Message, Context, Text                      derive | check | number | currency | offset | date | nfc | conformance
 siros-i18n-derive     #[derive(Message)]
 siros-syntax          checked!, Keyed, AllOf; values in their literal forms; ISO 4217
 siros-cldr            CLDR format options as MF2 source
 siros-explain         the error contract: Explain, scope!         derive | check
 siros-explain-derive  #[derive(Explain)]
+siros-derive-internals the derives' shared field rules
 siros-wallet-state    the decrypted wallet state
 xtask                 the repository's build gates: cargo xtask builds, cargo xtask alone
 ```
@@ -122,7 +131,7 @@ use). The gates CI holds:
 
 ```sh
 cargo fmt --all -- --check
-cargo xtask layout   # no test code under src/, no error without Explain, no message source outside the test app and tests/
+cargo xtask layout   # no test code under src/, no error without Explain, no statement with Display or a string literal in a field, no message source outside the test app and tests/
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo clippy --locked --workspace --lib --no-default-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked --all-features

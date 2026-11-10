@@ -28,10 +28,10 @@ All notable changes to this workspace. The format follows
   `render::Request` and `image::resolve` take the image resolver as `&dyn Fn(&str) -> Resolution`,
   so every profile shares one render engine.
 - `Profile::reserves`: a credential a profile reserves answers only a query its own entries name.
-- `cargo xtask layout` reads the sources' syntax trees for test code under
-  `src/` and message sources in the shipped crates, in place of
-  `scripts/check_layout.sh`, and counts an error without `Explain` and a `Text`
-  made outside `Context::resolve`.
+- `cargo xtask layout` reads the sources' syntax trees and refuses test code under `src/`, a
+  message source outside a crate's `tests/` and siros-testkit, and, in the shipped crates, an error
+  without `Explain`, a statement that implements `Display` and a statement field given a string
+  literal, a `format!` included.
 - `cargo xtask layout` refuses, under `feature = "test-util"`, an inherent `impl`
   of a type outside the gate, any item that makes a value of a type with private
   fields, and a free `pub fn`, a `pub const` or a `pub static`, and refuses the
@@ -39,7 +39,6 @@ All notable changes to this workspace. The format follows
   doubles'.
 - `siros-testkit`'s `x509` holds the test certificates and chains; `siros-x509`
   has no `test-util` feature.
-- `siros-mdoc::stored`'s errors implement `Explain`.
 - A refusal's message and a claim's display name a received number as written.
 - The JSON writer writes RFC 8259 text: a number goes out as received, so `1e400`
   stays `1e400` in a response, a wallet metadata text and a metadata digest's input.
@@ -50,12 +49,14 @@ All notable changes to this workspace. The format follows
   `VALUE_MAX`, `TEMPLATE_MAX` or `CARD_TEXT_MAX`. The claims kit reads every
   metadata text through it, in every language; a text it refuses excludes the
   credential for the query (`FormatQuery::displayable`, `ExcludedBy::Display`).
+  A label or a card text with no visible character, one that is neither
+  White_Space nor Default_Ignorable_Code_Point (`DisplayText::visible`), is
+  `TextError::Empty`, and the kit takes its fallback.
 - `siros-openid4vp`'s `claims::kit::merge_metadata` writes a credential's view
   `metadata` from the format's display document and `IssuedMetadata`: the
   format's entries first, OpenID4VCI's `credential_metadata` per language after
   them, `auxiliary_data` left out at every depth of every input. Both claims
-  formats' registration calls it; `siros-sdjwt`'s `Resolved` gains `issued`,
-  `siros-mdoc`'s `Resolved.metadata` becomes `issued`, and
+  formats' registration calls it over their `Resolved`'s `issued`, and
   `RegistrationError::Metadata` holds the `MergeError`.
 - A card's subtitle is the name of the Credential Issuer's display entry
   (`IssuedMetadata::issuer_display`, the view's `issuer_display`), else the
@@ -70,7 +71,6 @@ All notable changes to this workspace. The format follows
   `RegistrationError::FullDate` and `Tdate` refuse a value that siros-syntax's
   `Date::parse` or `DateTime::parse` refuses. An MSO's `validityInfo` refuses a
   `+` in a number of its times.
-- `:siros:date` writes the weekday of January and February of year 0.
 - `siros-wallet-state` chooses a batch's instance (`WalletState::least_used`,
   C5). `Built::used` and `Built::audience` give the app what it fills a
   `PresentationRecord` with, beside the `vp_token`.
@@ -81,9 +81,10 @@ All notable changes to this workspace. The format follows
 - The presentation core: `siros-openid4vp`, `siros-x509`, `siros-mdoc`,
   `siros-sdjwt`, `siros-paso`, `siros-qes`, `siros-testkit`, `siros-explain`,
   `siros-explain-derive`, `siros-i18n`, `siros-cldr` and `siros-integration`,
-  from the design's reference implementation, and `siros-syntax` and
-  `siros-i18n-derive`. Each is edition 2024 and unpublished. `siros-mdoc` and
-  `siros-sdjwt` replace the earlier crates of those names.
+  from the design's reference implementation, and `siros-syntax`,
+  `siros-i18n-derive` and `siros-derive-internals`. Each is edition 2024 and
+  unpublished. `siros-mdoc` and `siros-sdjwt` replace the earlier crates of
+  those names.
 - `siros-explain` is the error contract: `Explain` gives an error's stable id,
   `err.<scope>.<id>`, and its named arguments, each its `Display`.
   `#[derive(Explain)]` sits beside thiserror's derive: each struct or variant
@@ -101,17 +102,28 @@ All notable changes to this workspace. The format follows
 - `siros-i18n` resolves the wallet's texts. A `Context` holds the
   MessageFormat 2 sources of one locale, each loaded whole and checked
   (`LoadError`); `Context::resolve` makes a `Text`, styled spans, from an error
-  or a statement (`ResolveError`). A statement derives `Message`
-  (`siros-i18n-derive`). Every argument is text: `:number`, `:integer`,
-  `:offset`, `:currency` (its `currency` option literal or variable),
-  `:percent`, `:siros:date`, `:siros:time` and `:siros:datetime` parse their
-  operand, each function behind its feature. `escape` writes a resource value
-  that resolves to a given text, and `Context::bidi` takes the app's bidi
-  strategy.
+  or a statement (`ResolveError`), and no other code makes one. A statement
+  derives `Message` (`siros-i18n-derive`). Every argument is text: `:string`
+  writes it as given; `:number` and `:integer` parse an MF2 number literal and
+  show its fraction digits as written; `:offset`, `:currency` (its `currency`
+  option literal or variable), `:percent`, `:siros:date`, `:siros:time` and
+  `:siros:datetime` parse their operand. Each function sits behind its feature:
+  `number`, `currency`, `offset` and `date`, the defaults with `derive` and
+  `nfc`. `nfc` holds names, variant keys and selector literals in NFC, as MF2
+  compares them, and adds `Context::module_in_nfc`, which refuses a source NFC
+  would change (`LoadError::Unnormalized`); without it they stay as written.
+  `check` holds `Context::check`, and `conformance` MF2's test functions for
+  siros-i18n's conformance tests. `escape` writes a resource value that resolves
+  to a given text, and `Context::bidi` takes the app's bidi strategy.
 - siros-i18n's `check` feature is the wallet's one completeness test: each
   derive registers its id and argument names, and `Context::check` refuses an
   id two crates share, an id no source words and a pattern that reads an
   argument its row lacks.
+- `siros-i18n-derive`: `#[derive(Message)]` on a statement, its id under the crate's scope and
+  its named fields as arguments. A repeated id fails the build; under `check` each id registers a
+  row for `Context::check`.
+- `siros-derive-internals`: the field rules `#[derive(Explain)]` and `#[derive(Message)]` share,
+  which siros-explain-derive and siros-i18n-derive call through its `Derive` trait.
 - `siros-mdoc::stored` reads a stored mdoc: its items against the MSO's
   digests, the MSO, `issuerAuth`, and the data the device key signs.
   ISO/IEC 18013-5 Annex D's DeviceResponse is its known answer, and each
@@ -126,10 +138,10 @@ All notable changes to this workspace. The format follows
   descendants, and a compact Key Binding JWT whose `sd_hash` covers the SD-JWT
   as sent; `PresentFault` is a presentation fault's source. RFC 9901 A.1 to A.4
   and §5 are its known answers.
-- `siros-sdjwt::type_metadata` converts a type metadata document's `display`
-  to MF2 source for the wallet's context, its ids carrying the document's
-  SHA-256; the claims kit draws the card through it when `Resolved::display`
-  states the context holds it.
+- A credential's display metadata, SD-JWT VC Type Metadata's `display` and
+  `claims[].display` and OpenID4VCI's claims display, shows as written: the
+  claims kit picks the entry by `Env.priority` (`format_entry`) and shows its
+  text through `ClaimText::Label`.
 - `ClaimsFormat::withheld` names an array element that holds no value, which a
   claims path walks past at its issued position.
 - `siros-mdoc::registration` builds the view from a stored mdoc, with
@@ -139,6 +151,25 @@ All notable changes to this workspace. The format follows
   `Full` when the set needs no wallet display (A9, K4). `siros-openid4vp`
   composes the consent entry as platform-neutral data (`consent`), its
   transaction header filled by the profile.
+- `siros-credman` holds the registration, versioned, seekable and read lazily: a header, a directory
+  of entries each checked against the blob's size, then the entries: the locale it was written in,
+  the End-User's ranked locale tags, the wallet's bidi choice, the wallet's sources for the matcher,
+  formats first, and each registered transaction type's converted View source. `Base::load` loads
+  the base sources into one context in that locale. Under `register`, which turns on siros-i18n's
+  `nfc`, `register::write` takes a `Base`, loads its sources again, then each transaction source
+  into a clone of its context and all of them into one clone, each through `Context::module_in_nfc`,
+  before it writes. It refuses a base source (`RegisterError::Source`) or a transaction source
+  (`RegisterError::Transaction`) whose names, variant keys or selector literals NFC would change, so
+  a matcher built without `nfc` resolves the registration to the wallet's texts.
+  `Registration::open` reads the header, the directory and the base; `Registration::context` loads
+  the sources of the types a request names into a clone of the base's context and reads no other
+  entry. The wallet registers again when its language changes.
+- `siros-credman::emit` is the matcher's entry emission: every choice of a display as Credential
+  Manager draws it, each text resolved through the registration's context. It fails as a whole on
+  the first choice that does not emit (`NotEmitted`, naming the entry and holding the cause). A
+  field name needs a visible character (`NoName`). A field's text is cut at the longest
+  extended-grapheme-cluster boundary that keeps the text, a closer for each bidi isolate or
+  embedding the cut leaves open, and the ellipsis within 80 characters (`FIELD_MAX`).
 - `siros-webuild` holds WE BUILD's CS-02 rules: `Cs02Claims` requires a
   Request Object's `exp` and `aud` (CS-02 §8.2), `Cs02ErrorAnswer` reads the
   Verifier's error answer from the Response URI (CS-02 §8.3).
@@ -180,62 +211,41 @@ All notable changes to this workspace. The format follows
   `TestPostContribution` and `TestAnswerReader`.
 - Statements derive `Message`: the core's `WalletText`, `ClaimText` and
   `BooleanText`; siros-paso's Mandate labels, rulebook titles, actions and
-  sections, and ISO 20022 frequencies; siros-qes's QES approval (`QesTitle`,
-  `QesText`). Each statement's documentation names the situation it reports and
-  its arguments. The crates ship no message source: the wallet's sources word
-  every id. `siros-testkit`'s test app words every id the workspace's tests
-  link, in English and German (`locales/`), over siros-cldr's en and de format
-  options.
+  sections, ISO 20022 frequencies, the places a refusal names (`ArrayAt`,
+  `RenderedAt`) and its values shown alone (`ValueText`); siros-qes's QES
+  approval (`QesTitle`, `QesText`). Each statement's documentation names the
+  situation it reports and its arguments. The crates ship no message source:
+  the wallet's sources word every id. `siros-testkit`'s test app words every
+  statement the workspace's tests link, in English and German (`locales/`), over
+  siros-cldr's en and de format options.
 - `siros-paso` classifies the inherence facts the platform reports as Risk
   Signal Registry §2.8's `bio_strong` and `bio_weak` (`BiometricClass`).
-
-### Changed
-
 - `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
   ASCII has each label in UTS #46's case and each label beyond ASCII written `xn--` and its Punycode,
-  with no Unicode tables. `NotHttpsUrl` gains `LabelOverflow` and `NotRegName`. `RemoteImage` holds an
+  with no Unicode tables. `NotHttpsUrl` refuses a label whose Punycode overflows (`LabelOverflow`)
+  and an ASCII form that is no registered name (`NotRegName`). `RemoteImage` holds an
   `HttpsUrl`. Two texts with one ASCII form are one URL: one `Resource`, one answer, one key of
   `with_resource` and `with_resources`; `FailedImage::url` and a parsed URL's
   `NotCompatible::Image` hold that form, and its `Display`, which an argument
   carries, writes it.
 - A host UTS #46 refuses parses. A PaSO `url` value, a TS12 `payee.website` and a QES document link
-  without a checksum at such a host show its Punycode and take no fetch; they were refused or
-  faulted in phase 1. A PaSO image, a TS12 logo and a checksummed QES document reach the caller's GET
-  and fail there: phase 2's outcome stands.
+  without a checksum at such a host show its Punycode and take no fetch. A PaSO image, a TS12 logo
+  and a checksummed QES document reach the caller's GET and fail there: phase 2's outcome stands.
 - `claims::kit::format_entry` is RFC 4647 Lookup over the priority list, then
   filtering, then the entry without a locale; an array answering none gives no
-  entry, and the row or the card takes its next choice. `type_metadata::convert`
-  writes, for each display array, the entry `format_entry` takes.
+  entry, and the row or the card takes its next choice.
 - `siros-mdoc`: a device key's label 3 stating a signature algorithm its curve does not make is refused (`DeviceKeyFault::Algorithm`; RFC 9052 §7.1): X25519 and X448 make none, Ed25519 and Ed448 EdDSA and their own fully-specified identifier, the EC2 curves ES256, ES384, ES512 and their own fully-specified identifier (RFC 9053 §2.1, §2.2, §7.1; RFC 9864 §2). The view read holds the same rule.
 - `siros-mdoc`: a device key signs with a `SignatureAlgorithm` alone. X25519 and X448 are for ECDH only (RFC 9053 §7.1), and a label 3 of no signature algorithm restricts any key to something other than signing (RFC 9052 §7.1): `DeviceKey::algorithm` is `None`, the view omits `device_alg`, and the key authenticates by device MAC alone, or is refused (`DeviceAuthRefused::KeyAgreementOnly`). `deviceauth_alg_values` matches a device MAC by header `alg` 5 and over the whole of OpenID4VP B.2.2's table, the four brainpool rows included; a refusal's clause names the identifiers of the credential's keys (`Constraint::also` holds the 5).
-- `siros-mdoc`'s and `siros-sdjwt`'s registration take typed input (`Resolved`) and refuse only what can happen: `RegistrationError::Json` is gone, and `Metadata` holds the merge's remaining rules. `merge_metadata`'s format document and `IssuedMetadata::{configuration, response}` are `json::Object`, and `MergeError::{FormatNotObject, ConfigurationNotObject, ResponseNotObject}` are gone. `siros-sdjwt`'s `Resolved::display` is a `DisplayModule`. `siros-mdoc`'s `NameNotText` variants read `NameSpace`.
+- `siros-mdoc`'s and `siros-sdjwt`'s registration take typed input (`Resolved`) and refuse only what can happen: `RegistrationError::Metadata` holds the merge's rules. `merge_metadata`'s format document and `IssuedMetadata::{configuration, response}` are `json::Object`.
 - `siros-mdoc` and `siros-sdjwt` type what their public signatures name: `Registered::{view, document}` return `ViewBytes` and `DocumentBytes`; `CertificateChain` and `SdJwt::x5c` give `DerCertificate`; `IssuerAuth::signature` an `IssuerSignature`; `Resolved::issuer` is an `IssuerName`; `Handover::Redirect::response_uri` a `HandoverUri`; `SdJwt::{issuer_jwt, typ}` return `IssuerJwt` and `JwtType`; `KeyBinding` takes a `KbSignature` from a `KbSigningInput` and assembles an `SdJwtKb`; `RegistrationError::IssuerCurve` names a `ResolvedCurve`.
-- `siros-wallet-state` refuses a repeated member name in every object it reads, a `presentations` entry included. `CredentialEntry::format` is optional: the empty string reads as unknown. `PresentationRecord::new` takes `PresentationData` and `Audience`.
-- `siros-trust`: `Certificate::p256_key` and `p384_key` return `P256Point` and `P384Point`.
-- `siros-paso`'s label limits are a parameter: `LabelText::parse` takes the limit in place of a
-  `LabelSlot` and `LabelSlot::max` is gone, and `view::convert` takes a `Registered` and
-  `LabelLimits` in place of its type and metadata.
+- `siros-paso`'s label limits are a parameter: `LabelText::parse` takes the limit, and
+  `view::convert` takes a `Registered` and `LabelLimits`.
 - `siros-mdoc::stored`'s `Mso::device_key` returns a `DeviceKey` on any curve
   of ISO/IEC 18013-5 Table 22, and `KeyAuthorizations` keeps the issuer's
-  order. `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth
-  form (`FormError::DeviceKey`).
+  order.
 - `siros-testkit`'s issuers write what registration reads: `sd_jwt_issuer`
   issues the SD-JWT, `issuer` the view's validity, `keyAuthorizations` and
   device key algorithm. `sd_jwt_reading` reads a presentation back.
-- A malformed `aki` value of a Trusted Authorities Query equals no held value
-  (OpenID4VP section 6.1.1): `siros-trust` no longer refuses its form.
-- `siros-zkp-req`, `siros-zkp-catalogues`, `siros-trust` and `proving/` read
-  DCQL, CBOR, JSON, identifiers, sessions and authenticated requests through
-  `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
-  and refuses an indefinite length through the core's definite reading.
-- `siros-zkp-catalogues` reads the semantics identifier from the trust
-  service's facts and its stored mdocs through `siros-mdoc::stored`, and holds
-  its calendar dates and ES256 signatures. Its session binds the key that
-  `siros-openid4vp`'s key rule chooses for the response.
-- `siros-trust` takes the core's `Timestamp` and identifiers. Its chain
-  reader is part of the crate, without a feature, on the workspace's
-  `x509-cert`, `der`, `p256` and `p384`.
-- `siros-wallet-state` holds its own errors and timestamp.
 - `siros-openid4vp`'s `Presentation` is made by `Presentation::text` or
   `Presentation::object` alone (§8.1). A format states a credential's types
   (`ViewAdditions`), which a profile reads in its `Binding`; `siros-sdjwt`'s
@@ -245,9 +255,8 @@ All notable changes to this workspace. The format follows
   prefix's verifying module, the URI modes, encrypted Request Objects and each
   `PostContribution`, whose parameters the POST carries beside it. The
   Response URI's answer reads through registered `AnswerReader`s. The registry
-  refuses a name two parts declare and one the core writes. `RequestClaims`
-  leaves `TrustConfig`: a deployment requiring claims registers an
-  `ObjectRule`.
+  refuses a name two parts declare and one the core writes. A deployment that
+  requires a Request Object's claims registers an `ObjectRule`.
 - `ErrorCode` is open: a code in RFC 6749 Appendix A.7's syntax, checked by
   `ErrorCode::new` or `checked!`; a plug-in's rule returns its
   specification's code.
@@ -331,31 +340,14 @@ All notable changes to this workspace. The format follows
 - `siros-openid4vp` encodes CBOR deterministically (RFC 8949 §4.2.1), reads
   CBOR with definite lengths alone under a nesting bound, and reads a
   `dcql_query`'s Credential Queries alone (`Query::read_all`).
-- `clippy.toml` disallows `BTreeMap` and `BTreeSet`, and `split_off` and
-  `split_at` on vectors, strings, slices and `str`. `wmp-core` and
-  `engine-conformance` keep their ordered maps under `#[expect]`.
-- `scripts/check_panic_sites.py` reads a `const` item's initialiser and an
-  inline `const` block as build-time code.
-- `engine-adapter-wasm`'s mini host builds its presentations itself. The
-  PID's holds the disclosures the match named and the KB-JWT over `iat`,
-  `aud`, `nonce` and `sd_hash` (RFC 9901 §4.3), with `base64` for the
-  segments. The mDL's is the DeviceResponse of the selected items with the
-  device signature over the OpenID4VPHandover's session transcript
-  (OpenID4VP B.2.6.1); `ciborium` writes its CBOR in the core deterministic
-  encoding (RFC 8949 §4.2.1).
-- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
-  1.89, then each crate with and without its default features. The workspace
-  resolves with resolver 3. Both container images build on Rust 1.99.1, the
-  pinned toolchain.
 - `siros-openid4vp::text::lookup` is RFC 4647 §3.3.1 basic filtering: a range
   matches the tag equal to it, else the first tag extending it (`en` matches
   `en-GB`, `en-US` matches no `en`) over received tags, through
   `LocaleTag::filters`; a text outside RFC 4647's grammar matches no range. A
   credential's display entry matches by it. `Env::new` takes the End-User's
   priority list as given; its documentation states the app's practice of
-  putting each tag's generic form after it. The core's `Amounts` is gone: the
-  wallet's wording shows an amount through `:currency` or as written.
-  `ids::LocaleTag` is `siros-i18n`'s.
+  putting each tag's generic form after it. The wallet's wording shows an amount
+  through `:currency` or as written. `ids::LocaleTag` is `siros-i18n`'s.
 - The texts of a consent entry, a header, a row and Credential Manager's
   entries are siros-i18n's `Text`, resolved through the wallet's `Context`:
   `Card`'s title and subtitle, `Overlay`'s hint, `TransactionHeader`'s
@@ -370,30 +362,31 @@ All notable changes to this workspace. The format follows
   `numSignatures`); a boolean, a claim's `null` and a frequency are
   statements; an issuer's, a Verifier's or a credential's text shows as
   written, the Verifier's name for the consent included (`ClientBinding::name`,
-  `Verifier::name`). A row's value is an image or a `Text`. `siros-credman`'s
-  `Field::of`, `SetFacts::of` and `Fulfilment::check` take the caller's plain
-  text of a `Text` (`text_of`).
+  `Verifier::name`). A row's value is an image or a `Text`. Credential
+  Manager's fields show a `Text`'s plain text.
 - `siros-paso` selects a transaction's locale as PaSO View §4 writes it, over
   `Env`'s priority list as given: for each tag in order, every display array
-  takes the entry RFC 4647 §3.4's Lookup finds over its tagged entries, else
-  its first entry without a locale, the entries a template with an absent
-  claim discards left out; the first tag whose every array matches is
+  takes the entry RFC 4647 §3.4's Lookup finds over its tagged entries, else its
+  first entry without a locale, the entries a template with an absent claim
+  discards left out; the first tag whose every array matches is
   `display_locale`, and none excludes the credential. It converts a type's
   display rules to MF2 source for the wallet's context (`view::convert`): the
   source declares the context's locale, its ids carry the metadata's SHA-256,
-  and each display array is one message (`claim_<k>`, a UI label's name) of
-  the entries View §4 tries for the selected tag, a template entry an absent
-  claim discards selected by its argument `e<j>`. A `mini_markdown` label is
-  its MF2 markup, and a template label's `{n}` the argument `c<n>`, `""` when
-  the claim is absent. A claim's value enters as its literal text: a date or a
-  time through `:siros:date`, `:siros:time` or `:siros:datetime`, an amount as
-  its value and its currency through `:currency`, a frequency and a boolean as
-  their statements' resolved texts. Every issuer text goes through `escape`. A
-  template value of an inner text or `mini_markdown` kind sets each referenced
-  value of a typed kind as its typed text (View §3 step 3). A `mini_markdown`
-  value shows its text without its styles. A time of day holds seconds 00 to
-  59; a date-time's second 60 is RFC 3339's leap second. A value's refusal
-  names the rule it breaks (`value::Breach`).
+  and each display array is one message (`claim_<k>`, a UI label's name) of the
+  entries View §4 tries for the selected tag, a template entry an absent claim
+  discards selected by its argument `e<j>`. A `mini_markdown` label is its MF2
+  markup, and a template label's `{n}` the argument `c<n>`, `""` when the claim
+  is absent. A claim's value enters as its literal text: a date or a time
+  through `:siros:date`, `:siros:time` or `:siros:datetime`, an amount as its
+  value and its currency through `:currency`, a frequency and a boolean as their
+  statements' resolved texts. Every issuer text goes through `escape`, and the
+  source's ids, names and variant keys are ASCII, so a matcher built without
+  siros-i18n's `nfc` loads it into the wallet's messages. A template value of an
+  inner text or `mini_markdown` kind sets each referenced value of a typed kind
+  as its typed text (View §3 step 3). A `mini_markdown` value shows its text
+  without its styles. A time of day holds seconds 00 to 59; a date-time's second
+  60 is RFC 3339's leap second. A value's refusal names the rule it breaks
+  (`value::Breach`).
 - PaSO View's vocabulary is `siros-paso`'s: its value types (`value`:
   `ValueKind`, `FormattedKind`, `Parsed`, `Written`, `BadValue`,
   `formatted`), the ISO 20022 frequencies (`frequency`) and the
@@ -429,42 +422,56 @@ All notable changes to this workspace. The format follows
   and overlay under an injective encoding. Phase 2 derives its records with its
   own context, answers only byte-equal records, and refuses a pick whose
   `shown` differs (`Finding::Rendered`).
-- `siros-credman` holds the registration, versioned, seekable and read lazily:
-  a header, a directory of entries each checked against the blob's size, then
-  the entries: the wallet's bidi choice, the priority list, the app's choice
-  for a text the matcher cannot resolve (`OnRenderError::NoEntry` or
-  `OnRenderError::Rendered`), the wallet's sources its matcher needs, formats
-  first, and each credential type's and transaction type's converted source.
-  The feature `register` writes it. The matcher builds its `Context` from the
-  base sources and the sources the request's entries need, and reads those
-  alone; the wallet registers again when its language changes.
-  `siros-credman::emit` is the matcher's entry emission: every choice of a
-  display as Credential Manager draws it, in plain text, every entry resolved
-  before the first is added and the app's choice applied.
+
+### Changed
+
+- `siros-wallet-state` refuses a repeated member name in every object it reads, a `presentations` entry included. `CredentialEntry::format` is optional: the empty string reads as unknown. `PresentationRecord::new` takes `PresentationData` and `Audience`.
+- `siros-trust`: `Certificate::p256_key` and `p384_key` return `P256Point` and `P384Point`.
+- `siros-zkp-catalogues` refuses a device key off P-256 for the nym_auth form
+  (`FormError::DeviceKey`).
+- A malformed `aki` value of a Trusted Authorities Query equals no held value
+  (OpenID4VP section 6.1.1): `siros-trust` no longer refuses its form.
+- `siros-zkp-req`, `siros-zkp-catalogues`, `siros-trust` and `proving/` read
+  DCQL, CBOR, JSON, identifiers, sessions and authenticated requests through
+  `siros-openid4vp`. `siros-zkp-req` holds its member faults and value macros,
+  and refuses an indefinite length through the core's definite reading.
+- `siros-zkp-catalogues` reads the semantics identifier from the trust
+  service's facts and its stored mdocs through `siros-mdoc::stored`, and holds
+  its calendar dates and ES256 signatures. Its session binds the key that
+  `siros-openid4vp`'s key rule chooses for the response.
+- `siros-trust` takes the core's `Timestamp` and identifiers. Its chain
+  reader is part of the crate, without a feature, on the workspace's
+  `x509-cert`, `der`, `p256` and `p384`.
+- `siros-wallet-state` holds its own errors and timestamp.
+- `clippy.toml` disallows `BTreeMap` and `BTreeSet`, and `split_off` and
+  `split_at` on vectors, strings, slices and `str`. `wmp-core` and
+  `engine-conformance` keep their ordered maps under `#[expect]`.
+- `scripts/check_panic_sites.py` reads a `const` item's initialiser and an
+  inline `const` block as build-time code.
+- `engine-adapter-wasm`'s mini host builds its presentations itself. The
+  PID's holds the disclosures the match named and the KB-JWT over `iat`,
+  `aud`, `nonce` and `sd_hash` (RFC 9901 §4.3), with `base64` for the
+  segments. The mDL's is the DeviceResponse of the selected items with the
+  device signature over the OpenID4VPHandover's session transcript
+  (OpenID4VP B.2.6.1); `ciborium` writes its CBOR in the core deterministic
+  encoding (RFC 8949 §4.2.1).
+- Rust 1.89 is the floor of every crate. The msrv job checks the workspace on
+  1.89, then each crate with and without its default features. The workspace
+  resolves with resolver 3. Both container images build on Rust 1.99.1, the
+  pinned toolchain.
 - CI builds the documentation with warnings denied, runs clippy over the
   libraries without default features, and denies warnings when it checks each
   crate alone.
 
 ### Removed
 
-- `rows::Shown`, `UnreachableUrl`, `HttpsUrl::shown`, `NotHttpsUrl::ALabel` and `NoALabel`.
 - `siros-trust`'s `QueryAuthorities`, `Admission`, `Issuer`, `Ground`, `Refusal`,
   `FactRefusal`, `Authority`, `AkiError`, `AuthorityError`, `EntryError::Id` and
   the generic parameter of `Unadmitted`: the core's `Facts::admits` and `Query`
   replace them.
-- `TableLocale`, `DisplayLocale`, `EnvError::NotInTable`, `rows::Label` and
-  `rows::LabelKind`, and the core's own calendar and currency types: the
-  tables' texts are statements the wallet words, and the calendar and currency
-  types siros-syntax's.
-- `ResponseData` and `Response`, which `Delivery` and `Built` replace;
-  `FormMembers`.
-- The `direct_post.cwt` routing and `Modes`; `ResponseMode`, `DcApiMode`,
-  `ModeChoice`, `Protection`, `Encryption::choose`, `ResponseKey` and
-  `ResponseEnc`, which the registered modes and HAIP's key rule replace;
-  `Strength`, which the inherence facts replace; `with_resolve!` and
-  `without_resolve!`.
 - `siros-codec`, `siros-dcql` and `siros-oid4vp`: `siros-openid4vp` reads
   DCQL, CBOR, JSON and requests, and the crates that read them name it.
+  `direct_post.cwt` waits for the `zkp_req` plug-in (the design's Appendix A).
   crates.io's `siros-dcql` stays as siros-dc-matcher published it.
 - `siros-credential`, `siros-display`, `siros-transaction-data` and
   `siros-presentation`. `docs/wallet-core-design.md`, section 10.3, names the
