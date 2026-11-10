@@ -2044,11 +2044,11 @@ a closer for each bidi isolate or embedding the cut leaves open, and the ellipsi
 characters. An image shows clipped. A visible character is one that is neither White_Space nor
 Default_Ignorable_Code_Point. A label, a card text and a Credential Manager field name each need
 one. siros-openid4vp's text module defines it (`DisplayText::visible`). A row's label holds one
-where its text enters: the claims kit takes its fallback label in place of a label without one,
-siros-paso refuses such a label (`LabelViolation::Invisible`), and siros-qes labels its rows with
-the wallet's texts. A field's name starts at its label's first character other than white space. A
-row whose label holds no visible character makes no field (`NoName`). Static entries disclose
-nothing and stay out of the facts.
+where its text enters: the claims kit takes its next choice for a label without one, siros-paso
+refuses such a label (`LabelViolation::Invisible`), and siros-qes labels its rows with the wallet's
+texts. A field's name starts at its label's first character other than white space. A row whose
+label holds no visible character makes no field (`NoName`). Static entries disclose nothing and
+stay out of the facts.
 
 #### The core's vocabulary (`json`, `cbor`, `ids`, `plugins`, `wallet`, `claims::kit`)
 
