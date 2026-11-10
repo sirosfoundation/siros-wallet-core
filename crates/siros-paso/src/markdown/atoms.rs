@@ -84,7 +84,7 @@ fn raw_html(chars: &[char], i: usize) -> Option<usize> {
     }
     match chars.get(k) {
         Some(&c) if python_space(c) => {
-            let stop = chars.get(k..)?.iter().position(|&c| c == '<' || c == '>')?;
+            let stop = chars.iter().skip(k).position(|&c| c == '<' || c == '>')?;
             (chars.get(k + stop) == Some(&'>')).then_some(k + stop + 1)
         }
         Some('>') => Some(k + 1),
@@ -99,8 +99,8 @@ fn autolink(chars: &[char], i: usize) -> Option<usize> {
         return None;
     }
     let scheme = chars
-        .get(i + 2..)?
         .iter()
+        .skip(i + 2)
         .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
         .count();
     let colon = i + 2 + scheme;
@@ -108,8 +108,8 @@ fn autolink(chars: &[char], i: usize) -> Option<usize> {
         return None;
     }
     let body = chars
-        .get(colon + 1..)?
         .iter()
+        .skip(colon + 1)
         .take_while(|&&c| !python_space(c) && c != '<' && c != '>')
         .count();
     (chars.get(colon + 1 + body) == Some(&'>')).then_some(colon + body + 2)
