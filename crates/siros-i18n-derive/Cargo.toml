@@ -13,6 +13,7 @@ publish = false
 proc-macro = true
 
 [dependencies]
+siros-derive-internals = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }
