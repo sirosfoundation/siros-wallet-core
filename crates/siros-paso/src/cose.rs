@@ -81,17 +81,34 @@ impl SealedCose {
 
 #[cfg(feature = "test-util")]
 mod test_util {
+    use siros_explain::Explain;
     use siros_openid4vp::cbor::cose::coset::iana::{self, EnumI64};
     use siros_openid4vp::cbor::cose::coset::{
-        CoseEncryptBuilder, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
+        CoseEncryptBuilder, CoseError, CoseRecipientBuilder, HeaderBuilder, TaggedCborSerializable,
     };
     use siros_openid4vp::detail;
-    use siros_openid4vp::plugins::Fault;
+    use siros_openid4vp::plugins::{Detail, Fault};
     use siros_openid4vp::request::{AgreeableKey, KeyAgreement};
     use siros_syntax::checked;
 
     use crate::modules::{CoseEnc, CoseEncrypt};
-    use crate::{caused, fault};
+
+    /// The double's fault, its log line written by `detail`: a key agreement or a content
+    /// encryption outside its tables, or a `COSE_Encrypt` coset does not encode.
+    #[derive(Debug, thiserror::Error, Explain)]
+    #[error("{detail}")]
+    #[explain(id = "test_cose_encrypt.fault")]
+    struct StandInFault {
+        #[explain(skip)]
+        detail: Detail,
+        #[source]
+        cause: Option<CoseError>,
+    }
+
+    /// The double's fault, its log line written by `detail`, caused by `cause`.
+    fn fault(detail: Detail, cause: Option<CoseError>) -> Fault {
+        Fault::new(StandInFault { detail, cause })
+    }
 
     /// The key agreements the stand-in writes, with their COSE algorithms (RFC 9053 §6.3).
     const AGREEMENTS: [(KeyAgreement<'static>, iana::Algorithm); 4] = [
@@ -133,9 +150,14 @@ mod test_util {
                 .iter()
                 .find(|(known, _)| known.as_str() == alg.as_str())
                 .map(|(_, cose)| *cose)
-                .ok_or_else(|| fault(detail!("a key agreement the stand-in does not write")))?;
+                .ok_or_else(|| {
+                    fault(detail!("a key agreement the stand-in does not write"), None)
+                })?;
             let content = iana::Algorithm::from_i64(enc.id()).ok_or_else(|| {
-                fault(detail!("a content encryption the stand-in does not write"))
+                fault(
+                    detail!("a content encryption the stand-in does not write"),
+                    None,
+                )
             })?;
             CoseEncryptBuilder::new()
                 .protected(HeaderBuilder::new().algorithm(content).build())
@@ -153,7 +175,7 @@ mod test_util {
                 )
                 .build()
                 .to_tagged_vec()
-                .map_err(|e| caused(detail!("the COSE_Encrypt stand-in"), e))
+                .map_err(|e| fault(detail!("the COSE_Encrypt stand-in"), Some(e)))
         }
     }
 }

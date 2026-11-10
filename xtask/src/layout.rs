@@ -8,10 +8,10 @@
 //!   `crates/<crate>/tests/` and `crates/siros-testkit/`, and an `include_str!` or
 //!   `include_bytes!` of one from a `src/` tree under `crates`, `xtask` or `proving`, outside
 //!   `crates/siros-testkit/`.
-//! - I28, in the shipped crates' sources: a `Text::Raw` or `RequestText::raw` built from a literal
-//!   or a `format!`, a `Label::text` or `Label::mini_markdown` of a literal.
+//! - I28, in the shipped crates' sources: a field of a statement (a type deriving `Message`) given
+//!   a value that holds a string literal, a `format!` included.
 //! - I27, in the same sources: a type deriving `thiserror::Error` that neither derives nor
-//!   implements `Explain`; a type deriving `Explain` alone that implements `Display`.
+//!   implements `Explain`; a type deriving `Message` that implements `Display`.
 //! - `feature = "test-util"`, in every source: see [`gate`].
 //!
 //! Macro bodies and attribute values are token trees to `syn`: the same rules read their tokens.
@@ -32,7 +32,7 @@ use self::names::{Names, module_of};
 use crate::Failure;
 
 /// The presentation core's crates whose texts reach the End-User (design section 4.11).
-const SHIPPED: [&str; 11] = [
+const SHIPPED: [&str; 12] = [
     "siros-openid4vp",
     "siros-x509",
     "siros-mdoc",
@@ -44,6 +44,7 @@ const SHIPPED: [&str; 11] = [
     "siros-ts12",
     "siros-i18n",
     "siros-explain",
+    "siros-syntax",
 ];
 
 /// Attributes that mark a test, by their path's last segment.
@@ -55,14 +56,6 @@ const TEST_ATTRIBUTES: [&str; 7] = [
     "proptest",
     "quickcheck",
     "wasm_bindgen_test",
-];
-
-/// The calls that build a display text, as a type and a function.
-const DISPLAY_CALLS: [(&str, &str); 4] = [
-    ("Text", "Raw"),
-    ("RequestText", "raw"),
-    ("Label", "text"),
-    ("Label", "mini_markdown"),
 ];
 
 /// A place the layout's rules refuse.
@@ -219,6 +212,7 @@ fn scan(
                 scope,
                 inline: Vec::new(),
                 module,
+                selves: Vec::new(),
                 names,
                 hits,
             };
@@ -234,12 +228,13 @@ fn scan(
 }
 
 /// The walk of one source: `inline` holds the directories its enclosing inline modules add to a
-/// `#[path]`, `module` the module it stands in.
+/// `#[path]`, `module` the module it stands in, `selves` the types of its enclosing `impl`s.
 struct Scanner<'a> {
     file: &'a str,
     scope: Scope,
     inline: Vec<String>,
     module: Vec<String>,
+    selves: Vec<Vec<String>>,
     names: &'a mut Names,
     hits: &'a mut Vec<Hit>,
 }
@@ -348,7 +343,8 @@ impl Scanner<'_> {
         self.tokens(body);
     }
 
-    /// The rules over tokens `syn` leaves unparsed: attributes, macro calls and display calls.
+    /// The rules over tokens `syn` leaves unparsed: attributes, macro calls and struct
+    /// expressions.
     fn tokens(&mut self, stream: TokenStream) {
         let trees: Vec<TokenTree> = stream.into_iter().collect();
         for (at, tree) in trees.iter().enumerate() {
@@ -365,8 +361,8 @@ impl Scanner<'_> {
             match classify(before, group) {
                 Tokens::Attribute => self.attribute(group.stream(), line),
                 Tokens::Macro(name) => self.macro_call(&name, group.stream(), line),
-                Tokens::Call(ty, function) => {
-                    self.display_call(&ty, &function, group.stream(), line);
+                Tokens::Built(path) => {
+                    self.built_tokens(&path, group.stream());
                     self.tokens(group.stream());
                 }
                 Tokens::Other => self.tokens(group.stream()),
@@ -432,13 +428,36 @@ impl Scanner<'_> {
         self.names.add_use(&self.module, tree, &mut Vec::new());
     }
 
-    /// I28: a call that builds a display text from a string literal.
-    fn display_call(&mut self, ty: &str, function: &str, arguments: TokenStream, line: usize) {
-        if self.scope.shipped
-            && DISPLAY_CALLS.contains(&(ty, function))
-            && holds_string_literal(arguments)
-        {
-            self.hit(line, format!("I28: `{ty}::{function}` of a literal"));
+    /// `path` with a leading `Self` read as the enclosing `impl`'s type.
+    fn with_self(&self, path: &[String]) -> Vec<String> {
+        match (path.split_first(), self.selves.last()) {
+            (Some((first, rest)), Some(own)) if first == "Self" && !own.is_empty() => {
+                own.iter().chain(rest).cloned().collect()
+            }
+            _ => path.to_vec(),
+        }
+    }
+
+    /// A shipped source's struct expression of the type or variant at `path` whose `field` holds
+    /// a string literal: the names' table judges it for I28 once it knows the statements.
+    fn built(&mut self, path: &[String], field: &Ident) {
+        if self.scope.shipped {
+            let at = (self.file, field.span().start().line);
+            let path = self.with_self(path);
+            self.names.add_built(&self.module, path, at, plain(field));
+        }
+    }
+
+    /// A struct expression in tokens: its fields, `name: value`, split at the commas.
+    fn built_tokens(&mut self, path: &[String], fields: TokenStream) {
+        for field in split_commas(fields) {
+            if let [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..] = field.as_slice()
+                && colon.as_char() == ':'
+                && !value.first().is_some_and(|tree| is_punct(tree, ':'))
+                && holds_string_literal(value.iter().cloned().collect())
+            {
+                self.built(path, name);
+            }
         }
     }
 }
@@ -457,19 +476,16 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
         }
     }
 
-    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(function) = call.func.as_ref() {
-            let mut segments = function.path.segments.iter().rev();
-            if let (Some(last), Some(ty)) = (segments.next(), segments.next()) {
-                self.display_call(
-                    &plain(&ty.ident),
-                    &plain(&last.ident),
-                    call.args.to_token_stream(),
-                    last.ident.span().start().line,
-                );
+    fn visit_expr_struct(&mut self, built: &'ast syn::ExprStruct) {
+        let path = segments_of(&built.path);
+        for field in &built.fields {
+            if let syn::Member::Named(name) = &field.member
+                && holds_string_literal(field.expr.to_token_stream())
+            {
+                self.built(&path, name);
             }
         }
-        visit::visit_expr_call(self, call);
+        visit::visit_expr_struct(self, built);
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
@@ -483,11 +499,18 @@ impl<'ast> Visit<'ast> for Scanner<'_> {
     }
 
     fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
-        if let (Some((implemented, _)), syn::Type::Path(ty)) = (&item.trait_, item.self_ty.as_ref())
+        let own = match item.self_ty.as_ref() {
+            syn::Type::Path(ty) => segments_of(&ty.path),
+            _ => Vec::new(),
+        };
+        if let Some((implemented, _)) = &item.trait_
+            && !own.is_empty()
         {
-            self.add_impl(segments_of(&ty.path), segments_of(implemented));
+            self.add_impl(own.clone(), segments_of(implemented));
         }
+        self.selves.push(own);
         visit::visit_item_impl(self, item);
+        drop(self.selves.pop());
     }
 
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
@@ -579,8 +602,8 @@ enum Tokens {
     Attribute,
     /// `name!(...)`.
     Macro(String),
-    /// `Type::function(...)`.
-    Call(String, String),
+    /// `path { ... }`: a struct expression, or a block after a word.
+    Built(Vec<String>),
     /// Anything else.
     Other,
 }
@@ -602,17 +625,8 @@ fn classify(before: &[TokenTree], group: &Group) -> Tokens {
         [.., TokenTree::Ident(name), TokenTree::Punct(bang)] if bang.as_char() == '!' => {
             Tokens::Macro(plain(name))
         }
-        [
-            ..,
-            TokenTree::Ident(ty),
-            TokenTree::Punct(first),
-            TokenTree::Punct(second),
-            TokenTree::Ident(function),
-        ] if first.as_char() == ':'
-            && second.as_char() == ':'
-            && group.delimiter() == Delimiter::Parenthesis =>
-        {
-            Tokens::Call(plain(ty), plain(function))
+        [.., TokenTree::Ident(_)] if group.delimiter() == Delimiter::Brace => {
+            Tokens::Built(trailing_path(before))
         }
         _ => Tokens::Other,
     }
@@ -679,6 +693,25 @@ fn implemented_paths(after: &[TokenTree]) -> Option<(Vec<String>, Vec<String>)> 
     let implemented = last_path(implemented);
     let ty = first_path(ty);
     (!implemented.is_empty() && !ty.is_empty()).then_some((implemented, ty))
+}
+
+/// The path `a::b::C` that ends `trees`.
+fn trailing_path(trees: &[TokenTree]) -> Vec<String> {
+    let mut path = Vec::new();
+    let mut rest = trees;
+    while let [head @ .., TokenTree::Ident(segment)] = rest {
+        path.push(plain(segment));
+        match head {
+            [head @ .., TokenTree::Punct(first), TokenTree::Punct(second)]
+                if first.as_char() == ':' && second.as_char() == ':' =>
+            {
+                rest = head;
+            }
+            _ => break,
+        }
+    }
+    path.reverse();
+    path
 }
 
 /// The path that ends a token run.

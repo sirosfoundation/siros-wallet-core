@@ -74,9 +74,9 @@ impl fmt::Display for UiKey {
     }
 }
 
-/// A display array, the place an error names: a claim's `display` or a UI label's entries. An
-/// error's argument writes it in English through `Display`; a wallet words it through its
-/// statement.
+/// A display array, the place an error names: a claim's `display` or a UI label's entries. The
+/// error's log line writes it as a JSON locator; a wallet that downcasts the error words it
+/// through this statement.
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum ArrayAt {
     /// The `display` of the claim at a path.
@@ -93,16 +93,15 @@ pub enum ArrayAt {
     },
 }
 
-impl fmt::Display for ArrayAt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl ArrayAt {
+    /// The JSON locator an error's log line writes: `claim ['a'] display`, `ui_labels.<key>`.
+    pub(crate) fn logged(&self) -> String {
         match self {
-            Self::Claim { path } => write!(f, "claim {} display", path.repr_text()),
-            Self::Ui { key } => write!(f, "ui_labels.{key}"),
+            Self::Claim { path } => format!("claim {} display", path.repr_text()),
+            Self::Ui { key } => format!("ui_labels.{key}"),
         }
     }
-}
 
-impl ArrayAt {
     /// The rule a label of this array breaks as written.
     fn label(&self, violation: LabelViolation) -> Unsupported {
         match self {

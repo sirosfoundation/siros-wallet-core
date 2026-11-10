@@ -11,8 +11,9 @@
 //! - `alone`: each crate the table lists builds alone, with and without its default features, and
 //!   `cargo tree -e normal` of it names exactly the workspace crates its row gives.
 //!
-//! - `layout [<root>]`: the workspace root's or `<root>`'s test code under `src/`, message sources
-//!   and display literals; one `file:line: rule` per hit, failing on any hit.
+//! - `layout [<root>]`: the workspace root's or `<root>`'s test code under `src/`, message sources,
+//!   error and statement types and the literals given to statements; one `file:line: rule` per
+//!   hit, failing on any hit.
 //!
 //! `builds` and `alone` print one line per row and exit with failure when a row fails. Their table
 //! names the crates; their code names none.

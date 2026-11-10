@@ -18,7 +18,9 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "number"
+          ]
         }
       ],
       "forbid": [
@@ -50,12 +52,14 @@
         "ryu",
         "sponge-cursor",
         "der_derive",
-        "flagset"
+        "flagset",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
+            "derive",
             "number"
           ]
         }
@@ -76,6 +80,12 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -86,6 +96,7 @@
           {
             "name": "siros-i18n",
             "features": [
+              "derive",
               "number"
             ]
           }
@@ -111,7 +122,8 @@
         {
           "name": "siros-i18n",
           "features": [
-            "date"
+            "date",
+            "number"
           ]
         }
       ],
@@ -137,13 +149,15 @@
         "ryu",
         "sponge-cursor",
         "der_derive",
-        "flagset"
+        "flagset",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
             "date",
+            "derive",
             "number"
           ]
         }
@@ -165,6 +179,13 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -175,6 +196,8 @@
           {
             "name": "siros-i18n",
             "features": [
+              "date",
+              "derive",
               "number"
             ]
           }
@@ -202,7 +225,9 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "number"
+          ]
         }
       ],
       "forbid": [
@@ -224,12 +249,14 @@
         "uuid",
         "zerocopy",
         "zerocopy-derive",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
+            "derive",
             "number"
           ]
         }
@@ -249,6 +276,12 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -259,6 +292,7 @@
           {
             "name": "siros-i18n",
             "features": [
+              "derive",
               "number"
             ]
           }
@@ -290,7 +324,11 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "currency",
+            "date",
+            "number"
+          ]
         }
       ],
       "forbid": [
@@ -316,7 +354,8 @@
         "zerocopy-derive",
         "percent-encoding",
         "ryu",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
@@ -324,6 +363,7 @@
           "features": [
             "currency",
             "date",
+            "derive",
             "number"
           ]
         }
@@ -348,6 +388,14 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -360,6 +408,7 @@
             "features": [
               "currency",
               "date",
+              "derive",
               "number"
             ]
           }
@@ -396,7 +445,8 @@
         {
           "name": "siros-i18n",
           "features": [
-            "date"
+            "date",
+            "number"
           ]
         }
       ],
@@ -412,13 +462,15 @@
         "blake2",
         "k12",
         "uuid",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
           "name": "siros-i18n",
           "features": [
             "date",
+            "derive",
             "number"
           ]
         }
@@ -443,6 +495,13 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -453,6 +512,8 @@
           {
             "name": "siros-i18n",
             "features": [
+              "date",
+              "derive",
               "number"
             ]
           }
@@ -499,7 +560,11 @@
         },
         {
           "name": "siros-i18n",
-          "features": []
+          "features": [
+            "currency",
+            "date",
+            "number"
+          ]
         }
       ],
       "forbid": [
@@ -520,7 +585,8 @@
         "k12",
         "zerocopy",
         "zerocopy-derive",
-        "sponge-cursor"
+        "sponge-cursor",
+        "inventory"
       ],
       "exact": [
         {
@@ -528,6 +594,7 @@
           "features": [
             "currency",
             "date",
+            "derive",
             "number"
           ]
         }
@@ -556,6 +623,14 @@
           {
             "name": "siros-credman",
             "features": []
+          },
+          {
+            "name": "siros-i18n",
+            "features": [
+              "currency",
+              "date",
+              "number"
+            ]
           }
         ],
         "forbid": [
@@ -568,6 +643,7 @@
             "features": [
               "currency",
               "date",
+              "derive",
               "number"
             ]
           }
@@ -582,6 +658,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -592,6 +670,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -602,6 +682,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -612,6 +694,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -623,6 +707,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -633,6 +719,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -643,6 +731,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -655,6 +745,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -665,6 +757,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -675,6 +769,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -685,6 +781,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },
@@ -707,6 +805,14 @@
     {
       "name": "siros-explain",
       "names": [
+        "siros-explain-derive",
+        "siros-derive-internals"
+      ]
+    },
+    {
+      "name": "siros-syntax",
+      "names": [
+        "siros-explain",
         "siros-explain-derive",
         "siros-derive-internals"
       ]
@@ -741,6 +847,8 @@
         "siros-i18n",
         "siros-explain",
         "siros-explain-derive",
+        "siros-syntax",
+        "siros-i18n-derive",
         "siros-derive-internals"
       ]
     },

@@ -2,8 +2,6 @@
 //! clause that decides it. First match (Core §7.4.2) gives way to the next entry on
 //! [`Unsupported`] and [`NotCompatible`]; [`Excluded`] excludes the credential.
 
-use std::fmt;
-
 use siros_explain::Explain;
 use siros_i18n::Message;
 use siros_openid4vp::ids::LocaleTag;
@@ -102,27 +100,30 @@ pub enum Unsupported {
         claim: ReprItem,
     },
     /// A display array that is no non-empty array.
-    #[error("{at}: not a non-empty array")]
+    #[error("{}: not a non-empty array", .at.logged())]
     #[explain(id = "unsupported.empty_array")]
     EmptyArray {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
     },
     /// A display entry without its text as a string.
-    #[error("{at}: an entry without a string {member}")]
+    #[error("{}: an entry without a string {member}", .at.logged())]
     #[explain(id = "unsupported.entry_without_text")]
     EntryWithoutText {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
         /// The member that holds the text.
         member: &'static str,
     },
     /// A label typed other than `mini_markdown` or `template:mini_markdown`, or a typed
     /// `security_hint`.
-    #[error("{at}: {member} {}", .written.repr_text())]
+    #[error("{}: {member} {}", .at.logged(), .written.repr_text())]
     #[explain(id = "unsupported.label_type")]
     LabelType {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
         /// `display_type` or `value_type`.
         member: &'static str,
@@ -130,26 +131,29 @@ pub enum Unsupported {
         written: ReprItem,
     },
     /// An explicit `null` locale.
-    #[error("{at}: locale null")]
+    #[error("{}: locale null", .at.logged())]
     #[explain(id = "unsupported.null_locale")]
     NullLocale {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
     },
     /// A locale that is no string, or one given twice.
-    #[error("{at}: locale {} repeated or not a tag", .locale.repr_text())]
+    #[error("{}: locale {} repeated or not a tag", .at.logged(), .locale.repr_text())]
     #[explain(id = "unsupported.locale_repeated")]
     LocaleRepeated {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
         /// The locale as written.
         locale: ReprItem,
     },
     /// Two entries without a locale.
-    #[error("{at}: more than one entry without a locale")]
+    #[error("{}: more than one entry without a locale", .at.logged())]
     #[explain(id = "unsupported.default_twice")]
     DefaultTwice {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
     },
     /// A claim label that breaks §3.3 as written.
@@ -199,10 +203,11 @@ pub enum Unsupported {
     },
     /// A template label holding U+FDD0, the character its conversion reads its placeholders as,
     /// or U+0000, which no MessageFormat 2 text holds.
-    #[error("{at}: a template holds U+FDD0 or U+0000")]
+    #[error("{}: a template holds U+FDD0 or U+0000", .at.logged())]
     #[explain(id = "unsupported.reserved")]
     Reserved {
-        /// The array.
+        /// The array; a wallet words it through its statement.
+        #[explain(skip)]
         at: ArrayAt,
     },
 }
@@ -344,10 +349,11 @@ pub enum NotCompatible {
     #[explain(id = "not_compatible.templates_exhausted")]
     TemplatesExhausted,
     /// A label that breaks §3.3 once rendered (View §2).
-    #[error("{at}: {violation}")]
+    #[error("{}: {violation}", .at.logged())]
     #[explain(id = "not_compatible.rendered_label")]
     RenderedLabel {
-        /// Which label.
+        /// Which label; a wallet words it through its statement.
+        #[explain(skip)]
         at: RenderedAt,
         /// The violation.
         #[source]
@@ -486,8 +492,8 @@ impl NotCompatible {
     }
 }
 
-/// Which rendered label breaks §3.3. An error's argument writes it in English through `Display`;
-/// a wallet words it through its statement.
+/// Which rendered label breaks §3.3. The error's log line writes it as a JSON locator; a wallet
+/// that downcasts the error words it through this statement.
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub enum RenderedAt {
     /// A claim's label at a payload path.
@@ -504,11 +510,12 @@ pub enum RenderedAt {
     },
 }
 
-impl fmt::Display for RenderedAt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl RenderedAt {
+    /// The JSON locator an error's log line writes: `claim ['a'] label`, `ui_labels.<key>`.
+    pub(crate) fn logged(&self) -> String {
         match self {
-            Self::Claim { claim } => write!(f, "claim {} label", claim.repr_text()),
-            Self::Ui { key } => write!(f, "ui_labels.{key}"),
+            Self::Claim { claim } => format!("claim {} label", claim.repr_text()),
+            Self::Ui { key } => format!("ui_labels.{key}"),
         }
     }
 }
