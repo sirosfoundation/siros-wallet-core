@@ -1,6 +1,7 @@
 //! CLDR number patterns (Unicode TR35 Part 3, "Number Patterns"): the affixes around a number,
 //! its grouping sizes, and its default digit counts.
 
+use crate::digit::{Digit, Numerals};
 use crate::numeric::decimal::Fixed;
 
 /// A part of a prefix or a suffix.
@@ -72,8 +73,7 @@ pub(crate) enum Shown {
 /// The locale's number symbols.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Symbols {
-    /// The digit zero; the digits one to nine follow it.
-    pub(crate) zero: char,
+    pub(crate) numerals: Numerals,
     pub(crate) decimal: String,
     pub(crate) group: String,
     pub(crate) minus: String,
@@ -140,8 +140,7 @@ impl Pattern {
         grouping: Grouping,
         out: &mut String,
     ) {
-        let zero = u32::from(symbols.zero);
-        let digit = |d: &u8| char::from_u32(zero + u32::from(*d)).unwrap_or(symbols.zero);
+        let digit = |d: &Digit| symbols.numerals.digit(*d);
         let len = fixed.int.len();
         let primary = usize::from(self.primary);
         let grouped = match grouping {
@@ -178,7 +177,7 @@ impl Pattern {
             return None;
         }
         let (prefix, body, suffix) = parts(positive)?;
-        let mut pattern = numbers(body)?;
+        let mut pattern = numbers(&body)?;
         pattern.positive = Affixes { prefix, suffix };
         if let Some(negative) = negative {
             let (prefix, _, suffix) = parts(negative)?;
@@ -211,32 +210,43 @@ fn split_unquoted(text: &str, separator: char) -> impl Iterator<Item = &str> {
     })
 }
 
-/// A subpattern's prefix, its number part, and its suffix.
-fn parts(text: &str) -> Option<(Vec<Affix>, &str, Vec<Affix>)> {
+/// Where a subpattern's character stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    Prefix,
+    Number,
+    Suffix,
+}
+
+/// A subpattern's prefix, its number part, and its suffix: the number part is the one run of
+/// unquoted `#`, `0`, `,` and `.`.
+fn parts(text: &str) -> Option<(Vec<Affix>, String, Vec<Affix>)> {
     let mut quoted = false;
-    let mut start = None;
-    let mut end = 0;
-    for (at, c) in text.char_indices() {
+    let mut place = Place::Prefix;
+    let (mut prefix, mut number, mut suffix) = (String::new(), String::new(), String::new());
+    for c in text.chars() {
         if c == '\'' {
             quoted = !quoted;
-        } else if !quoted && matches!(c, '#' | '0' | ',' | '.') {
-            if start.is_some() && end != at {
-                return None;
-            }
-            if start.is_none() {
-                start = Some(at);
-            }
-            end = at + c.len_utf8();
         } else if !quoted && matches!(c, '@' | 'E' | '*') {
             return None;
         }
+        let numeric = !quoted && matches!(c, '#' | '0' | ',' | '.');
+        place = match (place, numeric) {
+            (Place::Prefix | Place::Number, true) => Place::Number,
+            (Place::Prefix, false) => Place::Prefix,
+            (Place::Number | Place::Suffix, false) => Place::Suffix,
+            (Place::Suffix, true) => return None,
+        };
+        match place {
+            Place::Prefix => prefix.push(c),
+            Place::Number => number.push(c),
+            Place::Suffix => suffix.push(c),
+        }
     }
-    let start = start?;
-    Some((
-        affix_parts(text.get(..start)?)?,
-        text.get(start..end)?,
-        affix_parts(text.get(end..)?)?,
-    ))
+    if place == Place::Prefix {
+        return None;
+    }
+    Some((affix_parts(&prefix)?, number, affix_parts(&suffix)?))
 }
 
 /// The parts of a prefix or suffix: quoted text literal, `''` an apostrophe.
@@ -309,12 +319,9 @@ fn numbers(body: &str) -> Option<Pattern> {
         return None;
     }
     let digits: String = groups.concat();
-    let zeros_start = digits.find('0').unwrap_or(digits.len());
-    if digits.get(zeros_start..)?.contains('#') {
-        return None;
-    }
-    let min_fraction = fraction.chars().take_while(|&c| c == '0').count();
-    if fraction.get(min_fraction..)?.contains('0') {
+    let zeros = digits.trim_start_matches('#');
+    let optional = fraction.trim_start_matches('0');
+    if zeros.contains('#') || optional.contains('0') {
         return None;
     }
     Some(Pattern {
@@ -322,8 +329,8 @@ fn numbers(body: &str) -> Option<Pattern> {
         negative: None,
         primary,
         secondary,
-        min_integer: u8::try_from(digits.len() - zeros_start).ok()?,
-        min_fraction: u8::try_from(min_fraction).ok()?,
+        min_integer: u8::try_from(zeros.len()).ok()?,
+        min_fraction: u8::try_from(fraction.len() - optional.len()).ok()?,
         max_fraction: u8::try_from(fraction.len()).ok()?,
     })
 }

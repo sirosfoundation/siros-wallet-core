@@ -88,7 +88,7 @@ siros-openid4vp       the core: a request in, a response built   match | resolve
 ├── siros-zkp-catalogues   the zkp_req rulebooks: nym_auth         resolve, cbor, dc-api, uri
 ├── siros-testkit     the core's test doubles                     resolve, dc-api, request-decryption, cbor, sha3, blake2, k12, sri, claims
 └── siros-integration the HAIP and WE BUILD builds end to end     resolve
-siros-i18n            messages and their wording                  number | currency | offset | date | derive | check
+siros-i18n            messages and their wording                  number | currency | offset | date | derive | check | conformance
 siros-cldr            CLDR format options for siros-i18n modules
 siros-explain         the message contract
 siros-explain-derive  #[derive(Explain)]

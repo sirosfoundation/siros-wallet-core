@@ -22,8 +22,11 @@ offset = []
 date = ["dep:siros-syntax"]
 # `#[derive(Message)]`.
 derive = ["dep:siros-i18n-derive"]
-# Test builds only: `Context::check`, every derived statement's row, and MF2's test functions.
+# Test builds only: `Context::check` and every derived statement's row.
 check = ["siros-explain/check", "dep:inventory"]
+# siros-i18n's conformance tests' functions: MF2's `:test:function`, `:test:select` and
+# `:test:format`.
+conformance = []
 
 [dependencies]
 siros-explain = { workspace = true }
@@ -36,8 +39,9 @@ icu_properties = { workspace = true, optional = true }
 inventory = { workspace = true, optional = true }
 
 [dev-dependencies]
-# The tests derive statements and check wordings whatever the build's features.
-siros-i18n = { path = ".", features = ["derive", "check"] }
+# The tests derive statements, check wordings and call MF2's test functions whatever the build's
+# features: cargo turns a package's dev-dependency features on in its own test builds alone.
+siros-i18n = { path = ".", features = ["derive", "check", "conformance"] }
 siros-syntax = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }

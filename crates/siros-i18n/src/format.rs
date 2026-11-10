@@ -1,9 +1,9 @@
 //! The build's functions, one family per feature: `:string` always, `:number` and `:integer`
 //! (`number`), `:offset` (`offset`), `:currency` and `:percent` (`currency`), `:siros:date`,
-//! `:siros:time` and `:siros:datetime` (`date`), and MF2's test functions (`check`). A family with
-//! options parses its `[formats.<format>]` section; the compiler hands each family the call
-//! chains whose outermost call is one of its functions, and the compiled call formats and selects
-//! at resolution.
+//! `:siros:time` and `:siros:datetime` (`date`), and MF2's test functions (`conformance`). A
+//! family with options parses its `[formats.<format>]` section; the compiler hands each family the
+//! call chains whose outermost call is one of its functions, and the compiled call formats and
+//! selects at resolution.
 
 use crate::error::{FormatRule, LoadError, Refusal};
 #[cfg(any(
@@ -48,11 +48,11 @@ pub(crate) enum Function {
     #[cfg(feature = "date")]
     DateTime,
     /// `:test:function`.
-    #[cfg(feature = "check")]
+    #[cfg(feature = "conformance")]
     Test,
-    #[cfg(feature = "check")]
+    #[cfg(feature = "conformance")]
     TestSelect,
-    #[cfg(feature = "check")]
+    #[cfg(feature = "conformance")]
     TestFormat,
 }
 
@@ -76,11 +76,11 @@ impl Function {
         Self::Time,
         #[cfg(feature = "date")]
         Self::DateTime,
-        #[cfg(feature = "check")]
+        #[cfg(feature = "conformance")]
         Self::Test,
-        #[cfg(feature = "check")]
+        #[cfg(feature = "conformance")]
         Self::TestSelect,
-        #[cfg(feature = "check")]
+        #[cfg(feature = "conformance")]
         Self::TestFormat,
     ];
 
@@ -112,11 +112,11 @@ impl Function {
             Self::Time => "siros:time",
             #[cfg(feature = "date")]
             Self::DateTime => "siros:datetime",
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::Test => "test:function",
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::TestSelect => "test:select",
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::TestFormat => "test:format",
         }
     }
@@ -133,7 +133,7 @@ impl Function {
             Self::Currency | Self::Percent => Some(Section::Currency),
             #[cfg(feature = "date")]
             Self::Date | Self::Time | Self::DateTime => Some(Section::Date),
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::Test | Self::TestSelect | Self::TestFormat => None,
         }
     }
@@ -283,7 +283,7 @@ pub(crate) enum Failure {
         feature = "currency",
         feature = "offset",
         feature = "date",
-        feature = "check"
+        feature = "conformance"
     ))]
     Operand,
     /// The function refuses an option's text, which an argument gives.
@@ -332,7 +332,7 @@ pub(crate) enum Formatter {
     Numeric(Box<crate::numeric::Compiled>),
     #[cfg(feature = "date")]
     Date(Box<crate::date::Compiled>),
-    #[cfg(feature = "check")]
+    #[cfg(feature = "conformance")]
     Test(crate::test_functions::Compiled),
 }
 
@@ -342,7 +342,7 @@ pub(crate) enum Selector {
     String(crate::string::Compiled),
     #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
     Numeric(Box<crate::numeric::Selecting>),
-    #[cfg(feature = "check")]
+    #[cfg(feature = "conformance")]
     Test(crate::test_functions::Compiled),
 }
 
@@ -424,7 +424,7 @@ impl Formatter {
                 let section = formats.date.as_ref().ok_or(Refused::Undefined)?;
                 Ok(Self::Date(Box::new(crate::date::compile(chain, section)?)))
             }
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Function::Test | Function::TestSelect | Function::TestFormat => Ok(Self::Test(
                 crate::test_functions::compile(chain, crate::test_functions::Use::Format)?,
             )),
@@ -439,7 +439,7 @@ impl Formatter {
             Self::Numeric(compiled) => compiled.direction(),
             #[cfg(feature = "date")]
             Self::Date(compiled) => compiled.direction(),
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::Test(_) => Direction::Unknown,
         }
     }
@@ -457,7 +457,7 @@ impl Formatter {
             Self::Numeric(compiled) => compiled.format(argument),
             #[cfg(feature = "date")]
             Self::Date(compiled) => compiled.format(argument),
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::Test(compiled) => compiled.format(argument),
         }
     }
@@ -505,7 +505,7 @@ impl Selector {
                 }
                 Err(Refused::Call(Refusal::Selector))
             }
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Function::Test | Function::TestSelect | Function::TestFormat => Ok(Self::Test(
                 crate::test_functions::compile(chain, crate::test_functions::Use::Select)?,
             )),
@@ -527,7 +527,7 @@ impl Selector {
             Self::String(compiled) => compiled.select(argument, keys),
             #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
             Self::Numeric(compiled) => compiled.select(argument, keys),
-            #[cfg(feature = "check")]
+            #[cfg(feature = "conformance")]
             Self::Test(compiled) => compiled.select(argument, keys),
         }
     }

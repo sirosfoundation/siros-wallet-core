@@ -43,8 +43,10 @@
 //! - `number`, `currency`, `offset`, `date` (default): the function families.
 //! - `derive` (default): `#[derive(Message)]`.
 //! - `check`: [`Context::check`], over one row per derived error and statement of every crate the
-//!   binary links, and MF2's test functions. Test builds turn it on; a build without it holds no
-//!   row.
+//!   binary links. Test builds turn it on; a build without it holds no row.
+//! - `conformance`: MF2's test functions `:test:function`, `:test:select` and `:test:format`,
+//!   which siros-i18n's conformance tests call. A wording that calls one fails to load in a
+//!   build without it.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs, unused_must_use, unused_results)]
@@ -72,6 +74,14 @@ mod compile;
 mod context;
 #[cfg(feature = "date")]
 mod date;
+#[cfg(any(
+    feature = "number",
+    feature = "currency",
+    feature = "offset",
+    feature = "date",
+    feature = "conformance"
+))]
+mod digit;
 mod error;
 mod escape;
 mod format;
@@ -82,7 +92,7 @@ mod mf2;
 mod numeric;
 mod resource;
 mod string;
-#[cfg(feature = "check")]
+#[cfg(feature = "conformance")]
 mod test_functions;
 mod text;
 

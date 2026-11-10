@@ -5,23 +5,24 @@
 //! number-literal = ["-"] (%x30 / (%x31-39 *DIGIT)) ["." 1*DIGIT] [%i"e" ["-" / "+"] 1*DIGIT]
 //! ```
 
+use crate::digit::Digit;
+
 /// A `number-literal`'s parts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct NumberLiteral<'a> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NumberLiteral {
     /// Whether it starts with `-`.
     pub(crate) negative: bool,
     /// The integer digits, one or more.
-    pub(crate) whole: &'a str,
-    /// The fraction digits; empty without a `.`.
-    pub(crate) fraction: &'a str,
+    pub(crate) whole: Vec<Digit>,
+    /// The fraction digits; none without a `.`.
+    pub(crate) fraction: Vec<Digit>,
     /// The exponent: whether it is negative, and its digits, one or more.
-    pub(crate) exponent: Option<(bool, &'a str)>,
+    pub(crate) exponent: Option<(bool, Vec<Digit>)>,
 }
 
-impl<'a> NumberLiteral<'a> {
+impl NumberLiteral {
     /// The parts of `text`; `None` for a text the grammar does not match.
-    pub(crate) fn parse(text: &'a str) -> Option<Self> {
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    pub(crate) fn parse(text: &str) -> Option<Self> {
         let (negative, rest) = match text.strip_prefix('-') {
             Some(rest) => (true, rest),
             None => (false, text),
@@ -31,11 +32,10 @@ impl<'a> NumberLiteral<'a> {
             None => (rest, None),
         };
         let (whole, fraction) = match mantissa.split_once('.') {
-            Some((whole, fraction)) if digits(fraction) => (whole, fraction),
-            Some(_) => return None,
-            None => (mantissa, ""),
+            Some((whole, fraction)) => (digits(whole)?, digits(fraction)?),
+            None => (digits(mantissa)?, Vec::new()),
         };
-        if !digits(whole) || (whole.len() > 1 && whole.starts_with('0')) {
+        if matches!(whole.as_slice(), [Digit::Zero, _, ..]) {
             return None;
         }
         let exponent = match exponent {
@@ -45,10 +45,7 @@ impl<'a> NumberLiteral<'a> {
                     Some(power) => (true, power),
                     None => (false, power.strip_prefix('+').unwrap_or(power)),
                 };
-                if !digits(power) {
-                    return None;
-                }
-                Some((negative, power))
+                Some((negative, digits(power)?))
             }
         };
         Some(Self {
@@ -58,4 +55,10 @@ impl<'a> NumberLiteral<'a> {
             exponent,
         })
     }
+}
+
+/// `1*DIGIT`.
+fn digits(text: &str) -> Option<Vec<Digit>> {
+    let digits = text.chars().map(Digit::of).collect::<Option<Vec<_>>>()?;
+    (!digits.is_empty()).then_some(digits)
 }

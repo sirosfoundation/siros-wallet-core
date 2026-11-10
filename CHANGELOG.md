@@ -182,7 +182,8 @@ All notable changes to this workspace. The format follows
   or an argument, and the date functions parse siros-syntax's ISO 8601 forms. `escape` writes a text
   as a resource value that resolves to it. `Context::check`, under `check`, refuses a row no module
   words, a wording that reads a key its row lacks, and an id two rows share. The features are
-  `number`, `currency`, `offset`, `date`, `derive` and `check`.
+  `number`, `currency`, `offset`, `date`, `derive`, `check` and `conformance`, which holds MF2's
+  test functions for siros-i18n's conformance tests.
 - `siros-cldr` takes `Currency` from siros-syntax, and its errors derive `Explain` under the scope
   `cldr`.
 - `HttpsUrl` holds one form in ASCII, which every build shows and a caller fetches: a host beyond
