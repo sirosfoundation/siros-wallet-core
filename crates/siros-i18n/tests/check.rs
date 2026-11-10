@@ -63,16 +63,18 @@ fn the_rows_are_the_linked_crates_derives() {
 }
 
 /// A module that words every row, each wording reading its row's keys: `greeting` left out, or
-/// reading `extra` beside its key.
+/// reading `extra` beside its key, through the `u:dir` of a placeholder whose variable a
+/// declaration binds to `extra`'s `:string` value.
 fn wording(greeting: Option<&str>) -> String {
     let mut module = "@locale en\n---\n".to_owned();
     for (id, keys) in rows() {
         let reads: String = keys.iter().map(|key| format!("{{${key}}}")).collect();
         match (id, greeting) {
             ("checked.greeting", None) => {}
-            ("checked.greeting", Some(extra)) => {
-                module.push_str(&format!("{id} = x{reads}{{${extra}}}\n"));
-            }
+            ("checked.greeting", Some(extra)) => module.push_str(&format!(
+                "{id} = .local $dir = {{${extra} :string}} \
+                 {{{{x{reads}{{|y| :string u:dir=$dir}}}}}}\n"
+            )),
             _ => module.push_str(&format!("{id} = x{reads}\n")),
         }
     }

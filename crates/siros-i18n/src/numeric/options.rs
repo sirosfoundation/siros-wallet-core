@@ -194,7 +194,7 @@ impl<'a> Resolved<'a> {
     /// # Errors
     ///
     /// [`Refused`] for a call of another family, or an option its function refuses.
-    pub(crate) fn of(root: Root, calls: &[CallTexts<'a>]) -> Result<Self, Refused> {
+    pub(crate) fn of(root: Root, calls: &'a [CallTexts<'_>]) -> Result<Self, Refused> {
         let mut resolved: Option<Self> = None;
         for call in calls {
             let function = Function::of(call.function).ok_or(Refused::Operand)?;
@@ -217,12 +217,13 @@ impl<'a> Resolved<'a> {
     }
 
     /// Applies a call of `function` to the value: its options, then its step.
-    fn apply(&mut self, function: Function, call: &CallTexts<'a>) -> Result<(), Refused> {
+    fn apply(&mut self, function: Function, call: &'a CallTexts<'_>) -> Result<(), Refused> {
         self.function = function;
         if function != Function::Offset {
             self.formatter = function;
         }
-        for &(name, value) in &call.options {
+        for (name, value) in &call.options {
+            let (name, value): (&'a str, &'a str) = (name, value);
             if function.reads(name) {
                 if !valid(name, value) {
                     return Err(option(name));

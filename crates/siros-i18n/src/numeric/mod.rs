@@ -1,7 +1,7 @@
 //! What the numeric formats share: MF2's numeric operands and options (spec/functions/number.md),
 //! resolved along a call chain, and the number they format and select. `:number`, `:integer`,
-//! `:offset`, `:currency` and `:percent` all compile into one form, which resolves its options
-//! when a message resolves: an argument may give an option's value.
+//! `:offset`, `:currency` and `:percent` share one check at load and one resolution, which
+//! resolves the options when a message resolves: a variable may give an option's value.
 
 #[cfg(feature = "currency")]
 pub(crate) mod currency;
@@ -18,7 +18,7 @@ use std::num::NonZeroU32;
 
 use crate::digit::{Digit, Numerals};
 use crate::error::Refusal;
-use crate::format::{Argument, CallSpec, CallTexts, Chain, Direction, Failure, OptionValue, Root};
+use crate::format::{Call, CallTexts, Chain, Direction, Env, Failure, OptionValue, Root, Use};
 use decimal::{Fixed, Given, Num, RoundingMode};
 use language::Numbers;
 use options::{Function, Refused, Resolved};
@@ -118,38 +118,37 @@ pub(crate) struct Digits {
     pub(crate) strip_if_integer: bool,
 }
 
-/// The language data a numeric call formats with.
-#[derive(Debug, Clone)]
-pub(crate) enum Language {
+/// The language data a numeric call formats with: a section of the context.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Language<'f> {
     /// Numbers and the decimal pattern of `[formats.number]` or `[formats.offset]`.
     #[cfg(any(feature = "number", feature = "offset"))]
-    Plain(Box<Plain>),
-    /// The currency section's numbers, percent pattern and currency data, for `:currency` and
+    Plain(&'f Plain),
+    /// `[formats.currency]`: its numbers, percent pattern and currency data, for `:currency` and
     /// `:percent`.
     #[cfg(feature = "currency")]
-    Currency(Box<currency::Language>),
+    Currency(&'f currency::Parsed),
 }
 
-impl Language {
-    /// The language of a `[formats.number]` or `[formats.offset]` section.
-    #[cfg(any(feature = "number", feature = "offset"))]
-    pub(crate) fn plain(section: &Plain) -> Self {
-        Self::Plain(Box::new(section.clone()))
-    }
-
-    fn numbers(&self) -> &Numbers {
+impl<'f> Language<'f> {
+    const fn numbers(self) -> &'f Numbers {
         match self {
             #[cfg(any(feature = "number", feature = "offset"))]
             Self::Plain(plain) => &plain.numbers,
             #[cfg(feature = "currency")]
-            Self::Currency(language) => &language.numbers,
+            Self::Currency(section) => &section.numbers,
         }
+    }
+
+    /// The direction of a formatted number: its section's module's.
+    pub(crate) const fn direction(self) -> Direction {
+        self.numbers().direction
     }
 
     /// The pattern whose digit counts a number takes when no option sets them: the decimal
     /// pattern, or the percent pattern for `:percent`.
     fn pattern(
-        &self,
+        self,
         #[cfg_attr(
             not(feature = "currency"),
             expect(
@@ -158,20 +157,20 @@ impl Language {
             )
         )]
         formatter: Function,
-    ) -> &Pattern {
+    ) -> &'f Pattern {
         match self {
             #[cfg(any(feature = "number", feature = "offset"))]
             Self::Plain(plain) => &plain.pattern,
             #[cfg(feature = "currency")]
-            Self::Currency(language) if formatter == Function::Percent => &language.percent,
+            Self::Currency(section) if formatter == Function::Percent => &section.percent,
             #[cfg(feature = "currency")]
-            Self::Currency(language) => language.standard(),
+            Self::Currency(section) => section.standard(),
         }
     }
 
     /// Whether the language formats a value of `formatter`: a currency section `:currency` and
     /// `:percent` values, a number or offset section the others.
-    fn formats(&self, formatter: Function) -> bool {
+    fn formats(self, formatter: Function) -> bool {
         let currency = matches!(formatter, Function::Currency | Function::Percent);
         match self {
             #[cfg(any(feature = "number", feature = "offset"))]
@@ -184,7 +183,7 @@ impl Language {
     /// Refuses resolved options its section's data cannot format: a `:currency` value without
     /// a `currency` option.
     fn check(
-        &self,
+        self,
         #[cfg_attr(
             not(feature = "currency"),
             expect(unused_variables, reason = "only the currency section refuses options")
@@ -195,24 +194,9 @@ impl Language {
             #[cfg(any(feature = "number", feature = "offset"))]
             Self::Plain(_) => Ok(()),
             #[cfg(feature = "currency")]
-            Self::Currency(currency) => currency.check(resolved),
+            Self::Currency(section) => section.check(resolved),
         }
     }
-}
-
-/// A compiled numeric call a placeholder formats with: its chain, whose options resolve when a
-/// message resolves, and the language data of the section of the function that formats it.
-#[derive(Debug, Clone)]
-pub(crate) struct Compiled {
-    chain: Chain,
-    language: Language,
-}
-
-/// A compiled numeric call a selector selects with, and how it matches keys.
-#[derive(Debug, Clone)]
-pub(crate) struct Selecting {
-    compiled: Compiled,
-    selection: Selection,
 }
 
 /// A number's options as one resolution resolved them.
@@ -231,7 +215,7 @@ pub(crate) struct Form<'a> {
 
 /// The function that formats a chain's value: its last call's but `:offset`, and `:number` for
 /// a chain of `:offset` calls (spec/functions/number.md, `:offset`'s resolved value).
-pub(crate) fn formatter(chain: &Chain) -> Function {
+pub(crate) fn formatter(chain: &Chain<'_>) -> Function {
     chain
         .calls()
         .filter_map(|call| Function::of(call.function))
@@ -240,8 +224,8 @@ pub(crate) fn formatter(chain: &Chain) -> Function {
 }
 
 /// The kind of a chain's root; a literal must be a number literal.
-fn root(chain: &Chain) -> Result<options::Root, Refusal> {
-    match &chain.root {
+fn root(chain: &Chain<'_>) -> Result<options::Root, Refusal> {
+    match chain.root {
         Root::None => Err(Refusal::Operand),
         Root::Literal(text) => match Given::literal(text) {
             Some(_) => Ok(options::Root::Literal),
@@ -267,34 +251,25 @@ fn failure(refused: Refused) -> Failure {
     }
 }
 
-/// Compiles a chain whose outermost function is numeric, formatted with `language`.
+/// Checks a chain whose outermost function is numeric, formatted with `language`, for its use.
 ///
 /// # Errors
 ///
-/// [`Refusal`] for an operand or an option the functions refuse.
-pub(crate) fn compile(chain: &Chain, language: Language) -> Result<Compiled, Refusal> {
-    checked(chain, language).map(|(compiled, _)| compiled)
+/// [`Refusal`] for an operand or an option the functions refuse, and [`Refusal::Selector`] in a
+/// selector for a `:currency` value, which selects no variant.
+pub(crate) fn check(chain: &Chain<'_>, at: Use, language: Language<'_>) -> Result<(), Refusal> {
+    let selection = checked(chain, language)?;
+    match at {
+        Use::Select if selection.is_none() => Err(Refusal::Selector),
+        Use::Format | Use::Select | Use::Value => Ok(()),
+    }
 }
 
-/// Compiles a chain whose outermost function is numeric for a selector.
-///
-/// # Errors
-///
-/// [`Refusal`] for an operand or an option the functions refuse, and [`Refusal::Selector`] for a
-/// `:currency` value, which selects no variant.
-pub(crate) fn selecting(chain: &Chain, language: Language) -> Result<Selecting, Refusal> {
-    let (compiled, selection) = checked(chain, language)?;
-    Ok(Selecting {
-        compiled,
-        selection: selection.ok_or(Refusal::Selector)?,
-    })
-}
-
-/// The chain checked and compiled, and how its value selects; `None` for a value that selects no
-/// variant. A chain whose options are literals resolves them now. One whose options an argument
-/// gives resolves what they leave fixed: its functions, its operand, a selector's `select`, and
-/// the options `:currency` and `:offset` need.
-fn checked(chain: &Chain, language: Language) -> Result<(Compiled, Option<Selection>), Refusal> {
+/// How the checked chain's value selects; `None` for a value that selects no variant. A chain
+/// whose option texts the load fixes resolves them now. Another resolves what they leave fixed:
+/// its functions, its operand, a selector's `select`, and the options `:currency` and `:offset`
+/// need.
+fn checked(chain: &Chain<'_>, language: Language<'_>) -> Result<Option<Selection>, Refusal> {
     let root = root(chain)?;
     for call in chain.calls() {
         let function = Function::of(call.function).ok_or(Refusal::Operand)?;
@@ -305,26 +280,21 @@ fn checked(chain: &Chain, language: Language) -> Result<(Compiled, Option<Select
     if !language.formats(formatter(chain)) {
         return Err(Refusal::Operand);
     }
-    let selection = match chain.literal_texts() {
+    match chain.fixed_texts() {
         Some(texts) => {
-            let form = form(root, &texts, &language).map_err(refusal)?;
+            let form = form(root, &texts, language).map_err(refusal)?;
             language.check(&form.resolved).map_err(refusal)?;
-            form.selection
+            Ok(form.selection)
         }
-        None => structure(chain).map_err(refusal)?,
-    };
-    let compiled = Compiled {
-        chain: chain.clone(),
-        language,
-    };
-    Ok((compiled, selection))
+        None => structure(chain).map_err(refusal),
+    }
 }
 
-/// What a chain whose options an argument gives leaves fixed, checked as
+/// What a chain whose options a variable gives leaves fixed, checked as
 /// [`Resolved::of`] checks it: each literal option a function reads, `select` written as a
 /// literal on the outermost call that reads it, `currency` on one `:currency` call, `add` or
 /// `subtract` on each `:offset` call. How the value selects; `None` for a `:currency` value.
-fn structure(chain: &Chain) -> Result<Option<Selection>, Refused> {
+fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
     let option = |name: &str| Refused::Option(name.to_owned());
     let mut select: Option<&str> = None;
     let mut currency = false;
@@ -349,7 +319,7 @@ fn structure(chain: &Chain) -> Result<Option<Selection>, Refused> {
                 }
                 currency = true;
             }
-            if let OptionValue::Literal(text) | OptionValue::Local(text) = value
+            if let Some(text) = chain.fixed(value)
                 && !options::valid(name, text)
             {
                 return Err(option(name));
@@ -380,17 +350,16 @@ fn structure(chain: &Chain) -> Result<Option<Selection>, Refused> {
 ///
 /// # Errors
 ///
-/// [`Refused::Option`] for a `select` a variable gives: MF2 sets it by a literal alone.
-fn written_select(function: Function, call: &CallSpec) -> Result<Option<&str>, Refused> {
+/// [`Refused::Option`] for a `select` a variable gives: MF2 sets it by a literal alone
+/// (spec/functions/number.md, "Number Selection").
+fn written_select(function: Function, call: &Call) -> Result<Option<&str>, Refused> {
     if !function.reads("select") {
         return Ok(None);
     }
     match call.options.iter().find(|(name, _)| name == "select") {
         None => Ok(None),
         Some((_, OptionValue::Literal(text))) => Ok(Some(text)),
-        Some((_, OptionValue::Local(_) | OptionValue::Argument(_))) => {
-            Err(Refused::Option("select".to_owned()))
-        }
+        Some((_, OptionValue::Variable(_))) => Err(Refused::Option("select".to_owned())),
     }
 }
 
@@ -410,11 +379,11 @@ pub(crate) fn keys(keys: &[String]) -> Result<(), Refusal> {
 }
 
 /// The options of a chain with its option texts, resolved over a language.
-fn form<'a>(
+fn form<'t>(
     root: options::Root,
-    texts: &[CallTexts<'a>],
-    language: &Language,
-) -> Result<Form<'a>, Refused> {
+    texts: &'t [CallTexts<'_>],
+    language: Language<'_>,
+) -> Result<Form<'t>, Refused> {
     let resolved = Resolved::of(root, texts)?;
     let numbers = language.numbers();
     let pattern = language.pattern(resolved.formatter);
@@ -430,96 +399,125 @@ fn form<'a>(
     })
 }
 
-impl Compiled {
-    /// The direction of the formatted number: its section's module's.
-    pub(crate) fn direction(&self) -> Direction {
-        self.language.numbers().direction
-    }
-
-    /// The operand's number and the options, resolved.
-    fn resolve<'a>(&'a self, argument: &Argument<'a>) -> Result<(Given, Form<'a>), Failure> {
-        let (root, text) = match &self.chain.root {
-            Root::None => return Err(Failure::Operand),
-            Root::Literal(text) => (options::Root::Literal, text.as_str()),
-            Root::Argument(key) => (
-                options::Root::Argument,
-                argument(key).ok_or_else(|| Failure::Unresolved(key.clone()))?,
-            ),
-        };
-        let given = Given::literal(text).ok_or(Failure::Operand)?;
-        let texts = self.chain.texts(argument).map_err(Failure::Unresolved)?;
-        let form = form(root, &texts, &self.language).map_err(failure)?;
-        Ok((given, form))
-    }
-
-    /// The number formatted.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure`] for an operand or option text refused, or an argument not given.
-    pub(crate) fn format<'a>(&'a self, argument: &Argument<'a>) -> Result<String, Failure> {
-        let (given, form) = self.resolve(argument)?;
-        let numbers = self.language.numbers();
-        let mut out = String::new();
-        match &self.language {
-            #[cfg(feature = "currency")]
-            Language::Currency(currency) if !form.percent => {
-                return currency.amount(&form, &given);
-            }
-            language => {
-                let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
-                let pattern = language.pattern(form.resolved.formatter);
-                form.write(&fixed, pattern, &numbers.symbols, "", &mut out);
-            }
-        }
-        Ok(out)
-    }
+/// The operand's number and the options resolved over `language`.
+fn resolve<'t>(
+    chain: &Chain<'_>,
+    texts: &'t [CallTexts<'_>],
+    env: &Env<'_, '_>,
+    language: Language<'_>,
+) -> Result<(Given, Form<'t>), Failure> {
+    let (root, text) = match chain.root {
+        Root::None => return Err(Failure::Operand),
+        Root::Literal(text) => (options::Root::Literal, text),
+        Root::Argument(key) => (options::Root::Argument, env.argument(key)?),
+    };
+    let given = Given::literal(text).ok_or(Failure::Operand)?;
+    let form = form(root, texts, language).map_err(failure)?;
+    Ok((given, form))
 }
 
-impl Selecting {
-    /// The keys among `keys` the number matches, best first.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure`] as [`Compiled::format`].
-    pub(crate) fn select<'a, 'k>(
-        &'a self,
-        argument: &Argument<'a>,
-        keys: &'k [String],
-    ) -> Result<Vec<&'k str>, Failure> {
-        let (given, form) = self.compiled.resolve(argument)?;
-        let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
-        let numbers = self.compiled.language.numbers();
-        let category = match self.selection {
-            Selection::Exact => None,
-            Selection::Plural => Some(numbers.cardinal.category(&Operands::of(&fixed))),
-            Selection::Ordinal => Some(numbers.ordinal.category(&Operands::of(&fixed))),
-        };
-        let serial = form.serial(&fixed);
-        let mut exact = Vec::new();
-        let mut keyword = Vec::new();
-        for key in keys {
-            if Num::literal(key).is_some() {
-                if *key == serial {
-                    exact.push(key.as_str());
-                }
-            } else if Category::of_keyword(key).is_some_and(|named| Some(named) == category) {
-                keyword.push(key.as_str());
-            }
+/// The number formatted.
+///
+/// # Errors
+///
+/// [`Failure`] for an operand or option text refused, or an argument not given.
+pub(crate) fn format(
+    chain: &Chain<'_>,
+    texts: &[CallTexts<'_>],
+    env: &Env<'_, '_>,
+    language: Language<'_>,
+) -> Result<String, Failure> {
+    let (given, form) = resolve(chain, texts, env, language)?;
+    let mut out = String::new();
+    match language {
+        #[cfg(feature = "currency")]
+        Language::Currency(section) if !form.percent => {
+            return section.amount(&form, &given);
         }
-        exact.append(&mut keyword);
-        Ok(exact)
+        language => {
+            let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
+            let pattern = language.pattern(form.resolved.formatter);
+            form.write(&fixed, pattern, &language.numbers().symbols, "", &mut out);
+        }
     }
+    Ok(out)
+}
+
+/// The keys among `keys` the number matches, best first.
+///
+/// # Errors
+///
+/// [`Failure`] as [`format`]; [`Failure::Operand`] for a value that selects no variant.
+pub(crate) fn select<'k>(
+    chain: &Chain<'_>,
+    texts: &[CallTexts<'_>],
+    env: &Env<'_, '_>,
+    language: Language<'_>,
+    keys: &'k [String],
+) -> Result<Vec<&'k str>, Failure> {
+    let (given, form) = resolve(chain, texts, env, language)?;
+    let selection = form.selection.ok_or(Failure::Operand)?;
+    let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
+    let numbers = language.numbers();
+    let category = match selection {
+        Selection::Exact => None,
+        Selection::Plural => Some(numbers.cardinal.category(&Operands::of(&fixed))),
+        Selection::Ordinal => Some(numbers.ordinal.category(&Operands::of(&fixed))),
+    };
+    let serial = form.serial(&fixed);
+    let mut exact = Vec::new();
+    let mut keyword = Vec::new();
+    for key in keys {
+        if Num::literal(key).is_some() {
+            if *key == serial {
+                exact.push(key.as_str());
+            }
+        } else if Category::of_keyword(key).is_some_and(|named| Some(named) == category) {
+            keyword.push(key.as_str());
+        }
+    }
+    exact.append(&mut keyword);
+    Ok(exact)
+}
+
+/// The number as an option's value: the operand after `:integer`'s rounding and `:offset`'s
+/// additions, written as a number literal without an exponent.
+///
+/// # Errors
+///
+/// [`Failure`] as [`format`].
+pub(crate) fn value(
+    chain: &Chain<'_>,
+    texts: &[CallTexts<'_>],
+    env: &Env<'_, '_>,
+    language: Language<'_>,
+) -> Result<String, Failure> {
+    let (given, form) = resolve(chain, texts, env, language)?;
+    language.check(&form.resolved).map_err(failure)?;
+    let stepped = form.stepped(given);
+    #[cfg(feature = "number")]
+    let stepped = if form.resolved.function == Function::Integer {
+        stepped.integer(form.resolved.mode().map_err(failure)?)
+    } else {
+        stepped
+    };
+    Ok(stepped.value().fixed(0).plain())
 }
 
 impl Form<'_> {
     /// The operand after the chain's steps.
-    pub(crate) fn value(&self, given: Given) -> Given {
-        let stepped = self.steps.iter().fold(given, |given, step| match *step {
+    fn stepped(&self, given: Given) -> Given {
+        self.steps.iter().fold(given, |given, step| match *step {
             #[cfg(feature = "number")]
             Step::Integer(mode) => given.integer(mode),
             Step::Add(addend) => given.plus(addend),
-        });
+        })
+    }
+
+    /// The number a call formats: the operand after the chain's steps, times 100 for
+    /// `:percent`.
+    pub(crate) fn value(&self, given: Given) -> Given {
+        let stepped = self.stepped(given);
         if self.percent {
             stepped.percent()
         } else {
@@ -618,9 +616,12 @@ impl Form<'_> {
 
     /// The number's serialization for exact keys.
     fn serial(&self, fixed: &Fixed) -> String {
-        let digit = |d: &Digit| Numerals::ASCII.digit(*d);
-        let int: String = fixed.int.iter().map(digit).collect();
         if self.integer_keys && fixed.is_integer() {
+            let int: String = fixed
+                .int
+                .iter()
+                .map(|d| Numerals::ASCII.digit(*d))
+                .collect();
             let int = int.trim_start_matches('0');
             return match (fixed.negative, int.is_empty()) {
                 (_, true) => "0".to_owned(),
@@ -628,16 +629,6 @@ impl Form<'_> {
                 (false, false) => int.to_owned(),
             };
         }
-        let sign = if fixed.negative && !fixed.is_zero() {
-            "-"
-        } else {
-            ""
-        };
-        let frac: String = fixed.frac.iter().map(digit).collect();
-        if frac.is_empty() {
-            format!("{sign}{int}")
-        } else {
-            format!("{sign}{int}.{frac}")
-        }
+        fixed.plain()
     }
 }

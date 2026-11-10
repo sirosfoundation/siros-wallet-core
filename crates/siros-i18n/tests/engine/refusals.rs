@@ -213,6 +213,14 @@ fn each_load_rule_refuses_its_fixture() {
                 refusal: Refusal::Operand,
             },
         ),
+        (
+            load("hello = .local $c = {|abc| :number} {{{$a :currency currency=$c}}}"),
+            LoadError::Call {
+                id: hello(),
+                function: "number".to_owned(),
+                refusal: Refusal::Operand,
+            },
+        ),
     ];
     for (loaded, expected) in cases {
         assert_eq!(loaded.expect_err("refused"), expected);
@@ -255,7 +263,9 @@ fn each_resolution_rule_refuses_its_fixture() {
     let context = load(
         "hello = Hello {$name}\n\
          count = {$n :number}\n\
-         paid = {$amount :currency currency=$code}",
+         paid = {$amount :currency currency=$code}\n\
+         dir = {$name :string u:dir=$dir}\n\
+         digits = .input {$n :integer} {{{|1| :number minimumFractionDigits=$n}}}",
     )
     .expect("the module loads");
     let id = |id: &str| id.to_owned();
@@ -263,7 +273,11 @@ fn each_resolution_rule_refuses_its_fixture() {
         id: "paid",
         args: vec![("amount", "5".to_owned()), ("code", "euro".to_owned())],
     };
-    let cases: [(&dyn Message, ResolveError); 6] = [
+    let dir = Given {
+        id: "dir",
+        args: vec![("name", "Ann".to_owned()), ("dir", "up".to_owned())],
+    };
+    let cases: [(&dyn Message, ResolveError); 8] = [
         (&Given::bare("bye"), ResolveError::Unknown { id: id("bye") }),
         (
             &Given::bare("hello"),
@@ -285,6 +299,22 @@ fn each_resolution_rule_refuses_its_fixture() {
                 id: id("paid"),
                 function: "currency".to_owned(),
                 option: "currency".to_owned(),
+            },
+        ),
+        (
+            &dir,
+            ResolveError::Option {
+                id: id("dir"),
+                function: "string".to_owned(),
+                option: "u:dir".to_owned(),
+            },
+        ),
+        (
+            &Given::with("digits", "n", "two"),
+            ResolveError::Option {
+                id: id("digits"),
+                function: "number".to_owned(),
+                option: "minimumFractionDigits".to_owned(),
             },
         ),
         (

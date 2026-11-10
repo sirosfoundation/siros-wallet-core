@@ -10,7 +10,7 @@ use siros_syntax::{Date, DateTime, Offset, OffsetTime};
 
 use crate::digit::Numerals;
 use crate::error::{FormatRule, Refusal};
-use crate::format::{Argument, Chain, Direction, Failure, Function, OptionValue, Options, Root};
+use crate::format::{CallTexts, Chain, Direction, Env, Failure, Function, Options, Root, Use};
 
 /// The options `[formats.date]` takes.
 pub(crate) const OPTIONS: [&str; 22] = [
@@ -478,41 +478,21 @@ impl Parsed {
     }
 }
 
-/// Where a call's `length` comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LengthOf {
-    /// No call gives it: `medium`.
-    Default,
-    Literal(Length),
-    /// The argument of this key.
-    Argument(String),
-}
-
-/// A compiled call: what it formats, its operand, its length, and the section's patterns and
-/// names.
-#[derive(Debug, Clone)]
-pub(crate) struct Compiled {
-    kind: Kind,
-    kinds: Vec<Kind>,
-    root: Root,
-    length: LengthOf,
-    language: Parsed,
-}
-
-/// Compiles a chain of date function calls with `[formats.date]`'s options. A call takes the
-/// `length` of the nearest call that gives one, its own first.
+/// Checks a chain of date function calls for its use: a placeholder formats it, an option takes
+/// its operand's text. A call takes the `length` of the nearest call that gives one, its own
+/// first.
 ///
 /// # Errors
 ///
-/// [`Refusal::Operand`] for a missing operand, a call of another function, or a literal a call
-/// does not take; [`Refusal::Option`] for a literal `length` that names no length.
-pub(crate) fn compile(chain: &Chain, section: &Parsed) -> Result<Compiled, Refusal> {
-    let kinds = chain
-        .calls()
-        .map(|call| Kind::of(call.function).ok_or(Refusal::Operand))
-        .collect::<Result<Vec<_>, _>>()?;
-    let kind = Kind::of(chain.outer.function).ok_or(Refusal::Operand)?;
-    match &chain.root {
+/// [`Refusal::Selector`] in a selector; [`Refusal::Operand`] for a missing operand, a call of
+/// another function, or a literal a call does not take; [`Refusal::Option`] for a `length` the
+/// load fixes that names no length.
+pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
+    if at == Use::Select {
+        return Err(Refusal::Selector);
+    }
+    let kinds = kinds(chain).ok_or(Refusal::Operand)?;
+    match chain.root {
         Root::None => return Err(Refusal::Operand),
         Root::Literal(text) => {
             let written = Written::of(text).ok_or(Refusal::Operand)?;
@@ -526,22 +506,91 @@ pub(crate) fn compile(chain: &Chain, section: &Parsed) -> Result<Compiled, Refus
         .calls()
         .rev()
         .find_map(|call| call.options.iter().find(|(name, _)| name == "length"));
-    let length = match given {
-        None => LengthOf::Default,
-        Some((_, OptionValue::Literal(name) | OptionValue::Local(name))) => {
-            LengthOf::Literal(Length::named(name).ok_or_else(|| Refusal::Option {
-                option: "length".to_owned(),
-            })?)
-        }
-        Some((_, OptionValue::Argument(key))) => LengthOf::Argument(key.clone()),
+    match given.and_then(|(_, value)| chain.fixed(value)) {
+        Some(name) if Length::named(name).is_none() => Err(Refusal::Option {
+            option: "length".to_owned(),
+        }),
+        Some(_) | None => Ok(()),
+    }
+}
+
+/// The kinds of the chain's calls, innermost first; `None` for a call of another function.
+fn kinds(chain: &Chain<'_>) -> Option<Vec<Kind>> {
+    chain.calls().map(|call| Kind::of(call.function)).collect()
+}
+
+/// The operand's text and the value it writes, which every call of the chain takes.
+fn written<'m>(chain: &Chain<'m>, env: &Env<'_, 'm>) -> Result<(&'m str, Written), Failure> {
+    let text = match chain.root {
+        Root::None => return Err(Failure::Operand),
+        Root::Literal(text) => text,
+        Root::Argument(key) => env.argument(key)?,
     };
-    Ok(Compiled {
-        kind,
-        kinds,
-        root: chain.root.clone(),
-        length,
-        language: section.clone(),
-    })
+    let written = Written::of(text).ok_or(Failure::Operand)?;
+    let kinds = kinds(chain).ok_or(Failure::Operand)?;
+    if kinds.iter().all(|kind| kind.takes(&written)) {
+        Ok((text, written))
+    } else {
+        Err(Failure::Operand)
+    }
+}
+
+/// The length of resolved calls: the nearest call's that gives one, `medium` when none does.
+fn length(texts: &[CallTexts<'_>]) -> Result<Length, Failure> {
+    match texts.iter().rev().find_map(|call| call.option("length")) {
+        None => Ok(Length::Medium),
+        Some(name) => Length::named(name).ok_or_else(|| Failure::Option("length".to_owned())),
+    }
+}
+
+/// The operand's text as an option's value.
+///
+/// # Errors
+///
+/// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
+/// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
+pub(crate) fn value<'m>(
+    chain: &Chain<'m>,
+    texts: &[CallTexts<'m>],
+    env: &Env<'_, 'm>,
+) -> Result<&'m str, Failure> {
+    let (text, _) = written(chain, env)?;
+    length(texts).map(|_| text)
+}
+
+/// The value formatted with `[formats.date]`'s patterns and names.
+///
+/// # Errors
+///
+/// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
+/// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
+pub(crate) fn format<'m>(
+    chain: &Chain<'m>,
+    texts: &[CallTexts<'_>],
+    env: &Env<'_, 'm>,
+    language: &Parsed,
+) -> Result<String, Failure> {
+    let (_, written) = written(chain, env)?;
+    let length = length(texts)?;
+    let kind = Kind::of(chain.outer.function).ok_or(Failure::Operand)?;
+    let moment = Moment::of(written);
+    let mut out = String::new();
+    match kind {
+        Kind::Date => language.pattern(language.date.get(length), &moment, &mut out)?,
+        Kind::Time => language.time(length, &moment, &mut out)?,
+        Kind::DateTime => {
+            for item in language.glue.get(length) {
+                match item {
+                    Item::Text(text) => out.push_str(text),
+                    Item::Field(Glue::Time) => language.time(length, &moment, &mut out)?,
+                    Item::Field(Glue::Date) => {
+                        language.pattern(language.date.get(length), &moment, &mut out)?;
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// A value's calendar fields.
@@ -633,60 +682,12 @@ fn in_era(year: u16) -> (usize, u32) {
     }
 }
 
-impl Compiled {
-    /// The direction of the formatted value: its section's module's.
-    pub(crate) const fn direction(&self) -> Direction {
-        self.language.direction
-    }
-
-    /// The value formatted.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
-    /// `length` text that names no length, and [`Failure::Unresolved`] for an argument not
-    /// given.
-    pub(crate) fn format(&self, argument: &Argument<'_>) -> Result<String, Failure> {
-        let text = match &self.root {
-            Root::None => return Err(Failure::Operand),
-            Root::Literal(text) => text.as_str(),
-            Root::Argument(key) => argument(key).ok_or_else(|| Failure::Unresolved(key.clone()))?,
-        };
-        let written = Written::of(text).ok_or(Failure::Operand)?;
-        if !self.kinds.iter().all(|kind| kind.takes(&written)) {
-            return Err(Failure::Operand);
-        }
-        let length = match &self.length {
-            LengthOf::Default => Length::Medium,
-            LengthOf::Literal(length) => *length,
-            LengthOf::Argument(key) => {
-                let name = argument(key).ok_or_else(|| Failure::Unresolved(key.clone()))?;
-                Length::named(name).ok_or_else(|| Failure::Option("length".to_owned()))?
-            }
-        };
-        let moment = Moment::of(written);
-        let mut out = String::new();
-        let language = &self.language;
-        match self.kind {
-            Kind::Date => language.pattern(language.date.get(length), &moment, &mut out)?,
-            Kind::Time => language.time(length, &moment, &mut out)?,
-            Kind::DateTime => {
-                for item in language.glue.get(length) {
-                    match item {
-                        Item::Text(text) => out.push_str(text),
-                        Item::Field(Glue::Time) => language.time(length, &moment, &mut out)?,
-                        Item::Field(Glue::Date) => {
-                            language.pattern(language.date.get(length), &moment, &mut out)?;
-                        }
-                    }
-                }
-            }
-        }
-        Ok(out)
-    }
-}
-
 impl Parsed {
+    /// The direction of a formatted value: its section's module's.
+    pub(crate) const fn direction(&self) -> Direction {
+        self.direction
+    }
+
     /// The time at `length`: a time without an offset at `long` and `full` as at `medium`.
     fn time(&self, length: Length, moment: &Moment, out: &mut String) -> Result<(), Failure> {
         let length = match (moment.offset, length) {

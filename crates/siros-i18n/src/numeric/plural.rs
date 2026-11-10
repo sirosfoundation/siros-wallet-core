@@ -8,7 +8,7 @@ use crate::digit::Digit;
 use crate::numeric::decimal::Fixed;
 
 /// A plural category.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Category {
     Zero,
     One,

@@ -222,7 +222,9 @@ impl Context {
             .find(id)
             .ok_or_else(|| ResolveError::Unknown { id: id.to_owned() })?;
         let args = Args::of(message, id)?;
-        worded.message.resolve(id, &|key| args.get(key), self.bidi)
+        worded
+            .message
+            .resolve(id, &|key| args.get(key), &self.formats, self.bidi)
     }
 
     /// The wallet's completeness test: every error and statement the binary links has a

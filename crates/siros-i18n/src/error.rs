@@ -315,7 +315,8 @@ pub enum ResolveError {
         /// The function, without its colon.
         function: String,
     },
-    /// A function refuses the text an argument gives for an option.
+    /// A function refuses an option's value, which a variable gives: an argument's text, or a
+    /// declared call's value; or the call's `u:dir` names no direction.
     #[error("{id}: :{function} refuses its option {option}")]
     #[explain(id = "resolve.option")]
     Option {

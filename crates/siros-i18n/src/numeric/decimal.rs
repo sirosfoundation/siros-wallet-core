@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::ops::{Div, Rem};
 
-use crate::digit::Digit;
+use crate::digit::{Digit, Numerals};
 use crate::mf2::number::NumberLiteral;
 
 /// A rounding mode (MF2's `roundingMode`, after ECMA-402's).
@@ -116,6 +116,25 @@ impl Fixed {
     /// Whether the fraction digits are all zero.
     pub(crate) fn is_integer(&self) -> bool {
         self.frac.iter().all(|&d| d == Digit::Zero)
+    }
+
+    /// The decimal in ASCII digits: `-` below zero, the integer digits, then `.` and the
+    /// fraction digits when it has some.
+    pub(crate) fn plain(&self) -> String {
+        let digits = |digits: &[Digit]| -> String {
+            digits.iter().map(|d| Numerals::ASCII.digit(*d)).collect()
+        };
+        let sign = if self.negative && !self.is_zero() {
+            "-"
+        } else {
+            ""
+        };
+        let int = digits(&self.int);
+        if self.frac.is_empty() {
+            format!("{sign}{int}")
+        } else {
+            format!("{sign}{int}.{}", digits(&self.frac))
+        }
     }
 }
 
