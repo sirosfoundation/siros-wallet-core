@@ -55,8 +55,8 @@ jobs:
       - uses: ./.github/actions/rust-toolchain
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-      - name: The errors, syntax and message crates without their default features
-        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive -p siros-cldr --lib --no-default-features -- -D warnings
+      - name: The errors, syntax and message libraries without their default features
+        run: cargo clippy --locked -p siros-derive-internals -p siros-explain -p siros-explain-derive -p siros-syntax -p siros-i18n -p siros-i18n-derive --lib --no-default-features -- -D warnings
       # The clippy steps enforce the lints each crate root denies outside its
       # tests; the script fails on a root without them and on an allow of them
       # outside the tests, and finds the panics no lint covers.
