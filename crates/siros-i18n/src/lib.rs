@@ -44,10 +44,10 @@
 //! - `derive` (default): `#[derive(Message)]`.
 //! - `nfc` (default): MF2's Unicode Normalization Form C of names, variant keys and the literals
 //!   `:string` selects on, and of the keys of a message's arguments, and
-//!   [`Context::module_in_nfc`]. A build without it holds each as written: it resolves a module
+//!   `Context::module_in_nfc`. A build without it holds each as written: it resolves a module
 //!   `module_in_nfc` loads to the texts a build with it resolves. Text and arguments' values stay
 //!   as written in both.
-//! - `check`: [`Context::check`], over one row per derived error and statement of every crate the
+//! - `check`: `Context::check`, over one row per derived error and statement of every crate the
 //!   binary links. Test builds turn it on; a build without it holds no row.
 //! - `conformance`: MF2's test functions `:test:function`, `:test:select` and `:test:format`,
 //!   which siros-i18n's conformance tests call. A wording that calls one fails to load in a

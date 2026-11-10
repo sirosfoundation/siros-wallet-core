@@ -337,7 +337,7 @@ pub enum ResolveError {
     },
 }
 
-/// Why [`Context::check`](crate::Context::check) failed: the first of its rules a row breaks.
+/// Why `Context::check` failed: the first of its rules a row breaks.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum CheckError {
     /// Two rows share an id: two crates chose one scope.
