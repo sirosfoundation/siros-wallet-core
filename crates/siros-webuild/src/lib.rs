@@ -111,8 +111,7 @@ impl ObjectRule for Cs02Claims {
 /// `error` (RFC 6749 §5.2).
 const ERROR: ParameterName = siros_syntax::checked!(ParameterName, "error");
 /// `error_description` (RFC 6749 §5.2).
-const ERROR_DESCRIPTION: ParameterName =
-    siros_syntax::checked!(ParameterName, "error_description");
+const ERROR_DESCRIPTION: ParameterName = siros_syntax::checked!(ParameterName, "error_description");
 
 /// CS-02 §8.3's error answer: `error`, with `error_description`, as RFC 6749 §5.2 writes them;
 /// the outcome the wallet shows the End-User (CS-02 §6.1.7).

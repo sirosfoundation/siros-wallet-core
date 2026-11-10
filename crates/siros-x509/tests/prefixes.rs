@@ -5,6 +5,7 @@ use std::borrow::Cow;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use siros_i18n::{Bidi, Context};
 use siros_openid4vp::arrival::{DcApiProtocols, Received};
 use siros_openid4vp::authenticate::{
     Authenticated, BoundEndpoint, EndpointBasis, OriginPolicy, TrustConfig, Unauthenticated,
@@ -20,7 +21,6 @@ use siros_openid4vp::plugins::Registry;
 use siros_openid4vp::recourse::{Failure, Rejected};
 use siros_openid4vp::request::Request;
 use siros_openid4vp::uri::{Fetch, FetchAnswer};
-use siros_i18n::{Bidi, Context};
 use siros_testkit::jose::{VERIFIER_SECRET, compact_jws};
 use siros_testkit::render::Language;
 use siros_testkit::x509::{Leaf, certificate, header, point, x5c, x509_hash};
