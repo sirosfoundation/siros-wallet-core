@@ -119,7 +119,14 @@ impl ImageRef {
 }
 
 /// Integrity metadata (W3C SRI §3.3.3) as a document wrote it: any text.
-/// [`crate::sri::matches`] reads it through [`crate::sri::Integrity::parse`], and a text the
+#[cfg_attr(
+    feature = "sri",
+    doc = "[`crate::sri::matches`] reads it through [`crate::sri::Integrity::parse`], and a text the"
+)]
+#[cfg_attr(
+    not(feature = "sri"),
+    doc = "`sri::matches`, with the feature `sri`, reads it through `sri::Integrity::parse`, and a text the"
+)]
 /// parser refuses matches nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SriMetadata(String);

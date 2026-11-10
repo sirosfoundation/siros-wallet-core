@@ -1,6 +1,13 @@
 //! The request as it reached the wallet: over the DC API with its Origin (Annex A), or by a URI
 //! with the Request Object fetched from its `request_uri` (§5, RFC 9101). Each form holds its
-//! case in every build; [`Received::dc_api`] compiles under the feature `dc-api`, and the URI
+#![cfg_attr(
+    feature = "dc-api",
+    doc = "case in every build; [`Received::dc_api`] compiles under the feature `dc-api`, and the URI"
+)]
+#![cfg_attr(
+    not(feature = "dc-api"),
+    doc = "case in every build; `Received::dc_api` compiles under the feature `dc-api`, and the URI"
+)]
 //! form's constructor, `Fetch::resume`, under `uri`. Records commit to its digest.
 
 #[cfg(feature = "dc-api")]

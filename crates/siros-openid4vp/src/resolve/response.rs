@@ -277,7 +277,14 @@ pub enum Body {
     Post(PostBody),
 }
 
-/// A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]
+#[cfg_attr(
+    feature = "uri",
+    doc = "A POST body with its media type. A form comes from [`FormBody::of`] alone: [`PostBody::of`]"
+)]
+#[cfg_attr(
+    not(feature = "uri"),
+    doc = "A POST body with its media type. A form comes from `FormBody::of` (feature `uri`) alone: [`PostBody::of`]"
+)]
 /// refuses `application/x-www-form-urlencoded`, and only the two make one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostBody {

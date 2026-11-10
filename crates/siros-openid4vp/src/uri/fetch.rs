@@ -84,7 +84,14 @@ impl<'a> Fetch<'a> {
     /// ([`AuthorizationUri::parse`]). A GET for `get`, and for `post` when the registry takes no
     /// [`RequestPost`](super::RequestPost) (§5.1); else a POST of `wallet_metadata` (§5.10),
     /// whose `jwks` holds a fresh key on a curve the decrypting module states when the registry
-    /// takes [`EncryptedRequests`](super::EncryptedRequests) (reading 21), and which lists the
+    #[cfg_attr(
+        feature = "request-decryption",
+        doc = "takes [`EncryptedRequests`](super::EncryptedRequests) (reading 21), and which lists the"
+    )]
+    #[cfg_attr(
+        not(feature = "request-decryption"),
+        doc = "takes `EncryptedRequests` (feature `request-decryption`; reading 21), and which lists the"
+    )]
     /// algorithms the prefix's `Haip::verifies` states for the Request Object when the outer
     /// `client_id` names a registered prefix.
     ///

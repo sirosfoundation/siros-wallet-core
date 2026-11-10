@@ -5,7 +5,11 @@
 use siros_explain::Explain;
 
 /// A form body, which serde_urlencoded writes from flat members, each name once. Only
-/// [`FormBody::of`] makes one.
+#[cfg_attr(feature = "uri", doc = "[`FormBody::of`] makes one.")]
+#[cfg_attr(
+    not(feature = "uri"),
+    doc = "`FormBody::of`, with the feature `uri`, makes one."
+)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormBody(String);
 
