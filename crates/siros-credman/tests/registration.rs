@@ -5,7 +5,7 @@
 
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
-use siros_credman::register::write;
+use siros_credman::register::{RegisterError, write};
 use siros_credman::{Base, ContextError, Kind, Malformed, OnRenderError, ReadError, Registration};
 use siros_i18n::{Bidi, Context, LoadError, LocaleTag, ResolveError};
 use siros_openid4vp::ids::TransactionType;
@@ -182,6 +182,28 @@ fn the_reader_gives_back_what_the_writer_writes() {
         }
         assert_eq!(registration.transaction(&kind("t2")).expect("read"), None);
     }
+}
+
+/// The README's name limit: the writer writes a type of 65,535 bytes, which reads back, and
+/// refuses a type of 65,536.
+#[test]
+fn a_type_longer_than_a_name_holds_is_not_written() {
+    let written = |name: &str| {
+        let transactions =
+            Keyed::new(vec![Entry::new(kind(name), SOURCE.to_owned())]).expect("a type");
+        write(&honest_base(), &transactions)
+    };
+    let longest = "t".repeat(65_535);
+    let blob = written(&longest).expect("written");
+    let mut registration = Registration::open(Cursor::new(blob)).expect("opened");
+    assert_eq!(
+        registration.transaction(&kind(&longest)).expect("read"),
+        Some(SOURCE.to_owned())
+    );
+    assert_eq!(
+        written(&"t".repeat(65_536)),
+        Err(RegisterError::Name { length: 65_536 })
+    );
 }
 
 /// A reader whose blob holds `size` bytes it never reads.

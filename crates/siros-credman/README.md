@@ -132,8 +132,8 @@ A reader refuses a registration at the first rule it breaks, checked in this ord
    4. `Named`: only a transaction entry has a name; every other name is empty.
    5. `Span`: the entry's bytes end within the blob.
    6. `Tiling`: the entry's bytes start where the bytes before them end.
-   7. `Order`: the kind's code is at least the previous record's, and a transaction's name comes
-      after the previous transaction's.
+   7. `Order`: the kind's code is at least the previous record's, and a transaction's name is at
+      least the previous transaction's name, compared by UTF-8 bytes.
    8. `Repeated`: no second locale, priority, bidi or on_error entry, and no transaction type
       twice.
 7. `Trailing`: the last entry ends at the blob's end.
