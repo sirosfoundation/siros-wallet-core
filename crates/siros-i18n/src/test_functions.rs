@@ -9,7 +9,7 @@
 //! `decimalPlaces=1`, when it is one. An option's value is the input's text.
 
 use crate::error::Refusal;
-use crate::format::{CallTexts, Chain, Env, Failure, Function, Root, Use};
+use crate::format::{CallTexts, Chain, Env, Failure, Function, Refused, Root, Use};
 use crate::mf2::number::NumberLiteral;
 
 /// `decimalPlaces`.
@@ -80,10 +80,12 @@ fn number_literal(text: &str) -> bool {
 /// another function; [`Refusal::Option`] for an option text the functions refuse, or `fails`
 /// that fails formatting; [`Refusal::Formatter`] for `:test:select` in a placeholder;
 /// [`Refusal::Selector`] for `:test:format`, or `fails` that fails selection, in a selector.
-pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
+/// [`Refused::Defect`] for a `u:dir` the load fixes that names no direction: the load refuses
+/// it before.
+pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refused> {
     match chain.root {
-        Root::None => return Err(Refusal::Operand),
-        Root::Literal(text) if !number_literal(text) => return Err(Refusal::Operand),
+        Root::None => return Err(Refusal::Operand.into()),
+        Root::Literal(text) if !number_literal(text) => return Err(Refusal::Operand.into()),
         Root::Literal(_) | Root::Argument(_) => {}
     }
     if chain.calls().any(|call| {
@@ -92,7 +94,7 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
             Function::Test | Function::TestSelect | Function::TestFormat
         )
     }) {
-        return Err(Refusal::Operand);
+        return Err(Refusal::Operand.into());
     }
     let refuse = |option: &str| Refusal::Option {
         option: option.to_owned(),
@@ -100,16 +102,16 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
     let fixed = chain.calls().flat_map(|call| {
         call.options
             .iter()
-            .filter_map(|(name, value)| Some((name.as_str(), chain.fixed(value)?)))
+            .filter_map(|&(name, value)| Some((name, value.fixed()?)))
     });
     let state = State::of(fixed).map_err(refuse)?;
-    let every = chain.fixed_texts().is_some();
+    let every = chain.fixed_texts()?.is_some();
     let outer = chain.outer.function;
     match at {
-        Use::Format if outer == Function::TestSelect => Err(Refusal::Formatter),
-        Use::Format if every && state.fails_format => Err(refuse("fails")),
+        Use::Format if outer == Function::TestSelect => Err(Refusal::Formatter.into()),
+        Use::Format if every && state.fails_format => Err(refuse("fails").into()),
         Use::Select if outer == Function::TestFormat || (every && state.fails_select) => {
-            Err(Refusal::Selector)
+            Err(Refusal::Selector.into())
         }
         Use::Format | Use::Select | Use::Value => Ok(()),
     }

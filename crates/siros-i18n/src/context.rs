@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use crate::compile;
 #[cfg(feature = "check")]
 use crate::error::CheckError;
-use crate::error::{LoadError, ResolveError, SyntaxRule};
+use crate::error::{Defect, LoadError, ResolveError, SyntaxRule};
 use crate::format::Formats;
 use crate::locale::LocaleTag;
 use crate::message::Message;
@@ -198,6 +198,7 @@ impl Context {
         let worded = self
             .messages
             .find(id)
+            .map_err(|Defect| ResolveError::Defect { id: id.to_owned() })?
             .ok_or_else(|| ResolveError::Unknown { id: id.to_owned() })?;
         let args = Args::of(message, id)?;
         worded.resolve(id, &|key| args.get(key), &self.formats, self.bidi)
@@ -227,14 +228,19 @@ impl Context {
             return Err(CheckError::Repeated { id: id.to_owned() });
         }
         let mut worded = Vec::with_capacity(rows.len());
+        let defect = |id: &str| CheckError::Defect { id: id.to_owned() };
         for (id, keys) in &rows {
-            let found = self.messages.find(id).ok_or_else(|| CheckError::Unworded {
-                id: (*id).to_owned(),
-            })?;
+            let found = self
+                .messages
+                .find(id)
+                .map_err(|Defect| defect(id))?
+                .ok_or_else(|| CheckError::Unworded {
+                    id: (*id).to_owned(),
+                })?;
             worded.push((id, keys, found));
         }
         for (id, keys, found) in worded {
-            let reads = found.reads();
+            let reads = found.reads().map_err(|Defect| defect(id))?;
             if let Some(key) = reads.iter().find(|key| !keys.iter().any(|k| k == *key)) {
                 return Err(CheckError::Unknown {
                     id: (*id).to_owned(),

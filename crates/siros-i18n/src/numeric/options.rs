@@ -17,6 +17,8 @@ pub(crate) enum Refused {
     Operand,
     /// An option, by name.
     Option(String),
+    /// A chain without a call: the load builds each chain from its call.
+    Defect,
 }
 
 /// A numeric function.
@@ -48,56 +50,58 @@ impl Function {
         }
     }
 
-    /// The options it reads; it ignores others.
-    pub(crate) fn reads(self, name: &str) -> bool {
-        const DIGITS: [&str; 7] = [
-            "signDisplay",
-            "useGrouping",
-            "minimumSignificantDigits",
-            "maximumSignificantDigits",
-            "trailingZeroDisplay",
-            "roundingPriority",
-            "roundingMode",
-        ];
+    /// The rule of the option `name` when the function reads it; `None` for an option it ignores
+    /// (spec/functions/README.md permits it).
+    pub(crate) fn rule(self, name: &str) -> Option<Rule> {
+        let digits = || match name {
+            "signDisplay" => Some(Rule::SignDisplay),
+            "useGrouping" => Some(Rule::UseGrouping),
+            "minimumSignificantDigits" | "maximumSignificantDigits" => Some(Rule::Digits),
+            "trailingZeroDisplay" => Some(Rule::TrailingZeroDisplay),
+            "roundingPriority" => Some(Rule::RoundingPriority),
+            "roundingMode" => Some(Rule::RoundingMode),
+            _ => None,
+        };
         match self {
-            Self::Number => {
-                DIGITS.contains(&name)
-                    || matches!(
-                        name,
-                        "select"
-                            | "minimumIntegerDigits"
-                            | "minimumFractionDigits"
-                            | "maximumFractionDigits"
-                            | "roundingIncrement"
-                    )
-            }
+            Self::Number => match name {
+                "select" => Some(Rule::Select),
+                "minimumIntegerDigits" => Some(Rule::Digits),
+                "minimumFractionDigits" | "maximumFractionDigits" => Some(Rule::Size),
+                "roundingIncrement" => Some(Rule::RoundingIncrement),
+                _ => digits(),
+            },
             #[cfg(feature = "number")]
-            Self::Integer => matches!(
-                name,
-                "select"
-                    | "signDisplay"
-                    | "useGrouping"
-                    | "minimumIntegerDigits"
-                    | "maximumSignificantDigits"
-            ),
-            Self::Offset => matches!(name, "add" | "subtract"),
-            Self::Currency => {
-                DIGITS.contains(&name)
-                    || matches!(
-                        name,
-                        "currency"
-                            | "currencySign"
-                            | "currencyDisplay"
-                            | "minimumIntegerDigits"
-                            | "fractionDigits"
-                            | "roundingIncrement"
-                    )
-            }
-            Self::Percent => {
-                DIGITS.contains(&name)
-                    || matches!(name, "minimumFractionDigits" | "maximumFractionDigits")
-            }
+            Self::Integer => match name {
+                "select" => Some(Rule::Select),
+                "signDisplay" => Some(Rule::SignDisplay),
+                "useGrouping" => Some(Rule::UseGrouping),
+                "minimumIntegerDigits" | "maximumSignificantDigits" => Some(Rule::Digits),
+                _ => None,
+            },
+            Self::Offset => match name {
+                "add" | "subtract" => Some(Rule::Size),
+                _ => None,
+            },
+            Self::Currency => match name {
+                #[cfg(feature = "currency")]
+                "currency" => Some(Rule::Currency),
+                "currencySign" => Some(Rule::CurrencySign),
+                "currencyDisplay" => Some(Rule::CurrencyDisplay),
+                "minimumIntegerDigits" => Some(Rule::Digits),
+                "fractionDigits" => Some(Rule::FractionDigits),
+                "roundingIncrement" => Some(Rule::RoundingIncrement),
+                _ => digits(),
+            },
+            Self::Percent => match name {
+                "minimumFractionDigits" | "maximumFractionDigits" => Some(Rule::Size),
+                _ => digits(),
+            },
         }
+    }
+
+    /// Whether it reads the option `name`; it ignores others.
+    pub(crate) fn reads(self, name: &str) -> bool {
+        self.rule(name).is_some()
     }
 
     /// Whether it discards this option of its operand's resolved value.
@@ -152,30 +156,62 @@ fn digit_size(text: &str) -> Option<u8> {
     }
 }
 
-/// Whether an option's value is one its function takes.
-pub(crate) fn valid(name: &str, value: &str) -> bool {
-    let size = digit_size(value);
-    match name {
-        "select" => matches!(value, "plural" | "ordinal" | "exact"),
-        "signDisplay" => matches!(
-            value,
-            "auto" | "always" | "exceptZero" | "negative" | "never"
-        ),
-        "useGrouping" => matches!(value, "auto" | "always" | "never" | "min2"),
-        "minimumIntegerDigits" | "minimumSignificantDigits" | "maximumSignificantDigits" => {
-            size.is_some_and(|n| (1..=21).contains(&n))
+/// The values an option takes (spec/functions/number.md, spec/functions/currency.md).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rule {
+    /// `plural`, `ordinal` or `exact`.
+    Select,
+    /// `auto`, `always`, `exceptZero`, `negative` or `never`.
+    SignDisplay,
+    /// `auto`, `always`, `never` or `min2`.
+    UseGrouping,
+    /// A digit size from 1 to 21: a count of integer or significant digits.
+    Digits,
+    /// A digit size: a count of fraction digits, or an addend.
+    Size,
+    /// `auto` or a digit size.
+    FractionDigits,
+    /// `auto` or `stripIfInteger`.
+    TrailingZeroDisplay,
+    /// `auto`, `morePrecision` or `lessPrecision`.
+    RoundingPriority,
+    /// One of [`INCREMENTS`].
+    RoundingIncrement,
+    /// A rounding mode's name.
+    RoundingMode,
+    /// A well-formed ISO 4217 code, in any case.
+    #[cfg(feature = "currency")]
+    Currency,
+    /// `standard` or `accounting`.
+    CurrencySign,
+    /// `narrowSymbol`, `symbol`, `name`, `code` or `never`.
+    CurrencyDisplay,
+}
+
+impl Rule {
+    /// Whether the option takes `value`.
+    pub(crate) fn takes(self, value: &str) -> bool {
+        match self {
+            Self::Select => matches!(value, "plural" | "ordinal" | "exact"),
+            Self::SignDisplay => matches!(
+                value,
+                "auto" | "always" | "exceptZero" | "negative" | "never"
+            ),
+            Self::UseGrouping => matches!(value, "auto" | "always" | "never" | "min2"),
+            Self::Digits => digit_size(value).is_some_and(|n| (1..=21).contains(&n)),
+            Self::Size => digit_size(value).is_some(),
+            Self::FractionDigits => value == "auto" || digit_size(value).is_some(),
+            Self::TrailingZeroDisplay => matches!(value, "auto" | "stripIfInteger"),
+            Self::RoundingPriority => matches!(value, "auto" | "morePrecision" | "lessPrecision"),
+            Self::RoundingIncrement => value.parse::<u16>().is_ok_and(|n| INCREMENTS.contains(&n)),
+            Self::RoundingMode => RoundingMode::named(value).is_some(),
+            #[cfg(feature = "currency")]
+            Self::Currency => crate::numeric::currency::currency(value).is_some(),
+            Self::CurrencySign => matches!(value, "standard" | "accounting"),
+            Self::CurrencyDisplay => {
+                matches!(value, "narrowSymbol" | "symbol" | "name" | "code" | "never")
+            }
         }
-        "minimumFractionDigits" | "maximumFractionDigits" | "add" | "subtract" => size.is_some(),
-        "fractionDigits" => value == "auto" || size.is_some(),
-        "trailingZeroDisplay" => matches!(value, "auto" | "stripIfInteger"),
-        "roundingPriority" => matches!(value, "auto" | "morePrecision" | "lessPrecision"),
-        "roundingIncrement" => value.parse::<u16>().is_ok_and(|n| INCREMENTS.contains(&n)),
-        "roundingMode" => RoundingMode::named(value).is_some(),
-        #[cfg(feature = "currency")]
-        "currency" => crate::numeric::currency::currency(value).is_some(),
-        "currencySign" => matches!(value, "standard" | "accounting"),
-        "currencyDisplay" => matches!(value, "narrowSymbol" | "symbol" | "name" | "code" | "never"),
-        _ => true,
     }
 }
 
@@ -213,7 +249,7 @@ impl<'a> Resolved<'a> {
             current.apply(function, call)?;
             resolved = Some(current);
         }
-        resolved.ok_or(Refused::Operand)
+        resolved.ok_or(Refused::Defect)
     }
 
     /// Applies a call of `function` to the value: its options, then its step.
@@ -224,15 +260,13 @@ impl<'a> Resolved<'a> {
         }
         for (name, value) in &call.options {
             let (name, value): (&'a str, &'a str) = (name, value);
-            if function.reads(name) {
-                if !valid(name, value) {
-                    return Err(option(name));
-                }
-                if name == "currency" && self.currency_held {
-                    return Err(option(name));
-                }
-                self.set(name, value);
+            let Some(rule) = function.rule(name) else {
+                continue;
+            };
+            if !rule.takes(value) || (name == "currency" && self.currency_held) {
+                return Err(option(name));
             }
+            self.set(name, value);
         }
         if self.select_inherited {
             return Err(option("select"));
@@ -300,8 +334,11 @@ impl<'a> Resolved<'a> {
 
     /// The option `name`, checked, when the formatting function reads it.
     fn checked(&self, name: &str) -> Result<Option<&'a str>, Refused> {
-        match self.read(name) {
-            Some(value) if !valid(name, value) => Err(option(name)),
+        let Some(rule) = self.formatter.rule(name) else {
+            return Ok(None);
+        };
+        match self.get(name) {
+            Some(value) if !rule.takes(value) => Err(option(name)),
             other => Ok(other),
         }
     }

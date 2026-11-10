@@ -8,7 +8,7 @@ use std::fmt;
 use rustc_hash::FxHashMap;
 
 use crate::compile::Compiled;
-use crate::error::LoadError;
+use crate::error::{Defect, LoadError};
 use crate::resource::{Entry, MessageSection};
 
 /// A message's id: its section's name, `None` before a resource's first section head, and its
@@ -92,53 +92,45 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    /// The message of `id`.
-    pub(crate) fn find(&self, id: &str) -> Option<&Compiled> {
+    /// The message of `id`; `None` when no module words it.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for a held message whose section or hash chain names no entry.
+    pub(crate) fn find(&self, id: &str) -> Result<Option<&Compiled>, Defect> {
         let id = Id {
             section: None,
             key: id,
         };
-        self.under(hash(0, id.bytes()))
-            .find(|held| self.id(held).is_some_and(|held| held.is(id)))
-            .map(|held| &held.message)
+        let found = self.first(hash(0, id.bytes()), |held| Ok(self.id(held, None)?.is(id)))?;
+        Ok(found.map(|held| &held.message))
     }
 
-    /// Holds a resource section's messages, each compiled by `compile` under its id.
+    /// Holds a resource section's messages, each compiled by `compile` under its id. The store
+    /// holds the section's name after its messages.
     ///
     /// # Errors
     ///
-    /// [`LoadError::Repeated`] for an id a message holds, and the error of `compile`.
+    /// [`LoadError::Repeated`] for an id a message holds, [`LoadError::Defect`] for a held
+    /// message whose section or hash chain names no entry, and the error of `compile`.
     pub(crate) fn hold(
         &mut self,
         section: MessageSection,
-        compile: impl FnMut(Id<'_>, &Entry) -> Result<Compiled, LoadError>,
+        mut compile: impl FnMut(Id<'_>, &Entry) -> Result<Compiled, LoadError>,
     ) -> Result<(), LoadError> {
         let named = section.name.map(Section::named);
         let at = named.as_ref().map(|_| self.sections.len());
-        let held = self.entries(at, named.as_ref(), section.entries, compile);
-        self.sections.extend(named);
-        held
-    }
-
-    /// Holds the entries of the section `named` at `at`, which the store holds once they are.
-    fn entries(
-        &mut self,
-        at: Option<usize>,
-        named: Option<&Section>,
-        entries: Vec<Entry>,
-        mut compile: impl FnMut(Id<'_>, &Entry) -> Result<Compiled, LoadError>,
-    ) -> Result<(), LoadError> {
-        let prefix = named.map_or(0, |section| section.hash);
-        for entry in entries {
+        let prefix = named.as_ref().map_or(0, |section| section.hash);
+        for entry in section.entries {
             let id = Id {
-                section: named.map(|section| section.name.as_str()),
+                section: named.as_ref().map(|section| section.name.as_str()),
                 key: &entry.key,
             };
             let hash = hash(prefix, entry.key.bytes());
-            if self.under(hash).any(|held| {
-                (held.section == at && held.key == entry.key)
-                    || self.id(held).is_some_and(|held| held.is(id))
-            }) {
+            let repeated = self
+                .first(hash, |held| Ok(self.id(held, named.as_ref())?.is(id)))
+                .map_err(|Defect| LoadError::Defect { id: id.to_string() })?;
+            if repeated.is_some() {
                 return Err(LoadError::Repeated { id: id.to_string() });
             }
             let message = compile(id, &entry)?;
@@ -150,23 +142,51 @@ impl Store {
                 next,
             });
         }
+        self.sections.extend(named);
         Ok(())
     }
 
-    /// The messages whose ids hash to `hash`, the last held first.
-    fn under(&self, hash: u64) -> impl Iterator<Item = &Held> {
-        let last = self.last.get(&hash).and_then(|&at| self.held.get(at));
-        std::iter::successors(last, |held| held.next.and_then(|at| self.held.get(at)))
+    /// The last message held under `hash` that `matches`: the messages held under it are walked
+    /// from the last.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for a chain that names no held message, and the error of `matches`.
+    fn first(
+        &self,
+        hash: u64,
+        mut matches: impl FnMut(&Held) -> Result<bool, Defect>,
+    ) -> Result<Option<&Held>, Defect> {
+        let mut next = self.last.get(&hash).copied();
+        while let Some(at) = next {
+            let held = self.held.get(at).ok_or(Defect)?;
+            if matches(held)? {
+                return Ok(Some(held));
+            }
+            next = held.next;
+        }
+        Ok(None)
     }
 
-    /// A held message's id; `None` for a message of the section [`Store::hold`] holds, which
-    /// the store holds after its messages.
-    fn id<'a>(&'a self, held: &'a Held) -> Option<Id<'a>> {
+    /// A held message's id. `pending` is the section [`Store::hold`] holds, whose index is the
+    /// count of the held sections.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for a section index past the held sections and the pending one.
+    fn id<'a>(&'a self, held: &'a Held, pending: Option<&'a Section>) -> Result<Id<'a>, Defect> {
         let section = match held.section {
             None => None,
-            Some(at) => Some(self.sections.get(at)?.name.as_str()),
+            Some(at) => {
+                let section = match self.sections.get(at) {
+                    Some(section) => section,
+                    None if at == self.sections.len() => pending.ok_or(Defect)?,
+                    None => return Err(Defect),
+                };
+                Some(section.name.as_str())
+            }
         };
-        Some(Id {
+        Ok(Id {
             section,
             key: &held.key,
         })

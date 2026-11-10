@@ -326,10 +326,10 @@ impl Parsed {
     /// # Errors
     ///
     /// [`Failure::Option`] for a `currency` or `currencyDisplay` text the function refuses, and
-    /// [`Failure::Operand`] for a value whose call names no currency.
+    /// [`Failure::Defect`] for a value whose call names no currency: the load refuses it.
     pub(crate) fn amount(&self, form: &Form<'_>, given: &Given) -> Result<String, Failure> {
         let option = |name: &str| Failure::Option(name.to_owned());
-        let code = form.resolved.get("currency").ok_or(Failure::Operand)?;
+        let code = form.resolved.get("currency").ok_or(Failure::Defect)?;
         let currency = currency(code).ok_or_else(|| option("currency"))?;
         let display = match form.resolved.get("currencyDisplay") {
             Some(name) => Display::named(name).ok_or_else(|| option("currencyDisplay"))?,

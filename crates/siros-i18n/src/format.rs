@@ -8,9 +8,9 @@
 
 use std::borrow::Cow;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::error::{FormatRule, LoadError, Refusal, ResolveError};
+use crate::error::{Defect, FormatRule, LoadError, Refusal, ResolveError};
 use crate::normal::{Hold, Unnormalized};
 #[cfg(any(
     feature = "number",
@@ -203,16 +203,89 @@ pub(crate) enum OptionValue {
     Variable(usize),
 }
 
-impl OptionValue {
-    /// Its text when the load fixes it: a literal's, written or bound to the variable.
-    pub(crate) fn fixed<'v>(&'v self, values: &'v [Value]) -> Option<&'v str> {
+/// A call of a chain: its function, and its options, each name once, in the order written.
+#[derive(Debug)]
+pub(crate) struct Link<'m> {
+    pub(crate) function: Function,
+    pub(crate) options: Vec<(&'m str, Opt<'m>)>,
+}
+
+/// An option's value in a chain: a literal written as the value, or the variable written as the
+/// value with the index and the value it stands for.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Opt<'m> {
+    Literal(&'m str),
+    Variable(
+        usize,
+        #[cfg_attr(
+            not(any(
+                feature = "number",
+                feature = "currency",
+                feature = "offset",
+                feature = "date",
+                feature = "conformance"
+            )),
+            expect(dead_code, reason = "`:string` reads no option")
+        )]
+        &'m Value,
+    ),
+}
+
+impl<'m> Opt<'m> {
+    /// Its text when the load fixes it: a literal's, written or bound to the variable; `None` for
+    /// a variable that stands for an argument or a call.
+    #[cfg(any(
+        feature = "number",
+        feature = "currency",
+        feature = "offset",
+        feature = "date",
+        feature = "conformance"
+    ))]
+    pub(crate) fn fixed(self) -> Option<&'m str> {
         match self {
             Self::Literal(text) => Some(text),
-            Self::Variable(at) => match values.get(*at)? {
-                Value::Literal(text) => Some(text),
-                Value::Argument(_) | Value::Call(_) => None,
-            },
+            Self::Variable(_, Value::Literal(text)) => Some(text),
+            Self::Variable(_, Value::Argument(_) | Value::Call(_)) => None,
         }
+    }
+}
+
+/// The value at `index`, which the value at `above` reads.
+///
+/// # Errors
+///
+/// [`Defect`] for an index at or after `above`, or past the values.
+fn earlier(values: &[Value], index: usize, above: usize) -> Result<&Value, Defect> {
+    if index >= above {
+        return Err(Defect);
+    }
+    values.get(index).ok_or(Defect)
+}
+
+impl<'m> Link<'m> {
+    /// The link of `call`, the value at `at` among `values`.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for an option's variable that names no earlier value.
+    fn of(values: &'m [Value], call: &'m Call, at: usize) -> Result<Self, Defect> {
+        let options = call
+            .options
+            .iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    OptionValue::Literal(text) => Opt::Literal(text),
+                    OptionValue::Variable(index) => {
+                        Opt::Variable(*index, earlier(values, *index, at)?)
+                    }
+                };
+                Ok((name.as_str(), value))
+            })
+            .collect::<Result<_, Defect>>()?;
+        Ok(Self {
+            function: call.function,
+            options,
+        })
     }
 }
 
@@ -239,27 +312,12 @@ pub(crate) enum Root<'m> {
 }
 
 /// A call's chain: what it starts from, the calls its operand's value applies from the innermost,
-/// and the call itself, whose function formats, selects or gives the value; and the message's
-/// values, which its options' variables read.
+/// and the call itself, whose function formats, selects or gives the value.
 #[derive(Debug)]
 pub(crate) struct Chain<'m> {
-    #[cfg_attr(
-        not(any(
-            feature = "number",
-            feature = "currency",
-            feature = "offset",
-            feature = "date",
-            feature = "conformance"
-        )),
-        expect(
-            dead_code,
-            reason = "only the families with options read a literal's value"
-        )
-    )]
-    pub(crate) values: &'m [Value],
     pub(crate) root: Root<'m>,
-    pub(crate) inner: Vec<&'m Call>,
-    pub(crate) outer: &'m Call,
+    inner: Vec<Link<'m>>,
+    pub(crate) outer: Link<'m>,
 }
 
 /// An expression's `u:dir` (spec/u-namespace.md).
@@ -333,11 +391,15 @@ impl CallTexts<'_> {
 }
 
 impl<'m> Chain<'m> {
-    /// The chain of the call at `at` among `values`; `None` when `at` names no call, or an
-    /// operand names no earlier value.
-    pub(crate) fn of(values: &'m [Value], at: usize) -> Option<Self> {
+    /// The chain of the call at `at` among `values`.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] when `at` names no call, or an operand or an option's variable names no
+    /// earlier value.
+    pub(crate) fn of(values: &'m [Value], at: usize) -> Result<Self, Defect> {
         let Some(Value::Call(outer)) = values.get(at) else {
-            return None;
+            return Err(Defect);
         };
         let mut inner = Vec::new();
         let (mut operand, mut above) = (outer.operand, at);
@@ -345,60 +407,42 @@ impl<'m> Chain<'m> {
             let Some(index) = operand else {
                 break Root::None;
             };
-            if index >= above {
-                return None;
-            }
-            match values.get(index)? {
+            match earlier(values, index, above)? {
                 Value::Literal(text) => break Root::Literal(text),
                 Value::Argument(key) => break Root::Argument(key),
                 Value::Call(call) => {
-                    inner.push(call);
+                    inner.push(Link::of(values, call, index)?);
                     (operand, above) = (call.operand, index);
                 }
             }
         };
         inner.reverse();
-        Some(Self {
-            values,
+        Ok(Self {
             root,
             inner,
-            outer,
+            outer: Link::of(values, outer, at)?,
         })
     }
 
     /// The calls, innermost first.
-    pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &'m Call> + '_ {
-        self.inner
-            .iter()
-            .copied()
-            .chain(std::iter::once(self.outer))
+    pub(crate) fn calls(&self) -> impl DoubleEndedIterator<Item = &Link<'m>> + '_ {
+        self.inner.iter().chain(std::iter::once(&self.outer))
     }
 
-    /// The function of the innermost call, whose operand is the root.
+    /// The function of the innermost call, whose operand is the root: the outermost call's when
+    /// the chain has one call.
     pub(crate) fn innermost(&self) -> Function {
         self.inner
             .first()
             .map_or(self.outer.function, |call| call.function)
     }
 
-    /// An option value's text when the load fixes it.
-    #[cfg(any(
-        feature = "number",
-        feature = "currency",
-        feature = "offset",
-        feature = "date",
-        feature = "conformance"
-    ))]
-    pub(crate) fn fixed(&self, value: &'m OptionValue) -> Option<&'m str> {
-        value.fixed(self.values)
-    }
-
     /// The indices of the values the chain's options' variables stand for.
     fn variables(&self) -> impl Iterator<Item = usize> + '_ {
         self.calls().flat_map(|call| {
             call.options.iter().filter_map(|(_, value)| match value {
-                OptionValue::Variable(at) => Some(*at),
-                OptionValue::Literal(_) => None,
+                Opt::Variable(at, _) => Some(*at),
+                Opt::Literal(_) => None,
             })
         })
     }
@@ -407,19 +451,19 @@ impl<'m> Chain<'m> {
     /// parsed, `u:id` dropped. `misnamed` is the error of a `u:dir` that names no direction.
     fn texts_by<E>(
         &self,
-        mut text: impl FnMut(&'m str, &'m OptionValue) -> Result<Cow<'m, str>, E>,
+        mut text: impl FnMut(&'m str, Opt<'m>) -> Result<Cow<'m, str>, E>,
         misnamed: impl Fn(&str) -> E,
     ) -> Result<Vec<CallTexts<'m>>, E> {
         let mut texts = Vec::with_capacity(self.inner.len() + 1);
         for call in self.calls() {
             let mut dir = None;
             let mut options = Vec::with_capacity(call.options.len());
-            for (name, value) in &call.options {
+            for &(name, value) in &call.options {
                 let resolved = text(name, value)?;
-                match name.as_str() {
+                match name {
                     "u:dir" => dir = Some(Dir::named(&resolved).ok_or_else(|| misnamed(name))?),
                     "u:id" => {}
-                    _ => options.push((name.as_str(), resolved)),
+                    _ => options.push((name, resolved)),
                 }
             }
             texts.push(CallTexts {
@@ -442,8 +486,8 @@ impl<'m> Chain<'m> {
     pub(crate) fn texts(&self, env: &mut Env<'_, 'm>) -> Result<Vec<CallTexts<'m>>, Failure> {
         self.texts_by(
             |name, value| match value {
-                OptionValue::Literal(text) => Ok(Cow::Borrowed(text.as_str())),
-                OptionValue::Variable(at) => env.text(*at).map_err(|failure| failure.under(name)),
+                Opt::Literal(text) => Ok(Cow::Borrowed(text)),
+                Opt::Variable(at, _) => env.text(at).map_err(|failure| failure.under(name)),
             },
             |name| Failure::Option(name.to_owned()),
         )
@@ -451,18 +495,26 @@ impl<'m> Chain<'m> {
 
     /// The calls' resolved options when the load fixes every option's text; `None` when a
     /// variable stands for an argument or a call.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for a `u:dir` the load fixes that names no direction: the load refuses such
+    /// a call when it compiles it.
     #[cfg(any(
         feature = "number",
         feature = "currency",
         feature = "offset",
         feature = "conformance"
     ))]
-    pub(crate) fn fixed_texts(&self) -> Option<Vec<CallTexts<'m>>> {
-        self.texts_by(
-            |_, value| self.fixed(value).map(Cow::Borrowed).ok_or(()),
-            |_| (),
-        )
-        .ok()
+    pub(crate) fn fixed_texts(&self) -> Result<Option<Vec<CallTexts<'m>>>, Defect> {
+        match self.texts_by(
+            |_, value| value.fixed().map(Cow::Borrowed).ok_or(Unfixed::Variable),
+            |_| Unfixed::Misnamed,
+        ) {
+            Ok(texts) => Ok(Some(texts)),
+            Err(Unfixed::Variable) => Ok(None),
+            Err(Unfixed::Misnamed) => Err(Defect),
+        }
     }
 
     /// The resolution error of `failure` in the message `id`: an operand's names the innermost
@@ -482,6 +534,7 @@ impl<'m> Chain<'m> {
                 id: id.to_owned(),
                 key,
             },
+            Failure::Defect => ResolveError::Defect { id: id.to_owned() },
         }
     }
 
@@ -541,22 +594,32 @@ pub(crate) enum Failure {
     /// The argument of this key, which the message does not give: the operand's or an
     /// option's.
     Unresolved(String),
+    /// A value, a format section or a selection the load holds is missing.
+    Defect,
 }
 
 impl Failure {
     /// The failure of the option `name` whose variable's value failed so: an argument the value
-    /// reads stays unresolved, and any other failure refuses the option.
+    /// reads stays unresolved, a defect stays one, and any other failure refuses the option.
     fn under(self, name: &str) -> Self {
         match self {
             Self::Unresolved(key) => Self::Unresolved(key),
+            Self::Defect => Self::Defect,
             Self::Operand | Self::Option(_) => Self::Option(name.to_owned()),
         }
     }
 
-    /// The failure of a section the load found and the resolution lacks.
+    /// The failure of a chain whose section the load found and the resolution lacks, whatever
+    /// the refusal: the context holds each section it defines.
     #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
     fn missing(_: Refused) -> Self {
-        Self::Operand
+        Self::Defect
+    }
+}
+
+impl From<Defect> for Failure {
+    fn from(Defect: Defect) -> Self {
+        Self::Defect
     }
 }
 
@@ -575,12 +638,34 @@ pub(crate) enum Refused {
     Call(Refusal),
     /// A selector's literal the load's [`Hold`] refuses.
     Unnormalized(Unnormalized),
+    /// A lookup missed what the load holds by construction.
+    Defect,
 }
 
 impl From<Refusal> for Refused {
     fn from(refusal: Refusal) -> Self {
         Self::Call(refusal)
     }
+}
+
+impl From<Defect> for Refused {
+    fn from(Defect: Defect) -> Self {
+        Self::Defect
+    }
+}
+
+/// Why the load fixes no texts for a chain's options.
+#[cfg(any(
+    feature = "number",
+    feature = "currency",
+    feature = "offset",
+    feature = "conformance"
+))]
+enum Unfixed {
+    /// A variable stands for an argument or a call.
+    Variable,
+    /// A `u:dir` names no direction.
+    Misnamed,
 }
 
 /// The arguments' texts, by key.
@@ -602,7 +687,7 @@ pub(crate) struct Env<'e, 'm> {
         expect(dead_code, reason = "only the format functions read a section")
     )]
     formats: &'m Formats,
-    texts: Vec<Option<Result<Cow<'m, str>, Failure>>>,
+    texts: FxHashMap<usize, Result<Cow<'m, str>, Failure>>,
 }
 
 impl<'e, 'm> Env<'e, 'm> {
@@ -617,7 +702,7 @@ impl<'e, 'm> Env<'e, 'm> {
             argument,
             values,
             formats,
-            texts: Vec::new(),
+            texts: FxHashMap::default(),
         }
     }
 
@@ -636,49 +721,41 @@ impl<'e, 'm> Env<'e, 'm> {
     ///
     /// # Errors
     ///
-    /// The value's [`Failure`]; [`Failure::Operand`] for an index that names no value, or a call
-    /// whose options read a later one.
+    /// The value's [`Failure`]; [`Failure::Defect`] for an index that names no value, or a call
+    /// whose operand or options name no earlier value.
     fn text(&mut self, at: usize) -> Result<Cow<'m, str>, Failure> {
-        if self.texts.is_empty() {
-            self.texts.resize(self.values.len(), None);
-        }
         let values = self.values;
         let mut pending = vec![(at, false)];
         while let Some((index, ready)) = pending.pop() {
-            if self.texts.get(index).is_some_and(Option::is_some) {
+            if self.texts.contains_key(&index) {
                 continue;
             }
-            let text = match values.get(index).ok_or(Failure::Operand)? {
+            let text = match values.get(index).ok_or(Failure::Defect)? {
                 Value::Literal(text) => Ok(Cow::Borrowed(text.as_str())),
                 Value::Argument(key) => self.argument(key).map(Cow::Borrowed),
                 Value::Call(_) => {
-                    let chain = Chain::of(values, index).ok_or(Failure::Operand)?;
+                    let chain = Chain::of(values, index)?;
                     if ready {
                         chain.value(self)
                     } else {
                         pending.push((index, true));
-                        for read in chain.variables() {
-                            if read >= index {
-                                return Err(Failure::Operand);
-                            }
-                            pending.push((read, false));
-                        }
+                        pending.extend(chain.variables().map(|read| (read, false)));
                         continue;
                     }
                 }
             };
-            *self.texts.get_mut(index).ok_or(Failure::Operand)? = Some(text);
+            self.texts.extend([(index, text)]);
         }
-        match self.texts.get(at) {
-            Some(Some(text)) => text.clone(),
-            Some(None) | None => Err(Failure::Operand),
+        match self.texts.get(&at) {
+            Some(text) => text.clone(),
+            None => Err(Failure::Defect),
         }
     }
 }
 
 /// The numeric chain's language: the section of the function that formats its value. `:offset`
 /// formats with the function of its operand's call, and with `[formats.offset]` over `:number`,
-/// `:integer` or a literal.
+/// `:integer` or a literal. A call of another family refuses the operand.
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 fn language<'f>(
     chain: &Chain<'_>,
@@ -686,7 +763,8 @@ fn language<'f>(
 ) -> Result<crate::numeric::Language<'f>, Refused> {
     #[cfg(any(feature = "number", feature = "currency"))]
     use crate::numeric::options::Function as Numeric;
-    match (chain.outer.function, crate::numeric::formatter(chain)) {
+    let formatter = crate::numeric::formatter(chain).ok_or(Refused::Call(Refusal::Operand))?;
+    match (chain.outer.function, formatter) {
         #[cfg(feature = "currency")]
         (_, Numeric::Currency | Numeric::Percent) => Ok(crate::numeric::Language::Currency(
             formats.currency.as_ref().ok_or(Refused::Undefined)?,
@@ -700,7 +778,7 @@ fn language<'f>(
             crate::numeric::Language::Plain(formats.number.as_ref().ok_or(Refused::Undefined)?),
         ),
         #[cfg(not(all(feature = "number", feature = "currency")))]
-        _ => Err(Refused::Call(Refusal::Operand)),
+        _ => Err(Refused::Defect),
     }
 }
 
@@ -743,7 +821,7 @@ pub(crate) fn check(
         }
         #[cfg(feature = "conformance")]
         Function::Test | Function::TestSelect | Function::TestFormat => {
-            Ok(crate::test_functions::check(chain, at)?)
+            crate::test_functions::check(chain, at)
         }
     }
 }
@@ -751,7 +829,7 @@ pub(crate) fn check(
 /// Checks a numeric chain for its use.
 #[cfg(any(feature = "number", feature = "currency", feature = "offset"))]
 fn numeric_check(chain: &Chain<'_>, at: Use, formats: &Formats) -> Result<(), Refused> {
-    Ok(crate::numeric::check(chain, at, language(chain, formats)?)?)
+    crate::numeric::check(chain, at, language(chain, formats)?)
 }
 
 /// Refuses a key of a selector's column the selection of `function` does not read.
@@ -811,7 +889,7 @@ pub(crate) fn format<'m>(
         Function::Currency | Function::Percent => numeric_format(chain, texts, env),
         #[cfg(feature = "date")]
         Function::Date | Function::Time | Function::DateTime => {
-            let section = env.formats.date.as_ref().ok_or(Failure::Operand)?;
+            let section = env.formats.date.as_ref().ok_or(Failure::Defect)?;
             let text = crate::date::format(chain, texts, env, section)?;
             Ok((text, section.direction()))
         }
@@ -863,7 +941,7 @@ pub(crate) fn select<'m, 'k>(
         #[cfg(feature = "currency")]
         Function::Currency | Function::Percent => numeric_select(chain, texts, env, keys),
         #[cfg(feature = "date")]
-        Function::Date | Function::Time | Function::DateTime => Err(Failure::Operand),
+        Function::Date | Function::Time | Function::DateTime => Err(Failure::Defect),
         #[cfg(feature = "conformance")]
         Function::Test | Function::TestSelect | Function::TestFormat => {
             crate::test_functions::select(chain, texts, env, keys)

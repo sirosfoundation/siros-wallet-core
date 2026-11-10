@@ -12,7 +12,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::context::Bidi;
-use crate::error::{LoadError, Refusal, ResolveError, SyntaxRule};
+use crate::error::{Defect, LoadError, Refusal, ResolveError, SyntaxRule};
 use crate::format::{
     Argument, Call, Chain, Dir, Direction, Env, Formats, Function, OptionValue, Refused, Use, Value,
 };
@@ -148,6 +148,22 @@ impl Compiler<'_> {
         }
     }
 
+    /// The error of a lookup that misses a value the compiler holds.
+    fn defect(&self) -> LoadError {
+        LoadError::Defect {
+            id: self.id.to_string(),
+        }
+    }
+
+    /// The value at `at`.
+    ///
+    /// # Errors
+    ///
+    /// [`LoadError::Defect`] for an index past the values.
+    fn value(&self, at: usize) -> Result<&Value, LoadError> {
+        self.values.get(at).ok_or_else(|| self.defect())
+    }
+
     /// The refusal of a chain whose outermost function is `function`.
     fn refused(&self, function: Function, refused: Refused) -> LoadError {
         let (id, function) = (self.id.to_string(), function.name().to_owned());
@@ -168,6 +184,7 @@ impl Compiler<'_> {
                 id,
                 text: literal.written(),
             },
+            Refused::Defect => LoadError::Defect { id },
         }
     }
 
@@ -196,8 +213,12 @@ impl Compiler<'_> {
     }
 
     /// Whether the value at `at` is a call.
-    fn is_call(&self, at: usize) -> bool {
-        matches!(self.values.get(at), Some(Value::Call(_)))
+    ///
+    /// # Errors
+    ///
+    /// [`LoadError::Defect`] for an index past the values.
+    fn is_call(&self, at: usize) -> Result<bool, LoadError> {
+        Ok(matches!(self.value(at)?, Value::Call(_)))
     }
 
     /// The index of the value a local declaration's expression binds.
@@ -223,8 +244,7 @@ impl Compiler<'_> {
         if !self.checked.insert((at, used)) {
             return Ok(());
         }
-        let refused = |function| self.refused(function, Refused::Call(Refusal::Operand));
-        let chain = Chain::of(&self.values, at).ok_or_else(|| refused(Function::String))?;
+        let chain = Chain::of(&self.values, at).map_err(|Defect| self.defect())?;
         crate::format::check(&chain, used, self.formats, self.hold)
             .map_err(|refusal| self.refused(chain.outer.function, refusal))
     }
@@ -261,7 +281,7 @@ impl Compiler<'_> {
                 ast::Operand::Literal(literal) => OptionValue::Literal(literal.clone()),
                 ast::Operand::Variable(variable) => {
                     let at = self.variable(variable);
-                    if self.is_call(at) {
+                    if self.is_call(at)? {
                         self.check(at, Use::Value)?;
                     }
                     OptionValue::Variable(at)
@@ -269,10 +289,14 @@ impl Compiler<'_> {
             };
             match option.name.as_str() {
                 "u:dir" => {
-                    if value
-                        .fixed(&self.values)
-                        .is_some_and(|text| Dir::named(text).is_none())
-                    {
+                    let fixed = match &value {
+                        OptionValue::Literal(text) => Some(text.as_str()),
+                        OptionValue::Variable(at) => match self.value(*at)? {
+                            Value::Literal(text) => Some(text.as_str()),
+                            Value::Argument(_) | Value::Call(_) => None,
+                        },
+                    };
+                    if fixed.is_some_and(|text| Dir::named(text).is_none()) {
                         return Err(refuse(&option.name));
                     }
                 }
@@ -298,7 +322,7 @@ impl Compiler<'_> {
                 function: None,
             } => {
                 let at = self.operand(operand);
-                if self.is_call(at) {
+                if self.is_call(at)? {
                     at
                 } else {
                     self.push(Value::Call(Call {
@@ -328,41 +352,43 @@ impl Compiler<'_> {
         selectors: &[String],
         variants: &[ast::Variant],
     ) -> Result<Body, LoadError> {
+        if variants
+            .iter()
+            .any(|variant| variant.keys.len() != selectors.len())
+        {
+            return Err(self.syntax(SyntaxRule::VariantKeyMismatch {
+                id: self.id.to_string(),
+            }));
+        }
         let mut columns = Vec::with_capacity(selectors.len());
         for (column, name) in selectors.iter().enumerate() {
             let call = self.variable(name);
-            if !self.is_call(call) {
-                return Err(self.syntax(SyntaxRule::MissingSelectorAnnotation {
-                    id: self.id.to_string(),
-                    variable: name.clone(),
-                }));
-            }
+            let function = match self.value(call)? {
+                Value::Call(selecting) => selecting.function,
+                Value::Literal(_) | Value::Argument(_) => {
+                    return Err(self.syntax(SyntaxRule::MissingSelectorAnnotation {
+                        id: self.id.to_string(),
+                        variable: name.clone(),
+                    }));
+                }
+            };
             let mut seen = FxHashSet::default();
             let mut keys: Vec<String> = Vec::new();
             for variant in variants {
-                if let Some(Key::Literal(key)) = variant.keys.get(column)
-                    && seen.insert(key.as_str())
-                {
-                    keys.push(key.clone());
+                match variant.keys.get(column).ok_or_else(|| self.defect())? {
+                    Key::Literal(key) if seen.insert(key.as_str()) => keys.push(key.clone()),
+                    Key::Literal(_) | Key::CatchAll => {}
                 }
             }
             self.check(call, Use::Select)?;
-            if let Some(Value::Call(selecting)) = self.values.get(call) {
-                let function = selecting.function;
-                crate::format::keys(function, &keys)
-                    .map_err(|refusal| self.refused(function, Refused::Call(refusal)))?;
-            }
+            crate::format::keys(function, &keys)
+                .map_err(|refusal| self.refused(function, Refused::Call(refusal)))?;
             columns.push(Column { call, keys });
         }
         let mut keyed = Vec::with_capacity(variants.len());
         let mut fallback = None;
         for variant in variants {
             let pattern = self.pattern(&variant.pattern)?;
-            if variant.keys.len() != columns.len() {
-                return Err(self.syntax(SyntaxRule::VariantKeyMismatch {
-                    id: self.id.to_string(),
-                }));
-            }
             if variant.keys.iter().all(|key| *key == Key::CatchAll) {
                 if fallback.replace(pattern).is_some() {
                     return Err(self.syntax(SyntaxRule::DuplicateVariant {
@@ -478,35 +504,46 @@ fn rank(matched: &[&str], key: &Key) -> Option<Option<usize>> {
 }
 
 impl Ranks<'_> {
-    /// Whether every key of `variant` matches.
-    fn matches(&self, variant: &Variant) -> bool {
-        variant
+    /// The rank of each key of `variant`, `None` for `*`; `None` when a key does not match.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for a variant whose keys are not one per selector: the load refuses it.
+    fn of(&self, variant: &Variant) -> Result<Option<Vec<Option<usize>>>, Defect> {
+        if variant.keys.len() != self.0.len() {
+            return Err(Defect);
+        }
+        Ok(variant
             .keys
             .iter()
             .zip(&self.0)
-            .all(|(key, matched)| rank(matched, key).is_some())
+            .map(|(key, matched)| rank(matched, key))
+            .collect())
     }
+}
 
-    /// Whether `candidate` sorts before `best`, both matching: column by column, a key before
-    /// `*`, a key by its rank.
-    fn better(&self, candidate: &Variant, best: &Variant) -> bool {
-        let columns = candidate.keys.iter().zip(&best.keys).zip(&self.0);
-        for ((a, b), matched) in columns {
-            match (rank(matched, a), rank(matched, b)) {
-                (Some(Some(a)), Some(Some(b))) if a != b => return a < b,
-                (Some(Some(_)), Some(None)) => return true,
-                (Some(None), Some(Some(_))) => return false,
-                _ => {}
-            }
+/// Whether keys ranked `candidate` sort before keys ranked `best`, both one per selector: column
+/// by column, a key before `*`, a key by its rank.
+fn better(candidate: &[Option<usize>], best: &[Option<usize>]) -> bool {
+    for (a, b) in candidate.iter().zip(best) {
+        match (a, b) {
+            (Some(a), Some(b)) if a != b => return a < b,
+            (Some(_), None) => return true,
+            (None, Some(_)) => return false,
+            (Some(_), Some(_)) | (None, None) => {}
         }
-        false
     }
+    false
 }
 
 impl Compiled {
     /// The chain of the call at `at`.
+    ///
+    /// # Errors
+    ///
+    /// [`ResolveError::Defect`] when `at` names no call, or the chain names no earlier value.
     fn chain(&self, id: &str, at: usize) -> Result<Chain<'_>, ResolveError> {
-        Chain::of(&self.values, at).ok_or_else(|| ResolveError::Unknown { id: id.to_owned() })
+        Chain::of(&self.values, at).map_err(|Defect| ResolveError::Defect { id: id.to_owned() })
     }
 
     /// The message `id` resolved over its arguments' texts, with the context's format sections
@@ -542,13 +579,22 @@ impl Compiled {
                     ranks.push(matched);
                 }
                 let ranks = Ranks(ranks);
-                let mut best: Option<&Variant> = None;
-                for variant in variants.iter().filter(|variant| ranks.matches(variant)) {
-                    if best.is_none_or(|current| ranks.better(variant, current)) {
-                        best = Some(variant);
+                let mut best: Option<(Vec<Option<usize>>, &Variant)> = None;
+                for variant in variants {
+                    let ranked = ranks
+                        .of(variant)
+                        .map_err(|Defect| ResolveError::Defect { id: id.to_owned() })?;
+                    let Some(ranked) = ranked else {
+                        continue;
+                    };
+                    if best
+                        .as_ref()
+                        .is_none_or(|(current, _)| better(&ranked, current))
+                    {
+                        best = Some((ranked, variant));
                     }
                 }
-                best.map_or(fallback, |variant| &variant.pattern)
+                best.map_or(fallback, |(_, variant)| &variant.pattern)
             }
         };
         let mut writer = Writer::default();
@@ -579,9 +625,13 @@ impl Compiled {
     }
 
     /// The keys of the arguments the message's placeholders and selectors read, through their
-    /// operands and their options' variables, each once, in order.
+    /// operands and their options' variables, each once, sorted.
+    ///
+    /// # Errors
+    ///
+    /// [`Defect`] for an index that names no value.
     #[cfg(feature = "check")]
-    pub(crate) fn reads(&self) -> Vec<&str> {
+    pub(crate) fn reads(&self) -> Result<Vec<&str>, Defect> {
         fn placeholders(pattern: &Pattern) -> impl Iterator<Item = usize> + '_ {
             pattern.iter().filter_map(|part| match part {
                 Part::Placeholder(at) => Some(*at),
@@ -605,27 +655,26 @@ impl Compiled {
                 .chain(placeholders(fallback))
                 .collect(),
         };
-        let mut seen = vec![false; self.values.len()];
+        let mut seen = FxHashSet::default();
         let mut reads: Vec<&str> = Vec::new();
         while let Some(at) = pending.pop() {
-            match seen.get_mut(at) {
-                Some(visited) if !*visited => *visited = true,
-                Some(_) | None => continue,
+            if !seen.insert(at) {
+                continue;
             }
-            match self.values.get(at) {
-                Some(Value::Argument(key)) => reads.push(key),
-                Some(Value::Call(call)) => {
+            match self.values.get(at).ok_or(Defect)? {
+                Value::Argument(key) => reads.push(key),
+                Value::Call(call) => {
                     pending.extend(call.operand);
                     pending.extend(call.options.iter().filter_map(|(_, value)| match value {
                         OptionValue::Variable(at) => Some(*at),
                         OptionValue::Literal(_) => None,
                     }));
                 }
-                Some(Value::Literal(_)) | None => {}
+                Value::Literal(_) => {}
             }
         }
         reads.sort_unstable();
         reads.dedup();
-        reads
+        Ok(reads)
     }
 }

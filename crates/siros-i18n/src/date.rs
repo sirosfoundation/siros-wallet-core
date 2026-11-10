@@ -269,11 +269,13 @@ impl Names {
     }
 
     /// The name at `index`.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::Defect`] for an index past the names: [`Parsed::parse`] holds a name at each
+    /// position a field reads.
     fn at(&self, index: usize) -> Result<&str, Failure> {
-        self.0
-            .get(index)
-            .map(String::as_str)
-            .ok_or(Failure::Operand)
+        self.0.get(index).map(String::as_str).ok_or(Failure::Defect)
     }
 }
 
@@ -505,8 +507,8 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use) -> Result<(), Refusal> {
     let given = chain
         .calls()
         .rev()
-        .find_map(|call| call.options.iter().find(|(name, _)| name == "length"));
-    match given.and_then(|(_, value)| chain.fixed(value)) {
+        .find_map(|call| call.options.iter().find(|(name, _)| *name == "length"));
+    match given.and_then(|&(_, value)| value.fixed()) {
         Some(name) if Length::named(name).is_none() => Err(Refusal::Option {
             option: "length".to_owned(),
         }),
@@ -564,6 +566,8 @@ pub(crate) fn value<'m>(
 ///
 /// [`Failure::Operand`] for a text no call of the chain takes, [`Failure::Option`] for a
 /// `length` text that names no length, and [`Failure::Unresolved`] for an argument not given.
+/// [`Failure::Defect`] for a chain of another function, or a field the value or the section
+/// lacks: [`Parsed::parse`] refuses a pattern that shows one.
 pub(crate) fn format<'m>(
     chain: &Chain<'m>,
     texts: &[CallTexts<'_>],
@@ -572,7 +576,7 @@ pub(crate) fn format<'m>(
 ) -> Result<String, Failure> {
     let (_, written) = written(chain, env)?;
     let length = length(texts)?;
-    let kind = Kind::of(chain.outer.function).ok_or(Failure::Operand)?;
+    let kind = Kind::of(chain.outer.function).ok_or(Failure::Defect)?;
     let moment = Moment::of(written);
     let mut out = String::new();
     match kind {
@@ -774,8 +778,8 @@ impl Parsed {
         shows_era: bool,
         out: &mut String,
     ) -> Result<(), Failure> {
-        let date = || moment.date.ok_or(Failure::Operand);
-        let month = || Ok(usize::from(date()?.month()) - 1);
+        let date = || moment.date.ok_or(Failure::Defect);
+        let month = || Ok::<_, Failure>(usize::from(date()?.month()) - 1);
         match field {
             Field::Era => out.push_str(self.eras.at(in_era(date()?.year()).0)?),
             Field::Year(width) => self.year(date()?.year(), width, shows_era, out)?,
@@ -803,7 +807,7 @@ impl Parsed {
             }
             Field::Period => out.push_str(self.periods.at(usize::from(moment.hour >= 12))?),
             Field::Zone { long } => {
-                let offset = moment.offset.ok_or(Failure::Operand)?;
+                let offset = moment.offset.ok_or(Failure::Defect)?;
                 self.zone(offset, long, out);
             }
         }

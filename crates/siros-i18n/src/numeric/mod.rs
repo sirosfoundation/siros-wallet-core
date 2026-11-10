@@ -18,7 +18,7 @@ use std::num::NonZeroU32;
 
 use crate::digit::{Digit, Numerals};
 use crate::error::Refusal;
-use crate::format::{Call, CallTexts, Chain, Direction, Env, Failure, OptionValue, Root, Use};
+use crate::format::{CallTexts, Chain, Direction, Env, Failure, Link, Opt, Root, Use};
 use decimal::{Fixed, Given, Num, RoundingMode};
 use language::Numbers;
 use options::{Function, Refused, Resolved};
@@ -214,13 +214,18 @@ pub(crate) struct Form<'a> {
 }
 
 /// The function that formats a chain's value: its last call's but `:offset`, and `:number` for
-/// a chain of `:offset` calls (spec/functions/number.md, `:offset`'s resolved value).
-pub(crate) fn formatter(chain: &Chain<'_>) -> Function {
-    chain
-        .calls()
-        .filter_map(|call| Function::of(call.function))
-        .rfind(|function| *function != Function::Offset)
-        .unwrap_or(Function::Number)
+/// a chain of `:offset` calls, whose value is the operand's numeric value
+/// (spec/functions/number.md, `:offset`'s resolved value). `None` for a chain with a call of
+/// another family.
+pub(crate) fn formatter(chain: &Chain<'_>) -> Option<Function> {
+    let mut formatter = Function::Number;
+    for call in chain.calls() {
+        match Function::of(call.function)? {
+            Function::Offset => {}
+            function => formatter = function,
+        }
+    }
+    Some(formatter)
 }
 
 /// The kind of a chain's root; a literal must be a number literal.
@@ -236,10 +241,11 @@ fn root(chain: &Chain<'_>) -> Result<options::Root, Refusal> {
 }
 
 /// A refusal of the chain's options at load.
-fn refusal(refused: Refused) -> Refusal {
+fn refusal(refused: Refused) -> crate::format::Refused {
     match refused {
-        Refused::Operand => Refusal::Operand,
-        Refused::Option(option) => Refusal::Option { option },
+        Refused::Operand => Refusal::Operand.into(),
+        Refused::Option(option) => Refusal::Option { option }.into(),
+        Refused::Defect => crate::format::Refused::Defect,
     }
 }
 
@@ -248,6 +254,7 @@ fn failure(refused: Refused) -> Failure {
     match refused {
         Refused::Operand => Failure::Operand,
         Refused::Option(option) => Failure::Option(option),
+        Refused::Defect => Failure::Defect,
     }
 }
 
@@ -257,10 +264,16 @@ fn failure(refused: Refused) -> Failure {
 ///
 /// [`Refusal`] for an operand or an option the functions refuse, and [`Refusal::Selector`] in a
 /// selector for a `:currency` value, which selects no variant.
-pub(crate) fn check(chain: &Chain<'_>, at: Use, language: Language<'_>) -> Result<(), Refusal> {
+/// [`crate::format::Refused::Defect`] for a `u:dir` the load fixes that names no direction: the
+/// load refuses it before.
+pub(crate) fn check(
+    chain: &Chain<'_>,
+    at: Use,
+    language: Language<'_>,
+) -> Result<(), crate::format::Refused> {
     let selection = checked(chain, language)?;
     match at {
-        Use::Select if selection.is_none() => Err(Refusal::Selector),
+        Use::Select if selection.is_none() => Err(Refusal::Selector.into()),
         Use::Format | Use::Select | Use::Value => Ok(()),
     }
 }
@@ -269,7 +282,10 @@ pub(crate) fn check(chain: &Chain<'_>, at: Use, language: Language<'_>) -> Resul
 /// whose option texts the load fixes resolves them now. Another resolves what they leave fixed:
 /// its functions, its operand, a selector's `select`, and the options `:currency` and `:offset`
 /// need.
-fn checked(chain: &Chain<'_>, language: Language<'_>) -> Result<Option<Selection>, Refusal> {
+fn checked(
+    chain: &Chain<'_>,
+    language: Language<'_>,
+) -> Result<Option<Selection>, crate::format::Refused> {
     let root = root(chain)?;
     for call in chain.calls() {
         let function = Function::of(call.function).ok_or(Refusal::Operand)?;
@@ -277,10 +293,11 @@ fn checked(chain: &Chain<'_>, language: Language<'_>) -> Result<Option<Selection
             return Err(refusal(refused));
         }
     }
-    if !language.formats(formatter(chain)) {
-        return Err(Refusal::Operand);
+    let formatter = formatter(chain).ok_or(Refusal::Operand)?;
+    if !language.formats(formatter) {
+        return Err(Refusal::Operand.into());
     }
-    match chain.fixed_texts() {
+    match chain.fixed_texts()? {
         Some(texts) => {
             let form = form(root, &texts, language).map_err(refusal)?;
             language.check(&form.resolved).map_err(refusal)?;
@@ -300,6 +317,7 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
     let mut currency = false;
     let mut held = false;
     let mut earlier: Option<Function> = None;
+    let mut formatter = Function::Number;
     for call in chain.calls() {
         let function = Function::of(call.function).ok_or(Refused::Operand)?;
         if earlier.is_some() && function.discards("select") {
@@ -309,34 +327,34 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
             return Err(option("select"));
         }
         held |= earlier == Some(Function::Currency);
-        for (name, value) in &call.options {
-            if !function.reads(name) {
+        for &(name, value) in &call.options {
+            let Some(rule) = function.rule(name) else {
                 continue;
-            }
+            };
             if name == "currency" {
                 if held {
                     return Err(option(name));
                 }
                 currency = true;
             }
-            if let Some(text) = chain.fixed(value)
-                && !options::valid(name, text)
-            {
+            if value.fixed().is_some_and(|text| !rule.takes(text)) {
                 return Err(option(name));
             }
         }
         select = written_select(function, call)?;
         if function == Function::Offset {
-            let given = |name: &str| call.options.iter().any(|(n, _)| n == name);
+            let given = |name: &str| call.options.iter().any(|&(n, _)| n == name);
             match (given("add"), given("subtract")) {
                 (true, true) => return Err(option("subtract")),
                 (false, false) => return Err(option("add")),
                 (true, false) | (false, true) => {}
             }
+        } else {
+            formatter = function;
         }
         earlier = Some(function);
     }
-    Ok(match (formatter(chain), select) {
+    Ok(match (formatter, select) {
         (Function::Currency, _) if !currency => return Err(Refused::Operand),
         (Function::Currency, _) => None,
         (Function::Percent, _) | (_, None | Some("plural")) => Some(Selection::Plural),
@@ -352,14 +370,14 @@ fn structure(chain: &Chain<'_>) -> Result<Option<Selection>, Refused> {
 ///
 /// [`Refused::Option`] for a `select` a variable gives: MF2 sets it by a literal alone
 /// (spec/functions/number.md, "Number Selection").
-fn written_select(function: Function, call: &Call) -> Result<Option<&str>, Refused> {
+fn written_select<'m>(function: Function, call: &Link<'m>) -> Result<Option<&'m str>, Refused> {
     if !function.reads("select") {
         return Ok(None);
     }
-    match call.options.iter().find(|(name, _)| name == "select") {
+    match call.options.iter().find(|(name, _)| *name == "select") {
         None => Ok(None),
-        Some((_, OptionValue::Literal(text))) => Ok(Some(text)),
-        Some((_, OptionValue::Variable(_))) => Err(Refused::Option("select".to_owned())),
+        Some(&(_, Opt::Literal(text))) => Ok(Some(text)),
+        Some((_, Opt::Variable(..))) => Err(Refused::Option("select".to_owned())),
     }
 }
 
@@ -447,7 +465,8 @@ pub(crate) fn format(
 ///
 /// # Errors
 ///
-/// [`Failure`] as [`format`]; [`Failure::Operand`] for a value that selects no variant.
+/// [`Failure`] as [`format`]; [`Failure::Defect`] for a value that selects no variant: the load
+/// refuses its selector.
 pub(crate) fn select<'k>(
     chain: &Chain<'_>,
     texts: &[CallTexts<'_>],
@@ -456,7 +475,7 @@ pub(crate) fn select<'k>(
     keys: &'k [String],
 ) -> Result<Vec<&'k str>, Failure> {
     let (given, form) = resolve(chain, texts, env, language)?;
-    let selection = form.selection.ok_or(Failure::Operand)?;
+    let selection = form.selection.ok_or(Failure::Defect)?;
     let fixed = form.rounded(&form.value(given), (0, NonZeroU32::MIN));
     let numbers = language.numbers();
     let category = match selection {

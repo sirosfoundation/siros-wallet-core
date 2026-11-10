@@ -114,7 +114,9 @@ All notable changes to this workspace. The format follows
   variable's value: an argument's text, a literal, or the value of a declared
   call. `u:dir` takes `ltr`, `rtl`, `auto` or `inherit`; another value from a
   variable refuses the resolution (`ResolveError::Option`). A load takes time
-  and memory in proportion to its source. Each function sits behind its
+  and memory in proportion to its source. A lookup that misses what the engine
+  holds by construction is a `Defect` of `LoadError`, `ResolveError` and
+  `CheckError`. Each function sits behind its
   feature: `number`, `currency`, `offset` and `date`, the defaults with `derive`
   and `nfc`. `nfc` holds names, variant keys and selector literals in NFC, as
   MF2 compares them, and adds `Context::module_in_nfc`, which refuses a source NFC

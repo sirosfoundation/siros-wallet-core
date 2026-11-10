@@ -6,10 +6,13 @@ use siros_i18n::{Bidi, Context};
 
 use crate::{Given, cldr};
 
+/// A message's arguments: each key with its text.
+type Args = &'static [(&'static str, &'static str)];
+
 /// Each message and its arguments, and the text MF2 gives it. EUR has two fraction digits in
 /// English, `:integer` rounds 2.6 to 3, `:offset add=1` makes 4 of 3, and `rtl` isolates its
 /// value between U+2067 and U+2069 in a left-to-right message.
-const CASES: [(&str, &[(&str, &str)], &str); 12] = [
+const CASES: [(&str, Args, &str); 12] = [
     (
         "{$a :currency currency=$code}",
         &[("a", "12.5"), ("code", "EUR")],

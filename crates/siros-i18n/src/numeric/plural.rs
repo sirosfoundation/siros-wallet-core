@@ -189,11 +189,11 @@ struct Rule {
     condition: Vec<Vec<Relation>>,
 }
 
-/// A relation: an operand, modulo `modulus` when it is nonzero, in or within the ranges, or not.
+/// A relation: an operand, modulo `modulus` when it gives one, in or within the ranges, or not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Relation {
     operand: Operand,
-    modulus: u64,
+    modulus: Option<NonZeroU64>,
     negated: bool,
     within: bool,
     ranges: Vec<(u64, u64)>,
@@ -203,7 +203,7 @@ impl Relation {
     /// Whether the operands satisfy it.
     fn holds(&self, operands: &Operands<'_>) -> bool {
         let mut value = operands.value(self.operand);
-        if let Some(modulus) = NonZeroU64::new(self.modulus) {
+        if let Some(modulus) = self.modulus {
             value = value.modulo(modulus);
         }
         let matched = self.ranges.iter().any(|&(low, high)| {
@@ -272,11 +272,11 @@ fn relation_of(words: &[&str]) -> Option<Relation> {
     let operand = Operand::named(operand)?;
     let (modulus, rest) = match rest {
         [m, value, rest @ ..] if *m == "mod" || *m == "%" => {
-            (value.parse().ok().filter(|&m: &u64| m > 0)?, rest)
+            (Some(value.parse::<NonZeroU64>().ok()?), rest)
         }
-        rest => (0, rest),
+        rest => (None, rest),
     };
-    if modulus == 0 && rest.first().is_some_and(|&w| w == "mod" || w == "%") {
+    if modulus.is_none() && rest.first().is_some_and(|&w| w == "mod" || w == "%") {
         return None;
     }
     let (negated, within, rest) = match rest {

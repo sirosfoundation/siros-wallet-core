@@ -58,44 +58,56 @@ enum Section {
     Format(FormatSection),
 }
 
-/// The sections the parser has left: the message sections, and each format's options with the
-/// index of its format among them.
+/// The sections the parser has left: the message sections, and each format's options under its
+/// name, with the position of its first section among the formats.
 #[derive(Default)]
 struct Left {
     sections: Vec<MessageSection>,
-    formats: Vec<FormatSection>,
-    format_at: FxHashMap<String, usize>,
+    formats: FxHashMap<String, (usize, Vec<Entry>)>,
 }
 
 impl Left {
-    /// Adds a section the parser leaves: its options to the format's options, which it adds when
-    /// absent.
+    /// Adds a section the parser leaves: its options to its format's.
     fn leave(&mut self, section: Section) {
         match section {
             Section::Messages(messages) => self.sections.push(messages),
-            Section::Format(options) => match self
-                .format_at
-                .get(&options.format)
-                .and_then(|&at| self.formats.get_mut(at))
-            {
-                Some(earlier) => earlier.options.extend(options.options),
-                None => {
-                    self.format_at
-                        .extend([(options.format.clone(), self.formats.len())]);
-                    self.formats.push(options);
-                }
-            },
+            Section::Format(FormatSection { format, options }) => {
+                let at = self.formats.len();
+                self.formats
+                    .entry(format)
+                    .or_insert_with(|| (at, Vec::new()))
+                    .1
+                    .extend(options);
+            }
         }
+    }
+
+    /// The message sections, and the formats' options, each format at its first section's
+    /// position.
+    fn finish(self) -> (Vec<MessageSection>, Vec<FormatSection>) {
+        let mut formats: Vec<(usize, FormatSection)> = self
+            .formats
+            .into_iter()
+            .map(|(format, (at, options))| (at, FormatSection { format, options }))
+            .collect();
+        formats.sort_unstable_by_key(|&(at, _)| at);
+        let formats = formats.into_iter().map(|(_, format)| format).collect();
+        (self.sections, formats)
     }
 }
 
 /// Parses the resource `text`.
 pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
     let refuse = |line: usize, rule: SyntaxRule| LoadError::Syntax { line, rule };
-    let lines: Vec<&str> = text
-        .split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line))
-        .collect();
+    // `newline = CRLF / LF`: a line an LF ends drops the CR before it; the last line keeps one.
+    let lines: Vec<&str> = match text.rsplit_once('\n') {
+        Some((ended, last)) => ended
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .chain([last])
+            .collect(),
+        None => vec![text],
+    };
     if let Some(at) = lines.iter().position(|line| !line.chars().all(allowed)) {
         return Err(refuse(at + 1, SyntaxRule::Line));
     }
@@ -178,11 +190,12 @@ pub(crate) fn parse(text: &str) -> Result<Resource, LoadError> {
     match place {
         Place::Body(section) => {
             left.leave(section);
+            let (sections, formats) = left.finish();
             Ok(Resource {
                 locale,
                 direction: direction.unwrap_or(Direction::Unknown),
-                sections: left.sections,
-                formats: left.formats,
+                sections,
+                formats,
             })
         }
         Place::Head => Err(refuse(lines.len(), SyntaxRule::Frontmatter)),
