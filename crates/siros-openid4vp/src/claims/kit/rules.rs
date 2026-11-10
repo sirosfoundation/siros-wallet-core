@@ -10,7 +10,7 @@ use siros_syntax::Malformed;
 use super::super::{ClaimsError, PathError};
 use crate::ids::{FormatName, QueryId};
 use crate::json::JsonError;
-use crate::plugins::{Clause, Exclusion, Fault};
+use crate::plugins::{Clause, Exclusion};
 use crate::refusal::{ErrorCode, ReprList, RequestRule};
 use crate::text::TextError;
 
@@ -118,9 +118,6 @@ pub enum DrawError {
     #[error("a text of the card: {0}")]
     #[explain(id = "claims_kit.unworded")]
     Unworded(#[from] ResolveError),
-    /// The format reads the view's converted display source in no form it writes.
-    #[error(transparent)]
-    Fault(#[from] Fault),
 }
 
 /// A credential's metadata text, or a member name that stands in for one, breaks the rule of

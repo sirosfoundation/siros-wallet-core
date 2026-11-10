@@ -7,7 +7,7 @@ use siros_syntax::AllOf;
 
 #[cfg(feature = "resolve")]
 use super::super::ConcretePath;
-use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, DrawError, RefusedText};
+use super::{CardError, ClaimsFormat, ClaimsQuery, ClaimsView, Constraint, RefusedText};
 use crate::consent::Card;
 use crate::detail;
 use crate::ids::CredentialType;
@@ -263,10 +263,7 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
         let view = ClaimsView::read(credential)?;
         self.claims
             .card(self.plugin, view.json(), shown, env, context)
-            .map_err(|error| match error {
-                DrawError::Fault(fault) => fault,
-                error => caused(detail!("{id}: card", id = credential.id.to_string()), error),
-            })
+            .map_err(|error| caused(detail!("{id}: card", id = credential.id.to_string()), error))
     }
 }
 

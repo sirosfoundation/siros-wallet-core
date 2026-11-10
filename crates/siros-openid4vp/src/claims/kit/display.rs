@@ -4,7 +4,7 @@
 use siros_syntax::{Count, Date, DateTime, Decimal, Fraction, Malformed, Offset, Second, Time};
 
 use super::super::{ArrayIndex, ClaimPath, Concrete};
-use super::{CardError, ClaimsFormat, Display, DisplayItem};
+use super::{CardError, ClaimsFormat, Display};
 use crate::ids::LocaleTag;
 use crate::json::Node;
 use crate::rows::{BooleanText, ClaimText, ExactNumber, WalletText};
@@ -173,14 +173,6 @@ pub(crate) enum Said {
     Boolean(BooleanText),
     /// A value, or a text as written.
     Claim(ClaimText),
-    /// A text of the credential's display metadata, read through [`DisplayText`]: it resolves by
-    /// the id [`ClaimsFormat::display_id`] gives, else as written.
-    Metadata {
-        /// What the text words.
-        item: DisplayItem,
-        /// The text as written.
-        written: String,
-    },
 }
 
 /// A row of a card whose texts the context resolves: a label and an optional value.
@@ -203,8 +195,6 @@ impl SaidRow {
 pub(super) struct Described<'v, 'a> {
     pub(super) path: ClaimPath<'v>,
     pub(super) claim: &'v Node<'a>,
-    /// Its position in `claims`.
-    pub(super) position: usize,
 }
 
 fn label_of(
@@ -227,9 +217,7 @@ fn label_of(
     entry
         .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
-        .map_or(Ok(None), |name| {
-            Display::label(DisplayItem::Claim(found.position), name)
-        })
+        .map_or(Ok(None), Display::label)
 }
 
 /// A label as written, read through [`DisplayText`]; `None` for white space alone, which the

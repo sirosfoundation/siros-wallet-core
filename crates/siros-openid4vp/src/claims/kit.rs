@@ -16,10 +16,8 @@ mod merge;
 mod plugin;
 mod rules;
 
-use std::fmt;
-
 use siros_explain::Explain;
-use siros_i18n::{Context, Message};
+use siros_i18n::{Context, ResolveError};
 use siros_syntax::{AllOf, Count};
 
 use display::{
@@ -89,54 +87,6 @@ pub trait ClaimsFormat {
     fn withheld(&self, _element: &Node<'_>) -> bool {
         false
     }
-    /// The id under which the wallet's context words `item` of the credential `view` holds: an
-    /// id of the source the format converted the credential's display metadata into, which the
-    /// kit resolves for the card's title and the claims' labels. `None` shows the metadata's text
-    /// as written, through [`ClaimText::Label`].
-    ///
-    /// # Errors
-    ///
-    /// The view names its converted source in no form the format writes.
-    fn display_id(&self, _view: &Node<'_>, _item: DisplayItem) -> Result<Option<DisplayId>, Fault> {
-        Ok(None)
-    }
-}
-
-/// An id a format's converted display source words, a statement without arguments: the source's
-/// ids carry the metadata's SHA-256, so every credential's converted source loads into one
-/// context.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DisplayId(String);
-
-impl DisplayId {
-    /// The statement of this id.
-    #[must_use]
-    pub const fn new(id: String) -> Self {
-        Self(id)
-    }
-
-    /// The id.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Message for DisplayId {
-    fn id(&self) -> &str {
-        &self.0
-    }
-
-    fn args(&self, _arg: &mut dyn FnMut(&str, &dyn fmt::Display)) {}
-}
-
-/// A text of a credential's display metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DisplayItem {
-    /// The display entry's name, the card's title.
-    Name,
-    /// The label of the entry at this position of the metadata's `claims`.
-    Claim(usize),
 }
 
 /// What gives a card's texts: the wallet's locales and the view's byte strings and dates.
@@ -157,45 +107,30 @@ impl<'d> Display<'d> {
         }
     }
 
-    /// The label `item`, whose metadata wrote `written`, read through
-    /// [`DisplayText`](crate::text::DisplayText); `None` for white space alone.
-    pub(crate) fn label(item: DisplayItem, written: &str) -> Result<Option<Said>, TextError> {
-        Ok(label_text(written)?.map(|written| Said::Metadata { item, written }))
+    /// A display metadata text as written, read through
+    /// [`DisplayText`](crate::text::DisplayText): the statement [`ClaimText::Label`]; `None` for
+    /// white space alone.
+    pub(crate) fn label(written: &str) -> Result<Option<Said>, TextError> {
+        Ok(label_text(written)?.map(|label| Said::Claim(ClaimText::Label { label })))
     }
 }
 
-/// The text `context` resolves for `said`: a metadata text by the id the format's converted
-/// source words it under, else as written.
-fn resolve(
-    said: Said,
-    format: &impl ClaimsFormat,
-    view: &Node<'_>,
-    context: &Context,
-) -> Result<siros_i18n::Text, DrawError> {
-    let text = match said {
+/// The text `context` resolves for `said`.
+fn resolve(said: Said, context: &Context) -> Result<siros_i18n::Text, ResolveError> {
+    match said {
         Said::Wallet(text) => context.resolve(&text),
         Said::Boolean(text) => context.resolve(&text),
         Said::Claim(text) => context.resolve(&text),
-        Said::Metadata { item, written } => match format.display_id(view, item)? {
-            Some(id) => context.resolve(&id),
-            None => context.resolve(&ClaimText::Label { label: written }),
-        },
-    };
-    Ok(text?)
+    }
 }
 
 /// The rows `context` resolves for `said`.
-fn resolve_rows(
-    said: Vec<SaidRow>,
-    format: &impl ClaimsFormat,
-    view: &Node<'_>,
-    context: &Context,
-) -> Result<Vec<Row>, DrawError> {
+fn resolve_rows(said: Vec<SaidRow>, context: &Context) -> Result<Vec<Row>, ResolveError> {
     said.into_iter()
         .map(|row| {
-            let label = resolve(row.label, format, view, context)?;
+            let label = resolve(row.label, context)?;
             Ok(match row.value {
-                Some(value) => Row::new(label, Value::Text(resolve(value, format, view, context)?)),
+                Some(value) => Row::new(label, Value::Text(resolve(value, context)?)),
                 None => Row::full_text(label),
             })
         })
@@ -433,14 +368,13 @@ impl<'q> ClaimsQuery<'q> {
     /// The credential's card, its texts resolved by `context`: the display entry's name, else
     /// [`WalletText::Credential`]; as subtitle the name of the Credential Issuer's display entry,
     /// else the `issuer`, white space alone showing none; the logo resolved at issuance, else the
-    /// wallet's default icon; the rows of the items shown. A display entry's name and a claim's
-    /// label resolve by the id [`ClaimsFormat::display_id`] gives, else as written.
+    /// wallet's default icon; the rows of the items shown. A display entry's name, a claim's label
+    /// and the subtitle show as written, through [`ClaimText::Label`].
     ///
     /// # Errors
     ///
     /// [`DrawError`]: a pointer that selects nothing, a text that breaks the rule of display
-    /// text, a view whose converted source the format cannot read, or a statement `context`
-    /// resolves no text for.
+    /// text, or a statement `context` resolves no text for.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
@@ -455,7 +389,7 @@ impl<'q> ClaimsQuery<'q> {
         let title = entry
             .and_then(|entry| entry.get("name"))
             .and_then(Node::as_str)
-            .map_or(Ok(None), |name| Display::label(DisplayItem::Name, name))
+            .map_or(Ok(None), Display::label)
             .map_err(CardError::Text)?
             .unwrap_or(Said::Wallet(WalletText::Credential));
         let named = format_entry(issuer_display(view), locales)
@@ -476,12 +410,11 @@ impl<'q> ClaimsQuery<'q> {
         rows.extend(self.claim_rows(format, shown.chosen, view, display)?);
         Ok(Card {
             icon,
-            title: resolve(title, format, view, context)?,
+            title: resolve(title, context)?,
             subtitle: subtitle
                 .map(|label| context.resolve(&ClaimText::Label { label }))
-                .transpose()
-                .map_err(DrawError::Unworded)?,
-            rows: resolve_rows(rows, format, view, context)?,
+                .transpose()?,
+            rows: resolve_rows(rows, context)?,
         })
     }
 
@@ -496,16 +429,11 @@ impl<'q> ClaimsQuery<'q> {
     ) -> Result<Vec<SaidRow>, CardError> {
         let described: Vec<Described<'_, '_>> = metadata(view, "claims")
             .iter()
-            .enumerate()
-            .filter_map(|(position, claim)| {
+            .filter_map(|claim| {
                 claim
                     .get("path")
                     .and_then(ClaimPath::parse)
-                    .map(|path| Described {
-                        path,
-                        claim,
-                        position,
-                    })
+                    .map(|path| Described { path, claim })
             })
             .collect();
         let rank = |item: Item| {
