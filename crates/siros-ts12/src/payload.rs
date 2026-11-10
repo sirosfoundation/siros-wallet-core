@@ -352,8 +352,10 @@ impl Exact {
             let zeros = "0".repeat(at - self.significant.len());
             return Some((format!("{}{zeros}", self.significant), String::new()));
         }
-        let (units, cents) = self.significant.split_at_checked(at)?;
-        Some((units.to_owned(), cents.to_owned()))
+        Some((
+            self.significant.chars().take(at).collect(),
+            self.significant.chars().skip(at).collect(),
+        ))
     }
 }
 

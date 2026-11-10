@@ -250,6 +250,11 @@ impl<P: ClaimsPlugin> FormatQuery for PluginQuery<'_, P> {
                 CardError::Text(cause) => Exclude::new(RefusedText { cause }).into(),
                 CardError::Path(path) => Self::values_fault(credential, path).into(),
                 CardError::Count(count) => Self::values_fault(credential, count).into(),
+                CardError::Foreign(foreign) => caused(
+                    detail!("{id}: an option", id = credential.id.to_string()),
+                    foreign,
+                )
+                .into(),
             })
     }
 

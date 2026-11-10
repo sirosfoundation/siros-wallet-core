@@ -20,19 +20,18 @@ use siros_explain::Explain;
 use siros_i18n::{Context, ResolveError};
 use siros_syntax::{AllOf, Count};
 
-use display::{
-    Described, Located, Said, SaidRow, date_of, label_text, length_of, metadata_texts, value_rows,
-};
+use display::{Located, Said, SaidRow, date_of, label_text, length_of, metadata_texts, value_rows};
 pub use display::{format_entry, full_date, tdate};
 pub use merge::{IssuedMetadata, IssuedShape, MergeError, merge_metadata};
 pub use plugin::{ClaimsPlugin, additions, query};
 #[cfg(feature = "resolve")]
 pub use plugin::{ClaimsPresent, Presenting, Revalidating, answer};
 pub use rules::{
-    CardError, DrawError, KitRule, NoAlgorithm, QueryRule, RefusedText, VpFormatsMember,
+    CardError, DiscloseError, DrawError, KitRule, NoAlgorithm, QueryRule, RefusedText,
+    VpFormatsMember,
 };
 
-use super::{Claim, ClaimPath, Claims, ConcretePath, PathError};
+use super::{Claim, ClaimPath, Claims, ConcretePath, Foreign};
 use crate::consent::Card;
 use crate::detail;
 use crate::ids::{CredentialType, FormatName, LocaleTag, QueryId};
@@ -290,7 +289,7 @@ impl<'q> ClaimsQuery<'q> {
     ///
     /// # Errors
     ///
-    /// The format cannot read the view's types.
+    /// The format cannot read the view's types, or an option holds another query's item.
     pub fn answerable(
         &self,
         format: &impl ClaimsFormat,
@@ -301,27 +300,23 @@ impl<'q> ClaimsQuery<'q> {
             return Ok(Vec::new());
         }
         let values = &view.values;
-        let found: Vec<bool> = self
-            .claims
-            .claims()
-            .iter()
-            .map(|claim| {
-                claim.found(values, |element| format.withheld(element))
-                    || format.written(claim, provided)
-            })
-            .collect();
-        Ok(self
-            .claims
-            .options()
-            .indexed()
-            .filter(|(_, option)| {
-                option
-                    .items()
-                    .iter()
-                    .all(|item| found.get(item.get()) == Some(&true))
-            })
-            .map(|(option, _)| option)
-            .collect())
+        let found = |item: &Item| -> Result<bool, Foreign> {
+            let claim = self.claims.claim(*item)?;
+            Ok(claim.found(values, |element| format.withheld(element))
+                || format.written(claim, provided))
+        };
+        let mut answered = Vec::new();
+        for (option, items) in self.claims.options().indexed() {
+            let all = items
+                .items()
+                .iter()
+                .try_fold(true, |all, item| Ok::<_, Foreign>(all && found(item)?))
+                .map_err(|foreign| caused(detail!("an option of the query"), foreign))?;
+            if all {
+                answered.push(option);
+            }
+        }
+        Ok(answered)
     }
 
     /// Reads what the End-User could be shown of a credential answering `options` through
@@ -330,8 +325,8 @@ impl<'q> ClaimsQuery<'q> {
     ///
     /// # Errors
     ///
-    /// [`CardError`]: a text that breaks the rule of display text, or a pointer that selects
-    /// nothing.
+    /// [`CardError`]: a text that breaks the rule of display text, a pointer that selects
+    /// nothing, or another query's option or item.
     pub fn displayable(
         &self,
         format: &impl ClaimsFormat,
@@ -349,11 +344,7 @@ impl<'q> ClaimsQuery<'q> {
         );
         let display = Display::of(view, env.priority());
         for option in options {
-            let items = self
-                .claims
-                .options()
-                .get(*option)
-                .map_or(&[][..], |option| option.items());
+            let items = self.claims.items(*option)?;
             drop(self.claim_rows(format, items, view, display)?);
         }
         Ok(())
@@ -368,7 +359,7 @@ impl<'q> ClaimsQuery<'q> {
     /// # Errors
     ///
     /// [`DrawError`]: a pointer that selects nothing, a text that breaks the rule of display
-    /// text, or a statement `context` resolves no text for.
+    /// text, another query's item, or a statement `context` resolves no text for.
     pub fn card(
         &self,
         format: &impl ClaimsFormat,
@@ -422,35 +413,28 @@ impl<'q> ClaimsQuery<'q> {
         view: &ClaimsView<'_>,
         display: Display<'_>,
     ) -> Result<Vec<SaidRow>, CardError> {
-        let described: Vec<Described<'_, '_>> = view
-            .claims
-            .iter()
-            .filter_map(|claim| {
-                claim
-                    .entry
-                    .get("path")
-                    .and_then(ClaimPath::parse)
-                    .map(|path| Described { path, claim })
-            })
-            .collect();
-        let rank = |item: Item| {
-            self.claims
-                .claim(item)
-                .and_then(|claim| described.iter().position(|known| known.path == claim.path))
+        let described = &view.claims;
+        let rank = |claim: &Claim<'_>| {
+            described
+                .iter()
+                .position(|known| known.path == claim.path)
                 .unwrap_or(described.len())
         };
         let first = |item: Item| items.iter().take_while(|i| **i != item).count();
-        let mut ordered: Vec<Item> = items.to_vec();
-        ordered.sort_by_key(|item| (rank(*item), first(*item)));
+        let mut ordered = items
+            .iter()
+            .map(|item| Ok((*item, self.claims.claim(*item)?)))
+            .collect::<Result<Vec<_>, Foreign>>()?;
+        ordered.sort_by_key(|(item, claim)| (rank(claim), first(*item)));
         let values = &view.values;
         let mut rows = Vec::new();
-        for claim in ordered.iter().filter_map(|item| self.claims.claim(*item)) {
+        for (_, claim) in ordered {
             let selected = claim
                 .path
                 .select_held(values, |element| format.withheld(element))
                 .map_err(CardError::Path)?;
             for (path, value) in selected {
-                rows.extend(value_rows(format, &path, value, &described, display, None)?);
+                rows.extend(value_rows(format, &path, value, described, display, None)?);
             }
         }
         Ok(rows)
@@ -458,21 +442,21 @@ impl<'q> ClaimsQuery<'q> {
 
     /// The elements the option discloses, each once, in claim order; a claim naming a member the
     /// transaction writes is answered by the proof instead.
+    ///
+    /// # Errors
+    ///
+    /// [`DiscloseError`]: a pointer that selects nothing, or another query's option or item.
     pub fn disclosed<'v>(
         &self,
         format: &impl ClaimsFormat,
         option: OptionIndex,
         view: &'v ClaimsView<'v>,
         provided: &[Member],
-    ) -> Result<Vec<(ConcretePath<'v>, &'v Node<'v>)>, PathError> {
+    ) -> Result<Vec<(ConcretePath<'v>, &'v Node<'v>)>, DiscloseError> {
         let values = &view.values;
-        let items = self
-            .claims
-            .options()
-            .get(option)
-            .map_or(&[][..], |option| option.items());
         let mut out: Vec<(ConcretePath<'v>, &'v Node<'v>)> = Vec::new();
-        for claim in items.iter().filter_map(|item| self.claims.claim(*item)) {
+        for item in self.claims.items(option)? {
+            let claim = self.claims.claim(*item)?;
             if format.written(claim, provided) {
                 continue;
             }
@@ -523,7 +507,7 @@ pub fn vp_formats_refusal(
 
 /// A credential with its view as a claims format reads it: a JSON object with a string `type`,
 /// a `metadata` object whose `display` and `claims`, when present, are arrays, each claim an
-/// object whose `display`, when present, is an array, the credential's `values`, an `issuer` that
+/// object with a claims path pointer `path` and a `display` that, when present, is an array, the credential's `values`, an `issuer` that
 /// is absent, null or a string, an `issuer_display`, when present, an array, `byte_strings`, when
 /// present, an array of objects with a `path` array and a natural number `length`, and `dates`,
 /// when present, an array of objects with a `path` array and a `date` that is a `full-date` or a
@@ -541,22 +525,26 @@ pub struct ClaimsView<'v> {
     dates: Vec<Located<'v, ClaimText>>,
 }
 
-/// An entry of the metadata's `claims`: its members, and its `display` held apart.
+/// An entry of the metadata's `claims`: its claims path pointer, its other members, and its
+/// `display` held apart.
 #[derive(Debug, Clone)]
 pub(crate) struct ClaimEntry<'v> {
+    pub(crate) path: ClaimPath<'v>,
     pub(crate) entry: Node<'v>,
     pub(crate) display: Vec<Node<'v>>,
 }
 
 impl<'v> ClaimEntry<'v> {
-    /// The entry an element of the metadata's `claims` writes: an object whose `display`, when
-    /// present, is an array.
+    /// The entry an element of the metadata's `claims` writes: an object with a claims path
+    /// pointer `path` and a `display` that, when present, is an array.
     fn read(entry: Node<'v>) -> Option<Self> {
         let Node::Object(mut entry) = entry else {
             return None;
         };
+        let path = entry.get("path").and_then(ClaimPath::parse)?;
         let display = listed(entry.take("display"))?;
         Some(Self {
+            path,
             entry: Node::Object(entry),
             display,
         })

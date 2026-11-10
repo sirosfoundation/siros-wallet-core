@@ -3,7 +3,7 @@
 
 use siros_syntax::{Count, Date, DateTime, Decimal, Fraction, Malformed, Offset, Second, Time};
 
-use super::super::{ArrayIndex, ClaimPath, Concrete};
+use super::super::{ArrayIndex, Concrete};
 use super::{CardError, ClaimEntry, ClaimsFormat, Display};
 use crate::ids::LocaleTag;
 use crate::json::Node;
@@ -180,22 +180,16 @@ impl SaidRow {
     }
 }
 
-/// An entry of the metadata's `claims` with a pointer.
-pub(super) struct Described<'v, 'a> {
-    pub(super) path: ClaimPath<'v>,
-    pub(super) claim: &'v ClaimEntry<'a>,
-}
-
 fn label_of(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
-    described: &[Described<'_, '_>],
+    described: &[ClaimEntry<'_>],
     display: Display<'_>,
 ) -> Result<Option<Said>, TextError> {
     let Some(found) = described.iter().find(|known| known.path.matches(path)) else {
         return Ok(None);
     };
-    let entry = format_entry(&found.claim.display, display.locales);
+    let entry = format_entry(&found.display, display.locales);
     entry
         .and_then(|entry| entry.get(format.label_key()))
         .and_then(Node::as_str)
@@ -263,7 +257,7 @@ pub(super) fn value_rows(
     format: &impl ClaimsFormat,
     path: &[Concrete<'_>],
     value: &Node<'_>,
-    described: &[Described<'_, '_>],
+    described: &[ClaimEntry<'_>],
     display: Display<'_>,
     inherited: Option<&Said>,
 ) -> Result<Vec<SaidRow>, CardError> {
