@@ -6,23 +6,20 @@ mod common;
 
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
-use siros_explain::{Explain, Text};
+use siros_explain::Explain;
 use siros_openid4vp::consent::Header;
 use siros_openid4vp::matching::{Accepted, CoreRule, Match};
 use siros_openid4vp::plugins::ProfileFinding;
 use siros_openid4vp::resolve::{Finding, Outcome};
-use siros_openid4vp::rows::WalletText;
 use siros_openid4vp::wallet::Holder;
-use siros_qes::{
-    CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, QesTitle, TYPE,
-};
+use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, TYPE};
 
 use common::fixtures::{
     CONTRACT, HREFS, approval, embedded, known, nist, published, terms, with_documents,
 };
 use common::{
-    Fields, Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, ShownRow, Viewed, approve, csc, entry,
-    env, hex, parameters, phase_one, registry, request_of, serving, shown, unsigned, wallet,
+    Fields, Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, ShownRow, Viewed, approve, csc, english,
+    entry, env, hex, parameters, phase_one, registry, request_of, serving, shown, unsigned, wallet,
 };
 
 /// The core's rules a request breaks.
@@ -58,13 +55,18 @@ fn row(
     )
 }
 
-/// The consent header of an approval with that title.
-fn header(title: QesTitle) -> Header {
-    Header {
-        title: Text::of(&title),
-        confirm: Text::of(&QesTitle::Confirm),
-        cancel: Text::of(&WalletText::Deny),
-    }
+/// A consent header's texts: (title, confirm, cancel).
+fn texts(header: &Header) -> (String, String, String) {
+    (
+        header.title.to_string(),
+        header.confirm.to_string(),
+        header.cancel.to_string(),
+    )
+}
+
+/// The texts of the consent header of an approval with that title, in the test app's English.
+fn header(title: &str) -> Option<(String, String, String)> {
+    Some((title.to_owned(), "Approve".to_owned(), "Cancel".to_owned()))
 }
 
 /// The attestation approving signatures, as an mdoc.
@@ -179,7 +181,10 @@ fn csc_7_1_2_is_rendered_by_6_4() {
         (&None, &None),
         "no transaction header, no hint"
     );
-    assert_eq!(view.header, Some(header(QesTitle::TitleSignatures)));
+    assert_eq!(
+        view.header.as_ref().map(texts),
+        header("Approve qualified signatures")
+    );
 }
 
 #[test]
@@ -219,7 +224,10 @@ fn a_seal_a_nameless_document_and_an_embedded_link_are_rendered_by_6_4() {
             row(None, "userName", Some("text"), Some("willeke")),
         ]
     );
-    assert_eq!(view.header, Some(header(QesTitle::TitleSeals)));
+    assert_eq!(
+        view.header.as_ref().map(texts),
+        header("Approve qualified seals")
+    );
 }
 
 #[test]
@@ -350,13 +358,9 @@ fn a_qes_document_the_profile_cannot_read_is_a_fault() {
             ..attestation()
         }];
         let wallet = wallet(&held);
-        let app =
-            siros_testkit::render::App::of(&[siros_testkit::render::CrateSource::openid4vp()])
-                .expect("the test app");
-        let rendering = app.rendering().expect("the rendering");
-        Match::run(&accepted, &wallet, &env("en"), &rendering)
+        Match::run(&accepted, &wallet, &env("en"), english())
             .map(|matched| matched.excluded().len())
-            .map_err(|fault| fault.id().as_str())
+            .map_err(|fault| fault.id())
     };
     assert_eq!(
         matching(r#"{"signature_qualifiers": ["eu_eidas_qes"]}"#),
@@ -365,7 +369,7 @@ fn a_qes_document_the_profile_cannot_read_is_a_fault() {
     assert_eq!(matching("{}"), Ok(1));
     assert_eq!(
         matching(r#"{"signature_qualifiers": "eu_eidas_qes"}"#),
-        Err("qes.fault")
+        Err("err.qes.fault")
     );
 }
 

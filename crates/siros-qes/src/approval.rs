@@ -5,9 +5,10 @@
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use siros_explain::{Count, Explain, IntoArg, kind};
+use siros_explain::Explain;
 use siros_openid4vp::json::{Node, Object};
 use siros_openid4vp::refusal::ReprOption;
+use siros_syntax::Count;
 
 use crate::binding::ApprovalHash;
 
@@ -24,35 +25,58 @@ const KNOWN: [&str; 7] = [
 
 /// A rule of the type an entry breaks.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[explain(domain = "qes.problem")]
 pub enum Problem {
     /// A member the type does not define.
-    #[error("unknown member {0}")]
-    UnknownMember(#[explain(name = "member")] String),
+    #[error("unknown member {member}")]
+    #[explain(id = "problem.unknown_member")]
+    UnknownMember {
+        /// The member's name.
+        member: String,
+    },
     /// `numSignatures` is no positive integer.
     #[error("numSignatures is not a positive integer")]
+    #[explain(id = "problem.signature_count")]
     SignatureCount,
     /// `signatureQualifier` is none the wallet renders.
-    #[error("signatureQualifier {0} is not one this wallet renders")]
-    SignatureQualifier(#[explain(name = "qualifier")] ReprOption),
+    #[error("signatureQualifier {} is not one this wallet renders", .qualifier.repr_text())]
+    #[explain(id = "problem.signature_qualifier")]
+    SignatureQualifier {
+        /// The member's value; absent when the entry has none.
+        qualifier: ReprOption,
+    },
     /// `hashAlgorithmOID` is no string.
     #[error("hashAlgorithmOID is absent: §7.2 identifies the approval's hash with it")]
+    #[explain(id = "problem.no_hash_algorithm")]
     NoHashAlgorithm,
     /// `hashAlgorithmOID` names no hash the wallet computes.
-    #[error("hashAlgorithmOID {0} names no hash this wallet computes")]
-    UnknownHashAlgorithm(#[explain(name = "oid")] String),
+    #[error("hashAlgorithmOID {oid} names no hash this wallet computes")]
+    #[explain(id = "problem.unknown_hash_algorithm")]
+    UnknownHashAlgorithm {
+        /// The object identifier.
+        oid: String,
+    },
     /// `documentInfos` is no non-empty array.
     #[error("documentInfos is not a non-empty array")]
+    #[explain(id = "problem.no_documents")]
     NoDocuments,
     /// A document is no object of the document members with their types, holding `hash` and
     /// `hashType`.
-    #[error("documentInfos[{0}] is not a document with hash and hashType")]
-    NotADocument(#[explain(name = "document")] DocumentAt),
+    #[error("documentInfos[{document}] is not a document with hash and hashType")]
+    #[explain(id = "problem.not_a_document")]
+    NotADocument {
+        /// The document.
+        document: DocumentAt,
+    },
     /// A document's access is of type `OTP` without its `oneTimePassword`.
-    #[error("documentInfos[{0}]: an OTP access without its oneTimePassword")]
-    OtpWithoutPassword(#[explain(name = "document")] DocumentAt),
+    #[error("documentInfos[{document}]: an OTP access without its oneTimePassword")]
+    #[explain(id = "problem.otp_without_password")]
+    OtpWithoutPassword {
+        /// The document.
+        document: DocumentAt,
+    },
     /// `locations` is no array of strings.
     #[error("locations is not an array of strings")]
+    #[explain(id = "problem.locations")]
     Locations,
 }
 
@@ -71,14 +95,6 @@ impl DocumentAt {
 impl fmt::Display for DocumentAt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-impl IntoArg for DocumentAt {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
     }
 }
 
@@ -101,14 +117,6 @@ impl fmt::Display for DocumentNumber {
     }
 }
 
-impl IntoArg for DocumentNumber {
-    type Kind = kind::Count;
-
-    fn arg(&self) -> Count {
-        self.0.arg()
-    }
-}
-
 /// `numSignatures`: a positive integer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SignatureCount(Count);
@@ -117,7 +125,9 @@ impl SignatureCount {
     /// A JSON integer above zero; JSON writes it without sign or leading zero.
     fn parse(value: &Node<'_>) -> Option<Self> {
         match value {
-            Node::Number(number) if number.text() != "0" => Count::parse(number.text()).map(Self),
+            Node::Number(number) if number.text() != "0" => {
+                Count::parse(number.text()).ok().map(Self)
+            }
             _ => None,
         }
     }
@@ -193,15 +203,6 @@ impl fmt::Display for SignatureQualifier {
     }
 }
 
-/// A qualifier is named by the CSC API's value in a message.
-impl IntoArg for SignatureQualifier {
-    type Kind = kind::Name;
-
-    fn arg(&self) -> &'static str {
-        self.as_str()
-    }
-}
-
 /// A document's link: its `href`, and its `checksum` (W3C SRI metadata) when given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Link<'e> {
@@ -254,7 +255,7 @@ impl<'e> DocumentInfo<'e> {
     /// The document at `at`: an object of the document members, each of its type, holding `hash`
     /// and `hashType`; an access of type `OTP` holds its `oneTimePassword` as a string.
     fn parse(value: &'e Node<'_>, at: DocumentAt) -> Result<Self, Problem> {
-        let not_a_document = || Problem::NotADocument(at);
+        let not_a_document = || Problem::NotADocument { document: at };
         let object = value.as_object().ok_or_else(not_a_document)?;
         let well_typed = object.members().iter().all(|member| {
             DOCUMENT
@@ -270,7 +271,7 @@ impl<'e> DocumentInfo<'e> {
                 access
                     .and_then(|access| access.get("oneTimePassword"))
                     .and_then(Node::as_str)
-                    .ok_or(Problem::OtpWithoutPassword(at))?,
+                    .ok_or(Problem::OtpWithoutPassword { document: at })?,
             ),
             _ => None,
         };
@@ -308,7 +309,9 @@ impl<'e> ApprovalRequest<'e> {
             object
                 .names()
                 .filter(|name| !KNOWN.contains(name))
-                .map(|name| Problem::UnknownMember(name.to_owned()))
+                .map(|name| Problem::UnknownMember {
+                    member: name.to_owned(),
+                })
                 .collect(),
         );
         let count = problems.take(
@@ -366,7 +369,9 @@ fn qualifier(object: &Object<'_>) -> Result<SignatureQualifier, Problem> {
     value
         .and_then(Node::as_str)
         .and_then(SignatureQualifier::parse)
-        .ok_or_else(|| Problem::SignatureQualifier(ReprOption::of(value)))
+        .ok_or_else(|| Problem::SignatureQualifier {
+            qualifier: ReprOption::of(value),
+        })
 }
 
 fn hash(object: &Object<'_>) -> Result<ApprovalHash, Problem> {
@@ -374,7 +379,9 @@ fn hash(object: &Object<'_>) -> Result<ApprovalHash, Problem> {
         .get("hashAlgorithmOID")
         .and_then(Node::as_str)
         .ok_or(Problem::NoHashAlgorithm)?;
-    ApprovalHash::of(oid).ok_or_else(|| Problem::UnknownHashAlgorithm(oid.to_owned()))
+    ApprovalHash::of(oid).ok_or_else(|| Problem::UnknownHashAlgorithm {
+        oid: oid.to_owned(),
+    })
 }
 
 /// `documentInfos`, or each document's problem in array order.

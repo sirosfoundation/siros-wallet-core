@@ -21,19 +21,18 @@ use rand::seq::IndexedRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use serde_json::json;
-use siros_explain::Text;
 use siros_openid4vp::effects::Fetch;
 use siros_openid4vp::json::quote;
 use siros_openid4vp::plugins::{ProfileFinding, Registry};
 use siros_openid4vp::resolve::{Finding, Outcome};
-use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile, QesTitle};
+use siros_qes::{CLAIM, DocumentHref, FailedDocuments, Fetched, NAMESPACE, QesProfile};
 use siros_testkit::Published;
 use siros_testkit::TestHost;
 
 use common::fixtures::{nist, sri};
 use common::{
     Holding, Matched, QUERY_7_1_2, QUERY_SD_JWT, approve, entry, env, hex, parameters, phase_one,
-    plain, registry, serving,
+    registry, serving,
 };
 
 /// check_props.py's documents: the first published as it is, the second altered, the third not
@@ -237,16 +236,16 @@ fn the_profile_keeps_the_properties_the_model_states() {
         let overlay = view.entry.overlay().expect("the approval's overlay");
         let rows: Vec<_> = view.entry.rows().collect();
         let title = if case.qualifier == "eu_eidas_qes" {
-            QesTitle::TitleSignatures
+            "Approve qualified signatures"
         } else {
-            QesTitle::TitleSeals
+            "Approve qualified seals"
         };
         assert!(
             overlay.header.is_none()
                 && overlay.hint.is_none()
                 && rows.first().is_some_and(|row| row.value.is_none())
-                && rows.last().map(|row| plain(&row.label, "en")).as_deref() == Some("userName")
-                && view.header.as_ref().map(|h| &h.title) == Some(&Text::of(&title)),
+                && rows.last().map(|row| row.label.to_string()).as_deref() == Some("userName")
+                && view.header.as_ref().map(|h| h.title.to_string()).as_deref() == Some(title),
             "case {at}: {:?}",
             view.entry
         );

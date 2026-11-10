@@ -3531,10 +3531,12 @@ dependencies = [
  "sha2 0.11.1",
  "sha3 0.12.0",
  "siros-explain",
+ "siros-i18n",
  "siros-mdoc",
  "siros-openid4vp",
  "siros-qes",
  "siros-sdjwt",
+ "siros-syntax",
  "siros-testkit",
  "thiserror 2.0.21",
 ]
