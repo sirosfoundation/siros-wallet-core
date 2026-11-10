@@ -12,9 +12,10 @@ use crate::markdown::spans;
 use crate::value::{BadValue, Breach, FormattedKind, Parsed, ValueKind, Written, formatted};
 use siros_openid4vp::claims::Step;
 use siros_openid4vp::json::Node;
+use siros_openid4vp::text::DisplayText;
 
 use crate::conform::{ClaimIndex, NullIndices, written};
-use crate::metadata::{ClaimMeta, ValueType, kind_name};
+use crate::metadata::{ClaimMeta, RESERVED, ValueType, kind_name};
 use crate::outcome::NotCompatible;
 use crate::path::{at, substitute};
 
@@ -53,6 +54,30 @@ pub(crate) fn placeholders(template: &str) -> Vec<Placeholder> {
         }
     }
     out
+}
+
+/// A template with each placeholder that names a claim replaced by [`RESERVED`], which a
+/// template label does not hold, and the claims those placeholders name, in order. Other
+/// placeholders stay literal.
+pub(crate) fn marked(template: &str, claims: &[ClaimMeta<'_>]) -> (String, Vec<ClaimIndex>) {
+    let mut marked = String::with_capacity(template.len());
+    let mut named = Vec::new();
+    let mut copied = 0;
+    for placeholder in placeholders(template) {
+        let Some(index) = placeholder.index.filter(|index| *index < claims.len()) else {
+            continue;
+        };
+        marked.push_str(
+            template
+                .get(copied..placeholder.span.start)
+                .unwrap_or_default(),
+        );
+        marked.push(RESERVED);
+        named.push(ClaimIndex(index));
+        copied = placeholder.span.end;
+    }
+    marked.push_str(template.get(copied..).unwrap_or_default());
+    (marked, named)
 }
 
 /// A placeholder's referenced claim, when its index names one: the referenced value is read
@@ -252,6 +277,40 @@ impl Template<'_> {
             typed,
             markdown: kind == FormattedKind::MiniMarkdown,
         }))
+    }
+
+    /// Whether the label this template writes for these indices shows a visible character
+    /// ([`DisplayText::visible`]): one of its own text outside the markup, one of a referenced
+    /// value shown as text, or a typed value, which the wallet's wording shows. Each referenced
+    /// value shows as its argument of the converted message ([`crate::view`]), its markup as
+    /// written.
+    pub(crate) fn shows_visible(
+        &self,
+        claims: &[ClaimMeta<'_>],
+        payload: &Node<'_>,
+        nulls: &NullIndices,
+    ) -> Result<bool, NotCompatible> {
+        let (marked, _) = marked(self.0, claims);
+        let own = spans(&marked)
+            .iter()
+            .flat_map(|span| span.text.chars())
+            .any(|c| c != RESERVED && DisplayText::visible(c));
+        if own {
+            return Ok(true);
+        }
+        Ok(self
+            .arguments(claims, payload, nulls)?
+            .iter()
+            .any(|(_, value)| match value {
+                Parsed::Text(text) => text.chars().any(DisplayText::visible),
+                Parsed::Boolean(_)
+                | Parsed::Frequency(_)
+                | Parsed::Date(_)
+                | Parsed::Time(_)
+                | Parsed::DateTime(_)
+                | Parsed::Currency(_)
+                | Parsed::Amount(_) => true,
+            }))
     }
 
     /// Each referenced value the payload holds, under its claim, read by the claim's value type.

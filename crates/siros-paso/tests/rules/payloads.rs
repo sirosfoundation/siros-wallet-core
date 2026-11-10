@@ -4,6 +4,7 @@
 use siros_openid4vp::media::MediaType;
 use siros_openid4vp::rows::HttpsUrl;
 use siros_paso::image::ImageFailure;
+use siros_paso::labels::LabelViolation;
 use siros_paso::outcome::{NotCompatible, Outcome};
 use siros_paso::render::ItemBound;
 use siros_paso::{Fetch, PasoProfile};
@@ -223,6 +224,20 @@ pub(super) fn each_template_rule_makes_the_entry_not_compatible() {
             &format!(r#"{{"transaction_id": "{}", "n": "a"}}"#, "t".repeat(60))
         ),
         Outcome::NotCompatible(NotCompatible::RenderedLabel { .. })
+    );
+    // The rendered label shows the value inside the emphasis: U+3000 alone.
+    decided!(
+        render(
+            &claims(&format!(
+                r#"{{"path": ["n"], "display": {}}}, {{"path": ["k"]}}"#,
+                label("*{2}*")
+            )),
+            r#"{"transaction_id": "t", "n": "a", "k": "\u3000"}"#
+        ),
+        Outcome::NotCompatible(NotCompatible::RenderedLabel {
+            violation: LabelViolation::Invisible,
+            ..
+        })
     );
 }
 
