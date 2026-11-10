@@ -88,14 +88,14 @@ pub enum Unsupported {
         claim: ClaimIndex,
     },
     /// Two claims with one path.
-    #[error("two claims with path {path}")]
+    #[error("two claims with path {}", .path.repr_text())]
     #[explain(id = "unsupported.path_twice")]
     PathTwice {
         /// The path as written.
         path: ReprItem,
     },
     /// A `value_type` on a claim without `display`.
-    #[error("claim {claim}: value_type without display")]
+    #[error("claim {}: value_type without display", .claim.repr_text())]
     #[explain(id = "unsupported.value_type_without_display")]
     ValueTypeWithoutDisplay {
         /// The claim's path.
@@ -119,7 +119,7 @@ pub enum Unsupported {
     },
     /// A label typed other than `mini_markdown` or `template:mini_markdown`, or a typed
     /// `security_hint`.
-    #[error("{at}: {member} {written}")]
+    #[error("{at}: {member} {}", .written.repr_text())]
     #[explain(id = "unsupported.label_type")]
     LabelType {
         /// The array.
@@ -137,7 +137,7 @@ pub enum Unsupported {
         at: ArrayAt,
     },
     /// A locale that is no string, or one given twice.
-    #[error("{at}: locale {locale} repeated or not a tag")]
+    #[error("{at}: locale {} repeated or not a tag", .locale.repr_text())]
     #[explain(id = "unsupported.locale_repeated")]
     LocaleRepeated {
         /// The array.
@@ -153,7 +153,7 @@ pub enum Unsupported {
         at: ArrayAt,
     },
     /// A claim label that breaks §3.3 as written.
-    #[error("claim {claim} label: {violation}")]
+    #[error("claim {} label: {violation}", .claim.repr_text())]
     #[explain(id = "unsupported.claim_label")]
     ClaimLabel {
         /// The claim's path.
@@ -163,7 +163,7 @@ pub enum Unsupported {
         violation: LabelViolation,
     },
     /// A `label_only` claim that is `mandatory` (View §3 `label_only`).
-    #[error("claim {claim}: label_only and mandatory")]
+    #[error("claim {}: label_only and mandatory", .claim.repr_text())]
     #[explain(id = "unsupported.mandatory_label_only")]
     MandatoryLabelOnly {
         /// The claim's path.
@@ -239,7 +239,7 @@ impl Unsupported {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum NotCompatible {
     /// A displayed claim declares a value type the wallet does not support (View §3).
-    #[error("claim {path}: value_type {written}")]
+    #[error("claim {}: value_type {}", .path.repr_text(), .written.repr_text())]
     #[explain(id = "not_compatible.value_type")]
     ValueType {
         /// The claim's path.
@@ -265,7 +265,7 @@ pub enum NotCompatible {
         bad: BadValue,
     },
     /// An image value that is no string (View §3).
-    #[error("image value {path}: not a string")]
+    #[error("image value {}: not a string", .path.repr_text())]
     #[explain(id = "not_compatible.image_not_string")]
     ImageNotString {
         /// The value's path.
@@ -284,7 +284,7 @@ pub enum NotCompatible {
     },
     /// A payload string with a directional embedding, override or open isolate (Proof
     /// Metadata §3.3).
-    #[error("payload {path}: {violation}")]
+    #[error("payload {}: {violation}", .path.repr_text())]
     #[explain(id = "not_compatible.payload_directional")]
     PayloadDirectional {
         /// The string's path.
@@ -294,21 +294,21 @@ pub enum NotCompatible {
         violation: Directional,
     },
     /// A payload field no claim path covers.
-    #[error("payload field {field} is not covered by a claim path")]
+    #[error("payload field {} is not covered by a claim path", .field.repr_text())]
     #[explain(id = "not_compatible.uncovered")]
     Uncovered {
         /// The field's path.
         field: ReprItem,
     },
     /// A mandatory claim the payload lacks.
-    #[error("mandatory claim {claim} is absent")]
+    #[error("mandatory claim {} is absent", .claim.repr_text())]
     #[explain(id = "not_compatible.mandatory_absent")]
     MandatoryAbsent {
         /// The claim's path.
         claim: ReprItem,
     },
     /// A template value that is no string (View §3 template).
-    #[error("claim {claim}: a template value is not a string")]
+    #[error("claim {}: a template value is not a string", .claim.repr_text())]
     #[explain(id = "not_compatible.template_not_string")]
     TemplateNotString {
         /// The claim's path.
@@ -363,7 +363,7 @@ pub enum NotCompatible {
         bound: ItemBound,
     },
     /// A field the Payment rulebook requires is absent (Payment §1).
-    #[error("required {member} absent")]
+    #[error("required {} absent", .member.repr_text())]
     #[explain(id = "not_compatible.payment_required")]
     PaymentRequired {
         /// The field.
@@ -386,7 +386,7 @@ pub enum NotCompatible {
     },
     /// A Generic embedded payment payload without a field the Payment rulebook requires
     /// (Generic §3.2).
-    #[error("payment_payload {member} absent")]
+    #[error("payment_payload {} absent", .member.repr_text())]
     #[explain(id = "not_compatible.generic_payment")]
     GenericPayment {
         /// The field.
@@ -394,7 +394,7 @@ pub enum NotCompatible {
     },
     /// A Mandate embedded payment payload without a field the Payment rulebook requires
     /// (Mandate §2.2).
-    #[error("payment_payload {member} absent")]
+    #[error("payment_payload {} absent", .member.repr_text())]
     #[explain(id = "not_compatible.mandate_payment")]
     MandatePayment {
         /// The field.
@@ -416,7 +416,7 @@ pub enum NotCompatible {
     #[explain(id = "not_compatible.risk_signals_not_array")]
     RiskSignalsNotArray,
     /// A malformed `risk_signals` entry (Risk Signals §3.4, §4.1).
-    #[error("risk_signals entry {signal} is malformed")]
+    #[error("risk_signals entry {} is malformed", .signal.repr_text())]
     #[explain(id = "not_compatible.risk_signal_malformed")]
     RiskSignalMalformed {
         /// The entry as written.
@@ -507,7 +507,7 @@ pub enum RenderedAt {
 impl fmt::Display for RenderedAt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Claim { claim } => write!(f, "claim {claim} label"),
+            Self::Claim { claim } => write!(f, "claim {} label", claim.repr_text()),
             Self::Ui { key } => write!(f, "ui_labels.{key}"),
         }
     }

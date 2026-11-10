@@ -277,7 +277,7 @@ impl Ts12Profile {
         let document = read_registered(&node)?;
         self.supported(&document, binding.additions)
             .map_err(Excluding::from)?;
-        let translated = translate(&document, entry)?;
+        let translated = translate(&document, entry).map_err(Excluding::Rule)?;
         let payload = Payload::of(&translated.payload)
             .ok_or_else(|| fault(detail!("a payload that is no object")))?;
         let view = render::Request {
@@ -346,7 +346,7 @@ pub(crate) fn read_registered<'d>(node: &'d Node<'d>) -> Result<Ts12Document<'d>
 pub(crate) fn translate(
     document: &Ts12Document<'_>,
     entry: &Entry<'_>,
-) -> Result<Translated, Excluding> {
+) -> Result<Translated, Ts12Excluded> {
     let kind = entry.kind();
     let listed = document
         .entry(kind)
@@ -381,12 +381,6 @@ pub(crate) enum Excluding {
 impl From<Ts12Unsupported> for Excluding {
     fn from(unsupported: Ts12Unsupported) -> Self {
         Self::Rule(Ts12Excluded::Unsupported(unsupported))
-    }
-}
-
-impl From<PayloadRefusal> for Excluding {
-    fn from(refusal: PayloadRefusal) -> Self {
-        Self::Rule(Ts12Excluded::Payload(refusal))
     }
 }
 

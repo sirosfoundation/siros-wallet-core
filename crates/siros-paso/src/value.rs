@@ -114,7 +114,7 @@ impl Written<'_> {
 
 /// A written value that does not conform to its kind.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
-#[error("{kind} value {written}: {why}")]
+#[error("{kind} value {}: {why}", .written.repr_text())]
 #[explain(id = "bad_value")]
 pub struct BadValue {
     /// The kind.

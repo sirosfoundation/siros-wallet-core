@@ -54,3 +54,16 @@ fomn = every four months
 semi = twice a year
 year = yearly
 tyea = every two years
+
+[paso.value]
+time = {$value :siros:time}
+currency = {$code}
+amount = {$value :currency currency=$currency}
+
+[paso.array_at]
+claim = the labels of the claim {$path}
+ui = the labels of {$key}
+
+[paso.rendered_at]
+claim = the label of the claim {$claim}
+ui = the label {$key}

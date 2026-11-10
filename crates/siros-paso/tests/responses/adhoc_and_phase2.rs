@@ -22,7 +22,7 @@ use siros_testkit::{Published, PublishedResource};
 use crate::paso_host::PasoHost;
 
 use crate::common::{
-    CARD_TYPE, Card, ExcludedBy, PAY, annex, en, parameters, png, request_app, sri,
+    CARD_TYPE, Card, ExcludedBy, PAY, annex, en, parameters, png, request_context, sri,
 };
 
 use super::{NOW, answer, card, digest_b64, payment, payment_meta, proof, registry};
@@ -46,11 +46,10 @@ pub(super) fn adhoc_case(
     let host = PasoHost::at(Timestamp(NOW));
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential.clone()]).expect("wallet");
-    let app = request_app(&request, &[card], &en());
-    let rendering = app.rendering().expect("the rendering");
+    let matcher = request_context(crate::common::context(&en()), &request, &[card], &en());
     {
         let accepted = Accepted::new(&request, &registry).expect("accepted");
-        let matched = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
+        let matched = Match::run(&accepted, &wallet, &en(), &matcher).expect("match");
         if let Some(excluded) = matched.excluded().first() {
             return Err(AdhocOutcome::Excluded(ExcludedBy::of(&excluded.exclude)));
         }
@@ -79,7 +78,7 @@ pub(super) fn adhoc_case(
             let profile_findings: Vec<&ProfileFinding> = vec![finding];
             let informed = registry.informed(&profile_findings).expect("informed");
             let accepted = Accepted::new(&request, &informed).expect("accepted");
-            let again = Match::run(&accepted, &wallet, &en(), &rendering).expect("match");
+            let again = Match::run(&accepted, &wallet, &en(), &matcher).expect("match");
             let query = request.indexed_queries().next().expect("query").0;
             Err(AdhocOutcome::Fallback(
                 Box::new(data),
@@ -221,11 +220,12 @@ fn uri_rendering(
             &credential,
             crate::common::placement(&credential.format),
             &en(),
+            crate::common::context(&en()),
         )
         .expect("no fault")
     {
         Ok(_) => Ok(()),
-        Err(Outcome::NotCompatible(NotCompatible::Adhoc(failure))) => Err(failure),
+        Err(Outcome::NotCompatible(NotCompatible::Adhoc { failure })) => Err(failure),
         Err(other) => panic!("{other}"),
     }
 }
@@ -266,7 +266,9 @@ pub(super) fn a_jwt_failing_a_step_of_proof_metadata_5_3_is_refused_in_phase_2_a
             "step 1",
             typed,
             keys.clone(),
-            AdhocFailure::Typ(Some("JWT".to_owned())),
+            AdhocFailure::Typ {
+                typ: Some("JWT".to_owned()),
+            },
         ),
         (
             "step 2",
@@ -533,11 +535,10 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
     let credential = card.credential();
     let wallet = Wallet::new(vec![credential]).expect("wallet");
     let env = en();
-    let app = request_app(&shown_request, &[&card], &env);
-    let rendering = app.rendering().expect("the rendering");
+    let matcher = request_context(crate::common::context(&env), &shown_request, &[&card], &env);
     let accepted = Accepted::new(&shown_request, &registry).expect("accepted");
-    let matched = Match::run(&accepted, &wallet, &env, &rendering).expect("match");
-    let views = Views::of(&matched, &env).expect("views");
+    let matched = Match::run(&accepted, &wallet, &env, &matcher).expect("match");
+    let views = Views::of(&matched, &env, &matcher).expect("views");
     let id = views
         .iter()
         .next()
@@ -548,9 +549,13 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
         .to_owned();
     let outcome = |request: &Request<'_>, id: &str| -> Result<(), usize> {
         let host = PasoHost::at(Timestamp(NOW));
-        let authenticated =
-            siros_testkit::fixtures::authenticate(request.envelope(), &registry, &host)
-                .expect("authentic");
+        let authenticated = siros_testkit::fixtures::authenticate(
+            request.envelope(),
+            &registry,
+            crate::common::context(&env),
+            &host,
+        )
+        .expect("authentic");
         let ids: &[&str] = &[id];
         match Prepared::prepare(
             &authenticated,
@@ -558,7 +563,7 @@ pub(super) fn phase_2_answers_only_the_request_and_records_the_matcher_displayed
             &wallet,
             &registry,
             &env,
-            &rendering,
+            crate::common::context(&env),
             &host,
         )
         .and_then(|prepared| {

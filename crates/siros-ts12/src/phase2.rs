@@ -41,7 +41,7 @@ fn translated_of(record: &Answered<'_>) -> Result<Translated, Fault> {
         .ok_or_else(|| fault(detail!("a bound credential without its document")))?;
     let document = read_registered(&node)?;
     translate(&document, the_entry(record)?)
-        .map_err(|_| fault(detail!("a bound entry that no longer translates")))
+        .map_err(|e| caused(detail!("a bound entry that no longer translates"), e))
 }
 
 /// The https logo the metadata displays: its URL and its integrity value.

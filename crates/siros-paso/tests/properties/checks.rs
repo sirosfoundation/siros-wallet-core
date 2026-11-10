@@ -7,12 +7,11 @@
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Value, json};
-use siros_explain::RequestText;
 use siros_openid4vp::claims::Concrete;
 use siros_openid4vp::plugins::{
     AttestedName, AttestedText, Binding, Carriage, NoCandidate, Profile,
 };
-use siros_openid4vp::rows::{Amounts, Row};
+use siros_openid4vp::rows::Row;
 use siros_paso::outcome::Outcome;
 use siros_paso::{PasoProfile, Source};
 use siros_testkit::verifier::ISSUER;
@@ -48,29 +47,6 @@ impl Tally {
             .find(|(known, _)| *known == name)
             .map_or(0, |(_, count)| *count)
     }
-}
-
-/// The metadata that renders an entry for the card, its members in the order its card or its
-/// ad-hoc JWT writes them: the text the profile's converted module is named by.
-fn given_text(entry: &Value, types: &str) -> Option<String> {
-    use siros_openid4vp::json::Node;
-    let (text, member) = match entry.get("metadata").and_then(Value::as_str) {
-        Some(jwt) => {
-            let payload = jwt.split('.').nth(1).expect("a JWS payload");
-            let claims = URL_SAFE_NO_PAD.decode(payload).expect("base64url");
-            (
-                String::from_utf8(claims).expect("utf-8"),
-                "metadata".to_owned(),
-            )
-        }
-        None => (
-            types.to_owned(),
-            entry["type"].as_str().expect("type").to_owned(),
-        ),
-    };
-    let node = Node::parse(&text).expect("JSON");
-    node.get(&member)
-        .map(|given| given.json_compact().to_string())
 }
 
 /// The metadata that renders an entry for the card: the ad-hoc JWT's when the entry carries one,
@@ -201,12 +177,13 @@ fn at<'v>(payload: &'v Value, path: &[Value]) -> &'v Value {
 pub fn case(case: &Case, tally: &mut Tally) {
     let card = Card::new(case.format, &case.types, case.keys.as_deref(), ISSUER);
     let credential = card.credential();
-    let amounts = if case.formatted {
-        Amounts::Formatted
+    let env = env(&case.locales);
+    // The wallet's wording of an amount: formatted in its currency, or as written (View §3 MAY).
+    let context = if case.formatted {
+        crate::common::context(&env)
     } else {
-        Amounts::Written
+        crate::common::amounts_written(&env)
     };
-    let env = env(&case.locales, amounts);
     let profile = PasoProfile::default();
     let texts: Vec<&str> = case.entries.iter().map(String::as_str).collect();
     let parameters = parameters(&one_query(case.format), &texts, "");
@@ -222,15 +199,15 @@ pub fn case(case: &Case, tally: &mut Tally) {
                 &credential,
                 crate::common::placement(&credential.format),
                 &env,
+                context,
             )
             .expect("no fault");
-        let given = given_text(&json, &case.types);
         outcome(
             case.kind,
             &json,
-            (&types, given.as_deref()),
+            &types,
             &rendered,
-            &case.locales,
+            (&case.locales, context),
             tally,
         );
         if first.is_none() && matches!(rendered, Ok(_) | Err(Outcome::Excluded(_))) {
@@ -248,7 +225,7 @@ pub fn case(case: &Case, tally: &mut Tally) {
         additions: &*additions,
         carriage: Carriage::Carried,
     };
-    let (bound, entry, rendered) = match (profile.bind(binding, &env), first) {
+    let (bound, entry, rendered) = match (profile.bind(binding, &env, context), first) {
         (Ok(bound), Some((index, entry, Ok(rendered)))) => {
             assert_eq!(bound.entries.entries(), [index], "P-first match");
             (bound, entry, rendered)
@@ -274,14 +251,14 @@ pub fn case(case: &Case, tally: &mut Tally) {
         (&view.title, &view.actions.confirm, &view.actions.deny),
         "P-header"
     );
-    let rows: Vec<Row<RequestText>> = view.rows.iter().map(|row| row.row.clone()).collect();
+    let rows: Vec<Row> = view.rows.iter().map(|row| row.row.clone()).collect();
     match &bound.overlay.header {
         Some(header) => {
             // Merchant and amount show once, in the transaction header; every other row stays
             // an overlay row.
             let heads = view.payment.expect("P-payment rows");
             let texts = view.payment_texts().expect("P-payment rows");
-            let rest: Vec<Row<RequestText>> = rows
+            let rest: Vec<Row> = rows
                 .iter()
                 .enumerate()
                 .filter(|(k, _)| *k != heads.merchant().get() && *k != heads.amount().get())
@@ -324,10 +301,9 @@ pub fn case(case: &Case, tally: &mut Tally) {
     }
     assert_eq!(bound.attested.pairs(), attested.as_slice(), "P-attested");
     let meta = given(&entry, &types).expect("the metadata that rendered");
-    let app = crate::common::request_app(&request, &[&card], &env);
-    let rendering = app.rendering().expect("the rendering");
+    let matcher = crate::common::request_context(context, &request, &[&card], &env);
     let answered = Answer {
-        rendering: &rendering,
+        context: &matcher,
         request: &request,
         request_object: request.request_object().expect("signed"),
         card: &card,

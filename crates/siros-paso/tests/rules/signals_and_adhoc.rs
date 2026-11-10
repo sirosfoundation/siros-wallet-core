@@ -59,11 +59,11 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
     );
     decided!(
         case(r#", "risk_signals": [{"type": "urn:paso:risk:x"}]"#),
-        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed(_))
+        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed { .. })
     );
     decided!(
         case(r#", "risk_signal_profiles": ["urn:paso:risk-profile:com.example:x:1"]"#),
-        Outcome::NotCompatible(NotCompatible::UnknownRiskProfile(_))
+        Outcome::NotCompatible(NotCompatible::UnknownRiskProfile { .. })
     );
     decided!(
         case(r#", "risk_signals": {}"#),
@@ -72,7 +72,7 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
     // §3.4: `max_age` a non-negative integer; one beyond 2^64 seconds bounds nothing.
     decided!(
         case(r#", "risk_signals": [{"type": "urn:paso:risk:global:amr:1", "max_age": -1}]"#),
-        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed(_))
+        Outcome::NotCompatible(NotCompatible::RiskSignalMalformed { .. })
     );
     assert!(
         case(r#", "risk_signals": [{"type": "urn:paso:risk:global:amr:1", "max_age": 100000000000000000000000}]"#)
@@ -104,7 +104,8 @@ pub(super) fn each_risk_signal_rule_makes_the_entry_not_compatible() {
                 siros_openid4vp::routing::ChannelKind::DcApi,
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
-                &en()
+                &en(),
+                crate::common::context(&en()),
             )
             .expect("no fault"),
         Outcome::NotCompatible(NotCompatible::NoEncryptionKey)
@@ -134,6 +135,7 @@ pub(super) fn render_adhoc(
             &card.credential(),
             crate::common::placement(&card.credential().format),
             &en(),
+            crate::common::context(&en()),
         )
         .expect("no fault")
 }
@@ -176,7 +178,7 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     for (jwt, failure) in unread {
         assert_eq!(
             render_adhoc(&jwt, &card, &PasoProfile::default()).map(|_| ()),
-            Err(Outcome::NotCompatible(NotCompatible::Adhoc(failure))),
+            Err(Outcome::NotCompatible(NotCompatible::Adhoc { failure })),
             "{jwt}"
         );
     }
@@ -192,9 +194,9 @@ pub(super) fn ad_hoc_metadata_reads_unverified_and_a_refused_jwt_is_not_compatib
     let rendered = render_adhoc(&refused, &listing, &knowing);
     assert_eq!(
         rendered.as_ref().map(|_| ()),
-        Err(&Outcome::NotCompatible(NotCompatible::Adhoc(
-            AdhocFailure::Signature
-        )))
+        Err(&Outcome::NotCompatible(NotCompatible::Adhoc {
+            failure: AdhocFailure::Signature
+        }))
     );
 }
 
@@ -259,7 +261,9 @@ pub(super) fn the_request_rules_paso_adds_refuse_with_their_codes() {
         )),
         [(
             0,
-            EntryRule::UnknownMember("transaction_data_hashes_alg".to_owned()),
+            EntryRule::UnknownMember {
+                member: "transaction_data_hashes_alg".to_owned()
+            },
             ErrorCode::INVALID_TRANSACTION_DATA
         )]
     );

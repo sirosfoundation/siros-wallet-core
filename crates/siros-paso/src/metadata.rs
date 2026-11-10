@@ -96,7 +96,7 @@ pub enum ArrayAt {
 impl fmt::Display for ArrayAt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Claim { path } => write!(f, "claim {path} display"),
+            Self::Claim { path } => write!(f, "claim {} display", path.repr_text()),
             Self::Ui { key } => write!(f, "ui_labels.{key}"),
         }
     }

@@ -33,6 +33,7 @@ fn render_with(
             &card.credential(),
             crate::common::placement(&card.credential().format),
             env,
+            crate::common::context(env),
         )
         .expect("no fault")
 }
@@ -76,42 +77,42 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
     );
     decided!(
         render("null", payload),
-        Outcome::Unsupported(Unsupported::NoEntry(_))
+        Outcome::Unsupported(Unsupported::NoEntry { .. })
     );
     let many: Vec<String> = (0..100)
         .map(|k| format!(r#"{{"path": ["k{k}"]}}"#))
         .collect();
     decided!(
         render(&claims(&many.join(", ")), payload),
-        Outcome::Unsupported(Unsupported::TooManyClaims(101))
+        Outcome::Unsupported(Unsupported::TooManyClaims { claims: 101 })
     );
     // 100 claims, the most §3.1 allows.
     assert!(render(&claims(&[n(""), many[..98].join(", ")].join(", ")), payload).is_ok());
     decided!(
         render(&claims(r#"{"path": []}"#), payload),
-        Outcome::Unsupported(Unsupported::InvalidPath(claim)) if claim.get() == 1
+        Outcome::Unsupported(Unsupported::InvalidPath { claim }) if claim.get() == 1
     );
     decided!(
         render(&claims(&format!("{}, {}", n(""), n(""))), payload),
-        Outcome::Unsupported(Unsupported::PathTwice(_))
+        Outcome::Unsupported(Unsupported::PathTwice { .. })
     );
     decided!(
         render(
             &claims(r#"{"path": ["n"], "value_type": "iso_date"}"#),
             payload
         ),
-        Outcome::Unsupported(Unsupported::ValueTypeWithoutDisplay(_))
+        Outcome::Unsupported(Unsupported::ValueTypeWithoutDisplay { .. })
     );
     decided!(
         render(&claims(r#"{"path": ["n"], "display": []}"#), payload),
-        Outcome::Unsupported(Unsupported::EmptyArray(_))
+        Outcome::Unsupported(Unsupported::EmptyArray { .. })
     );
     decided!(
         render(
             &claims(r#"{"path": ["n"], "display": [{"locale": "en"}]}"#),
             payload
         ),
-        Outcome::Unsupported(Unsupported::EntryWithoutText(..))
+        Outcome::Unsupported(Unsupported::EntryWithoutText { .. })
     );
     decided!(
         render(
@@ -127,7 +128,7 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
             &claims(r#"{"path": ["n"], "display": [{"locale": null, "name": "N"}]}"#),
             payload
         ),
-        Outcome::Unsupported(Unsupported::NullLocale(_))
+        Outcome::Unsupported(Unsupported::NullLocale { .. })
     );
     decided!(
         render(
@@ -136,14 +137,14 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
             ),
             payload
         ),
-        Outcome::Unsupported(Unsupported::LocaleRepeated(..))
+        Outcome::Unsupported(Unsupported::LocaleRepeated { .. })
     );
     decided!(
         render(
             &claims(r#"{"path": ["n"], "display": [{"name": "A"}, {"name": "B"}]}"#),
             payload
         ),
-        Outcome::Unsupported(Unsupported::DefaultTwice(_))
+        Outcome::Unsupported(Unsupported::DefaultTwice { .. })
     );
     decided!(
         render(
@@ -153,27 +154,30 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
             )),
             payload
         ),
-        Outcome::Unsupported(Unsupported::ClaimLabel(
-            _,
-            LabelViolation::TooLong {
+        Outcome::Unsupported(Unsupported::ClaimLabel {
+            violation: LabelViolation::TooLong {
                 clusters: 61,
                 max: 60
-            }
-        ))
+            },
+            ..
+        })
     );
     decided!(
         render(
             &claims(r#"{"path": ["n"], "display": [{"locale": "en", "name": "a\tb"}]}"#),
             payload
         ),
-        Outcome::Unsupported(Unsupported::ClaimLabel(_, LabelViolation::Control('\t')))
+        Outcome::Unsupported(Unsupported::ClaimLabel {
+            violation: LabelViolation::Control('\t'),
+            ..
+        })
     );
     decided!(
         render(
             &claims(&n(r#", "value_type": "label_only", "mandatory": true"#)),
             payload
         ),
-        Outcome::Unsupported(Unsupported::MandatoryLabelOnly(_))
+        Outcome::Unsupported(Unsupported::MandatoryLabelOnly { .. })
     );
     decided!(
         render(
@@ -194,13 +198,13 @@ fn metadata_that_breaks_proof_metadata_section_3_makes_the_type_unsupported() {
             ),
             payload
         ),
-        Outcome::Unsupported(Unsupported::UiLabel(
-            _,
-            LabelViolation::TooLong {
+        Outcome::Unsupported(Unsupported::UiLabel {
+            violation: LabelViolation::TooLong {
                 clusters: 101,
                 max: 100
-            }
-        ))
+            },
+            ..
+        })
     );
     decided!(
         render(
@@ -240,7 +244,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::Unsupported(Unsupported::NotGeneric(_))
+        Outcome::Unsupported(Unsupported::NotGeneric { .. })
     );
     decided!(
         render_with(
@@ -250,7 +254,7 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
             &en(),
             &PasoProfile::default()
         ),
-        Outcome::Unsupported(Unsupported::NotMandate(_))
+        Outcome::Unsupported(Unsupported::NotMandate { .. })
     );
     let card = Card::sd_jwt("{}");
     let entry_json =
@@ -262,10 +266,11 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
                 siros_openid4vp::routing::ChannelKind::DcApi,
                 &card.credential(),
                 crate::common::placement(&card.credential().format),
-                &en()
+                &en(),
+                crate::common::context(&en()),
             )
             .expect("no fault"),
-        Outcome::Unsupported(Unsupported::NotListed(_))
+        Outcome::Unsupported(Unsupported::NotListed { .. })
     );
     let bare = Credential::new(
         CredentialId::parse("bare").expect("id"),
@@ -282,7 +287,8 @@ fn a_type_without_metadata_or_outside_its_rulebook_is_unsupported() {
                 siros_openid4vp::routing::ChannelKind::DcApi,
                 &bare,
                 crate::common::placement(&bare.format),
-                &en()
+                &en(),
+                crate::common::context(&en()),
             )
             .expect("no fault"),
         Outcome::Unsupported(Unsupported::NoPasoMetadata)
@@ -317,7 +323,9 @@ fn a_documents_integrity_is_w3c_sri_metadata_kept_as_written() {
         assert!(
             matches!(
                 PasoDocument::read(&node),
-                Err(DocumentError::Member("integrity"))
+                Err(DocumentError::Member {
+                    member: "integrity"
+                })
             ),
             "{refused}"
         );
@@ -328,7 +336,7 @@ fn a_documents_integrity_is_w3c_sri_metadata_kept_as_written() {
 /// its log text Python's `repr` of the list.
 #[test]
 fn a_rule_names_a_claim_path_as_json_in_its_message_and_as_repr_in_its_log() {
-    use siros_explain::IntoArg;
+    use siros_explain::Explain;
     for (received, repr) in [
         (r#"["a", null, 0]"#, "['a', None, 0]"),
         (r#"["it's", null]"#, r#"["it's", None]"#),
@@ -339,12 +347,16 @@ fn a_rule_names_a_claim_path_as_json_in_its_message_and_as_repr_in_its_log() {
     ] {
         let claim = format!(r#"{{"path": {received}}}"#);
         let meta = claims(&format!("{claim}, {claim}"));
-        let Err(Outcome::Unsupported(Unsupported::PathTwice(named))) =
-            render(&meta, r#"{"transaction_id": "t"}"#)
-        else {
+        let Err(Outcome::Unsupported(refused)) = render(&meta, r#"{"transaction_id": "t"}"#) else {
             panic!("{received} is a repeated path");
         };
-        assert_eq!(IntoArg::arg(&named), received);
-        assert_eq!(named.to_string(), repr);
+        assert!(
+            matches!(refused, Unsupported::PathTwice { .. }),
+            "{refused}"
+        );
+        let mut args = Vec::new();
+        refused.args(&mut |key, value| args.push((key, value.to_string())));
+        assert_eq!(args, [("path", received.to_owned())]);
+        assert_eq!(refused.to_string(), format!("two claims with path {repr}"));
     }
 }

@@ -48,7 +48,7 @@ pub(super) fn members(
         answer.request,
         answer.card,
         env,
-        answer.rendering,
+        answer.context,
         |_: &Resource| Fetch::Unfetched,
         &host,
         move |record, host| PasoProfile::default().respond(record.record(), host, &authentication),

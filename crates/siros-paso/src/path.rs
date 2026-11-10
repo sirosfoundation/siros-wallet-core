@@ -14,7 +14,7 @@ use crate::conform::NullIndices;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Explain)]
 pub enum Mismatch {
     /// A member name read in a non-object.
-    #[error("path {path} reads {} in a non-object", Quoted(.key))]
+    #[error("path {} reads {} in a non-object", .path.repr_text(), Quoted(.key))]
     #[explain(id = "path.key")]
     Key {
         /// The path.
@@ -23,7 +23,7 @@ pub enum Mismatch {
         key: String,
     },
     /// An index or `null` read in a non-array.
-    #[error("path {path} indexes a non-array")]
+    #[error("path {} indexes a non-array", .path.repr_text())]
     #[explain(id = "path.index")]
     Index {
         /// The path.

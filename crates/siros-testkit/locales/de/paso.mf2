@@ -54,3 +54,16 @@ fomn = alle vier Monate
 semi = halbjährlich
 year = jährlich
 tyea = alle zwei Jahre
+
+[paso.value]
+time = {$value :siros:time}
+currency = {$code}
+amount = {$value :currency currency=$currency}
+
+[paso.array_at]
+claim = die Bezeichnungen des Claims {$path}
+ui = die Bezeichnungen von {$key}
+
+[paso.rendered_at]
+claim = die Bezeichnung des Claims {$claim}
+ui = die Bezeichnung {$key}
