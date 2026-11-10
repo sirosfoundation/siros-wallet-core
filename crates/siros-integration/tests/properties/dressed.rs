@@ -55,7 +55,7 @@ pub struct Case<'c> {
     /// The specifications' tables.
     pub spec: &'c Spec,
     /// Each PaSO entry rendered for each credential.
-    pub renders: &'c [Rendering],
+    pub renders: &'c [RenderedEntry],
 }
 
 /// A query as its format parses it in the context the core gives the format. Each reading runs
@@ -178,7 +178,7 @@ impl<'c> Case<'c> {
 }
 
 /// A PaSO entry rendered for a credential (PaSO's `render`, Core §7.4.2's per-entry step).
-pub struct Rendering {
+pub struct RenderedEntry {
     /// The entry.
     pub entry: EntryIndex,
     /// The credential's id.
@@ -194,14 +194,14 @@ fn renders(
     wallet: &Wallet<'_>,
     env: &Env,
     context: &Context,
-) -> Vec<Rendering> {
+) -> Vec<RenderedEntry> {
     let paso = PasoProfile::default();
     let mut out = Vec::new();
     for credential in wallet.credentials() {
         for (index, entry) in request.indexed_entries() {
             let json: Value = serde_json::from_str(entry.decoded()).expect("an entry's JSON");
             if entry.kind().as_str().starts_with("urn:paso:sca:") && json["payload"].is_object() {
-                out.push(Rendering {
+                out.push(RenderedEntry {
                     entry: index,
                     credential: credential.id.to_string(),
                     outcome: paso
